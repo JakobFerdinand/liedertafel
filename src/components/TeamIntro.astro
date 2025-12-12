@@ -1,0 +1,125 @@
+---
+interface Person {
+	name: string;
+	role: string;
+	description: string;
+	image: string;
+}
+
+const team: Person[] = [
+	{
+		name: "Max Mustermann",
+		role: "Chorleiter",
+		description: "Seit über 15 Jahren führt er unseren Chor mit Leidenschaft und musikalischem Feingefühl zu neuen Höhen.",
+		image: "https://placehold.co/150x150/e8d5b7/1a1a1a?text=Chorleiter"
+	},
+	{
+		name: "Franz Huber",
+		role: "Vereinsobmann",
+		description: "Mit großem Engagement kümmert er sich um die Organisation und den Zusammenhalt unseres Vereins.",
+		image: "https://placehold.co/150x150/e8d5b7/1a1a1a?text=Obmann"
+	}
+];
+---
+
+<section class="team-intro">
+	<h2>Unsere Leitung</h2>
+	<div class="team-grid">
+		{team.map((person) => (
+			<article class="person-card">
+				<img src={person.image} alt={`Portrait von ${person.name}`} class="person-image" />
+				<div class="person-info">
+					<h3>{person.name}</h3>
+					<span class="role">{person.role}</span>
+					<p>{person.description}</p>
+				</div>
+			</article>
+		))}
+	</div>
+</section>
+
+<style>
+	.team-intro {
+		width: 100%;
+		text-align: center;
+	}
+
+	h2 {
+		font-family: 'Playfair Display', Georgia, serif;
+		font-size: 1.75rem;
+		font-weight: 500;
+		margin: 0 0 2rem 0;
+		letter-spacing: 0.02em;
+	}
+
+	.team-grid {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: center;
+		gap: 2rem;
+	}
+
+	.person-card {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		text-align: center;
+		max-width: 280px;
+		gap: 1rem;
+	}
+
+	.person-image {
+		width: 120px;
+		height: 120px;
+		border-radius: 50%;
+		object-fit: cover;
+		border: 3px solid currentColor;
+		opacity: 0.9;
+	}
+
+	.person-info {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+
+	h3 {
+		font-family: 'Playfair Display', Georgia, serif;
+		font-size: 1.25rem;
+		font-weight: 500;
+		margin: 0;
+	}
+
+	.role {
+		font-size: 0.875rem;
+		opacity: 0.7;
+		font-style: italic;
+	}
+
+	p {
+		margin: 0.5rem 0 0 0;
+		font-size: 0.9rem;
+		line-height: 1.5;
+		opacity: 0.85;
+	}
+
+	@media (max-width: 600px) {
+		h2 {
+			font-size: 1.5rem;
+		}
+
+		.team-grid {
+			flex-direction: column;
+			align-items: center;
+		}
+
+		.person-card {
+			max-width: 100%;
+		}
+
+		.person-image {
+			width: 100px;
+			height: 100px;
+		}
+	}
+</style>
