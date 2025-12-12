@@ -39,28 +39,28 @@
 		font-weight: 300;
 		background-color: #ffffff;
 		color: #1a1a1a;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
 	}
 
 	main {
 		width: 100%;
-		max-width: 800px;
 		display: flex;
 		flex-direction: column;
 		align-items: center;
 		gap: 3rem;
-		padding: 2rem;
+		padding: 2rem 0;
+	}
+
+	main > :global(*) {
+		width: 100%;
+		max-width: 800px;
+		padding-left: 2rem;
+		padding-right: 2rem;
 	}
 
 	main > :global(.chorus-image) {
-		width: 100vw;
 		max-width: none;
-		margin-left: 0;
-		margin-right: 0;
-		left: auto;
-		transform: none;
+		padding-left: 0;
+		padding-right: 0;
 	}
 
 	@media (prefers-color-scheme: dark) {

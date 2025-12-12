@@ -3,39 +3,53 @@ import chorusImage from '../assets/liedertafel-mining.jpeg';
 
 interface Props {
 	alt?: string;
+	backgroundPosition?: string;
 }
 
 const {
 	alt = 'Die Liedertafel Mining beim gemeinsamen Singen',
+	backgroundPosition = 'center bottom',
 } = Astro.props;
 ---
 
-<section class="chorus-image">
-	<img src={chorusImage.src} alt={alt} />
+<section
+	class="chorus-image"
+	role="img"
+	aria-label={alt}
+	style={`--chorus-photo: url(${chorusImage.src}); --chorus-position: ${backgroundPosition}`}
+>
+	<span class="sr-only">{alt}</span>
 </section>
 
 <style>
 	.chorus-image {
 		position: relative;
 		min-height: clamp(20rem, 50vh, 30rem);
-		width: 100vw;
+		width: 100%;
+		background-image: var(--chorus-photo);
+		background-size: cover;
+		background-position: var(--chorus-position);
+		background-repeat: no-repeat;
 		overflow: hidden;
 	}
 
-	img {
-		position: absolute;
-		inset: 0;
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-		object-position: center;
-	}
-
-	.chorus-image::after {
+	.chorus-image::before {
 		content: "";
 		position: absolute;
 		inset: 0;
 		background: radial-gradient(50% 50% at 50% 50%, rgba(0, 0, 0, 0.12), transparent 60%);
-		pointer-events: none;
+		z-index: -1;
+	}
+
+	.sr-only {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		padding: 0;
+		margin: -1px;
+		overflow: hidden;
+		clip: rect(0, 0, 0, 0);
+		white-space: nowrap;
+		border: 0;
 	}
 </style>
