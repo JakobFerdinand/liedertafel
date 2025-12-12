@@ -1,0 +1,57 @@
+---
+---
+
+<section class="hero">
+	<div class="logo-container">
+		<img src="/logo.svg" alt="Liedertafel Mining 1906 Logo" class="logo" />
+	</div>
+	<h1>Liedertafel Mining 1906</h1>
+</section>
+
+<style>
+	.hero {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		text-align: center;
+		gap: 1.5rem;
+	}
+
+	.logo-container {
+		width: 120px;
+		height: 120px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.logo {
+		width: 100%;
+		height: 100%;
+		color: #1a1a1a;
+	}
+
+	h1 {
+		font-size: 2.5rem;
+		font-weight: 400;
+		margin: 0;
+		letter-spacing: 0.02em;
+	}
+
+	@media (prefers-color-scheme: dark) {
+		.logo {
+			color: #ffffff;
+		}
+	}
+
+	@media (max-width: 600px) {
+		.logo-container {
+			width: 80px;
+			height: 80px;
+		}
+
+		h1 {
+			font-size: 1.75rem;
+		}
+	}
+</style>
