@@ -31,6 +31,7 @@
 		padding: 0;
 		width: 100%;
 		min-height: 100vh;
+		overflow-x: hidden;
 	}
 
 	body {
@@ -38,9 +39,9 @@
 		font-weight: 300;
 		background-color: #ffffff;
 		color: #1a1a1a;
-		display: grid;
-		place-items: center;
-		padding: 2rem;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
 	}
 
 	main {
@@ -50,6 +51,16 @@
 		flex-direction: column;
 		align-items: center;
 		gap: 3rem;
+		padding: 2rem;
+	}
+
+	main > :global(.chorus-image) {
+		width: 100vw;
+		max-width: none;
+		margin-left: 0;
+		margin-right: 0;
+		left: auto;
+		transform: none;
 	}
 
 	@media (prefers-color-scheme: dark) {

@@ -1,0 +1,41 @@
+---
+import chorusImage from '../assets/liedertafel-mining.jpeg';
+
+interface Props {
+	alt?: string;
+}
+
+const {
+	alt = 'Die Liedertafel Mining beim gemeinsamen Singen',
+} = Astro.props;
+---
+
+<section class="chorus-image">
+	<img src={chorusImage.src} alt={alt} />
+</section>
+
+<style>
+	.chorus-image {
+		position: relative;
+		min-height: clamp(20rem, 50vh, 30rem);
+		width: 100vw;
+		overflow: hidden;
+	}
+
+	img {
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		object-position: center;
+	}
+
+	.chorus-image::after {
+		content: "";
+		position: absolute;
+		inset: 0;
+		background: radial-gradient(50% 50% at 50% 50%, rgba(0, 0, 0, 0.12), transparent 60%);
+		pointer-events: none;
+	}
+</style>
