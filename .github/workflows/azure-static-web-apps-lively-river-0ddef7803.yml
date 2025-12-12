@@ -21,6 +21,8 @@ jobs:
           lfs: false
 
       - uses: pnpm/action-setup@v4
+        with:
+          version: 10
       
       - name: Install dependencies
         run: pnpm install
@@ -53,4 +55,5 @@ jobs:
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_LIVELY_RIVER_0DDEF7803 }}
           action: "close"
+
 
