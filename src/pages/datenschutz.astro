@@ -1,0 +1,104 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout>
+	<article class="datenschutz">
+		<h1>Datenschutzerklärung</h1>
+		
+		<section>
+			<h2>1. Datenschutz auf einen Blick</h2>
+			<h3>Allgemeine Hinweise</h3>
+			<p>Die folgenden Hinweise geben einen einfachen Überblick darüber, was mit Ihren personenbezogenen Daten passiert, wenn Sie diese Website besuchen. Personenbezogene Daten sind alle Daten, mit denen Sie persönlich identifiziert werden können.</p>
+		</section>
+
+		<section>
+			<h2>2. Verantwortlicher</h2>
+			<p>Verantwortlich für die Datenverarbeitung auf dieser Website ist:</p>
+			<p>
+				Liedertafel Mining 1906<br />
+				[Adresse einfügen]<br />
+				[PLZ Ort]<br />
+				E-Mail: [E-Mail einfügen]
+			</p>
+		</section>
+
+		<section>
+			<h2>3. Datenerfassung auf dieser Website</h2>
+			<h3>Hosting</h3>
+			<p>Diese Website wird extern gehostet. Die personenbezogenen Daten, die auf dieser Website erfasst werden, werden auf den Servern des Hosters gespeichert. Hierbei kann es sich v.a. um IP-Adressen, Kontaktanfragen, Meta- und Kommunikationsdaten, Vertragsdaten, Kontaktdaten, Namen, Websitezugriffe und sonstige Daten, die über eine Website generiert werden, handeln.</p>
+		</section>
+
+		<section>
+			<h2>4. Ihre Rechte</h2>
+			<p>Sie haben jederzeit das Recht, unentgeltlich Auskunft über Herkunft, Empfänger und Zweck Ihrer gespeicherten personenbezogenen Daten zu erhalten. Sie haben außerdem ein Recht, die Berichtigung oder Löschung dieser Daten zu verlangen. Hierzu sowie zu weiteren Fragen zum Thema Datenschutz können Sie sich jederzeit an uns wenden.</p>
+		</section>
+
+		<nav class="back-link">
+			<a href="/">&larr; Zurück zur Startseite</a>
+		</nav>
+	</article>
+</Layout>
+
+<style>
+	.datenschutz {
+		width: 100%;
+		max-width: 800px;
+		padding: 0 1.5rem;
+	}
+
+	h1 {
+		font-family: 'Playfair Display', Georgia, serif;
+		font-size: 2rem;
+		font-weight: 500;
+		margin: 0 0 2rem 0;
+		text-align: center;
+	}
+
+	h2 {
+		font-family: 'Playfair Display', Georgia, serif;
+		font-size: 1.25rem;
+		font-weight: 500;
+		margin: 2rem 0 1rem 0;
+	}
+
+	h3 {
+		font-size: 1rem;
+		font-weight: 600;
+		margin: 1.5rem 0 0.5rem 0;
+	}
+
+	p {
+		margin: 0 0 1rem 0;
+		line-height: 1.6;
+	}
+
+	section {
+		margin-bottom: 1.5rem;
+	}
+
+	.back-link {
+		margin-top: 3rem;
+		padding-top: 1.5rem;
+		border-top: 1px solid currentColor;
+	}
+
+	.back-link a {
+		color: inherit;
+		text-decoration: none;
+	}
+
+	.back-link a:hover {
+		text-decoration: underline;
+	}
+
+	@media (max-width: 600px) {
+		h1 {
+			font-size: 1.5rem;
+		}
+
+		h2 {
+			font-size: 1.1rem;
+		}
+	}
+</style>
