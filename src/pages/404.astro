@@ -1,0 +1,58 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout>
+	<article class="not-found">
+		<h1>404 — Seite nicht gefunden</h1>
+
+		<p>Die von Ihnen aufgerufene Seite wurde nicht gefunden. Möglicherweise wurde sie verschoben oder der Link ist veraltet.</p>
+
+		<nav class="back-link">
+ 			<a href="/">&larr; Zurück zur Startseite</a>
+ 		</nav>
+	</article>
+</Layout>
+
+<style>
+    .not-found {
+        width: 100%;
+        max-width: 800px;
+        padding: 0 1.5rem;
+        text-align: center;
+    }
+
+    h1 {
+        font-family: 'Playfair Display', Georgia, serif;
+        font-size: 2rem;
+        font-weight: 500;
+        margin: 0 0 1rem 0;
+    }
+
+    p {
+        margin: 0 0 1.5rem 0;
+        line-height: 1.6;
+    }
+
+    .back-link {
+        margin-top: 3rem;
+        padding-top: 1.5rem;
+        border-top: 1px solid currentColor;
+        text-align: left;
+    }
+
+    .back-link a {
+        color: inherit;
+        text-decoration: none;
+    }
+
+    .back-link a:hover {
+        text-decoration: underline;
+    }
+
+    @media (max-width: 600px) {
+        h1 {
+            font-size: 1.5rem;
+        }
+    }
+</style>
