@@ -1,0 +1,130 @@
+---
+---
+
+<section class="contact">
+	<h2>Kontakt</h2>
+	
+	<div class="contact-info">
+		<div class="contact-item">
+			<h3>Ansprechpartner</h3>
+			<p>Vorstand Liedertafel Mining 1906</p>
+		</div>
+		
+		<div class="contact-item">
+			<h3>Adresse</h3>
+			<p>
+				Liedertafel Mining 1906<br />
+				[Straße und Hausnummer]<br />
+				[PLZ] [Ort]<br />
+				Deutschland
+			</p>
+		</div>
+		
+		<div class="contact-item">
+			<h3>Telefon</h3>
+			<p><a href="tel:+49">+49 [Telefonnummer]</a></p>
+		</div>
+		
+		<div class="contact-item">
+			<h3>E-Mail</h3>
+			<p><a href="mailto:kontakt@example.com">kontakt@example.com</a></p>
+		</div>
+	</div>
+</section>
+
+<style>
+	.contact {
+		width: 100%;
+		max-width: 800px;
+		padding: 0 1.5rem;
+	}
+
+	h2 {
+		font-family: 'Playfair Display', Georgia, serif;
+		font-size: 1.5rem;
+		font-weight: 500;
+		margin: 0 0 2rem 0;
+		text-align: center;
+	}
+
+	.contact-info {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 2rem;
+		margin-bottom: 1rem;
+	}
+
+	.contact-item {
+		padding: 2rem;
+		background: linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.03) 100%);
+		border: 1px solid rgba(255, 255, 255, 0.15);
+		backdrop-filter: blur(10px);
+		transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+	}
+
+	.contact-item:hover {
+		transform: translateY(-4px);
+		border-color: rgba(255, 255, 255, 0.3);
+		background: linear-gradient(135deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.06) 100%);
+		box-shadow: 0 16px 48px rgba(0, 0, 0, 0.2);
+	}
+
+	.contact-item h3 {
+		font-family: 'Playfair Display', Georgia, serif;
+		font-size: 1rem;
+		font-weight: 600;
+		margin: 0 0 0.75rem 0;
+		letter-spacing: 0.02em;
+		text-transform: uppercase;
+		font-size: 0.85rem;
+		opacity: 0.9;
+	}
+
+	.contact-item p {
+		margin: 0;
+		line-height: 1.7;
+		font-size: 0.95rem;
+		opacity: 0.95;
+	}
+
+	.contact-item a {
+		color: #ffffff;
+		text-decoration: none;
+		border-bottom: 2px solid rgba(255, 255, 255, 0.4);
+		transition: all 0.2s ease;
+		font-weight: 500;
+	}
+
+	.contact-item a:hover {
+		border-bottom-color: #ffffff;
+		opacity: 1;
+	}
+
+	@media (max-width: 600px) {
+		.contact {
+			padding: 0 1.5rem;
+		}
+
+		h2 {
+			font-size: 1.25rem;
+		}
+
+		.contact-info {
+			grid-template-columns: 1fr;
+			gap: 1.5rem;
+		}
+
+		.contact-item {
+			padding: 1.5rem;
+		}
+
+		.contact-item h3 {
+			font-size: 0.8rem;
+		}
+
+		.contact-item p {
+			font-size: 0.9rem;
+		}
+	}
+</style>
