@@ -2,7 +2,6 @@
 import Hero from '../components/Hero.astro';
 import ChorusIntro from '../components/ChorusIntro.astro';
 import ChorusImage from '../components/ChorusImage.astro';
-import AnniversaryInvite from '../components/AnniversaryInvite.astro';
 import TeamIntro from '../components/TeamIntro.astro';
 import Contact from '../components/Contact.astro';
 import Footer from '../components/Footer.astro';
@@ -13,8 +12,82 @@ import Layout from '../layouts/Layout.astro';
 	<Hero />
 	<ChorusIntro />
 	<ChorusImage />
-	<AnniversaryInvite />
+	<section class="anniversary-highlight">
+		<div class="anniversary-highlight__content">
+			<h2>120 Jahre Liedertafel Mining</h2>
+			<p>Die Jubiläumsfeier 2026 steht vor der Tür. Alle Infos, Einladungen und Anmeldungen findest du auf unserer eigenen Jubiläumsseite.</p>
+		</div>
+		<a class="anniversary-highlight__link" href="/120-jahre">Zur Jubiläumsseite</a>
+	</section>
 	<TeamIntro />
 	<Contact />
 	<Footer />
 </Layout>
+
+<style>
+	.anniversary-highlight {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		text-align: center;
+		gap: 1.5rem;
+		padding: 2.5rem 2rem;
+		background: rgba(255, 255, 255, 0.12);
+		border: 1px solid rgba(255, 255, 255, 0.3);
+		border-radius: 24px;
+		box-shadow: 0 30px 40px rgba(0, 0, 0, 0.25);
+	}
+
+	.anniversary-highlight__content {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.anniversary-highlight h2 {
+		font-family: 'Playfair Display', Georgia, serif;
+		font-size: 1.9rem;
+		font-weight: 500;
+		margin: 0;
+	}
+
+	.anniversary-highlight p {
+		margin: 0;
+		line-height: 1.6;
+		opacity: 0.9;
+	}
+
+	.anniversary-highlight__link {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0.9rem 2.8rem;
+		border-radius: 999px;
+		background: #ffffff;
+		color: #823c41;
+		font-weight: 600;
+		text-decoration: none;
+		letter-spacing: 0.05em;
+		text-transform: uppercase;
+		transition: transform 0.25s ease, box-shadow 0.25s ease;
+	}
+
+	.anniversary-highlight__link:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 12px 24px rgba(0, 0, 0, 0.25);
+	}
+
+	@media (max-width: 600px) {
+		.anniversary-highlight {
+			padding: 2rem 1.5rem;
+		}
+
+		.anniversary-highlight h2 {
+			font-size: 1.5rem;
+		}
+
+		.anniversary-highlight__link {
+			width: 100%;
+		}
+	}
+</style>

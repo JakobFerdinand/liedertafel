@@ -1,0 +1,86 @@
+---
+import Layout from '../layouts/Layout.astro';
+import AnniversaryInvite from '../components/AnniversaryInvite.astro';
+import Footer from '../components/Footer.astro';
+import Logo from '../assets/logo.svg';
+---
+
+<Layout>
+	<section class="anniversary-hero">
+		<div class="anniversary-icon">
+			<Logo class="anniversary-icon__svg" aria-label="Jubiläumsicon" />
+		</div>
+		<div class="anniversary-hero__content">
+			<p class="anniversary-hero__eyebrow">120 Jahre Liedertafel Mining</p>
+			<h1>Jubiläumsfeier 2026</h1>
+			<p>Feiert mit uns 120 Jahre Gemeinschaft, Gesang und Tradition. Alle Details zur Jubiläumsfeier, Anmeldungen und Programminfos findest du hier.</p>
+		</div>
+	</section>
+	<AnniversaryInvite />
+	<Footer />
+</Layout>
+
+<style>
+	.anniversary-hero {
+		display: grid;
+		gap: 2rem;
+		align-items: center;
+		text-align: center;
+	}
+
+	.anniversary-icon {
+		width: 200px;
+		height: 200px;
+		margin: 0 auto;
+		border-radius: 50%;
+		background: rgba(255, 255, 255, 0.12);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25);
+	}
+
+	.anniversary-icon__svg {
+		width: 70%;
+		height: 70%;
+		color: #ffffff;
+	}
+
+	.anniversary-hero__content {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	.anniversary-hero__eyebrow {
+		text-transform: uppercase;
+		letter-spacing: 0.2em;
+		font-size: 0.85rem;
+		font-weight: 600;
+		margin: 0;
+		opacity: 0.8;
+	}
+
+	h1 {
+		font-family: 'Playfair Display', Georgia, serif;
+		font-size: 2.5rem;
+		font-weight: 500;
+		margin: 0;
+	}
+
+	p {
+		margin: 0;
+		line-height: 1.6;
+	}
+
+	@media (max-width: 700px) {
+		.anniversary-icon {
+			width: 160px;
+			height: 160px;
+		}
+
+		h1 {
+			font-size: 2rem;
+		}
+	}
+</style>
