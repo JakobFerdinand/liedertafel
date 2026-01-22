@@ -1,4 +1,6 @@
 ---
+import HelferInvite from '../assets/LT_Mining_Einladung_an_Helfer.pdf';
+import ChoirInvite from '../assets/LT_Mining_Einladung_an_Gesangsvereine.pdf';
 ---
 
 <section class="anniversary-invite">
@@ -11,6 +13,20 @@
 	<p>Ein Programmfolder mit detaillierten Informationen zum diesjährigen „Kir-tag am Haschhof“ wird noch folgen.</p>
 	<a class="invite-link" href="https://form.jotform.com/253271323062043" target="_blank" rel="noreferrer">Anmeldeformular Chöre</a>
 	<a class="invite-link" href="https://form.jotform.com/260132141674044" target="_blank" rel="noreferrer">Anmeldeformular Helfer</a>
+	<div class="download-links" aria-label="Einladungen herunterladen">
+		<a class="download-link" href={ChoirInvite} download>
+			<span>Einladung Gesangsvereine</span>
+			<svg class="download-link__icon" viewBox="0 0 24 24" role="img" aria-hidden="true">
+				<path d="M12 3v12m0 0l4.5-4.5M12 15l-4.5-4.5M4 21h16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+			</svg>
+		</a>
+		<a class="download-link" href={HelferInvite} download>
+			<span>Einladung Helfer</span>
+			<svg class="download-link__icon" viewBox="0 0 24 24" role="img" aria-hidden="true">
+				<path d="M12 3v12m0 0l4.5-4.5M12 15l-4.5-4.5M4 21h16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+			</svg>
+		</a>
+	</div>
 </section>
 
 <style>
@@ -61,6 +77,41 @@
 		transform: translateY(-2px);
 	}
 
+	.download-links {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: center;
+		gap: 0.75rem;
+		margin-top: 0.75rem;
+	}
+
+	.download-link {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.6rem;
+		padding: 0.75rem 1.75rem;
+		border: 1px dashed rgba(255, 255, 255, 0.5);
+		background: rgba(255, 255, 255, 0.06);
+		color: #ffffff;
+		text-decoration: none;
+		font-weight: 600;
+		letter-spacing: 0.03em;
+		text-transform: none;
+		transition: all 0.25s ease;
+	}
+
+	.download-link:hover {
+		background: rgba(255, 255, 255, 0.16);
+		border-style: solid;
+		transform: translateY(-2px);
+	}
+
+	.download-link__icon {
+		width: 1.1rem;
+		height: 1.1rem;
+	}
+
 	@media (max-width: 600px) {
 		h2 {
 			font-size: 1.5rem;
@@ -73,6 +124,15 @@
 		.invite-link {
 			width: 100%;
 			padding: 0.85rem 1.5rem;
+		}
+
+		.download-links {
+			width: 100%;
+		}
+
+		.download-link {
+			width: 100%;
+			padding: 0.75rem 1.5rem;
 		}
 	}
 </style>
