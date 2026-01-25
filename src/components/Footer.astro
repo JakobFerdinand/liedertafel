@@ -1,9 +1,11 @@
 ---
+const { showHomeLink = true, showPrivacyLink = true } = Astro.props;
 ---
 
 <footer class="footer">
 	<nav class="footer-nav">
-		<a href="/datenschutz">Datenschutzerklärung</a>
+		{showHomeLink && <a href="/">&larr; Zurück zur Startseite</a>}
+		{showPrivacyLink && <a href="/datenschutz">Datenschutzerklärung</a>}
 	</nav>
 	<p class="copyright">&copy; {new Date().getFullYear()} Liedertafel Mining 1906</p>
 </footer>
@@ -24,6 +26,13 @@
 		color: inherit;
 		text-decoration: none;
 		font-size: 0.875rem;
+	}
+
+	.footer-nav {
+		display: flex;
+		gap: 1rem;
+		justify-content: center;
+		flex-wrap: wrap;
 	}
 
 	.footer-nav a:hover {
