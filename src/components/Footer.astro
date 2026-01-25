@@ -30,9 +30,36 @@ const { showHomeLink = true, showPrivacyLink = true } = Astro.props;
 
 	.footer-nav {
 		display: flex;
-		gap: 1rem;
+		gap: 0;
 		justify-content: center;
 		flex-wrap: wrap;
+	}
+
+	.footer-nav a {
+		padding: 0 0.9rem;
+	}
+
+	.footer-nav a:first-child {
+		padding-left: 0;
+	}
+
+	.footer-nav a:last-child {
+		padding-right: 0;
+	}
+
+	.footer-nav a + a {
+		position: relative;
+	}
+
+	.footer-nav a + a::before {
+		content: "";
+		position: absolute;
+		left: 0;
+		top: 50%;
+		transform: translateY(-50%);
+		width: 1px;
+		height: 0.9em;
+		background: rgba(255, 255, 255, 0.45);
 	}
 
 	.footer-nav a:hover {
