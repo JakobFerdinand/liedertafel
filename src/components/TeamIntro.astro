@@ -50,11 +50,13 @@ const team: Person[] = [
 		display: flex;
 		flex-direction: column;
 		gap: 3rem;
+		max-width: 680px;
+		margin: 0 auto;
 	}
 
 	.person-card {
 		display: grid;
-		grid-template-columns: 1fr 1fr;
+		grid-template-columns: minmax(200px, 320px) minmax(0, 1fr);
 		gap: 2rem;
 		align-items: center;
 	}
@@ -78,6 +80,7 @@ const team: Person[] = [
 		display: flex;
 		flex-direction: column;
 		gap: 0.5rem;
+		max-width: 42ch;
 	}
 
 
