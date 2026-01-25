@@ -22,7 +22,7 @@
 		
 		<div class="contact-item">
 			<h3>Telefon</h3>
-			<p><a href="tel:+436509639714">0650/9639714</a></p>
+			<p><a class="phone-link" href="tel:+436509639714">0650/9639714</a></p>
 		</div>
 		
 		<div class="contact-item">
@@ -88,17 +88,18 @@
 		opacity: 0.95;
 	}
 
-	.contact-item a {
-		color: #ffffff;
+	.phone-link {
+		color: rgba(255, 255, 255, 0.92);
 		text-decoration: none;
-		border-bottom: 2px solid rgba(255, 255, 255, 0.4);
-		transition: all 0.2s ease;
-		font-weight: 500;
+		border-bottom: 1px solid rgba(255, 255, 255, 0.35);
+		transition: border-color 0.2s ease, color 0.2s ease;
+		font-weight: 600;
+		letter-spacing: 0.02em;
 	}
 
-	.contact-item a:hover {
-		border-bottom-color: #ffffff;
-		opacity: 1;
+	.phone-link:hover {
+		color: #ffffff;
+		border-bottom-color: rgba(255, 255, 255, 0.85);
 	}
 
 	@media (max-width: 600px) {

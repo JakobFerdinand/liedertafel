@@ -30,7 +30,7 @@ import ChoirInvite from '../assets/LT_Mining_Einladung_an_Gesangsvereine.pdf';
     nicht alleine bewältigen. Wir bitten deshalb um eure Mithilfe.
   </p>
 	<p>Wir hoffen auf eure diesbezügliche Anmeldung bis spätestens 27. Februar und freuen uns darauf, euch bei uns in Mining willkommen zu heißen.<br>
-	Für Rückfragen steht euch unser Obmann Christian Schwandtner unter der Mobilnummer <a href="tel:+436509639714">0650/9639714</a> gerne zur Verfügung!</p>
+	Für Rückfragen steht euch unser Obmann Christian Schwandtner unter der Mobilnummer <a class="phone-link" href="tel:+436509639714">0650/9639714</a> gerne zur Verfügung!</p>
 	<p>Ein Programmfolder mit detaillierten Informationen zum diesjährigen „Kir-tag am Haschhof“ wird noch folgen.</p>
 	<a class="invite-link" href="https://form.jotform.com/253271323062043" target="_blank" rel="noreferrer">Anmeldeformular Chöre</a>
 	<a class="invite-link" href="https://form.jotform.com/260132141674044" target="_blank" rel="noreferrer">Anmeldeformular Helfer</a>
@@ -131,6 +131,20 @@ import ChoirInvite from '../assets/LT_Mining_Einladung_an_Gesangsvereine.pdf';
 	.download-link__icon {
 		width: 1.1rem;
 		height: 1.1rem;
+	}
+
+	.phone-link {
+		color: rgba(255, 255, 255, 0.92);
+		text-decoration: none;
+		border-bottom: 1px solid rgba(255, 255, 255, 0.35);
+		transition: border-color 0.2s ease, color 0.2s ease;
+		font-weight: 600;
+		letter-spacing: 0.02em;
+	}
+
+	.phone-link:hover {
+		color: #ffffff;
+		border-bottom-color: rgba(255, 255, 255, 0.85);
 	}
 
 	@media (max-width: 600px) {
