@@ -42,6 +42,7 @@
 
 	:root {
 		--font-heading: 'Playfair Display', Georgia, serif;
+		--content-max-width: 800px;
 	}
 
 	body {
@@ -62,7 +63,7 @@
 
 	main > :global(*) {
 		width: 100%;
-		max-width: 800px;
+		max-width: var(--content-max-width);
 		padding-left: 2rem;
 		padding-right: 2rem;
 	}
