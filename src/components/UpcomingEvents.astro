@@ -1,0 +1,172 @@
+---
+interface EventFrontmatter {
+	date: string;
+	name: string;
+	location: string;
+}
+
+interface EventEntry extends EventFrontmatter {
+	slug: string;
+	eventDate: Date;
+}
+
+const rawEventFiles = import.meta.glob("../content/Events/*.mdx", {
+	eager: true,
+	query: "?raw",
+	import: "default",
+}) as Record<string, string>;
+
+const parseFrontmatter = (rawContent: string): Partial<EventFrontmatter> => {
+	const frontmatterMatch = rawContent.match(/^---\n([\s\S]*?)\n---/);
+
+	if (!frontmatterMatch) {
+		return {};
+	}
+
+	const frontmatterLines = frontmatterMatch[1]
+		.split("\n")
+		.map((line) => line.trim())
+		.filter(Boolean);
+
+	const parsedFrontmatter: Partial<EventFrontmatter> = {};
+
+	for (const line of frontmatterLines) {
+		const separatorIndex = line.indexOf(":");
+
+		if (separatorIndex === -1) {
+			continue;
+		}
+
+		const key = line.slice(0, separatorIndex).trim() as keyof EventFrontmatter;
+		const value = line.slice(separatorIndex + 1).trim().replace(/^"|"$/g, "").replace(/^'|'$/g, "");
+
+		if (key === "date" || key === "name" || key === "location") {
+			parsedFrontmatter[key] = value;
+		}
+	}
+
+	return parsedFrontmatter;
+};
+
+const today = new Date();
+const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+
+const upcomingEvents = Object.entries(rawEventFiles)
+	.map(([filePath, rawContent]) => {
+		const frontmatter = parseFrontmatter(rawContent);
+
+		if (!frontmatter.date || !frontmatter.name || !frontmatter.location) {
+			return null;
+		}
+
+		const eventDate = new Date(frontmatter.date);
+
+		if (Number.isNaN(eventDate.getTime())) {
+			return null;
+		}
+
+		const normalizedEventDate = new Date(eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate());
+		const slug = filePath.split("/").pop()?.replace(/\.mdx$/, "") ?? filePath;
+
+		return {
+			...frontmatter,
+			slug,
+			eventDate: normalizedEventDate,
+		} as EventEntry;
+	})
+	.filter((event): event is EventEntry => Boolean(event) && event.eventDate >= todayStart)
+	.sort((first, second) => first.eventDate.getTime() - second.eventDate.getTime());
+
+const dateFormatter = new Intl.DateTimeFormat("de-AT", {
+	weekday: "short",
+	year: "numeric",
+	month: "long",
+	day: "numeric",
+});
+---
+
+<section class="events" aria-labelledby="events-heading">
+	<h2 id="events-heading">Nächste Termine</h2>
+	{
+		upcomingEvents.length > 0 ? (
+			<ul class="events-list">
+				{
+					upcomingEvents.map((event) => (
+						<li class="event-card" id={event.slug}>
+							<p class="event-date">{dateFormatter.format(event.eventDate)}</p>
+							<h3>{event.name}</h3>
+							<p class="event-location">{event.location}</p>
+						</li>
+					))
+				}
+			</ul>
+		) : (
+			<p class="events-empty">Aktuell sind keine kommenden Termine eingetragen.</p>
+		)
+	}
+</section>
+
+<style>
+	.events {
+		width: 100%;
+		max-width: var(--content-max-width);
+		padding: 0 1.5rem;
+	}
+
+	.events-list {
+		list-style: none;
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 1.5rem;
+		margin: 0;
+		padding: 0;
+	}
+
+	.event-card {
+		display: flex;
+		flex-direction: column;
+		gap: 0.6rem;
+		padding: 1.5rem;
+		background: linear-gradient(135deg, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0.04) 100%);
+		border: 1px solid rgba(255, 255, 255, 0.16);
+		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+	}
+
+	.event-date {
+		margin: 0;
+		font-size: 0.85rem;
+		font-weight: 600;
+		letter-spacing: 0.05em;
+		text-transform: uppercase;
+		opacity: 0.85;
+	}
+
+	.event-card h3 {
+		margin: 0;
+		font-size: 1.25rem;
+	}
+
+	.event-location {
+		margin: 0;
+		line-height: 1.5;
+		opacity: 0.95;
+	}
+
+	.events-empty {
+		margin: 0;
+		padding: 1.25rem;
+		text-align: center;
+		border: 1px solid rgba(255, 255, 255, 0.16);
+		background: rgba(255, 255, 255, 0.08);
+	}
+
+	@media (max-width: 700px) {
+		.events-list {
+			grid-template-columns: 1fr;
+		}
+
+		.event-card {
+			padding: 1.25rem;
+		}
+	}
+</style>
