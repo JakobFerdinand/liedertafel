@@ -10,7 +10,7 @@ interface EventEntry extends EventFrontmatter {
 	eventDate: Date;
 }
 
-const rawEventFiles = import.meta.glob("../content/Events/*.mdx", {
+const rawEventFiles = import.meta.glob("../content/Events/*.md", {
 	eager: true,
 	query: "?raw",
 	import: "default",
@@ -51,6 +51,14 @@ const parseFrontmatter = (rawContent: string): Partial<EventFrontmatter> => {
 const today = new Date();
 const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
 
+const isUpcomingEvent = (event: EventEntry | null): event is EventEntry => {
+	if (!event) {
+		return false;
+	}
+
+	return event.eventDate >= todayStart;
+};
+
 const upcomingEvents = Object.entries(rawEventFiles)
 	.map(([filePath, rawContent]) => {
 		const frontmatter = parseFrontmatter(rawContent);
@@ -66,7 +74,7 @@ const upcomingEvents = Object.entries(rawEventFiles)
 		}
 
 		const normalizedEventDate = new Date(eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate());
-		const slug = filePath.split("/").pop()?.replace(/\.mdx$/, "") ?? filePath;
+		const slug = filePath.split("/").pop()?.replace(/\.md$/, "") ?? filePath;
 
 		return {
 			...frontmatter,
@@ -74,7 +82,7 @@ const upcomingEvents = Object.entries(rawEventFiles)
 			eventDate: normalizedEventDate,
 		} as EventEntry;
 	})
-	.filter((event): event is EventEntry => Boolean(event) && event.eventDate >= todayStart)
+	.filter(isUpcomingEvent)
 	.sort((first, second) => first.eventDate.getTime() - second.eventDate.getTime());
 
 const dateFormatter = new Intl.DateTimeFormat("de-AT", {
