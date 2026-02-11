@@ -27,9 +27,12 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           version: 10
-      
+
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Astro check
+        run: pnpm run check
 
       - name: Build
         run: pnpm run build
@@ -44,7 +47,7 @@ jobs:
           ###### Repository/Build Configurations - These values can be configured to match your app requirements. ######
           # For more information regarding Static Web App workflow configurations, please visit: https://aka.ms/swaworkflowconfig
           app_location: "dist" # App source code path
-          api_location: "" 
+          api_location: ""
           skip_api_build: true
           skip_app_build: true
           config_file_location: "/"
@@ -61,7 +64,3 @@ jobs:
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_LIVELY_RIVER_0DDEF7803 }}
           action: "close"
-
-
-
-
