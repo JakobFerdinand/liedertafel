@@ -91,6 +91,10 @@ const dateFormatter = new Intl.DateTimeFormat("de-AT", {
 	month: "long",
 	day: "numeric",
 });
+
+const defaultVisibleEvents = 3;
+const primaryEvents = upcomingEvents.slice(0, defaultVisibleEvents);
+const additionalEvents = upcomingEvents.slice(defaultVisibleEvents);
 ---
 
 {
@@ -99,7 +103,7 @@ const dateFormatter = new Intl.DateTimeFormat("de-AT", {
 			<h2 id="events-heading">Nächste Termine</h2>
 			<ul class="events-list">
 				{
-					upcomingEvents.map((event) => (
+					primaryEvents.map((event) => (
 						<li class="event-card" id={event.slug}>
 							<p class="event-date">{dateFormatter.format(event.eventDate)}</p>
 							<h3>{event.name}</h3>
@@ -108,6 +112,24 @@ const dateFormatter = new Intl.DateTimeFormat("de-AT", {
 					))
 				}
 			</ul>
+			{
+				additionalEvents.length > 0 && (
+					<details class="events-expandable">
+						<summary>Weitere Termine anzeigen</summary>
+						<ul class="events-list events-list-additional">
+							{
+								additionalEvents.map((event) => (
+									<li class="event-card" id={event.slug}>
+										<p class="event-date">{dateFormatter.format(event.eventDate)}</p>
+										<h3>{event.name}</h3>
+										<p class="event-location">{event.location}</p>
+									</li>
+								))
+							}
+						</ul>
+					</details>
+				)
+			}
 		</section>
 	)
 }
@@ -150,6 +172,30 @@ const dateFormatter = new Intl.DateTimeFormat("de-AT", {
 	.event-card h3 {
 		margin: 0;
 		font-size: 1.25rem;
+	}
+
+	.events-expandable {
+		margin-top: 1.5rem;
+	}
+
+	.events-expandable summary {
+		width: fit-content;
+		padding: 0.65rem 1rem;
+		font: inherit;
+		font-weight: 600;
+		letter-spacing: 0.02em;
+		cursor: pointer;
+		border: 1px solid rgba(255, 255, 255, 0.3);
+		background: rgba(255, 255, 255, 0.08);
+		list-style: none;
+	}
+
+	.events-expandable summary::-webkit-details-marker {
+		display: none;
+	}
+
+	.events-expandable[open] summary {
+		margin-bottom: 1.5rem;
 	}
 
 	.event-location {
