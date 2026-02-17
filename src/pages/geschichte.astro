@@ -27,7 +27,7 @@ const timelineEntries = await Promise.all(
 				title: entry.data.title,
 				subtitle: entry.data.subtitle,
 				image: entry.data.image,
-				hasContent: entry.body.trim().length > 0,
+				hasContent: (entry.body?.trim().length ?? 0) > 0,
 				Content,
 			} satisfies TimelineEntry;
 		}),
