@@ -112,17 +112,20 @@ const timelineEntries = await Promise.all(
 
 	.timeline-item {
 		position: relative;
-		padding-left: 2rem;
+		--timeline-item-padding-left: 2rem;
+		--timeline-marker-x: 0.5rem;
+		padding-left: var(--timeline-item-padding-left);
 	}
 
 	.timeline-item::before {
 		content: "";
 		position: absolute;
-		left: 0.5rem;
+		left: var(--timeline-marker-x);
 		top: 0;
 		bottom: -1.2rem;
 		width: 2px;
 		background: rgba(255, 255, 255, 0.3);
+		transform: translateX(-50%);
 	}
 
 	.timeline-item:last-child::before {
@@ -153,13 +156,14 @@ const timelineEntries = await Promise.all(
 	.timeline-details summary::before {
 		content: "";
 		position: absolute;
-		left: -1.65rem;
-		top: 1.45rem;
+		left: calc(var(--timeline-marker-x) - var(--timeline-item-padding-left));
+		top: 50%;
 		width: 0.75rem;
 		height: 0.75rem;
 		border-radius: 999px;
 		border: 2px solid rgba(255, 255, 255, 0.78);
 		background: rgb(130, 60, 65);
+		transform: translate(-50%, -50%);
 	}
 
 	.timeline-date {
@@ -207,22 +211,14 @@ const timelineEntries = await Promise.all(
 		}
 
 		.timeline-item {
-			padding-left: 1.5rem;
-		}
-
-		.timeline-item::before {
-			left: 0.35rem;
+			--timeline-item-padding-left: 1.5rem;
+			--timeline-marker-x: 0.35rem;
 		}
 
 		.timeline-details summary {
 			grid-template-columns: 1fr;
 			padding: 1rem;
 			gap: 0.45rem;
-		}
-
-		.timeline-details summary::before {
-			left: -1.25rem;
-			top: 1.2rem;
 		}
 
 		.timeline-date {
