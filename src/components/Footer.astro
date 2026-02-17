@@ -1,10 +1,11 @@
 ---
-const { showHomeLink = true, showPrivacyLink = true } = Astro.props;
+const { showHomeLink = true, showPrivacyLink = true, showHistoryLink = true } = Astro.props;
 ---
 
 <footer class="footer">
 	<nav class="footer-nav">
 		{showHomeLink && <a href="/">&larr; Zurück zur Startseite</a>}
+		{showHistoryLink && <a href="/geschichte">Geschichte</a>}
 		{showPrivacyLink && <a href="/datenschutz">Datenschutzerklärung</a>}
 	</nav>
 	<p class="copyright">&copy; {new Date().getFullYear()} Liedertafel Mining 1906</p>
