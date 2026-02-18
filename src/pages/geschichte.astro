@@ -17,7 +17,7 @@ const historyEntries = await getCollection("history");
 
 const timelineEntries = await Promise.all(
 	historyEntries
-		.sort((first, second) => first.data.date.localeCompare(second.data.date))
+		.sort((first, second) => second.data.date.localeCompare(first.data.date))
 		.map(async (entry) => {
 			const { Content } = await render(entry);
 
