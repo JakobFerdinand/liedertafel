@@ -20,14 +20,6 @@ import Layout from '../layouts/Layout.astro';
 		</div>
 		<a class="anniversary-highlight__link" href="/120-jahre">Zur Jubiläumsseite</a>
 	</section>
-	<section class="history-highlight">
-		<div class="history-highlight__content">
-			<span class="history-highlight__eyebrow">Chronik</span>
-			<h2>Unsere Geschichte</h2>
-			<p>Entdecke die wichtigsten Meilensteine der Liedertafel Mining auf unserer neuen Zeitstrahl-Seite.</p>
-		</div>
-		<a class="history-highlight__link" href="/geschichte">Zur Geschichte</a>
-	</section>
 	<ChorusImage />
 	<UpcomingEvents />
 	<TeamIntro />
@@ -100,74 +92,12 @@ import Layout from '../layouts/Layout.astro';
 		transform: translateY(-2px);
 	}
 
-	.history-highlight {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		text-align: center;
-		gap: 1.25rem;
-		width: 100%;
-		max-width: var(--content-max-width);
-		padding: 1.5rem;
-		background: linear-gradient(135deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.05) 100%);
-		border: 1px solid rgba(255, 255, 255, 0.2);
-		box-shadow: 0 14px 30px rgba(0, 0, 0, 0.18);
-	}
-
-	.history-highlight__content {
-		display: flex;
-		flex-direction: column;
-		gap: 0.75rem;
-	}
-
-	.history-highlight__eyebrow {
-		display: inline-flex;
-		align-self: center;
-		padding: 0.3rem 0.75rem;
-		border-radius: 999px;
-		border: 1px solid rgba(255, 255, 255, 0.35);
-		background: rgba(255, 255, 255, 0.08);
-		font-size: 0.7rem;
-		font-weight: 600;
-		letter-spacing: 0.12em;
-		text-transform: uppercase;
-		opacity: 0.9;
-	}
-
-	.history-highlight p {
-		margin: 0;
-		line-height: 1.6;
-		opacity: 0.9;
-	}
-
-	.history-highlight__link {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		padding: 0.85rem 2.5rem;
-		border: 1px solid rgba(255, 255, 255, 0.4);
-		background: rgba(255, 255, 255, 0.12);
-		color: #ffffff;
-		text-decoration: none;
-		font-weight: 600;
-		letter-spacing: 0.04em;
-		text-transform: uppercase;
-		transition: all 0.25s ease;
-	}
-
-	.history-highlight__link:hover {
-		background: rgba(255, 255, 255, 0.2);
-		border-color: rgba(255, 255, 255, 0.7);
-		transform: translateY(-2px);
-	}
-
 	@media (max-width: 600px) {
 		.anniversary-highlight {
 			padding: 1.25rem 1.25rem;
 		}
 
-		.anniversary-highlight__link,
-		.history-highlight__link {
+		.anniversary-highlight__link {
 			width: 100%;
 			padding: 0.85rem 1.5rem;
 		}
