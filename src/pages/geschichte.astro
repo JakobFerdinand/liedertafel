@@ -58,7 +58,17 @@ const timelineEntries = await Promise.all(
 							</summary>
 							{(entry.image || entry.hasContent) && (
 								<div class="timeline-content" id={entry.id}>
-									{entry.image && <img src={entry.image.src} alt={`Bild zu ${entry.title}`} loading="lazy" />}
+									{entry.image && (
+										<button
+											type="button"
+											class="timeline-image-trigger"
+											data-image-src={entry.image.src}
+											data-image-alt={`Bild zu ${entry.title}`}
+											aria-label={`Bild zu ${entry.title} vergroessern`}
+										>
+											<img src={entry.image.src} alt={`Bild zu ${entry.title}`} loading="lazy" />
+										</button>
+									)}
 									{entry.hasContent && <entry.Content />}
 								</div>
 							)}
@@ -69,8 +79,47 @@ const timelineEntries = await Promise.all(
 		</ul>
 	</section>
 
+	<dialog class="image-lightbox" aria-label="Bild vergroessert anzeigen">
+		<button type="button" class="lightbox-close" aria-label="Vollbildansicht schliessen">x</button>
+		<img class="lightbox-image" src="" alt="" />
+	</dialog>
+
 	<Footer />
 </Layout>
+
+<script>
+	const lightbox = document.querySelector<HTMLDialogElement>(".image-lightbox");
+	const lightboxImage = lightbox?.querySelector<HTMLImageElement>(".lightbox-image");
+	const closeButton = lightbox?.querySelector<HTMLButtonElement>(".lightbox-close");
+	const triggers = document.querySelectorAll<HTMLButtonElement>(".timeline-image-trigger");
+
+	const closeLightbox = () => {
+		if (lightbox?.open) {
+			lightbox.close();
+		}
+	};
+
+	triggers.forEach((trigger) => {
+		trigger.addEventListener("click", () => {
+			if (!lightbox || !lightboxImage) {
+				return;
+			}
+
+			lightboxImage.src = trigger.dataset.imageSrc ?? "";
+			lightboxImage.alt = trigger.dataset.imageAlt ?? "";
+			lightbox.showModal();
+		});
+	});
+
+	closeButton?.addEventListener("click", closeLightbox);
+
+	lightbox?.addEventListener("click", (event) => {
+		const target = event.target;
+		if (target instanceof HTMLDialogElement) {
+			closeLightbox();
+		}
+	});
+</script>
 
 <style>
 	.history-hero {
@@ -202,8 +251,61 @@ const timelineEntries = await Promise.all(
 		width: 100%;
 		max-height: 280px;
 		object-fit: contain;
-		margin-top: 1rem;
+		margin-top: 0;
 		border: 1px solid rgba(255, 255, 255, 0.2);
+	}
+
+	.timeline-image-trigger {
+		display: block;
+		width: 100%;
+		margin: 1rem 0 0;
+		padding: 0;
+		border: 0;
+		background: transparent;
+		cursor: zoom-in;
+	}
+
+	.image-lightbox {
+		padding: 0;
+		border: 0;
+		background: transparent;
+		max-width: min(94vw, 1200px);
+		max-height: 94vh;
+	}
+
+	.image-lightbox::backdrop {
+		background: rgba(0, 0, 0, 0.68);
+	}
+
+	.lightbox-image {
+		display: block;
+		max-width: 100%;
+		max-height: 92vh;
+		width: auto;
+		height: auto;
+		object-fit: contain;
+		border: 1px solid rgba(255, 255, 255, 0.35);
+		box-shadow: 0 16px 36px rgba(0, 0, 0, 0.5);
+	}
+
+	.lightbox-close {
+		position: fixed;
+		top: 1rem;
+		right: 1rem;
+		width: 2.25rem;
+		height: 2.25rem;
+		border-radius: 999px;
+		border: 1px solid rgba(255, 255, 255, 0.45);
+		background: rgba(0, 0, 0, 0.5);
+		color: #fff;
+		font-size: 1.25rem;
+		font-weight: 700;
+		line-height: 1;
+		cursor: pointer;
+	}
+
+	.lightbox-close:hover {
+		background: rgba(0, 0, 0, 0.7);
 	}
 
 	@media (max-width: 700px) {
