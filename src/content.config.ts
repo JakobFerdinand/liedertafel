@@ -13,14 +13,15 @@ const history = defineCollection({
 		pattern: "**/*.md",
 		base: "./src/content/history",
 	}),
-	schema: z.object({
-		date: z
-			.string()
-			.regex(/^(\d{4}|\d{4}-\d{2}|\d{4}-\d{2}-\d{2})$/, "Datum muss im Format yyyy, yyyy-mm oder yyyy-mm-dd angegeben werden."),
-		title: z.string(),
-		subtitle: z.string().optional(),
-		image: z.string().optional(),
-	}),
+	schema: ({ image }) =>
+		z.object({
+			date: z
+				.string()
+				.regex(/^(\d{4}|\d{4}-\d{2}|\d{4}-\d{2}-\d{2})$/, "Datum muss im Format yyyy, yyyy-mm oder yyyy-mm-dd angegeben werden."),
+			title: z.string(),
+			subtitle: z.string().optional(),
+			image: image().optional(),
+		}),
 });
 
 export const collections = {
