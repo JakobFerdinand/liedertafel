@@ -7,12 +7,44 @@ import Footer from "../components/Footer.astro";
 interface TimelineEntry {
 	id: string;
 	date: string;
+	formattedDate: string;
 	title: string;
 	subtitle?: string;
 	image?: ImageMetadata;
 	hasContent: boolean;
 	Content: Awaited<ReturnType<typeof render>>["Content"];
 }
+
+const formatHistoryDate = (rawDate: string) => {
+	if (/^\d{4}$/.test(rawDate)) {
+		return rawDate;
+	}
+
+	if (/^\d{4}-\d{2}$/.test(rawDate)) {
+		const [year, month] = rawDate.split("-").map(Number);
+		const parsedDate = new Date(Date.UTC(year, month - 1, 1));
+
+		return new Intl.DateTimeFormat("de-AT", {
+			month: "long",
+			year: "numeric",
+			timeZone: "UTC",
+		}).format(parsedDate);
+	}
+
+	if (/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
+		const [year, month, day] = rawDate.split("-").map(Number);
+		const parsedDate = new Date(Date.UTC(year, month - 1, day));
+
+		return new Intl.DateTimeFormat("de-AT", {
+			day: "2-digit",
+			month: "long",
+			year: "numeric",
+			timeZone: "UTC",
+		}).format(parsedDate);
+	}
+
+	return rawDate;
+};
 
 const historyEntries = await getCollection("history");
 
@@ -25,6 +57,7 @@ const timelineEntries = await Promise.all(
 			return {
 				id: entry.id,
 				date: entry.data.date,
+				formattedDate: formatHistoryDate(entry.data.date),
 				title: entry.data.title,
 				subtitle: entry.data.subtitle,
 				image: entry.data.image,
@@ -50,7 +83,7 @@ const timelineEntries = await Promise.all(
 					<li class="timeline-item">
 						<details class="timeline-details" open={false}>
 							<summary>
-								<span class="timeline-date">{entry.date}</span>
+								<span class="timeline-date">{entry.formattedDate}</span>
 								<div class="timeline-header">
 									<h3>{entry.title}</h3>
 									{entry.subtitle && <p>{entry.subtitle}</p>}
