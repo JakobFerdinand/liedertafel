@@ -3,7 +3,7 @@ const { showHomeLink = true, showPrivacyLink = true } = Astro.props;
 ---
 
 <footer class="footer">
-	<nav class="footer-nav">
+	<nav class="footer-nav" aria-label="Footer-Navigation">
 		{showHomeLink && <a href="/">&larr; Zurück zur Startseite</a>}
 		{showPrivacyLink && <a href="/datenschutz">Datenschutzerklärung</a>}
 	</nav>

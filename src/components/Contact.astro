@@ -70,6 +70,16 @@
 		opacity: 0.95;
 	}
 
+	@media (prefers-reduced-motion: reduce) {
+		.contact-item {
+			transition: none;
+		}
+
+		.contact-item:hover {
+			transform: none;
+		}
+	}
+
 	@media (max-width: 600px) {
 		.contact__heading {
 			font-size: 1.25rem;

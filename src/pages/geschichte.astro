@@ -98,7 +98,7 @@ const timelineEntries = await Promise.all(
 											class="timeline-image-trigger"
 											data-image-src={entry.image.src}
 											data-image-alt={`Bild zu ${entry.title}`}
-											aria-label={`Bild zu ${entry.title} vergroessern`}
+											aria-label={`Bild zu ${entry.title} vergrößern`}
 										>
 											<Image src={entry.image} alt={`Bild zu ${entry.title}`} loading="lazy" />
 										</button>
@@ -113,8 +113,8 @@ const timelineEntries = await Promise.all(
 		</ul>
 	</section>
 
-	<dialog class="image-lightbox" aria-label="Bild vergroessert anzeigen">
-		<button type="button" class="lightbox-close" aria-label="Vollbildansicht schliessen">x</button>
+	<dialog class="image-lightbox" aria-label="Bild vergrößert anzeigen">
+		<button type="button" class="lightbox-close" aria-label="Vollbildansicht schließen">x</button>
 		<img class="lightbox-image" src="" alt="" />
 	</dialog>
 
@@ -127,9 +127,12 @@ const timelineEntries = await Promise.all(
 	const closeButton = lightbox?.querySelector<HTMLButtonElement>(".lightbox-close");
 	const triggers = document.querySelectorAll<HTMLButtonElement>(".timeline-image-trigger");
 
+	let triggerButton: HTMLButtonElement | null = null;
+
 	const closeLightbox = () => {
 		if (lightbox?.open) {
 			lightbox.close();
+			triggerButton?.focus();
 		}
 	};
 
@@ -139,6 +142,7 @@ const timelineEntries = await Promise.all(
 				return;
 			}
 
+			triggerButton = trigger;
 			lightboxImage.src = trigger.dataset.imageSrc ?? "";
 			lightboxImage.alt = trigger.dataset.imageAlt ?? "";
 			lightbox.showModal();
