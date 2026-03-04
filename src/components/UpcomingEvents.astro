@@ -1,89 +1,19 @@
 ---
-interface EventFrontmatter {
-	date: string;
-	name: string;
-	location: string;
-}
-
-interface EventEntry extends EventFrontmatter {
-	slug: string;
-	eventDate: Date;
-}
-
-const rawEventFiles = import.meta.glob("../content/events/*.md", {
-	eager: true,
-	query: "?raw",
-	import: "default",
-}) as Record<string, string>;
-
-const parseFrontmatter = (rawContent: string): Partial<EventFrontmatter> => {
-	const frontmatterMatch = rawContent.match(/^---\n([\s\S]*?)\n---/);
-
-	if (!frontmatterMatch) {
-		return {};
-	}
-
-	const frontmatterLines = frontmatterMatch[1]
-		.split("\n")
-		.map((line) => line.trim())
-		.filter(Boolean);
-
-	const parsedFrontmatter: Partial<EventFrontmatter> = {};
-
-	for (const line of frontmatterLines) {
-		const separatorIndex = line.indexOf(":");
-
-		if (separatorIndex === -1) {
-			continue;
-		}
-
-		const key = line.slice(0, separatorIndex).trim() as keyof EventFrontmatter;
-		const value = line.slice(separatorIndex + 1).trim().replace(/^"|"$/g, "").replace(/^'|'$/g, "");
-
-		if (key === "date" || key === "name" || key === "location") {
-			parsedFrontmatter[key] = value;
-		}
-	}
-
-	return parsedFrontmatter;
-};
+import { getCollection } from "astro:content";
 
 const today = new Date();
 const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
 
-const isUpcomingEvent = (event: EventEntry | null): event is EventEntry => {
-	if (!event) {
-		return false;
-	}
+const allEvents = await getCollection("events");
 
-	return event.eventDate >= todayStart;
-};
-
-const upcomingEvents = Object.entries(rawEventFiles)
-	.map(([filePath, rawContent]) => {
-		const frontmatter = parseFrontmatter(rawContent);
-
-		if (!frontmatter.date || !frontmatter.name || !frontmatter.location) {
-			return null;
-		}
-
-		const eventDate = new Date(frontmatter.date);
-
-		if (Number.isNaN(eventDate.getTime())) {
-			return null;
-		}
-
-		const normalizedEventDate = new Date(eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate());
-		const slug = filePath.split("/").pop()?.replace(/\.md$/, "") ?? filePath;
-
-		return {
-			...frontmatter,
-			slug,
-			eventDate: normalizedEventDate,
-		} as EventEntry;
+const upcomingEvents = allEvents
+	.map((entry) => {
+		const [year, month, day] = entry.data.date.split("-").map(Number);
+		const eventDate = new Date(year, month - 1, day);
+		return { ...entry.data, slug: entry.id, eventDate };
 	})
-	.filter(isUpcomingEvent)
-	.sort((first, second) => first.eventDate.getTime() - second.eventDate.getTime());
+	.filter((event) => event.eventDate >= todayStart)
+	.sort((a, b) => a.eventDate.getTime() - b.eventDate.getTime());
 
 const dateFormatter = new Intl.DateTimeFormat("de-AT", {
 	weekday: "short",

@@ -6,6 +6,11 @@ const events = defineCollection({
 		pattern: "**/*.md",
 		base: "./src/content/events",
 	}),
+	schema: z.object({
+		date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Datum muss im Format yyyy-mm-dd angegeben werden."),
+		name: z.string(),
+		location: z.string(),
+	}),
 });
 
 const history = defineCollection({
@@ -25,6 +30,6 @@ const history = defineCollection({
 });
 
 export const collections = {
-	Events: events,
+	events,
 	history,
 };
