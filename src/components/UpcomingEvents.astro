@@ -92,9 +92,7 @@ const dateFormatter = new Intl.DateTimeFormat("de-AT", {
 	day: "numeric",
 });
 
-const defaultVisibleEvents = 3;
-const primaryEvents = upcomingEvents.slice(0, defaultVisibleEvents);
-const additionalEvents = upcomingEvents.slice(defaultVisibleEvents);
+const hasMoreThanMobileDefault = upcomingEvents.length > 3;
 ---
 
 {
@@ -103,8 +101,11 @@ const additionalEvents = upcomingEvents.slice(defaultVisibleEvents);
 			<h2 id="events-heading">Nächste Termine</h2>
 			<ul class="events-list">
 				{
-					primaryEvents.map((event) => (
-						<li class="event-card" id={event.slug}>
+					upcomingEvents.map((event, index) => (
+						<li
+							class={`event-card${index >= 3 ? " event-card--hidden-mobile" : ""}${index >= 4 ? " event-card--hidden-desktop" : ""}`}
+							id={event.slug}
+						>
 							<p class="event-date">{dateFormatter.format(event.eventDate)}</p>
 							<h3>{event.name}</h3>
 							<p class="event-location">{event.location}</p>
@@ -113,20 +114,9 @@ const additionalEvents = upcomingEvents.slice(defaultVisibleEvents);
 				}
 			</ul>
 			{
-				additionalEvents.length > 0 && (
+				hasMoreThanMobileDefault && (
 					<details class="events-expandable">
 						<summary>Weitere Termine anzeigen</summary>
-						<ul class="events-list events-list-additional">
-							{
-								additionalEvents.map((event) => (
-									<li class="event-card" id={event.slug}>
-										<p class="event-date">{dateFormatter.format(event.eventDate)}</p>
-										<h3>{event.name}</h3>
-										<p class="event-location">{event.location}</p>
-									</li>
-								))
-							}
-						</ul>
 					</details>
 				)
 			}
@@ -195,13 +185,22 @@ const additionalEvents = upcomingEvents.slice(defaultVisibleEvents);
 	}
 
 	.events-expandable[open] summary {
-		margin-bottom: 1.5rem;
+		margin-bottom: 0;
 	}
 
 	.event-location {
 		margin: 0;
 		line-height: 1.5;
 		opacity: 0.95;
+	}
+
+	/* Desktop: hide events from index 4 onwards until expanded */
+	.event-card--hidden-desktop {
+		display: none;
+	}
+
+	.events-list:has(~ .events-expandable[open]) .event-card--hidden-desktop {
+		display: flex;
 	}
 
 	@media (max-width: 700px) {
@@ -211,6 +210,15 @@ const additionalEvents = upcomingEvents.slice(defaultVisibleEvents);
 
 		.event-card {
 			padding: 1.25rem;
+		}
+
+		/* Mobile: hide events from index 3 onwards until expanded */
+		.event-card--hidden-mobile {
+			display: none;
+		}
+
+		.events-list:has(~ .events-expandable[open]) .event-card--hidden-mobile {
+			display: flex;
 		}
 	}
 </style>
