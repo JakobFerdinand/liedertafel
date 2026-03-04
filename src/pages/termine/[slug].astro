@@ -1,0 +1,135 @@
+---
+import { getCollection, render } from "astro:content";
+import Layout from "../../layouts/Layout.astro";
+import Footer from "../../components/Footer.astro";
+
+export async function getStaticPaths() {
+	const allEvents = await getCollection("events");
+	return allEvents.map((entry) => ({
+		params: { slug: entry.id },
+		props: { entry },
+	}));
+}
+
+const { entry } = Astro.props;
+const { Content } = await render(entry);
+
+const [year, month, day] = entry.data.date.split("-").map(Number);
+const eventDate = new Date(Date.UTC(year, month - 1, day));
+
+const dateFormatter = new Intl.DateTimeFormat("de-AT", {
+	weekday: "long",
+	day: "numeric",
+	month: "long",
+	year: "numeric",
+	timeZone: "UTC",
+});
+
+const formattedDate = dateFormatter.format(eventDate);
+---
+
+<Layout>
+	<section class="event-hero">
+		<a href="/#termine" class="back-link" aria-label="Zurück zur Terminübersicht">← Alle Termine</a>
+		<p class="event-hero__eyebrow">{formattedDate}</p>
+		<h1>{entry.data.name}</h1>
+		<p class="event-hero__location">{entry.data.location}</p>
+	</section>
+
+	<article class="event-body">
+		<Content />
+	</article>
+
+	<Footer />
+</Layout>
+
+<style>
+	.event-hero {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.back-link {
+		color: rgba(255, 255, 255, 0.75);
+		text-decoration: none;
+		font-size: 0.9rem;
+		font-weight: 600;
+		letter-spacing: 0.03em;
+		transition: color 0.2s ease;
+		margin-bottom: 0.5rem;
+		align-self: flex-start;
+	}
+
+	.back-link:hover {
+		color: #ffffff;
+	}
+
+	.event-hero__eyebrow {
+		text-transform: uppercase;
+		letter-spacing: 0.2em;
+		font-size: 0.85rem;
+		font-weight: 600;
+		margin: 0;
+		opacity: 0.8;
+	}
+
+	.event-hero__location {
+		margin: 0;
+		line-height: 1.6;
+		opacity: 0.9;
+		font-size: 1.1rem;
+	}
+
+	.event-body {
+		line-height: 1.65;
+	}
+
+	.event-body :global(p) {
+		margin: 0 0 1rem;
+		line-height: 1.65;
+		opacity: 0.95;
+	}
+
+	.event-body :global(p:last-child) {
+		margin-bottom: 0;
+	}
+
+	.event-body :global(ul),
+	.event-body :global(ol) {
+		margin: 0 0 1rem;
+		padding-left: 1.5rem;
+		line-height: 1.65;
+		opacity: 0.95;
+	}
+
+	.event-body :global(li) {
+		margin-bottom: 0.4rem;
+	}
+
+	.event-body :global(a) {
+		color: rgba(255, 255, 255, 0.92);
+		text-decoration: none;
+		border-bottom: 1px solid rgba(255, 255, 255, 0.35);
+		transition: border-color 0.2s ease, color 0.2s ease;
+	}
+
+	.event-body :global(a:hover) {
+		color: #ffffff;
+		border-bottom-color: rgba(255, 255, 255, 0.85);
+	}
+
+	.event-body :global(strong) {
+		font-weight: 600;
+	}
+
+	.event-body :global(em) {
+		font-style: italic;
+	}
+
+	.event-body :global(h2),
+	.event-body :global(h3) {
+		margin-top: 1.5rem;
+		margin-bottom: 0.5rem;
+	}
+</style>
