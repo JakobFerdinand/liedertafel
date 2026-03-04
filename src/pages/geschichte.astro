@@ -1,5 +1,6 @@
 ---
 import type { ImageMetadata } from "astro";
+import { Image } from "astro:assets";
 import { getCollection, render } from "astro:content";
 import Layout from "../layouts/Layout.astro";
 import Footer from "../components/Footer.astro";
@@ -99,7 +100,7 @@ const timelineEntries = await Promise.all(
 											data-image-alt={`Bild zu ${entry.title}`}
 											aria-label={`Bild zu ${entry.title} vergroessern`}
 										>
-											<img src={entry.image.src} alt={`Bild zu ${entry.title}`} loading="lazy" />
+											<Image src={entry.image} alt={`Bild zu ${entry.title}`} loading="lazy" />
 										</button>
 									)}
 									{entry.hasContent && <entry.Content />}
