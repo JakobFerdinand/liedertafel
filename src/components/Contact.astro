@@ -2,7 +2,7 @@
 ---
 
 <section class="contact">
-	<h2>Kontakt</h2>
+	<h2 class="contact__heading">Kontakt</h2>
 	
 	<div class="contact-info">
 		<div class="contact-item">
@@ -22,12 +22,12 @@
 		
 		<div class="contact-item">
 			<h3>Telefon</h3>
-			<p><a class="phone-link" href="tel:+436509639714">0650/9639714</a></p>
+			<p><a class="link-underline" href="tel:+436509639714">0650/9639714</a></p>
 		</div>
 		
 		<div class="contact-item">
 			<h3>E-Mail</h3>
-			<p><a class="email-link" href="mailto:liedertafel.mining@gmail.com">liedertafel.mining@gmail.com</a></p>
+			<p><a class="link-underline" href="mailto:liedertafel.mining@gmail.com">liedertafel.mining@gmail.com</a></p>
 		</div>
 	</div>
 </section>
@@ -50,7 +50,7 @@
 		background: linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.03) 100%);
 		border: 1px solid rgba(255, 255, 255, 0.15);
 		backdrop-filter: blur(10px);
-		transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+		transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
 	}
 
@@ -70,22 +70,8 @@
 		opacity: 0.95;
 	}
 
-	.phone-link, .email-link {
-		color: rgba(255, 255, 255, 0.92);
-		text-decoration: none;
-		border-bottom: 1px solid rgba(255, 255, 255, 0.35);
-		transition: border-color 0.2s ease, color 0.2s ease;
-		font-weight: 600;
-		letter-spacing: 0.02em;
-	}
-
-	.phone-link:hover, .email-link:hover {
-		color: #ffffff;
-		border-bottom-color: rgba(255, 255, 255, 0.85);
-	}
-
 	@media (max-width: 600px) {
-		h2 {
+		.contact__heading {
 			font-size: 1.25rem;
 		}
 

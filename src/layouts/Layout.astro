@@ -104,6 +104,43 @@
 		line-height: 1.3;
 	}
 
+	/* Shared ghost button / link style */
+	.btn-ghost {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0.85rem 2.5rem;
+		border: 1px solid rgba(255, 255, 255, 0.4);
+		background: rgba(255, 255, 255, 0.12);
+		color: #ffffff;
+		text-decoration: none;
+		font-weight: 600;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		transition: background 0.25s ease, border-color 0.25s ease, transform 0.25s ease;
+	}
+
+	.btn-ghost:hover {
+		background: rgba(255, 255, 255, 0.2);
+		border-color: rgba(255, 255, 255, 0.7);
+		transform: translateY(-2px);
+	}
+
+	/* Shared inline link with underline */
+	.link-underline {
+		color: rgba(255, 255, 255, 0.92);
+		text-decoration: none;
+		border-bottom: 1px solid rgba(255, 255, 255, 0.35);
+		transition: border-color 0.2s ease, color 0.2s ease;
+		font-weight: 600;
+		letter-spacing: 0.02em;
+	}
+
+	.link-underline:hover {
+		color: #ffffff;
+		border-bottom-color: rgba(255, 255, 255, 0.85);
+	}
+
 	/* Responsive heading adjustments */
 	@media (max-width: 600px) {
 		h1 {

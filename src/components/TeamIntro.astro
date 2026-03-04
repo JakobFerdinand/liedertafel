@@ -31,7 +31,7 @@ const team: Person[] = [
 				<div class="person-info">
 					<h3>{person.name}</h3>
 					<span class="role">{person.role}</span>
-					<p>{person.description}</p>
+					<p class="person-description">{person.description}</p>
 				</div>
 			</article>
 		))}
@@ -59,12 +59,12 @@ const team: Person[] = [
 		align-items: center;
 	}
 
-	.person-card.reversed {
-		direction: rtl;
+	.person-card.reversed .person-image {
+		order: 2;
 	}
 
-	.person-card.reversed > * {
-		direction: ltr;
+	.person-card.reversed .person-info {
+		order: 1;
 	}
 
 	.person-image {
@@ -89,7 +89,7 @@ const team: Person[] = [
 		font-style: italic;
 	}
 
-	p {
+	.person-description {
 		margin: 0.5rem 0 0 0;
 		font-size: 1rem;
 		line-height: 1.6;
@@ -101,10 +101,6 @@ const team: Person[] = [
 		.person-card {
 			grid-template-columns: 1fr;
 			text-align: center;
-		}
-
-		.person-card.reversed {
-			direction: ltr;
 		}
 
 		.person-info {

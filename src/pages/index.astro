@@ -18,7 +18,7 @@ import Layout from '../layouts/Layout.astro';
 			<h2>120 Jahre Liedertafel Mining</h2>
 			<p>Die Jubiläumsfeier 2026 steht vor der Tür. Alle Infos, Einladungen und Anmeldungen findest du auf unserer eigenen Jubiläumsseite.</p>
 		</div>
-		<a class="anniversary-highlight__link" href="/120-jahre">Zur Jubiläumsseite</a>
+		<a class="anniversary-highlight__link btn-ghost" href="/120-jahre">Zur Jubiläumsseite</a>
 	</section>
 	<ChorusImage />
 	<UpcomingEvents />
@@ -70,24 +70,6 @@ import Layout from '../layouts/Layout.astro';
 	}
 
 	.anniversary-highlight__link {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		padding: 0.85rem 2.5rem;
-		border: 1px solid rgba(255, 255, 255, 0.4);
-		background: rgba(255, 255, 255, 0.12);
-		color: #ffffff;
-		text-decoration: none;
-		font-weight: 600;
-		letter-spacing: 0.04em;
-		text-transform: uppercase;
-		transition: all 0.25s ease;
-	}
-
-	.anniversary-highlight__link:hover {
-		background: rgba(255, 255, 255, 0.2);
-		border-color: rgba(255, 255, 255, 0.7);
-		transform: translateY(-2px);
 	}
 
 	@media (max-width: 600px) {
