@@ -10,7 +10,7 @@ interface EventEntry extends EventFrontmatter {
 	eventDate: Date;
 }
 
-const rawEventFiles = import.meta.glob("../content/Events/*.md", {
+const rawEventFiles = import.meta.glob("../content/events/*.md", {
 	eager: true,
 	query: "?raw",
 	import: "default",
