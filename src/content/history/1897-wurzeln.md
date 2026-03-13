@@ -4,7 +4,7 @@ title: "Die Wurzeln der Liedertafel"
 subtitle: "Die erste dokumentierte Erwähnung der Liedertafel Mining in der „Neuen Warte am Inn“."
 ---
 
-![Die erste dokumentierte Erwähnung der Liedertafel Mining in der „Neuen Warte am Inn“.](./img/00_Ursprung-der-Liedertafel.jpg)
+![Die erste dokumentierte Erwähnung der Liedertafel Mining in der „Neuen Warte am Inn“.](./img/1897_Ursprung-der-Liedertafel.jpg)
 
 Wann genau die gesanglichen Aktivitäten der Liedertafel Mining begonnen haben, ist nicht überliefert. Lange Zeit ging man davon aus, dass die ersten Proben unter Leitung des Volksschullehrers Karl Adler auf das Jahr 1905 zu datieren sind, also etwa 1 Jahr vor der formellen Gründung des Vereines.
 
