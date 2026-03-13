@@ -1,0 +1,143 @@
+---
+import Logo from "../assets/logo.svg";
+
+const links = [
+	{ href: "/geschichte", label: "Geschichte" },
+	{ href: "/120-jahre", label: "120 Jahre" },
+	{ href: "/#termine", label: "Termine" },
+];
+---
+
+<nav class="home-nav" aria-label="Hauptnavigation">
+	<a class="home-nav__brand" href="/" aria-label="Zur Startseite">
+		<span class="home-nav__brand-icon">
+			<Logo class="home-nav__logo" aria-hidden="true" focusable="false" />
+		</span>
+		<span class="home-nav__brand-text">Liedertafel Mining 1906</span>
+	</a>
+	<div class="home-nav__links">
+		{
+			links.map((link) => (
+				<a class="home-nav__link" href={link.href}>{link.label}</a>
+			))
+		}
+	</div>
+</nav>
+
+<style>
+	.home-nav {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		padding: 0.9rem 1rem;
+		border: 1px solid rgba(255, 255, 255, 0.2);
+		background:
+			linear-gradient(135deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.06)),
+			rgba(97, 39, 43, 0.58);
+		box-shadow: 0 16px 34px rgba(0, 0, 0, 0.18);
+		backdrop-filter: blur(14px);
+		position: sticky;
+		top: 1rem;
+		z-index: 20;
+	}
+
+	.home-nav__brand {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.85rem;
+		color: inherit;
+		text-decoration: none;
+		min-width: 0;
+	}
+
+	.home-nav__brand-icon {
+		width: 3rem;
+		height: 3rem;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0.45rem;
+		border-radius: 999px;
+		background: rgba(255, 255, 255, 0.1);
+		border: 1px solid rgba(255, 255, 255, 0.18);
+		flex-shrink: 0;
+	}
+
+	.home-nav__logo {
+		width: 100%;
+		height: 100%;
+		color: #ffffff;
+	}
+
+	.home-nav__brand-text {
+		font-family: var(--font-heading);
+		font-size: 1.05rem;
+		letter-spacing: 0.03em;
+		line-height: 1.2;
+	}
+
+	.home-nav__links {
+		display: flex;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 0.65rem;
+		flex-wrap: wrap;
+	}
+
+	.home-nav__link {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0.7rem 1rem;
+		border-radius: 999px;
+		color: #ffffff;
+		text-decoration: none;
+		font-size: 0.8rem;
+		font-weight: 600;
+		letter-spacing: 0.12em;
+		text-transform: uppercase;
+		border: 1px solid rgba(255, 255, 255, 0.18);
+		background: rgba(255, 255, 255, 0.08);
+		transition: background 0.25s ease, border-color 0.25s ease, transform 0.25s ease;
+	}
+
+	.home-nav__brand:hover .home-nav__brand-icon,
+	.home-nav__link:hover {
+		background: rgba(255, 255, 255, 0.16);
+		border-color: rgba(255, 255, 255, 0.36);
+		transform: translateY(-1px);
+	}
+
+	@media (max-width: 720px) {
+		.home-nav {
+			flex-direction: column;
+			align-items: stretch;
+			padding: 0.85rem;
+		}
+
+		.home-nav__brand {
+			justify-content: center;
+		}
+
+		.home-nav__brand-text {
+			font-size: 0.98rem;
+			text-align: center;
+		}
+
+		.home-nav__links {
+			justify-content: center;
+		}
+	}
+
+	@media (max-width: 520px) {
+		.home-nav__links {
+			display: grid;
+			grid-template-columns: 1fr;
+		}
+
+		.home-nav__link {
+			width: 100%;
+		}
+	}
+</style>
