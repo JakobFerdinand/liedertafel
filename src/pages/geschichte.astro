@@ -126,26 +126,55 @@ const timelineEntries = await Promise.all(
 	const lightboxImage = lightbox?.querySelector<HTMLImageElement>(".lightbox-image");
 	const closeButton = lightbox?.querySelector<HTMLButtonElement>(".lightbox-close");
 	const triggers = document.querySelectorAll<HTMLButtonElement>(".timeline-image-trigger");
+	const markdownImages = document.querySelectorAll<HTMLImageElement>(".timeline-content img");
 
-	let triggerButton: HTMLButtonElement | null = null;
+	let triggerElement: HTMLElement | null = null;
+
+	const openLightbox = (source: string, alt: string, trigger: HTMLElement) => {
+		if (!lightbox || !lightboxImage) {
+			return;
+		}
+
+		triggerElement = trigger;
+		lightboxImage.src = source;
+		lightboxImage.alt = alt;
+		lightbox.showModal();
+	};
 
 	const closeLightbox = () => {
 		if (lightbox?.open) {
 			lightbox.close();
-			triggerButton?.focus();
+			triggerElement?.focus();
 		}
 	};
 
 	triggers.forEach((trigger) => {
 		trigger.addEventListener("click", () => {
-			if (!lightbox || !lightboxImage) {
+			openLightbox(trigger.dataset.imageSrc ?? "", trigger.dataset.imageAlt ?? "", trigger);
+		});
+	});
+
+	markdownImages.forEach((image) => {
+		if (image.closest(".timeline-image-trigger")) {
+			return;
+		}
+
+		image.classList.add("timeline-markdown-image");
+		image.setAttribute("role", "button");
+		image.setAttribute("tabindex", "0");
+		image.setAttribute("aria-label", `${image.alt || "Bild"} vergrößern`);
+
+		image.addEventListener("click", () => {
+			openLightbox(image.currentSrc || image.src, image.alt, image);
+		});
+
+		image.addEventListener("keydown", (event) => {
+			if (event.key !== "Enter" && event.key !== " ") {
 				return;
 			}
 
-			triggerButton = trigger;
-			lightboxImage.src = trigger.dataset.imageSrc ?? "";
-			lightboxImage.alt = trigger.dataset.imageAlt ?? "";
-			lightbox.showModal();
+			event.preventDefault();
+			openLightbox(image.currentSrc || image.src, image.alt, image);
 		});
 	});
 
@@ -280,12 +309,21 @@ const timelineEntries = await Promise.all(
 		opacity: 0.95;
 	}
 
-	.timeline-content img {
+	.timeline-image-trigger img {
 		display: block;
 		width: 100%;
 		max-height: 280px;
 		object-fit: contain;
 		margin-top: 0;
+	}
+
+	.timeline-content :global(img.timeline-markdown-image) {
+		display: block;
+		width: auto;
+		max-width: 100%;
+		height: auto;
+		margin-top: 1rem;
+		cursor: zoom-in;
 	}
 
 	.timeline-image-trigger {
