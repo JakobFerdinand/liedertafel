@@ -9,37 +9,59 @@ const links = [
 ---
 
 <nav class="home-nav" aria-label="Hauptnavigation">
-	<a class="home-nav__brand" href="/" aria-label="Zur Startseite">
-		<span class="home-nav__brand-icon">
-			<Logo class="home-nav__logo" aria-hidden="true" focusable="false" />
-		</span>
-		<span class="home-nav__brand-text">Liedertafel Mining 1906</span>
-	</a>
-	<div class="home-nav__links">
-		{
-			links.map((link) => (
-				<a class="home-nav__link" href={link.href}>{link.label}</a>
-			))
-		}
+	<div class="home-nav__inner">
+		<a class="home-nav__brand" href="/" aria-label="Zur Startseite">
+			<span class="home-nav__brand-icon">
+				<Logo class="home-nav__logo" aria-hidden="true" focusable="false" />
+			</span>
+			<span class="home-nav__brand-text">Liedertafel Mining 1906</span>
+		</a>
+
+		<div class="home-nav__desktop-links">
+			{
+				links.map((link) => (
+					<a class="home-nav__link" href={link.href}>{link.label}</a>
+				))
+			}
+		</div>
+
+		<details class="home-nav__mobile-menu">
+			<summary aria-label="Navigation umschalten">
+				<span></span>
+				<span></span>
+				<span></span>
+			</summary>
+			<div class="home-nav__mobile-panel">
+				{
+					links.map((link) => (
+						<a class="home-nav__link home-nav__link--mobile" href={link.href}>{link.label}</a>
+					))
+				}
+			</div>
+		</details>
 	</div>
 </nav>
 
 <style>
 	.home-nav {
+		width: 100%;
+		position: sticky;
+		top: 0;
+		z-index: 20;
+		background: rgba(105, 45, 49, 0.72);
+		backdrop-filter: blur(10px);
+		box-shadow: 0 8px 22px rgba(0, 0, 0, 0.12);
+	}
+
+	.home-nav__inner {
+		width: 100%;
+		max-width: var(--content-max-width);
+		margin: 0 auto;
+		padding: 0.75rem 2rem;
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
 		gap: 1rem;
-		padding: 0.9rem 1rem;
-		border: 1px solid rgba(255, 255, 255, 0.2);
-		background:
-			linear-gradient(135deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.06)),
-			rgba(97, 39, 43, 0.58);
-		box-shadow: 0 16px 34px rgba(0, 0, 0, 0.18);
-		backdrop-filter: blur(14px);
-		position: sticky;
-		top: 1rem;
-		z-index: 20;
 	}
 
 	.home-nav__brand {
@@ -52,15 +74,15 @@ const links = [
 	}
 
 	.home-nav__brand-icon {
-		width: 3rem;
-		height: 3rem;
+		width: 2.6rem;
+		height: 2.6rem;
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		padding: 0.45rem;
+		padding: 0.38rem;
 		border-radius: 999px;
-		background: rgba(255, 255, 255, 0.1);
-		border: 1px solid rgba(255, 255, 255, 0.18);
+		background: rgba(255, 255, 255, 0.08);
+		border: 1px solid rgba(255, 255, 255, 0.14);
 		flex-shrink: 0;
 	}
 
@@ -72,16 +94,16 @@ const links = [
 
 	.home-nav__brand-text {
 		font-family: var(--font-heading);
-		font-size: 1.05rem;
+		font-size: 0.98rem;
 		letter-spacing: 0.03em;
 		line-height: 1.2;
 	}
 
-	.home-nav__links {
+	.home-nav__desktop-links {
 		display: flex;
 		align-items: center;
 		justify-content: flex-end;
-		gap: 0.65rem;
+		gap: 0.45rem;
 		flex-wrap: wrap;
 	}
 
@@ -89,55 +111,94 @@ const links = [
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		padding: 0.7rem 1rem;
+		padding: 0.55rem 0.85rem;
 		border-radius: 999px;
 		color: #ffffff;
 		text-decoration: none;
-		font-size: 0.8rem;
+		font-size: 0.75rem;
 		font-weight: 600;
-		letter-spacing: 0.12em;
+		letter-spacing: 0.1em;
 		text-transform: uppercase;
-		border: 1px solid rgba(255, 255, 255, 0.18);
-		background: rgba(255, 255, 255, 0.08);
+		border: 1px solid transparent;
+		background: transparent;
 		transition: background 0.25s ease, border-color 0.25s ease, transform 0.25s ease;
 	}
 
 	.home-nav__brand:hover .home-nav__brand-icon,
 	.home-nav__link:hover {
-		background: rgba(255, 255, 255, 0.16);
-		border-color: rgba(255, 255, 255, 0.36);
+		background: rgba(255, 255, 255, 0.12);
+		border-color: rgba(255, 255, 255, 0.2);
 		transform: translateY(-1px);
 	}
 
+	.home-nav__mobile-menu {
+		display: none;
+		position: relative;
+	}
+
+	.home-nav__mobile-menu summary {
+		width: 2.75rem;
+		height: 2.75rem;
+		display: inline-flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 0.28rem;
+		cursor: pointer;
+		list-style: none;
+		border-radius: 999px;
+		border: 1px solid rgba(255, 255, 255, 0.14);
+		background: rgba(255, 255, 255, 0.08);
+	}
+
+	.home-nav__mobile-menu summary::-webkit-details-marker {
+		display: none;
+	}
+
+	.home-nav__mobile-menu summary span {
+		width: 1rem;
+		height: 1px;
+		background: #ffffff;
+	}
+
+	.home-nav__mobile-panel {
+		position: absolute;
+		top: calc(100% + 0.6rem);
+		right: 0;
+		min-width: min(15rem, calc(100vw - 2rem));
+		padding: 0.45rem;
+		display: grid;
+		gap: 0.2rem;
+		border: 1px solid rgba(255, 255, 255, 0.16);
+		background: rgba(105, 45, 49, 0.96);
+		box-shadow: 0 18px 30px rgba(0, 0, 0, 0.18);
+	}
+
+	.home-nav__link--mobile {
+		justify-content: flex-start;
+		padding: 0.85rem 0.95rem;
+		border-radius: 0;
+	}
+
 	@media (max-width: 720px) {
-		.home-nav {
-			flex-direction: column;
-			align-items: stretch;
-			padding: 0.85rem;
+		.home-nav__inner {
+			padding: 0.75rem 1rem;
 		}
 
 		.home-nav__brand {
-			justify-content: center;
+			min-width: 0;
 		}
 
 		.home-nav__brand-text {
-			font-size: 0.98rem;
-			text-align: center;
+			font-size: 0.92rem;
 		}
 
-		.home-nav__links {
-			justify-content: center;
-		}
-	}
-
-	@media (max-width: 520px) {
-		.home-nav__links {
-			display: grid;
-			grid-template-columns: 1fr;
+		.home-nav__desktop-links {
+			display: none;
 		}
 
-		.home-nav__link {
-			width: 100%;
+		.home-nav__mobile-menu {
+			display: block;
 		}
 	}
 </style>
