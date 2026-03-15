@@ -15,4 +15,4 @@ Anmerkung für die Redaktion: Zitat aus der Chronik bitte kursiv!
 
 Auch die regionalen Zeitungen berichteten sehr umfangreich über dieses große Fest. Im Anhang dazu nur einige Beispiele!
 
-![Zeitungsausschnitte zum Burgfest Frauenstein](./img/1927-06-26_Burgfest-Frauenstein.jpg)
+![Zeitungsausschnitte zum Burgfest Frauenstein](./img/1927-06-26_Das-Burgfest.jpg)
