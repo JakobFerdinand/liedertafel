@@ -115,6 +115,12 @@ const timelineEntries = await Promise.all(
 
 	<dialog class="image-lightbox" aria-label="Bild vergrößert anzeigen">
 		<button type="button" class="lightbox-close" aria-label="Vollbildansicht schließen">x</button>
+		<button type="button" class="lightbox-nav lightbox-nav--prev" aria-label="Vorheriges Bild anzeigen">
+			&lt;
+		</button>
+		<button type="button" class="lightbox-nav lightbox-nav--next" aria-label="Nächstes Bild anzeigen">
+			&gt;
+		</button>
 		<figure class="lightbox-figure">
 			<img class="lightbox-image" src="" alt="" />
 			<figcaption class="lightbox-caption"></figcaption>
@@ -129,35 +135,132 @@ const timelineEntries = await Promise.all(
 	const lightboxImage = lightbox?.querySelector<HTMLImageElement>(".lightbox-image");
 	const lightboxCaption = lightbox?.querySelector<HTMLElement>(".lightbox-caption");
 	const closeButton = lightbox?.querySelector<HTMLButtonElement>(".lightbox-close");
+	const previousButton = lightbox?.querySelector<HTMLButtonElement>(".lightbox-nav--prev");
+	const nextButton = lightbox?.querySelector<HTMLButtonElement>(".lightbox-nav--next");
 	const triggers = document.querySelectorAll<HTMLButtonElement>(".timeline-image-trigger");
 	const markdownImages = document.querySelectorAll<HTMLImageElement>(".timeline-content img");
+	const timelineContents = document.querySelectorAll<HTMLElement>(".timeline-content");
+
+	type LightboxItem = {
+		trigger: HTMLElement;
+		getSource: () => string;
+		getAlt: () => string;
+	};
 
 	let triggerElement: HTMLElement | null = null;
+	let currentGroup: LightboxItem[] = [];
+	let currentIndex = -1;
 
-	const openLightbox = (source: string, alt: string, trigger: HTMLElement) => {
+	const groupLookup = new Map<HTMLElement, LightboxItem[]>();
+	const indexLookup = new Map<HTMLElement, number>();
+
+	const setNavigationState = () => {
+		const hasMultipleImages = currentGroup.length > 1;
+
+		previousButton?.toggleAttribute("hidden", !hasMultipleImages);
+		nextButton?.toggleAttribute("hidden", !hasMultipleImages);
+
+		if (!hasMultipleImages) {
+			if (previousButton) {
+				previousButton.disabled = true;
+			}
+
+			if (nextButton) {
+				nextButton.disabled = true;
+			}
+
+			return;
+		}
+
+		if (previousButton) {
+			previousButton.disabled = currentIndex <= 0;
+		}
+
+		if (nextButton) {
+			nextButton.disabled = currentIndex >= currentGroup.length - 1;
+		}
+	};
+
+	const showImageAtIndex = (index: number) => {
+		if (!lightboxImage || index < 0 || index >= currentGroup.length) {
+			return;
+		}
+
+		currentIndex = index;
+		const item = currentGroup[currentIndex];
+		const alt = item.getAlt();
+
+		lightboxImage.src = item.getSource();
+		lightboxImage.alt = alt;
+		if (lightboxCaption) {
+			lightboxCaption.textContent = alt;
+		}
+
+		setNavigationState();
+	};
+
+	const openLightbox = (trigger: HTMLElement) => {
 		if (!lightbox || !lightboxImage) {
 			return;
 		}
 
 		triggerElement = trigger;
-		lightboxImage.src = source;
-		lightboxImage.alt = alt;
-		if (lightboxCaption) {
-			lightboxCaption.textContent = alt;
-		}
+		currentGroup = groupLookup.get(trigger) ?? [];
+		currentIndex = indexLookup.get(trigger) ?? 0;
+		showImageAtIndex(currentIndex);
 		lightbox.showModal();
+	};
+
+	const showPreviousImage = () => {
+		showImageAtIndex(currentIndex - 1);
+	};
+
+	const showNextImage = () => {
+		showImageAtIndex(currentIndex + 1);
 	};
 
 	const closeLightbox = () => {
 		if (lightbox?.open) {
 			lightbox.close();
+			currentGroup = [];
+			currentIndex = -1;
 			triggerElement?.focus();
 		}
 	};
 
+	timelineContents.forEach((content) => {
+		const items: LightboxItem[] = [];
+
+		const trigger = content.querySelector<HTMLButtonElement>(".timeline-image-trigger");
+		if (trigger) {
+			items.push({
+				trigger,
+				getSource: () => trigger.dataset.imageSrc ?? "",
+				getAlt: () => trigger.dataset.imageAlt ?? "",
+			});
+		}
+
+		content.querySelectorAll<HTMLImageElement>("img").forEach((image) => {
+			if (image.closest(".timeline-image-trigger")) {
+				return;
+			}
+
+			items.push({
+				trigger: image,
+				getSource: () => image.currentSrc || image.src,
+				getAlt: () => image.alt,
+			});
+		});
+
+		items.forEach((item, index) => {
+			groupLookup.set(item.trigger, items);
+			indexLookup.set(item.trigger, index);
+		});
+	});
+
 	triggers.forEach((trigger) => {
 		trigger.addEventListener("click", () => {
-			openLightbox(trigger.dataset.imageSrc ?? "", trigger.dataset.imageAlt ?? "", trigger);
+			openLightbox(trigger);
 		});
 	});
 
@@ -172,7 +275,7 @@ const timelineEntries = await Promise.all(
 		image.setAttribute("aria-label", `${image.alt || "Bild"} vergrößern`);
 
 		image.addEventListener("click", () => {
-			openLightbox(image.currentSrc || image.src, image.alt, image);
+			openLightbox(image);
 		});
 
 		image.addEventListener("keydown", (event) => {
@@ -181,16 +284,34 @@ const timelineEntries = await Promise.all(
 			}
 
 			event.preventDefault();
-			openLightbox(image.currentSrc || image.src, image.alt, image);
+			openLightbox(image);
 		});
 	});
 
 	closeButton?.addEventListener("click", closeLightbox);
+	previousButton?.addEventListener("click", showPreviousImage);
+	nextButton?.addEventListener("click", showNextImage);
 
 	lightbox?.addEventListener("click", (event) => {
 		const target = event.target;
 		if (target instanceof HTMLDialogElement) {
 			closeLightbox();
+		}
+	});
+
+	document.addEventListener("keydown", (event) => {
+		if (!lightbox?.open) {
+			return;
+		}
+
+		if (event.key === "ArrowLeft") {
+			event.preventDefault();
+			showPreviousImage();
+		}
+
+		if (event.key === "ArrowRight") {
+			event.preventDefault();
+			showNextImage();
 		}
 	});
 </script>
@@ -407,6 +528,42 @@ const timelineEntries = await Promise.all(
 		background: rgba(0, 0, 0, 0.7);
 	}
 
+	.lightbox-nav {
+		position: fixed;
+		top: 50%;
+		transform: translateY(-50%);
+		width: 3rem;
+		height: 3rem;
+		border-radius: 999px;
+		border: 1px solid rgba(255, 255, 255, 0.45);
+		background: rgba(0, 0, 0, 0.5);
+		color: #fff;
+		font-size: 1.5rem;
+		line-height: 1;
+		cursor: pointer;
+	}
+
+	.lightbox-nav:hover {
+		background: rgba(0, 0, 0, 0.7);
+	}
+
+	.lightbox-nav:disabled {
+		opacity: 0.35;
+		cursor: default;
+	}
+
+	.lightbox-nav[hidden] {
+		display: none;
+	}
+
+	.lightbox-nav--prev {
+		left: 1rem;
+	}
+
+	.lightbox-nav--next {
+		right: 1rem;
+	}
+
 	@media (max-width: 600px) {
 		.timeline {
 			padding: 0 1rem;
@@ -425,6 +582,12 @@ const timelineEntries = await Promise.all(
 
 		.timeline-content {
 			padding: 0 1rem 1rem;
+		}
+
+		.lightbox-nav {
+			width: 2.5rem;
+			height: 2.5rem;
+			font-size: 1.25rem;
 		}
 	}
 </style>
