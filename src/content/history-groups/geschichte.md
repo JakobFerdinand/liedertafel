@@ -6,6 +6,6 @@ groups:
     from: 1920
   - title: "Blütezeit"
     from: 1951
-  - title: "Gründerzeit"
+  - title: "Reifezeit"
     from: 2005
 ---
