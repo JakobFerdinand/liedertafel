@@ -62,9 +62,9 @@ const formatHistoryDate = (rawDate: string) => {
 const getHistoryYear = (rawDate: string) => Number.parseInt(rawDate.slice(0, 4), 10);
 
 const historyEntries = await getCollection("history");
-const historyGroupEntries = await getCollection("historyGroups");
+const historyGroupConfigs = await getCollection("historyGroups");
 
-if (historyGroupEntries.length > 1) {
+if (historyGroupConfigs.length > 1) {
 	throw new Error("Expected a single historyGroups entry in src/content/history-groups.");
 }
 
@@ -87,7 +87,7 @@ const timelineEntries = await Promise.all(
 		}),
 );
 
-const configuredGroupDefinitions = historyGroupEntries[0]?.data.groups;
+const configuredGroups = historyGroupConfigs[0]?.data.groups;
 const visibleTimelineGroups: TimelineGroup[] = [];
 
 if (timelineEntries.length > 0) {
@@ -97,7 +97,7 @@ if (timelineEntries.length > 0) {
 	);
 
 	const groupDefinitions: TimelineGroupDefinition[] = (
-		configuredGroupDefinitions?.length ? configuredGroupDefinitions : [{ title: "Geschichte", from: earliestHistoryYear }]
+		configuredGroups?.length ? configuredGroups : [{ title: "Geschichte", from: earliestHistoryYear }]
 	)
 		.slice()
 		.sort((first: TimelineGroupDefinition, second: TimelineGroupDefinition) => first.from - second.from);
