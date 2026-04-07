@@ -19,6 +19,7 @@ interface TimelineEntry {
 interface TimelineGroupDefinition {
 	title: string;
 	from: number;
+	message?: string;
 }
 
 interface TimelineGroup extends TimelineGroupDefinition {
@@ -147,6 +148,9 @@ const visibleTimelineGroups = timelineGroups.filter((group) => group.entries.len
 								{group.entries.length} {group.entries.length === 1 ? "Eintrag" : "Einträge"}
 							</p>
 						</summary>
+						{group.message && (
+							<p class="timeline-group__message">{group.message}</p>
+						)}
 						<ul class="timeline-list timeline-group__entries">
 							{group.entries.map((entry) => (
 								<li class="timeline-item" id={entry.id}>
@@ -658,6 +662,15 @@ const visibleTimelineGroups = timelineGroups.filter((group) => group.entries.len
 	.timeline-group__range,
 	.timeline-group__count {
 		margin: 0;
+	}
+
+	.timeline-group__message {
+		margin: 0 0 1rem calc(-1 * var(--timeline-item-padding-left) + var(--timeline-marker-x) - 1px);
+		padding: 0.9rem 1.35rem 0.9rem calc(var(--timeline-item-padding-left) - var(--timeline-marker-x) + 1px);
+		line-height: 1.65;
+		opacity: 0.9;
+		border-left: 2px solid rgba(255, 255, 255, 0.3);
+		white-space: pre-line;
 	}
 
 	.timeline-group__range {

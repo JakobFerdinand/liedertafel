@@ -39,6 +39,7 @@ const historyGroups = defineCollection({
 			z.object({
 				title: z.string(),
 				from: z.number().int(),
+				message: z.string().optional(),
 			}),
 		),
 	}),
