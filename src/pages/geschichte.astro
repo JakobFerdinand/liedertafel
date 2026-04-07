@@ -16,6 +16,23 @@ interface TimelineEntry {
 	Content: Awaited<ReturnType<typeof render>>["Content"];
 }
 
+interface TimelineGroupDefinition {
+	title: string;
+	from: number;
+}
+
+interface TimelineGroup extends TimelineGroupDefinition {
+	to?: number;
+	rangeLabel: string;
+	entries: TimelineEntry[];
+}
+
+interface HistoryGroupEntry {
+	data: {
+		groups?: TimelineGroupDefinition[];
+	};
+}
+
 const formatHistoryDate = (rawDate: string) => {
 	if (/^\d{4}$/.test(rawDate)) {
 		return rawDate;
@@ -47,11 +64,15 @@ const formatHistoryDate = (rawDate: string) => {
 	return rawDate;
 };
 
+const getHistoryYear = (rawDate: string) => Number.parseInt(rawDate.slice(0, 4), 10);
+const getUntypedCollection = getCollection as unknown as (collection: string) => Promise<unknown[]>;
+
 const historyEntries = await getCollection("history");
+const historyGroupEntries = (await getUntypedCollection("historyGroups")) as HistoryGroupEntry[];
 
 const timelineEntries = await Promise.all(
 	historyEntries
-		.sort((first, second) => second.data.date.localeCompare(first.data.date))
+		.sort((first: (typeof historyEntries)[number], second: (typeof historyEntries)[number]) => second.data.date.localeCompare(first.data.date))
 		.map(async (entry) => {
 			const { Content } = await render(entry);
 
@@ -67,6 +88,42 @@ const timelineEntries = await Promise.all(
 			} satisfies TimelineEntry;
 		}),
 );
+
+const earliestHistoryYear = timelineEntries.reduce(
+	(earliestYear, entry) => Math.min(earliestYear, getHistoryYear(entry.date)),
+	Number.POSITIVE_INFINITY,
+);
+
+const configuredGroupDefinitions = historyGroupEntries[0]?.data.groups;
+
+const groupDefinitions: TimelineGroupDefinition[] = (
+	configuredGroupDefinitions?.length ? configuredGroupDefinitions : [{ title: "Geschichte", from: earliestHistoryYear }]
+)
+	.slice()
+	.sort((first: TimelineGroupDefinition, second: TimelineGroupDefinition) => first.from - second.from);
+
+const timelineGroups: TimelineGroup[] = groupDefinitions.map((group, index) => {
+	const nextGroup = groupDefinitions[index + 1];
+	const to = nextGroup ? nextGroup.from - 1 : undefined;
+	const rangeStart = index === 0 ? Math.min(group.from, earliestHistoryYear) : group.from;
+
+	return {
+		...group,
+		to,
+		rangeLabel: to ? `${rangeStart}-${to}` : `ab ${rangeStart}`,
+		entries: [],
+	};
+});
+
+timelineEntries.forEach((entry) => {
+	const entryYear = getHistoryYear(entry.date);
+	const groupIndex = groupDefinitions.findLastIndex((group) => entryYear >= group.from);
+	const targetGroup = timelineGroups[groupIndex >= 0 ? groupIndex : 0];
+
+	targetGroup?.entries.push(entry);
+});
+
+const visibleTimelineGroups = timelineGroups.filter((group) => group.entries.length > 0).reverse();
 ---
 
 <Layout>
@@ -78,37 +135,48 @@ const timelineEntries = await Promise.all(
 
 	<section class="timeline" aria-labelledby="timeline-heading">
 		<h2 id="timeline-heading">Zeitstrahl</h2>
-		<ul class="timeline-list">
+		<ul class="timeline-list timeline-list--grouped">
 			{
-				timelineEntries.map((entry) => (
-					<li class="timeline-item" id={entry.id}>
-						<details class="timeline-details" data-history-entry={entry.id} open={false}>
-							<summary>
-								<span class="timeline-date">{entry.formattedDate}</span>
-								<div class="timeline-header">
-									<h3>{entry.title}</h3>
-									{entry.subtitle && <p>{entry.subtitle}</p>}
-								</div>
-							</summary>
-							{(entry.image || entry.hasContent) && (
-								<div class="timeline-content" id={entry.id}>
-									{entry.image && (
-										<button
-											type="button"
-											class="timeline-image-trigger"
-											data-image-src={entry.image.src}
-											data-image-alt={`Bild zu ${entry.title}`}
-											aria-label={`Bild zu ${entry.title} vergrößern`}
-										>
-											<Image src={entry.image} alt={`Bild zu ${entry.title}`} loading="lazy" />
-										</button>
-									)}
-									{entry.hasContent && <entry.Content />}
-								</div>
-							)}
-						</details>
-					</li>
-				))
+				visibleTimelineGroups.map((group) => [
+					<li class="timeline-group-item" aria-labelledby={`timeline-group-${group.from}`}>
+						<header class="timeline-group__header">
+							<p class="timeline-group__range">{group.rangeLabel}</p>
+							<h3 id={`timeline-group-${group.from}`}>{group.title}</h3>
+							<p class="timeline-group__count">
+								{group.entries.length} {group.entries.length === 1 ? "Eintrag" : "Einträge"}
+							</p>
+						</header>
+					</li>,
+					...group.entries.map((entry) => (
+						<li class="timeline-item" id={entry.id}>
+							<details class="timeline-details" data-history-entry={entry.id} open={false}>
+								<summary>
+									<span class="timeline-date">{entry.formattedDate}</span>
+									<div class="timeline-header">
+										<h4>{entry.title}</h4>
+										{entry.subtitle && <p>{entry.subtitle}</p>}
+									</div>
+								</summary>
+								{(entry.image || entry.hasContent) && (
+									<div class="timeline-content">
+										{entry.image && (
+											<button
+												type="button"
+												class="timeline-image-trigger"
+												data-image-src={entry.image.src}
+												data-image-alt={`Bild zu ${entry.title}`}
+												aria-label={`Bild zu ${entry.title} vergrößern`}
+											>
+												<Image src={entry.image} alt={`Bild zu ${entry.title}`} loading="lazy" />
+											</button>
+										)}
+										{entry.hasContent && <entry.Content />}
+									</div>
+								)}
+							</details>
+						</li>
+					)),
+				])
 			}
 		</ul>
 	</section>
@@ -412,6 +480,9 @@ const timelineEntries = await Promise.all(
 	}
 
 	.timeline {
+		display: flex;
+		flex-direction: column;
+		gap: 1.5rem;
 	}
 
 	.timeline-list {
@@ -425,14 +496,14 @@ const timelineEntries = await Promise.all(
 		gap: var(--timeline-gap);
 	}
 
-	.timeline-item {
+	.timeline-list > li {
 		position: relative;
 		--timeline-item-padding-left: 2rem;
 		--timeline-marker-x: 0.5rem;
 		padding-left: var(--timeline-item-padding-left);
 	}
 
-	.timeline-item::before {
+	.timeline-list > li::before {
 		content: "";
 		position: absolute;
 		left: var(--timeline-marker-x);
@@ -443,8 +514,69 @@ const timelineEntries = await Promise.all(
 		transform: translateX(-50%);
 	}
 
-	.timeline-item:last-child::before {
+	.timeline-list > li:last-child::before {
 		bottom: calc(100% - var(--timeline-dot-top));
+	}
+
+	.timeline-group-item {
+		position: relative;
+		--timeline-dot-top: 1.7rem;
+	}
+
+	.timeline-group-item::after {
+		content: "";
+		position: absolute;
+		left: var(--timeline-marker-x);
+		top: var(--timeline-dot-top);
+		width: 0.95rem;
+		height: 0.95rem;
+		border-radius: 999px;
+		border: 2px solid rgba(255, 255, 255, 0.78);
+		background: rgba(255, 255, 255, 0.12);
+		box-shadow: 0 0 0 0.35rem rgba(255, 255, 255, 0.06);
+		transform: translate(-50%, -50%);
+	}
+
+	.timeline-group__header {
+		display: grid;
+		grid-template-columns: auto 1fr auto;
+		gap: 0.9rem;
+		align-items: end;
+		padding: 0.8rem 0 0.35rem 1.35rem;
+	}
+
+	.timeline-group__header h3 {
+		margin: 0;
+		text-align: left;
+		font-size: 1.55rem;
+	}
+
+	.timeline-group__range,
+	.timeline-group__count {
+		margin: 0;
+	}
+
+	.timeline-group__range {
+		display: inline-flex;
+		align-items: center;
+		padding: 0.35rem 0.8rem;
+		border: 1px solid rgba(255, 255, 255, 0.28);
+		background: rgba(255, 255, 255, 0.08);
+		font-size: 0.8rem;
+		font-weight: 600;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		white-space: nowrap;
+	}
+
+	.timeline-group__count {
+		font-size: 0.95rem;
+		opacity: 0.75;
+		text-align: right;
+	}
+
+	.timeline-item {
+		--timeline-dot-top: 1.575rem;
 	}
 
 	.timeline-details {
@@ -492,8 +624,13 @@ const timelineEntries = await Promise.all(
 		flex-shrink: 0;
 	}
 
-	.timeline-header h3 {
+	.timeline-header h4 {
+		font-family: var(--font-heading);
 		font-size: 1.3rem;
+		font-weight: 500;
+		margin: 0;
+		letter-spacing: 0.01em;
+		line-height: 1.3;
 	}
 
 	.timeline-header p {
@@ -638,24 +775,47 @@ const timelineEntries = await Promise.all(
 		right: 1rem;
 	}
 
+	@media (max-width: 800px) {
+		.timeline-group__header {
+			grid-template-columns: 1fr;
+			align-items: start;
+		}
+
+		.timeline-group__count {
+			text-align: left;
+		}
+	}
+
 	@media (max-width: 600px) {
 		.timeline {
 			padding: 0 1rem;
+		}
+
+		.timeline-list > li {
+			--timeline-item-padding-left: 1.5rem;
+			--timeline-marker-x: 0.35rem;
 		}
 
 		.timeline-list {
 			--timeline-dot-top: 1.375rem;
 		}
 
-		.timeline-item {
-			--timeline-item-padding-left: 1.5rem;
-			--timeline-marker-x: 0.35rem;
+		.timeline-group-item {
+			--timeline-dot-top: 1.45rem;
+		}
+
+		.timeline-group__header {
+			padding-left: 1rem;
 		}
 
 		.timeline-details summary {
 			grid-template-columns: 1fr;
 			padding: 1rem;
 			gap: 0.45rem;
+		}
+
+		.timeline-date {
+			width: auto;
 		}
 
 		.timeline-content {

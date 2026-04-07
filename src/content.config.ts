@@ -29,7 +29,23 @@ const history = defineCollection({
 		}),
 });
 
+const historyGroups = defineCollection({
+	loader: glob({
+		pattern: "**/*.md",
+		base: "./src/content/history-groups",
+	}),
+	schema: z.object({
+		groups: z.array(
+			z.object({
+				title: z.string(),
+				from: z.number().int(),
+			}),
+		),
+	}),
+});
+
 export const collections = {
 	events,
 	history,
+	historyGroups,
 };
