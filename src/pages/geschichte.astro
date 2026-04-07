@@ -28,12 +28,6 @@ interface TimelineGroup extends TimelineGroupDefinition {
 	entries: TimelineEntry[];
 }
 
-interface HistoryGroupEntry {
-	data: {
-		groups?: TimelineGroupDefinition[];
-	};
-}
-
 const formatHistoryDate = (rawDate: string) => {
 	if (/^\d{4}$/.test(rawDate)) {
 		return rawDate;
@@ -66,10 +60,13 @@ const formatHistoryDate = (rawDate: string) => {
 };
 
 const getHistoryYear = (rawDate: string) => Number.parseInt(rawDate.slice(0, 4), 10);
-const getUntypedCollection = getCollection as unknown as (collection: string) => Promise<unknown[]>;
 
 const historyEntries = await getCollection("history");
-const historyGroupEntries = (await getUntypedCollection("historyGroups")) as HistoryGroupEntry[];
+const historyGroupEntries = await getCollection("historyGroups");
+
+if (historyGroupEntries.length > 1) {
+	throw new Error("Expected a single historyGroups entry in src/content/history-groups.");
+}
 
 const timelineEntries = await Promise.all(
 	historyEntries
@@ -90,41 +87,44 @@ const timelineEntries = await Promise.all(
 		}),
 );
 
-const earliestHistoryYear = timelineEntries.reduce(
-	(earliestYear, entry) => Math.min(earliestYear, getHistoryYear(entry.date)),
-	Number.POSITIVE_INFINITY,
-);
-
 const configuredGroupDefinitions = historyGroupEntries[0]?.data.groups;
+const visibleTimelineGroups: TimelineGroup[] = [];
 
-const groupDefinitions: TimelineGroupDefinition[] = (
-	configuredGroupDefinitions?.length ? configuredGroupDefinitions : [{ title: "Geschichte", from: earliestHistoryYear }]
-)
-	.slice()
-	.sort((first: TimelineGroupDefinition, second: TimelineGroupDefinition) => first.from - second.from);
+if (timelineEntries.length > 0) {
+	const earliestHistoryYear = timelineEntries.reduce(
+		(earliestYear, entry) => Math.min(earliestYear, getHistoryYear(entry.date)),
+		Number.POSITIVE_INFINITY,
+	);
 
-const timelineGroups: TimelineGroup[] = groupDefinitions.map((group, index) => {
-	const nextGroup = groupDefinitions[index + 1];
-	const to = nextGroup ? nextGroup.from - 1 : undefined;
-	const rangeStart = index === 0 ? Math.min(group.from, earliestHistoryYear) : group.from;
+	const groupDefinitions: TimelineGroupDefinition[] = (
+		configuredGroupDefinitions?.length ? configuredGroupDefinitions : [{ title: "Geschichte", from: earliestHistoryYear }]
+	)
+		.slice()
+		.sort((first: TimelineGroupDefinition, second: TimelineGroupDefinition) => first.from - second.from);
 
-	return {
-		...group,
-		to,
-		rangeLabel: to ? `${rangeStart}-${to}` : `ab ${rangeStart}`,
-		entries: [],
-	};
-});
+	const timelineGroups: TimelineGroup[] = groupDefinitions.map((group, index) => {
+		const nextGroup = groupDefinitions[index + 1];
+		const to = nextGroup ? nextGroup.from - 1 : undefined;
+		const rangeStart = index === 0 ? Math.min(group.from, earliestHistoryYear) : group.from;
 
-timelineEntries.forEach((entry) => {
-	const entryYear = getHistoryYear(entry.date);
-	const groupIndex = groupDefinitions.findLastIndex((group) => entryYear >= group.from);
-	const targetGroup = timelineGroups[groupIndex >= 0 ? groupIndex : 0];
+		return {
+			...group,
+			to,
+			rangeLabel: to ? `${rangeStart}-${to}` : `ab ${rangeStart}`,
+			entries: [],
+		};
+	});
 
-	targetGroup?.entries.push(entry);
-});
+	timelineEntries.forEach((entry) => {
+		const entryYear = getHistoryYear(entry.date);
+		const groupIndex = groupDefinitions.findLastIndex((group) => entryYear >= group.from);
+		const targetGroup = timelineGroups[groupIndex >= 0 ? groupIndex : 0];
 
-const visibleTimelineGroups = timelineGroups.filter((group) => group.entries.length > 0).reverse();
+		targetGroup?.entries.push(entry);
+	});
+
+	visibleTimelineGroups.push(...timelineGroups.filter((group) => group.entries.length > 0).reverse());
+}
 ---
 
 <Layout>
@@ -135,57 +135,62 @@ const visibleTimelineGroups = timelineGroups.filter((group) => group.entries.len
 	</section>
 
 	<section class="timeline" aria-labelledby="timeline-heading">
-		<ul class="timeline-list timeline-list--grouped">
-		{
-			visibleTimelineGroups.map((group) => (
-				<li class="timeline-group-item" aria-labelledby={`timeline-group-${group.from}`}>
-					<details class="timeline-group__details">
-						<summary class="timeline-group__header">
-							<h3 class="timeline-group__title" id={`timeline-group-${group.from}`}>{group.title}</h3>
-							<p class="timeline-group__range">{group.rangeLabel}</p>
-							<p class="timeline-group__count">
-								{group.entries.length} {group.entries.length === 1 ? "Eintrag" : "Einträge"}
-							</p>
-						</summary>
-						{group.message && (
-							<p class="timeline-group__message">{group.message}</p>
-						)}
-						<ul class="timeline-list timeline-group__entries">
-							{group.entries.map((entry) => (
-								<li class="timeline-item" id={entry.id}>
-									<details class="timeline-details" data-history-entry={entry.id} open={false}>
-										<summary>
-											<span class="timeline-date">{entry.formattedDate}</span>
-											<div class="timeline-header">
-												<h4>{entry.title}</h4>
-												{entry.subtitle && <p>{entry.subtitle}</p>}
-											</div>
-										</summary>
-										{(entry.image || entry.hasContent) && (
-											<div class="timeline-content">
-												{entry.image && (
-													<button
-														type="button"
-														class="timeline-image-trigger"
-														data-image-src={entry.image.src}
-														data-image-alt={`Bild zu ${entry.title}`}
-														aria-label={`Bild zu ${entry.title} vergrößern`}
-													>
-														<Image src={entry.image} alt={`Bild zu ${entry.title}`} loading="lazy" />
-													</button>
+		<h2 class="timeline-heading" id="timeline-heading">Zeitleiste</h2>
+		{visibleTimelineGroups.length > 0 ? (
+			<ul class="timeline-list timeline-list--grouped">
+				{
+					visibleTimelineGroups.map((group) => (
+						<li class="timeline-group-item" aria-labelledby={`timeline-group-${group.from}`}>
+							<details class="timeline-group__details">
+								<summary class="timeline-group__header">
+									<h3 class="timeline-group__title" id={`timeline-group-${group.from}`}>{group.title}</h3>
+									<p class="timeline-group__range">{group.rangeLabel}</p>
+									<p class="timeline-group__count">
+										{group.entries.length} {group.entries.length === 1 ? "Eintrag" : "Einträge"}
+									</p>
+								</summary>
+								{group.message && (
+									<p class="timeline-group__message">{group.message}</p>
+								)}
+								<ul class="timeline-list timeline-group__entries">
+									{group.entries.map((entry) => (
+										<li class="timeline-item" id={entry.id}>
+											<details class="timeline-details" data-history-entry={entry.id} open={false}>
+												<summary>
+													<span class="timeline-date">{entry.formattedDate}</span>
+													<div class="timeline-header">
+														<h4>{entry.title}</h4>
+														{entry.subtitle && <p>{entry.subtitle}</p>}
+													</div>
+												</summary>
+												{(entry.image || entry.hasContent) && (
+													<div class="timeline-content">
+														{entry.image && (
+															<button
+																type="button"
+																class="timeline-image-trigger"
+																data-image-src={entry.image.src}
+																data-image-alt={`Bild zu ${entry.title}`}
+																aria-label={`Bild zu ${entry.title} vergrößern`}
+															>
+																<Image src={entry.image} alt={`Bild zu ${entry.title}`} loading="lazy" />
+															</button>
+														)}
+														{entry.hasContent && <entry.Content />}
+													</div>
 												)}
-												{entry.hasContent && <entry.Content />}
-											</div>
-										)}
-									</details>
-								</li>
-							))}
-						</ul>
-					</details>
-				</li>
-			))
-		}
-		</ul>
+											</details>
+										</li>
+									))}
+								</ul>
+							</details>
+						</li>
+					))
+				}
+			</ul>
+		) : (
+			<p class="timeline-empty">Noch keine Chronik-Einträge vorhanden.</p>
+		)}
 	</section>
 
 	<dialog class="image-lightbox" aria-label="Bild vergrößert anzeigen">
@@ -578,51 +583,16 @@ const visibleTimelineGroups = timelineGroups.filter((group) => group.entries.len
 		bottom: calc(100% - var(--timeline-dot-top));
 	}
 
-	.timeline-group__details {
-		width: 100%;
-	}
-
-	.timeline-group__details > summary {
-		list-style: none;
-		cursor: pointer;
-	}
-
-	.timeline-group__details > summary::-webkit-details-marker {
-		display: none;
-	}
-
-	.timeline-group__entries {
-		--timeline-gap: 1rem;
-		--timeline-dot-top: 1.575rem;
-		list-style: none;
+	.timeline-heading {
 		margin: 0;
-		padding: 0;
-		display: flex;
-		flex-direction: column;
-		gap: var(--timeline-gap);
-		margin-top: var(--timeline-gap);
+		font-size: 1.6rem;
+		text-align: left;
 	}
 
-	.timeline-group__entries > li {
-		position: relative;
-		--timeline-item-padding-left: 2rem;
-		--timeline-marker-x: 0.5rem;
-		padding-left: var(--timeline-item-padding-left);
-	}
-
-	.timeline-group__entries > li::before {
-		content: "";
-		position: absolute;
-		left: var(--timeline-marker-x);
-		top: 0;
-		bottom: calc(-1 * var(--timeline-gap));
-		width: 2px;
-		background: rgba(255, 255, 255, 0.3);
-		transform: translateX(-50%);
-	}
-
-	.timeline-group__entries > li:last-child::before {
-		bottom: calc(100% - var(--timeline-dot-top));
+	.timeline-empty {
+		margin: 0;
+		line-height: 1.6;
+		opacity: 0.9;
 	}
 
 	.timeline-group-item {
