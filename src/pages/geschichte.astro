@@ -142,8 +142,8 @@ const visibleTimelineGroups = timelineGroups.filter((group) => group.entries.len
 				<li class="timeline-group-item" aria-labelledby={`timeline-group-${group.from}`}>
 					<details class="timeline-group__details">
 						<summary class="timeline-group__header">
+							<h3 class="timeline-group__title" id={`timeline-group-${group.from}`}>{group.title}</h3>
 							<p class="timeline-group__range">{group.rangeLabel}</p>
-							<h3 id={`timeline-group-${group.from}`}>{group.title}</h3>
 							<p class="timeline-group__count">
 								{group.entries.length} {group.entries.length === 1 ? "Eintrag" : "Einträge"}
 							</p>
@@ -647,10 +647,21 @@ const visibleTimelineGroups = timelineGroups.filter((group) => group.entries.len
 
 	.timeline-group__header {
 		display: grid;
-		grid-template-columns: auto 1fr auto;
+		grid-template-columns: minmax(0, 1fr) auto;
 		gap: 0.9rem;
-		align-items: end;
+		align-items: start;
 		padding: 0.8rem 0 0.35rem 1.35rem;
+	}
+
+	.timeline-group__title {
+		display: flex;
+		align-items: center;
+		padding: 0.35rem 0.8rem;
+		border: 1px solid rgba(255, 255, 255, 0.28);
+		background: rgba(255, 255, 255, 0.08);
+		grid-column: 1 / -1;
+		grid-row: 1;
+		width: 100%;
 	}
 
 	.timeline-group__header h3 {
@@ -674,11 +685,8 @@ const visibleTimelineGroups = timelineGroups.filter((group) => group.entries.len
 	}
 
 	.timeline-group__range {
-		display: inline-flex;
-		align-items: center;
-		padding: 0.35rem 0.8rem;
-		border: 1px solid rgba(255, 255, 255, 0.28);
-		background: rgba(255, 255, 255, 0.08);
+		grid-column: 1;
+		grid-row: 2;
 		font-size: 0.8rem;
 		font-weight: 600;
 		letter-spacing: 0.08em;
@@ -687,9 +695,13 @@ const visibleTimelineGroups = timelineGroups.filter((group) => group.entries.len
 	}
 
 	.timeline-group__count {
+		grid-column: 2;
+		grid-row: 2;
+		align-self: start;
 		font-size: 0.95rem;
 		opacity: 0.75;
 		text-align: right;
+		white-space: nowrap;
 	}
 
 	.timeline-item {
@@ -890,17 +902,6 @@ const visibleTimelineGroups = timelineGroups.filter((group) => group.entries.len
 
 	.lightbox-nav--next {
 		right: 1rem;
-	}
-
-	@media (max-width: 800px) {
-		.timeline-group__header {
-			grid-template-columns: 1fr;
-			align-items: start;
-		}
-
-		.timeline-group__count {
-			text-align: left;
-		}
 	}
 
 	@media (max-width: 600px) {
