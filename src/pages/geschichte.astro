@@ -136,48 +136,52 @@ const visibleTimelineGroups = timelineGroups.filter((group) => group.entries.len
 	<section class="timeline" aria-labelledby="timeline-heading">
 		<h2 id="timeline-heading">Zeitstrahl</h2>
 		<ul class="timeline-list timeline-list--grouped">
-			{
-				visibleTimelineGroups.map((group) => [
-					<li class="timeline-group-item" aria-labelledby={`timeline-group-${group.from}`}>
-						<header class="timeline-group__header">
+		{
+			visibleTimelineGroups.map((group) => (
+				<li class="timeline-group-item" aria-labelledby={`timeline-group-${group.from}`}>
+					<details class="timeline-group__details">
+						<summary class="timeline-group__header">
 							<p class="timeline-group__range">{group.rangeLabel}</p>
 							<h3 id={`timeline-group-${group.from}`}>{group.title}</h3>
 							<p class="timeline-group__count">
 								{group.entries.length} {group.entries.length === 1 ? "Eintrag" : "Einträge"}
 							</p>
-						</header>
-					</li>,
-					...group.entries.map((entry) => (
-						<li class="timeline-item" id={entry.id}>
-							<details class="timeline-details" data-history-entry={entry.id} open={false}>
-								<summary>
-									<span class="timeline-date">{entry.formattedDate}</span>
-									<div class="timeline-header">
-										<h4>{entry.title}</h4>
-										{entry.subtitle && <p>{entry.subtitle}</p>}
-									</div>
-								</summary>
-								{(entry.image || entry.hasContent) && (
-									<div class="timeline-content">
-										{entry.image && (
-											<button
-												type="button"
-												class="timeline-image-trigger"
-												data-image-src={entry.image.src}
-												data-image-alt={`Bild zu ${entry.title}`}
-												aria-label={`Bild zu ${entry.title} vergrößern`}
-											>
-												<Image src={entry.image} alt={`Bild zu ${entry.title}`} loading="lazy" />
-											</button>
+						</summary>
+						<ul class="timeline-list timeline-group__entries">
+							{group.entries.map((entry) => (
+								<li class="timeline-item" id={entry.id}>
+									<details class="timeline-details" data-history-entry={entry.id} open={false}>
+										<summary>
+											<span class="timeline-date">{entry.formattedDate}</span>
+											<div class="timeline-header">
+												<h4>{entry.title}</h4>
+												{entry.subtitle && <p>{entry.subtitle}</p>}
+											</div>
+										</summary>
+										{(entry.image || entry.hasContent) && (
+											<div class="timeline-content">
+												{entry.image && (
+													<button
+														type="button"
+														class="timeline-image-trigger"
+														data-image-src={entry.image.src}
+														data-image-alt={`Bild zu ${entry.title}`}
+														aria-label={`Bild zu ${entry.title} vergrößern`}
+													>
+														<Image src={entry.image} alt={`Bild zu ${entry.title}`} loading="lazy" />
+													</button>
+												)}
+												{entry.hasContent && <entry.Content />}
+											</div>
 										)}
-										{entry.hasContent && <entry.Content />}
-									</div>
-								)}
-							</details>
-						</li>
-					)),
-				])
-			}
+									</details>
+								</li>
+							))}
+						</ul>
+					</details>
+				</li>
+			))
+		}
 		</ul>
 	</section>
 
@@ -233,6 +237,12 @@ const visibleTimelineGroups = timelineGroups.filter((group) => group.entries.len
 
 		if (!entry || !details) {
 			return;
+		}
+
+		// Also open the parent group if it is collapsed
+		const groupDetails = details.closest<HTMLDetailsElement>(".timeline-group__details");
+		if (groupDetails && !groupDetails.open) {
+			groupDetails.open = true;
 		}
 
 		if (!details.open) {
@@ -518,6 +528,100 @@ const visibleTimelineGroups = timelineGroups.filter((group) => group.entries.len
 		bottom: calc(100% - var(--timeline-dot-top));
 	}
 
+	.timeline-group__details {
+		width: 100%;
+	}
+
+	.timeline-group__details > summary {
+		list-style: none;
+		cursor: pointer;
+	}
+
+	.timeline-group__details > summary::-webkit-details-marker {
+		display: none;
+	}
+
+	.timeline-group__entries {
+		--timeline-gap: 1rem;
+		--timeline-dot-top: 1.575rem;
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: var(--timeline-gap);
+		margin-top: var(--timeline-gap);
+	}
+
+	.timeline-group__entries > li {
+		position: relative;
+		--timeline-item-padding-left: 2rem;
+		--timeline-marker-x: 0.5rem;
+		padding-left: var(--timeline-item-padding-left);
+	}
+
+	.timeline-group__entries > li::before {
+		content: "";
+		position: absolute;
+		left: var(--timeline-marker-x);
+		top: 0;
+		bottom: calc(-1 * var(--timeline-gap));
+		width: 2px;
+		background: rgba(255, 255, 255, 0.3);
+		transform: translateX(-50%);
+	}
+
+	.timeline-group__entries > li:last-child::before {
+		bottom: calc(100% - var(--timeline-dot-top));
+	}
+
+	.timeline-group__details {
+		width: 100%;
+	}
+
+	.timeline-group__details > summary {
+		list-style: none;
+		cursor: pointer;
+	}
+
+	.timeline-group__details > summary::-webkit-details-marker {
+		display: none;
+	}
+
+	.timeline-group__entries {
+		--timeline-gap: 1rem;
+		--timeline-dot-top: 1.575rem;
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: var(--timeline-gap);
+		margin-top: var(--timeline-gap);
+	}
+
+	.timeline-group__entries > li {
+		position: relative;
+		--timeline-item-padding-left: 2rem;
+		--timeline-marker-x: 0.5rem;
+		padding-left: var(--timeline-item-padding-left);
+	}
+
+	.timeline-group__entries > li::before {
+		content: "";
+		position: absolute;
+		left: var(--timeline-marker-x);
+		top: 0;
+		bottom: calc(-1 * var(--timeline-gap));
+		width: 2px;
+		background: rgba(255, 255, 255, 0.3);
+		transform: translateX(-50%);
+	}
+
+	.timeline-group__entries > li:last-child::before {
+		bottom: calc(100% - var(--timeline-dot-top));
+	}
+
 	.timeline-group-item {
 		position: relative;
 		--timeline-dot-top: 1.7rem;
@@ -791,12 +895,17 @@ const visibleTimelineGroups = timelineGroups.filter((group) => group.entries.len
 			padding: 0 1rem;
 		}
 
-		.timeline-list > li {
+		.timeline-list > li,
+		.timeline-group__entries > li {
 			--timeline-item-padding-left: 1.5rem;
 			--timeline-marker-x: 0.35rem;
 		}
 
 		.timeline-list {
+			--timeline-dot-top: 1.375rem;
+		}
+
+		.timeline-group__entries {
 			--timeline-dot-top: 1.375rem;
 		}
 
