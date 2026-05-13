@@ -12,6 +12,9 @@ Fahnenpatin Erna Mertelseder übergibt ihr Ehrenamt an die Nachfolgerin Sabine R
 Dies alles sind sichtbare Signale für den erfolgreich vollzogenen Umbruch.
 Aber so einfach, wie es in der Rückschau aussehen mag war es gar nicht.
 Der Fortbestand des Vereins stand ab dem Jahr 2004, nach dem unerwartet raschen Abgang von Siegfried Kreil, der den Verein über so viele Jahr getragen hatte, durchaus auf der Kippe!
+
+![Auszug aus der Vereinschronik 2004](./img/2006-06-23_Chronik.jpg)
+
 Der Umbruch begann bereits 2003 mit dem wohl vorbereiteten Wechsel in der Vereinsführung, als Rudolf Räuschenböck die Funktion des Obmanns an seinen Nachfolger Josef Gross übergab.
 Viel schwieriger gestaltete sich die Frage der Neubesetzung der musikalischen Leitung.
 Fahnenpatin Erna Mertelseder mahnte mit eindringlichen Worten die teils bereits zur Resignation tendierenden Stimmen, die Kräfte neu zu bündeln und den Fortbestand des seit bald 100 Jahren bestehenden Vereines zu ermöglichen.
