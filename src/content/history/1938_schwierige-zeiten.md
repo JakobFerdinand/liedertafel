@@ -9,5 +9,5 @@ Im März 1939 werden dem Verein die zugeteilten Regelsatzungen bekannt gegeben u
 Vieles wird nun als Verpflichtung den Sängern aufgebürdet. Eine Bestandserhebung ist sofort durchzuführen und die Leitsätze bzw. Regelsatzungen, herausgegeben von der Sänger-Gauführung, sind regelmäßig zu verlesen. 1939 wird von den Chören sogar das Erlernen des Pflichtchores "Das Hammerlied vom ewigen Deutschland" verlangt. Ebenso muss der Verein beim Sängerkreistag in Linz am 7. Mai 1939 unbedingt teilnehmen. Dort wird Obmann Matthias Asen und Chorleiter Karl Urbann der Besuch der Reichsnährstandsausstellung in Leipzig nahegelegt.
 Über Einladung der NSDAP, der Orts-Kulturgemeinschaft beizutreten, beschließt die Liedertafel, vorläufig nicht beizutreten, erklärt sich jedoch bereit, bei kulturellen Veranstaltungen gesanglich mitzuwirken.
 
-![Vereinsauslfug nach Leipzig](./img/1939-vereinsausflug-leipzig1.jpg)
-![Vereinsauslfug nach Leipzig](./img/1939-vereinsausflug-leipzig2.jpg)
+![Vereinsausflug nach Leipzig](./img/1939-vereinsausflug-leipzig1.jpg)
+![Vereinsausflug nach Leipzig](./img/1939-vereinsausflug-leipzig2.jpg)
