@@ -9,7 +9,7 @@ Bereits nach einer neuerlichen Aufführung im Jahr 1906 wurde es dann ruhig um d
 Es begann der Dornröschenschlaf.
 
 ![Titelblatt der Originalnoten der lateinischen Messe von Franz Bieger](./img/2008-05-16_bieger-messe.JPEG)
-![Liederverzeichnis der am Sonntag, den 07. Jänner 1906 aufgeführten Messe](./img/2008-05-16_liederverzeichnis.JPEG)
+![Erstes Liederverzeichnis der Vereinsgeschichte](./img/2008-05-16_liederverzeichnis.JPEG)
 
 Erst im Zuge der Recherchen zum Vereinsgeschichtsbuch „Sängerleben“ im Jahr 2005 wird das doch recht anspruchsvolle Werk wiederentdeckt und ab 15. Mai 2007 neu einstudiert.
 Fast genau ein Jahr später, am 16. Mai 2008, wird die Messe im Rahmen eines denkwürdigen Kirchenkonzertes in der Pfarrkirche Mining erneut dem Publikum vorgestellt und findet sowohl bei den Sängern, als auch bei den Zuhörern begeisterten Zuspruch.
