@@ -748,6 +748,37 @@ if (timelineEntries.length > 0) {
 		opacity: 0.95;
 	}
 
+	.timeline-content :global(blockquote) {
+		position: relative;
+		margin: 1.35rem 0 0;
+		padding: 1.15rem 1.35rem 1.15rem 3.4rem;
+		border-left: 3px solid rgba(255, 255, 255, 0.72);
+		background: linear-gradient(135deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.055));
+		box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+	}
+
+	.timeline-content :global(blockquote::before) {
+		content: "\201C";
+		position: absolute;
+		top: 0.55rem;
+		left: 1rem;
+		font-family: var(--font-heading);
+		font-size: 3.1rem;
+		line-height: 1;
+		color: rgba(255, 255, 255, 0.68);
+	}
+
+	.timeline-content :global(blockquote p) {
+		margin: 0;
+		font-style: italic;
+		line-height: 1.72;
+		opacity: 1;
+	}
+
+	.timeline-content :global(blockquote p + p) {
+		margin-top: 0.65rem;
+	}
+
 	.timeline-image-trigger img {
 		display: block;
 		width: 100%;
@@ -912,6 +943,15 @@ if (timelineEntries.length > 0) {
 
 		.timeline-content {
 			padding: 0 1rem 1rem;
+		}
+
+		.timeline-content :global(blockquote) {
+			padding: 1rem 1rem 1rem 2.75rem;
+		}
+
+		.timeline-content :global(blockquote::before) {
+			left: 0.75rem;
+			font-size: 2.6rem;
 		}
 
 		.lightbox-nav {
