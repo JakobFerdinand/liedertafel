@@ -11,6 +11,7 @@ const events = defineCollection({
 		date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Datum muss im Format yyyy-mm-dd angegeben werden."),
 		name: z.string(),
 		location: z.string(),
+		pdf: z.string().optional(),
 	}),
 });
 

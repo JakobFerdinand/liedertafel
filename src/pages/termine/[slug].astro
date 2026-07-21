@@ -14,6 +14,23 @@ export async function getStaticPaths() {
 const { entry } = Astro.props;
 const { Content } = await render(entry);
 
+const pdfFiles = import.meta.glob("../../content/events/assets/*.pdf", {
+	eager: true,
+	query: "?url",
+	import: "default",
+});
+const pdfPath = entry.data.pdf
+	? `../../content/events/${entry.data.pdf.replace(/^\.\//, "")}`
+	: undefined;
+const pdfUrl = pdfPath ? (pdfFiles[pdfPath] as string | undefined) : undefined;
+const pdfEmbedUrl = pdfUrl
+	? `${pdfUrl}#view=Fit&toolbar=0&navpanes=0&scrollbar=0`
+	: undefined;
+
+if (pdfPath && !pdfUrl) {
+	throw new Error(`PDF für Termin "${entry.id}" wurde nicht gefunden: ${entry.data.pdf}`);
+}
+
 const [year, month, day] = entry.data.date.split("-").map(Number);
 const eventDate = new Date(Date.UTC(year, month - 1, day));
 
@@ -38,6 +55,13 @@ const formattedDate = dateFormatter.format(eventDate);
 
 	<article class="event-body">
 		<Content />
+		{pdfUrl && pdfEmbedUrl && (
+			<object class="event-pdf" data={pdfEmbedUrl} type="application/pdf" aria-label={`PDF zu ${entry.data.name}`}>
+				<p>
+					Das PDF kann nicht direkt angezeigt werden. <a href={pdfUrl}>PDF öffnen</a>
+				</p>
+			</object>
+		)}
 	</article>
 
 	<Footer />
@@ -131,5 +155,16 @@ const formattedDate = dateFormatter.format(eventDate);
 	.event-body :global(h3) {
 		margin-top: 1.5rem;
 		margin-bottom: 0.5rem;
+	}
+
+	.event-pdf {
+		display: block;
+		width: 100%;
+		height: auto;
+		aspect-ratio: 624 / 1291;
+		margin-top: 1.5rem;
+		border: 0;
+		background: #ffffff;
+		overflow: hidden;
 	}
 </style>
