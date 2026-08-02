@@ -1,9 +1,14 @@
 ---
+import type { ImageMetadata } from "astro";
+import { Image } from "astro:assets";
+import alexanderImage from "../assets/Alexander.jpeg";
+import christianImage from "../assets/Christian.jpeg";
+
 interface Person {
 	name: string;
 	role: string;
 	description: string;
-	image: string;
+	image: ImageMetadata;
 }
 
 const team: Person[] = [
@@ -11,13 +16,13 @@ const team: Person[] = [
 		name: "Alexander Huber",
 		role: "Chorleiter",
 		description: "Geduldig, ambitioniert, unerschrocken, unfassbar kreativ und wenn nötig auch ein wenig leidensfähig. Mit diesen Eigenschaften ist unser Chorleiter wie geschaffen für diese Funktion, die er seit 2015 mit bewundernswertem Engagement ausübt!",
-		image: "https://placehold.co/400x300/dbe9f4/1b2a41?text=Chorleiter"
+		image: alexanderImage
 	},
 	{
 		name: "Christian Schwandtner",
 		role: "Vereinsobmann",
 		description: "Der Tag hat 24 Stunden und wenn nötig steht er darüber hinaus auch nachts zur Verfügung. Seit 2024 im Amt. Voller Energie und ein Profi im Managen und Organisieren unseres Vereinslebens.",
-		image: "https://placehold.co/400x300/dbe9f4/1b2a41?text=Obmann"
+		image: christianImage
 	}
 ];
 ---
@@ -27,7 +32,7 @@ const team: Person[] = [
 	<div class="team-list">
 		{team.map((person, index) => (
 			<article class={`person-card ${index % 2 === 1 ? 'reversed' : ''}`}>
-				<img src={person.image} alt={`Portrait von ${person.name}`} class="person-image" />
+			<Image src={person.image} alt={`Portrait von ${person.name}`} class="person-image" />
 				<div class="person-info">
 					<h3>{person.name}</h3>
 					<span class="role">{person.role}</span>
@@ -72,6 +77,7 @@ const team: Person[] = [
 		height: auto;
 		aspect-ratio: 4 / 3;
 		object-fit: cover;
+		object-position: center 22%;
 	}
 
 	.person-info {
