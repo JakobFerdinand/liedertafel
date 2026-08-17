@@ -148,22 +148,6 @@ const chartEvents = timelineEntries.map((entry) => ({
 }));
 
 const romanNumerals = ["I", "II", "III", "IV", "V", "VI"];
-
-const handleOverviewJump = (event: Event) => {
-	const detail = (event as CustomEvent<{ kind: "entry" | "era"; id?: string; from?: number }>).detail;
-
-	if (detail.kind === "era" && detail.from) {
-		document.getElementById(`era-${detail.from}`)?.scrollIntoView({
-			behavior: "smooth",
-			block: "start",
-		});
-		return;
-	}
-
-	if (detail.kind === "entry" && detail.id) {
-		openHistoryEntry(detail.id);
-	}
-};
 ---
 
 <Layout>
@@ -176,7 +160,7 @@ const handleOverviewJump = (event: Event) => {
 	<section class="overview-section" aria-labelledby="overview-heading">
 		<h2 id="overview-heading">Die Chronik im Überblick</h2>
 		{visibleTimelineGroups.length > 0 ? (
-			<TimelineOverview client:idle events={chartEvents} eras={chartEras} today={todayYear} on:jump={handleOverviewJump} />
+			<TimelineOverview client:idle events={chartEvents} eras={chartEras} today={todayYear} />
 		) : (
 			<p class="timeline-empty">Noch keine Chronik-Einträge vorhanden.</p>
 		)}
@@ -513,6 +497,22 @@ const handleOverviewJump = (event: Event) => {
 
 	window.addEventListener("hashchange", syncHistoryEntryFromHash);
 	syncHistoryEntryFromHash();
+
+	document.addEventListener("jump", (event) => {
+		const detail = (event as CustomEvent<{ kind: "entry" | "era"; id?: string; from?: number }>).detail;
+
+		if (detail.kind === "era" && detail.from) {
+			document.getElementById(`era-${detail.from}`)?.scrollIntoView({
+				behavior: "smooth",
+				block: "start",
+			});
+			return;
+		}
+
+		if (detail.kind === "entry" && detail.id) {
+			openHistoryEntry(detail.id);
+		}
+	});
 </script>
 
 <style>

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher, onMount } from "svelte";
+	import { onMount } from "svelte";
 	import type { Component } from "svelte";
 	import type { HistoryEvent, EraOverview } from "./TimelineChart.svelte";
 
@@ -11,10 +11,6 @@
 
 	let { events, eras, today }: Props = $props();
 
-	const dispatch = createEventDispatcher<{
-		jump: { kind: "entry"; id: string } | { kind: "era"; from: number };
-	}>();
-
 	let chartCtor = $state<Component | null>(null);
 	let activeEra = $state<number | null>(null);
 
@@ -24,12 +20,12 @@
 	});
 
 	function jumpToEntry(id: string) {
-		dispatch("jump", { kind: "entry", id });
+		window.dispatchEvent(new CustomEvent("jump", { detail: { kind: "entry", id } }));
 	}
 
 	function jumpToEra(from: number) {
 		activeEra = null;
-		dispatch("jump", { kind: "era", from });
+		window.dispatchEvent(new CustomEvent("jump", { detail: { kind: "era", from } }));
 	}
 
 	function handleChartJump(event: { detail: { kind: string; id?: string; from?: number } }) {
