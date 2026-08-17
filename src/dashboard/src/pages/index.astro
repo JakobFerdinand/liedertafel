@@ -1,0 +1,10 @@
+---
+import DashboardLayout from "../layouts/DashboardLayout.astro";
+import PageViewStats from "../components/PageViewStats.svelte";
+
+const title = "Dashboard – Liedertafel Mining 1906";
+---
+
+<DashboardLayout title={title}>
+	<PageViewStats client:only="svelte" />
+</DashboardLayout>

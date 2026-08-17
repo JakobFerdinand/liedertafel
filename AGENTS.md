@@ -6,6 +6,8 @@ Use this guide when editing or extending the codebase.
 ## Repository Layout
 - src/website: self-contained Astro site with pages in `src/pages`, reusable sections in `src/components`, global shell/CSS in `src/layouts/Layout.astro`, assets in `src/assets`, content collections under `src/content`, and static files in `public/`.
 - src/website-api: Azure Functions managed API (C# .NET isolated); serves the `/api/pageview` endpoint and writes page views to Azure Table Storage.
+- src/dashboard: internal, auth-gated Astro dashboard (Svelte islands + Layerchart) for the `liedertafel-dashboard` Static Web App; self-contained styling in `src/styles/global.css`.
+- src/dashboard-api: Azure Functions managed API (C# .NET isolated); serves the read-only `/api/pageviews/stats` endpoint for the dashboard.
 - infrastructure: Azure Bicep templates for the RG-Liedertafel estate.
 - docs/plans: tracked planning documents.
 - liedertafel.slnx: .NET solution that opens all API projects together; global.json pins the .NET SDK.
@@ -15,7 +17,12 @@ Use this guide when editing or extending the codebase.
 - Dev server: `cd src/website && pnpm run dev`
 - Build: `cd src/website && pnpm run build`
 - Preview build: `cd src/website && pnpm run preview`
-- API (local): `cd src/website-api && dotnet run`
+- Website API (local): `cd src/website-api && dotnet run`
+- Dashboard deps: `cd src/dashboard && pnpm install`
+- Dashboard dev server: `cd src/dashboard && pnpm run dev`
+- Dashboard check: `cd src/dashboard && pnpm run check`
+- Dashboard build: `cd src/dashboard && pnpm run build`
+- Dashboard API (local): `cd src/dashboard-api && dotnet run` (with `StorageConnection` in `local.settings.json`)
 
 ### Linting
 - No lint script is configured in `package.json`.
@@ -88,7 +95,7 @@ Use this guide when editing or extending the codebase.
 - Avoid editing `dist/` directly unless explicitly asked.
 
 ## Infrastructure
-- Azure estate lives in resource group `RG-Liedertafel` (single Static Web App `liedertafel`).
+- Azure estate lives in resource group `RG-Liedertafel` (public Static Web App `liedertafel`, internal dashboard Static Web App `liedertafel-dashboard`).
 - Bicep templates under `infrastructure/`; deploy prompts run the workflow
   `.github/workflows/infra-deploy.yml` on changes to `infrastructure/**`.
 - Validate before deploying infrastructure changes:
@@ -96,6 +103,11 @@ Use this guide when editing or extending the codebase.
   - `az deployment group what-if --resource-group RG-Liedertafel --template-file infrastructure/main.bicep --parameters infrastructure/main.bicepparam`
 - Apply: `az deployment group create --resource-group RG-Liedertafel --template-file infrastructure/main.bicep --parameters infrastructure/main.bicepparam`
 - Destructive changes (Delete/Replace) are rejected by the workflow guard; keep adoption changes `Modify`-only.
+- The dashboard SWA is auth-gated (GitHub EasyAuth, roles `admin`/`collaborator`);
+  identity-provider enablement and role mapping are portal-managed, not Bicep.
+  Deployments use the GitHub Actions secret
+  `DASHBOARD_AZURE_STATIC_WEB_APPS_API_TOKEN` (workflow
+  `.github/workflows/build-and-deploy-dashboard.yml`).
 
 ## Cursor / Copilot Rules
 - No Cursor rules found in `.cursor/rules/` or `.cursorrules`.

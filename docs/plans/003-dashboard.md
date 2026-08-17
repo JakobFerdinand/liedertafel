@@ -311,23 +311,23 @@ website workflow:
 
 ## Milestones (tracked)
 
-- [ ] Add `liedertafel-dashboard` + `dashboard.liedertafel-mining.at` to
+- [x] Add `liedertafel-dashboard` + `dashboard.liedertafel-mining.at` to
       `static-sites.bicep` + `main.bicep` + `main.bicepparam`; validate with
       `az bicep build` and `what-if` (expect only `Create`)
 - [ ] Manual (DNS): add CNAME `dashboard` → SWA default hostname at the DNS
       provider; confirm the domain reaches "Ready" with the managed cert
-- [ ] Extend `infra-deploy.yml` with the dashboard `StorageConnection` step
+- [x] Extend `infra-deploy.yml` with the dashboard `StorageConnection` step
 - [ ] Manual (portal): enable GitHub auth on `liedertafel-dashboard`, grant
       `admin` to `JakobFerdinand`
 - [ ] Add `DASHBOARD_AZURE_STATIC_WEB_APPS_API_TOKEN` secret
-- [ ] Scaffold `src/dashboard-api` (net9.0): `GetPageViewStats` slice,
+- [x] Scaffold `src/dashboard-api` (net9.0): `GetPageViewStats` slice,
       `PageViewEntity`, `Program.cs`, `local.settings.json`, `requests.http`;
       add to `liedertafel.slnx`
-- [ ] Scaffold `src/dashboard`: Astro project, `DashboardLayout`,
+- [x] Scaffold `src/dashboard`: Astro project, `DashboardLayout`,
       `DashboardNavbar.svelte`, `PageViewStats.svelte` (+ wrapper), `index.astro`
       landing page, `403.astro`, `staticwebapp.config.json`, `global.css`
-- [ ] Add `build-and-deploy-dashboard.yml`
-- [ ] Update `AGENTS.md` (repo layout, dashboard commands) and README
+- [x] Add `build-and-deploy-dashboard.yml`
+- [x] Update `AGENTS.md` (repo layout, dashboard commands) and README
 - [ ] Deploy infra → deploy dashboard → verify auth, stats, 403 path
 
 ## Known limitations / notes
