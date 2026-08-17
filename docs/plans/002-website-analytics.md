@@ -30,6 +30,9 @@ the deploy workflow). Application Insights is optional and not required.
   plan includes 1 million function executions/month, far above the expected page
   view volume. Consequence: only HTTP triggers are supported — retention
   cleanup must run lazily inside the write path, not on a timer.
+- **Write-only tracking for now.** No read endpoint, no dashboard, no stats
+  page. Data is inspected ad hoc via Azure portal or `az storage table query`.
+  A protected read endpoint can be added later without changing the write path.
 - **Cookie-free and first-party.** No cookies, no localStorage, no SDKs. The
   beacon goes to the same origin (`/api/pageview`), so no CORS is needed.
 - **Privacy by design (DSGVO, Art. 6 lit. f).** Store no IP address, no user
@@ -82,7 +85,8 @@ become env vars; the name does not collide with the reserved `AzureWeb*`,
 
 New `api/` directory in the repo, C# .NET isolated:
 
-- `api/liedertafel-api.csproj` — .NET 8/9 LTS (isolated worker), packages
+- `api/liedertafel-api.csproj` — .NET 9 or 10 (isolated worker; use the newest
+  version supported by SWA managed functions at implementation time), packages
   `Microsoft.Azure.Functions.Worker`, `.Extensions.Http`,
   `Azure.Data.Tables`.
 - `api/Program.cs` — reads `StorageConnection` (throw if unset), registers a
@@ -114,8 +118,10 @@ New `api/` directory in the repo, C# .NET isolated:
 }
 ```
 
-Verify the currently supported runtime version against the SWA docs
-(managed-functions language support) when implementing.
+`apiRuntime` is set to the newest managed-functions runtime available at
+implementation time (`dotnet-isolated:9.0` or `10.0`); verify the currently
+supported version against the SWA docs (managed-functions language support)
+when implementing.
 
 ## 3. Client beacon (`Layout.astro`)
 
@@ -159,7 +165,7 @@ feature. New section (pseudonymous visit statistics):
 
 Checkboxes are updated as work progresses.
 
-- [ ] Decide final storage account name (`stliedertafel` or alternative)
+- [x] Decide final storage account name (`stliedertafel`) and retention (36 months)
 - [ ] Add `storage.bicep` module + `main.bicep` wiring; validate with `az bicep build` + `az deployment group what-if` (expect only `Create`)
 - [ ] Extend `infra-deploy.yml` deploy job to set the `StorageConnection` app setting
 - [ ] Deploy infrastructure; verify storage account exists
