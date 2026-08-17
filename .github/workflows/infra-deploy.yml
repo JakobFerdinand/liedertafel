@@ -1,0 +1,128 @@
+name: Deploy Infrastructure
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'infrastructure/**'
+      - '.github/workflows/infra-deploy.yml'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - main
+    paths:
+      - 'infrastructure/**'
+      - '.github/workflows/infra-deploy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+env:
+  RESOURCE_GROUP: RG-Liedertafel
+
+jobs:
+  what-if:
+    name: What-if preview
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Compile Bicep templates
+        run: |
+          az bicep install
+          az bicep build --file infrastructure/main.bicep --stdout >/dev/null
+
+      - name: What-if resource group
+        run: |
+          az deployment group what-if \
+            --resource-group "$RESOURCE_GROUP" \
+            --template-file infrastructure/main.bicep \
+            --parameters infrastructure/main.bicepparam \
+            --no-pretty-print > /tmp/what-if.json
+
+      - name: Post what-if comment
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- infra-what-if -->';
+            let rows = '_no changes_';
+            try {
+              const data = JSON.parse(fs.readFileSync('/tmp/what-if.json', 'utf8'));
+              const changes = data.changes || [];
+              rows = changes.length
+                ? changes.map(c => `| ${c.changeType} | \`${c.resourceId}\` |`).join('\n')
+                : '_no changes_';
+            } catch (err) {
+              rows = `_failed to parse what-if output_\n\n\`\`\`\n${fs.readFileSync('/tmp/what-if.json', 'utf8')}\n\`\`\``;
+            }
+            const body = `## Infrastructure what-if preview\n\n| Change type | Resource |\n| --- | --- |\n${rows}\n\n${marker}`;
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number
+            });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: body.slice(0, 65535)
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body.slice(0, 65535)
+              });
+            }
+
+  deploy:
+    name: Deploy infrastructure
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Compile Bicep templates
+        run: |
+          az bicep install
+          az bicep build --file infrastructure/main.bicep --stdout >/dev/null
+
+      - name: Guard against destructive changes
+        run: |
+          if az deployment group what-if \
+            --resource-group "$RESOURCE_GROUP" \
+            --template-file infrastructure/main.bicep \
+            --parameters infrastructure/main.bicepparam \
+            --no-pretty-print | jq -e 'any(.changes[]?; .changeType == "Delete" or .changeType == "Replace")' >/dev/null; then
+            echo "::error::What-if detected destructive (Delete/Replace) changes; refusing to apply."
+            exit 1
+          fi
+
+      - name: Deploy resource group resources
+        run: |
+          az deployment group create \
+            --resource-group "$RESOURCE_GROUP" \
+            --template-file infrastructure/main.bicep \
+            --parameters infrastructure/main.bicepparam

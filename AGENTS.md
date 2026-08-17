@@ -9,6 +9,8 @@ Use this guide when editing or extending the codebase.
 - src/components/*.astro: reusable page sections.
 - src/assets: static assets referenced by components/pages.
 - public: public static files served as-is.
+- infrastructure: Azure Bicep templates for the RG-Liedertafel estate.
+- docs/plans: tracked planning documents.
 
 ## Commands (Build / Lint / Test)
 - Install deps: `pnpm install`
@@ -37,6 +39,12 @@ Use this guide when editing or extending the codebase.
 - Use double quotes for JavaScript/TypeScript strings in frontmatter.
 - Use single quotes inside HTML attributes only when necessary.
 - Keep HTML and CSS aligned with existing component patterns.
+
+## Git Commits
+- When a commit is requested, always use Karma commit message format:
+  `type(scope): subject` (e.g., `feat(team): add team images`).
+- Valid Karma types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`, `build`, `ci`.
+- Keep the subject concise, imperative, and lowercase; scope is optional.
 
 ## CSS and Design System
 - Global typography variables live in `Layout.astro`.
@@ -79,6 +87,16 @@ Use this guide when editing or extending the codebase.
 ## Build Artifacts
 - `dist/` is a build output directory.
 - Avoid editing `dist/` directly unless explicitly asked.
+
+## Infrastructure
+- Azure estate lives in resource group `RG-Liedertafel` (single Static Web App `liedertafel`).
+- Bicep templates under `infrastructure/`; deploy prompts run the workflow
+  `.github/workflows/infra-deploy.yml` on changes to `infrastructure/**`.
+- Validate before deploying infrastructure changes:
+  - `az bicep build --file infrastructure/main.bicep --stdout`
+  - `az deployment group what-if --resource-group RG-Liedertafel --template-file infrastructure/main.bicep --parameters infrastructure/main.bicepparam`
+- Apply: `az deployment group create --resource-group RG-Liedertafel --template-file infrastructure/main.bicep --parameters infrastructure/main.bicepparam`
+- Destructive changes (Delete/Replace) are rejected by the workflow guard; keep adoption changes `Modify`-only.
 
 ## Cursor / Copilot Rules
 - No Cursor rules found in `.cursor/rules/` or `.cursorrules`.
