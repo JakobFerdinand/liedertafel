@@ -1,0 +1,28 @@
+{
+  "analyzers": {
+    "core": {
+      "enabled": true,
+      "verbose": false,
+      "rules": {
+        "no-unused-params": {
+          "level": "warning"
+        },
+        "no-unused-vars": {
+          "level": "warning"
+        },
+        "outputs-should-not-contain-secrets": {
+          "level": "error"
+        },
+        "secure-params": {
+          "level": "error"
+        },
+        "secure-outputs": {
+          "level": "error"
+        },
+        "use-stable-resource-identifiers": {
+          "level": "warning"
+        }
+      }
+    }
+  }
+}

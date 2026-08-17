@@ -1,0 +1,25 @@
+### Valid pageview (expect 204)
+POST http://localhost:7071/api/pageview
+Content-Type: application/json
+
+{
+  "path": "/",
+  "referrerHost": "google.at",
+  "viewportWidth": 1920
+}
+
+### Invalid payload (expect 400)
+POST http://localhost:7071/api/pageview
+Content-Type: application/json
+
+{}
+
+### Invalid path, missing leading slash (expect 400)
+POST http://localhost:7071/api/pageview
+Content-Type: application/json
+
+{
+  "path": "no-slash",
+  "referrerHost": "google.at",
+  "viewportWidth": 1920
+}
