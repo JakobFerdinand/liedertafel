@@ -167,7 +167,15 @@ let zigzagIndex = 0;
 											{entry.subtitle && <p class="entry__subtitle">{entry.subtitle}</p>}
 											{entry.image && (
 												<figure class="entry__figure">
-													<Image src={entry.image} alt={`Bild zu ${entry.title}`} loading="lazy" />
+													<button
+														type="button"
+														class="entry-image-trigger"
+														data-image-src={entry.image.src}
+														data-image-alt={`Bild zu ${entry.title}`}
+														aria-label={`Bild zu ${entry.title} vergrößern`}
+													>
+														<Image src={entry.image} alt={`Bild zu ${entry.title}`} loading="lazy" />
+													</button>
 												</figure>
 											)}
 											{entry.hasContent && (
@@ -194,8 +202,208 @@ let zigzagIndex = 0;
 		)}
 	</section>
 
+	<dialog class="image-lightbox" aria-label="Bild vergrößert anzeigen">
+		<button type="button" class="lightbox-close" aria-label="Vollbildansicht schließen">x</button>
+		<button type="button" class="lightbox-nav lightbox-nav--prev" aria-label="Vorheriges Bild anzeigen">
+			&lt;
+		</button>
+		<button type="button" class="lightbox-nav lightbox-nav--next" aria-label="Nächstes Bild anzeigen">
+			&gt;
+		</button>
+		<figure class="lightbox-figure">
+			<img class="lightbox-image" src="" alt="" />
+			<figcaption class="lightbox-caption"></figcaption>
+		</figure>
+	</dialog>
+
 	<Footer />
 </Layout>
+
+<script>
+	const lightbox = document.querySelector<HTMLDialogElement>(".image-lightbox");
+	const lightboxImage = lightbox?.querySelector<HTMLImageElement>(".lightbox-image");
+	const lightboxCaption = lightbox?.querySelector<HTMLElement>(".lightbox-caption");
+	const closeButton = lightbox?.querySelector<HTMLButtonElement>(".lightbox-close");
+	const previousButton = lightbox?.querySelector<HTMLButtonElement>(".lightbox-nav--prev");
+	const nextButton = lightbox?.querySelector<HTMLButtonElement>(".lightbox-nav--next");
+	const triggers = document.querySelectorAll<HTMLButtonElement>(".entry-image-trigger");
+	const markdownImages = document.querySelectorAll<HTMLImageElement>(".entry__content img");
+	const entryCards = document.querySelectorAll<HTMLElement>("li.entry");
+
+	type LightboxItem = {
+		trigger: HTMLElement;
+		getSource: () => string;
+		getAlt: () => string;
+	};
+
+	let triggerElement: HTMLElement | null = null;
+	let currentGroup: LightboxItem[] = [];
+	let currentIndex = -1;
+
+	const groupLookup = new Map<HTMLElement, LightboxItem[]>();
+	const indexLookup = new Map<HTMLElement, number>();
+
+	const setNavigationState = () => {
+		const hasMultipleImages = currentGroup.length > 1;
+
+		previousButton?.toggleAttribute("hidden", !hasMultipleImages);
+		nextButton?.toggleAttribute("hidden", !hasMultipleImages);
+
+		if (!hasMultipleImages) {
+			if (previousButton) {
+				previousButton.disabled = true;
+			}
+
+			if (nextButton) {
+				nextButton.disabled = true;
+			}
+
+			return;
+		}
+
+		if (previousButton) {
+			previousButton.disabled = currentIndex <= 0;
+		}
+
+		if (nextButton) {
+			nextButton.disabled = currentIndex >= currentGroup.length - 1;
+		}
+	};
+
+	const showImageAtIndex = (index: number) => {
+		if (!lightboxImage || index < 0 || index >= currentGroup.length) {
+			return;
+		}
+
+		currentIndex = index;
+		const item = currentGroup[currentIndex];
+		const alt = item.getAlt();
+
+		lightboxImage.src = item.getSource();
+		lightboxImage.alt = alt;
+		if (lightboxCaption) {
+			lightboxCaption.textContent = alt;
+		}
+
+		setNavigationState();
+	};
+
+	const openLightbox = (trigger: HTMLElement) => {
+		if (!lightbox || !lightboxImage) {
+			return;
+		}
+
+		triggerElement = trigger;
+		currentGroup = groupLookup.get(trigger) ?? [];
+		currentIndex = indexLookup.get(trigger) ?? 0;
+		showImageAtIndex(currentIndex);
+		lightbox.showModal();
+	};
+
+	const showPreviousImage = () => {
+		showImageAtIndex(currentIndex - 1);
+	};
+
+	const showNextImage = () => {
+		showImageAtIndex(currentIndex + 1);
+	};
+
+	const closeLightbox = () => {
+		if (lightbox?.open) {
+			lightbox.close();
+			currentGroup = [];
+			currentIndex = -1;
+			triggerElement?.focus();
+		}
+	};
+
+	entryCards.forEach((card) => {
+		const items: LightboxItem[] = [];
+
+		const trigger = card.querySelector<HTMLButtonElement>(".entry-image-trigger");
+		if (trigger) {
+			items.push({
+				trigger,
+				getSource: () => trigger.dataset.imageSrc ?? "",
+				getAlt: () => trigger.dataset.imageAlt ?? "",
+			});
+		}
+
+		card.querySelectorAll<HTMLImageElement>("img").forEach((image) => {
+			if (image.closest(".entry-image-trigger")) {
+				return;
+			}
+
+			items.push({
+				trigger: image,
+				getSource: () => image.currentSrc || image.src,
+				getAlt: () => image.alt,
+			});
+		});
+
+		items.forEach((item, index) => {
+			groupLookup.set(item.trigger, items);
+			indexLookup.set(item.trigger, index);
+		});
+	});
+
+	triggers.forEach((trigger) => {
+		trigger.addEventListener("click", () => {
+			openLightbox(trigger);
+		});
+	});
+
+	markdownImages.forEach((image) => {
+		if (image.closest(".entry-image-trigger")) {
+			return;
+		}
+
+		image.classList.add("entry-markdown-image");
+		image.setAttribute("role", "button");
+		image.setAttribute("tabindex", "0");
+		image.setAttribute("aria-label", `${image.alt || "Bild"} vergrößern`);
+
+		image.addEventListener("click", () => {
+			openLightbox(image);
+		});
+
+		image.addEventListener("keydown", (event) => {
+			if (event.key !== "Enter" && event.key !== " ") {
+				return;
+			}
+
+			event.preventDefault();
+			openLightbox(image);
+		});
+	});
+
+	closeButton?.addEventListener("click", closeLightbox);
+	previousButton?.addEventListener("click", showPreviousImage);
+	nextButton?.addEventListener("click", showNextImage);
+
+	lightbox?.addEventListener("click", (event) => {
+		const target = event.target;
+		if (target instanceof HTMLDialogElement) {
+			closeLightbox();
+		}
+	});
+
+	document.addEventListener("keydown", (event) => {
+		if (!lightbox?.open) {
+			return;
+		}
+
+		if (event.key === "ArrowLeft") {
+			event.preventDefault();
+			showPreviousImage();
+		}
+
+		if (event.key === "ArrowRight") {
+			event.preventDefault();
+			showNextImage();
+		}
+	});
+</script>
 
 <style>
 	.history-hero {
@@ -468,6 +676,20 @@ let zigzagIndex = 0;
 		border-radius: 3px;
 	}
 
+	.entry-image-trigger {
+		display: block;
+		width: 100%;
+		margin: 0;
+		padding: 0;
+		border: 0;
+		background: transparent;
+		cursor: zoom-in;
+	}
+
+	.entry__content :global(img.entry-markdown-image) {
+		cursor: zoom-in;
+	}
+
 	.entry__details {
 		margin-top: 1.1rem;
 		border-top: 1px solid rgba(255, 255, 255, 0.16);
@@ -581,6 +803,104 @@ let zigzagIndex = 0;
 		margin-top: 0.6rem;
 	}
 
+	.image-lightbox {
+		padding: 0;
+		border: 0;
+		background: transparent;
+		max-width: min(94vw, 1200px);
+		max-height: 94vh;
+		color-scheme: normal;
+	}
+
+	.image-lightbox::backdrop {
+		background: rgba(0, 0, 0, 0.68);
+	}
+
+	.lightbox-figure {
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		background: transparent;
+	}
+
+	.lightbox-image {
+		display: block;
+		max-width: 100%;
+		max-height: 88vh;
+		width: auto;
+		height: auto;
+		object-fit: contain;
+		box-shadow: 0 16px 36px rgba(0, 0, 0, 0.5);
+	}
+
+	.lightbox-caption {
+		padding: 0.5rem 0 0;
+		font-size: 0.85rem;
+		color: rgba(255, 255, 255, 0.8);
+		text-align: left;
+	}
+
+	.lightbox-caption:empty {
+		display: none;
+	}
+
+	.lightbox-close {
+		position: fixed;
+		top: 1rem;
+		right: 1rem;
+		width: 2.25rem;
+		height: 2.25rem;
+		border-radius: 999px;
+		border: 1px solid rgba(255, 255, 255, 0.45);
+		background: rgba(0, 0, 0, 0.5);
+		color: #fff;
+		font-size: 1.25rem;
+		font-weight: 700;
+		line-height: 1;
+		cursor: pointer;
+	}
+
+	.lightbox-close:hover {
+		background: rgba(0, 0, 0, 0.7);
+	}
+
+	.lightbox-nav {
+		position: fixed;
+		top: 50%;
+		transform: translateY(-50%);
+		width: 3rem;
+		height: 3rem;
+		border-radius: 999px;
+		border: 1px solid rgba(255, 255, 255, 0.45);
+		background: rgba(0, 0, 0, 0.5);
+		color: #fff;
+		font-size: 1.5rem;
+		line-height: 1;
+		cursor: pointer;
+	}
+
+	.lightbox-nav:hover {
+		background: rgba(0, 0, 0, 0.7);
+	}
+
+	.lightbox-nav:disabled {
+		opacity: 0.35;
+		cursor: default;
+	}
+
+	.lightbox-nav[hidden] {
+		display: none;
+	}
+
+	.lightbox-nav--prev {
+		left: 1rem;
+	}
+
+	.lightbox-nav--next {
+		right: 1rem;
+	}
+
 	@media (max-width: 899px) {
 		.zigzag {
 			gap: 3.5rem;
@@ -652,6 +972,12 @@ let zigzagIndex = 0;
 		}
 
 		.entry__title {
+			font-size: 1.25rem;
+		}
+
+		.lightbox-nav {
+			width: 2.5rem;
+			height: 2.5rem;
 			font-size: 1.25rem;
 		}
 	}
