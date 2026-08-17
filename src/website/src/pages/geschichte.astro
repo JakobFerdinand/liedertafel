@@ -4,6 +4,7 @@ import { Image } from "astro:assets";
 import { getCollection, render } from "astro:content";
 import Layout from "../layouts/Layout.astro";
 import Footer from "../components/Footer.astro";
+import TimelineOverview from "../components/TimelineOverview.svelte";
 
 interface TimelineEntry {
 	id: string;
@@ -89,6 +90,7 @@ const timelineEntries = await Promise.all(
 
 const configuredGroups = historyGroupConfigs[0]?.data.groups;
 const visibleTimelineGroups: TimelineGroup[] = [];
+const todayYear = new Date().getFullYear();
 
 if (timelineEntries.length > 0) {
 	const earliestHistoryYear = timelineEntries.reduce(
@@ -123,8 +125,45 @@ if (timelineEntries.length > 0) {
 		targetGroup?.entries.push(entry);
 	});
 
-	visibleTimelineGroups.push(...timelineGroups.filter((group) => group.entries.length > 0).reverse());
+	visibleTimelineGroups.push(...timelineGroups.filter((group) => group.entries.length > 0));
+
+	visibleTimelineGroups.forEach((group) => {
+		group.entries.reverse();
+	});
 }
+
+const chartEras = visibleTimelineGroups.map((group) => ({
+	from: group.from,
+	to: group.to ?? null,
+	title: group.title,
+	rangeLabel: group.rangeLabel,
+	message: group.message ?? "",
+}));
+
+const chartEvents = timelineEntries.map((entry) => ({
+	id: entry.id,
+	year: getHistoryYear(entry.date),
+	label: entry.formattedDate,
+	title: entry.title,
+}));
+
+const romanNumerals = ["I", "II", "III", "IV", "V", "VI"];
+
+const handleOverviewJump = (event: Event) => {
+	const detail = (event as CustomEvent<{ kind: "entry" | "era"; id?: string; from?: number }>).detail;
+
+	if (detail.kind === "era" && detail.from) {
+		document.getElementById(`era-${detail.from}`)?.scrollIntoView({
+			behavior: "smooth",
+			block: "start",
+		});
+		return;
+	}
+
+	if (detail.kind === "entry" && detail.id) {
+		openHistoryEntry(detail.id);
+	}
+};
 ---
 
 <Layout>
@@ -134,60 +173,68 @@ if (timelineEntries.length > 0) {
 		<p>Stationen unseres Chors - von der Gründung bis heute.</p>
 	</section>
 
-	<section class="timeline" aria-labelledby="timeline-heading">
-		<h2 class="timeline-heading" id="timeline-heading">Zeitleiste</h2>
+	<section class="overview-section" aria-labelledby="overview-heading">
+		<h2 id="overview-heading">Die Chronik im Überblick</h2>
 		{visibleTimelineGroups.length > 0 ? (
-			<ul class="timeline-list timeline-list--grouped">
-				{
-					visibleTimelineGroups.map((group) => (
-						<li class="timeline-group-item" aria-labelledby={`timeline-group-${group.from}`}>
-							<details class="timeline-group__details">
-								<summary class="timeline-group__header">
-									<h3 class="timeline-group__title" id={`timeline-group-${group.from}`}>{group.title}</h3>
-									<p class="timeline-group__range">{group.rangeLabel}</p>
-									<p class="timeline-group__count">
-										{group.entries.length} {group.entries.length === 1 ? "Eintrag" : "Einträge"}
-									</p>
-								</summary>
-								{group.message && (
-									<p class="timeline-group__message">{group.message}</p>
-								)}
-								<ul class="timeline-list timeline-group__entries">
-									{group.entries.map((entry) => (
-										<li class="timeline-item" id={entry.id}>
-											<details class="timeline-details" data-history-entry={entry.id} open={false}>
-												<summary>
-													<span class="timeline-date">{entry.formattedDate}</span>
-													<div class="timeline-header">
-														<h4>{entry.title}</h4>
-														{entry.subtitle && <p>{entry.subtitle}</p>}
-													</div>
-												</summary>
-												{(entry.image || entry.hasContent) && (
-													<div class="timeline-content">
-														{entry.image && (
-															<button
-																type="button"
-																class="timeline-image-trigger"
-																data-image-src={entry.image.src}
-																data-image-alt={`Bild zu ${entry.title}`}
-																aria-label={`Bild zu ${entry.title} vergrößern`}
-															>
-																<Image src={entry.image} alt={`Bild zu ${entry.title}`} loading="lazy" />
-															</button>
-														)}
-														{entry.hasContent && <entry.Content />}
-													</div>
-												)}
-											</details>
-										</li>
-									))}
-								</ul>
-							</details>
-						</li>
-					))
-				}
-			</ul>
+			<TimelineOverview client:idle events={chartEvents} eras={chartEras} today={todayYear} on:jump={handleOverviewJump} />
+		) : (
+			<p class="timeline-empty">Noch keine Chronik-Einträge vorhanden.</p>
+		)}
+	</section>
+
+	<section class="chronik" aria-labelledby="chronik-heading">
+		<h2 id="chronik-heading">Die Stationen im Detail</h2>
+		{visibleTimelineGroups.length > 0 ? (
+			visibleTimelineGroups.map((group, groupIndex) => (
+				<section class="epoch" id={`era-${group.from}`} aria-labelledby={`era-title-${group.from}`}>
+					<header class="epoch__header">
+						<span class="epoch__numeral" aria-hidden="true">{romanNumerals[groupIndex] ?? groupIndex + 1}</span>
+						<div class="epoch__heading">
+							<h3 id={`era-title-${group.from}`}>{group.title}</h3>
+							<p class="epoch__meta">
+								{group.rangeLabel} · {group.entries.length} {group.entries.length === 1 ? "Eintrag" : "Einträge"}
+							</p>
+						</div>
+					</header>
+					{group.message && <p class="epoch__message">{group.message}</p>}
+					<ul class="ledger">
+						{group.entries.map((entry) => (
+							<li class="ledger__row">
+								<details class="ledger__details" id={entry.id} data-history-entry={entry.id}>
+									<summary>
+										<time class="ledger__date" datetime={entry.date}>{entry.formattedDate}</time>
+										<span class="ledger__head">
+											<span class="ledger__title">{entry.title}</span>
+											{entry.subtitle && <span class="ledger__subtitle">{entry.subtitle}</span>}
+										</span>
+										<span class="ledger__chevron" aria-hidden="true">
+											<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+												<polyline points="6 9 12 15 18 9"></polyline>
+											</svg>
+										</span>
+									</summary>
+									{(entry.image || entry.hasContent) && (
+										<div class="ledger__body">
+											{entry.image && (
+												<button
+													type="button"
+													class="entry-image-trigger"
+													data-image-src={entry.image.src}
+													data-image-alt={`Bild zu ${entry.title}`}
+													aria-label={`Bild zu ${entry.title} vergrößern`}
+												>
+													<Image src={entry.image} alt={`Bild zu ${entry.title}`} loading="lazy" />
+												</button>
+											)}
+											{entry.hasContent && <entry.Content />}
+										</div>
+									)}
+								</details>
+							</li>
+						))}
+					</ul>
+				</section>
+			))
 		) : (
 			<p class="timeline-empty">Noch keine Chronik-Einträge vorhanden.</p>
 		)}
@@ -217,10 +264,10 @@ if (timelineEntries.length > 0) {
 	const closeButton = lightbox?.querySelector<HTMLButtonElement>(".lightbox-close");
 	const previousButton = lightbox?.querySelector<HTMLButtonElement>(".lightbox-nav--prev");
 	const nextButton = lightbox?.querySelector<HTMLButtonElement>(".lightbox-nav--next");
-	const triggers = document.querySelectorAll<HTMLButtonElement>(".timeline-image-trigger");
-	const markdownImages = document.querySelectorAll<HTMLImageElement>(".timeline-content img");
-	const timelineContents = document.querySelectorAll<HTMLElement>(".timeline-content");
-	const historyDetails = document.querySelectorAll<HTMLDetailsElement>(".timeline-details[data-history-entry]");
+	const triggers = document.querySelectorAll<HTMLButtonElement>(".entry-image-trigger");
+	const markdownImages = document.querySelectorAll<HTMLImageElement>(".ledger__body img");
+	const ledgerBodies = document.querySelectorAll<HTMLElement>(".ledger__body");
+	const historyDetails = document.querySelectorAll<HTMLDetailsElement>(".ledger__details[data-history-entry]");
 
 	const updateHistoryHash = (entryId?: string) => {
 		const url = new URL(window.location.href);
@@ -245,12 +292,6 @@ if (timelineEntries.length > 0) {
 
 		if (!entry || !details) {
 			return;
-		}
-
-		// Also open the parent group if it is collapsed
-		const groupDetails = details.closest<HTMLDetailsElement>(".timeline-group__details");
-		if (groupDetails && !groupDetails.open) {
-			groupDetails.open = true;
 		}
 
 		if (!details.open) {
@@ -364,10 +405,10 @@ if (timelineEntries.length > 0) {
 		}
 	};
 
-	timelineContents.forEach((content) => {
+	ledgerBodies.forEach((body) => {
 		const items: LightboxItem[] = [];
 
-		const trigger = content.querySelector<HTMLButtonElement>(".timeline-image-trigger");
+		const trigger = body.querySelector<HTMLButtonElement>(".entry-image-trigger");
 		if (trigger) {
 			items.push({
 				trigger,
@@ -376,8 +417,8 @@ if (timelineEntries.length > 0) {
 			});
 		}
 
-		content.querySelectorAll<HTMLImageElement>("img").forEach((image) => {
-			if (image.closest(".timeline-image-trigger")) {
+		body.querySelectorAll<HTMLImageElement>("img").forEach((image) => {
+			if (image.closest(".entry-image-trigger")) {
 				return;
 			}
 
@@ -420,11 +461,11 @@ if (timelineEntries.length > 0) {
 	});
 
 	markdownImages.forEach((image) => {
-		if (image.closest(".timeline-image-trigger")) {
+		if (image.closest(".entry-image-trigger")) {
 			return;
 		}
 
-		image.classList.add("timeline-markdown-image");
+		image.classList.add("ledger-markdown-image");
 		image.setAttribute("role", "button");
 		image.setAttribute("tabindex", "0");
 		image.setAttribute("aria-label", `${image.alt || "Bild"} vergrößern`);
@@ -497,96 +538,24 @@ if (timelineEntries.length > 0) {
 		opacity: 0.9;
 	}
 
-	.timeline {
+	.overview-section {
 		display: flex;
 		flex-direction: column;
-		gap: 1.5rem;
+		gap: 1.25rem;
 	}
 
-	.timeline-list {
-		--timeline-gap: 1rem;
-		--timeline-dot-top: 1.575rem;
-		list-style: none;
-		margin: 0;
-		padding: 0;
+	.overview-section h2 {
+		margin-bottom: 0;
+	}
+
+	.chronik {
 		display: flex;
 		flex-direction: column;
-		gap: var(--timeline-gap);
+		gap: 3rem;
 	}
 
-	.timeline-list > li {
-		position: relative;
-		--timeline-item-padding-left: 2rem;
-		--timeline-marker-x: 0.5rem;
-		padding-left: var(--timeline-item-padding-left);
-	}
-
-	.timeline-list > li::before {
-		content: "";
-		position: absolute;
-		left: var(--timeline-marker-x);
-		top: 0;
-		bottom: calc(-1 * var(--timeline-gap));
-		width: 2px;
-		background: rgba(255, 255, 255, 0.3);
-		transform: translateX(-50%);
-	}
-
-	.timeline-list > li:last-child::before {
-		bottom: calc(100% - var(--timeline-dot-top));
-	}
-
-	.timeline-group__details {
-		width: 100%;
-	}
-
-	.timeline-group__details > summary {
-		list-style: none;
-		cursor: pointer;
-	}
-
-	.timeline-group__details > summary::-webkit-details-marker {
-		display: none;
-	}
-
-	.timeline-group__entries {
-		--timeline-gap: 1rem;
-		--timeline-dot-top: 1.575rem;
-		list-style: none;
-		margin: 0;
-		padding: 0;
-		display: flex;
-		flex-direction: column;
-		gap: var(--timeline-gap);
-		margin-top: var(--timeline-gap);
-	}
-
-	.timeline-group__entries > li {
-		position: relative;
-		--timeline-item-padding-left: 2rem;
-		--timeline-marker-x: 0.5rem;
-		padding-left: var(--timeline-item-padding-left);
-	}
-
-	.timeline-group__entries > li::before {
-		content: "";
-		position: absolute;
-		left: var(--timeline-marker-x);
-		top: 0;
-		bottom: calc(-1 * var(--timeline-gap));
-		width: 2px;
-		background: rgba(255, 255, 255, 0.3);
-		transform: translateX(-50%);
-	}
-
-	.timeline-group__entries > li:last-child::before {
-		bottom: calc(100% - var(--timeline-dot-top));
-	}
-
-	.timeline-heading {
-		margin: 0;
-		font-size: 1.6rem;
-		text-align: left;
+	.chronik h2 {
+		margin-bottom: 0;
 	}
 
 	.timeline-empty {
@@ -595,160 +564,160 @@ if (timelineEntries.length > 0) {
 		opacity: 0.9;
 	}
 
-	.timeline-group-item {
-		position: relative;
-		--timeline-dot-top: 1.7rem;
-	}
-
-	.timeline-group-item::after {
-		content: "";
-		position: absolute;
-		left: var(--timeline-marker-x);
-		top: var(--timeline-dot-top);
-		width: 0.95rem;
-		height: 0.95rem;
-		border-radius: 999px;
-		border: 2px solid rgba(255, 255, 255, 0.78);
-		background: rgba(255, 255, 255, 0.12);
-		box-shadow: 0 0 0 0.35rem rgba(255, 255, 255, 0.06);
-		transform: translate(-50%, -50%);
-	}
-
-	.timeline-group__header {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr) auto;
-		gap: 0.9rem;
-		align-items: start;
-		padding: 0.8rem 0 0.35rem 1.35rem;
-	}
-
-	.timeline-group__title {
+	.epoch {
 		display: flex;
-		align-items: center;
-		padding: 0.35rem 0.8rem;
-		border: 1px solid rgba(255, 255, 255, 0.28);
-		background: rgba(255, 255, 255, 0.08);
-		grid-column: 1 / -1;
-		grid-row: 1;
-		width: 100%;
+		flex-direction: column;
+		gap: 1.25rem;
+		scroll-margin-top: 1.5rem;
 	}
 
-	.timeline-group__header h3 {
-		margin: 0;
+	.epoch__header {
+		display: flex;
+		align-items: start;
+		gap: 1.25rem;
+		border-bottom: 1px solid rgba(255, 255, 255, 0.35);
+		padding-bottom: 1rem;
+	}
+
+	.epoch__numeral {
+		font-family: var(--font-heading);
+		font-size: 3.2rem;
+		font-weight: 500;
+		line-height: 1;
+		opacity: 0.4;
+		width: 4.5rem;
+		flex-shrink: 0;
+	}
+
+	.epoch__heading {
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+	}
+
+	.epoch__heading h3 {
 		text-align: left;
-		font-size: 1.55rem;
+		font-size: 1.8rem;
 	}
 
-	.timeline-group__range,
-	.timeline-group__count {
+	.epoch__meta {
 		margin: 0;
+		font-size: 0.8rem;
+		font-weight: 600;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+		opacity: 0.75;
 	}
 
-	.timeline-group__message {
-		margin: 0 0 1rem calc(-1 * var(--timeline-item-padding-left) + var(--timeline-marker-x) - 1px);
-		padding: 0.9rem 1.35rem 0.9rem calc(var(--timeline-item-padding-left) - var(--timeline-marker-x) + 1px);
+	.epoch__message {
+		margin: 0;
 		line-height: 1.65;
 		opacity: 0.9;
-		border-left: 2px solid rgba(255, 255, 255, 0.3);
 		white-space: pre-line;
 	}
 
-	.timeline-group__range {
-		grid-column: 1;
-		grid-row: 2;
-		font-size: 0.8rem;
-		font-weight: 600;
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
-		white-space: nowrap;
+	.ledger {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		border-top: 1px solid rgba(255, 255, 255, 0.14);
 	}
 
-	.timeline-group__count {
-		grid-column: 2;
-		grid-row: 2;
-		align-self: start;
-		font-size: 0.95rem;
-		opacity: 0.75;
-		text-align: right;
-		white-space: nowrap;
+	.ledger__row {
+		border-bottom: 1px solid rgba(255, 255, 255, 0.14);
 	}
 
-	.timeline-item {
-		--timeline-dot-top: 1.575rem;
-	}
-
-	.timeline-details {
-		background: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.04) 100%);
-		border: 1px solid rgba(255, 255, 255, 0.2);
-		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
-	}
-
-	.timeline-details summary {
+	.ledger__details summary {
 		list-style: none;
 		cursor: pointer;
-		padding: 1.2rem 1.2rem 1.2rem 1.35rem;
-		display: grid;
-		grid-template-columns: auto minmax(0, 1fr);
-		gap: 0.9rem;
-		align-items: start;
 		position: relative;
+		display: grid;
+		grid-template-columns: 7.5rem minmax(0, 1fr) 2rem;
+		gap: 1.25rem;
+		align-items: center;
+		padding: 1.15rem 0.5rem;
+		transition: background 0.2s ease;
 	}
 
-	.timeline-details summary::-webkit-details-marker {
+	.ledger__details summary::-webkit-details-marker {
 		display: none;
 	}
 
-	.timeline-details summary::before {
+	.ledger__details summary::before {
 		content: "";
 		position: absolute;
-		left: calc(var(--timeline-marker-x) - var(--timeline-item-padding-left));
-		top: var(--timeline-dot-top);
-		width: 0.75rem;
-		height: 0.75rem;
+		left: 0.5rem;
+		top: 1.6rem;
+		width: 0.6rem;
+		height: 0.6rem;
 		border-radius: 999px;
-		border: 2px solid rgba(255, 255, 255, 0.78);
-		background: var(--color-brand);
-		transform: translate(-50%, -50%);
+		border: 2px solid rgba(255, 255, 255, 0.85);
+		background: rgba(255, 255, 255, 0.12);
 	}
 
-	.timeline-date {
-		font-size: 0.85rem;
+	.ledger__details summary:hover,
+	.ledger__details summary:focus-visible {
+		background: rgba(255, 255, 255, 0.07);
+	}
+
+	.ledger__date {
+		font-size: 0.82rem;
 		font-weight: 600;
 		letter-spacing: 0.08em;
 		text-transform: uppercase;
 		opacity: 0.85;
 		white-space: nowrap;
-		width: 10rem;
-		flex-shrink: 0;
+		padding-left: 1.4rem;
 	}
 
-	.timeline-header h4 {
+	.ledger__head {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		min-width: 0;
+	}
+
+	.ledger__title {
 		font-family: var(--font-heading);
-		font-size: 1.3rem;
+		font-size: 1.25rem;
 		font-weight: 500;
-		margin: 0;
 		letter-spacing: 0.01em;
 		line-height: 1.3;
 	}
 
-	.timeline-header p {
-		margin: 0.45rem 0 0;
-		opacity: 0.9;
+	.ledger__subtitle {
+		font-size: 0.95rem;
 		line-height: 1.5;
+		opacity: 0.88;
 	}
 
-	.timeline-content {
-		padding: 0 1.2rem 1.2rem 1.35rem;
+	.ledger__chevron {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		opacity: 0.6;
+		transition: transform 0.25s ease, opacity 0.2s ease;
+	}
+
+	.ledger__details[open] .ledger__chevron {
+		transform: rotate(180deg);
+		opacity: 1;
+	}
+
+	.ledger__body {
+		padding: 0 3.5rem 1.25rem;
 		border-top: 1px solid rgba(255, 255, 255, 0.12);
 	}
 
-	.timeline-content :global(p) {
+	.ledger__body :global(p) {
 		margin: 1rem 0 0;
 		line-height: 1.65;
 		opacity: 0.95;
 	}
 
-	.timeline-content :global(blockquote) {
+	.ledger__body :global(blockquote) {
 		position: relative;
 		margin: 1.35rem 0 0;
 		padding: 1.15rem 1.35rem 1.15rem 3.4rem;
@@ -757,7 +726,7 @@ if (timelineEntries.length > 0) {
 		box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 	}
 
-	.timeline-content :global(blockquote::before) {
+	.ledger__body :global(blockquote::before) {
 		content: "\201C";
 		position: absolute;
 		top: 0.55rem;
@@ -768,26 +737,25 @@ if (timelineEntries.length > 0) {
 		color: rgba(255, 255, 255, 0.68);
 	}
 
-	.timeline-content :global(blockquote p) {
+	.ledger__body :global(blockquote p) {
 		margin: 0;
 		font-style: italic;
 		line-height: 1.72;
 		opacity: 1;
 	}
 
-	.timeline-content :global(blockquote p + p) {
+	.ledger__body :global(blockquote p + p) {
 		margin-top: 0.65rem;
 	}
 
-	.timeline-image-trigger img {
+	.entry-image-trigger img {
 		display: block;
 		width: 100%;
 		max-height: 280px;
 		object-fit: contain;
-		margin-top: 0;
 	}
 
-	.timeline-content :global(img.timeline-markdown-image) {
+	.ledger__body :global(img.ledger-markdown-image) {
 		display: block;
 		width: auto;
 		max-width: 100%;
@@ -796,7 +764,7 @@ if (timelineEntries.length > 0) {
 		cursor: zoom-in;
 	}
 
-	.timeline-image-trigger {
+	.entry-image-trigger {
 		display: block;
 		width: 100%;
 		margin: 1rem 0 0;
@@ -905,51 +873,44 @@ if (timelineEntries.length > 0) {
 	}
 
 	@media (max-width: 600px) {
-		.timeline {
-			padding: 0 1rem;
+		.epoch__numeral {
+			width: 2.75rem;
+			font-size: 2.4rem;
 		}
 
-		.timeline-list > li,
-		.timeline-group__entries > li {
-			--timeline-item-padding-left: 1.5rem;
-			--timeline-marker-x: 0.35rem;
+		.epoch__heading h3 {
+			font-size: 1.45rem;
 		}
 
-		.timeline-list {
-			--timeline-dot-top: 1.375rem;
+		.ledger__details summary {
+			grid-template-columns: minmax(0, 1fr) 1.5rem;
+			gap: 0.5rem;
+			padding: 1rem 0.5rem;
 		}
 
-		.timeline-group__entries {
-			--timeline-dot-top: 1.375rem;
+		.ledger__details summary::before {
+			top: 1.35rem;
 		}
 
-		.timeline-group-item {
-			--timeline-dot-top: 1.45rem;
+		.ledger__date {
+			grid-column: 1 / -1;
+			padding-left: 1.4rem;
 		}
 
-		.timeline-group__header {
-			padding-left: 1rem;
+		.ledger__chevron {
+			grid-column: 2;
+			grid-row: 2;
 		}
 
-		.timeline-details summary {
-			grid-template-columns: 1fr;
-			padding: 1rem;
-			gap: 0.45rem;
-		}
-
-		.timeline-date {
-			width: auto;
-		}
-
-		.timeline-content {
+		.ledger__body {
 			padding: 0 1rem 1rem;
 		}
 
-		.timeline-content :global(blockquote) {
+		.ledger__body :global(blockquote) {
 			padding: 1rem 1rem 1rem 2.75rem;
 		}
 
-		.timeline-content :global(blockquote::before) {
+		.ledger__body :global(blockquote::before) {
 			left: 0.75rem;
 			font-size: 2.6rem;
 		}
