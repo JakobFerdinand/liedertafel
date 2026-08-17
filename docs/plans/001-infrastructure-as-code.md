@@ -19,7 +19,7 @@ resources. This makes the adoption significantly simpler than a larger, multi-re
 estate.
 
 Deployment today happens via the GitHub-integration workflow
-(`.github/workflows/build-and-deploy.yml` using `Azure/static-web-apps-deploy`). There
+(`.github/workflows/build-and-deploy-website.yml` using `Azure/static-web-apps-deploy`). There
 is no IaC in the repo yet.
 
 ## Approach: adopt existing resources in place
@@ -94,7 +94,7 @@ New workflow `.github/workflows/infra-deploy.yml`:
   - `deploy` (main + dispatch): `Azure/login@v3` → `az bicep build` →
     `az deployment group what-if` → guard: abort if any `Delete`/`Replace` change →
     `az deployment group create`.
-  - The existing `build-and-deploy.yml` (app deployment) stays untouched.
+  - The existing `build-and-deploy-website.yml` (app deployment) stays untouched.
 
 ## 4. Rollout order (safe, no downtime)
 

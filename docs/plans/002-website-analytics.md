@@ -185,7 +185,7 @@ Checkboxes are updated as work progresses.
 - [ ] Deploy infrastructure; verify storage account exists
 - [x] Scaffold `api/` (csproj, Program.cs, pageview feature, local.settings.json, requests.http)
 - [x] Add beacon script to `Layout.astro`; update `staticwebapp.config.json` (`apiRuntime`)
-- [x] Update `build-and-deploy.yml` (dotnet publish + `api_location`)
+- [x] Update `build-and-deploy-website.yml` (dotnet publish + `api_location`)
 - [x] Update `datenschutz.astro` (pseudonymous statistics section)
 - [ ] Deploy app; verify: beacon fires, 204 returned, rows appear in the
       `pageviews` table (`az storage table query`)
