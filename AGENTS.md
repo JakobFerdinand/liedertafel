@@ -38,6 +38,12 @@ Use this guide when editing or extending the codebase.
 - Use single quotes inside HTML attributes only when necessary.
 - Keep HTML and CSS aligned with existing component patterns.
 
+## Git Commits
+- When a commit is requested, always use Karma commit message format:
+  `type(scope): subject` (e.g., `feat(team): add team images`).
+- Valid Karma types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`, `build`, `ci`.
+- Keep the subject concise, imperative, and lowercase; scope is optional.
+
 ## CSS and Design System
 - Global typography variables live in `Layout.astro`.
   - `--font-heading` defines the heading font.
