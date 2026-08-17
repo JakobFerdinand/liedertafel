@@ -23,6 +23,28 @@ import HomeNavbar from "../components/HomeNavbar.astro";
 	</head>
 	<body>
 		<HomeNavbar />
+		<script is:inline>
+			window.addEventListener('load', () => {
+				if (!('sendBeacon' in navigator)) {
+					return;
+				}
+				let referrerHost = '';
+				try {
+					referrerHost = new URL(document.referrer).host;
+				} catch {
+					referrerHost = '';
+				}
+				const payload = {
+					path: location.pathname,
+					referrerHost,
+					viewportWidth: screen.width,
+				};
+				navigator.sendBeacon(
+					'/api/pageview',
+					new Blob([JSON.stringify(payload)], { type: 'application/json' })
+				);
+			});
+		</script>
 		<main>
 			<slot />
 		</main>

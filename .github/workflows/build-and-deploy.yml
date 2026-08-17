@@ -33,6 +33,10 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
@@ -41,6 +45,9 @@ jobs:
 
       - name: Build
         run: pnpm run build
+
+      - name: Publish API
+        run: dotnet publish api/liedertafel-api.csproj -o dist-api
 
       - name: Build And Deploy
         id: builddeploy
@@ -52,7 +59,7 @@ jobs:
           ###### Repository/Build Configurations - These values can be configured to match your app requirements. ######
           # For more information regarding Static Web App workflow configurations, please visit: https://aka.ms/swaworkflowconfig
           app_location: "dist" # App source code path
-          api_location: ""
+          api_location: "dist-api"
           skip_api_build: true
           skip_app_build: true
           config_file_location: "/"
