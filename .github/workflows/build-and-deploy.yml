@@ -49,8 +49,7 @@ jobs:
       - name: Publish API
         run: dotnet publish api/liedertafel-api.csproj -o dist-api
 
-      - name: Build And Deploy
-        id: builddeploy
+      - name: Deploy
         if: github.actor != 'dependabot[bot]'
         uses: Azure/static-web-apps-deploy@v1
         with:
