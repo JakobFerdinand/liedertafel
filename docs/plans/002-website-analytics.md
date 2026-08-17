@@ -166,16 +166,16 @@ feature. New section (pseudonymous visit statistics):
 Checkboxes are updated as work progresses.
 
 - [x] Decide final storage account name (`stliedertafel`) and retention (36 months)
-- [ ] Add `storage.bicep` module + `main.bicep` wiring; validate with `az bicep build` + `az deployment group what-if` (expect only `Create`)
-- [ ] Extend `infra-deploy.yml` deploy job to set the `StorageConnection` app setting
+- [x] Add `storage.bicep` module + `main.bicep` wiring; validate with `az bicep build` + `az deployment group what-if` (expect only `Create`)
+- [x] Extend `infra-deploy.yml` deploy job to set the `StorageConnection` app setting
 - [ ] Deploy infrastructure; verify storage account exists
-- [ ] Scaffold `api/` (csproj, Program.cs, pageview feature, local.settings.json, requests.http)
-- [ ] Add beacon script to `Layout.astro`; update `staticwebapp.config.json` (`apiRuntime`)
-- [ ] Update `build-and-deploy.yml` (dotnet publish + `api_location`)
-- [ ] Update `datenschutz.astro` (pseudonymous statistics section)
+- [x] Scaffold `api/` (csproj, Program.cs, pageview feature, local.settings.json, requests.http)
+- [x] Add beacon script to `Layout.astro`; update `staticwebapp.config.json` (`apiRuntime`)
+- [x] Update `build-and-deploy.yml` (dotnet publish + `api_location`)
+- [x] Update `datenschutz.astro` (pseudonymous statistics section)
 - [ ] Deploy app; verify: beacon fires, 204 returned, rows appear in the
       `pageviews` table (`az storage table query`)
-- [ ] Update `AGENTS.md` if repo layout changed materially (new `api/` dir)
+- [x] Update `AGENTS.md` if repo layout changed materially (new `api/` dir)
 
 ## Verification checklist
 
