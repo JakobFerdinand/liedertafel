@@ -61,7 +61,6 @@ jobs:
           app_location: "dist" # App source code path
           api_location: "dist-api"
           skip_app_build: true
-          routes_location: "/"
           ###### End of Repository/Build Configurations ######
 
   close_pull_request_job:
