@@ -74,12 +74,26 @@ connection string on the SWA:
 KEY=$(az storage account keys list --resource-group RG-Liedertafel \
   --account-name stliedertafel --query "[0].value" -o tsv)
 az staticwebapp appsettings set --name liedertafel --resource-group RG-Liedertafel \
-  --setting-names "StorageConnection=DefaultEndpointsProtocol=https;AccountName=stliedertafel;AccountKey=$KEY;EndpointSuffix=core.windows.net"
+  --setting-names "StorageConnection=DefaultEndpointsProtocol=https;AccountName=stliedertafel;AccountKey=$KEY;EndpointSuffix=core.windows.net" \
+  --output none
 ```
 
 The function reads `StorageConnection` from its environment (SWA app settings
 become env vars; the name does not collide with the reserved `AzureWeb*`,
 `WEBSITE*`, … prefixes). The key never enters the repository.
+
+**Why not Bicep-declared app settings?** The ARM schema
+`Microsoft.Web/staticSites/config` (child `name: 'appsettings'`) does support
+app settings, but Microsoft's official how-to documents portal/CLI only. The
+workflow step is kept deliberately:
+
+- The connection string would otherwise be materialized via `listKeys(...)`
+  into what-if output and deployment history (readable by anyone with Reader on
+  the resource group).
+- Settings become drift-prone "side effects" when declared outside the step and
+  have a history of config-resource quirks in the community.
+- `--output none` keeps the key out of pipeline logs; `az staticwebapp
+  appsettings set` would otherwise print all settings, including values.
 
 ## 2. Function code (`api/`)
 
