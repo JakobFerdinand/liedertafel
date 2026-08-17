@@ -4,20 +4,18 @@ This repository is an Astro site for Liedertafel Mining 1906.
 Use this guide when editing or extending the codebase.
 
 ## Repository Layout
-- src/layouts/Layout.astro: global HTML shell and global CSS.
-- src/pages/*.astro: top-level pages.
-- src/components/*.astro: reusable page sections.
-- src/assets: static assets referenced by components/pages.
-- public: public static files served as-is.
-- api: Azure Functions managed API (C# .NET isolated); serves the `/api/pageview` endpoint and writes page views to Azure Table Storage.
+- src/website: self-contained Astro site with pages in `src/pages`, reusable sections in `src/components`, global shell/CSS in `src/layouts/Layout.astro`, assets in `src/assets`, content collections under `src/content`, and static files in `public/`.
+- src/website-api: Azure Functions managed API (C# .NET isolated); serves the `/api/pageview` endpoint and writes page views to Azure Table Storage.
 - infrastructure: Azure Bicep templates for the RG-Liedertafel estate.
 - docs/plans: tracked planning documents.
+- liedertafel.slnx: .NET solution that opens all API projects together; global.json pins the .NET SDK.
 
 ## Commands (Build / Lint / Test)
-- Install deps: `pnpm install`
-- Dev server: `pnpm run dev`
-- Build: `pnpm run build`
-- Preview build: `pnpm run preview`
+- Website deps: `cd src/website && pnpm install`
+- Dev server: `cd src/website && pnpm run dev`
+- Build: `cd src/website && pnpm run build`
+- Preview build: `cd src/website && pnpm run preview`
+- API (local): `cd src/website-api && dotnet run`
 
 ### Linting
 - No lint script is configured in `package.json`.
@@ -86,7 +84,7 @@ Use this guide when editing or extending the codebase.
 - Avoid large inline assets in components.
 
 ## Build Artifacts
-- `dist/` is a build output directory.
+- `src/website/dist/` is a build output directory.
 - Avoid editing `dist/` directly unless explicitly asked.
 
 ## Infrastructure
@@ -107,7 +105,7 @@ Use this guide when editing or extending the codebase.
 1. Inspect related component/page styles before changing global rules.
 2. Keep design consistent with existing sections.
 3. Prefer small, focused edits to minimize layout regressions.
-4. Run `npm run build` to verify when making larger changes.
+4. Run `cd src/website && pnpm run build` to verify when making larger changes.
 
 ## Notes for Agentic Tools
 - Follow existing style and structure; do not introduce a new system.

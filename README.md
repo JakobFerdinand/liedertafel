@@ -4,9 +4,10 @@ The homepage of the choir "Liedertafel Mining 1906".
 
 ## Development
 
-- Install: `pnpm install`
-- Dev server: `pnpm run dev`
-- Build: `pnpm run build`
+- `src/website`: Astro marketing site (`cd src/website && pnpm install && pnpm run dev`)
+- `src/website-api`: Azure Functions managed API, hosted by the Static Web App
+  (`cd src/website-api && dotnet run`); the `liedertafel.slnx` solution opens all
+  API projects together.
 
 ## Infrastructure
 

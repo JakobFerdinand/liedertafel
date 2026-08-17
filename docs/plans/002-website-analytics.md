@@ -13,7 +13,7 @@ Azure Table Storage. No cookies, no third-party SDKs, no IP addresses.
 | --------- | ---- | ----- |
 | Storage account (Azure Table Storage) | **New** | Stores the `pageviews` table; only new Azure resource |
 | Function app | **No new resource** | Hosted by the Static Web App itself as *managed functions* (consumption plan, HTTP-only triggers) — no separate Function App resource, no extra cost |
-| Function code (`api/` in this repo) | **New** | C# .NET isolated, HTTP trigger `POST /api/pageview`, writes to Table Storage |
+| Function code (`src/website-api/` in this repo) | **New** | C# .NET isolated, HTTP trigger `POST /api/pageview`, writes to Table Storage |
 | Beacon script in `Layout.astro` | **New** | `navigator.sendBeacon` on `window` load |
 | SWA app setting `StorageConnection` | **New** | Storage connection string; set via workflow, not committed |
 | `staticwebapp.config.json` runtime | **Edit** | Declare `apiRuntime` for managed functions |
@@ -95,17 +95,17 @@ workflow step is kept deliberately:
 - `--output none` keeps the key out of pipeline logs; `az staticwebapp
   appsettings set` would otherwise print all settings, including values.
 
-## 2. Function code (`api/`)
+## 2. Function code (`src/website-api/`)
 
-New `api/` directory in the repo, C# .NET isolated:
+New `src/website-api/` directory in the repo, C# .NET isolated:
 
-- `api/liedertafel-api.csproj` — .NET 9 or 10 (isolated worker; use the newest
+- `src/website-api/website-api.csproj` — .NET 9 or 10 (isolated worker; use the newest
   version supported by SWA managed functions at implementation time), packages
   `Microsoft.Azure.Functions.Worker`, `.Extensions.Http`,
   `Azure.Data.Tables`.
-- `api/Program.cs` — reads `StorageConnection` (throw if unset), registers a
+- `src/website-api/Program.cs` — reads `StorageConnection` (throw if unset), registers a
   singleton `TableServiceClient` and the page-view handler.
-- `api/features/pageviews/PageView.cs` —
+- `src/website-api/features/pageviews/PageView.cs` —
   - `[Function("pageview")]`, `[HttpTrigger(AuthorizationLevel.Anonymous, "post")]`
     → route `/api/pageview`.
   - Payload: `{ path, referrerHost, viewportWidth }`.
@@ -150,14 +150,14 @@ Inline script in `Layout.astro` (present on every page):
 
 ## 4. Deployment workflow
 
-`build-and-deploy.yml` (single job builds and deploys today):
+`build-and-deploy-website.yml` (single job builds and deploys today):
 
-1. Keep the Astro build as-is.
-2. New step: `dotnet publish api/ -o dist-api` (API project output outside the
-   static app output).
-3. In `Azure/static-web-apps-deploy@v1`: `api_location: "dist-api"`,
+1. Keep the Astro build as-is (working directory `./src/website`).
+2. New step: `dotnet publish src/website-api/website-api.csproj -c Release -o website-api_output`
+   (API project output outside the static app output).
+3. In `Azure/static-web-apps-deploy@v1`: `api_location: "./website-api_output"`,
    `skip_api_build: true` (already set). The existing
-   `app_location: "dist"` and token stay unchanged.
+   `app_location: "./src/website/dist"` and token stay unchanged.
 
 Local development: use the SWA CLI (`swa start dist --api-location api`) or run
 the function with an empty `local.settings.json` `StorageConnection`; keep a
