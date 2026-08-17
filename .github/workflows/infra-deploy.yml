@@ -126,3 +126,17 @@ jobs:
             --resource-group "$RESOURCE_GROUP" \
             --template-file infrastructure/main.bicep \
             --parameters infrastructure/main.bicepparam
+
+      - name: Set StorageConnection app setting
+        run: |
+          echo "::group::Fetch storage account key"
+          KEY=$(az storage account keys list \
+            --resource-group "$RESOURCE_GROUP" \
+            --account-name stliedertafel \
+            --query "[0].value" -o tsv)
+          echo "::endgroup::"
+          az staticwebapp appsettings set \
+            --name liedertafel \
+            --resource-group "$RESOURCE_GROUP" \
+            --setting-names "StorageConnection=DefaultEndpointsProtocol=https;AccountName=stliedertafel;AccountKey=$KEY;EndpointSuffix=core.windows.net" \
+            --output none

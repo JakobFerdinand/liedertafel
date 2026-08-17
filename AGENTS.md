@@ -9,6 +9,7 @@ Use this guide when editing or extending the codebase.
 - src/components/*.astro: reusable page sections.
 - src/assets: static assets referenced by components/pages.
 - public: public static files served as-is.
+- api: Azure Functions managed API (C# .NET isolated); serves the `/api/pageview` endpoint and writes page views to Azure Table Storage.
 - infrastructure: Azure Bicep templates for the RG-Liedertafel estate.
 - docs/plans: tracked planning documents.
 
