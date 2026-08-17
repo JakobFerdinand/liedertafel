@@ -2,12 +2,12 @@ using System.Net;
 using System.Text.Json;
 using Azure;
 using Azure.Data.Tables;
-using Liedertafel.Api.Shared.Entities;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
+using WebsiteApi.Shared.Entities;
 
-namespace Liedertafel.Api.Features.Pageviews;
+namespace WebsiteApi.Features.PageViews;
 
 public class PageView(PageView.Handler handler)
 {

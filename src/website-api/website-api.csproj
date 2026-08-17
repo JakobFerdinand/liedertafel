@@ -7,7 +7,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <FunctionsEnableWorkerIndexing>true</FunctionsEnableWorkerIndexing>
-    <RootNamespace>Liedertafel.Api</RootNamespace>
+    <RootNamespace>WebsiteApi</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Azure.Functions.Worker" Version="2.52.0" />

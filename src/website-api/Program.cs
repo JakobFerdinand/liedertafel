@@ -1,9 +1,9 @@
 using Azure.Data.Tables;
-using Liedertafel.Api.Features.Pageviews;
-using Liedertafel.Api.Shared;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using WebsiteApi.Features.PageViews;
+using WebsiteApi.Shared;
 
 var host = new HostBuilder()
 	.ConfigureFunctionsWorkerDefaults()

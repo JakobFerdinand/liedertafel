@@ -1,4 +1,4 @@
-namespace Liedertafel.Api.Shared;
+namespace WebsiteApi.Shared;
 
 public static class EnvironmentVariables
 {

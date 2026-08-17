@@ -1,7 +1,7 @@
 using Azure;
 using Azure.Data.Tables;
 
-namespace Liedertafel.Api.Shared.Entities;
+namespace WebsiteApi.Shared.Entities;
 
 public class PageViewEntity : ITableEntity
 {
