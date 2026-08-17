@@ -139,7 +139,7 @@ public class PageView(PageView.Handler handler)
 				await table.UpsertEntityAsync(new TableEntity("Cleanup", "last"), TableUpdateMode.Replace, ct);
 
 				var cutoffKey = $"Pv|{DateTime.UtcNow.Date.AddMonths(-RetentionMonths):yyyy-MM-dd}";
-				var filter = $"PartitionKey lt '{cutoffKey}'";
+				var filter = $"PartitionKey ge 'Pv|' and PartitionKey lt '{cutoffKey}'";
 
 				while (true)
 				{
