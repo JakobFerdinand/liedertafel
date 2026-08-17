@@ -31,11 +31,11 @@ downtime. `what-if` is used to verify this before applying.
 
 Checkboxes are updated as work progresses.
 
-- [ ] Create git branch `feat/infrastructure-as-code`
-- [ ] Write infrastructure plan (`docs/plans/001-infrastructure-as-code.md`)
-- [ ] Finalize plan decisions (service principal, custom-domain gating)
-- [ ] Scaffold Bicep templates (`main.bicep`, module `static-sites.bicep`, `*.bicepparam`, `bicepconfig.json`)
-- [ ] Validate templates locally (`az bicep build` + `az deployment group what-if`)
+- [x] Create git branch `feat/infrastructure-as-code`
+- [x] Write infrastructure plan (`docs/plans/001-infrastructure-as-code.md`)
+- [x] Finalize plan decisions (service principal, custom-domain gating)
+- [x] Scaffold Bicep templates (`main.bicep`, module `static-sites.bicep`, `*.bicepparam`, `bicepconfig.json`)
+- [x] Validate templates locally (`az bicep build` + `az deployment group what-if` — only `Modify`, no `Delete`/`Replace`)
 - [ ] Write `.github/workflows/infra-deploy.yml` (`what-if` PR job + deploy on main)
 - [ ] Manual: create dedicated service principal + OIDC federated credentials, add
       GitHub secrets (`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`)
