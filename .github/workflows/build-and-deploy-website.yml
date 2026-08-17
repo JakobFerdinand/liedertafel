@@ -1,13 +1,21 @@
-name: Build and Deploy
+name: Build and Deploy Website
 
 on:
   push:
     branches:
       - main
+    paths:
+      - 'src/website/**'
+      - 'src/website-api/**'
+      - '.github/workflows/build-and-deploy-website.yml'
   pull_request:
     types: [opened, synchronize, reopened, closed]
     branches:
       - main
+    paths:
+      - 'src/website/**'
+      - 'src/website-api/**'
+      - '.github/workflows/build-and-deploy-website.yml'
 
 permissions:
    contents: read
@@ -32,6 +40,7 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+          cache-dependency-path: ./src/website/pnpm-lock.yaml
 
       - uses: actions/setup-dotnet@v6
         with:
@@ -39,15 +48,18 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
+        working-directory: ./src/website
 
       - name: Astro check
         run: pnpm run check
+        working-directory: ./src/website
 
       - name: Build
         run: pnpm run build
+        working-directory: ./src/website
 
       - name: Publish API
-        run: dotnet publish api/liedertafel-api.csproj -o dist-api
+        run: dotnet publish src/website-api/website-api.csproj -c Release -o website-api_output
 
       - name: Deploy
         if: github.actor != 'dependabot[bot]'
@@ -58,12 +70,12 @@ jobs:
           action: "upload"
           ###### Repository/Build Configurations - These values can be configured to match your app requirements. ######
           # For more information regarding Static Web App workflow configurations, please visit: https://aka.ms/swaworkflowconfig
-          app_location: "dist" # App source code path
-          api_location: "dist-api"
+          app_location: "./src/website/dist" # App source code path
+          api_location: "./website-api_output" # Published API path
           # The "unexpected input" warning for the two inputs below is cosmetic;
           # the SWA deploy container reads them (see alpakasoelde deployment).
           skip_api_build: true
-          config_file_location: "/"
+          config_file_location: "/src/website/"
           skip_app_build: true
           ###### End of Repository/Build Configurations ######
 

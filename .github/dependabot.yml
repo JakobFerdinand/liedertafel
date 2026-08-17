@@ -19,7 +19,7 @@ updates:
           - "*"
       
   - package-ecosystem: "npm"
-    directory: "/"
+    directory: "/src/website"
     schedule:
       interval: weekly
       day: monday
@@ -31,7 +31,7 @@ updates:
           - "*"
 
   - package-ecosystem: "nuget"
-    directory: "/api"
+    directory: "/src/website-api"
     schedule:
       interval: weekly
       day: monday
