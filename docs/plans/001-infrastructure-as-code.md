@@ -15,7 +15,8 @@ workflow stays untouched.
 
 There are **no** other resources in the subscription tied to Liedertafel: no storage
 account, no API, no app settings, no Key Vault, no budgets, no subscription-level
-resources. This makes the adoption significantly simpler than the Alpakasoelde estate.
+resources. This makes the adoption significantly simpler than a larger, multi-resource
+estate.
 
 Deployment today happens via the GitHub-integration workflow
 (`.github/workflows/build-and-deploy.yml` using `Azure/static-web-apps-deploy`). There
@@ -48,7 +49,7 @@ Checkboxes are updated as work progresses.
 infrastructure/
   main.bicep              # RG-scoped orchestrator (targetScope = resourceGroup)
   main.bicepparam         # values: RG name, location, resource name, custom domains
-  bicepconfig.json        # lint rules (mirrors the Alpakasoelde repo)
+  bicepconfig.json        # lint rules (same set as our other Bicep repos)
   modules/
     static-sites.bicep    # the Static Web App + customDomains (adopt in place)
 ```
@@ -73,8 +74,7 @@ secrets exist and no Key Vault is introduced.
 
 ## 3. GitHub Actions – infra auto-deploy
 
-New workflow `.github/workflows/infra-deploy.yml`, modelled on the Alpakasoelde repo's
-`infra-deploy.yml`:
+New workflow `.github/workflows/infra-deploy.yml`:
 
 - **Triggers:** `push` to `main` with paths `infrastructure/**` and
   `.github/workflows/infra-deploy.yml`, `pull_request` for a `what-if` preview job,
@@ -122,8 +122,8 @@ New workflow `.github/workflows/infra-deploy.yml`, modelled on the Alpakasoelde 
   existing Static Web App in place.
 - **No Key Vault / no secrets:** the SWA has no app settings; nothing to migrate.
 - **GitHub Actions:** dedicated service principal `sp-liedertafel-iac` (least
-  privilege, isolated from the Alpakasoelde identity) with OIDC federated
-  credentials scoped to this repo.
+  privilege, isolated from any other identities) with OIDC federated credentials
+  scoped to this repo.
 - **Custom domains:** declared as child resources, gated on `what-if` review; fall
   back to portal-managed if `Replace` is reported.
 - **Pull requests:** infra changes run a `what-if` job that posts the diff as a PR
