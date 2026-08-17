@@ -36,7 +36,7 @@ Checkboxes are updated as work progresses.
 - [x] Finalize plan decisions (service principal, custom-domain gating)
 - [x] Scaffold Bicep templates (`main.bicep`, module `static-sites.bicep`, `*.bicepparam`, `bicepconfig.json`)
 - [x] Validate templates locally (`az bicep build` + `az deployment group what-if` — only `Modify`, no `Delete`/`Replace`)
-- [ ] Write `.github/workflows/infra-deploy.yml` (`what-if` PR job + deploy on main)
+- [x] Write `.github/workflows/infra-deploy.yml` (`what-if` PR job + deploy on main)
 - [ ] Manual: create dedicated service principal + OIDC federated credentials, add
       GitHub secrets (`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`)
 - [ ] First deploy: review `what-if` → apply → verify the site stays live
