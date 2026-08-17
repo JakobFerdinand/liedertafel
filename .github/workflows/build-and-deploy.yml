@@ -60,6 +60,10 @@ jobs:
           # For more information regarding Static Web App workflow configurations, please visit: https://aka.ms/swaworkflowconfig
           app_location: "dist" # App source code path
           api_location: "dist-api"
+          # The "unexpected input" warning for the two inputs below is cosmetic;
+          # the SWA deploy container reads them (see alpakasoelde deployment).
+          skip_api_build: true
+          config_file_location: "/"
           skip_app_build: true
           ###### End of Repository/Build Configurations ######
 
