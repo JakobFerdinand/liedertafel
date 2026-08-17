@@ -1,0 +1,19 @@
+{
+  "routes": [
+    {
+      "route": "/*",
+      "serve": "/index.html",
+      "statusCode": 200,
+      "allowedRoles": ["admin", "collaborator"]
+    }
+  ],
+  "responseOverrides": {
+    "404": { "rewrite": "/404.html", "statusCode": 404 },
+    "401": {
+      "statusCode": 302,
+      "redirect": "/.auth/login/github?post_login_redirect_uri=.referrer"
+    },
+    "403": { "rewrite": "/403.html", "statusCode": 403 }
+  },
+  "platform": { "apiRuntime": "dotnet-isolated:9.0" }
+}

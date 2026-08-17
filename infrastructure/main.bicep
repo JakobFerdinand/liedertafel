@@ -9,6 +9,12 @@ param staticSitesLocation string
 @description('Custom domains for the site.')
 param customDomains array = []
 
+@description('Name of the internal dashboard static web app.')
+param dashboardSiteName string
+
+@description('Custom domains for the dashboard site.')
+param dashboardCustomDomains array = []
+
 @description('Name of the storage account for website analytics.')
 param storageAccountName string
 
@@ -26,5 +32,7 @@ module staticSites './modules/static-sites.bicep' = {
     siteName: siteName
     location: staticSitesLocation
     customDomains: customDomains
+    dashboardSiteName: dashboardSiteName
+    dashboardCustomDomains: dashboardCustomDomains
   }
 }

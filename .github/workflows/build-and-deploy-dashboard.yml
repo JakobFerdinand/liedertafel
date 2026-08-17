@@ -1,0 +1,92 @@
+name: Build and Deploy Dashboard
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/dashboard/**'
+      - 'src/dashboard-api/**'
+      - '.github/workflows/build-and-deploy-dashboard.yml'
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    branches:
+      - main
+    paths:
+      - 'src/dashboard/**'
+      - 'src/dashboard-api/**'
+      - '.github/workflows/build-and-deploy-dashboard.yml'
+
+permissions:
+   contents: read
+   pull-requests: write
+
+jobs:
+  build_and_deploy_job:
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.action != 'closed')
+    runs-on: ubuntu-latest
+    name: Build and Deploy Job
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+          lfs: false
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: ./src/dashboard/pnpm-lock.yaml
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+        working-directory: ./src/dashboard
+
+      - name: Astro check
+        run: pnpm run check
+        working-directory: ./src/dashboard
+
+      - name: Publish API
+        run: dotnet publish src/dashboard-api/dashboard-api.csproj -c Release -o api_output
+
+      - name: Build
+        run: pnpm run build
+        working-directory: ./src/dashboard
+
+      - name: Deploy
+        if: github.actor != 'dependabot[bot]'
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.DASHBOARD_AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }} # Used for Github integrations (i.e. PR comments)
+          action: "upload"
+          ###### Repository/Build Configurations - These values can be configured to match your app requirements. ######
+          # For more information regarding Static Web App workflow configurations, please visit: https://aka.ms/swaworkflowconfig
+          app_location: "./src/dashboard/dist" # App source code path
+          api_location: "./api_output" # Published API path
+          # The "unexpected input" warning for the two inputs below is cosmetic;
+          # the SWA deploy container reads them (see alpakasoelde deployment).
+          skip_api_build: true
+          config_file_location: "/src/dashboard/"
+          skip_app_build: true
+          ###### End of Repository/Build Configurations ######
+
+  close_pull_request_job:
+    if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    name: Close Pull Request Job
+    steps:
+      - name: Close Pull Request
+        id: closepullrequest
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.DASHBOARD_AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          action: "close"

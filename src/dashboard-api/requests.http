@@ -1,0 +1,11 @@
+### Default window (28 days)
+GET http://localhost:7071/api/pageviews/stats
+
+### 90-day window
+GET http://localhost:7071/api/pageviews/stats?days=90
+
+### 180-day window
+GET http://localhost:7071/api/pageviews/stats?days=180
+
+### Invalid days value (expect 28-day window)
+GET http://localhost:7071/api/pageviews/stats?days=7
