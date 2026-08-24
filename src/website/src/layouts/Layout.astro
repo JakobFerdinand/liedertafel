@@ -25,11 +25,11 @@ import HomeNavbar from "../components/HomeNavbar.astro";
 		<HomeNavbar />
 		<script is:inline>
 			window.addEventListener('load', () => {
-				if (!('sendBeacon' in navigator)) {
+				const productionHosts = ['liedertafel-mining.at', 'www.liedertafel-mining.at'];
+				if (!productionHosts.includes(location.hostname)) {
 					return;
 				}
-				const host = location.hostname;
-				if (host !== 'liedertafel-mining.at' && host !== 'www.liedertafel-mining.at') {
+				if (!('sendBeacon' in navigator)) {
 					return;
 				}
 				let path = location.pathname;
