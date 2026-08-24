@@ -50,13 +50,15 @@ public class PageView(PageView.Handler handler)
 		return response;
 	}
 
-	public sealed record Payload(string? Path, string? ReferrerHost, int? ViewportWidth);
+	public sealed record Payload(string? Path, string? ReferrerHost, int? ViewportWidth, string? SessionId, string? VisitorId, string? NavigationType);
 
 	public sealed class Handler(IPageViewWriteStore store)
 	{
 		private const int MaxPathLength = 200;
 		private const int MaxReferrerHostLength = 200;
 		private const int MaxViewportWidth = 10000;
+		private const int MaxSessionIdLength = 64;
+		private const int MaxVisitorIdLength = 64;
 
 		public string? Validate(Payload payload)
 		{
@@ -80,6 +82,22 @@ public class PageView(PageView.Handler handler)
 				return $"Field 'viewportWidth' must be between 0 and {MaxViewportWidth}.";
 			}
 
+			if (payload.SessionId is { Length: > MaxSessionIdLength })
+			{
+				return $"Field 'sessionId' must not exceed {MaxSessionIdLength} characters.";
+			}
+
+			if (payload.VisitorId is { Length: > MaxVisitorIdLength })
+			{
+				return $"Field 'visitorId' must not exceed {MaxVisitorIdLength} characters.";
+			}
+
+			if (!string.IsNullOrEmpty(payload.NavigationType)
+				&& payload.NavigationType is not ("navigate" or "reload" or "back_forward"))
+			{
+				return "Field 'navigationType' must be one of 'navigate', 'reload', 'back_forward'.";
+			}
+
 			return null;
 		}
 
@@ -92,6 +110,9 @@ public class PageView(PageView.Handler handler)
 				Path = payload.Path!,
 				ReferrerHost = payload.ReferrerHost,
 				ViewportWidth = payload.ViewportWidth ?? 0,
+				SessionId = payload.SessionId,
+				VisitorId = payload.VisitorId,
+				NavigationType = payload.NavigationType,
 			};
 			await store.SaveAsync(entity, ct);
 		}

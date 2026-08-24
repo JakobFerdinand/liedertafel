@@ -13,12 +13,24 @@
 		deviceSeries: { week: string; device: string; count: number }[];
 		origins: { origin: string; count: number }[];
 		originSeries: { week: string; origin: string; count: number }[];
+		sessions: number;
+		pagesPerSession: number;
+		uniqueVisitors: number;
+		reloads: number;
+		visitorSeries: { week: string; category: string; count: number }[];
 	};
 
 	type Days = 28 | 90 | 180;
 
 	type SeriesRow = { week: string; count: number };
-	type KeyedRow = { week: string; count: number; path?: string; device?: string; origin?: string };
+	type KeyedRow = {
+		week: string;
+		count: number;
+		path?: string;
+		device?: string;
+		origin?: string;
+		category?: string;
+	};
 	type SeriesDef = {
 		key: string;
 		label: string;
@@ -38,6 +50,7 @@
 
 	const nfInt = new Intl.NumberFormat("de-AT");
 	const nfCompact = new Intl.NumberFormat("de-AT", { maximumFractionDigits: 0 });
+	const nfOneDecimal = new Intl.NumberFormat("de-AT", { maximumFractionDigits: 1 });
 	const dfLong = new Intl.DateTimeFormat("de-AT", {
 		day: "2-digit",
 		month: "2-digit",
@@ -210,6 +223,21 @@
 			: [],
 	);
 
+	const reloadShare = $derived(data != null && data.total > 0 ? Math.round((data.reloads / data.total) * 100) : 0);
+
+	const visitorNames = $derived.by(() => seriesNames(data?.visitorSeries ?? [], (r) => r.category));
+
+	const visitorDefs = $derived.by(() =>
+		data
+			? makeSeries(
+					visitorNames.map((name) => ({ name })),
+					data.visitorSeries,
+					(r) => r.category,
+					chartPalettes.device,
+				)
+			: [],
+	);
+
 	const maxDevice = $derived(Math.max(1, ...(data?.devices.map((d) => d.count) ?? [0])));
 
 	function cellCount(rows: KeyedRow[], week: string, name: string, keyOf: (r: KeyedRow) => string | undefined): number {
@@ -363,6 +391,22 @@
 					<p class="kpi-label">Einzigartige Seiten</p>
 					<p class="kpi-value">{nfInt.format(data.uniquePaths)}</p>
 				</div>
+				<div class="card kpi">
+					<p class="kpi-label">Sessions</p>
+					<p class="kpi-value">{nfInt.format(data.sessions)}</p>
+				</div>
+				<div class="card kpi">
+					<p class="kpi-label">Ø Seiten pro Session</p>
+					<p class="kpi-value">{nfOneDecimal.format(data.pagesPerSession)}</p>
+				</div>
+				<div class="card kpi">
+					<p class="kpi-label">Besucher</p>
+					<p class="kpi-value">{nfInt.format(data.uniqueVisitors)}</p>
+				</div>
+				<div class="card kpi">
+					<p class="kpi-label">Reload-Anteil</p>
+					<p class="kpi-value">{nfInt.format(reloadShare)}%</p>
+				</div>
 			</div>
 		</section>
 
@@ -453,6 +497,18 @@
 					caption: "Seitenaufrufe nach Woche und Herkunft",
 					srRows: data.originSeries,
 					keyOf: (r) => r.origin,
+				})}
+			{/if}
+		</section>
+
+		<section class="section" aria-labelledby="heading-visitors">
+			<h2 id="heading-visitors">Besucher</h2>
+			{#if visitorDefs.length > 0}
+				{@render weekChart({
+					defs: visitorDefs,
+					caption: "Besucher nach Woche und Kategorie",
+					srRows: data.visitorSeries,
+					keyOf: (r) => r.category,
 				})}
 			{/if}
 		</section>

@@ -28,16 +28,52 @@ import HomeNavbar from "../components/HomeNavbar.astro";
 				if (!('sendBeacon' in navigator)) {
 					return;
 				}
+				const host = location.hostname;
+				if (host !== 'liedertafel-mining.at' && host !== 'www.liedertafel-mining.at') {
+					return;
+				}
+				let path = location.pathname;
+				if (path.length > 1 && path.endsWith('/')) {
+					path = path.slice(0, -1);
+				}
 				let referrerHost = '';
 				try {
 					referrerHost = new URL(document.referrer).host;
 				} catch {
 					referrerHost = '';
 				}
+				let sessionId = '';
+				try {
+					sessionId = sessionStorage.getItem('lt-session');
+					if (!sessionId) {
+						sessionId = crypto.randomUUID();
+						sessionStorage.setItem('lt-session', sessionId);
+					}
+				} catch {
+					sessionId = '';
+				}
+				let visitorId = '';
+				try {
+					visitorId = localStorage.getItem('lt-visitor');
+					if (!visitorId) {
+						visitorId = crypto.randomUUID();
+						localStorage.setItem('lt-visitor', visitorId);
+					}
+				} catch {
+					visitorId = '';
+				}
+				let navigationType = 'navigate';
+				const navigationEntries = performance.getEntriesByType('navigation');
+				if (navigationEntries.length > 0 && navigationEntries[0].type) {
+					navigationType = navigationEntries[0].type;
+				}
 				const payload = {
-					path: location.pathname,
+					path,
 					referrerHost,
 					viewportWidth: screen.width,
+					sessionId,
+					visitorId,
+					navigationType,
 				};
 				navigator.sendBeacon(
 					'/api/pageview',

@@ -50,7 +50,12 @@ public class GetPageViewStats(GetPageViewStats.Handler handler)
 		IReadOnlyList<DeviceCount> Devices,
 		IReadOnlyList<DeviceSeriesPoint> DeviceSeries,
 		IReadOnlyList<OriginCount> Origins,
-		IReadOnlyList<OriginSeriesPoint> OriginSeries);
+		IReadOnlyList<OriginSeriesPoint> OriginSeries,
+		int Sessions,
+		double PagesPerSession,
+		int UniqueVisitors,
+		int Reloads,
+		IReadOnlyList<VisitorSeriesPoint> VisitorSeries);
 
 	public sealed record PathCount(string Path, int Count);
 
@@ -73,6 +78,11 @@ public class GetPageViewStats(GetPageViewStats.Handler handler)
 	public sealed record OriginSeriesPoint(string Week, string Origin, int Count)
 	{
 		public static OriginSeriesPoint Create(string week, string name, int count) => new(week, name, count);
+	}
+
+	public sealed record VisitorSeriesPoint(string Week, string Category, int Count)
+	{
+		public static VisitorSeriesPoint Create(string week, string category, int count) => new(week, category, count);
 	}
 
 	public sealed class Handler(IStatsReader reader)
@@ -110,6 +120,10 @@ public class GetPageViewStats(GetPageViewStats.Handler handler)
 			var pathTotals = new Dictionary<string, int>(StringComparer.Ordinal);
 			var deviceTotals = new Dictionary<string, int>(StringComparer.Ordinal);
 			var originTotals = new Dictionary<string, int>(StringComparer.Ordinal);
+			var sessionIds = new HashSet<string>(StringComparer.Ordinal);
+			var visitorIds = new HashSet<string>(StringComparer.Ordinal);
+			var weeksByVisitor = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+			var reloads = 0;
 
 			foreach (var entity in entities)
 			{
@@ -132,7 +146,33 @@ public class GetPageViewStats(GetPageViewStats.Handler handler)
 					Increment(GetBucket(originsByWeek, week), origin);
 					Increment(originTotals, origin);
 				}
+
+				if (!string.IsNullOrWhiteSpace(entity.SessionId))
+				{
+					sessionIds.Add(entity.SessionId);
+				}
+
+				if (!string.IsNullOrWhiteSpace(entity.VisitorId))
+				{
+					visitorIds.Add(entity.VisitorId);
+					if (!weeksByVisitor.TryGetValue(entity.VisitorId, out var visitorWeeks))
+					{
+						visitorWeeks = new HashSet<string>(StringComparer.Ordinal);
+						weeksByVisitor[entity.VisitorId] = visitorWeeks;
+					}
+
+					visitorWeeks.Add(week);
+				}
+
+				if (entity.NavigationType == "reload")
+				{
+					reloads++;
+				}
 			}
+
+			var sessions = sessionIds.Count;
+			var pagesPerSession = sessions > 0 ? Math.Round((double)entities.Count / sessions, 1) : 0;
+			var uniqueVisitors = visitorIds.Count;
 
 			var topPaths = pathTotals
 				.OrderByDescending(pair => pair.Value)
@@ -161,6 +201,17 @@ public class GetPageViewStats(GetPageViewStats.Handler handler)
 				? DeviceCategories
 				: DeviceCategories.Where(deviceTotals.ContainsKey).ToList();
 
+			var visitorsByWeek = new Dictionary<string, Dictionary<string, int>>(StringComparer.Ordinal);
+			foreach (var pair in weeksByVisitor)
+			{
+				var firstWeek = pair.Value.OrderBy(week => week, StringComparer.Ordinal).First();
+				Increment(GetBucket(visitorsByWeek, firstWeek), NewVisitorCategory);
+				foreach (var week in pair.Value.Where(week => week != firstWeek))
+				{
+					Increment(GetBucket(visitorsByWeek, week), ReturningVisitorCategory);
+				}
+			}
+
 			var series = weeks
 				.Select(week => new SeriesPoint(week, seriesByWeek.GetValueOrDefault(week)))
 				.ToList();
@@ -168,6 +219,7 @@ public class GetPageViewStats(GetPageViewStats.Handler handler)
 			var pathSeries = BuildSeries(weeks, pathsByWeek, topPathNames, includeOther: true, PathSeriesPoint.Create);
 			var deviceSeries = BuildSeries(weeks, devicesByWeek, deviceNames, includeOther: false, DeviceSeriesPoint.Create);
 			var originSeries = BuildSeries(weeks, originsByWeek, topOriginNames.ToList(), includeOther: true, OriginSeriesPoint.Create);
+			var visitorSeries = BuildSeries(weeks, visitorsByWeek, VisitorCategories, includeOther: false, VisitorSeriesPoint.Create);
 
 			var devices = deviceNames
 				.Select(device => new DeviceCount(device, deviceTotals.GetValueOrDefault(device)))
@@ -186,7 +238,12 @@ public class GetPageViewStats(GetPageViewStats.Handler handler)
 				devices,
 				deviceSeries,
 				origins,
-				originSeries);
+				originSeries,
+				sessions,
+				pagesPerSession,
+				uniqueVisitors,
+				reloads,
+				visitorSeries);
 		}
 
 		private static IReadOnlyList<TSeries> BuildSeries<TSeries>(
@@ -252,6 +309,12 @@ public class GetPageViewStats(GetPageViewStats.Handler handler)
 		};
 
 		private static readonly IReadOnlyList<string> DeviceCategories = ["Mobil", "Tablet", "Laptop", "Breitbild"];
+
+		private const string NewVisitorCategory = "Neu";
+
+		private const string ReturningVisitorCategory = "Wiederkehrend";
+
+		private static readonly IReadOnlyList<string> VisitorCategories = [NewVisitorCategory, ReturningVisitorCategory];
 
 		private static string? NormalizeOrigin(string? host)
 		{
