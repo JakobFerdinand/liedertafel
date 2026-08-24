@@ -124,6 +124,7 @@ public class GetPageViewStats(GetPageViewStats.Handler handler)
 			var visitorIds = new HashSet<string>(StringComparer.Ordinal);
 			var weeksByVisitor = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
 			var reloads = 0;
+			var pageViewsWithSession = 0;
 
 			foreach (var entity in entities)
 			{
@@ -150,6 +151,7 @@ public class GetPageViewStats(GetPageViewStats.Handler handler)
 				if (!string.IsNullOrWhiteSpace(entity.SessionId))
 				{
 					sessionIds.Add(entity.SessionId);
+					pageViewsWithSession++;
 				}
 
 				if (!string.IsNullOrWhiteSpace(entity.VisitorId))
@@ -171,7 +173,7 @@ public class GetPageViewStats(GetPageViewStats.Handler handler)
 			}
 
 			var sessions = sessionIds.Count;
-			var pagesPerSession = sessions > 0 ? Math.Round((double)entities.Count / sessions, 1) : 0;
+			var pagesPerSession = sessions > 0 ? Math.Round((double)pageViewsWithSession / sessions, 1) : 0;
 			var uniqueVisitors = visitorIds.Count;
 
 			var topPaths = pathTotals
