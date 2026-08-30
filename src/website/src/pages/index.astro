@@ -12,74 +12,9 @@ import Layout from '../layouts/Layout.astro';
 <Layout>
 	<Hero />
 	<ChorusIntro />
-	<section class="anniversary-highlight">
-		<div class="anniversary-highlight__content">
-			<span class="anniversary-highlight__eyebrow">Jubiläum 2026</span>
-			<h2>120 Jahre Liedertafel Mining</h2>
-			<p>Die Jubiläumsfeier 2026 steht vor der Tür. Alle Infos, Einladungen und Anmeldungen findest du auf unserer eigenen Jubiläumsseite.</p>
-		</div>
-		<a class="anniversary-highlight__link btn-ghost" href="/120-jahre">Zur Jubiläumsseite</a>
-	</section>
 	<ChorusImage />
 	<UpcomingEvents />
 	<TeamIntro />
 	<Contact />
 	<Footer showHomeLink={false} />
 </Layout>
-
-<style>
-	.anniversary-highlight {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		text-align: center;
-		gap: 1.25rem;
-		padding: 1.5rem;
-		background: rgba(255, 255, 255, 0.08);
-		border: 1px solid rgba(255, 255, 255, 0.18);
-		box-shadow: 0 14px 30px rgba(0, 0, 0, 0.18);
-		position: relative;
-	}
-
-	.anniversary-highlight__content {
-		display: flex;
-		flex-direction: column;
-		gap: 0.75rem;
-	}
-
-	.anniversary-highlight__eyebrow {
-		display: inline-flex;
-		align-self: center;
-		padding: 0.3rem 0.75rem;
-		border-radius: 999px;
-		border: 1px solid rgba(255, 255, 255, 0.35);
-		background: rgba(255, 255, 255, 0.08);
-		font-size: 0.7rem;
-		font-weight: 600;
-		letter-spacing: 0.12em;
-		text-transform: uppercase;
-		opacity: 0.9;
-	}
-
-
-
-	.anniversary-highlight p {
-		margin: 0;
-		line-height: 1.6;
-		opacity: 0.9;
-	}
-
-	.anniversary-highlight__link {
-	}
-
-	@media (max-width: 600px) {
-		.anniversary-highlight {
-			padding: 1.25rem;
-		}
-
-		.anniversary-highlight__link {
-			width: 100%;
-			padding: 0.85rem 1.5rem;
-		}
-	}
-</style>
