@@ -80,7 +80,7 @@ public class GetPageViewSessions(IInsightReader reader, SessionHandles handles, 
 		var range = InsightRange.Parse(request.Query, 92);
 		var filters = SessionFilters.Parse(request.Query);
 		var limit = SessionFilters.Integer(request.Query["limit"], 25, 1, 100, "Seitengröße");
-		var query = JsonSerializer.Serialize(new { range, filters });
+		var query = JsonSerializer.Serialize(new { range.Start, range.End, filters });
 		SessionSnapshots.Snapshot snapshot;
 		string? position = null;
 		if (request.Query["cursor"] is { } cursor) (snapshot, position) = snapshots.Resolve(cursor, query);

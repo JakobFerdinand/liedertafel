@@ -13,7 +13,7 @@
 	<h2>Besucher-Kennungen im Zeitraum</h2>
 	<p class="chart-caption">Je Abschnitt einmal gezählt. „Neu“ bedeutet erstmals in diesem Zeitraum gesehen; Personen oder Besuche lassen sich daraus nicht bestimmen.</p>
 	<div class="legend"><span><i style:background="var(--color-brand)"></i>Neu in diesem Zeitraum</span><span><i style:background="var(--chart-path-2)"></i>Bereits zuvor im Zeitraum gesehen</span></div>
-	<div aria-hidden="true"><Chart data={points} x="index" y="fresh" xScale={scaleLinear()} yDomain={[0, maximum]} height={140} padding={8} axis={false}>
+	<div aria-hidden="true"><Chart data={points} x="index" y="fresh" xScale={scaleLinear()} yDomain={[0, maximum]} height={140} padding={8} axis={false} grid={false}>
 		{#snippet marks()}<Spline stroke="var(--color-brand)" strokeWidth={2} /><Spline y="returning" stroke="var(--chart-path-2)" strokeWidth={2} stroke-dasharray="5 4" />{/snippet}
 	</Chart></div>
 	<details><summary>Werte je Abschnitt und Sitzungen anzeigen</summary>

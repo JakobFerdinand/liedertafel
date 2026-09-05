@@ -36,7 +36,9 @@ public class GetPageViewStats(IInsightReader reader)
 
 	public static object Aggregate(IReadOnlyList<PageViewEntity> all, InsightRange range, string granularity)
 	{
-		var rows = all.Where(r => r.Timestamp >= range.UtcStart && r.Timestamp < range.UtcEnd).ToList();
+		var utcStart = range.UtcStart;
+		var utcEnd = range.UtcEnd;
+		var rows = all.Where(r => r.Timestamp >= utcStart && r.Timestamp < utcEnd).ToList();
 		DateOnly Bucket(DateOnly date) => granularity == "day" ? date : date.AddDays(-(((int)date.DayOfWeek + 6) % 7));
 		var buckets = new List<DateOnly>();
 		for (var date = Bucket(range.Start); date <= range.End; date = date.AddDays(granularity == "day" ? 1 : 7)) buckets.Add(date);
@@ -62,7 +64,7 @@ public class GetPageViewStats(IInsightReader reader)
 			pathSeries = Segments(paths.Take(6).Select(p => p.Name).Append("Übrige"), r => paths.Take(6).Any(p => p.Name == InsightValues.Path(r)) ? InsightValues.Path(r) : "Übrige").Select(p => new { p.BucketStart, path = p.Name, p.Count, p.Partial }),
 			devices = devices.Select(d => new { device = d.Name, count = d.Value }),
 			deviceSeries = Segments(InsightValues.Devices, r => InsightValues.Device(r.ViewportWidth)).Select(p => new { p.BucketStart, device = p.Name, p.Count, p.Partial }),
-			origins = origins.Select(o => new { origin = o.Name, count = o.Value }),
+			origins = origins.Take(6).Select(o => new { origin = o.Name, count = o.Value }),
 			originSeries = Segments(origins.Take(6).Select(o => o.Name).Append("Übrige"), r => InsightValues.Origin(r.ReferrerHost) is { } origin ? (origins.Take(6).Any(o => o.Name == origin) ? origin : "Übrige") : null).Select(p => new { p.BucketStart, origin = p.Name, p.Count, p.Partial }),
 			sessions = Sessions(rows),
 			withoutSessionId = rows.Count(r => string.IsNullOrWhiteSpace(r.SessionId)),

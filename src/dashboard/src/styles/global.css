@@ -456,3 +456,7 @@ summary {
 @media (prefers-reduced-motion: reduce) {
 	html { scroll-behavior: auto; }
 }
+
+input[type="checkbox"], input[type="range"] {
+	accent-color: var(--color-brand);
+}

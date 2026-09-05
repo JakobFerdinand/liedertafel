@@ -24,7 +24,10 @@
 		loading = false;
 		if (error) return;
 		loading = true;
-		try { data = await get(`/api/pageviews/stats?${statsParams(range)}`, isStats, controller.signal); }
+		try {
+			const result = await get(`/api/pageviews/stats?${statsParams(range)}`, isStats, controller.signal);
+			if (!controller.signal.aborted) data = result;
+		}
 		catch (failure) { if (!controller.signal.aborted) error = failure instanceof Error ? failure.message : "Daten konnten nicht geladen werden."; }
 		finally { if (!controller.signal.aborted) loading = false; }
 	}
@@ -60,7 +63,7 @@
 		<TrendChart current={data.current} previous={data.previous} range={shownRange} />
 		<div class="breakdowns">
 			<BreakdownTable title="Meistbesuchte Seiten" rows={data.current.topPaths.map((p) => ({ label: p.path, count: p.count }))} filter="path" range={shownRange} description="Die zehn häufigsten Seiten. Eine Seite auswählen, um passende Sitzungen zu sehen." />
-			<BreakdownTable title="Externe Herkunft" rows={data.current.origins.map((o) => ({ label: o.origin, count: o.count }))} filter="originHost" range={shownRange} description="Aufrufe mit externer Herkunfts-Domain. Interne und fehlende Referrer sind ausgeschlossen." />
+			<BreakdownTable title="Externe Herkunft" rows={data.current.origins.map((o) => ({ label: o.origin, count: o.count }))} filter="originHost" range={shownRange} description="Die sechs häufigsten externen Herkunfts-Domains. Interne und fehlende Referrer sind ausgeschlossen." />
 			<DeviceBars devices={data.current.devices} range={shownRange} />
 			<VisitorSeriesChart series={data.current.visitorSeries} range={shownRange} />
 		</div>

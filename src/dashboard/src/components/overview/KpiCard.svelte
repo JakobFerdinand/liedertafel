@@ -10,7 +10,7 @@
 	<p class="kpi-value">{number.format(value)}</p>
 	{#if previous !== undefined}<p class="delta">{delta(value, previous)} <span>zur Vorperiode</span></p>{/if}
 	<div aria-hidden="true">
-		<Chart data={points} x="index" y="count" xScale={scaleLinear()} yDomain={[0, Math.max(1, ...values)]} height={44} padding={3} axis={false}>
+		<Chart data={points} x="index" y="count" xScale={scaleLinear()} yDomain={[0, Math.max(1, ...values)]} height={44} padding={3} axis={false} grid={false}>
 			{#snippet marks()}<Spline stroke={primary ? "var(--color-surface)" : "var(--color-brand)"} strokeWidth={2} />{/snippet}
 		</Chart>
 	</div>

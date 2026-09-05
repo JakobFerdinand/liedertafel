@@ -83,8 +83,10 @@ public sealed class TableInsightReader(TableServiceClient client) : IInsightRead
 	{
 		using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
 		budget.CancelAfter(TimeSpan.FromSeconds(30));
-		var start = $"Pv|{range.UtcStart:yyyy-MM-dd}";
-		var end = $"Pv|{range.UtcEnd.AddTicks(-1):yyyy-MM-dd}";
+		var utcStart = range.UtcStart;
+		var utcEnd = range.UtcEnd;
+		var start = $"Pv|{utcStart:yyyy-MM-dd}";
+		var end = $"Pv|{utcEnd.AddTicks(-1):yyyy-MM-dd}";
 		var filter = TableClient.CreateQueryFilter($"PartitionKey ge {start} and PartitionKey le {end}");
 		var rows = new List<PageViewEntity>();
 		var scanned = 0;
@@ -93,7 +95,7 @@ public sealed class TableInsightReader(TableServiceClient client) : IInsightRead
 			await foreach (var row in client.GetTableClient("pageviews").QueryAsync<PageViewEntity>(filter, maxPerPage: 1000, cancellationToken: budget.Token).WithCancellation(budget.Token))
 			{
 				if (++scanned > RowCap) return new(rows, true);
-				if (row.Timestamp >= range.UtcStart && row.Timestamp < range.UtcEnd) rows.Add(row);
+				if (row.Timestamp >= utcStart && row.Timestamp < utcEnd) rows.Add(row);
 			}
 		}
 		catch (OperationCanceledException) when (!ct.IsCancellationRequested) { return new(rows, true); }

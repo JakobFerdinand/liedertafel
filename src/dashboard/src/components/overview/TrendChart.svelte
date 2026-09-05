@@ -20,12 +20,12 @@
 	<h2 id="trend-heading">Aufrufe im Zeitverlauf</h2>
 	<p class="chart-caption">{date(current.range.start)} – {date(current.range.end)}{previous ? `; Vorperiode: ${date(previous.range.start)} – ${date(previous.range.end)}` : ""}</p>
 	<div class="legend"><span><i class="current"></i>Ausgewählter Zeitraum</span>{#if previous}<span><i class="previous"></i>Vorperiode (gestrichelt)</span>{/if}</div>
-	{#snippet countLabel({ props }: { props: TextProps; index: number })}<Text {...props} value={number.format(Number(props.value ?? 0))} />{/snippet}
-	{#snippet dateLabel({ props }: { props: TextProps; index: number })}<Text {...props} value={current.series[Number(props.value)] ? date(current.series[Number(props.value)].bucketStart).slice(0, 6) : ""} />{/snippet}
-	<div class="trend" aria-hidden="true">
-		<Chart data={points} x="index" y="current" xScale={scaleLinear()} xDomain={zoomStart === zoomEnd ? [zoomStart - 0.5, zoomEnd + 0.5] : [zoomStart, zoomEnd]} yDomain={[0, maximum]} height={280} padding={{ top: 16, right: 20, bottom: 36, left: 48 }}>
+	{#snippet countLabel({ props }: { props: TextProps; index: number })}<Text {...props} fontSize={12} value={number.format(Number(props.value ?? 0))} />{/snippet}
+	{#snippet dateLabel({ props }: { props: TextProps; index: number })}<Text {...props} fontSize={12} value={current.series[Number(props.value)] ? date(current.series[Number(props.value)].bucketStart).slice(0, 6) : ""} />{/snippet}
+	<div class="trend">
+		<Chart data={points} x="index" y="current" xScale={scaleLinear()} xDomain={zoomStart === zoomEnd ? [zoomStart - 0.5, zoomEnd + 0.5] : [zoomStart, zoomEnd]} yDomain={[0, maximum]} height={280} grid={{ stroke: "var(--color-border)" }} padding={{ top: 16, right: 20, bottom: 36, left: 48 }}>
 			{#snippet axis()}
-				<Axis placement="left" tickLabel={countLabel} tickMarks={false} fill="var(--color-text-muted)" stroke="var(--color-border)" />
+				<Axis placement="left" ticks={Math.min(5, maximum)} tickLabel={countLabel} tickMarks={false} fill="var(--color-text-muted)" stroke="var(--color-border)" />
 				<Axis placement="bottom" ticks={points.filter((_, i) => i % Math.max(1, Math.ceil(points.length / 7)) === 0).map((p) => p.index)} tickLabel={dateLabel} tickMarks={false} fill="var(--color-text-muted)" stroke="var(--color-border)" />
 			{/snippet}
 			{#snippet marks({ context })}
@@ -33,7 +33,7 @@
 				<Spline stroke="var(--color-brand)" strokeWidth={2.5} defined={(p: { current: number | null }) => p.current !== null} />
 				{#if previous}<Spline y="previous" stroke="var(--chart-path-2)" strokeWidth={2} stroke-dasharray="6 5" defined={(p: { previous: number | null }) => p.previous !== null} />{/if}
 				{#each points as point}
-					{#if point.current !== null}<circle cx={context.xScale(point.index)} cy={context.yScale(point.current)} r={current.series[point.index]?.partial ? 5 : 3} fill={current.series[point.index]?.partial ? "var(--color-surface)" : "var(--color-brand)"} stroke="var(--color-brand)" stroke-width="2" />{/if}
+					{#if point.current !== null}<a href={bucketLink(point.index)} aria-label={`Sitzungen ab ${date(current.series[point.index].bucketStart)}: ${point.current} Aufrufe`}><circle cx={context.xScale(point.index)} cy={context.yScale(point.current)} r={current.series[point.index]?.partial ? 5 : 3} fill={current.series[point.index]?.partial ? "var(--color-surface)" : "var(--color-brand)"} stroke="var(--color-brand)" stroke-width="2" /><title>{date(current.series[point.index].bucketStart)}: {number.format(point.current)} Aufrufe</title></a>{/if}
 				{/each}
 			{/snippet}
 		</Chart>

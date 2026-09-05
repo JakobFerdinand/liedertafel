@@ -24,6 +24,7 @@ Use this guide when editing or extending the codebase.
 - Dashboard build: `cd src/dashboard && pnpm run build`
 - Dashboard API regression checks (dependency-free console harness): `dotnet run --project tests/dashboard-api`
 - Add `-- --azurite` to also verify real Table Storage queries against local Azurite.
+- API fixture export for browser smoke checks: append `-- --fixtures /tmp/liedertafel-insights-validation` (see `tests/dashboard-api/README.md`).
 - Dashboard API (local): `cd src/dashboard-api && dotnet run` (with `StorageConnection` in `local.settings.json`)
 
 ### Linting
