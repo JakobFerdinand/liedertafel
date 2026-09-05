@@ -1,412 +1,78 @@
-using System.Globalization;
-using System.Net;
-using System.Text.Json;
-using Azure.Data.Tables;
-using DashboardApi.Shared.Entities;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
-using Microsoft.Extensions.Logging;
+using DashboardApi.Shared.Entities;
 
 namespace DashboardApi.Features.PageViews;
 
-public class GetPageViewStats(GetPageViewStats.Handler handler)
+public class GetPageViewStats(IInsightReader reader)
 {
-	private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-
-	private static readonly int[] DayPresets = [28, 90, 180];
-
 	[Function("get-pageview-stats")]
-	public async Task<HttpResponseData> Run(
+	public Task<HttpResponseData> Run(
 		[HttpTrigger(AuthorizationLevel.Function, "get", Route = "pageviews/stats")] HttpRequestData request,
-		FunctionContext context,
-		CancellationToken cancellationToken)
+		CancellationToken cancellationToken) => InsightHttp.Run(request, async () =>
 	{
-		var days = ParseDays(request.Query["days"]);
-		var stats = await handler.GetAsync(days, cancellationToken);
-
-		var response = request.CreateResponse(HttpStatusCode.OK);
-		response.Headers.Add("Content-Type", "application/json; charset=utf-8");
-		await response.WriteStringAsync(JsonSerializer.Serialize(stats, JsonOptions));
-		return response;
-	}
-
-	private static int ParseDays(string? raw)
-	{
-		if (int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var days) &&
-			DayPresets.Contains(days))
+		var granularity = request.Query["granularity"] ?? "day";
+		if (granularity is not ("day" or "week")) throw new QueryException("Die Auflösung muss Tag (day) oder Woche (week) sein.");
+		var compare = request.Query["compare"] ?? "previous_period";
+		if (compare is not ("previous_period" or "none")) throw new QueryException("Der Vergleich muss previous_period oder none sein.");
+		var range = InsightRange.Parse(request.Query, granularity == "day" ? 92 : 400);
+		if (compare == "previous_period" && range.Previous.Start < InsightRange.Today.AddMonths(-36))
+			throw new QueryException("Die Vorperiode liegt außerhalb der letzten 36 Monate. Bitte den Vergleich ausschalten.");
+		var scan = await reader.ReadAsync(compare == "previous_period" ? new(range.Previous.Start, range.End) : range, cancellationToken);
+		return new
 		{
-			return days;
-		}
-
-		return DayPresets[0];
-	}
-
-	public sealed record StatsResponse(
-		int Total,
-		int UniquePaths,
-		IReadOnlyList<PathCount> TopPaths,
-		IReadOnlyList<SeriesPoint> Series,
-		IReadOnlyList<PathSeriesPoint> PathSeries,
-		IReadOnlyList<DeviceCount> Devices,
-		IReadOnlyList<DeviceSeriesPoint> DeviceSeries,
-		IReadOnlyList<OriginCount> Origins,
-		IReadOnlyList<OriginSeriesPoint> OriginSeries,
-		int Sessions,
-		double PagesPerSession,
-		int UniqueVisitors,
-		int Reloads,
-		IReadOnlyList<VisitorSeriesPoint> VisitorSeries);
-
-	public sealed record PathCount(string Path, int Count);
-
-	public sealed record SeriesPoint(string Week, int Count);
-
-	public sealed record PathSeriesPoint(string Week, string Path, int Count)
-	{
-		public static PathSeriesPoint Create(string week, string name, int count) => new(week, name, count);
-	}
-
-	public sealed record DeviceCount(string Device, int Count);
-
-	public sealed record DeviceSeriesPoint(string Week, string Device, int Count)
-	{
-		public static DeviceSeriesPoint Create(string week, string name, int count) => new(week, name, count);
-	}
-
-	public sealed record OriginCount(string Origin, int Count);
-
-	public sealed record OriginSeriesPoint(string Week, string Origin, int Count)
-	{
-		public static OriginSeriesPoint Create(string week, string name, int count) => new(week, name, count);
-	}
-
-	public sealed record VisitorSeriesPoint(string Week, string Category, int Count)
-	{
-		public static VisitorSeriesPoint Create(string week, string category, int count) => new(week, category, count);
-	}
-
-	public sealed class Handler(IStatsReader reader)
-	{
-		private const int MaxTopPaths = 10;
-		private const int MaxPathSeries = 6;
-		private const int MaxOrigins = 6;
-		private const string OtherBucket = "Übrige";
-
-		private static readonly string[] InternalHosts =
-		[
-			"liedertafel-mining.at",
-			"www.liedertafel-mining.at",
-			"dashboard.liedertafel-mining.at",
-		];
-
-		private const string AzureStaticAppsSuffix = ".azurestaticapps.net";
-
-		public async Task<StatsResponse> GetAsync(int days, CancellationToken ct)
-		{
-			var today = DateTime.UtcNow.Date;
-			var windowStart = today.AddDays(-(days - 1));
-
-			var entities = await reader.ReadAsync(
-				$"Pv|{windowStart:yyyy-MM-dd}",
-				$"Pv|{today:yyyy-MM-dd}",
-				ct);
-
-			var weeks = BuildWeeks(WeekStart(windowStart), WeekStart(today));
-
-			var seriesByWeek = new Dictionary<string, int>(StringComparer.Ordinal);
-			var pathsByWeek = new Dictionary<string, Dictionary<string, int>>(StringComparer.Ordinal);
-			var devicesByWeek = new Dictionary<string, Dictionary<string, int>>(StringComparer.Ordinal);
-			var originsByWeek = new Dictionary<string, Dictionary<string, int>>(StringComparer.Ordinal);
-			var pathTotals = new Dictionary<string, int>(StringComparer.Ordinal);
-			var deviceTotals = new Dictionary<string, int>(StringComparer.Ordinal);
-			var originTotals = new Dictionary<string, int>(StringComparer.Ordinal);
-			var sessionIds = new HashSet<string>(StringComparer.Ordinal);
-			var visitorIds = new HashSet<string>(StringComparer.Ordinal);
-			var weeksByVisitor = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
-			var reloads = 0;
-			var pageViewsWithSession = 0;
-
-			foreach (var entity in entities)
-			{
-				var date = DateFromPartition(entity.PartitionKey) ?? entity.Timestamp?.UtcDateTime.Date ?? today;
-				var week = FormatWeek(WeekStart(date));
-
-				Increment(seriesByWeek, week);
-
-				var path = string.IsNullOrWhiteSpace(entity.Path) ? "(unbekannt)" : entity.Path;
-				Increment(GetBucket(pathsByWeek, week), path);
-				Increment(pathTotals, path);
-
-				var device = CategorizeDevice(entity.ViewportWidth);
-				Increment(GetBucket(devicesByWeek, week), device);
-				Increment(deviceTotals, device);
-
-				var origin = NormalizeOrigin(entity.ReferrerHost);
-				if (origin is not null)
-				{
-					Increment(GetBucket(originsByWeek, week), origin);
-					Increment(originTotals, origin);
-				}
-
-				if (!string.IsNullOrWhiteSpace(entity.SessionId))
-				{
-					sessionIds.Add(entity.SessionId);
-					pageViewsWithSession++;
-				}
-
-				if (!string.IsNullOrWhiteSpace(entity.VisitorId))
-				{
-					visitorIds.Add(entity.VisitorId);
-					if (!weeksByVisitor.TryGetValue(entity.VisitorId, out var visitorWeeks))
-					{
-						visitorWeeks = new HashSet<string>(StringComparer.Ordinal);
-						weeksByVisitor[entity.VisitorId] = visitorWeeks;
-					}
-
-					visitorWeeks.Add(week);
-				}
-
-				if (entity.NavigationType == "reload")
-				{
-					reloads++;
-				}
-			}
-
-			var sessions = sessionIds.Count;
-			var pagesPerSession = sessions > 0 ? Math.Round((double)pageViewsWithSession / sessions, 1) : 0;
-			var uniqueVisitors = visitorIds.Count;
-
-			var topPaths = pathTotals
-				.OrderByDescending(pair => pair.Value)
-				.ThenBy(pair => pair.Key, StringComparer.Ordinal)
-				.Take(MaxTopPaths)
-				.Select(pair => new PathCount(pair.Key, pair.Value))
-				.ToList();
-
-			var topPathNames = pathTotals
-				.OrderByDescending(pair => pair.Value)
-				.ThenBy(pair => pair.Key, StringComparer.Ordinal)
-				.Take(MaxPathSeries)
-				.Select(pair => pair.Key)
-				.ToList();
-
-			var topOrigins = originTotals
-				.OrderByDescending(pair => pair.Value)
-				.ThenBy(pair => pair.Key, StringComparer.Ordinal)
-				.Take(MaxOrigins)
-				.Select(pair => new OriginCount(pair.Key, pair.Value))
-				.ToList();
-
-			var topOriginNames = topOrigins.Select(origin => origin.Origin).ToHashSet(StringComparer.Ordinal);
-
-			var deviceNames = deviceTotals.Count == 0
-				? DeviceCategories
-				: DeviceCategories.Where(deviceTotals.ContainsKey).ToList();
-
-			var visitorsByWeek = new Dictionary<string, Dictionary<string, int>>(StringComparer.Ordinal);
-			foreach (var pair in weeksByVisitor)
-			{
-				var firstWeek = pair.Value.OrderBy(week => week, StringComparer.Ordinal).First();
-				Increment(GetBucket(visitorsByWeek, firstWeek), NewVisitorCategory);
-				foreach (var week in pair.Value.Where(week => week != firstWeek))
-				{
-					Increment(GetBucket(visitorsByWeek, week), ReturningVisitorCategory);
-				}
-			}
-
-			var series = weeks
-				.Select(week => new SeriesPoint(week, seriesByWeek.GetValueOrDefault(week)))
-				.ToList();
-
-			var pathSeries = BuildSeries(weeks, pathsByWeek, topPathNames, includeOther: true, PathSeriesPoint.Create);
-			var deviceSeries = BuildSeries(weeks, devicesByWeek, deviceNames, includeOther: false, DeviceSeriesPoint.Create);
-			var originSeries = BuildSeries(weeks, originsByWeek, topOriginNames.ToList(), includeOther: true, OriginSeriesPoint.Create);
-			var visitorSeries = BuildSeries(weeks, visitorsByWeek, VisitorCategories, includeOther: false, VisitorSeriesPoint.Create);
-
-			var devices = deviceNames
-				.Select(device => new DeviceCount(device, deviceTotals.GetValueOrDefault(device)))
-				.ToList();
-
-			var origins = topOrigins
-				.Concat(GetOther(originTotals, topOriginNames))
-				.ToList();
-
-			return new StatsResponse(
-				entities.Count,
-				pathTotals.Count,
-				topPaths,
-				series,
-				pathSeries,
-				devices,
-				deviceSeries,
-				origins,
-				originSeries,
-				sessions,
-				pagesPerSession,
-				uniqueVisitors,
-				reloads,
-				visitorSeries);
-		}
-
-		private static IReadOnlyList<TSeries> BuildSeries<TSeries>(
-			IReadOnlyList<string> weeks,
-			IReadOnlyDictionary<string, Dictionary<string, int>> buckets,
-			IReadOnlyList<string> names,
-			bool includeOther,
-			Func<string, string, int, TSeries> factory)
-		{
-			var points = new List<TSeries>();
-			foreach (var week in weeks)
-			{
-				var bucket = buckets.GetValueOrDefault(week);
-				foreach (var name in names)
-				{
-					points.Add(factory(week, name, bucket?.GetValueOrDefault(name) ?? 0));
-				}
-
-				if (includeOther)
-				{
-					var other = bucket is null
-						? 0
-						: bucket.Where(pair => !names.Contains(pair.Key)).Sum(pair => pair.Value);
-					points.Add(factory(week, OtherBucket, other));
-				}
-			}
-
-			return points;
-		}
-
-		private static IReadOnlyList<OriginCount> GetOther(
-			IReadOnlyDictionary<string, int> totals,
-			ISet<string> included)
-		{
-			var other = totals.Where(pair => !included.Contains(pair.Key)).Sum(pair => pair.Value);
-			return other > 0 ? [new OriginCount(OtherBucket, other)] : [];
-		}
-
-		private static Dictionary<string, int> GetBucket(
-			Dictionary<string, Dictionary<string, int>> buckets,
-			string week)
-		{
-			if (!buckets.TryGetValue(week, out var bucket))
-			{
-				bucket = new Dictionary<string, int>(StringComparer.Ordinal);
-				buckets[week] = bucket;
-			}
-
-			return bucket;
-		}
-
-		private static void Increment(Dictionary<string, int> counts, string key)
-		{
-			counts[key] = counts.GetValueOrDefault(key) + 1;
-		}
-
-		private static string CategorizeDevice(int width) => width switch
-		{
-			< 768 => "Mobil",
-			< 1024 => "Tablet",
-			< 1440 => "Laptop",
-			_ => "Breitbild",
+			range = range.Metadata,
+			granularity,
+			generatedAt = DateTimeOffset.UtcNow,
+			truncated = scan.Truncated,
+			current = Aggregate(scan.Rows, range, granularity),
+			previous = compare == "previous_period" ? Aggregate(scan.Rows, range.Previous, granularity) : null,
 		};
+	}, cancellationToken);
 
-		private static readonly IReadOnlyList<string> DeviceCategories = ["Mobil", "Tablet", "Laptop", "Breitbild"];
+	public sealed record Count(string Name, int Value);
+	public sealed record Point(DateOnly BucketStart, int Count, bool Partial, int Sessions, int UniqueVisitors, int UniquePaths, double PagesPerSession, int Reloads);
+	public sealed record SegmentPoint(DateOnly BucketStart, string Name, int Count, bool Partial);
 
-		private const string NewVisitorCategory = "Neu";
-
-		private const string ReturningVisitorCategory = "Wiederkehrend";
-
-		private static readonly IReadOnlyList<string> VisitorCategories = [NewVisitorCategory, ReturningVisitorCategory];
-
-		private static string? NormalizeOrigin(string? host)
-		{
-			if (string.IsNullOrWhiteSpace(host))
-			{
-				return null;
-			}
-
-			var origin = host.Trim().ToLowerInvariant();
-			if (InternalHosts.Contains(origin) ||
-				origin.EndsWith(AzureStaticAppsSuffix, StringComparison.Ordinal))
-			{
-				return null;
-			}
-
-			return origin;
-		}
-
-		private static DateTime? DateFromPartition(string partitionKey)
-		{
-			if (!partitionKey.StartsWith("Pv|", StringComparison.Ordinal))
-			{
-				return null;
-			}
-
-			if (DateTime.TryParseExact(
-				partitionKey.AsSpan(3),
-				"yyyy-MM-dd",
-				CultureInfo.InvariantCulture,
-				DateTimeStyles.None,
-				out var date))
-			{
-				return date;
-			}
-
-			return null;
-		}
-
-		private static DateTime WeekStart(DateTime date)
-		{
-			var day = (int)date.DayOfWeek;
-			var diff = day == 0 ? -6 : 1 - day;
-			return date.Date.AddDays(diff);
-		}
-
-		private static string FormatWeek(DateTime weekStart) =>
-			weekStart.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-
-		private static List<string> BuildWeeks(DateTime start, DateTime end)
-		{
-			var weeks = new List<string>();
-			for (var week = start; week <= end; week = week.AddDays(7))
-			{
-				weeks.Add(FormatWeek(week));
-			}
-
-			return weeks;
-		}
-	}
-
-	public interface IStatsReader
+	public static object Aggregate(IReadOnlyList<PageViewEntity> all, InsightRange range, string granularity)
 	{
-		Task<IReadOnlyList<PageViewEntity>> ReadAsync(string startPartition, string endPartition, CancellationToken ct);
-	}
-
-	public sealed class TableStatsReader(TableServiceClient client, ILogger<TableStatsReader> logger) : IStatsReader
-	{
-		public async Task<IReadOnlyList<PageViewEntity>> ReadAsync(string startPartition, string endPartition, CancellationToken ct)
+		var utcStart = range.UtcStart;
+		var utcEnd = range.UtcEnd;
+		var rows = all.Where(r => r.Timestamp >= utcStart && r.Timestamp < utcEnd).ToList();
+		DateOnly Bucket(DateOnly date) => granularity == "day" ? date : date.AddDays(-(((int)date.DayOfWeek + 6) % 7));
+		var buckets = new List<DateOnly>();
+		for (var date = Bucket(range.Start); date <= range.End; date = date.AddDays(granularity == "day" ? 1 : 7)) buckets.Add(date);
+		var grouped = rows.GroupBy(r => Bucket(InsightRange.LocalDate(r.Timestamp!.Value))).ToDictionary(g => g.Key, g => g.ToList());
+		bool Partial(DateOnly date) => date < range.Start || date.AddDays(granularity == "day" ? 0 : 6) > range.End || (range.End == InsightRange.Today && date == Bucket(range.End));
+		static int Sessions(IEnumerable<PageViewEntity> values) => values.Where(r => !string.IsNullOrWhiteSpace(r.SessionId)).Select(r => r.SessionId).Distinct().Count();
+		static int Visitors(IEnumerable<PageViewEntity> values) => values.Where(r => !string.IsNullOrWhiteSpace(r.VisitorId)).Select(r => r.VisitorId).Distinct().Count();
+		static double PagesPerSession(List<PageViewEntity> values) => Sessions(values) is var count && count > 0 ? Math.Round((double)values.Count(r => !string.IsNullOrWhiteSpace(r.SessionId)) / count, 1) : 0;
+		static List<Count> Counts(IEnumerable<PageViewEntity> values, Func<PageViewEntity, string?> key) => values.Select(key).Where(k => k != null).GroupBy(k => k!).Select(g => new Count(g.Key, g.Count())).OrderByDescending(c => c.Value).ThenBy(c => c.Name, StringComparer.Ordinal).ToList();
+		var paths = Counts(rows, InsightValues.Path);
+		var origins = Counts(rows, r => InsightValues.Origin(r.ReferrerHost));
+		var devices = InsightValues.Devices.Select(d => new Count(d, rows.Count(r => InsightValues.Device(r.ViewportWidth) == d))).ToList();
+		List<SegmentPoint> Segments(IEnumerable<string> names, Func<PageViewEntity, string?> key) => buckets.SelectMany(b => names.Select(n => new SegmentPoint(b, (string)n, (grouped.GetValueOrDefault(b) ?? []).Count(r => key(r) == n), Partial(b)))).ToList();
+		var firstVisitorBucket = rows.Where(r => !string.IsNullOrWhiteSpace(r.VisitorId)).GroupBy(r => r.VisitorId!).ToDictionary(g => g.Key, g => g.Min(r => Bucket(InsightRange.LocalDate(r.Timestamp!.Value))));
+		var visitorSeries = buckets.SelectMany(b => new[] { "Neu in diesem Zeitraum", "Bereits zuvor im Zeitraum gesehen" }.Select((category, i) => new { bucketStart = b, category, count = (grouped.GetValueOrDefault(b) ?? []).Where(r => !string.IsNullOrWhiteSpace(r.VisitorId)).Select(r => r.VisitorId!).Distinct().Count(id => i == 0 ? firstVisitorBucket[id] == b : firstVisitorBucket[id] < b), partial = Partial(b) })).ToList();
+		return new
 		{
-			var table = client.GetTableClient("pageviews");
-			var filter = $"PartitionKey ge '{startPartition}' and PartitionKey le '{endPartition}'";
-
-			var entities = new List<PageViewEntity>();
-			try
-			{
-				await foreach (var page in table.QueryAsync<PageViewEntity>(filter, maxPerPage: 1000).AsPages())
-				{
-					foreach (var entity in page.Values)
-					{
-						entities.Add(entity);
-					}
-				}
-			}
-			catch (Exception ex)
-			{
-				logger.LogError(ex, "Failed to read pageview statistics from table storage.");
-				throw;
-			}
-
-			return entities;
-		}
+			range = range.Metadata,
+			total = rows.Count,
+			uniquePaths = paths.Count,
+			topPaths = paths.Take(10).Select(p => new { path = p.Name, count = p.Value }),
+			series = buckets.Select(b => { var values = grouped.GetValueOrDefault(b) ?? []; return new Point(b, values.Count, Partial(b), Sessions(values), Visitors(values), values.Select(InsightValues.Path).Distinct().Count(), PagesPerSession(values), values.Count(r => r.NavigationType == "reload")); }).ToList(),
+			pathSeries = Segments(paths.Take(6).Select(p => p.Name).Append("Übrige"), r => paths.Take(6).Any(p => p.Name == InsightValues.Path(r)) ? InsightValues.Path(r) : "Übrige").Select(p => new { p.BucketStart, path = p.Name, p.Count, p.Partial }),
+			devices = devices.Select(d => new { device = d.Name, count = d.Value }),
+			deviceSeries = Segments(InsightValues.Devices, r => InsightValues.Device(r.ViewportWidth)).Select(p => new { p.BucketStart, device = p.Name, p.Count, p.Partial }),
+			origins = origins.Take(6).Select(o => new { origin = o.Name, count = o.Value }),
+			originSeries = Segments(origins.Take(6).Select(o => o.Name).Append("Übrige"), r => InsightValues.Origin(r.ReferrerHost) is { } origin ? (origins.Take(6).Any(o => o.Name == origin) ? origin : "Übrige") : null).Select(p => new { p.BucketStart, origin = p.Name, p.Count, p.Partial }),
+			sessions = Sessions(rows),
+			withoutSessionId = rows.Count(r => string.IsNullOrWhiteSpace(r.SessionId)),
+			pagesPerSession = PagesPerSession(rows),
+			uniqueVisitors = Visitors(rows),
+			reloads = rows.Count(r => r.NavigationType == "reload"),
+			classifiedViews = rows.Count(InsightValues.Classified),
+			visitorSeries,
+		};
 	}
 }

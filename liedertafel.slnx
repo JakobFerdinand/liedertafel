@@ -3,4 +3,7 @@
     <Project Path="src/website-api/website-api.csproj" />
     <Project Path="src/dashboard-api/dashboard-api.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/dashboard-api/dashboard-api-checks.csproj" />
+  </Folder>
 </Solution>

@@ -1,11 +1,29 @@
-### Default window (28 days)
-GET http://localhost:7071/api/pageviews/stats
+@baseUrl = http://localhost:7071/api/pageviews
+@start = 2026-08-30
+@end = 2026-09-05
 
-### 90-day window
-GET http://localhost:7071/api/pageviews/stats?days=90
+### Seven explicit Vienna days with previous-period comparison
+GET {{baseUrl}}/stats?start={{start}}&end={{end}}&granularity=day&compare=previous_period
 
-### 180-day window
-GET http://localhost:7071/api/pageviews/stats?days=180
+### Weekly aggregation without comparison
+GET {{baseUrl}}/stats?start=2026-03-06&end={{end}}&granularity=week&compare=none
 
-### Invalid days value (expect 28-day window)
-GET http://localhost:7071/api/pageviews/stats?days=7
+### Invalid range (400, German validation message)
+GET {{baseUrl}}/stats?start={{end}}&end={{start}}
+
+### Missing explicit dates (400)
+GET {{baseUrl}}/stats?days=7
+
+### Session list (masked IDs, no-store)
+GET {{baseUrl}}/sessions?start={{start}}&end={{end}}&limit=25
+
+### Filter sessions by observed page, source, device, and session reload count
+GET {{baseUrl}}/sessions?start={{start}}&end={{end}}&path=%2F&device=Unbekannt&hasReload=false&minViews=1
+
+### Copy nextCursor from the list; keep identical filters and dates
+@cursor = REPLACE_WITH_NEXT_CURSOR
+GET {{baseUrl}}/sessions?start={{start}}&end={{end}}&limit=25&cursor={{cursor}}
+
+### Copy sessionRef from the list (never a raw ID); same bounded date window
+@sessionRef = REPLACE_WITH_SESSION_REF
+GET {{baseUrl}}/sessions/{{sessionRef}}?start={{start}}&end={{end}}

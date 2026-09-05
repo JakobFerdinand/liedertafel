@@ -1,0 +1,10 @@
+---
+import DashboardLayout from "../layouts/DashboardLayout.astro";
+import SessionInspector from "../components/sessions/SessionInspector.svelte";
+---
+
+<DashboardLayout title="Sitzungen – Liedertafel Mining 1906">
+	<h1>Sitzungen untersuchen</h1>
+	<p>Von einer auffälligen Seite zur beobachteten Abfolge der Seitenaufrufe.</p>
+	<SessionInspector client:only="svelte" />
+</DashboardLayout>

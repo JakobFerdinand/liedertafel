@@ -6,8 +6,8 @@ Use this guide when editing or extending the codebase.
 ## Repository Layout
 - src/website: self-contained Astro site with pages in `src/pages`, reusable sections in `src/components`, global shell/CSS in `src/layouts/Layout.astro`, assets in `src/assets`, content collections under `src/content`, and static files in `public/`.
 - src/website-api: Azure Functions managed API (C# .NET isolated); serves the `/api/pageview` endpoint and writes page views to Azure Table Storage.
-- src/dashboard: internal, auth-gated Astro dashboard (Svelte islands + Layerchart) for the `liedertafel-dashboard` Static Web App; self-contained styling in `src/styles/global.css`.
-- src/dashboard-api: Azure Functions managed API (C# .NET isolated); serves the read-only `/api/pageviews/stats` endpoint for the dashboard.
+- src/dashboard: internal, auth-gated Astro dashboard (Svelte islands + Layerchart) for the `liedertafel-dashboard` Static Web App; overview at `/`, session inspector at `/sessions`. Shared API/date helpers in `src/lib`, UI grouped under `src/components/{filters,overview,breakdowns,sessions}`, styling in `src/styles/global.css`.
+- src/dashboard-api: Azure Functions managed API (C# .NET isolated); serves read-only `/api/pageviews/stats`, `/api/pageviews/sessions`, and `/api/pageviews/sessions/{sessionRef}` endpoints. All require bounded Vienna date ranges; session references are opaque, range-bound handles.
 - infrastructure: Azure Bicep templates for the RG-Liedertafel estate.
 - docs/plans: tracked planning documents.
 - liedertafel.slnx: .NET solution that opens all API projects together; global.json pins the .NET SDK.
@@ -20,8 +20,11 @@ Use this guide when editing or extending the codebase.
 - Website API (local): `cd src/website-api && dotnet run`
 - Dashboard deps: `cd src/dashboard && pnpm install`
 - Dashboard dev server: `cd src/dashboard && pnpm run dev`
-- Dashboard check: `cd src/dashboard && pnpm run check`
+- Dashboard check (Astro and Svelte): `cd src/dashboard && pnpm run check`
 - Dashboard build: `cd src/dashboard && pnpm run build`
+- Dashboard API regression checks (dependency-free console harness): `dotnet run --project tests/dashboard-api`
+- Add `-- --azurite` to also verify real Table Storage queries against local Azurite.
+- API fixture export for browser smoke checks: append `-- --fixtures /tmp/liedertafel-insights-validation` (see `tests/dashboard-api/README.md`).
 - Dashboard API (local): `cd src/dashboard-api && dotnet run` (with `StorageConnection` in `local.settings.json`)
 
 ### Linting
@@ -30,7 +33,8 @@ Use this guide when editing or extending the codebase.
 
 ### Tests
 - No test runner is configured in `package.json`.
-- Single-test command: not applicable.
+- API endpoint/date/pagination checks live in `tests/dashboard-api`; run `dotnet run --project tests/dashboard-api`.
+- Single-test command: not applicable; the focused console harness runs all API checks.
 - If tests are added later, update this file with a single-test example.
 
 ## Astro Conventions

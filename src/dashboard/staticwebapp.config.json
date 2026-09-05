@@ -1,19 +1,39 @@
 {
   "routes": [
     {
+      "route": "/api/*",
+      "allowedRoles": [
+        "admin",
+        "collaborator"
+      ]
+    },
+    {
       "route": "/*",
-      "serve": "/index.html",
-      "statusCode": 200,
-      "allowedRoles": ["admin", "collaborator"]
+      "allowedRoles": [
+        "admin",
+        "collaborator"
+      ]
     }
   ],
   "responseOverrides": {
-    "404": { "rewrite": "/404.html", "statusCode": 404 },
+    "404": {
+      "rewrite": "/404.html",
+      "statusCode": 404
+    },
     "401": {
       "statusCode": 302,
       "redirect": "/.auth/login/github?post_login_redirect_uri=.referrer"
     },
-    "403": { "rewrite": "/403.html", "statusCode": 403 }
+    "403": {
+      "rewrite": "/403/index.html",
+      "statusCode": 403
+    }
   },
-  "platform": { "apiRuntime": "dotnet-isolated:9.0" }
+  "platform": {
+    "apiRuntime": "dotnet-isolated:9.0"
+  },
+  "globalHeaders": {
+    "Referrer-Policy": "no-referrer",
+    "Cache-Control": "no-store"
+  }
 }
