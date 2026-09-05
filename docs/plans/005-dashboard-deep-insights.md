@@ -5,14 +5,21 @@
 - [x] Inspect the existing API, dashboard, storage schema, access rules, and privacy copy.
 - [x] Implement bounded Vienna date ranges, comparison statistics, and storage cancellation/caps.
 - [x] Implement masked session summaries, pagination, and chronological details.
-- [ ] Build the shared client, URL state, toolbar, and modular overview.
-- [ ] Build session filters, list, timeline, and overview drill-downs.
-- [ ] Update privacy disclosure and repository guidance; verify route protection.
+- [x] Build the shared client, URL state, toolbar, and modular overview.
+- [x] Build session filters, list, timeline, and overview drill-downs.
+- [x] Update privacy disclosure and repository guidance; verify route protection.
 - [ ] Run focused API checks, dashboard check/build, website build, and available smoke checks.
 
 ### Validation log
 
 - Backend stages: `dotnet build src/dashboard-api --no-restore` passed with zero warnings/errors.
+
+- Frontend stage: dashboard `pnpm run check` now runs both Astro and Svelte
+  diagnostics (zero errors/warnings); `pnpm run build` emits overview and session
+  routes successfully. Vite emits existing plugin deprecation notices.
+- Route review: `/api/*` and `/*` both require `admin`/`collaborator`; removed
+  the legacy catch-all `serve`/200 settings, allowing the new static route to
+  resolve normally. Global no-referrer/no-store headers protect navigation.
 
 ### Implementation decisions
 
@@ -32,6 +39,10 @@
   instances, and become invalid on credential rotation. No reveal control is
   needed: full identifiers are never returned. Both session endpoints only read
   storage; a SessionId-indexed projection is the next scaling step.
+- Long overview windows remain available up to 400 days. A drill-down preserves
+  its exact dates; if over 92 days, the session page asks for a narrower window
+  instead of silently changing the investigation. Device/path/source filters
+  match a common observed row; reload/minimum views match the whole session.
 - The visual design extends the existing palette: background `#f5f3ef`, surface
   `#ffffff`, text `#2c2a28`, muted `#6b6862`, border `#e3dfd8`, brand `#823c41`.
   System typography, left-aligned controls, a prominent comparison trend, and

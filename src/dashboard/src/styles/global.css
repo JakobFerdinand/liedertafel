@@ -390,3 +390,69 @@ a {
 .retry-btn:hover {
 	background: #6e3135;
 }
+label {
+	display: grid;
+	gap: 0.3rem;
+	font-size: 0.9rem;
+}
+
+input, select, button {
+	font: inherit;
+}
+
+input:not([type="checkbox"]):not([type="range"]), select, button {
+	min-height: 2.5rem;
+	padding: 0.45rem 0.7rem;
+	border: 1px solid var(--color-border);
+	border-radius: 5px;
+	background: var(--color-surface);
+	color: var(--color-text);
+	max-width: 100%;
+}
+
+button {
+	cursor: pointer;
+}
+
+button:hover {
+	background: var(--color-accent-soft);
+}
+
+button:disabled {
+	opacity: 0.55;
+	cursor: default;
+}
+
+:focus-visible {
+	outline: 3px solid var(--color-brand);
+	outline-offset: 3px;
+}
+
+.navbar :focus-visible {
+	outline-color: var(--color-surface);
+}
+
+.notice {
+	padding: 0.8rem 1rem;
+	border-left: 3px solid var(--color-brand);
+	background: var(--color-accent-soft);
+}
+
+.stale {
+	opacity: 0.55;
+}
+
+.table-scroll {
+	overflow-x: auto;
+	max-width: 100%;
+}
+
+summary {
+	cursor: pointer;
+	color: var(--color-brand);
+	margin: 0.75rem 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	html { scroll-behavior: auto; }
+}

@@ -3,7 +3,8 @@
 
 	$effect(() => {
 		let cancelled = false;
-		fetch("/.auth/me")
+		const controller = new AbortController();
+		fetch("/.auth/me", { signal: controller.signal, cache: "no-store" })
 			.then((res) => (res.ok ? res.json() : null))
 			.then((data) => {
 				if (cancelled) {
@@ -26,6 +27,7 @@
 			});
 		return () => {
 			cancelled = true;
+			controller.abort();
 		};
 	});
 </script>
@@ -33,6 +35,8 @@
 <nav class="navbar" aria-label="Hauptnavigation">
 	<div class="container navbar-inner">
 		<a class="navbar-brand" href="/">Liedertafel Dashboard</a>
+		<a href="/">Übersicht</a>
+		<a href="/sessions">Sitzungen</a>
 		<a href="https://liedertafel.at" rel="noreferrer" target="_blank">Zur Website</a>
 		{#if user}
 			<span class="navbar-user">

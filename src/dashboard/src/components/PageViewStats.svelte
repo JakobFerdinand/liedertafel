@@ -1,516 +1,72 @@
 <script lang="ts">
 	import { onMount } from "svelte";
-	import { Axis, Bars, Chart, Highlight, Text, Tooltip } from "layerchart";
-	import type { TextProps } from "layerchart";
-
-	type StatsResponse = {
-		total: number;
-		uniquePaths: number;
-		topPaths: { path: string; count: number }[];
-		series: { week: string; count: number }[];
-		pathSeries: { week: string; path: string; count: number }[];
-		devices: { device: string; count: number }[];
-		deviceSeries: { week: string; device: string; count: number }[];
-		origins: { origin: string; count: number }[];
-		originSeries: { week: string; origin: string; count: number }[];
-		sessions: number;
-		pagesPerSession: number;
-		uniqueVisitors: number;
-		reloads: number;
-		visitorSeries: { week: string; category: string; count: number }[];
-	};
-
-	type Days = 28 | 90 | 180;
-
-	type SeriesRow = { week: string; count: number };
-	type KeyedRow = {
-		week: string;
-		count: number;
-		path?: string;
-		device?: string;
-		origin?: string;
-		category?: string;
-	};
-	type SeriesDef = {
-		key: string;
-		label: string;
-		data: SeriesRow[];
-		value: (d: SeriesRow) => number;
-		color: string;
-	};
-	type ChartSnippetArgs = {
-		context: {
-			series: {
-				visibleSeries: { key: string; label?: string; data?: unknown[]; color?: string }[];
-				isHighlighted: (key: string, defaultValue?: boolean) => boolean;
-			};
-			tooltip: { series: { key: string; label?: string; value?: number; color?: string }[] };
-		};
-	};
-
-	const nfInt = new Intl.NumberFormat("de-AT");
-	const nfCompact = new Intl.NumberFormat("de-AT", { maximumFractionDigits: 0 });
-	const nfOneDecimal = new Intl.NumberFormat("de-AT", { maximumFractionDigits: 1 });
-	const dfLong = new Intl.DateTimeFormat("de-AT", {
-		day: "2-digit",
-		month: "2-digit",
-		year: "numeric",
-	});
-
-	function fmtWeekShort(week: string): string {
-		const [, month, day] = week.split("-");
-		return `${day}.${month}.`;
-	}
-
-	function fmtWeekLong(week: string): string {
-		const [year, month, day] = week.split("-").map(Number);
-		return dfLong.format(new Date(year, month - 1, day));
-	}
-
-	function fmtTick(value: string | number | ((d: any) => string | number) | undefined): string {
-		if (typeof value !== "string" && typeof value !== "number") {
-			return "";
-		}
-		if (typeof value === "number") {
-			return nfCompact.format(value);
-		}
-		const plain = value.replace(/,/g, "");
-		const num = Number(plain);
-		return /^-?\d+(\.\d+)?$/.test(plain) && Number.isFinite(num) ? nfCompact.format(num) : value;
-	}
-
-	function cssVar(name: string, fallback: string): string {
-		return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
-	}
-
-	const chartPalettes = $derived.by(() => {
-		const pathFallbacks = ["#823c41", "#b56b6f", "#d9a0a3", "#8a5a6b", "#c58b7f", "#a3794f"];
-		const path = [
-			"--chart-path-1",
-			"--chart-path-2",
-			"--chart-path-3",
-			"--chart-path-4",
-			"--chart-path-5",
-			"--chart-path-6",
-			"--chart-other",
-		].map((v, i) => cssVar(v, pathFallbacks[i] ?? "#b9b3ab"));
-		const deviceFallbacks = ["#823c41", "#b56b6f", "#d9a0a3", "#6d7075"];
-		const device = ["--chart-device-1", "--chart-device-2", "--chart-device-3", "--chart-device-4"].map(
-			(v, i) => cssVar(v, deviceFallbacks[i] ?? "#6d7075"),
-		);
-		const originFallbacks = ["#823c41", "#b56b6f", "#d9a0a3", "#8a5a6b", "#c58b7f", "#a3794f"];
-		const origin = [
-			"--chart-origin-1",
-			"--chart-origin-2",
-			"--chart-origin-3",
-			"--chart-origin-4",
-			"--chart-origin-5",
-			"--chart-origin-6",
-		].map((v, i) => cssVar(v, originFallbacks[i] ?? "#823c41"));
-		return { path, device, origin };
-	});
-
-	function makeSeries(
-		names: { name: string }[],
-		rows: KeyedRow[],
-		keyOf: (r: KeyedRow) => string | undefined,
-		colors: string[],
-	): SeriesDef[] {
-		return names.map((n, i) => {
-			const color = colors[i] ?? colors[colors.length - 1] ?? "#823c41";
-			return {
-				key: n.name,
-				label: n.name,
-				data: rows.filter((r) => keyOf(r) === n.name).map((r) => ({ week: r.week, count: r.count })),
-				value: (d: SeriesRow) => d.count,
-				color,
-			};
-		});
-	}
-
-	let days = $state<Days>(28);
-	let loading = $state(true);
-	let error = $state(false);
+	import { get, isStats, type StatsResponse } from "../lib/api-client";
+	import { defaultRange, rangeError, rangeParams, readRange, sessionLink, statsParams, writeUrl, type RangeState } from "../lib/date-range";
+	import { date, number, percent, timestamp } from "../lib/format";
+	import DateRangePicker from "./filters/DateRangePicker.svelte";
+	import CompareToggle from "./filters/CompareToggle.svelte";
+	import KpiCard from "./overview/KpiCard.svelte";
+	import TrendChart from "./overview/TrendChart.svelte";
+	import BreakdownTable from "./breakdowns/BreakdownTable.svelte";
+	import DeviceBars from "./breakdowns/DeviceBars.svelte";
+	import VisitorSeriesChart from "./breakdowns/VisitorSeriesChart.svelte";
+	let range = $state(defaultRange());
 	let data = $state<StatsResponse | null>(null);
-	let controller: AbortController | null = null;
-
-	async function load() {
-		controller?.abort();
-		const ac = new AbortController();
-		controller = ac;
+	let loading = $state(false);
+	let error = $state("");
+	let active: AbortController | undefined;
+	const shownRange = $derived(data ? { start: data.range.start, end: data.range.end, granularity: data.granularity, compare: data.previous !== null } : range);
+	async function load(value: RangeState = range) {
+		active?.abort();
+		const controller = new AbortController(); active = controller;
+		range = value; writeUrl(rangeParams(range));
+		error = rangeError(range) ?? "";
+		loading = false;
+		if (error) return;
 		loading = true;
-		error = false;
-		try {
-			const res = await fetch(`/api/pageviews/stats?days=${days}`, { signal: ac.signal });
-			if (!res.ok) {
-				throw new Error(`HTTP ${res.status}`);
-			}
-			const json = (await res.json()) as StatsResponse;
-			if (ac.signal.aborted) {
-				return;
-			}
-			data = json;
-		} catch (err) {
-			if (ac.signal.aborted) {
-				return;
-			}
-			error = true;
-		} finally {
-			if (!ac.signal.aborted) {
-				loading = false;
-			}
-		}
+		try { data = await get(`/api/pageviews/stats?${statsParams(range)}`, isStats, controller.signal); }
+		catch (failure) { if (!controller.signal.aborted) error = failure instanceof Error ? failure.message : "Daten konnten nicht geladen werden."; }
+		finally { if (!controller.signal.aborted) loading = false; }
 	}
-
 	onMount(() => {
-		void load();
+		void load(readRange(new URLSearchParams(window.location.search)));
+		const restore = () => void load(readRange(new URLSearchParams(window.location.search)));
+		window.addEventListener("popstate", restore);
+		return () => { active?.abort(); window.removeEventListener("popstate", restore); };
 	});
-
-	const segments = $derived([
-		{ days: 28 as Days, label: "4 Wochen" },
-		{ days: 90 as Days, label: "3 Monate" },
-		{ days: 180 as Days, label: "6 Monate" },
-	]);
-
-	const weeks = $derived(data?.series.map((r) => r.week) ?? []);
-
-	const topPath = $derived(data?.topPaths[0]?.path ?? "–");
-	const topPathCount = $derived(data?.topPaths[0]?.count ?? 0);
-
-	function seriesNames(rows: KeyedRow[], keyOf: (r: KeyedRow) => string | undefined): string[] {
-		const names: string[] = [];
-		for (const row of rows) {
-			const name = keyOf(row);
-			if (name !== undefined && !names.includes(name)) {
-				names.push(name);
-			}
-		}
-		return names;
-	}
-
-	const pathNames = $derived.by(() => seriesNames(data?.pathSeries ?? [], (r) => r.path));
-
-	const pathDefs = $derived.by(() =>
-		data
-			? makeSeries(
-					pathNames.map((name) => ({ name })),
-					data.pathSeries,
-					(r) => r.path,
-					chartPalettes.path,
-				)
-			: [],
-	);
-
-	const deviceDefs = $derived.by(() =>
-		data
-			? makeSeries(
-					data.devices.map((d) => ({ name: d.device })),
-					data.deviceSeries,
-					(r) => r.device,
-					chartPalettes.device,
-				)
-			: [],
-	);
-
-	const originDefs = $derived.by(() =>
-		data
-			? makeSeries(
-					data.origins.map((o) => ({ name: o.origin })),
-					data.originSeries,
-					(r) => r.origin,
-					chartPalettes.origin,
-				)
-			: [],
-	);
-
-	const reloadShare = $derived(data != null && data.total > 0 ? Math.round((data.reloads / data.total) * 100) : 0);
-
-	const visitorNames = $derived.by(() => seriesNames(data?.visitorSeries ?? [], (r) => r.category));
-
-	const visitorDefs = $derived.by(() =>
-		data
-			? makeSeries(
-					visitorNames.map((name) => ({ name })),
-					data.visitorSeries,
-					(r) => r.category,
-					chartPalettes.device,
-				)
-			: [],
-	);
-
-	const maxDevice = $derived(Math.max(1, ...(data?.devices.map((d) => d.count) ?? [0])));
-
-	function cellCount(rows: KeyedRow[], week: string, name: string, keyOf: (r: KeyedRow) => string | undefined): number {
-		return rows.find((r) => r.week === week && keyOf(r) === name)?.count ?? 0;
-	}
 </script>
 
-{#snippet weekTickLabel({ props: labelProps }: { props: TextProps; index: number })}
-		<Text {...labelProps} value={fmtWeekShort(String(labelProps.value ?? ""))} />
-	{/snippet}
-
-	{#snippet countTickLabel({ props: labelProps }: { props: TextProps; index: number })}
-		<Text {...labelProps} value={fmtTick(labelProps.value)} />
-	{/snippet}
-
-	{#snippet chartAxis(args: ChartSnippetArgs)}
-		<Axis
-			placement="bottom"
-			tickMarks={false}
-			fill="#6b6862"
-			stroke="#d6d2cb"
-			tickLabel={weekTickLabel}
-		/>
-		<Axis
-			placement="left"
-			tickMarks={false}
-			fill="#6b6862"
-			stroke="#d6d2cb"
-			tickLabel={countTickLabel}
-		/>
-	{/snippet}
-
-	{#snippet chartMarks(args: ChartSnippetArgs)}
-		{#each args.context.series.visibleSeries as s, i (s.key)}
-			<Bars
-				seriesKey={s.key}
-				data={s.data}
-				rounded={i !== args.context.series.visibleSeries.length - 1 ? "none" : "edge"}
-				radius={3}
-				opacity={args.context.series.isHighlighted(s.key, true) ? 1 : 0.25}
-			/>
-		{/each}
-	{/snippet}
-
-	{#snippet chartTooltip(args: ChartSnippetArgs)}
-		<Tooltip.Root>
-			{#snippet children({ data: hoverData }: { data: any })}
-				<Tooltip.Header value={fmtWeekLong(String(hoverData?.week ?? ""))} />
-				<Tooltip.List>
-					{#each args.context.tooltip.series as s (s.key)}
-						{#if s.value != null}
-							<Tooltip.Item label={s.label} value={nfInt.format(s.value)} color={s.color} valueAlign="right" />
-						{/if}
-					{/each}
-				</Tooltip.List>
-			{/snippet}
-		</Tooltip.Root>
-	{/snippet}
-
-	{#snippet weekChart(args: { defs: SeriesDef[]; caption: string; srRows: KeyedRow[]; keyOf: (r: KeyedRow) => string | undefined })}
-		<div class="card">
-			<div class="legend">
-				{#each args.defs as d (d.key)}
-					<span><i aria-hidden="true" style={`background: ${d.color}`}></i>{d.label}</span>
-				{/each}
-			</div>
-			<Chart
-				data={data?.series ?? []}
-				x={(d: SeriesRow) => d.week}
-				y={(d: SeriesRow) => d.count}
-				series={args.defs}
-				seriesLayout="stack"
-				valueAxis="y"
-				bandPadding={0.4}
-				height={260}
-				padding={{ top: 12, right: 12, bottom: 32, left: 48 }}
-				grid={{ stroke: "#e6e2db" }}
-				axis={chartAxis}
-				highlight={{ area: { fill: "rgba(130, 60, 65, 0.08)" } }}
-				tooltipContext={{ mode: "band" }}
-				marks={chartMarks}
-				tooltip={chartTooltip}
-			/>
-			<div class="sr-only">
-				<table>
-					<caption>{args.caption}</caption>
-					<thead>
-						<tr>
-							<th scope="col">Woche</th>
-							{#each args.defs as d (d.key)}
-								<th scope="col">{d.label}</th>
-							{/each}
-						</tr>
-					</thead>
-					<tbody>
-						{#each weeks as week (week)}
-							<tr>
-								<th scope="row">{fmtWeekLong(week)}</th>
-								{#each args.defs as d (d.key)}
-									<td>{nfInt.format(cellCount(args.srRows, week, d.key, args.keyOf))}</td>
-								{/each}
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
+<section class="section card" aria-label="Zeitraum und Vergleich">
+	<DateRangePicker value={range} onchange={(value) => void load(value)} />
+	<CompareToggle checked={range.compare} onchange={(compare) => void load({ ...range, compare })} />
+</section>
+{#if loading}<p role="status" aria-live="polite">Auswertung wird geladen …</p>{/if}
+{#if error}<div class="error" role="alert"><p>{error}</p><button type="button" onclick={() => void load()}>Erneut versuchen</button></div>{/if}
+{#if data}
+	<div class:stale={loading || !!error} aria-busy={loading}>
+		<p class="chart-caption">Angezeigte Daten: {date(data.range.start)} – {date(data.range.end)}. Stand: {timestamp(data.generatedAt)}.</p>
+		{#if data.truncated}<p class="notice" role="status">Die Auswertung ist unvollständig: Das Lese- oder Zeitlimit wurde erreicht. Bitte den Zeitraum verkleinern. Alle Werte und Vergleiche beziehen sich nur auf die gelesenen Aufrufe.</p>{/if}
+		{#if data.current.total === 0}<p class="empty">Keine Seitenaufrufe im ausgewählten Zeitraum. Wähle oben einen anderen Zeitraum.</p>{/if}
+		<div class="section-grid">
+			<KpiCard label="Seitenaufrufe" value={data.current.total} previous={data.previous?.total} values={data.current.series.map((p) => p.count)} description="Erfasste Seitenaufrufe im Zeitraum." primary />
+			<KpiCard label="Sitzungs-Kennungen" value={data.current.sessions} previous={data.previous?.sessions} values={data.current.series.map((p) => p.sessions)} description="Unterschiedliche, nicht leere Sitzungs-IDs im Zeitraum. Kein Inaktivitätslimit." />
+			<KpiCard label="Besucher-Kennungen" value={data.current.uniqueVisitors} previous={data.previous?.uniqueVisitors} values={data.current.series.map((p) => p.uniqueVisitors)} description="Unterschiedliche, nicht leere Besucher-IDs im Zeitraum; keine Personenzählung." />
+			<KpiCard label="Unterschiedliche Seiten" value={data.current.uniquePaths} previous={data.previous?.uniquePaths} values={data.current.series.map((p) => p.uniquePaths)} description="Unterschiedliche erfasste Seitenpfade." />
+			<KpiCard label="Aufrufe pro Sitzungs-ID" value={data.current.pagesPerSession} previous={data.previous?.pagesPerSession} values={data.current.series.map((p) => p.pagesPerSession)} description="Aufrufe mit Sitzungs-ID geteilt durch unterschiedliche Sitzungs-IDs." />
+			<KpiCard label="Reloads" value={data.current.reloads} previous={data.previous?.reloads} values={data.current.series.map((p) => p.reloads)} description={`${percent(data.current.reloads, data.current.total)} aller Aufrufe; ${percent(data.current.reloads, data.current.classifiedViews)} aller klassifizierten Aufrufe.`} />
 		</div>
-	{/snippet}
-
-{#if loading}
-	<div class="loading">Daten werden geladen …</div>
-{:else if error}
-	<div class="error">
-		<p>Statistiken konnten nicht geladen werden.</p>
-		<button class="retry-btn" type="button" onclick={() => void load()}>Erneut versuchen</button>
+		<p class="chart-caption">{number.format(data.current.withoutSessionId)} Aufrufe ohne Sitzungs-ID sind in der Statistik enthalten und fehlen in der Sitzungsliste. Sparklines zeigen Werte je Abschnitt; Kennungen können in mehreren Abschnitten vorkommen.</p>
+		<p><a href={sessionLink(shownRange)}>Sitzungen in diesem Zeitraum untersuchen</a></p>
+		<TrendChart current={data.current} previous={data.previous} range={shownRange} />
+		<div class="breakdowns">
+			<BreakdownTable title="Meistbesuchte Seiten" rows={data.current.topPaths.map((p) => ({ label: p.path, count: p.count }))} filter="path" range={shownRange} description="Die zehn häufigsten Seiten. Eine Seite auswählen, um passende Sitzungen zu sehen." />
+			<BreakdownTable title="Externe Herkunft" rows={data.current.origins.map((o) => ({ label: o.origin, count: o.count }))} filter="originHost" range={shownRange} description="Aufrufe mit externer Herkunfts-Domain. Interne und fehlende Referrer sind ausgeschlossen." />
+			<DeviceBars devices={data.current.devices} range={shownRange} />
+			<VisitorSeriesChart series={data.current.visitorSeries} range={shownRange} />
+		</div>
 	</div>
-{:else if data}
-	{#if data.total === 0}
-		<div class="empty">Noch keine Daten vorhanden.</div>
-	{:else}
-		<section class="section" aria-labelledby="heading-views">
-			<h2 id="heading-views">Seitenaufrufe</h2>
-			<div class="toggle-group" role="group" aria-label="Zeitraum">
-				{#each segments as seg (seg.days)}
-					<button
-						type="button"
-						class:active={days === seg.days}
-						aria-pressed={days === seg.days}
-						onclick={() => {
-							days = seg.days;
-							void load();
-						}}
-					>
-						{seg.label}
-					</button>
-				{/each}
-			</div>
-			<div class="section-grid">
-				<div class="card kpi kpi-main">
-					<p class="kpi-label">Gesamt</p>
-					<p class="kpi-value">{nfInt.format(data.total)}</p>
-				</div>
-				<div class="card kpi">
-					<p class="kpi-label">Meistbesuchte Seite</p>
-					<p class="kpi-value">
-						{topPath}
-						<small>{nfInt.format(topPathCount)} Aufrufe</small>
-					</p>
-				</div>
-				<div class="card kpi">
-					<p class="kpi-label">Einzigartige Seiten</p>
-					<p class="kpi-value">{nfInt.format(data.uniquePaths)}</p>
-				</div>
-				<div class="card kpi">
-					<p class="kpi-label">Sessions</p>
-					<p class="kpi-value">{nfInt.format(data.sessions)}</p>
-				</div>
-				<div class="card kpi">
-					<p class="kpi-label">Ø Seiten pro Session</p>
-					<p class="kpi-value">{nfOneDecimal.format(data.pagesPerSession)}</p>
-				</div>
-				<div class="card kpi">
-					<p class="kpi-label">Besucher</p>
-					<p class="kpi-value">{nfInt.format(data.uniqueVisitors)}</p>
-				</div>
-				<div class="card kpi">
-					<p class="kpi-label">Reload-Anteil</p>
-					<p class="kpi-value">{nfInt.format(reloadShare)}%</p>
-				</div>
-			</div>
-		</section>
-
-		<section class="section" aria-labelledby="heading-paths">
-			<h2 id="heading-paths">Meistbesuchte Seiten</h2>
-			<div class="card">
-				<table class="table">
-					<thead>
-						<tr>
-							<th scope="col">Seite</th>
-							<th class="num" scope="col">Aufrufe</th>
-						</tr>
-					</thead>
-					<tbody>
-						{#each data.topPaths as p (p.path)}
-							<tr>
-								<td>{p.path}</td>
-								<td class="num">{nfInt.format(p.count)}</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
-			{#if pathDefs.length > 0}
-				{@render weekChart({
-					defs: pathDefs,
-					caption: "Seitenaufrufe nach Woche und Seite",
-					srRows: data.pathSeries,
-					keyOf: (r) => r.path,
-				})}
-			{/if}
-		</section>
-
-		<section class="section" aria-labelledby="heading-devices">
-			<h2 id="heading-devices">Geräte</h2>
-			<div class="card">
-				<div class="legend">
-					{#each data.devices as d, i (d.device)}
-						<span><i aria-hidden="true" style={`background: ${chartPalettes.device[i] ?? "#823c41"}`}></i>{d.device}</span>
-					{/each}
-				</div>
-				{#each data.devices as d, i (d.device)}
-					<div class="bar-row">
-						<span class="bar-label">{d.device}</span>
-						<div class="bar-track">
-							<div
-								class="bar-fill"
-								style={`width: ${Math.round((d.count / maxDevice) * 100)}%; background: ${chartPalettes.device[i] ?? "#823c41"}`}
-							></div>
-						</div>
-						<span class="bar-count">{nfInt.format(d.count)}</span>
-					</div>
-				{/each}
-			</div>
-			{#if deviceDefs.length > 0}
-				{@render weekChart({
-					defs: deviceDefs,
-					caption: "Seitenaufrufe nach Woche und Gerät",
-					srRows: data.deviceSeries,
-					keyOf: (r) => r.device,
-				})}
-			{/if}
-		</section>
-
-		<section class="section" aria-labelledby="heading-origins">
-			<h2 id="heading-origins">Herkunft</h2>
-			<div class="card">
-				<table class="table">
-					<thead>
-						<tr>
-							<th scope="col">Herkunft</th>
-							<th class="num" scope="col">Aufrufe</th>
-						</tr>
-					</thead>
-					<tbody>
-						{#each data.origins as o (o.origin)}
-							<tr>
-								<td>{o.origin}</td>
-								<td class="num">{nfInt.format(o.count)}</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
-			{#if originDefs.length > 0}
-				{@render weekChart({
-					defs: originDefs,
-					caption: "Seitenaufrufe nach Woche und Herkunft",
-					srRows: data.originSeries,
-					keyOf: (r) => r.origin,
-				})}
-			{/if}
-		</section>
-
-		<section class="section" aria-labelledby="heading-visitors">
-			<h2 id="heading-visitors">Besucher</h2>
-			{#if visitorDefs.length > 0}
-				{@render weekChart({
-					defs: visitorDefs,
-					caption: "Besucher nach Woche und Kategorie",
-					srRows: data.visitorSeries,
-					keyOf: (r) => r.category,
-				})}
-			{/if}
-		</section>
-	{/if}
 {/if}
+<style>
+	.breakdowns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+	@media (max-width: 760px) { .breakdowns { grid-template-columns: 1fr; } }
+</style>

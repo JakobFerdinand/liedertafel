@@ -9,13 +9,14 @@ const { title = "Dashboard – Liedertafel Mining 1906" } = Astro.props;
 <html lang="de">
 	<head>
 		<meta charset="utf-8" />
+		<meta name="referrer" content="no-referrer" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 		<title>{title}</title>
 	</head>
 	<body>
-		<DashboardNavbar />
 		<a class="skip-link" href="#main">Zum Inhalt springen</a>
+		<DashboardNavbar client:load />
 		<main id="main" class="main-content">
 			<div class="container">
 				<slot />
