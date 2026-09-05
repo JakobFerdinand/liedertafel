@@ -17,8 +17,9 @@ var host = new HostBuilder()
 		}
 
 		services.AddSingleton(new TableServiceClient(connection));
-		services.AddScoped<GetPageViewStats.Handler>();
-		services.AddScoped<GetPageViewStats.IStatsReader, GetPageViewStats.TableStatsReader>();
+		services.AddScoped<IInsightReader, TableInsightReader>();
+		services.AddSingleton(new SessionHandles(connection));
+		services.AddSingleton<SessionSnapshots>();
 	})
 	.Build();
 

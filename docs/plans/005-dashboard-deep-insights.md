@@ -1,5 +1,44 @@
 # Dashboard Deep Insights Plan
 
+## Implementation progress
+
+- [x] Inspect the existing API, dashboard, storage schema, access rules, and privacy copy.
+- [x] Implement bounded Vienna date ranges, comparison statistics, and storage cancellation/caps.
+- [x] Implement masked session summaries, pagination, and chronological details.
+- [ ] Build the shared client, URL state, toolbar, and modular overview.
+- [ ] Build session filters, list, timeline, and overview drill-downs.
+- [ ] Update privacy disclosure and repository guidance; verify route protection.
+- [ ] Run focused API checks, dashboard check/build, website build, and available smoke checks.
+
+### Validation log
+
+- Backend stages: `dotnet build src/dashboard-api --no-restore` passed with zero warnings/errors.
+
+### Implementation decisions
+
+- Session links use a range-bound opaque handle; raw client IDs are never put
+  in URLs or default payloads. A masked label alone is not a unique lookup key.
+- Grouped sessions cannot be paginated correctly using only a storage row
+  continuation token: one session can span many partitions and rows. The list
+  uses a bounded, five-minute in-memory snapshot and opaque continuation tokens
+  identifying the last summary's storage position. Later pages do not rescan.
+  Expired/evicted snapshots (including a worker restart or another instance)
+  return an explicit restart response. A shared indexed projection remains the
+  scaling path; no storage writes or new dependencies are introduced.
+- Session detail resolves range-bound HMAC handles during the capped partition
+  scan. This intentionally replaces the proposed raw-ID OData filter, avoiding
+  raw IDs in requests/logs and handling arbitrary legacy ID strings safely.
+  Handles are keyed from the existing storage connection, stable across worker
+  instances, and become invalid on credential rotation. No reveal control is
+  needed: full identifiers are never returned. Both session endpoints only read
+  storage; a SessionId-indexed projection is the next scaling step.
+- The visual design extends the existing palette: background `#f5f3ef`, surface
+  `#ffffff`, text `#2c2a28`, muted `#6b6862`, border `#e3dfd8`, brand `#823c41`.
+  System typography, left-aligned controls, a prominent comparison trend, and
+  compact linked breakdowns retain the dashboard identity. Timelines emphasize
+  chronological order and observed gaps rather than suggesting engagement.
+
+
 ## Goal
 
 Turn the dashboard from a fixed weekly overview into a real investigation
