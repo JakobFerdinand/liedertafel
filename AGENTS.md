@@ -8,6 +8,8 @@ Use this guide when editing or extending the codebase.
 - src/website-api: Azure Functions managed API (C# .NET isolated); serves the `/api/pageview` endpoint and writes page views to Azure Table Storage.
 - src/dashboard: internal, auth-gated Astro dashboard (Svelte islands + Layerchart) for the `liedertafel-dashboard` Static Web App; overview at `/`, session inspector at `/sessions`. Shared API/date helpers in `src/lib`, UI grouped under `src/components/{filters,overview,breakdowns,sessions}`, styling in `src/styles/global.css`.
 - src/dashboard-api: Azure Functions managed API (C# .NET isolated); serves read-only `/api/pageviews/stats`, `/api/pageviews/sessions`, and `/api/pageviews/sessions/{sessionRef}` endpoints. All require bounded Vienna date ranges; session references are opaque, range-bound handles.
+- src/archive: .NET 10 / Aspire choir archive. `apphost/` orchestrates local services, `service-defaults/` owns OTLP and finite-worker defaults, `backend/` serves the API/static export and explicit EF migrations, `frontend/` is Next.js App Router + TypeScript + Tailwind + Biome. Read `src/archive/README.md` for contracts and startup.
+- tests/archive: xUnit backend/OTLP checks under `backend/` and clean-stack Aspire integration checks under `apphost/`. Browser checks live in `src/archive/frontend/tests`.
 - infrastructure: Azure Bicep templates for the RG-Liedertafel estate.
 - docs/plans: tracked planning documents.
 - liedertafel.slnx: .NET solution that opens all API projects together; global.json pins the .NET SDK.
@@ -26,18 +28,29 @@ Use this guide when editing or extending the codebase.
 - Add `-- --azurite` to also verify real Table Storage queries against local Azurite.
 - API fixture export for browser smoke checks: append `-- --fixtures /tmp/liedertafel-insights-validation` (see `tests/dashboard-api/README.md`).
 - Dashboard API (local): `cd src/dashboard-api && dotnet run` (with `StorageConnection` in `local.settings.json`)
+- Archive local stack: `dotnet run --project src/archive/apphost` (Docker required; Podman: prefix `ASPIRE_CONTAINER_RUNTIME=podman`). Start `archive-migrate` explicitly in the dashboard for schema setup.
+- Archive build: `dotnet build src/archive/Archive.slnx`
+- Archive backend tests: `dotnet test tests/archive/backend`
+- Archive focused xUnit test: `dotnet test tests/archive/backend --filter FullyQualifiedName~TelemetryTests`
+- Archive integration test: `dotnet test tests/archive/apphost` (fresh containers; stop a running archive AppHost first).
+- Archive frontend deps/check/build: from `src/archive/frontend`, `pnpm install --frozen-lockfile`, `pnpm run check`, `pnpm run build`.
+- Archive browsers: from `src/archive/frontend`, `pnpm exec playwright install chromium`, then `ARCHIVE_BASE_URL=http://localhost:<frontend-port> pnpm run test:browser`. Single test: `pnpm run test:browser -- --grep "German deep link"`.
+- Archive image: `docker build -f src/archive/Dockerfile -t liedertafel-archive:local .` (Podman additionally needs `--ignorefile src/archive/Dockerfile.dockerignore`). Full smoke instructions in the archive README.
 
 ### Linting
-- No lint script is configured in `package.json`.
+- Website/dashboard have no lint script. Archive frontend has generated Biome `lint` / `format` scripts and `check` (Biome + Next route types + TypeScript).
 - Do not invent lint commands; add one only if explicitly requested.
 
 ### Tests
-- No test runner is configured in `package.json`.
+- Website/dashboard have no JavaScript test runner; archive uses Playwright and xUnit as listed above.
 - API endpoint/date/pagination checks live in `tests/dashboard-api`; run `dotnet run --project tests/dashboard-api`.
-- Single-test command: not applicable; the focused console harness runs all API checks.
+- Dashboard single-test command: not applicable; the focused console harness runs all API checks.
 - If tests are added later, update this file with a single-test example.
 
 ## Astro Conventions
+
+These Astro/style conventions apply to the website/dashboard. Archive frontend
+uses its generated Next.js/Biome conventions and local `AGENTS.md`.
 - Use `.astro` components for pages and UI sections.
 - Keep page composition in `src/pages` and reuse UI in `src/components`.
 - Use `Layout.astro` as the global shell and for global CSS.
@@ -97,6 +110,23 @@ Use this guide when editing or extending the codebase.
 ## Build Artifacts
 - `src/website/dist/` is a build output directory.
 - Avoid editing `dist/` directly unless explicitly asked.
+- Archive `frontend/out/`, `.next/`, `.next-dev/`, Playwright output, .NET `bin/obj`
+  and `.local/` keys are generated/ignored. Never copy development keys into images.
+
+## Archive Contracts
+
+- Keep Next.js statically exportable; ASP.NET serves the only production origin.
+  Browser APIs use relative `/api/*`; API errors must never fall back to HTML.
+- Every archive C# host calls `AddServiceDefaults()`. Development requires
+  AppHost-injected OTLP logs/traces/metrics; console logging alone is insufficient.
+- Later workers join `WithArchiveDependencies`, use explicit start for finite
+  operator work, carry W3C trace context, and use `RunArchiveJobAsync` to flush.
+- EF migrations are explicit (`archive-migrate` / `--migrate`), never API startup.
+  Schema lives under `backend/Data/Migrations`; each feature adds its own entities.
+- Keep liveness dependency-free. Local diagnostics/mail/storage operations are
+  Development-only; no production credentials are needed for ordinary startup.
+- Root SDK now selects .NET 10 with latest-feature roll-forward. Existing Azure
+  Functions still target .NET 9; CI installs both SDK lines.
 
 ## Infrastructure
 - Azure estate lives in resource group `RG-Liedertafel` (public Static Web App `liedertafel`, internal dashboard Static Web App `liedertafel-dashboard`).

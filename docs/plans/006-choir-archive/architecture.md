@@ -2,7 +2,7 @@
 
 Status: User-confirmed planning baseline, subject to the validation gates below.
 Date: 2026-09-11
-Implementation: Not started.
+Implementation: ARC-001 local walking skeleton completed; later slices remain planned.
 
 This document records the architecture interview and supersedes the original
 architecture proposal supplied in conversation on 2026-09-08. The
@@ -50,7 +50,7 @@ to keep this overview readable.
 
 | Area | Confirmed baseline |
 | --- | --- |
-| Frontend | React + TypeScript + Vite; German, responsive interface |
+| Frontend | Next.js App Router + React + TypeScript, static export; German, responsive interface |
 | Backend | ASP.NET Core, feature modules in one application; EF Core + Npgsql |
 | Packaging | One container image serves built frontend files and `/api/*`; no Node.js runtime |
 | Hosting | Azure Container Apps Consumption; minimum zero, initial maximum two replicas |
@@ -110,10 +110,17 @@ uses a **Europe data geography**, not a promise of an Austria East datacenter.
 
 ### One deployable application
 
-ASP.NET Core serves the Vite-built frontend and the API under one origin. React
+ASP.NET Core serves the Next.js static export and the API under one origin. React
 runs in the browser. Organize backend code into feature modules such as catalogue,
 events/programmes, assets/recordings, membership, and import processing, sharing
 one application rather than separate microservices.
+
+ARC-001's implementation request selected Next.js instead of Vite. Development
+uses Turbopack and an API rewrite; production remains static files with no Node.js
+runtime. Routes must be exportable: runtime IDs use client-side API requests and
+query parameters unless paths can be generated at build time. SSR, Server Actions
+and unbounded dynamic App Router paths require a separate hosting decision.
+See the [archive runbook](../../../src/archive/README.md) for the implemented contract.
 
 Database-backed German search covers the PRD's fields, entered lyrics, and
 extracted PDF text. PostgreSQL stores the indexed text and relationships. A
@@ -372,7 +379,7 @@ docs/plans/006-choir-archive/
 src/archive/
   apphost/                  Aspire local resource orchestration
   service-defaults/         Shared .NET telemetry and service configuration
-  frontend/                 React + TypeScript + Vite
+  frontend/                 Next.js + React + TypeScript, static export
   backend/                  ASP.NET Core feature modules and C# job code
 infrastructure/
   archive/                  Archive Bicep entry point/parameters
@@ -444,7 +451,7 @@ while member access stays paused, not restoration of an earlier database copy.
 the services needed for routine development rather than asking developers to
 start each dependency in a separate terminal:
 
-- ASP.NET Core API and the Vite frontend with hot reload. Route browser API
+- ASP.NET Core API and the Next.js frontend with Turbopack hot reload. Route browser API
   requests through a documented development proxy so cookie/CSRF behaviour stays
   representative of the single-origin packaged application.
 - Local PostgreSQL, with development persistence and an explicit schema setup step.
@@ -463,7 +470,7 @@ integration runs. Persist local development keys separately from production keys
 ```mermaid
 flowchart TB
     Developer["Developer starts AppHost"] --> Host["Aspire AppHost<br/>Resources, references and startup order"]
-    Host --> Frontend["Vite frontend<br/>Hot reload and API proxy"]
+    Host --> Frontend["Next.js frontend<br/>Hot reload and API proxy"]
     Host --> API["ASP.NET Core API"]
     Host --> Workers["Local C# worker resources<br/>Same extraction/import logic"]
     Host --> Dependencies["PostgreSQL + Azurite<br/>Mail capture"]
