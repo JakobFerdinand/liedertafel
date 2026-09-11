@@ -1,31 +1,28 @@
 ---
-import type { ImageMetadata } from "astro";
-import { Image } from "astro:assets";
 import { getCollection, render } from "astro:content";
 import Layout from "../layouts/Layout.astro";
 import Footer from "../components/Footer.astro";
 
-interface TimelineEntry {
+interface ChronicleEntry {
 	id: string;
 	date: string;
 	formattedDate: string;
 	title: string;
 	subtitle?: string;
-	image?: ImageMetadata;
 	hasContent: boolean;
 	Content: Awaited<ReturnType<typeof render>>["Content"];
 }
 
-interface TimelineGroupDefinition {
+interface EraDefinition {
 	title: string;
 	from: number;
 	message?: string;
 }
 
-interface TimelineGroup extends TimelineGroupDefinition {
+interface Era extends EraDefinition {
 	to?: number;
 	rangeLabel: string;
-	entries: TimelineEntry[];
+	entries: ChronicleEntry[];
 }
 
 const formatHistoryDate = (rawDate: string) => {
@@ -68,9 +65,9 @@ if (historyGroupConfigs.length > 1) {
 	throw new Error("Expected a single historyGroups entry in src/content/history-groups.");
 }
 
-const timelineEntries = await Promise.all(
+const chronicleEntries = await Promise.all(
 	historyEntries
-		.sort((first: (typeof historyEntries)[number], second: (typeof historyEntries)[number]) => second.data.date.localeCompare(first.data.date))
+		.sort((first: (typeof historyEntries)[number], second: (typeof historyEntries)[number]) => first.data.date.localeCompare(second.data.date))
 		.map(async (entry) => {
 			const { Content } = await render(entry);
 
@@ -80,30 +77,29 @@ const timelineEntries = await Promise.all(
 				formattedDate: formatHistoryDate(entry.data.date),
 				title: entry.data.title,
 				subtitle: entry.data.subtitle,
-				image: entry.data.image,
 				hasContent: (entry.body?.trim().length ?? 0) > 0,
 				Content,
-			} satisfies TimelineEntry;
+			} satisfies ChronicleEntry;
 		}),
 );
 
 const configuredGroups = historyGroupConfigs[0]?.data.groups;
-const visibleTimelineGroups: TimelineGroup[] = [];
+const visibleEras: Era[] = [];
 
-if (timelineEntries.length > 0) {
-	const earliestHistoryYear = timelineEntries.reduce(
+if (chronicleEntries.length > 0) {
+	const earliestHistoryYear = chronicleEntries.reduce(
 		(earliestYear, entry) => Math.min(earliestYear, getHistoryYear(entry.date)),
 		Number.POSITIVE_INFINITY,
 	);
 
-	const groupDefinitions: TimelineGroupDefinition[] = (
+	const eraDefinitions: EraDefinition[] = (
 		configuredGroups?.length ? configuredGroups : [{ title: "Geschichte", from: earliestHistoryYear }]
 	)
 		.slice()
-		.sort((first: TimelineGroupDefinition, second: TimelineGroupDefinition) => first.from - second.from);
+		.sort((first: EraDefinition, second: EraDefinition) => first.from - second.from);
 
-	const timelineGroups: TimelineGroup[] = groupDefinitions.map((group, index) => {
-		const nextGroup = groupDefinitions[index + 1];
+	const eras: Era[] = eraDefinitions.map((group, index) => {
+		const nextGroup = eraDefinitions[index + 1];
 		const to = nextGroup ? nextGroup.from - 1 : undefined;
 		const rangeStart = index === 0 ? Math.min(group.from, earliestHistoryYear) : group.from;
 
@@ -115,16 +111,18 @@ if (timelineEntries.length > 0) {
 		};
 	});
 
-	timelineEntries.forEach((entry) => {
+	chronicleEntries.forEach((entry) => {
 		const entryYear = getHistoryYear(entry.date);
-		const groupIndex = groupDefinitions.findLastIndex((group) => entryYear >= group.from);
-		const targetGroup = timelineGroups[groupIndex >= 0 ? groupIndex : 0];
+		const eraIndex = eraDefinitions.findLastIndex((group) => entryYear >= group.from);
+		const targetEra = eras[eraIndex >= 0 ? eraIndex : 0];
 
-		targetGroup?.entries.push(entry);
+		targetEra?.entries.push(entry);
 	});
 
-	visibleTimelineGroups.push(...timelineGroups.filter((group) => group.entries.length > 0).reverse());
+	visibleEras.push(...eras.filter((era) => era.entries.length > 0));
 }
+
+const entryCountLabel = (count: number) => `${count} ${count === 1 ? "Eintrag" : "Einträge"}`;
 ---
 
 <Layout>
@@ -132,362 +130,129 @@ if (timelineEntries.length > 0) {
 		<p class="history-hero__eyebrow">Vereinschronik</p>
 		<h1>Geschichte der Liedertafel Mining</h1>
 		<p>Stationen unseres Chors - von der Gründung bis heute.</p>
+		<div class="history-hero__rule" aria-hidden="true">
+			<span></span>
+		</div>
 	</section>
 
-	<section class="timeline" aria-labelledby="timeline-heading">
-		<h2 class="timeline-heading" id="timeline-heading">Zeitleiste</h2>
-		{visibleTimelineGroups.length > 0 ? (
-			<ul class="timeline-list timeline-list--grouped">
+	{visibleEras.length > 0 ? (
+		<div class="chronicle">
+			<aside class="chronicle__index" aria-label="Inhaltsverzeichnis der Vereinschronik">
+				<p class="index__eyebrow">Inhaltsverzeichnis</p>
+				<nav class="index__nav" aria-label="Epochen der Vereinsgeschichte">
+					<ol class="index__list">
+						{
+							visibleEras.map((era) => (
+								<li class="index__item">
+									<a class="index__link" href={`#era-${era.from}`} data-era-link={era.from}>
+										<span class="index__title">{era.title}</span>
+										<span class="index__meta">
+											{era.rangeLabel} · {entryCountLabel(era.entries.length)}
+										</span>
+									</a>
+								</li>
+							))
+						}
+					</ol>
+				</nav>
+			</aside>
+
+			<div class="chronicle__body">
 				{
-					visibleTimelineGroups.map((group) => (
-						<li class="timeline-group-item" aria-labelledby={`timeline-group-${group.from}`}>
-							<details class="timeline-group__details">
-								<summary class="timeline-group__header">
-									<h3 class="timeline-group__title" id={`timeline-group-${group.from}`}>{group.title}</h3>
-									<p class="timeline-group__range">{group.rangeLabel}</p>
-									<p class="timeline-group__count">
-										{group.entries.length} {group.entries.length === 1 ? "Eintrag" : "Einträge"}
-									</p>
-								</summary>
-								{group.message && (
-									<p class="timeline-group__message">{group.message}</p>
-								)}
-								<ul class="timeline-list timeline-group__entries">
-									{group.entries.map((entry) => (
-										<li class="timeline-item" id={entry.id}>
-											<details class="timeline-details" data-history-entry={entry.id} open={false}>
-												<summary>
-													<span class="timeline-date">{entry.formattedDate}</span>
-													<div class="timeline-header">
-														<h4>{entry.title}</h4>
-														{entry.subtitle && <p>{entry.subtitle}</p>}
-													</div>
-												</summary>
-												{(entry.image || entry.hasContent) && (
-													<div class="timeline-content">
-														{entry.image && (
-															<button
-																type="button"
-																class="timeline-image-trigger"
-																data-image-src={entry.image.src}
-																data-image-alt={`Bild zu ${entry.title}`}
-																aria-label={`Bild zu ${entry.title} vergrößern`}
-															>
-																<Image src={entry.image} alt={`Bild zu ${entry.title}`} loading="lazy" />
-															</button>
-														)}
-														{entry.hasContent && <entry.Content />}
-													</div>
-												)}
-											</details>
-										</li>
-									))}
-								</ul>
-							</details>
-						</li>
+					visibleEras.map((era) => (
+						<section class="era" id={`era-${era.from}`} data-era={era.from} aria-labelledby={`era-heading-${era.from}`}>
+							<header class="era__header">
+								<h2 class="era__title" id={`era-heading-${era.from}`}>{era.title}</h2>
+								<span class="era__diamond" aria-hidden="true"></span>
+								<p class="era__meta">
+									{era.rangeLabel} · {entryCountLabel(era.entries.length)}
+								</p>
+								{era.message && <p class="era__message">{era.message}</p>}
+							</header>
+							<div class="era__entries">
+								{
+									era.entries.map((entry) => (
+										<article class="entry" id={entry.id}>
+											<header class="entry__header">
+												<p class="entry__year" aria-hidden="true">{getHistoryYear(entry.date)}</p>
+												<div class="entry__heading">
+													<p class="entry__date">{entry.formattedDate}</p>
+													<h3 class="entry__title">{entry.title}</h3>
+													{entry.subtitle && <p class="entry__subtitle">{entry.subtitle}</p>}
+												</div>
+											</header>
+											{entry.hasContent && (
+												<div class="entry__body">
+													<entry.Content />
+												</div>
+											)}
+										</article>
+									))
+								}
+							</div>
+						</section>
 					))
 				}
-			</ul>
-		) : (
-			<p class="timeline-empty">Noch keine Chronik-Einträge vorhanden.</p>
-		)}
-	</section>
-
-	<dialog class="image-lightbox" aria-label="Bild vergrößert anzeigen">
-		<button type="button" class="lightbox-close" aria-label="Vollbildansicht schließen">x</button>
-		<button type="button" class="lightbox-nav lightbox-nav--prev" aria-label="Vorheriges Bild anzeigen">
-			&lt;
-		</button>
-		<button type="button" class="lightbox-nav lightbox-nav--next" aria-label="Nächstes Bild anzeigen">
-			&gt;
-		</button>
-		<figure class="lightbox-figure">
-			<img class="lightbox-image" src="" alt="" />
-			<figcaption class="lightbox-caption"></figcaption>
-		</figure>
-	</dialog>
+			</div>
+		</div>
+	) : (
+		<p class="chronicle-empty">Noch keine Chronik-Einträge vorhanden.</p>
+	)}
 
 	<Footer />
 </Layout>
 
 <script>
-	const lightbox = document.querySelector<HTMLDialogElement>(".image-lightbox");
-	const lightboxImage = lightbox?.querySelector<HTMLImageElement>(".lightbox-image");
-	const lightboxCaption = lightbox?.querySelector<HTMLElement>(".lightbox-caption");
-	const closeButton = lightbox?.querySelector<HTMLButtonElement>(".lightbox-close");
-	const previousButton = lightbox?.querySelector<HTMLButtonElement>(".lightbox-nav--prev");
-	const nextButton = lightbox?.querySelector<HTMLButtonElement>(".lightbox-nav--next");
-	const triggers = document.querySelectorAll<HTMLButtonElement>(".timeline-image-trigger");
-	const markdownImages = document.querySelectorAll<HTMLImageElement>(".timeline-content img");
-	const timelineContents = document.querySelectorAll<HTMLElement>(".timeline-content");
-	const historyDetails = document.querySelectorAll<HTMLDetailsElement>(".timeline-details[data-history-entry]");
+	const eraLinks = document.querySelectorAll<HTMLAnchorElement>("[data-era-link]");
+	const eraSections = document.querySelectorAll<HTMLElement>("[data-era]");
 
-	const updateHistoryHash = (entryId?: string) => {
-		const url = new URL(window.location.href);
+	const setActiveEra = (eraFrom: string) => {
+		eraLinks.forEach((link) => {
+			const isActive = link.dataset.eraLink === eraFrom;
 
-		if (entryId) {
-			url.hash = entryId;
-			history.pushState(null, "", url);
-			return;
-		}
+			link.classList.toggle("is-active", isActive);
 
-		if (!url.hash) {
-			return;
-		}
-
-		url.hash = "";
-		history.pushState(null, "", url);
-	};
-
-	const openHistoryEntry = (entryId: string, shouldScroll = true) => {
-		const entry = document.getElementById(entryId);
-		const details = document.querySelector<HTMLDetailsElement>(`[data-history-entry="${CSS.escape(entryId)}"]`);
-
-		if (!entry || !details) {
-			return;
-		}
-
-		// Also open the parent group if it is collapsed
-		const groupDetails = details.closest<HTMLDetailsElement>(".timeline-group__details");
-		if (groupDetails && !groupDetails.open) {
-			groupDetails.open = true;
-		}
-
-		if (!details.open) {
-			details.open = true;
-		}
-
-		if (shouldScroll) {
-			requestAnimationFrame(() => {
-				entry.scrollIntoView({
-					behavior: "smooth",
-					block: "start",
-				});
-			});
-		}
-	};
-
-	const syncHistoryEntryFromHash = () => {
-		const entryId = decodeURIComponent(window.location.hash.slice(1));
-
-		if (!entryId) {
-			return;
-		}
-
-		openHistoryEntry(entryId);
-	};
-
-	type LightboxItem = {
-		trigger: HTMLElement;
-		getSource: () => string;
-		getAlt: () => string;
-	};
-
-	let triggerElement: HTMLElement | null = null;
-	let currentGroup: LightboxItem[] = [];
-	let currentIndex = -1;
-
-	const groupLookup = new Map<HTMLElement, LightboxItem[]>();
-	const indexLookup = new Map<HTMLElement, number>();
-
-	const setNavigationState = () => {
-		const hasMultipleImages = currentGroup.length > 1;
-
-		previousButton?.toggleAttribute("hidden", !hasMultipleImages);
-		nextButton?.toggleAttribute("hidden", !hasMultipleImages);
-
-		if (!hasMultipleImages) {
-			if (previousButton) {
-				previousButton.disabled = true;
-			}
-
-			if (nextButton) {
-				nextButton.disabled = true;
-			}
-
-			return;
-		}
-
-		if (previousButton) {
-			previousButton.disabled = currentIndex <= 0;
-		}
-
-		if (nextButton) {
-			nextButton.disabled = currentIndex >= currentGroup.length - 1;
-		}
-	};
-
-	const showImageAtIndex = (index: number) => {
-		if (!lightboxImage || index < 0 || index >= currentGroup.length) {
-			return;
-		}
-
-		currentIndex = index;
-		const item = currentGroup[currentIndex];
-		const alt = item.getAlt();
-
-		lightboxImage.src = item.getSource();
-		lightboxImage.alt = alt;
-		if (lightboxCaption) {
-			lightboxCaption.textContent = alt;
-		}
-
-		setNavigationState();
-	};
-
-	const openLightbox = (trigger: HTMLElement) => {
-		if (!lightbox || !lightboxImage) {
-			return;
-		}
-
-		triggerElement = trigger;
-		currentGroup = groupLookup.get(trigger) ?? [];
-		currentIndex = indexLookup.get(trigger) ?? 0;
-		showImageAtIndex(currentIndex);
-		lightbox.showModal();
-	};
-
-	const showPreviousImage = () => {
-		showImageAtIndex(currentIndex - 1);
-	};
-
-	const showNextImage = () => {
-		showImageAtIndex(currentIndex + 1);
-	};
-
-	const closeLightbox = () => {
-		if (lightbox?.open) {
-			lightbox.close();
-			currentGroup = [];
-			currentIndex = -1;
-			triggerElement?.focus();
-		}
-	};
-
-	timelineContents.forEach((content) => {
-		const items: LightboxItem[] = [];
-
-		const trigger = content.querySelector<HTMLButtonElement>(".timeline-image-trigger");
-		if (trigger) {
-			items.push({
-				trigger,
-				getSource: () => trigger.dataset.imageSrc ?? "",
-				getAlt: () => trigger.dataset.imageAlt ?? "",
-			});
-		}
-
-		content.querySelectorAll<HTMLImageElement>("img").forEach((image) => {
-			if (image.closest(".timeline-image-trigger")) {
-				return;
-			}
-
-			items.push({
-				trigger: image,
-				getSource: () => image.currentSrc || image.src,
-				getAlt: () => image.alt,
-			});
-		});
-
-		items.forEach((item, index) => {
-			groupLookup.set(item.trigger, items);
-			indexLookup.set(item.trigger, index);
-		});
-	});
-
-	historyDetails.forEach((details) => {
-		const entryId = details.dataset.historyEntry;
-
-		if (!entryId) {
-			return;
-		}
-
-		details.addEventListener("toggle", () => {
-			if (details.open) {
-				updateHistoryHash(entryId);
-				return;
-			}
-
-			if (decodeURIComponent(window.location.hash.slice(1)) === entryId) {
-				updateHistoryHash();
+			if (isActive) {
+				link.setAttribute("aria-current", "true");
+			} else {
+				link.removeAttribute("aria-current");
 			}
 		});
-	});
+	};
 
-	triggers.forEach((trigger) => {
-		trigger.addEventListener("click", () => {
-			openLightbox(trigger);
-		});
-	});
+	if ("IntersectionObserver" in window) {
+		const observer = new IntersectionObserver(
+			(entries) => {
+				for (const entry of entries) {
+					if (entry.isIntersecting) {
+						setActiveEra((entry.target as HTMLElement).dataset.era ?? "");
+					}
+				}
+			},
+			{ rootMargin: "-96px 0px -60% 0px", threshold: 0 },
+		);
 
-	markdownImages.forEach((image) => {
-		if (image.closest(".timeline-image-trigger")) {
-			return;
-		}
-
-		image.classList.add("timeline-markdown-image");
-		image.setAttribute("role", "button");
-		image.setAttribute("tabindex", "0");
-		image.setAttribute("aria-label", `${image.alt || "Bild"} vergrößern`);
-
-		image.addEventListener("click", () => {
-			openLightbox(image);
-		});
-
-		image.addEventListener("keydown", (event) => {
-			if (event.key !== "Enter" && event.key !== " ") {
-				return;
-			}
-
-			event.preventDefault();
-			openLightbox(image);
-		});
-	});
-
-	closeButton?.addEventListener("click", closeLightbox);
-	previousButton?.addEventListener("click", showPreviousImage);
-	nextButton?.addEventListener("click", showNextImage);
-
-	lightbox?.addEventListener("click", (event) => {
-		const target = event.target;
-		if (target instanceof HTMLDialogElement) {
-			closeLightbox();
-		}
-	});
-
-	document.addEventListener("keydown", (event) => {
-		if (!lightbox?.open) {
-			return;
-		}
-
-		if (event.key === "ArrowLeft") {
-			event.preventDefault();
-			showPreviousImage();
-		}
-
-		if (event.key === "ArrowRight") {
-			event.preventDefault();
-			showNextImage();
-		}
-	});
-
-	window.addEventListener("hashchange", syncHistoryEntryFromHash);
-	syncHistoryEntryFromHash();
+		eraSections.forEach((section) => observer.observe(section));
+	} else {
+		setActiveEra(eraSections[0]?.dataset.era ?? "");
+	}
 </script>
 
 <style>
 	.history-hero {
 		display: flex;
 		flex-direction: column;
+		align-items: center;
 		gap: 0.75rem;
 		text-align: center;
 	}
 
 	.history-hero__eyebrow {
-		text-transform: uppercase;
-		letter-spacing: 0.2em;
+		margin: 0;
 		font-size: 0.85rem;
 		font-weight: 600;
-		margin: 0;
+		letter-spacing: 0.2em;
+		text-transform: uppercase;
 		opacity: 0.8;
 	}
 
@@ -497,467 +262,329 @@ if (timelineEntries.length > 0) {
 		opacity: 0.9;
 	}
 
-	.timeline {
+	.history-hero__rule {
 		display: flex;
-		flex-direction: column;
-		gap: 1.5rem;
+		align-items: center;
+		justify-content: center;
+		gap: 0.65rem;
+		margin-top: 1.35rem;
 	}
 
-	.timeline-list {
-		--timeline-gap: 1rem;
-		--timeline-dot-top: 1.575rem;
+	.history-hero__rule::before,
+	.history-hero__rule::after {
+		content: "";
+		width: 2.75rem;
+		height: 1px;
+		background: rgba(255, 255, 255, 0.45);
+	}
+
+	.history-hero__rule span {
+		width: 0.38rem;
+		height: 0.38rem;
+		transform: rotate(45deg);
+		background: rgba(255, 255, 255, 0.75);
+	}
+
+	.chronicle {
+		display: grid;
+		grid-template-columns: 10.5rem minmax(0, 1fr);
+		gap: 2.75rem;
+		align-items: start;
+	}
+
+	.chronicle__index {
+		position: sticky;
+		top: 6rem;
+	}
+
+	.index__eyebrow {
+		margin: 0 0 1rem;
+		font-size: 0.75rem;
+		font-weight: 600;
+		letter-spacing: 0.18em;
+		text-transform: uppercase;
+		opacity: 0.7;
+	}
+
+	.index__list {
 		list-style: none;
 		margin: 0;
 		padding: 0;
 		display: flex;
 		flex-direction: column;
-		gap: var(--timeline-gap);
+		gap: 0.4rem;
 	}
 
-	.timeline-list > li {
-		position: relative;
-		--timeline-item-padding-left: 2rem;
-		--timeline-marker-x: 0.5rem;
-		padding-left: var(--timeline-item-padding-left);
-	}
-
-	.timeline-list > li::before {
-		content: "";
-		position: absolute;
-		left: var(--timeline-marker-x);
-		top: 0;
-		bottom: calc(-1 * var(--timeline-gap));
-		width: 2px;
-		background: rgba(255, 255, 255, 0.3);
-		transform: translateX(-50%);
-	}
-
-	.timeline-list > li:last-child::before {
-		bottom: calc(100% - var(--timeline-dot-top));
-	}
-
-	.timeline-group__details {
-		width: 100%;
-	}
-
-	.timeline-group__details > summary {
-		list-style: none;
-		cursor: pointer;
-	}
-
-	.timeline-group__details > summary::-webkit-details-marker {
-		display: none;
-	}
-
-	.timeline-group__entries {
-		--timeline-gap: 1rem;
-		--timeline-dot-top: 1.575rem;
-		list-style: none;
-		margin: 0;
-		padding: 0;
+	.index__link {
 		display: flex;
 		flex-direction: column;
-		gap: var(--timeline-gap);
-		margin-top: var(--timeline-gap);
+		gap: 0.3rem;
+		padding: 0.4rem 0 0.4rem 1rem;
+		border-left: 2px solid rgba(255, 255, 255, 0.28);
+		color: inherit;
+		text-decoration: none;
+		transition: border-color 0.25s ease, opacity 0.25s ease;
 	}
 
-	.timeline-group__entries > li {
+	.index__link:hover {
+		border-left-color: rgba(255, 255, 255, 0.75);
+	}
+
+	.index__link.is-active {
+		border-left-color: #ffffff;
+	}
+
+	.index__title {
+		font-family: var(--font-heading);
+		font-size: 1.05rem;
+		line-height: 1.25;
+	}
+
+	.index__meta {
+		font-size: 0.72rem;
+		font-weight: 600;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		opacity: 0.65;
+	}
+
+	.index__link.is-active .index__title {
+		opacity: 1;
+	}
+
+	.era {
+		scroll-margin-top: 5.5rem;
+	}
+
+	.era__header {
 		position: relative;
-		--timeline-item-padding-left: 2rem;
-		--timeline-marker-x: 0.5rem;
-		padding-left: var(--timeline-item-padding-left);
+		padding: 0.15rem 0 2.25rem;
+		text-align: center;
 	}
 
-	.timeline-group__entries > li::before {
+	.era__header::before {
 		content: "";
 		position: absolute;
-		left: var(--timeline-marker-x);
-		top: 0;
-		bottom: calc(-1 * var(--timeline-gap));
-		width: 2px;
-		background: rgba(255, 255, 255, 0.3);
-		transform: translateX(-50%);
+		top: 1.55rem;
+		left: 0;
+		right: 0;
+		height: 1px;
+		background: rgba(255, 255, 255, 0.32);
 	}
 
-	.timeline-group__entries > li:last-child::before {
-		bottom: calc(100% - var(--timeline-dot-top));
-	}
-
-	.timeline-heading {
+	.era__title {
+		position: relative;
+		display: inline-block;
 		margin: 0;
-		font-size: 1.6rem;
-		text-align: left;
+		padding: 0 1.5rem;
+		background: var(--color-brand);
+		font-size: 2rem;
 	}
 
-	.timeline-empty {
+	.era__diamond {
+		display: block;
+		width: 0.4rem;
+		height: 0.4rem;
+		margin: 0.95rem auto 0;
+		transform: rotate(45deg);
+		background: rgba(255, 255, 255, 0.75);
+	}
+
+	.era__meta {
+		margin: 0.6rem 0 0;
+		font-size: 0.78rem;
+		font-weight: 600;
+		letter-spacing: 0.12em;
+		text-transform: uppercase;
+		opacity: 0.65;
+	}
+
+	.era__message {
+		margin: 0.9rem auto 0;
+		max-width: 30rem;
+		font-style: italic;
+		line-height: 1.6;
+		opacity: 0.85;
+	}
+
+	.era__entries {
+		display: flex;
+		flex-direction: column;
+	}
+
+	.entry {
+		scroll-margin-top: 5.5rem;
+		padding: 1.9rem 0 2.1rem;
+		border-top: 1px solid rgba(255, 255, 255, 0.16);
+	}
+
+	.entry__header {
+		display: grid;
+		grid-template-columns: 4.75rem minmax(0, 1fr);
+		gap: 1.35rem;
+		align-items: start;
+	}
+
+	.entry__year {
+		margin: 0;
+		font-family: var(--font-heading);
+		font-size: 3rem;
+		font-weight: 500;
+		line-height: 1;
+		letter-spacing: 0.02em;
+		color: rgba(255, 255, 255, 0.5);
+	}
+
+	.entry__date {
+		margin: 0 0 0.4rem;
+		font-size: 0.78rem;
+		font-weight: 600;
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
+		opacity: 0.65;
+	}
+
+	.entry__title {
+		margin: 0;
+		font-size: 1.4rem;
+		line-height: 1.3;
+	}
+
+	.entry__subtitle {
+		margin: 0.5rem 0 0;
+		font-size: 1.02rem;
+		font-style: italic;
+		line-height: 1.55;
+		opacity: 0.9;
+	}
+
+	.entry__body {
+		margin-top: 1.15rem;
+	}
+
+	.entry__body :global(p) {
+		margin: 0.9rem 0 0;
+		font-size: 1.02rem;
+		line-height: 1.72;
+		opacity: 0.94;
+	}
+
+	.entry__body :global(p:first-child) {
+		margin-top: 0;
+	}
+
+	.entry__body :global(img) {
+		display: block;
+		width: auto;
+		max-width: 100%;
+		height: auto;
+		margin: 1.5rem auto 0;
+		padding: 0.55rem;
+		background: rgba(255, 255, 255, 0.07);
+		border: 1px solid rgba(255, 255, 255, 0.42);
+		box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+	}
+
+	.entry__body :global(blockquote) {
+		margin: 1.4rem 0 0;
+		padding: 0.2rem 0 0.2rem 1.4rem;
+		border-left: 2px solid rgba(255, 255, 255, 0.65);
+	}
+
+	.entry__body :global(blockquote p) {
+		margin: 0;
+		font-style: italic;
+		opacity: 1;
+	}
+
+	.entry__body :global(blockquote p + p) {
+		margin-top: 0.6rem;
+	}
+
+	.chronicle-empty {
 		margin: 0;
 		line-height: 1.6;
 		opacity: 0.9;
 	}
 
-	.timeline-group-item {
-		position: relative;
-		--timeline-dot-top: 1.7rem;
-	}
+	@media (max-width: 900px) {
+		.chronicle {
+			display: flex;
+			flex-direction: column;
+			gap: 1.75rem;
+		}
 
-	.timeline-group-item::after {
-		content: "";
-		position: absolute;
-		left: var(--timeline-marker-x);
-		top: var(--timeline-dot-top);
-		width: 0.95rem;
-		height: 0.95rem;
-		border-radius: 999px;
-		border: 2px solid rgba(255, 255, 255, 0.78);
-		background: rgba(255, 255, 255, 0.12);
-		box-shadow: 0 0 0 0.35rem rgba(255, 255, 255, 0.06);
-		transform: translate(-50%, -50%);
-	}
+		.chronicle__index {
+			position: static;
+		}
 
-	.timeline-group__header {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr) auto;
-		gap: 0.9rem;
-		align-items: start;
-		padding: 0.8rem 0 0.35rem 1.35rem;
-	}
+		.index__eyebrow {
+			margin-bottom: 0.75rem;
+		}
 
-	.timeline-group__title {
-		display: flex;
-		align-items: center;
-		padding: 0.35rem 0.8rem;
-		border: 1px solid rgba(255, 255, 255, 0.28);
-		background: rgba(255, 255, 255, 0.08);
-		grid-column: 1 / -1;
-		grid-row: 1;
-		width: 100%;
-	}
+		.index__list {
+			flex-direction: row;
+			gap: 0.55rem;
+			overflow-x: auto;
+			padding-bottom: 0.5rem;
+			scrollbar-width: none;
+		}
 
-	.timeline-group__header h3 {
-		margin: 0;
-		text-align: left;
-		font-size: 1.55rem;
-	}
+		.index__list::-webkit-scrollbar {
+			display: none;
+		}
 
-	.timeline-group__range,
-	.timeline-group__count {
-		margin: 0;
-	}
+		.index__item {
+			flex: 0 0 auto;
+		}
 
-	.timeline-group__message {
-		margin: 0 0 1rem calc(-1 * var(--timeline-item-padding-left) + var(--timeline-marker-x) - 1px);
-		padding: 0.9rem 1.35rem 0.9rem calc(var(--timeline-item-padding-left) - var(--timeline-marker-x) + 1px);
-		line-height: 1.65;
-		opacity: 0.9;
-		border-left: 2px solid rgba(255, 255, 255, 0.3);
-		white-space: pre-line;
-	}
+		.index__link {
+			gap: 0.15rem;
+			padding: 0.55rem 1rem;
+			border-left: 0;
+			border: 1px solid rgba(255, 255, 255, 0.3);
+			border-radius: 999px;
+			white-space: nowrap;
+		}
 
-	.timeline-group__range {
-		grid-column: 1;
-		grid-row: 2;
-		font-size: 0.8rem;
-		font-weight: 600;
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
-		white-space: nowrap;
-	}
-
-	.timeline-group__count {
-		grid-column: 2;
-		grid-row: 2;
-		align-self: start;
-		font-size: 0.95rem;
-		opacity: 0.75;
-		text-align: right;
-		white-space: nowrap;
-	}
-
-	.timeline-item {
-		--timeline-dot-top: 1.575rem;
-	}
-
-	.timeline-details {
-		background: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.04) 100%);
-		border: 1px solid rgba(255, 255, 255, 0.2);
-		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
-	}
-
-	.timeline-details summary {
-		list-style: none;
-		cursor: pointer;
-		padding: 1.2rem 1.2rem 1.2rem 1.35rem;
-		display: grid;
-		grid-template-columns: auto minmax(0, 1fr);
-		gap: 0.9rem;
-		align-items: start;
-		position: relative;
-	}
-
-	.timeline-details summary::-webkit-details-marker {
-		display: none;
-	}
-
-	.timeline-details summary::before {
-		content: "";
-		position: absolute;
-		left: calc(var(--timeline-marker-x) - var(--timeline-item-padding-left));
-		top: var(--timeline-dot-top);
-		width: 0.75rem;
-		height: 0.75rem;
-		border-radius: 999px;
-		border: 2px solid rgba(255, 255, 255, 0.78);
-		background: var(--color-brand);
-		transform: translate(-50%, -50%);
-	}
-
-	.timeline-date {
-		font-size: 0.85rem;
-		font-weight: 600;
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
-		opacity: 0.85;
-		white-space: nowrap;
-		width: 10rem;
-		flex-shrink: 0;
-	}
-
-	.timeline-header h4 {
-		font-family: var(--font-heading);
-		font-size: 1.3rem;
-		font-weight: 500;
-		margin: 0;
-		letter-spacing: 0.01em;
-		line-height: 1.3;
-	}
-
-	.timeline-header p {
-		margin: 0.45rem 0 0;
-		opacity: 0.9;
-		line-height: 1.5;
-	}
-
-	.timeline-content {
-		padding: 0 1.2rem 1.2rem 1.35rem;
-		border-top: 1px solid rgba(255, 255, 255, 0.12);
-	}
-
-	.timeline-content :global(p) {
-		margin: 1rem 0 0;
-		line-height: 1.65;
-		opacity: 0.95;
-	}
-
-	.timeline-content :global(blockquote) {
-		position: relative;
-		margin: 1.35rem 0 0;
-		padding: 1.15rem 1.35rem 1.15rem 3.4rem;
-		border-left: 3px solid rgba(255, 255, 255, 0.72);
-		background: linear-gradient(135deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.055));
-		box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
-	}
-
-	.timeline-content :global(blockquote::before) {
-		content: "\201C";
-		position: absolute;
-		top: 0.55rem;
-		left: 1rem;
-		font-family: var(--font-heading);
-		font-size: 3.1rem;
-		line-height: 1;
-		color: rgba(255, 255, 255, 0.68);
-	}
-
-	.timeline-content :global(blockquote p) {
-		margin: 0;
-		font-style: italic;
-		line-height: 1.72;
-		opacity: 1;
-	}
-
-	.timeline-content :global(blockquote p + p) {
-		margin-top: 0.65rem;
-	}
-
-	.timeline-image-trigger img {
-		display: block;
-		width: 100%;
-		max-height: 280px;
-		object-fit: contain;
-		margin-top: 0;
-	}
-
-	.timeline-content :global(img.timeline-markdown-image) {
-		display: block;
-		width: auto;
-		max-width: 100%;
-		height: auto;
-		margin-top: 1rem;
-		cursor: zoom-in;
-	}
-
-	.timeline-image-trigger {
-		display: block;
-		width: 100%;
-		margin: 1rem 0 0;
-		padding: 0;
-		border: 0;
-		background: transparent;
-		cursor: zoom-in;
-	}
-
-	.image-lightbox {
-		padding: 0;
-		border: 0;
-		background: transparent;
-		max-width: min(94vw, 1200px);
-		max-height: 94vh;
-		color-scheme: normal;
-	}
-
-	.image-lightbox::backdrop {
-		background: rgba(0, 0, 0, 0.68);
-	}
-
-	.lightbox-figure {
-		margin: 0;
-		padding: 0;
-		display: flex;
-		flex-direction: column;
-		background: transparent;
-	}
-
-	.lightbox-image {
-		display: block;
-		max-width: 100%;
-		max-height: 88vh;
-		width: auto;
-		height: auto;
-		object-fit: contain;
-		box-shadow: 0 16px 36px rgba(0, 0, 0, 0.5);
-	}
-
-	.lightbox-caption {
-		padding: 0.5rem 0 0;
-		font-size: 0.85rem;
-		color: rgba(255, 255, 255, 0.8);
-		text-align: left;
-	}
-
-	.lightbox-caption:empty {
-		display: none;
-	}
-
-	.lightbox-close {
-		position: fixed;
-		top: 1rem;
-		right: 1rem;
-		width: 2.25rem;
-		height: 2.25rem;
-		border-radius: 999px;
-		border: 1px solid rgba(255, 255, 255, 0.45);
-		background: rgba(0, 0, 0, 0.5);
-		color: #fff;
-		font-size: 1.25rem;
-		font-weight: 700;
-		line-height: 1;
-		cursor: pointer;
-	}
-
-	.lightbox-close:hover {
-		background: rgba(0, 0, 0, 0.7);
-	}
-
-	.lightbox-nav {
-		position: fixed;
-		top: 50%;
-		transform: translateY(-50%);
-		width: 3rem;
-		height: 3rem;
-		border-radius: 999px;
-		border: 1px solid rgba(255, 255, 255, 0.45);
-		background: rgba(0, 0, 0, 0.5);
-		color: #fff;
-		font-size: 1.5rem;
-		line-height: 1;
-		cursor: pointer;
-	}
-
-	.lightbox-nav:hover {
-		background: rgba(0, 0, 0, 0.7);
-	}
-
-	.lightbox-nav:disabled {
-		opacity: 0.35;
-		cursor: default;
-	}
-
-	.lightbox-nav[hidden] {
-		display: none;
-	}
-
-	.lightbox-nav--prev {
-		left: 1rem;
-	}
-
-	.lightbox-nav--next {
-		right: 1rem;
+		.index__link:hover,
+		.index__link.is-active {
+			border-color: rgba(255, 255, 255, 0.8);
+			background: rgba(255, 255, 255, 0.14);
+		}
 	}
 
 	@media (max-width: 600px) {
-		.timeline {
+		.entry__header {
+			grid-template-columns: 3.25rem minmax(0, 1fr);
+			gap: 1rem;
+		}
+
+		.entry__year {
+			font-size: 2.3rem;
+		}
+
+		.entry__title {
+			font-size: 1.25rem;
+		}
+
+		.era__title {
+			font-size: 1.6rem;
 			padding: 0 1rem;
 		}
 
-		.timeline-list > li,
-		.timeline-group__entries > li {
-			--timeline-item-padding-left: 1.5rem;
-			--timeline-marker-x: 0.35rem;
+		.era__header::before {
+			top: 1.3rem;
 		}
+	}
 
-		.timeline-list {
-			--timeline-dot-top: 1.375rem;
-		}
+	:global(html) {
+		scroll-behavior: smooth;
+	}
 
-		.timeline-group__entries {
-			--timeline-dot-top: 1.375rem;
-		}
-
-		.timeline-group-item {
-			--timeline-dot-top: 1.45rem;
-		}
-
-		.timeline-group__header {
-			padding-left: 1rem;
-		}
-
-		.timeline-details summary {
-			grid-template-columns: 1fr;
-			padding: 1rem;
-			gap: 0.45rem;
-		}
-
-		.timeline-date {
-			width: auto;
-		}
-
-		.timeline-content {
-			padding: 0 1rem 1rem;
-		}
-
-		.timeline-content :global(blockquote) {
-			padding: 1rem 1rem 1rem 2.75rem;
-		}
-
-		.timeline-content :global(blockquote::before) {
-			left: 0.75rem;
-			font-size: 2.6rem;
-		}
-
-		.lightbox-nav {
-			width: 2.5rem;
-			height: 2.5rem;
-			font-size: 1.25rem;
+	@media (prefers-reduced-motion: reduce) {
+		:global(html) {
+			scroll-behavior: auto;
 		}
 	}
 </style>
