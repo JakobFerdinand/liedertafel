@@ -32,3 +32,9 @@ pnpm-debug.log*
 
 # jetbrains setting folder
 .idea/
+
+# Archive local state and verification artifacts
+src/archive/.local/
+**/TestResults/
+**/playwright-report/
+**/test-results/
