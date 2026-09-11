@@ -1,13 +1,14 @@
 # Choir Archive — Implementation Issue Index
 
-Status: Planned; no implementation issue has been completed.
+Status: ARC-001 completed; remaining implementation issues are planned.
 Date: 2026-09-11
 Sources: [PRD](prd.md) · [Architecture](architecture.md)
 
-**Start here to pick work:** [ARC-001], [ARC-002], [ARC-003] and [ARC-004]
+**Start here to pick work:** [ARC-002], [ARC-003] and [ARC-004]
 have no implementation dependencies and can start in parallel, subject to their
-external access requirements. ARC-001 includes **Aspire local orchestration and
-development OpenTelemetry export to the Aspire dashboard**.
+external access requirements. Completed [ARC-001] provides **Aspire local
+orchestration and development OpenTelemetry export to the Aspire dashboard**;
+[ARC-005] is also unblocked by that foundation.
 
 There are **49 file-based issues** in this directory: 42 core issues, two launch
 gates, three follow-up slices and two later AI issues. IDs are stable identifiers,

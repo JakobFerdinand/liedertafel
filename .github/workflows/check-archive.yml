@@ -1,0 +1,67 @@
+name: Check Archive
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/archive/**'
+      - 'tests/archive/**'
+      - 'global.json'
+      - '.github/workflows/check-archive.yml'
+  pull_request:
+    paths:
+      - 'src/archive/**'
+      - 'tests/archive/**'
+      - 'global.json'
+      - '.github/workflows/check-archive.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.3.0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: src/archive/frontend/pnpm-lock.yaml
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: src/archive/frontend
+      - name: Check and export frontend
+        run: pnpm run check && pnpm run build
+        working-directory: src/archive/frontend
+      - name: Backend and OTLP regression checks
+        run: dotnet test tests/archive/backend
+      - name: Clean Aspire stack integration
+        run: dotnet test tests/archive/apphost
+      - name: Install browser
+        run: pnpm exec playwright install --with-deps chromium
+        working-directory: src/archive/frontend
+      - name: Build production image
+        run: docker build -f src/archive/Dockerfile --build-arg REVISION="$GITHUB_SHA" -t liedertafel-archive:check .
+      - name: Production browser smoke
+        working-directory: src/archive/frontend
+        env:
+          ARCHIVE_BASE_URL: http://localhost:18080
+        run: |
+          docker run --rm -d --name archive-smoke -p 127.0.0.1:18080:8080 liedertafel-archive:check
+          trap 'docker stop archive-smoke' EXIT
+          for attempt in {1..30}; do
+            if curl --fail --silent "$ARCHIVE_BASE_URL/alive"; then break; fi
+            sleep 1
+          done
+          curl --fail "$ARCHIVE_BASE_URL/alive"
+          docker exec archive-smoke sh -c '! command -v node && test "$(id -u)" != 0'
+          pnpm run test:browser
