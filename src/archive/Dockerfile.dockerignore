@@ -1,0 +1,17 @@
+**
+!global.json
+!src/
+!src/archive/
+!src/archive/backend/**
+!src/archive/service-defaults/**
+!src/archive/frontend/**
+**/bin
+**/obj
+**/node_modules
+**/.next
+**/.next-dev
+**/out
+**/.env*
+**/.local
+**/test-results
+**/playwright-report

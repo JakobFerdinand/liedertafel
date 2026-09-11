@@ -1,127 +1,117 @@
+using System.Diagnostics;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.ServiceDiscovery;
 using OpenTelemetry;
+using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 
 namespace Microsoft.Extensions.Hosting;
 
-// Adds common Aspire services: service discovery, resilience, health checks, and OpenTelemetry.
-// This project should be referenced by each service project in your solution.
-// To learn more about using this project, see https://aka.ms/aspire/service-defaults
 public static class Extensions
 {
-    private const string HealthEndpointPath = "/health";
-    private const string AlivenessEndpointPath = "/alive";
+    public const string ActivitySourceName = "Liedertafel.Archive";
+    public const string MeterName = "Liedertafel.Archive";
+    public static readonly ActivitySource Activities = new(ActivitySourceName);
 
-    public static TBuilder AddServiceDefaults<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
+    public static TBuilder AddServiceDefaults<TBuilder>(this TBuilder builder)
+        where TBuilder : IHostApplicationBuilder
     {
-        builder.ConfigureOpenTelemetry();
+        var endpoint = builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"];
+        if (builder.Environment.IsDevelopment() && string.IsNullOrWhiteSpace(endpoint))
+            throw new InvalidOperationException("Development requires OTLP configuration. Start the archive through AppHost.");
 
-        builder.AddDefaultHealthChecks();
-
-        builder.Services.AddServiceDiscovery();
-
-        builder.Services.ConfigureHttpClientDefaults(http =>
+        builder.Logging.AddOpenTelemetry(options =>
         {
-            // Turn on resilience by default
-            http.AddStandardResilienceHandler();
-
-            // Turn on service discovery by default
-            http.AddServiceDiscovery();
+            options.IncludeFormattedMessage = true;
+            options.IncludeScopes = true;
         });
-
-        // Uncomment the following to restrict the allowed schemes for service discovery.
-        // builder.Services.Configure<ServiceDiscoveryOptions>(options =>
-        // {
-        //     options.AllowedSchemes = ["https"];
-        // });
-
-        return builder;
-    }
-
-    public static TBuilder ConfigureOpenTelemetry<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
-    {
-        builder.Logging.AddOpenTelemetry(logging =>
-        {
-            logging.IncludeFormattedMessage = true;
-            logging.IncludeScopes = true;
-        });
-
-        builder.Services.AddOpenTelemetry()
-            .WithMetrics(metrics =>
-            {
-                metrics.AddAspNetCoreInstrumentation()
-                    .AddHttpClientInstrumentation()
-                    .AddRuntimeInstrumentation();
-            })
+        var telemetry = builder.Services.AddOpenTelemetry()
+            .ConfigureResource(resource => resource.AddService(
+                builder.Configuration["OTEL_SERVICE_NAME"] ?? builder.Environment.ApplicationName))
+            .WithMetrics(metrics => metrics.AddMeter(MeterName)
+                .AddAspNetCoreInstrumentation().AddHttpClientInstrumentation().AddRuntimeInstrumentation())
             .WithTracing(tracing =>
             {
-                tracing.AddSource(builder.Environment.ApplicationName)
-                    .AddAspNetCoreInstrumentation(tracing =>
-                        // Exclude health check requests from tracing
-                        tracing.Filter = context =>
-                            !context.Request.Path.StartsWithSegments(HealthEndpointPath)
-                            && !context.Request.Path.StartsWithSegments(AlivenessEndpointPath)
-                    )
-                    // Uncomment the following line to enable gRPC instrumentation (requires the OpenTelemetry.Instrumentation.GrpcNetClient package)
-                    //.AddGrpcClientInstrumentation()
+                if (builder.Environment.IsDevelopment()) tracing.SetSampler(new AlwaysOnSampler());
+                tracing.AddSource(ActivitySourceName, "Npgsql", "Azure.*")
+                    .AddProcessor(new UrlRedactionProcessor())
+                    .AddAspNetCoreInstrumentation(options => options.Filter = context =>
+                        !context.Request.Path.StartsWithSegments("/alive") &&
+                        !context.Request.Path.StartsWithSegments("/health"))
                     .AddHttpClientInstrumentation();
             });
+        // UseOtlpExporter exports all three signals and consumes injected protocol/headers.
+        if (!string.IsNullOrWhiteSpace(endpoint)) telemetry.UseOtlpExporter();
 
-        builder.AddOpenTelemetryExporters();
-
-        return builder;
-    }
-
-    private static TBuilder AddOpenTelemetryExporters<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
-    {
-        var useOtlpExporter = !string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]);
-
-        if (useOtlpExporter)
-        {
-            builder.Services.AddOpenTelemetry().UseOtlpExporter();
-        }
-
-        // Uncomment the following lines to enable the Azure Monitor exporter (requires the Azure.Monitor.OpenTelemetry.AspNetCore package)
-        //if (!string.IsNullOrEmpty(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]))
-        //{
-        //    builder.Services.AddOpenTelemetry()
-        //       .UseAzureMonitor();
-        //}
-
-        return builder;
-    }
-
-    public static TBuilder AddDefaultHealthChecks<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
-    {
-        builder.Services.AddHealthChecks()
-            // Add a default liveness check to ensure app is responsive
-            .AddCheck("self", () => HealthCheckResult.Healthy(), ["live"]);
-
+        builder.Services.AddServiceDiscovery();
+        // Retries must be chosen per operation; never silently retry archive writes.
+        builder.Services.ConfigureHttpClientDefaults(http => http.AddServiceDiscovery());
+        builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromSeconds(30));
+        builder.Services.AddHealthChecks().AddCheck("self", () => HealthCheckResult.Healthy(), ["live"]);
         return builder;
     }
 
     public static WebApplication MapDefaultEndpoints(this WebApplication app)
     {
-        // Adding health checks endpoints to applications in non-development environments has security implications.
-        // See https://aka.ms/aspire/healthchecks for details before enabling these endpoints in non-development environments.
-        if (app.Environment.IsDevelopment())
-        {
-            // All health checks must pass for app to be considered ready to accept traffic after starting
-            app.MapHealthChecks(HealthEndpointPath);
-
-            // Only health checks tagged with the "live" tag must pass for app to be considered alive
-            app.MapHealthChecks(AlivenessEndpointPath, new HealthCheckOptions
-            {
-                Predicate = r => r.Tags.Contains("live")
-            });
-        }
-
+        // Neither endpoint resolves a database or storage client, in any environment.
+        app.MapHealthChecks("/alive", new HealthCheckOptions { Predicate = check => check.Tags.Contains("live") });
+        if (app.Environment.IsDevelopment()) app.MapHealthChecks("/health");
         return app;
+    }
+
+    // Future finite workers call this after StartAsync, including on handled failure.
+    // A queue envelope carries traceparent/tracestate, never secrets or baggage.
+    public static async Task<int> RunArchiveJobAsync(this IHost host, string jobName,
+        Func<CancellationToken, Task> execute, CancellationToken cancellationToken = default)
+    {
+        var logger = host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Archive.Jobs");
+        var exitCode = 0;
+        using (var activity = Activities.StartActivity(jobName, ActivityKind.Internal))
+        {
+            try
+            {
+                await execute(cancellationToken);
+                logger.LogInformation("Archive job {JobName} completed", jobName);
+            }
+            catch (Exception exception)
+            {
+                activity?.SetStatus(ActivityStatusCode.Error);
+                // Provider exception messages can contain connection details or signed URLs.
+                logger.LogError("Archive job {JobName} failed ({ExceptionType})", jobName, exception.GetType().Name);
+                exitCode = 1;
+            }
+        }
+        var traces = host.Services.GetService<TracerProvider>()?.ForceFlush(5000) ?? true;
+        var metrics = host.Services.GetService<MeterProvider>()?.ForceFlush(5000) ?? true;
+        if (!traces || !metrics)
+        {
+            logger.LogError("Archive job telemetry flush timed out");
+            exitCode = 1;
+        }
+        if (host.Services.GetService<LoggerProvider>()?.ForceFlush(5000) == false) exitCode = 1;
+        await host.StopAsync(CancellationToken.None);
+        return exitCode;
+    }
+}
+
+// Azure dependency spans also carry URL tags. Strip queries regardless of SDK
+// instrumentation defaults so queue receipts and future SAS never reach OTLP.
+internal sealed class UrlRedactionProcessor : BaseProcessor<Activity>
+{
+    public override void OnEnd(Activity activity)
+    {
+        foreach (var key in new[] { "url.full", "http.url", "url.query" })
+        {
+            if (activity.GetTagItem(key) is not string value) continue;
+            var query = value.IndexOf('?');
+            if (key == "url.query") activity.SetTag(key, "[redacted]");
+            else if (query >= 0) activity.SetTag(key, value[..query] + "?[redacted]");
+        }
     }
 }

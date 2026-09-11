@@ -1,26 +1,170 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --brand: #823c41;
+  --ink: #402326;
+  --paper: #ffffff;
+  --wash: #f3ecec;
+  --font-heading: Georgia, "Times New Roman", serif;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: Arial, Helvetica, sans-serif;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
+  margin: 0;
+}
+a {
+  color: var(--brand);
+  text-underline-offset: 0.25em;
+}
+a:hover {
+  text-decoration-thickness: 2px;
+}
+a:focus-visible,
+button:focus-visible {
+  outline: 3px solid currentColor;
+  outline-offset: 5px;
+}
+p {
+  max-width: 65ch;
+  line-height: 1.7;
+  margin-block: 1rem;
+}
+h1,
+h2,
+h3 {
+  font-family: var(--font-heading);
+  font-weight: 400;
+}
+h1 {
+  font-size: clamp(2.5rem, 6vw, 4.8rem);
+  line-height: 1.08;
+  margin-block: 1rem 1.8rem;
+}
+h2 {
+  font-size: 1.7rem;
+  line-height: 1.25;
+  margin-block: 0 1rem;
+}
+h3 {
+  font-size: 1.3rem;
+}
+.site-header {
+  background: var(--brand);
+  color: var(--paper);
+  padding: 1.4rem max(6vw, calc((100vw - 68rem) / 2));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2rem;
+}
+.site-header a {
+  color: inherit;
+}
+.wordmark {
+  font-family: var(--font-heading);
+  font-size: 1.8rem;
+  text-decoration: none;
+}
+.wordmark span {
+  display: block;
   font-family: Arial, Helvetica, sans-serif;
+  font-size: 0.85rem;
+  margin-top: 0.2rem;
+}
+nav {
+  display: flex;
+  gap: 1.4rem;
+  font-size: 0.95rem;
+}
+main {
+  max-width: 68rem;
+  margin-inline: auto;
+  padding: 0 6vw 4rem;
+}
+.introduction {
+  padding-block: 4rem 2rem;
+}
+.introduction > p:last-child {
+  font-size: 1.15rem;
+}
+.introduction.compact {
+  padding-bottom: 1rem;
+}
+.compact h1 {
+  font-size: clamp(2.5rem, 5vw, 3.5rem);
+}
+.section-label {
+  color: var(--brand);
+}
+.archive-note {
+  border-left: 4px solid var(--brand);
+  padding: 0.2rem 1.5rem;
+  margin-block: 1rem 3rem;
+}
+.system-status {
+  background: var(--wash);
+  padding: clamp(1.2rem, 4vw, 2.5rem);
+  border-radius: 0.4rem;
+}
+dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.5rem 2rem;
+}
+dt {
+  font-size: 0.9rem;
+  margin-bottom: 0.35rem;
+}
+dd {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.local-check {
+  margin-top: 2.5rem;
+}
+button {
+  background: var(--brand);
+  color: var(--paper);
+  border: 0;
+  padding: 0.8rem 1.2rem;
+  border-radius: 0.3rem;
+  font: inherit;
+  cursor: pointer;
+}
+button:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+footer {
+  max-width: 68rem;
+  padding: 2rem 6vw;
+  margin: auto;
+  font-size: 0.9rem;
+}
+.skip-link {
+  position: absolute;
+  top: -5rem;
+  left: 1rem;
+  background: white;
+  padding: 1rem;
+  z-index: 10;
+}
+.skip-link:focus {
+  top: 1rem;
+}
+@media (max-width: 540px) {
+  .site-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 1.2rem;
+  }
+  .introduction {
+    padding-top: 2.5rem;
+  }
+  dl {
+    grid-template-columns: 1fr;
+  }
 }
