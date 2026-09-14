@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { AuthStatus } from "@/components/auth-status";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -29,7 +30,9 @@ export default function RootLayout({
           </Link>
           <nav aria-label="Hauptnavigation">
             <Link href="/">Archiv</Link>
+            <Link href="/archiv/">Mitgliederbereich</Link>
             <Link href="/system/status/">Systemstatus</Link>
+            <AuthStatus />
           </nav>
         </header>
         <main id="inhalt">{children}</main>
