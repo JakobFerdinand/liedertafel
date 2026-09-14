@@ -1,6 +1,6 @@
 ---
 id: ARC-003
-status: planned
+status: in_progress
 phase: core
 kind: decision
 depends_on: []
@@ -19,7 +19,7 @@ repeatable setup path and explain why OpenTofu is or is not worth adopting.
 
 ## Acceptance criteria
 
-- [ ] Recheck Neon Free limits, Frankfurt availability, and the candidate
+- [x] Recheck Neon Free limits, Frankfurt availability, and the candidate
   OpenTofu-compatible provider before testing; do not assume old defaults.
 - [ ] Exercise creation, inspection, update, and import on a disposable project;
   inspect replacement/deletion behaviour and organization/region selection.
@@ -86,3 +86,22 @@ separation remain outstanding. Use a separate disposable project for lifecycle
 testing; the existing `production` branch is not a trial deletion target. Check
 the hosted PostgreSQL version against the local stack during the trial. Retrieve
 credentials through local authentication/secret tooling, not committed output.
+
+## Trial progress — 2026-09-14
+
+- Documentation rechecked: [Free limits](https://neon.com/docs/introduction/plans)
+  remain 0.5 GB/project, 100 CU-hours/project/month, 5 GB public transfer/month,
+  five-minute suspension; currently 100 projects and 10 branches/project, with
+  six-hour history capped at 1 GB of changes. [Frankfurt](https://neon.com/docs/introduction/regions)
+  remains `aws-eu-central-1`; region cannot be changed in place.
+- Candidate: community `kislerdm/neon` **0.18.0**, published in both Terraform
+  and OpenTofu registries. Its [tagged project contract](https://github.com/kislerdm/terraform-provider-neon/blob/v0.18.0/docs/resources/project.md)
+  supports explicit organization, region, PostgreSQL version and project import.
+  Set history to **21600 seconds**, rather than the provider's one-day default;
+  use `primary_compute` for actual compute settings.
+- Provider evaluation and lifecycle execution are in progress. Local PostgreSQL
+  is **17.6** while the existing hosted project is **18**. Trial new projects on
+  major **17** to match the local application contract; leave the existing project
+  intact and resolve its reuse explicitly in the ARC-011 handoff.
+- Trial state, saved plans and credentials stay in a private temporary directory
+  outside the checkout. Only allowlisted, non-secret evidence enters this plan.
