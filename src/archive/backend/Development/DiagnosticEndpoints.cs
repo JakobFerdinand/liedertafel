@@ -31,5 +31,21 @@ public static class DiagnosticEndpoints
             loggerFactory.CreateLogger("Archive.Diagnostics").LogInformation("Local Blob, queue and mail exercise completed");
             return Results.Ok(new { message = "Blob und Warteschlange geprüft. Testmail wurde gesendet." });
         });
+
+        app.MapPost("/api/dev/auth/seed", async (HttpContext context, IAntiforgery antiforgery,
+            ArchiveDbContext db, TimeProvider time, CancellationToken token) =>
+        {
+            try { await antiforgery.ValidateRequestAsync(context); }
+            catch (AntiforgeryValidationException)
+            {
+                return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
+            }
+            var accounts = await AuthSeed.EnsureTestAccountsAsync(db, time.GetUtcNow(), token);
+            return Results.Ok(new
+            {
+                message = "Testkonten sind bereit.",
+                accounts = accounts.Select(a => new { email = a.Email, role = a.Role.ToString(), accountId = a.AccountId }),
+            });
+        });
     }
 }
