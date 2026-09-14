@@ -11,6 +11,10 @@ Use this guide when editing or extending the codebase.
 - src/archive: .NET 10 / Aspire choir archive. `apphost/` orchestrates local services, `service-defaults/` owns OTLP and finite-worker defaults, `backend/` serves the API/static export and explicit EF migrations, `frontend/` is Next.js App Router + TypeScript + Tailwind + Biome. Read `src/archive/README.md` for contracts and startup.
 - tests/archive: xUnit backend/OTLP checks under `backend/` and clean-stack Aspire integration checks under `apphost/`. Browser checks live in `src/archive/frontend/tests`.
 - infrastructure: Azure Bicep templates for the RG-Liedertafel estate.
+- infrastructure/neon: archive Neon CLI/API setup runbook and SQL role/grant
+  bootstrap. Follow its README for private credential handling; run
+  `bootstrap-roles.sql` once as admin and `runtime-grants.sql` as migrator after
+  each explicit EF migration. OpenTofu was trialled but is not adopted.
 - docs/plans: tracked planning documents.
 - liedertafel.slnx: .NET solution that opens all API projects together; global.json pins the .NET SDK.
 
