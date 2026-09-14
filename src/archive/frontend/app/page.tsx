@@ -20,8 +20,9 @@ export default function Home() {
         <h2 id="setup-title">Der Anfang ist gemacht.</h2>
         <p>
           Das Archiv befindet sich im Aufbau. Die technische Grundlage steht;
-          Inhalte und Mitgliederzugang folgen in den nächsten Schritten.
+          eingeladene Mitglieder melden sich mit einem Code aus ihrer E-Mail an.
         </p>
+        <Link href="/anmelden/">Anmelden</Link> ·{" "}
         <Link href="/system/status/">Systemstatus öffnen</Link>
       </section>
       <SystemStatus />
