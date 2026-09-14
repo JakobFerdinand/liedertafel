@@ -1,14 +1,15 @@
 # Choir Archive — Implementation Issue Index
 
-Status: ARC-001 completed; ARC-003 in progress; remaining implementation issues are planned.
+Status: ARC-001 and ARC-003 completed; remaining implementation issues are planned.
 Date: 2026-09-14
 Sources: [PRD](prd.md) · [Architecture](architecture.md)
 
-**Start here to pick work:** [ARC-002], [ARC-003] and [ARC-004]
+**Start here to pick work:** [ARC-002] and [ARC-004]
 have no implementation dependencies and can start in parallel, subject to their
 external access requirements. Completed [ARC-001] provides **Aspire local
 orchestration and development OpenTelemetry export to the Aspire dashboard**;
-[ARC-005] is also unblocked by that foundation.
+[ARC-005] is also unblocked by that foundation. Completed [ARC-003] provides the
+**selected Neon CLI/API setup and database-role contract** consumed by [ARC-011].
 
 There are **49 file-based issues** in this directory: 42 core issues, two launch
 gates, three follow-up slices and two later AI issues. IDs are stable identifiers,

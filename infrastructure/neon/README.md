@@ -81,7 +81,7 @@ set +x
 set -o pipefail
 umask 077
 PRIVATE_DIR="$(mktemp -d /tmp/archive-neon.XXXXXXXX)" || exit 1
-trap 'unset PGDATABASE PGPASSWORD; rm -rf -- "$PRIVATE_DIR"' EXIT
+trap 'unset PGHOST PGPORT PGDATABASE PGUSER PGPASSWORD PGSSLMODE PGSSLROOTCERT PGCONNECT_TIMEOUT PSQL_HISTORY; rm -rf -- "$PRIVATE_DIR"' EXIT
 
 if neon api /projects -X POST \
   -F project.name="$PROJECT_NAME" \
@@ -166,7 +166,7 @@ run an environment dump. These environment variables belong only to this short-l
 maintainer session; use a trusted single-user machine.
 
 ```bash
-unset PGHOSTADDR PGPASSWORD PGSERVICE PGSERVICEFILE PGOPTIONS
+unset PGHOST PGPORT PGDATABASE PGUSER PGPASSWORD PGSSLMODE PGSSLROOTCERT PGCONNECT_TIMEOUT PSQL_HISTORY PGHOSTADDR PGSERVICE PGSERVICEFILE PGOPTIONS
 export PGHOST="$DIRECT_HOST" PGPORT=5432 PGDATABASE=archive PGUSER=archive_admin
 export PSQL_HISTORY=/dev/null PGSSLROOTCERT=system PGSSLMODE=verify-full
 export PGCONNECT_TIMEOUT=15
@@ -202,7 +202,7 @@ ARC-011 will install the appropriate secrets into Key Vault. Preserve the bootst
 admin credential there too if retained; it is not an application credential.
 
 ```bash
-unset PGPASSWORD PGDATABASE
+unset PGHOST PGPORT PGDATABASE PGUSER PGPASSWORD PGSSLMODE PGSSLROOTCERT PGCONNECT_TIMEOUT PSQL_HISTORY
 ```
 
 ## 4. Explicit migrations, then runtime grants
@@ -242,7 +242,7 @@ fails. Coordinate this step with runtime downtime so intermediate grants are not
 exposed to an active application.
 
 ```bash
-unset PGDATABASE PGPASSWORD PGSERVICE PGSERVICEFILE
+unset PGHOST PGPORT PGDATABASE PGUSER PGPASSWORD PGSSLMODE PGSSLROOTCERT PGCONNECT_TIMEOUT PSQL_HISTORY PGHOSTADDR PGSERVICE PGSERVICEFILE PGOPTIONS
 export PGHOST="$DIRECT_HOST" PGPORT=5432 PGDATABASE=archive
 export PGUSER=archive_migrator PGSSLMODE=verify-full
 export PGSSLROOTCERT=system PSQL_HISTORY=/dev/null

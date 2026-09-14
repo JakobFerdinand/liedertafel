@@ -61,7 +61,7 @@ to keep this overview readable.
 | Sign-in | App-owned email codes, delivered by Azure Communication Services Email |
 | Secrets | Key Vault; Azure managed identity where supported |
 | Background work | Finite C# Container Apps Jobs, with durable progress and retries |
-| Infrastructure | Bicep for Azure; OpenTofu for Neon only if its provider trial proves worthwhile |
+| Infrastructure | Bicep for Azure; documented Neon CLI/API setup (OpenTofu rejected for the single-database scope in ARC-003) |
 | Images | Private GitHub Container Registry (GHCR) |
 | Environments | Aspire-orchestrated local development plus production; restricted production pilot before general invitations |
 | Development telemetry | API and C# workers export OpenTelemetry logs, traces and metrics to the Aspire dashboard over OTLP |
@@ -353,22 +353,19 @@ and the release workflow: use explicit release parameters/inputs so a later
 infrastructure run cannot accidentally revert the running image. DNS setup must
 likewise have a documented owner and verification steps.
 
-### OpenTofu decision gate
+### OpenTofu decision gate — decided in ARC-003
 
-OpenTofu is not yet mandatory. `kislerdm/neon` remains the initial provider
-candidate from the original proposal, not a validated production dependency.
-On a disposable project, verify compatibility, organization/region selection,
-create/read/update/import behaviour, replacement plans, and deletion safeguards.
-Pin the proven provider version and dependency lock file if adopted. Prefer a
-documented one-time Neon setup if this adds more maintenance than value.
-
-If adopted, OpenTofu needs protected persistent **state**: the record linking its
-configuration to actual cloud resources. Use an Azure Blob backend with native
-locking, scoped deployment access, and no app-runtime access. State and saved
-plans may contain database credentials; keep them out of source control and
-unrestricted CI artifacts. State is infrastructure bookkeeping, not an
-application-data backup. Final backend bootstrap details follow the provider
-decision.
+OpenTofu is rejected for the single-database Neon scope. ARC-003 trialled
+OpenTofu 1.12.6 with community provider `kislerdm/neon` 0.18.0 on disposable
+projects: create/read/update/import and deletion safeguards work, but a
+Free-incompatible suspend-timeout setting failed with HTTP 412 after creating
+the project, credential-bearing state needs a protected backend and maintenance
+owner, and SQL role/grant management is still required. The selected path is the
+documented Neon CLI/API setup in `infrastructure/neon/` (runbook plus SQL role
+and grant bootstrap). That directory holds no HCL and no provider lock file.
+Future adoption requires a fresh decision with a pinned provider/lock file and a
+maintainer-owned Azure Blob backend (protected access, encryption, locking, no
+runtime access) before any shared state is created.
 
 ### Intended layout
 
@@ -384,7 +381,7 @@ src/archive/
 infrastructure/
   archive/                  Archive Bicep entry point/parameters
   modules/                  Reusable Azure modules where appropriate
-  neon/                     Conditional: OpenTofu configuration and lock file
+  neon/                     Neon CLI/API setup runbook and SQL role/grant bootstrap
 .github/workflows/
   ...                       Archive-specific checks, provisioning, and release
 ```

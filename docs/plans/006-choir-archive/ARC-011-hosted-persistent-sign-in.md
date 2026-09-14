@@ -21,8 +21,12 @@ signed in when Azure replaces the container or serves a request from another rep
 
 ## Acceptance criteria
 
-- [ ] Provision Neon Free Frankfurt through the selected path; apply existing
-  auth migrations explicitly using separate migration/runtime roles.
+- [ ] Provision a fresh Neon Free Frankfurt PG17 project through the selected
+  documented path in `infrastructure/neon/README.md`; apply existing
+  auth migrations explicitly with the separate `archive_migrator` role, run
+  `runtime-grants.sql` as migrator after each migration, and give the API only
+  the `archive_runtime` connection. Do not reuse the existing PG18 project
+  (`bitter-base-66886756`) without an explicit version-reconciliation decision.
 - [ ] Persist the production key ring in private Blob Storage, protect it with
   Key Vault, and wire runtime credentials/sender permissions securely.
 - [ ] Bootstrap only intended pilot accounts and exercise the hosted private
@@ -31,8 +35,10 @@ signed in when Azure replaces the container or serves a request from another rep
   challenge/session state, bounded cold-start connection handling, and revocation.
 - [ ] Verify shared Service Defaults do not introduce database-dependent liveness,
   production exports to a developer dashboard or mandatory AppHost hosting.
-- [ ] Finalize the chosen OpenTofu state bootstrap if that path was selected;
-  keep provisioning state/credentials inaccessible to the runtime.
+- [ ] Create no OpenTofu state: ARC-003 rejected OpenTofu for this scope.
+  Keep provisioning API credentials and the admin database credential
+  inaccessible to the runtime; the API receives only
+  `ConnectionStrings__archive-db`.
 
 ## Verification
 
@@ -42,6 +48,8 @@ Record actual cold-start timings and ensure no database-dependent keep-alive pro
 
 ## Handoff and parallel work
 
-This is the first hosted identity/database slice; it does not wait for catalogue
+This is the first hosted identity/database slice; it consumes the ARC-003
+decision and the `infrastructure/neon/` runbook for provisioning and
+database roles. It does not wait for catalogue
 features. It enables live jobs, maintenance releases, and storage integrations.
 Coordinate shared configuration changes with ARC-009/010 owners.

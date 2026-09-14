@@ -1,6 +1,6 @@
 ---
 id: ARC-003
-status: in_progress
+status: done
 phase: core
 kind: decision
 depends_on: []
@@ -189,15 +189,14 @@ raw JSON state/plans contain passwords even without explicit outputs.
   All five created project IDs above were removed (including the failed creation's
   replaced ID); the existing PG18 project was never a mutation/deletion target.
 
-### Pause and remaining work
+### Completion — 2026-09-14
 
-Stopped at the user's request after verified cloud cleanup and a committed
-checkpoint. **Status remains `in_progress`** until the final documentation review
-and handoff are finished:
-
-- Review the complete runbook for consistency with the final SQL scripts and
-  recorded evidence; the live SQL/provisioning checks above have already passed.
-- Update the architecture's conditional OpenTofu decision section and ARC-011 to
-  consume the selected runbook. Resolve the existing PG18 project's reuse/version
-  choice explicitly in ARC-011; new setup currently selects PG17.
-- Update the issue index and mark this issue `done` after that review.
+Final runbook review passed: the runbook matches the guarded SQL scripts and
+the recorded evidence, including private credential capture, the reveal-password
+contract, wrong-role script guards, `verify-full` TLS, explicit migrator-only
+migrations, post-migration grants, and disposable-only cleanup. The
+architecture's OpenTofu decision section now records the rejection, and ARC-011
+consumes the runbook with a fresh PG17 project, separate migrator/runtime roles,
+no OpenTofu state, and an explicit PG18 reuse decision gate. All acceptance
+criteria and verification steps above are satisfied; no backup/recovery branches
+were added and no secrets were committed.
