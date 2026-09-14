@@ -41,3 +41,19 @@ local mail capture cannot accidentally be selected for production.
 
 Supply sender/identity outputs to ARC-011. This slice can run alongside ARC-009;
 it needs Azure email access but not a deployed web application.
+
+## Confirmed setup inputs — 2026-09-14
+
+The maintainer selected `archiv@liedertafel-mining.at` as the sender and manages
+the domain's DNS at World4You. Azure CLI authentication is available; archive
+Email Communication Services resources have not yet been set up. Use Europe
+data location for both the email resource and its linked Communication Services
+resource, with sender username `archiv` on the verified custom domain
+`liedertafel-mining.at`.
+
+Supply the generated ownership TXT, SPF and DKIM records to the maintainer for
+DNS entry, then verify them through Azure. The maintainer explicitly requires
+outbound email only: no receiving mailbox, forwarding service, or MX record is
+needed for this sender. See the [ARC-004 preflight](ARC-004-azure-footprint.md#access-and-regional-preflight--2026-09-14)
+for the access and DNS observations. Pilot recipient mailboxes remain an external
+input.
