@@ -1,5 +1,6 @@
 using System.Diagnostics.Metrics;
 using System.Reflection;
+using Archive.Backend.Auth;
 using Archive.Backend.Data;
 using Archive.Backend.Development;
 using Microsoft.AspNetCore.Antiforgery;
@@ -7,26 +8,32 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 
 var command = args.FirstOrDefault();
-if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke")
+if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" or "--bootstrap-admin" or "--seed-dev-auth")
 {
     var jobs = Host.CreateApplicationBuilder(args.Skip(1).ToArray());
     jobs.AddServiceDefaults();
-    if (command != "--migrate" && !jobs.Environment.IsDevelopment())
+    if (command != "--migrate" && !jobs.Environment.IsDevelopment() && command != "--bootstrap-admin")
         throw new InvalidOperationException("Local service commands require Development.");
     jobs.Services.AddDbContext<ArchiveDbContext>(options => options.UseNpgsql(
-        DatabaseConfiguration.Connection(jobs.Configuration, "archive-migrations")));
+        OperatorConfiguration.Connection(jobs.Configuration)));
     jobs.Services.AddSingleton<LocalServices>();
+    jobs.Services.AddSingleton(TimeProvider.System);
     using var host = jobs.Build();
     await host.StartAsync();
     Environment.ExitCode = await host.RunArchiveJobAsync(command[2..], async token =>
     {
         using var scope = host.Services.CreateScope();
+        var provider = scope.ServiceProvider;
         if (command == "--migrate")
-            await scope.ServiceProvider.GetRequiredService<ArchiveDbContext>().Database.MigrateAsync(token);
+            await provider.GetRequiredService<ArchiveDbContext>().Database.MigrateAsync(token);
         else if (command == "--initialize-local-storage")
-            await scope.ServiceProvider.GetRequiredService<LocalServices>().InitializeAsync(token);
+            await provider.GetRequiredService<LocalServices>().InitializeAsync(token);
+        else if (command == "--worker-smoke")
+            await provider.GetRequiredService<LocalServices>().ExerciseAsync(token);
+        else if (command == "--seed-dev-auth")
+            await OperatorConfiguration.SeedDevAuthAsync(provider, token);
         else
-            await scope.ServiceProvider.GetRequiredService<LocalServices>().ExerciseAsync(token);
+            await OperatorConfiguration.BootstrapAdminAsync(provider, host.Services.GetRequiredService<IConfiguration>(), args.Skip(1).ToArray(), token);
     }, host.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping);
     return;
 }
@@ -36,6 +43,9 @@ builder.Services.AddProblemDetails();
 builder.Services.AddDbContext<ArchiveDbContext>(options => options.UseNpgsql(
     DatabaseConfiguration.Connection(builder.Configuration, "archive-db")));
 builder.Services.AddSingleton<LocalServices>();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddArchiveAuth(builder.Configuration, builder.Environment);
 builder.Services.AddAntiforgery(options =>
 {
     options.HeaderName = "X-CSRF-TOKEN";
@@ -52,6 +62,14 @@ if (builder.Environment.IsDevelopment())
     var path = builder.Configuration["Development:KeysPath"]
         ?? Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "../.local/keys"));
     protection.PersistKeysToFileSystem(Directory.CreateDirectory(path));
+}
+else if (!string.IsNullOrWhiteSpace(builder.Configuration["Authentication:KeysPath"]))
+{
+    // ARC-011 owns Blob/Key Vault persistence. Until then an explicitly configured
+    // filesystem path (mounted volume) keeps sessions restart-safe without
+    // inventing a production Blob path in this slice.
+    protection.PersistKeysToFileSystem(
+        Directory.CreateDirectory(builder.Configuration["Authentication:KeysPath"]!));
 }
 
 var app = builder.Build();
@@ -79,6 +97,8 @@ app.UseWhen(context => !context.Request.Path.StartsWithSegments("/api"), fronten
     frontend.UseStaticFiles();
 });
 app.UseRouting();
+app.UseAuthentication();
+app.UseAuthorization();
 app.MapDefaultEndpoints();
 using var meter = new Meter(Extensions.MeterName);
 var buildRequests = meter.CreateCounter<long>("archive.build.requests");
@@ -95,6 +115,7 @@ app.MapGet("/api/antiforgery", (HttpContext context, IAntiforgery antiforgery) =
     context.Response.Headers.CacheControl = "no-store";
     return Results.Ok(new { token = antiforgery.GetAndStoreTokens(context).RequestToken });
 });
+app.MapAuthEndpoints();
 app.MapDevelopmentDiagnostics();
 
 // A specific fallback reserves the entire API namespace, including missing files.

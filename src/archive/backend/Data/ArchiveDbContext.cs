@@ -1,11 +1,25 @@
+using Archive.Backend.Auth;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
 using Npgsql;
 
 namespace Archive.Backend.Data;
 
-// ARC-001 deliberately has no product entities. Each feature owns its migrations.
-public sealed class ArchiveDbContext(DbContextOptions<ArchiveDbContext> options) : DbContext(options);
+// ARC-001 deliberately had no product entities. ARC-005 adds the first real
+// tables (account/membership/code/rate-limit); each later feature owns its own migration.
+public sealed class ArchiveDbContext(DbContextOptions<ArchiveDbContext> options) : DbContext(options)
+{
+	public DbSet<Account> Accounts => Set<Account>();
+
+	public DbSet<Membership> Memberships => Set<Membership>();
+
+	public DbSet<SignInCode> SignInCodes => Set<SignInCode>();
+
+	public DbSet<AuthRequestLog> AuthRequestLogs => Set<AuthRequestLog>();
+
+	protected override void OnModelCreating(ModelBuilder modelBuilder)
+		=> modelBuilder.ApplyConfigurationsFromAssembly(typeof(Account).Assembly);
+}
 
 public sealed class ArchiveDbContextFactory : IDesignTimeDbContextFactory<ArchiveDbContext>
 {
