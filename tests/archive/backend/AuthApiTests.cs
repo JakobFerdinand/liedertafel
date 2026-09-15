@@ -518,8 +518,12 @@ internal sealed class FakeMailSender : IArchiveMailSender
 {
 	public sealed record SentMail(string Email, string Code);
 
+	public sealed record SentInvitation(string Email, string? DisplayName, string Role);
+
 	private readonly List<SentMail> sent = [];
+	private readonly List<SentInvitation> invitations = [];
 	private readonly object gate = new();
+	private Func<string, Exception?>? invitationFailure;
 
 	public IReadOnlyList<SentMail> Sent
 	{
@@ -529,12 +533,34 @@ internal sealed class FakeMailSender : IArchiveMailSender
 		}
 	}
 
+	public IReadOnlyList<SentInvitation> SentInvitations
+	{
+		get
+		{
+			lock (gate) return [.. invitations];
+		}
+	}
+
+	public void FailInvitations(Func<string, Exception?> failure) => invitationFailure = failure;
+
 	public Task SendSignInCodeAsync(string email, string code, TimeSpan lifetime, CancellationToken cancellationToken)
 	{
 		// Mirror the production sender's span so telemetry assertions cover
 		// the mail path even with mail capture faked out.
 		using var _ = Extensions.Activities.StartActivity("archive.mail.send", ActivityKind.Client);
 		lock (gate) sent.Add(new SentMail(email, code));
+		return Task.CompletedTask;
+	}
+
+	public Task SendInvitationAsync(string email, string? displayName, string role, CancellationToken cancellationToken)
+	{
+		using var _ = Extensions.Activities.StartActivity("archive.mail.invite.send", ActivityKind.Client);
+		Func<string, Exception?>? failure;
+		lock (gate) failure = invitationFailure;
+		var error = failure?.Invoke(email);
+		if (error is not null)
+			throw error;
+		lock (gate) invitations.Add(new SentInvitation(email, displayName, role));
 		return Task.CompletedTask;
 	}
 }

@@ -33,6 +33,27 @@ public sealed class SignInChallengeConfiguration : IEntityTypeConfiguration<Sign
 	}
 }
 
+public sealed class MemberInvitationConfiguration : IEntityTypeConfiguration<MemberInvitation>
+{
+	public void Configure(EntityTypeBuilder<MemberInvitation> builder)
+	{
+		builder.ToTable("member_invitations");
+		builder.HasKey(x => x.Id);
+		builder.Property(x => x.NormalizedEmail).HasMaxLength(320).IsRequired();
+		builder.Property(x => x.Role).HasMaxLength(50).IsRequired();
+		builder.Property(x => x.DisplayName).HasMaxLength(200);
+		builder.Property(x => x.MailStatus).HasConversion<int>().IsRequired();
+		builder.Property(x => x.LastError).HasMaxLength(500);
+		builder.HasOne(x => x.User)
+			.WithMany()
+			.HasForeignKey(x => x.UserId)
+			.OnDelete(DeleteBehavior.Cascade);
+		builder.HasIndex(x => x.NormalizedEmail).IsUnique();
+		builder.HasIndex(x => x.UserId).IsUnique();
+		builder.HasIndex(x => x.InvitedAt);
+	}
+}
+
 public sealed class AuthRequestLogConfiguration : IEntityTypeConfiguration<AuthRequestLog>
 {
 	public void Configure(EntityTypeBuilder<AuthRequestLog> builder)

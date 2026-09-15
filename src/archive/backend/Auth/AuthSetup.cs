@@ -69,6 +69,7 @@ public static class AuthSetup
 	{
 		services.Configure<AuthOptions>(configuration.GetSection(AuthOptions.SectionName));
 		services.AddScoped<SignInCodeService>();
+		services.AddScoped<MemberInvitationService>();
 		services.AddScoped<EmailCodeTokenProvider>();
 		services.AddScoped<IArchiveMailSender, SmtpSignInCodeSender>();
 		services.AddScoped<CurrentUserAccessor>();

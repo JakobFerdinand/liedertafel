@@ -16,6 +16,8 @@ public sealed class ArchiveDbContext(DbContextOptions<ArchiveDbContext> options)
 
 	public DbSet<AuthRequestLog> AuthRequestLogs => Set<AuthRequestLog>();
 
+	public DbSet<MemberInvitation> MemberInvitations => Set<MemberInvitation>();
+
 	protected override void OnModelCreating(ModelBuilder modelBuilder)
 	{
 		base.OnModelCreating(modelBuilder);
