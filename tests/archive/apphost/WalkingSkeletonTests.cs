@@ -282,12 +282,141 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         using var resendAcceptedResponse = await api.SendAsync(resendAccepted, token);
         Assert.Equal(HttpStatusCode.Conflict, resendAcceptedResponse.StatusCode);
 
+        // ARC-007 revocation through the real proxy with two sessions.
+        // The administrator deactivates the invited singer; the singer's
+        // already-open session obeys on its next request (signed-out),
+        // history stays linked to the stable account ID, and reactivation
+        // requires a fresh sign-in (old tickets never revive).
+        var (deactivateCsrfCookie, deactivateToken) = await GetCsrfAsync(api, $"{dupCsrfCookie}; {adminSession}", token);
+        using var deactivate = new HttpRequestMessage(HttpMethod.Post, "/api/admin/members/deactivate");
+        deactivate.Headers.Add("Cookie", $"{deactivateCsrfCookie}; {adminSession}");
+        deactivate.Headers.Add("X-CSRF-TOKEN", deactivateToken);
+        deactivate.Content = JsonContent.Create(new { accountId = invitedAccountId });
+        using var deactivateResponse = await api.SendAsync(deactivate, token);
+        Assert.Equal(HttpStatusCode.OK, deactivateResponse.StatusCode);
+        var deactivateBody = await deactivateResponse.Content.ReadFromJsonAsync<JsonElement>(token);
+        Assert.Contains("deaktiviert", deactivateBody.GetProperty("message").GetString());
+        Assert.Equal("deactivated", deactivateBody.GetProperty("status").GetString());
+
+        using var listRevoked = new HttpRequestMessage(HttpMethod.Get, "/api/admin/members");
+        listRevoked.Headers.Add("Cookie", adminSession);
+        using var listRevokedResponse = await api.SendAsync(listRevoked, token);
+        var listRevokedBody = await listRevokedResponse.Content.ReadFromJsonAsync<JsonElement>(token);
+        var revokedEntry = listRevokedBody.GetProperty("members").EnumerateArray()
+            .Single(m => m.GetProperty("email").GetString() == "neu@liedertafel.test");
+        Assert.Equal("deactivated", revokedEntry.GetProperty("status").GetString());
+        Assert.Equal(invitedAccountId, revokedEntry.GetProperty("accountId").GetString());
+        Assert.Contains("Member", revokedEntry.GetProperty("roles").EnumerateArray().Select(r => r.GetString()!));
+
+        using var neuMeRevoked = new HttpRequestMessage(HttpMethod.Get, "/api/auth/me");
+        neuMeRevoked.Headers.Add("Cookie", neuSession);
+        using var neuMeRevokedResponse = await api.SendAsync(neuMeRevoked, token);
+        var neuMeRevokedBody = await neuMeRevokedResponse.Content.ReadFromJsonAsync<JsonElement>(token);
+        Assert.False(neuMeRevokedBody.GetProperty("authenticated").GetBoolean());
+
+        using var neuAdminProbe = new HttpRequestMessage(HttpMethod.Get, "/api/admin/members");
+        neuAdminProbe.Headers.Add("Cookie", neuSession);
+        using var neuAdminProbeResponse = await api.SendAsync(neuAdminProbe, token);
+        Assert.Equal(HttpStatusCode.Unauthorized, neuAdminProbeResponse.StatusCode);
+
+        // Denied re-verification by the inactive account: no disclosure on
+        // request (202) and uniform invalid-code on verify.
+        var (revokedCsrfCookie, revokedToken) = await GetCsrfAsync(api, deactivateCsrfCookie, token);
+        using var revokedRequest = new HttpRequestMessage(HttpMethod.Post, "/api/auth/code/request");
+        revokedRequest.Headers.Add("Cookie", revokedCsrfCookie);
+        revokedRequest.Headers.Add("X-CSRF-TOKEN", revokedToken);
+        revokedRequest.Content = JsonContent.Create(new { email = "neu@liedertafel.test" });
+        using var revokedRequestResponse = await api.SendAsync(revokedRequest, token);
+        Assert.Equal(HttpStatusCode.Accepted, revokedRequestResponse.StatusCode);
+        var (revokedVerifyCsrfCookie, revokedVerifyToken) = await GetCsrfAsync(api, revokedCsrfCookie, token);
+        using var revokedVerify = new HttpRequestMessage(HttpMethod.Post, "/api/auth/code/verify");
+        revokedVerify.Headers.Add("Cookie", revokedVerifyCsrfCookie);
+        revokedVerify.Headers.Add("X-CSRF-TOKEN", revokedVerifyToken);
+        revokedVerify.Content = JsonContent.Create(new { email = "neu@liedertafel.test", code = "123456" });
+        using var revokedVerifyResponse = await api.SendAsync(revokedVerify, token);
+        Assert.Equal(HttpStatusCode.BadRequest, revokedVerifyResponse.StatusCode);
+
+        var (reactivateCsrfCookie, reactivateToken) = await GetCsrfAsync(api, $"{revokedVerifyCsrfCookie}; {adminSession}", token);
+        using var reactivate = new HttpRequestMessage(HttpMethod.Post, "/api/admin/members/reactivate");
+        reactivate.Headers.Add("Cookie", $"{reactivateCsrfCookie}; {adminSession}");
+        reactivate.Headers.Add("X-CSRF-TOKEN", reactivateToken);
+        reactivate.Content = JsonContent.Create(new { accountId = invitedAccountId });
+        using var reactivateResponse = await api.SendAsync(reactivate, token);
+        Assert.Equal(HttpStatusCode.OK, reactivateResponse.StatusCode);
+        var reactivateBody = await reactivateResponse.Content.ReadFromJsonAsync<JsonElement>(token);
+        Assert.Contains("erneute Anmeldung", reactivateBody.GetProperty("message").GetString());
+        Assert.Equal("active", reactivateBody.GetProperty("status").GetString());
+
+        // The pre-revocation ticket stays dead after reactivation.
+        using var neuMeStale = new HttpRequestMessage(HttpMethod.Get, "/api/auth/me");
+        neuMeStale.Headers.Add("Cookie", neuSession);
+        using var neuMeStaleResponse = await api.SendAsync(neuMeStale, token);
+        var neuMeStaleBody = await neuMeStaleResponse.Content.ReadFromJsonAsync<JsonElement>(token);
+        Assert.False(neuMeStaleBody.GetProperty("authenticated").GetBoolean());
+
+        var (neu2CsrfCookie, neu2Token) = await GetCsrfAsync(api, reactivateCsrfCookie, token);
+        using var neu2Request = new HttpRequestMessage(HttpMethod.Post, "/api/auth/code/request");
+        neu2Request.Headers.Add("Cookie", neu2CsrfCookie);
+        neu2Request.Headers.Add("X-CSRF-TOKEN", neu2Token);
+        neu2Request.Content = JsonContent.Create(new { email = "neu@liedertafel.test" });
+        using var neu2RequestResponse = await api.SendAsync(neu2Request, token);
+        Assert.Equal(HttpStatusCode.Accepted, neu2RequestResponse.StatusCode);
+        // Two code mails exist for neu@ now (acceptance + reactivation);
+        // poll until a code different from the consumed one appears.
+        var neu2Code = await GetFreshSignInCodeAsync(mail, "neu@liedertafel.test", neuCode, token);
+        var (neu2VerifyCsrfCookie, neu2VerifyToken) = await GetCsrfAsync(api, neu2CsrfCookie, token);
+        using var neu2Verify = new HttpRequestMessage(HttpMethod.Post, "/api/auth/code/verify");
+        neu2Verify.Headers.Add("Cookie", neu2VerifyCsrfCookie);
+        neu2Verify.Headers.Add("X-CSRF-TOKEN", neu2VerifyToken);
+        neu2Verify.Content = JsonContent.Create(new { email = "neu@liedertafel.test", code = neu2Code });
+        using var neu2VerifyResponse = await api.SendAsync(neu2Verify, token);
+        Assert.Equal(HttpStatusCode.OK, neu2VerifyResponse.StatusCode);
+        var neu2Body = await neu2VerifyResponse.Content.ReadFromJsonAsync<JsonElement>(token);
+        Assert.Equal(invitedAccountId, neu2Body.GetProperty("accountId").GetString());
+        var neu2Session = Assert.Single(
+            neu2VerifyResponse.Headers.GetValues("Set-Cookie"), c => c.StartsWith("archive.auth=")).Split(';')[0];
+
+        // Role changes obey on the next request without a fresh sign-in.
+        var (roleCsrfCookie, roleToken) = await GetCsrfAsync(api, $"{neu2VerifyCsrfCookie}; {adminSession}", token);
+        using var roleChange = new HttpRequestMessage(HttpMethod.Post, "/api/admin/members/role");
+        roleChange.Headers.Add("Cookie", $"{roleCsrfCookie}; {adminSession}");
+        roleChange.Headers.Add("X-CSRF-TOKEN", roleToken);
+        roleChange.Content = JsonContent.Create(new { accountId = invitedAccountId, role = "Editor" });
+        using var roleChangeResponse = await api.SendAsync(roleChange, token);
+        Assert.Equal(HttpStatusCode.OK, roleChangeResponse.StatusCode);
+        using var neu2Me = new HttpRequestMessage(HttpMethod.Get, "/api/auth/me");
+        neu2Me.Headers.Add("Cookie", neu2Session);
+        using var neu2MeResponse = await api.SendAsync(neu2Me, token);
+        var neu2MeBody = await neu2MeResponse.Content.ReadFromJsonAsync<JsonElement>(token);
+        Assert.True(neu2MeBody.GetProperty("authenticated").GetBoolean());
+        Assert.Contains("Editor", neu2MeBody.GetProperty("roles").EnumerateArray().Select(r => r.GetString()!));
+
+        // Last-administrator handling: the only administrator can neither be
+        // deactivated nor demoted; repair belongs to the maintainer path.
+        var adminEntry = listRevokedBody.GetProperty("members").EnumerateArray()
+            .Single(m => m.GetProperty("email").GetString() == "verwaltung@liedertafel.test");
+        var adminAccountId = adminEntry.GetProperty("accountId").GetString()!;
+        var (lastCsrfCookie, lastToken) = await GetCsrfAsync(api, $"{roleCsrfCookie}; {adminSession}", token);
+        using var lastDeactivate = new HttpRequestMessage(HttpMethod.Post, "/api/admin/members/deactivate");
+        lastDeactivate.Headers.Add("Cookie", $"{lastCsrfCookie}; {adminSession}");
+        lastDeactivate.Headers.Add("X-CSRF-TOKEN", lastToken);
+        lastDeactivate.Content = JsonContent.Create(new { accountId = adminAccountId });
+        using var lastDeactivateResponse = await api.SendAsync(lastDeactivate, token);
+        Assert.Equal(HttpStatusCode.Conflict, lastDeactivateResponse.StatusCode);
+        using var lastDemote = new HttpRequestMessage(HttpMethod.Post, "/api/admin/members/role");
+        lastDemote.Headers.Add("Cookie", $"{lastCsrfCookie}; {adminSession}");
+        lastDemote.Headers.Add("X-CSRF-TOKEN", lastToken);
+        lastDemote.Content = JsonContent.Create(new { accountId = adminAccountId, role = "Member" });
+        using var lastDemoteResponse = await api.SendAsync(lastDemote, token);
+        Assert.Equal(HttpStatusCode.Conflict, lastDemoteResponse.StatusCode);
+
         await commands.ExecuteCommandAsync("archive-worker-smoke", "start", token);
         await AssertSuccessfulCompletion(app.ResourceNotifications, "archive-worker-smoke", token);
         var messages = await mail.GetFromJsonAsync<JsonElement>("/api/v1/messages", token);
         // Diagnostic mail + member/editor/admin code mails + two invitation
-        // mails (invite + same-role resend) + invited code mail + worker mail.
-        Assert.Equal(8, messages.GetProperty("total").GetInt32());
+        // mails (invite + same-role resend) + invited code mail + reactivated
+        // code mail + worker mail.
+        Assert.Equal(9, messages.GetProperty("total").GetInt32());
     }
 
     private static async Task AssertSuccessfulCompletion(ResourceNotificationService notifications, string name, CancellationToken token)
@@ -341,6 +470,30 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
             await Task.Delay(TimeSpan.FromMilliseconds(500), token);
         }
         throw new Xunit.Sdk.XunitException($"No sign-in code mail found for {email}.");
+    }
+
+    private static async Task<string> GetFreshSignInCodeAsync(
+        HttpClient mail, string email, string consumedCode, CancellationToken token)
+    {
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            var list = await mail.GetFromJsonAsync<JsonElement>("/api/v1/messages?limit=50", token);
+            var ids = list.GetProperty("messages").EnumerateArray()
+                .Select(m => m.TryGetProperty("ID", out var id) ? id.GetString() : null)
+                .Where(id => id is not null).Cast<string>().ToArray();
+            foreach (var id in ids)
+            {
+                var detail = await mail.GetFromJsonAsync<JsonElement>($"/api/v1/message/{id}", token);
+                if (!detail.GetRawText().Contains(email, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                var text = detail.TryGetProperty("Text", out var textProp) ? textProp.GetString() : null;
+                var match = Regex.Match(text ?? string.Empty, @"Ihr Anmeldecode lautet:\s*(\d{6})");
+                if (match.Success && !string.Equals(match.Groups[1].Value, consumedCode, StringComparison.Ordinal))
+                    return match.Groups[1].Value;
+            }
+            await Task.Delay(TimeSpan.FromMilliseconds(500), token);
+        }
+        throw new Xunit.Sdk.XunitException($"No fresh sign-in code mail found for {email}.");
     }
 
     private static async Task WaitForInvitationMailAsync(HttpClient mail, string email, CancellationToken token)
