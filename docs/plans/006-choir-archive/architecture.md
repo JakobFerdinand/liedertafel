@@ -179,8 +179,11 @@ supplies that narrowly scoped permission.
 ## 4. Sign-in, membership, and persistent keys
 
 The application owns invitation and email-code verification. Use supported
-ASP.NET authentication and cryptographic components rather than inventing cookie
-encryption or token protection.
+ASP.NET Core Identity components rather than inventing identity storage,
+cookie encryption or token protection: `IdentityUser<Guid>`/`IdentityRole<Guid>`
+users and roles, a custom two-factor token provider for the email codes,
+the Identity application cookie with security-stamp validation, and lockout
+as the revocation primitive.
 
 - Only invited, active members receive archive access.
 - Persist challenge/session state needed for one-time use, expiry, attempt and
