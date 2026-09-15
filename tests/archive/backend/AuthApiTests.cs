@@ -1,11 +1,15 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using Archive.Backend.Auth;
 using Archive.Backend.Data;
 using Archive.Backend.Development;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
@@ -15,6 +19,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace Archive.Backend.Tests;
 
@@ -68,7 +73,7 @@ public sealed class AuthApiTests
 		// Cookie authentication is stateless: logout instructs the browser to
 		// drop the cookie. The cleared cookie must be expired server-side.
 		var cleared = Assert.Single(
-			logoutResponse.Headers.GetValues("Set-Cookie").Where(c => c.StartsWith("archive.auth=")));
+			logoutResponse.Headers.GetValues("Set-Cookie"), c => c.StartsWith("archive.auth="));
 		Assert.Contains("expires=", cleared);
 
 		// Without the dropped cookie the member area no longer authenticates.
@@ -243,6 +248,57 @@ public sealed class AuthApiTests
 		using var client = factory.CreateClient();
 		var body = await client.GetFromJsonAsync<JsonElement>("/api/auth/me");
 		Assert.False(body.GetProperty("authenticated").GetBoolean());
+	}
+
+	[Fact]
+	public async Task AuthTelemetryRedactsCodesEmailsAndCookies()
+	{
+		var received = new ConcurrentDictionary<string, string>();
+		var collectorBuilder = WebApplication.CreateBuilder();
+		collectorBuilder.Logging.ClearProviders();
+		await using var collector = collectorBuilder.Build();
+		collector.Urls.Add("http://127.0.0.1:0");
+		collector.MapPost("/v1/{signal}", async (HttpContext context, string signal) =>
+		{
+			using var body = new MemoryStream();
+			await context.Request.Body.CopyToAsync(body);
+			received[signal] = received.GetValueOrDefault(signal, "") + Encoding.UTF8.GetString(body.ToArray());
+			context.Response.ContentType = "application/x-protobuf";
+		});
+		await collector.StartAsync();
+
+		await using var factory = new AuthApiFactory(otlpEndpoint: collector.Urls.Single());
+		await SeedActiveMemberAsync(factory, ActiveMember);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var code = await RequestCodeAsync(factory, client, ActiveMember);
+		var session = await VerifyAndGetSessionAsync(client, ActiveMember, code);
+		using var me = new HttpRequestMessage(HttpMethod.Get, "/api/auth/me");
+		me.Headers.Add("Cookie", session);
+		using var meResponse = await client.SendAsync(me);
+		meResponse.EnsureSuccessStatusCode();
+
+		var deadline = DateTimeOffset.UtcNow.AddSeconds(60);
+		while (DateTimeOffset.UtcNow < deadline)
+		{
+			if (received.TryGetValue("traces", out var traces)
+				&& traces.Contains("archive.auth.verify", StringComparison.Ordinal)
+				&& received.TryGetValue("metrics", out var metrics)
+				&& metrics.Contains("archive.auth.requests", StringComparison.Ordinal)
+				&& received.ContainsKey("logs"))
+				break;
+			await Task.Delay(500);
+		}
+		Assert.Contains("archive.auth.request", received.GetValueOrDefault("traces", ""));
+		Assert.Contains("archive.auth.verify", received.GetValueOrDefault("traces", ""));
+		Assert.Contains("archive.mail.send", received.GetValueOrDefault("traces", ""));
+		Assert.Contains("archive.auth.requests", received.GetValueOrDefault("metrics", ""));
+		Assert.Contains("archive.auth.verified", received.GetValueOrDefault("metrics", ""));
+		foreach (var payload in received.Values)
+		{
+			Assert.DoesNotContain(code, payload);
+			Assert.DoesNotContain(ActiveMember, payload);
+			Assert.DoesNotContain(session, payload);
+		}
 	}
 
 	[Fact]
@@ -470,6 +526,9 @@ internal sealed class FakeMailSender : IArchiveMailSender
 
 	public Task SendSignInCodeAsync(string email, string code, TimeSpan lifetime, CancellationToken cancellationToken)
 	{
+		// Mirror the production sender's span so telemetry assertions cover
+		// the mail path even with mail capture faked out.
+		using var _ = Extensions.Activities.StartActivity("archive.mail.send", ActivityKind.Client);
 		lock (gate) sent.Add(new SentMail(email, code));
 		return Task.CompletedTask;
 	}
@@ -482,26 +541,40 @@ internal sealed class AuthApiFactory : WebApplicationFactory<Program>
 	private readonly string database;
 	private readonly InMemoryDatabaseRoot sharedRoot;
 	private readonly string keysPath;
+	private readonly string? otlpEndpoint;
 
 	public FakeMailSender Mail { get; } = new();
 
-	public AuthApiFactory(string environment = "Development", InMemoryDatabaseRoot? root = null, string? keysPath = null, string? databaseName = null)
+	public AuthApiFactory(string environment = "Development", InMemoryDatabaseRoot? root = null, string? keysPath = null, string? databaseName = null, string? otlpEndpoint = null)
 	{
 		this.environment = environment;
 		sharedRoot = root ?? new InMemoryDatabaseRoot();
 		database = databaseName ?? $"auth-{Guid.NewGuid():N}";
 		this.keysPath = keysPath ?? Path.Combine(this.root, "keys");
+		this.otlpEndpoint = otlpEndpoint;
 		Directory.CreateDirectory(Path.Combine(this.root, "system/status"));
 		File.WriteAllText(Path.Combine(this.root, "index.html"), "<html lang=de><h1>frontend-fixture</h1></html>");
 		File.WriteAllText(Path.Combine(this.root, "system/status/index.html"), "<html lang=de><h1>frontend-fixture status</h1></html>");
 	}
 
-	protected override void ConfigureWebHost(IWebHostBuilder builder) => builder
-		.UseEnvironment(environment).UseWebRoot(root)
-		.UseSetting("OTEL_EXPORTER_OTLP_ENDPOINT", "http://127.0.0.1:1")
-		.UseSetting("OTEL_EXPORTER_OTLP_TIMEOUT", "10")
-		.UseSetting("Development:KeysPath", keysPath)
-		.ConfigureServices(services =>
+	protected override void ConfigureWebHost(IWebHostBuilder builder)
+	{
+		builder
+			.UseEnvironment(environment).UseWebRoot(root)
+			.UseSetting("OTEL_EXPORTER_OTLP_ENDPOINT", otlpEndpoint ?? "http://127.0.0.1:1")
+			.UseSetting("OTEL_EXPORTER_OTLP_TIMEOUT", "10")
+			.UseSetting("Development:KeysPath", keysPath);
+		if (otlpEndpoint is not null)
+		{
+			// A live test collector: short export intervals so the test
+			// observes all three signals without waiting a minute.
+			builder
+				.UseSetting("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
+				.UseSetting("OTEL_BSP_SCHEDULE_DELAY", "500")
+				.UseSetting("OTEL_BLRP_SCHEDULE_DELAY", "500")
+				.UseSetting("OTEL_METRIC_EXPORT_INTERVAL", "1000");
+		}
+		builder.ConfigureServices(services =>
 		{
 			// EF keeps Program's Npgsql options action in a separate
 			// IDbContextOptionsConfiguration descriptor; removing only the
@@ -514,6 +587,7 @@ internal sealed class AuthApiFactory : WebApplicationFactory<Program>
 			services.RemoveAll<IArchiveMailSender>();
 			services.AddSingleton<IArchiveMailSender>(Mail);
 		});
+	}
 
 	public override async ValueTask DisposeAsync()
 	{
