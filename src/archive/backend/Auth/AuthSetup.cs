@@ -35,10 +35,29 @@ public static class AuthSetup
 					await context.HttpContext.SignOutAsync(IdentityConstants.ApplicationScheme);
 					return;
 				}
-				if ((await users.GetRolesAsync(user)).Count == 0)
+				var currentRoles = await users.GetRolesAsync(user);
+				if (currentRoles.Count == 0)
 				{
 					context.RejectPrincipal();
 					await context.HttpContext.SignOutAsync(IdentityConstants.ApplicationScheme);
+					return;
+				}
+				// Enforce current membership server-side on every request:
+				// a stale cookie role must never survive until its 30-day
+				// expiry. When the database roles differ, replace the
+				// principal for this request and renew the ticket so all
+				// replicas agree on the next authorized request.
+				var cookieRoles = context.Principal.FindAll(ClaimTypes.Role).Select(c => c.Value).OrderBy(r => r).ToArray();
+				var freshRoles = currentRoles.OrderBy(r => r).ToArray();
+				if (!cookieRoles.SequenceEqual(freshRoles))
+				{
+					var identity = (ClaimsIdentity?)context.Principal.Identity;
+					var authenticationType = identity?.AuthenticationType ?? IdentityConstants.ApplicationScheme;
+					var claims = context.Principal.Claims.Where(c => c.Type != ClaimTypes.Role).ToList();
+					foreach (var role in freshRoles)
+						claims.Add(new Claim(ClaimTypes.Role, role));
+					context.ReplacePrincipal(new ClaimsPrincipal(new ClaimsIdentity(claims, authenticationType)));
+					context.ShouldRenew = true;
 				}
 			};
 			// API contract: never redirect browsers to HTML; use Problem status codes.
@@ -70,6 +89,8 @@ public static class AuthSetup
 		services.Configure<AuthOptions>(configuration.GetSection(AuthOptions.SectionName));
 		services.AddScoped<SignInCodeService>();
 		services.AddScoped<MemberInvitationService>();
+		services.AddScoped<MemberRevocationService>();
+		services.AddScoped<ArchiveAccessService>();
 		services.AddScoped<EmailCodeTokenProvider>();
 		services.AddScoped<IArchiveMailSender, SmtpSignInCodeSender>();
 		services.AddScoped<CurrentUserAccessor>();
@@ -95,8 +116,9 @@ public static class AuthSetup
 			.AddDefaultTokenProviders()
 			.AddTokenProvider<EmailCodeTokenProvider>(EmailCodeTokenProvider.ProviderName);
 
-		// Tight revalidation for a tiny user base: revocation takes effect
-		// within minutes without per-request stamp checks.
+		// Tight stamp revalidation plus per-request membership/role checks
+		// above: revocation and role changes take effect on the next
+		// authorized request without trusting a stale 30-day cookie.
 		services.Configure<SecurityStampValidatorOptions>(options =>
 			options.ValidationInterval = TimeSpan.FromMinutes(5));
 		return services;
