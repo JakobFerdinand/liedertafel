@@ -1,12 +1,18 @@
 import { expect, test } from "@playwright/test";
 
 const mailUrl = process.env.ARCHIVE_MAIL_URL;
-const memberEmail = "mitglied@liedertafel.test";
 
 test("Vollständiger Anmeldefluss mit E-Mail-Code", async ({
   page,
   request,
-}) => {
+}, testInfo) => {
+  // Codes are single-use and resends are suppressed for 60 seconds, so
+  // parallel projects must not share one address (both would verify the same
+  // code and exactly one would lose by design).
+  const memberEmail =
+    testInfo.project.name === "mobile"
+      ? "redaktion@liedertafel.test"
+      : "mitglied@liedertafel.test";
   const build = await request.get("/api/build");
   const development = build.ok()
     ? (await build.json()).development === true
@@ -15,6 +21,8 @@ test("Vollständiger Anmeldefluss mit E-Mail-Code", async ({
     !development || !mailUrl,
     "Nur mit Entwicklungs-Backend und Mailpit ausführbar.",
   );
+  // Leeres Postfach: Der erste Treffer ist danach garantiert der eigene Code.
+  await request.delete(`${mailUrl}/api/v1/messages`);
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
 
