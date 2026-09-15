@@ -24,6 +24,11 @@ preview, destructive-change guard, image pass-through).
    `api://AzureADTokenExchange`. Grant it `Contributor` plus
    `User Access Administrator` (or group `Owner`) on the archive group after
    step 2 — plain `Contributor` cannot assign the data-plane roles.
+   Create the separate `sp-liedertafel-archive-preview` app with only the
+   `pull_request` federated credential and group-scoped `Contributor`; store
+   its client ID as `AZURE_CLIENT_ID_ARCHIVE_PREVIEW`. PR what-if uses this
+   identity and a fake GHCR password, so neither role-assignment permission
+   nor the real pull credential enters a PR job.
 2. Create the empty group once as subscription Owner (the release identity
    has no subscription-level rights by design):
    `az deployment sub create --location austriaeast --template-file infrastructure/archive/subscription.bicep --parameters archiveResourceGroupName=RG-Liedertafel-Archive --parameters resourceGroupLocation=austriaeast`

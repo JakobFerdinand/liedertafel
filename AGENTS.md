@@ -147,7 +147,8 @@ uses its generated Next.js/Biome conventions and local `AGENTS.md`.
   identity, optional managed cert). The running image is selected only via
   `release-archive.yml` (explicit `workflow_dispatch` on `archive-prod`,
   deploy by GHCR digest); `infra-deploy-archive.yml` passes the deployed image
-  through so infra re-runs cannot revert a release. Runbook:
+  through so infra re-runs cannot revert a release. PR what-if uses a separate
+  Contributor-only preview identity. Runbook:
   `infrastructure/archive/README.md`.
   - `az bicep build --file infrastructure/archive/main.bicep --stdout`
   - `az deployment sub what-if --location austriaeast --template-file infrastructure/archive/subscription.bicep --parameters archiveResourceGroupName=RG-Liedertafel-Archive --parameters resourceGroupLocation=austriaeast`
