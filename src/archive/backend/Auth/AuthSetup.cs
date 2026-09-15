@@ -59,6 +59,27 @@ public static class AuthSetup
 					context.ReplacePrincipal(new ClaimsPrincipal(new ClaimsIdentity(claims, authenticationType)));
 					context.ShouldRenew = true;
 				}
+				// No session revival after reactivation: tickets issued before
+				// the latest reactivation stay dead and require a fresh
+				// email-code sign-in. The stamp validator alone would allow a
+				// revival within its 5-minute window because deactivation and
+				// reactivation both bump the stamp but throttled validation
+				// does not compare on every request.
+				var authenticatedAtValue = context.Principal.FindFirst(AuthClaims.AuthenticatedAt)?.Value;
+				if (DateTimeOffset.TryParse(authenticatedAtValue, out var authenticatedAt))
+				{
+					var db = context.HttpContext.RequestServices.GetRequiredService<ArchiveDbContext>();
+					var lastReactivation = await db.MemberAdminActions.AsNoTracking()
+						.Where(a => a.TargetUserId == user.Id && a.Action == MemberAdminActionType.Reactivated)
+						.OrderByDescending(a => a.OccurredAt)
+						.Select(a => (DateTimeOffset?)a.OccurredAt)
+						.FirstOrDefaultAsync();
+					if (lastReactivation.HasValue && authenticatedAt < lastReactivation.Value)
+					{
+						context.RejectPrincipal();
+						await context.HttpContext.SignOutAsync(IdentityConstants.ApplicationScheme);
+					}
+				}
 			};
 			// API contract: never redirect browsers to HTML; use Problem status codes.
 			cookie.Events.OnRedirectToLogin = context =>
@@ -116,9 +137,10 @@ public static class AuthSetup
 			.AddDefaultTokenProviders()
 			.AddTokenProvider<EmailCodeTokenProvider>(EmailCodeTokenProvider.ProviderName);
 
-		// Tight stamp revalidation plus per-request membership/role checks
-		// above: revocation and role changes take effect on the next
-		// authorized request without trusting a stale 30-day cookie.
+		// Per-request membership/role checks above enforce revocation on the
+		// next request; the stamp validator stays on a tight interval so
+		// deactivation/reactivation bumps kill tickets without per-request
+		// stamp I/O. Role changes sync via principal replacement.
 		services.Configure<SecurityStampValidatorOptions>(options =>
 			options.ValidationInterval = TimeSpan.FromMinutes(5));
 		return services;
