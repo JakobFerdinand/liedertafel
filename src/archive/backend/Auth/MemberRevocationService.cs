@@ -32,9 +32,11 @@ public enum RoleChangeOutcome
 /// <summary>
 /// Administrator membership revocation (ARC-007). Deactivation uses Identity
 /// lockout so the stable account ID, invitation/acceptance history and archive
-/// content are preserved; reactivation restores the same row. Every change
-/// bumps the security stamp so previously issued tickets fail validation on
-/// their next use instead of staying valid for 30 days, and appends an
+/// content are preserved; reactivation restores the same row. Deactivation and
+/// reactivation bump the security stamp so previously issued tickets fail
+/// validation on their next use instead of staying valid for 30 days; role
+/// changes keep the session alive and sync via principal replacement so the
+/// next request already obeys the new permission. Every change appends an
 /// audit row recording the actor. The last active administrator can neither
 /// be deactivated nor demoted; repair of a lost administration belongs to
 /// the ARC-008 maintainer path, not to a session-revival shortcut.
@@ -42,6 +44,7 @@ public enum RoleChangeOutcome
 public sealed class MemberRevocationService(
 	ArchiveDbContext db,
 	UserManager<ArchiveUser> users,
+	RoleManager<ArchiveRole> roles,
 	ILogger<MemberRevocationService> logger)
 {
 	private static readonly Meter RevocationMeter = new(Extensions.MeterName);
@@ -203,6 +206,20 @@ public sealed class MemberRevocationService(
 		using var activity = Extensions.Activities.StartActivity("archive.members.role_change", ActivityKind.Internal);
 		if (!ArchiveRoles.All.Contains(newRole))
 			throw new InvalidOperationException($"Unknown role '{newRole}'.");
+		if (!await roles.RoleExistsAsync(newRole))
+		{
+			try
+			{
+				var created = await roles.CreateAsync(new ArchiveRole(newRole));
+				if (!created.Succeeded && !await roles.RoleExistsAsync(newRole))
+					throw new InvalidOperationException($"Role '{newRole}' could not be created.");
+			}
+			catch (DbUpdateException)
+			{
+				if (!await roles.RoleExistsAsync(newRole))
+					throw;
+			}
+		}
 		var user = await users.FindByIdAsync(targetAccountId.ToString());
 		if (user is null)
 		{
@@ -276,14 +293,11 @@ public sealed class MemberRevocationService(
 				}
 			}
 		}
-		try
-		{
-			await users.UpdateSecurityStampAsync(user);
-		}
-		catch (DbUpdateConcurrencyException)
-		{
-			db.Entry(user).State = EntityState.Detached;
-		}
+		// Role changes keep the session alive: the per-request principal
+		// replacement in AuthSetup syncs the new roles on the next request.
+		// No stamp bump here, otherwise the session would sign out instead
+		// of obeying the new permission. Deactivation/reactivation bump the
+		// stamp to keep old tickets dead (see above).
 		var newRoles = await users.GetRolesAsync(user).ContinueWith(t =>
 			t.IsCompletedSuccessfully ? t.Result.OrderBy(r => r).ToArray() : new[] { newRole });
 		db.MemberAdminActions.Add(new MemberAdminAction
