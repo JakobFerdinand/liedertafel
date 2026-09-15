@@ -39,3 +39,33 @@ export async function fetchMe(signal?: AbortSignal): Promise<MeResponse> {
   if (!response.ok) throw new Error("me");
   return (await response.json()) as MeResponse;
 }
+
+export type MitgliedStatus = "invited" | "active" | "deactivated";
+export type EinladungsMailStatus = "none" | "pending" | "sent" | "failed";
+
+export type Mitglied = {
+  accountId: string;
+  email: string;
+  displayName: string | null;
+  roles: string[];
+  status: MitgliedStatus;
+  invitationId: string | null;
+  invitedAt: string | null;
+  invitedByAccountId: string | null;
+  acceptedAt: string | null;
+  lastInvitationSentAt: string | null;
+  invitationMailStatus: EinladungsMailStatus;
+};
+
+export async function fetchMitglieder(
+  signal?: AbortSignal,
+): Promise<Mitglied[]> {
+  const response = await fetch("/api/admin/members", {
+    credentials: "same-origin",
+    cache: "no-store",
+    signal,
+  });
+  if (!response.ok) throw response;
+  const data = (await response.json()) as { members: Mitglied[] };
+  return data.members ?? [];
+}
