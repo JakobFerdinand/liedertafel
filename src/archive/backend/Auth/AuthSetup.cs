@@ -77,6 +77,11 @@ public static class AuthSetup
 		services.AddIdentity<ArchiveUser, ArchiveRole>(options =>
 			{
 				options.User.RequireUniqueEmail = true;
+				// Member emails may contain German umlauts; keep UserName (= email)
+				// creatable for those addresses. Sign-in looks users up by
+				// email, never by UserName.
+				options.User.AllowedUserNameCharacters =
+					"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._@+äöüÄÖÜß";
 				// Invited members sign in before confirmation; the service and
 				// the principal validator enforce confirmation explicitly.
 				options.SignIn.RequireConfirmedEmail = false;

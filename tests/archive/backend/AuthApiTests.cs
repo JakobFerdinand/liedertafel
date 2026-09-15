@@ -573,16 +573,18 @@ internal sealed class AuthApiFactory : WebApplicationFactory<Program>
 	private readonly InMemoryDatabaseRoot sharedRoot;
 	private readonly string keysPath;
 	private readonly string? otlpEndpoint;
+	private readonly TimeSpan? freshVerificationWindow;
 
 	public FakeMailSender Mail { get; } = new();
 
-	public AuthApiFactory(string environment = "Development", InMemoryDatabaseRoot? root = null, string? keysPath = null, string? databaseName = null, string? otlpEndpoint = null)
+	public AuthApiFactory(string environment = "Development", InMemoryDatabaseRoot? root = null, string? keysPath = null, string? databaseName = null, string? otlpEndpoint = null, TimeSpan? freshVerificationWindow = null)
 	{
 		this.environment = environment;
 		sharedRoot = root ?? new InMemoryDatabaseRoot();
 		database = databaseName ?? $"auth-{Guid.NewGuid():N}";
 		this.keysPath = keysPath ?? Path.Combine(this.root, "keys");
 		this.otlpEndpoint = otlpEndpoint;
+		this.freshVerificationWindow = freshVerificationWindow;
 		Directory.CreateDirectory(Path.Combine(this.root, "system/status"));
 		File.WriteAllText(Path.Combine(this.root, "index.html"), "<html lang=de><h1>frontend-fixture</h1></html>");
 		File.WriteAllText(Path.Combine(this.root, "system/status/index.html"), "<html lang=de><h1>frontend-fixture status</h1></html>");
@@ -617,6 +619,11 @@ internal sealed class AuthApiFactory : WebApplicationFactory<Program>
 			services.AddDbContext<ArchiveDbContext>(options => options.UseInMemoryDatabase(database, sharedRoot));
 			services.RemoveAll<IArchiveMailSender>();
 			services.AddSingleton<IArchiveMailSender>(Mail);
+			if (freshVerificationWindow.HasValue)
+			{
+				var window = freshVerificationWindow.Value;
+				services.Configure<AuthOptions>(options => options.FreshVerificationWindow = window);
+			}
 		});
 	}
 
