@@ -136,11 +136,35 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         var meAfter = await anonymous.GetFromJsonAsync<JsonElement>("/api/auth/me", token);
         Assert.False(meAfter.GetProperty("authenticated").GetBoolean());
 
+        // Concurrent race on real PostgreSQL: exactly one winner, the rest
+        // get the uniform invalid-code response (no 500s). Uses the editor
+        // account so no resend cooldown applies.
+        var (editorCsrfCookie, editorToken) = await GetCsrfAsync(frontend, verifyCsrfCookie, token);
+        using var editorRequest = new HttpRequestMessage(HttpMethod.Post, "/api/auth/code/request");
+        editorRequest.Headers.Add("Cookie", editorCsrfCookie);
+        editorRequest.Headers.Add("X-CSRF-TOKEN", editorToken);
+        editorRequest.Content = JsonContent.Create(new { email = "redaktion@liedertafel.test" });
+        using var editorResponse = await frontend.SendAsync(editorRequest, token);
+        Assert.Equal(HttpStatusCode.Accepted, editorResponse.StatusCode);
+        var editorCode = await GetSignInCodeAsync(mail, "redaktion@liedertafel.test", token);
+        var race = await Task.WhenAll(Enumerable.Range(0, 5).Select(async _ =>
+        {
+            var (raceCsrfCookie, raceToken) = await GetCsrfAsync(frontend, editorCsrfCookie, token);
+            using var raceVerify = new HttpRequestMessage(HttpMethod.Post, "/api/auth/code/verify");
+            raceVerify.Headers.Add("Cookie", raceCsrfCookie);
+            raceVerify.Headers.Add("X-CSRF-TOKEN", raceToken);
+            raceVerify.Content = JsonContent.Create(new { email = "redaktion@liedertafel.test", code = editorCode });
+            using var raceResponse = await frontend.SendAsync(raceVerify, token);
+            return raceResponse.StatusCode;
+        }));
+        Assert.Single(race, s => s == HttpStatusCode.OK);
+        Assert.Equal(4, race.Count(s => s == HttpStatusCode.BadRequest));
+
         await commands.ExecuteCommandAsync("archive-worker-smoke", "start", token);
         await AssertSuccessfulCompletion(app.ResourceNotifications, "archive-worker-smoke", token);
         var messages = await mail.GetFromJsonAsync<JsonElement>("/api/v1/messages", token);
-        // Diagnostic mail + sign-in code mail + worker-smoke mail.
-        Assert.Equal(3, messages.GetProperty("total").GetInt32());
+        // Diagnostic mail + two sign-in code mails + worker-smoke mail.
+        Assert.Equal(4, messages.GetProperty("total").GetInt32());
     }
 
     private static async Task AssertSuccessfulCompletion(ResourceNotificationService notifications, string name, CancellationToken token)

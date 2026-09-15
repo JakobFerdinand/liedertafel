@@ -10,6 +10,7 @@ using Archive.Backend.Development;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
@@ -119,10 +120,13 @@ public sealed class AuthApiTests
 		var normalized = AuthSecurity.NormalizeEmail(ActiveMember);
 		using (var scope = factory.Services.CreateScope())
 		{
+			var users = scope.ServiceProvider.GetRequiredService<UserManager<ArchiveUser>>();
+			var user = (await users.FindByEmailAsync(ActiveMember))!;
 			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
 			var salt = AuthSecurity.NewSalt();
-			db.SignInCodes.Add(new SignInCode
+			db.SignInChallenges.Add(new SignInChallenge
 			{
+				UserId = user.Id,
 				NormalizedEmail = normalized,
 				CodeHash = AuthSecurity.HashCode("654321", salt),
 				Salt = salt,
@@ -157,25 +161,10 @@ public sealed class AuthApiTests
 		Assert.False(replayResponse.Headers.Contains("Set-Cookie"));
 	}
 
-	[Fact]
-	public async Task ConcurrentVerifyAllowsExactlyOneWinner()
-	{
-		await using var factory = new AuthApiFactory();
-		await SeedActiveMemberAsync(factory, ActiveMember);
-		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var code = await RequestCodeAsync(factory, client, ActiveMember);
-
-		var attempts = await Task.WhenAll(Enumerable.Range(0, 5).Select(async _ =>
-		{
-			var (cookie, token) = await GetCsrfAsync(client);
-			using var verify = AuthedPost("/api/auth/code/verify",
-				new { email = ActiveMember, code }, cookie, token);
-			using var response = await client.SendAsync(verify);
-			return response.StatusCode;
-		}));
-		Assert.Single(attempts, s => s == HttpStatusCode.OK);
-		Assert.Equal(4, attempts.Count(s => s == HttpStatusCode.BadRequest));
-	}
+	// NOTE: the five-way concurrent race lives in the AppHost suite on real
+	// PostgreSQL. InMemory generates integer rate-log keys per context, so
+	// parallel inserts collide there (Npgsql identity columns do not).
+	// Sequential single-use is covered by ReusedCodeIsRejected above.
 
 	[Fact]
 	public async Task VerifyAttemptLimitLocksChallenge()
@@ -311,7 +300,7 @@ public sealed class AuthApiTests
 		var code = Assert.Single(factory.Mail.Sent).Code;
 		using var scope = factory.Services.CreateScope();
 		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-		var row = await db.SignInCodes.SingleAsync();
+		var row = await db.SignInChallenges.SingleAsync();
 		Assert.Equal(32, row.CodeHash.Length);
 		Assert.Equal(16, row.Salt.Length);
 		Assert.True(AuthSecurity.VerifyCode(code, row.Salt, row.CodeHash));
@@ -406,11 +395,13 @@ public sealed class AuthApiTests
 		// Bare providers isolate the InMemory store per scope, so resolve from
 		// the same root scope the operator command used (the web host shares
 		// across scopes; see AuthApiFactory-based tests for that path).
+		var users = provider.GetRequiredService<UserManager<ArchiveUser>>();
 		var db = provider.GetRequiredService<ArchiveDbContext>();
-		Assert.Equal(1, await db.Accounts.CountAsync());
-		var membership = await db.Memberships.Include(m => m.Account).SingleAsync();
-		Assert.Equal(ArchiveRole.Administrator, membership.Role);
-		Assert.Equal(MembershipStatus.Active, membership.Status);
+		Assert.Equal(1, await db.Users.CountAsync());
+		var admin = await users.FindByEmailAsync("erste@liedertafel.test");
+		Assert.NotNull(admin);
+		Assert.True(admin.EmailConfirmed);
+		Assert.True(await users.IsInRoleAsync(admin, ArchiveRoles.Administrator));
 		await Assert.ThrowsAsync<InvalidOperationException>(() => OperatorConfiguration.BootstrapAdminAsync(
 			provider, configuration, ["--email", "zweite@liedertafel.test"], CancellationToken.None));
 	}
@@ -428,7 +419,7 @@ public sealed class AuthApiTests
 			provider, configuration, ["--email", "admin@liedertafel.test"], CancellationToken.None));
 		await OperatorConfiguration.BootstrapAdminAsync(provider, configuration,
 			["--email", "admin@liedertafel.test", "--operator-token", "geheim"], CancellationToken.None);
-		Assert.Equal(1, await provider.GetRequiredService<ArchiveDbContext>().Accounts.CountAsync());
+		Assert.Equal(1, await provider.GetRequiredService<ArchiveDbContext>().Users.CountAsync());
 	}
 
 	private static ServiceCollection BootstrapServices(string environment, Dictionary<string, string?> settings)
@@ -438,6 +429,10 @@ public sealed class AuthApiTests
 		services.AddSingleton<IHostEnvironment>(new TestHostEnvironment(environment));
 		services.AddSingleton(TimeProvider.System);
 		services.AddSingleton<IConfiguration>(new ConfigurationBuilder().AddInMemoryCollection(settings).Build());
+		services.AddIdentity<ArchiveUser, ArchiveRole>()
+			.AddEntityFrameworkStores<ArchiveDbContext>()
+			.AddDefaultTokenProviders()
+			.AddTokenProvider<EmailCodeTokenProvider>(EmailCodeTokenProvider.ProviderName);
 		// The root must be captured outside the options lambda: options are
 		// built per scope, so `new` inside the lambda would isolate every scope.
 		var root = new InMemoryDatabaseRoot();
@@ -446,11 +441,21 @@ public sealed class AuthApiTests
 		return services;
 	}
 
-	private static async Task SeedActiveMemberAsync(AuthApiFactory factory, string email, ArchiveRole role = ArchiveRole.Member)
+	private static async Task SeedActiveMemberAsync(AuthApiFactory factory, string email, string role = ArchiveRoles.Member)
 	{
 		using var scope = factory.Services.CreateScope();
-		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-		await AuthSeed.EnsureOperatorAccountAsync(db, email, "Test", role, "Test", DateTimeOffset.UtcNow, CancellationToken.None);
+		var users = scope.ServiceProvider.GetRequiredService<UserManager<ArchiveUser>>();
+		var roles = scope.ServiceProvider.GetRequiredService<RoleManager<ArchiveRole>>();
+		if (!await roles.RoleExistsAsync(role))
+			Assert.True((await roles.CreateAsync(new ArchiveRole(role))).Succeeded);
+		var user = await users.FindByEmailAsync(email);
+		if (user is null)
+		{
+			user = new ArchiveUser { UserName = email, Email = email, DisplayName = "Test", EmailConfirmed = true };
+			Assert.True((await users.CreateAsync(user)).Succeeded);
+		}
+		if (!await users.IsInRoleAsync(user, role))
+			Assert.True((await users.AddToRoleAsync(user, role)).Succeeded);
 	}
 
 	private static async Task<string> RequestCodeAsync(AuthApiFactory factory, HttpClient client, string email)
