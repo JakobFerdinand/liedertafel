@@ -62,6 +62,12 @@ export function MitgliederVerwaltung() {
   const [busy, setBusy] = useState(false);
   const [resendBusy, setResendBusy] = useState("");
   const [aktionBusy, setAktionBusy] = useState("");
+  const [neueAdressen, setNeueAdressen] = useState<Record<string, string>>({});
+  const [wechselCodes, setWechselCodes] = useState<Record<string, string>>({});
+  const [angefordert, setAngefordert] = useState<Record<string, string>>({});
+  const [wechselFehler, setWechselFehler] = useState<Record<string, string>>(
+    {},
+  );
   const [rollenEntwurf, setRollenEntwurf] = useState<Record<string, string>>(
     {},
   );
@@ -283,6 +289,125 @@ export function MitgliederVerwaltung() {
     );
   }
 
+  async function wechselCodeAnfordern(mitglied: Mitglied) {
+    const adresse = (neueAdressen[mitglied.accountId] ?? "").trim();
+    setWechselFehler((bisher) => ({ ...bisher, [mitglied.accountId]: "" }));
+    if (!adresse) {
+      setWechselFehler((bisher) => ({
+        ...bisher,
+        [mitglied.accountId]: "Bitte neue E-Mail-Adresse eingeben.",
+      }));
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(adresse)) {
+      setWechselFehler((bisher) => ({
+        ...bisher,
+        [mitglied.accountId]: "Bitte gültige E-Mail-Adresse eingeben.",
+      }));
+      return;
+    }
+    setHinweis("");
+    setErfolg("");
+    setAktionBusy(`wechsel-anfordern:${mitglied.accountId}`);
+    try {
+      const response = await postAuth("/api/admin/members/email/request", {
+        accountId: mitglied.accountId,
+        newEmail: adresse,
+      });
+      const payload = await response.json().catch(() => null);
+      if (
+        response.status === 403 &&
+        payload?.title?.includes("erneute Anmeldung")
+      ) {
+        setHinweis(
+          "Für diese Aktion ist eine erneute Anmeldung mit Code erforderlich. Bitte erneut anmelden.",
+        );
+        return;
+      }
+      if (!response.ok) {
+        setHinweis(
+          payload?.title ?? "Das hat nicht geklappt. Bitte erneut versuchen.",
+        );
+        await neuLaden();
+        return;
+      }
+      setErfolg(payload?.message ?? "Bestätigungscode gesendet.");
+      setAngefordert((bisher) => ({
+        ...bisher,
+        [mitglied.accountId]: adresse,
+      }));
+    } catch {
+      setHinweis(
+        "Sicherheitstoken konnte nicht geladen werden. Seite neu laden.",
+      );
+    } finally {
+      setAktionBusy("");
+    }
+  }
+
+  async function wechselBestaetigen(mitglied: Mitglied) {
+    const adresse = angefordert[mitglied.accountId] ?? "";
+    const code = (wechselCodes[mitglied.accountId] ?? "").replace(/\D/g, "");
+    setWechselFehler((bisher) => ({ ...bisher, [mitglied.accountId]: "" }));
+    if (code.length !== 6) {
+      setWechselFehler((bisher) => ({
+        ...bisher,
+        [mitglied.accountId]: "Bitte sechsstelligen Code eingeben.",
+      }));
+      return;
+    }
+    setHinweis("");
+    setErfolg("");
+    setAktionBusy(`wechsel-bestaetigen:${mitglied.accountId}`);
+    try {
+      const response = await postAuth("/api/admin/members/email/confirm", {
+        accountId: mitglied.accountId,
+        newEmail: adresse,
+        code,
+      });
+      const payload = await response.json().catch(() => null);
+      if (
+        response.status === 403 &&
+        payload?.title?.includes("erneute Anmeldung")
+      ) {
+        setHinweis(
+          "Für diese Aktion ist eine erneute Anmeldung mit Code erforderlich. Bitte erneut anmelden.",
+        );
+        return;
+      }
+      if (!response.ok) {
+        setHinweis(
+          payload?.title ?? "Das hat nicht geklappt. Bitte erneut versuchen.",
+        );
+        await neuLaden();
+        return;
+      }
+      setErfolg(payload?.message ?? "Adresse geändert.");
+      setNeueAdressen((bisher) => {
+        const naechste = { ...bisher };
+        delete naechste[mitglied.accountId];
+        return naechste;
+      });
+      setWechselCodes((bisher) => {
+        const naechste = { ...bisher };
+        delete naechste[mitglied.accountId];
+        return naechste;
+      });
+      setAngefordert((bisher) => {
+        const naechste = { ...bisher };
+        delete naechste[mitglied.accountId];
+        return naechste;
+      });
+      await neuLaden();
+    } catch {
+      setHinweis(
+        "Sicherheitstoken konnte nicht geladen werden. Seite neu laden.",
+      );
+    } finally {
+      setAktionBusy("");
+    }
+  }
+
   if (fehler) {
     return (
       <div aria-live="polite">
@@ -388,7 +513,9 @@ export function MitgliederVerwaltung() {
         <p className="feld-hinweis">
           Deaktivierte behalten Kennung und Verlauf; ihre Sitzungen werden
           abgemeldet und eine erneute Anmeldung ist nach Reaktivierung nötig.
-          Rollen gelten ab der nächsten Anfrage.
+          Rollen gelten ab der nächsten Anfrage. Eine Adressänderung behält
+          Kennung und Verlauf, meldet offene Sitzungen des Kontos ab und wird
+          erst mit dem Code an die neue Adresse wirksam.
         </p>
         {mitglieder === null ? (
           <p aria-live="polite">Mitglieder werden geladen …</p>
@@ -481,6 +608,86 @@ export function MitgliederVerwaltung() {
                               : "Deaktivieren"}
                           </button>
                         )}
+                        <details className="adress-wechsel">
+                          <summary>Adresse ändern</summary>
+                          <div className="adress-wechsel-formular">
+                            <label
+                              className="visually-hidden"
+                              htmlFor={`neu-${mitglied.accountId}`}
+                            >
+                              {`Neue E-Mail-Adresse für ${mitglied.email}`}
+                            </label>
+                            <input
+                              id={`neu-${mitglied.accountId}`}
+                              type="email"
+                              autoComplete="email"
+                              placeholder="Neue E-Mail-Adresse"
+                              aria-label={`Neue E-Mail-Adresse für ${mitglied.email}`}
+                              value={neueAdressen[mitglied.accountId] ?? ""}
+                              disabled={beschaeftigt}
+                              onChange={(event) =>
+                                setNeueAdressen((bisher) => ({
+                                  ...bisher,
+                                  [mitglied.accountId]: event.target.value,
+                                }))
+                              }
+                            />
+                            <button
+                              type="button"
+                              disabled={beschaeftigt}
+                              onClick={() => wechselCodeAnfordern(mitglied)}
+                            >
+                              {aktionBusy ===
+                              `wechsel-anfordern:${mitglied.accountId}`
+                                ? "Wird gesendet …"
+                                : "Code senden"}
+                            </button>
+                            {angefordert[mitglied.accountId] && (
+                              <>
+                                <p className="feld-hinweis">
+                                  {`Code an ${angefordert[mitglied.accountId]} gesendet. Erst die Bestätigung übernimmt die Adresse; Kennung und Verlauf bleiben erhalten.`}
+                                </p>
+                                <label
+                                  className="visually-hidden"
+                                  htmlFor={`wechsel-code-${mitglied.accountId}`}
+                                >
+                                  {`Bestätigungscode für ${angefordert[mitglied.accountId]}`}
+                                </label>
+                                <input
+                                  id={`wechsel-code-${mitglied.accountId}`}
+                                  type="text"
+                                  inputMode="numeric"
+                                  autoComplete="one-time-code"
+                                  placeholder="Code"
+                                  aria-label={`Bestätigungscode für ${angefordert[mitglied.accountId]}`}
+                                  value={wechselCodes[mitglied.accountId] ?? ""}
+                                  disabled={beschaeftigt}
+                                  onChange={(event) =>
+                                    setWechselCodes((bisher) => ({
+                                      ...bisher,
+                                      [mitglied.accountId]: event.target.value,
+                                    }))
+                                  }
+                                />
+                                <button
+                                  type="button"
+                                  disabled={beschaeftigt}
+                                  onClick={() => wechselBestaetigen(mitglied)}
+                                >
+                                  {aktionBusy ===
+                                  `wechsel-bestaetigen:${mitglied.accountId}`
+                                    ? "Wird geprüft …"
+                                    : "Adresse bestätigen"}
+                                </button>
+                              </>
+                            )}
+                            {wechselFehler[mitglied.accountId] && (
+                              <p role="alert" className="feld-fehler">
+                                {wechselFehler[mitglied.accountId]}
+                              </p>
+                            )}
+                          </div>
+                        </details>
                       </div>
                     </td>
                   </tr>

@@ -215,6 +215,32 @@ dd {
   background: var(--paper);
   color: var(--ink);
 }
+.adress-wechsel {
+  flex-basis: 100%;
+}
+.adress-wechsel summary {
+  cursor: pointer;
+  font-weight: 600;
+  width: fit-content;
+}
+.adress-wechsel-formular {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 0.6rem;
+}
+.adress-wechsel-formular input {
+  font: inherit;
+  padding: 0.5rem;
+  border: 2px solid var(--ink);
+  border-radius: 0.3rem;
+  background: var(--paper);
+  color: var(--ink);
+  flex: 1 1 12rem;
+  min-width: 0;
+  max-width: 16rem;
+}
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -263,6 +289,15 @@ footer {
     align-items: flex-start;
     flex-direction: column;
     gap: 1.2rem;
+  }
+  .adress-wechsel-formular {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .adress-wechsel-formular input {
+    flex: none;
+    max-width: none;
+    width: 100%;
   }
   nav {
     flex-wrap: wrap;
