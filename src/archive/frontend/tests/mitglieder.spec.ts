@@ -188,6 +188,103 @@ test("Verwaltung prompts re-login when verification is stale", async ({
   expect(errors).toEqual([]);
 });
 
+test("Verwaltung changes roles and revokes with a mocked API", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await mockAdminSeite(page);
+  await page.route("**/api/admin/members/role", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        message:
+          "Rolle aktualisiert. Die Änderung gilt ab der nächsten Anfrage.",
+        accountId: "00000000-0000-0000-0000-000000000002",
+        roles: ["Editor"],
+      }),
+    }),
+  );
+  await page.route("**/api/admin/members/deactivate", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        message:
+          "Mitglied deaktiviert. Bestehende Sitzungen werden abgemeldet; Inhalte und Verlauf bleiben erhalten.",
+        accountId: "00000000-0000-0000-0000-000000000002",
+        status: "deactivated",
+      }),
+    }),
+  );
+  await page.route("**/api/admin/members/reactivate", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        message:
+          "Mitglied reaktiviert. Eine erneute Anmeldung mit Code ist erforderlich; frühere Sitzungen bleiben ungültig.",
+        accountId: "00000000-0000-0000-0000-000000000002",
+        status: "active",
+      }),
+    }),
+  );
+
+  await page.goto("/verwaltung/");
+  await expect(page.getByText("mitglied@liedertafel.test")).toBeVisible();
+
+  const zeile = page.getByRole("row", { name: /mitglied@liedertafel\.test/ });
+  await zeile.getByLabel(/Rolle für/).selectOption("Editor");
+  await zeile.getByRole("button", { name: "Rolle speichern" }).click();
+  await expect(page.getByText("Rolle aktualisiert")).toBeVisible();
+
+  await zeile.getByRole("button", { name: "Deaktivieren" }).click();
+  await expect(
+    page.getByText("Bestehende Sitzungen werden abgemeldet"),
+  ).toBeVisible();
+
+  expect(errors).toEqual([]);
+});
+
+test("Verwaltung prompts re-login for revocation when stale", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await mockAdminSeite(page);
+  await page.route("**/api/admin/members/deactivate", (route) =>
+    route.fulfill({
+      status: 403,
+      contentType: "application/problem+json",
+      body: JSON.stringify({
+        title:
+          "Für diese Aktion ist eine erneute Anmeldung mit Code erforderlich.",
+      }),
+    }),
+  );
+  await page.route("**/api/admin/members/role", (route) =>
+    route.fulfill({
+      status: 409,
+      contentType: "application/problem+json",
+      body: JSON.stringify({
+        title:
+          "Die letzte Administratorin oder der letzte Administrator kann nicht entfernt werden. Reparatur gehört zum Wartungsweg, nicht zur Selbstentsperrung.",
+      }),
+    }),
+  );
+
+  await page.goto("/verwaltung/");
+  const zeile = page.getByRole("row", { name: /mitglied@liedertafel\.test/ });
+  await zeile.getByRole("button", { name: "Deaktivieren" }).click();
+  await expect(page.getByText(/erneute Anmeldung mit Code/)).toBeVisible();
+
+  await zeile.getByRole("button", { name: "Rolle speichern" }).click();
+  await expect(page.getByText(/letzte Administratorin/)).toBeVisible();
+
+  expect(errors).toEqual([]);
+});
+
 test("Vollständiger Einladungsfluss mit E-Mail-Code", async ({
   page,
   request,

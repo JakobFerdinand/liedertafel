@@ -433,14 +433,9 @@ export function MitgliederVerwaltung() {
                               : "Erneut senden"}
                           </button>
                         )}
-                        <label
-                          htmlFor={`rolle-${mitglied.accountId}`}
-                          className="visually-hidden"
-                        >
-                          Rolle für {mitglied.email}
-                        </label>
                         <select
                           id={`rolle-${mitglied.accountId}`}
+                          aria-label={`Rolle für ${mitglied.email} wählen`}
                           value={Entwurf}
                           disabled={beschaeftigt}
                           onChange={(event) =>
