@@ -16,6 +16,7 @@ if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" o
         throw new InvalidOperationException("Local service commands require Development.");
     jobs.Services.AddDbContext<ArchiveDbContext>(options => options.UseNpgsql(
         OperatorConfiguration.Connection(jobs.Configuration)));
+    jobs.Services.AddArchiveIdentity(jobs.Configuration);
     jobs.Services.AddSingleton<LocalServices>();
     jobs.Services.AddSingleton(TimeProvider.System);
     using var host = jobs.Build();

@@ -10,33 +10,7 @@ public static class AuthSetup
 {
 	public static IServiceCollection AddArchiveAuth(this IServiceCollection services, IConfiguration configuration, IWebHostEnvironment environment)
 	{
-		services.Configure<AuthOptions>(configuration.GetSection(AuthOptions.SectionName));
-		services.AddScoped<SignInCodeService>();
-		services.AddScoped<EmailCodeTokenProvider>();
-		services.AddScoped<IArchiveMailSender, SmtpSignInCodeSender>();
-		services.AddScoped<CurrentUserAccessor>();
-
-		services.AddIdentity<ArchiveUser, ArchiveRole>(options =>
-			{
-				options.User.RequireUniqueEmail = true;
-				// Invited members sign in before confirmation; the service and
-				// the principal validator below enforce confirmation explicitly.
-				options.SignIn.RequireConfirmedEmail = false;
-				// Account-level backstop next to the per-code attempt caps and
-				// the AuthRequestLog abuse limits.
-				options.Lockout.AllowedForNewUsers = true;
-				options.Lockout.MaxFailedAccessAttempts = 20;
-				options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
-			})
-			.AddEntityFrameworkStores<ArchiveDbContext>()
-			.AddDefaultTokenProviders()
-			.AddTokenProvider<EmailCodeTokenProvider>(EmailCodeTokenProvider.ProviderName);
-
-		// Tight revalidation for a tiny user base: revocation takes effect
-		// within minutes without per-request stamp checks.
-		services.Configure<SecurityStampValidatorOptions>(options =>
-			options.ValidationInterval = TimeSpan.FromMinutes(5));
-
+		services.AddArchiveIdentity(configuration);
 		services.ConfigureApplicationCookie(cookie =>
 		{
 			cookie.Cookie.Name = "archive.auth";
@@ -83,6 +57,42 @@ public static class AuthSetup
 			.AddPolicy(AuthPolicies.Member, policy => policy.RequireAuthenticatedUser())
 			.AddPolicy(AuthPolicies.Editor, policy => policy.RequireRole(ArchiveRoles.Editor, ArchiveRoles.Administrator))
 			.AddPolicy(AuthPolicies.Administrator, policy => policy.RequireRole(ArchiveRoles.Administrator));
+		return services;
+	}
+
+	/// <summary>
+	/// Identity services without web cookie configuration, for finite operator
+	/// commands (<c>--bootstrap-admin</c>, <c>--seed-dev-auth</c>) that run on a
+	/// generic host without <see cref="IWebHostEnvironment"/>.
+	/// </summary>
+	public static IServiceCollection AddArchiveIdentity(this IServiceCollection services, IConfiguration configuration)
+	{
+		services.Configure<AuthOptions>(configuration.GetSection(AuthOptions.SectionName));
+		services.AddScoped<SignInCodeService>();
+		services.AddScoped<EmailCodeTokenProvider>();
+		services.AddScoped<IArchiveMailSender, SmtpSignInCodeSender>();
+		services.AddScoped<CurrentUserAccessor>();
+
+		services.AddIdentity<ArchiveUser, ArchiveRole>(options =>
+			{
+				options.User.RequireUniqueEmail = true;
+				// Invited members sign in before confirmation; the service and
+				// the principal validator enforce confirmation explicitly.
+				options.SignIn.RequireConfirmedEmail = false;
+				// Account-level backstop next to the per-code attempt caps and
+				// the AuthRequestLog abuse limits.
+				options.Lockout.AllowedForNewUsers = true;
+				options.Lockout.MaxFailedAccessAttempts = 20;
+				options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
+			})
+			.AddEntityFrameworkStores<ArchiveDbContext>()
+			.AddDefaultTokenProviders()
+			.AddTokenProvider<EmailCodeTokenProvider>(EmailCodeTokenProvider.ProviderName);
+
+		// Tight revalidation for a tiny user base: revocation takes effect
+		// within minutes without per-request stamp checks.
+		services.Configure<SecurityStampValidatorOptions>(options =>
+			options.ValidationInterval = TimeSpan.FromMinutes(5));
 		return services;
 	}
 
