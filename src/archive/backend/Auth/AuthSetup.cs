@@ -1,9 +1,8 @@
 using System.Security.Claims;
 using Archive.Backend.Data;
 using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
 
 namespace Archive.Backend.Auth;
 
@@ -13,73 +12,94 @@ public static class AuthSetup
 	{
 		services.Configure<AuthOptions>(configuration.GetSection(AuthOptions.SectionName));
 		services.AddScoped<SignInCodeService>();
+		services.AddScoped<EmailCodeTokenProvider>();
 		services.AddScoped<IArchiveMailSender, SmtpSignInCodeSender>();
 		services.AddScoped<CurrentUserAccessor>();
 
-		var options = configuration.GetSection(AuthOptions.SectionName).Get<AuthOptions>() ?? new AuthOptions();
-		services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
-			.AddCookie(cookie =>
+		services.AddIdentity<ArchiveUser, ArchiveRole>(options =>
 			{
-				cookie.Cookie.Name = options.CookieName;
-				cookie.Cookie.HttpOnly = true;
-				cookie.Cookie.SameSite = SameSiteMode.Strict;
-				cookie.Cookie.SecurePolicy = environment.IsDevelopment()
-					? CookieSecurePolicy.SameAsRequest : CookieSecurePolicy.Always;
-				cookie.ExpireTimeSpan = options.SessionLifetime;
-				cookie.SlidingExpiration = true;
-				cookie.Events.OnValidatePrincipal = async context =>
+				options.User.RequireUniqueEmail = true;
+				// Invited members sign in before confirmation; the service and
+				// the principal validator below enforce confirmation explicitly.
+				options.SignIn.RequireConfirmedEmail = false;
+				// Account-level backstop next to the per-code attempt caps and
+				// the AuthRequestLog abuse limits.
+				options.Lockout.AllowedForNewUsers = true;
+				options.Lockout.MaxFailedAccessAttempts = 20;
+				options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
+			})
+			.AddEntityFrameworkStores<ArchiveDbContext>()
+			.AddDefaultTokenProviders()
+			.AddTokenProvider<EmailCodeTokenProvider>(EmailCodeTokenProvider.ProviderName);
+
+		// Tight revalidation for a tiny user base: revocation takes effect
+		// within minutes without per-request stamp checks.
+		services.Configure<SecurityStampValidatorOptions>(options =>
+			options.ValidationInterval = TimeSpan.FromMinutes(5));
+
+		services.ConfigureApplicationCookie(cookie =>
+		{
+			cookie.Cookie.Name = "archive.auth";
+			cookie.Cookie.HttpOnly = true;
+			cookie.Cookie.SameSite = SameSiteMode.Strict;
+			cookie.Cookie.SecurePolicy = environment.IsDevelopment()
+				? CookieSecurePolicy.SameAsRequest : CookieSecurePolicy.Always;
+			cookie.ExpireTimeSpan = TimeSpan.FromDays(30);
+			cookie.SlidingExpiration = true;
+			var stampValidation = cookie.Events.OnValidatePrincipal;
+			cookie.Events.OnValidatePrincipal = async context =>
+			{
+				if (stampValidation is not null)
+					await stampValidation(context);
+				if (context.Principal?.Identity?.IsAuthenticated != true)
+					return;
+				var users = context.HttpContext.RequestServices.GetRequiredService<UserManager<ArchiveUser>>();
+				var user = await users.GetUserAsync(context.Principal);
+				if (user is null || !user.EmailConfirmed || await users.IsLockedOutAsync(user))
 				{
-					var db = context.HttpContext.RequestServices.GetRequiredService<ArchiveDbContext>();
-					var idValue = context.Principal?.FindFirst(AuthClaims.AccountId)?.Value;
-					if (!Guid.TryParse(idValue, out var accountId))
-					{
-						context.RejectPrincipal();
-						await context.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-						return;
-					}
-					var active = await db.Memberships.AnyAsync(
-						m => m.AccountId == accountId && m.Status == MembershipStatus.Active,
-						context.HttpContext.RequestAborted);
-					if (!active)
-					{
-						context.RejectPrincipal();
-						await context.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-					}
-				};
-				// API contract: never redirect browsers to HTML; use Problem status codes.
-				cookie.Events.OnRedirectToLogin = context =>
+					context.RejectPrincipal();
+					await context.HttpContext.SignOutAsync(IdentityConstants.ApplicationScheme);
+					return;
+				}
+				if ((await users.GetRolesAsync(user)).Count == 0)
 				{
-					context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-					return Task.CompletedTask;
-				};
-				cookie.Events.OnRedirectToAccessDenied = context =>
-				{
-					context.Response.StatusCode = StatusCodes.Status403Forbidden;
-					return Task.CompletedTask;
-				};
-			});
+					context.RejectPrincipal();
+					await context.HttpContext.SignOutAsync(IdentityConstants.ApplicationScheme);
+				}
+			};
+			// API contract: never redirect browsers to HTML; use Problem status codes.
+			cookie.Events.OnRedirectToLogin = context =>
+			{
+				context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+				return Task.CompletedTask;
+			};
+			cookie.Events.OnRedirectToAccessDenied = context =>
+			{
+				context.Response.StatusCode = StatusCodes.Status403Forbidden;
+				return Task.CompletedTask;
+			};
+		});
 		services.AddAuthorizationBuilder()
 			.AddPolicy(AuthPolicies.Member, policy => policy.RequireAuthenticatedUser())
-			.AddPolicy(AuthPolicies.Editor, policy => policy.RequireRole("Editor", "Administrator"))
-			.AddPolicy(AuthPolicies.Administrator, policy => policy.RequireRole("Administrator"));
+			.AddPolicy(AuthPolicies.Editor, policy => policy.RequireRole(ArchiveRoles.Editor, ArchiveRoles.Administrator))
+			.AddPolicy(AuthPolicies.Administrator, policy => policy.RequireRole(ArchiveRoles.Administrator));
 		return services;
 	}
 
 	public static async Task SignInMemberAsync(
-		HttpContext context, Account account, IEnumerable<ArchiveRole> roles, DateTimeOffset now)
+		SignInManager<ArchiveUser> signIn, ArchiveUser user, IList<string> roles, DateTimeOffset now)
 	{
 		var claims = new List<Claim>
 		{
-			new(AuthClaims.AccountId, account.Id.ToString()),
-			new(ClaimTypes.Email, account.Email),
-			new(ClaimTypes.Name, account.DisplayName ?? account.Email),
+			new(AuthClaims.AccountId, user.Id.ToString()),
 			new(AuthClaims.AuthenticatedAt, now.ToString("O")),
 		};
-		claims.AddRange(roles.Distinct().Select(role => new Claim(ClaimTypes.Role, ArchiveRoleNames.ToClaim(role))));
-		var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
-		await context.SignInAsync(
-			CookieAuthenticationDefaults.AuthenticationScheme,
-			new ClaimsPrincipal(identity),
-			new AuthenticationProperties { IsPersistent = true, AllowRefresh = true });
+		var displayName = user.DisplayName ?? user.Email;
+		if (!string.IsNullOrWhiteSpace(displayName))
+			claims.Add(new Claim(AuthClaims.DisplayName, displayName));
+		await signIn.SignInWithClaimsAsync(
+			user,
+			new AuthenticationProperties { IsPersistent = true, AllowRefresh = true },
+			claims);
 	}
 }

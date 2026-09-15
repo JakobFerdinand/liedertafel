@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using Archive.Backend.Data;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
@@ -21,12 +22,15 @@ public enum CodeVerifyOutcome
 }
 
 /// <summary>
-/// Request/verify business logic. All unauthenticated failures share one generic
-/// message so responses never disclose membership; only low-cardinality
-/// <c>auth.result</c> tags reach telemetry.
+/// Request/verify orchestration on top of ASP.NET Core Identity. Identity owns
+/// users, roles, lockout and sessions; this service owns the invite-only
+/// policy (uniform responses that never disclose membership), the resend and
+/// abuse caps in <see cref="AuthRequestLog"/>, and mail transport. Code
+/// cryptography and one-time state live in <see cref="EmailCodeTokenProvider"/>.
 /// </summary>
 public sealed class SignInCodeService(
 	ArchiveDbContext db,
+	UserManager<ArchiveUser> users,
 	IArchiveMailSender mail,
 	IOptions<AuthOptions> options,
 	ILogger<SignInCodeService> logger)
@@ -61,7 +65,7 @@ public sealed class SignInCodeService(
 			return CodeRequestOutcome.RateLimited;
 		}
 
-		var latest = await db.SignInCodes
+		var latest = await db.SignInChallenges
 			.Where(c => c.NormalizedEmail == normalizedEmail && c.ConsumedAt == null && c.ExpiresAt > now)
 			.OrderByDescending(c => c.CreatedAt)
 			.FirstOrDefaultAsync(token);
@@ -79,11 +83,8 @@ public sealed class SignInCodeService(
 			return CodeRequestOutcome.ResentSuppressed;
 		}
 
-		var membership = await db.Memberships
-			.Include(m => m.Account)
-			.Where(m => m.Account.NormalizedEmail == normalizedEmail && m.Status == MembershipStatus.Active)
-			.OrderByDescending(m => m.Role)
-			.FirstOrDefaultAsync(token);
+		var user = await users.FindByEmailAsync(normalizedEmail);
+		var usable = user is not null && !await users.IsLockedOutAsync(user);
 
 		db.AuthRequestLogs.Add(new AuthRequestLog
 		{
@@ -91,7 +92,7 @@ public sealed class SignInCodeService(
 			Kind = AuthRequestKind.CodeRequested, Succeeded = true, OccurredAt = now,
 		});
 
-		if (membership is null)
+		if (!usable || user is null)
 		{
 			// No disclosure: same timing class, same caller-visible outcome, no mail.
 			await db.SaveChangesAsync(token);
@@ -101,24 +102,13 @@ public sealed class SignInCodeService(
 			return CodeRequestOutcome.Sent;
 		}
 
-		var code = AuthSecurity.GenerateCode(auth.CodeLength);
-		var salt = AuthSecurity.NewSalt();
-		var entry = new SignInCode
-		{
-			AccountId = membership.AccountId,
-			NormalizedEmail = normalizedEmail,
-			CodeHash = AuthSecurity.HashCode(code, salt),
-			Salt = salt,
-			CreatedAt = now,
-			ExpiresAt = now.Add(auth.CodeLifetime),
-			LastSentAt = now,
-		};
-		db.SignInCodes.Add(entry);
+		var code = await users.GenerateUserTokenAsync(user, EmailCodeTokenProvider.ProviderName, EmailCodeTokenProvider.SignInPurpose);
+		var address = await users.GetEmailAsync(user) ?? normalizedEmail;
 		await db.SaveChangesAsync(token);
 
 		try
 		{
-			await mail.SendSignInCodeAsync(membership.Account.Email, code, auth.CodeLifetime, token);
+			await mail.SendSignInCodeAsync(address, code, auth.CodeLifetime, token);
 		}
 		catch (Exception exception)
 		{
@@ -132,7 +122,7 @@ public sealed class SignInCodeService(
 		return CodeRequestOutcome.Sent;
 	}
 
-	public async Task<(CodeVerifyOutcome Outcome, Account? Account, List<ArchiveRole> Roles)> VerifyCodeAsync(
+	public async Task<(CodeVerifyOutcome Outcome, ArchiveUser? User, IList<string> Roles)> VerifyCodeAsync(
 		string normalizedEmail, string candidateCode, string ipHash, DateTimeOffset now, CancellationToken token)
 	{
 		using var activity = Extensions.Activities.StartActivity("archive.auth.verify", ActivityKind.Internal);
@@ -147,11 +137,8 @@ public sealed class SignInCodeService(
 			return (CodeVerifyOutcome.RateLimited, null, []);
 		}
 
-		var candidate = await db.SignInCodes
-			.Where(c => c.NormalizedEmail == normalizedEmail && c.ConsumedAt == null && c.ExpiresAt > now)
-			.OrderByDescending(c => c.CreatedAt)
-			.FirstOrDefaultAsync(token);
-		if (candidate is null || candidate.AttemptCount >= auth.MaxVerifyAttemptsPerCode)
+		var user = await users.FindByEmailAsync(normalizedEmail);
+		if (user is null || await users.IsLockedOutAsync(user))
 		{
 			await LogVerifyFailureAsync(normalizedEmail, ipHash, now, token);
 			AuthFailures.Add(1);
@@ -160,79 +147,36 @@ public sealed class SignInCodeService(
 			return (CodeVerifyOutcome.Invalid, null, []);
 		}
 
-		if (!AuthSecurity.VerifyCode(candidateCode, candidate.Salt, candidate.CodeHash))
+		var valid = await users.VerifyUserTokenAsync(
+			user, EmailCodeTokenProvider.ProviderName, EmailCodeTokenProvider.SignInPurpose, candidateCode);
+		if (!valid)
 		{
-			// Bounded attempts persist across instances via the code row. The
-			// bumped concurrency token keeps concurrent failures from silently
-			// overwriting each other; a lost race retries against fresh state.
-			candidate.AttemptCount++;
-			candidate.RowVersion++;
-			try
+			// Account-level backstop next to the per-code attempt caps.
+			await users.AccessFailedAsync(user);
+			await LogVerifyFailureAsync(normalizedEmail, ipHash, now, token);
+			AuthFailures.Add(1);
+			activity?.SetTag("auth.result", "failed");
+			logger.LogInformation("Sign-in code verification failed");
+			return (CodeVerifyOutcome.Invalid, null, []);
+		}
+
+		await users.ResetAccessFailedCountAsync(user);
+		if (!user.EmailConfirmed)
+		{
+			// The code proved address ownership: invitation becomes membership.
+			user.EmailConfirmed = true;
+			var confirmed = await users.UpdateAsync(user);
+			if (!confirmed.Succeeded)
 			{
-				await db.SaveChangesAsync(token);
+				AuthFailures.Add(1);
+				activity?.SetTag("auth.result", "failed");
+				logger.LogInformation("Sign-in code verification failed");
+				return (CodeVerifyOutcome.Invalid, null, []);
 			}
-			catch (DbUpdateConcurrencyException)
-			{
-				db.Entry(candidate).State = EntityState.Detached;
-				var retry = await db.SignInCodes
-					.Where(c => c.Id == candidate.Id && c.ConsumedAt == null && c.ExpiresAt > now)
-					.FirstOrDefaultAsync(token);
-				if (retry is not null && retry.AttemptCount < auth.MaxVerifyAttemptsPerCode)
-				{
-					retry.AttemptCount++;
-					retry.RowVersion++;
-					try
-					{
-						await db.SaveChangesAsync(token);
-					}
-					catch (DbUpdateConcurrencyException)
-					{
-						// A further concurrent writer won; the attempt may be
-						// undercounted by one in this rare race, but the
-						// per-code attempt check and the email failure cap
-						// still bound abuse.
-						db.Entry(retry).State = EntityState.Detached;
-					}
-				}
-			}
-			await LogVerifyFailureAsync(normalizedEmail, ipHash, now, token);
-			AuthFailures.Add(1);
-			activity?.SetTag("auth.result", "failed");
-			logger.LogInformation("Sign-in code verification failed");
-			return (CodeVerifyOutcome.Invalid, null, []);
 		}
 
-		// Consume with an optimistic-concurrency bump: exactly one concurrent
-		// submitter's UPDATE matches the expected token, the rest observe no
-		// row and are rejected as invalid.
-		candidate.ConsumedAt = now;
-		candidate.RowVersion++;
-		try
-		{
-			await db.SaveChangesAsync(token);
-		}
-		catch (DbUpdateConcurrencyException)
-		{
-			db.Entry(candidate).State = EntityState.Detached;
-			await LogVerifyFailureAsync(normalizedEmail, ipHash, now, token);
-			AuthFailures.Add(1);
-			activity?.SetTag("auth.result", "failed");
-			logger.LogInformation("Sign-in code verification failed");
-			return (CodeVerifyOutcome.Invalid, null, []);
-		}
-
-		var accountId = candidate.AccountId;
-		Account? account = null;
-		List<ArchiveRole> roles = [];
-		if (accountId is not null)
-		{
-			account = await db.Accounts.FindAsync([accountId.Value], token);
-			roles = await db.Memberships
-				.Where(m => m.AccountId == accountId.Value && m.Status == MembershipStatus.Active)
-				.Select(m => m.Role)
-				.ToListAsync(token);
-		}
-		if (account is null || roles.Count == 0)
+		var roles = await users.GetRolesAsync(user);
+		if (roles.Count == 0)
 		{
 			AuthFailures.Add(1);
 			activity?.SetTag("auth.result", "failed");
@@ -249,7 +193,7 @@ public sealed class SignInCodeService(
 		AuthVerified.Add(1);
 		activity?.SetTag("auth.result", "verified");
 		logger.LogInformation("Sign-in code verified");
-		return (CodeVerifyOutcome.Verified, account, roles);
+		return (CodeVerifyOutcome.Verified, user, roles);
 	}
 
 	private async Task LogVerifyFailureAsync(string normalizedEmail, string ipHash, DateTimeOffset now, CancellationToken token)

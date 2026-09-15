@@ -6,6 +6,7 @@ public static class AuthClaims
 {
 	public const string AccountId = "archive.account_id";
 	public const string AuthenticatedAt = "archive.authenticated_at";
+	public const string DisplayName = "archive.display_name";
 }
 
 public static class AuthPolicies
@@ -13,35 +14,6 @@ public static class AuthPolicies
 	public const string Member = "ArchiveMember";
 	public const string Editor = "ArchiveEditor";
 	public const string Administrator = "ArchiveAdministrator";
-}
-
-public static class ArchiveRoleNames
-{
-	public static string ToClaim(ArchiveRole role) => role switch
-	{
-		ArchiveRole.Administrator => "Administrator",
-		ArchiveRole.Editor => "Editor",
-		_ => "Member",
-	};
-
-	public static bool TryParse(string? value, out ArchiveRole role)
-	{
-		switch (value)
-		{
-			case "Administrator":
-				role = ArchiveRole.Administrator;
-				return true;
-			case "Editor":
-				role = ArchiveRole.Editor;
-				return true;
-			case "Member":
-				role = ArchiveRole.Member;
-				return true;
-			default:
-				role = ArchiveRole.Member;
-				return false;
-		}
-	}
 }
 
 public sealed record ArchiveCurrentUser(
@@ -68,7 +40,7 @@ public static class ClaimsPrincipalExtensions
 		if (!DateTimeOffset.TryParse(authenticatedAtValue, out var authenticatedAt))
 			return null;
 		var email = principal.FindFirst(ClaimTypes.Email)?.Value ?? string.Empty;
-		var displayName = principal.FindFirst(ClaimTypes.Name)?.Value;
+		var displayName = principal.FindFirst(AuthClaims.DisplayName)?.Value;
 		var roles = principal.FindAll(ClaimTypes.Role).Select(c => c.Value).ToArray();
 		if (roles.Length == 0)
 			return null;

@@ -1,24 +1,26 @@
 using Archive.Backend.Auth;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
 using Npgsql;
 
 namespace Archive.Backend.Data;
 
-// ARC-001 deliberately had no product entities. ARC-005 adds the first real
-// tables (account/membership/code/rate-limit); each later feature owns its own migration.
-public sealed class ArchiveDbContext(DbContextOptions<ArchiveDbContext> options) : DbContext(options)
+// Identity owns users/roles/sessions; each feature slice owns its own tables
+// (challenges and rate-limit evidence live here, catalogue slices add theirs).
+public sealed class ArchiveDbContext(DbContextOptions<ArchiveDbContext> options)
+	: IdentityDbContext<ArchiveUser, ArchiveRole, Guid>(options)
 {
-	public DbSet<Account> Accounts => Set<Account>();
-
-	public DbSet<Membership> Memberships => Set<Membership>();
-
-	public DbSet<SignInCode> SignInCodes => Set<SignInCode>();
+	public DbSet<SignInChallenge> SignInChallenges => Set<SignInChallenge>();
 
 	public DbSet<AuthRequestLog> AuthRequestLogs => Set<AuthRequestLog>();
 
 	protected override void OnModelCreating(ModelBuilder modelBuilder)
-		=> modelBuilder.ApplyConfigurationsFromAssembly(typeof(Account).Assembly);
+	{
+		base.OnModelCreating(modelBuilder);
+		modelBuilder.ApplyConfigurationsFromAssembly(typeof(ArchiveUser).Assembly);
+	}
 }
 
 public sealed class ArchiveDbContextFactory : IDesignTimeDbContextFactory<ArchiveDbContext>

@@ -1,5 +1,7 @@
+using Archive.Backend.Auth;
 using Archive.Backend.Data;
 using Microsoft.AspNetCore.Antiforgery;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
 namespace Archive.Backend.Development;
@@ -33,14 +35,14 @@ public static class DiagnosticEndpoints
         });
 
         app.MapPost("/api/dev/auth/seed", async (HttpContext context, IAntiforgery antiforgery,
-            ArchiveDbContext db, TimeProvider time, CancellationToken token) =>
+            UserManager<ArchiveUser> users, RoleManager<ArchiveRole> roles, CancellationToken token) =>
         {
             try { await antiforgery.ValidateRequestAsync(context); }
             catch (AntiforgeryValidationException)
             {
                 return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
             }
-            var accounts = await AuthSeed.EnsureTestAccountsAsync(db, time.GetUtcNow(), token);
+            var accounts = await AuthSeed.EnsureTestAccountsAsync(users, roles, token);
             return Results.Ok(new
             {
                 message = "Testkonten sind bereit.",
