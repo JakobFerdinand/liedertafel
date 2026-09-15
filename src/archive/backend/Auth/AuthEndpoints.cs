@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 
 namespace Archive.Backend.Auth;
 
@@ -79,8 +80,15 @@ public static class AuthEndpoints
 			if (user is not null)
 			{
 				// Server-side effect: previously issued tickets fail stamp
-				// validation instead of staying usable until expiry.
-				await signIn.UserManager.UpdateSecurityStampAsync(user);
+				// validation instead of staying usable until expiry. A lost
+				// concurrent update still signs out below.
+				try
+				{
+					await signIn.UserManager.UpdateSecurityStampAsync(user);
+				}
+				catch (DbUpdateConcurrencyException)
+				{
+				}
 			}
 			await signIn.SignOutAsync();
 			context.Response.Headers.CacheControl = "no-store";

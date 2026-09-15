@@ -81,7 +81,10 @@ app.UseExceptionHandler(new ExceptionHandlerOptions
     ExceptionHandler = context =>
     {
         var failure = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>();
-        app.Logger.LogError("Archive request failed ({ExceptionType})", failure?.Error.GetType().Name);
+        // Type and frames only: exception messages may carry PII (for
+        // example database constraint details), so they never reach logs.
+        app.Logger.LogError("Archive request failed ({ExceptionType}) {StackTrace}",
+            failure?.Error.GetType().Name, failure?.Error.StackTrace);
         return Results.Problem(statusCode: 500, title: "Die Anfrage konnte nicht verarbeitet werden.").ExecuteAsync(context);
     }
 });

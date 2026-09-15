@@ -60,15 +60,36 @@ public static class OperatorConfiguration
 			throw new InvalidOperationException("Archive already has accounts; use member administration instead of bootstrap.");
 		if (!await roles.RoleExistsAsync(ArchiveRoles.Administrator))
 		{
-			var created = await roles.CreateAsync(new ArchiveRole(ArchiveRoles.Administrator));
-			if (!created.Succeeded)
-				throw new InvalidOperationException("Administrator role could not be created.");
+			try
+			{
+				var created = await roles.CreateAsync(new ArchiveRole(ArchiveRoles.Administrator));
+				if (!created.Succeeded && !await roles.RoleExistsAsync(ArchiveRoles.Administrator))
+					throw new InvalidOperationException("Administrator role could not be created.");
+			}
+			catch (DbUpdateException)
+			{
+				// A parallel bootstrap may have won the race; only the
+				// still-missing role is an error.
+				if (!await roles.RoleExistsAsync(ArchiveRoles.Administrator))
+					throw;
+			}
 		}
 		var id = await AuthSeed.EnsureUserAsync(users, email!.Trim(), displayName, token);
 		var admin = (await users.FindByIdAsync(id.ToString()))!;
-		var inRole = await users.AddToRoleAsync(admin, ArchiveRoles.Administrator);
-		if (!inRole.Succeeded)
-			throw new InvalidOperationException("Administrator role could not be assigned.");
+		if (!await users.IsInRoleAsync(admin, ArchiveRoles.Administrator))
+		{
+			try
+			{
+				var inRole = await users.AddToRoleAsync(admin, ArchiveRoles.Administrator);
+				if (!inRole.Succeeded && !await users.IsInRoleAsync(admin, ArchiveRoles.Administrator))
+					throw new InvalidOperationException("Administrator role could not be assigned.");
+			}
+			catch (DbUpdateException)
+			{
+				if (!await users.IsInRoleAsync(admin, ArchiveRoles.Administrator))
+					throw;
+			}
+		}
 		// Log the domain only; never the full address from an operator command.
 		logger.LogInformation(
 			"Bootstrap administrator ensured for domain {Domain} by {Operator}",

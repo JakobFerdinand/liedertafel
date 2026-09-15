@@ -11,6 +11,9 @@ public sealed record SeedAccount(string Email, string Role, Guid AccountId);
 /// Development-only test accounts for all roles so catalogue/event slices need
 /// not wait for the ARC-006 admin UI. Identity-native: confirmed users with
 /// role memberships, no passwords. Never used in production.
+/// All writes tolerate a lost unique-constraint race (parallel seeds, repair
+/// reruns): after a conflict the desired end state is re-read and only a
+/// still-missing state throws.
 /// </summary>
 public static class AuthSeed
 {
@@ -27,7 +30,11 @@ public static class AuthSeed
 		foreach (var role in ArchiveRoles.All)
 		{
 			if (!await roles.RoleExistsAsync(role))
-				AssertSucceeded(await roles.CreateAsync(new ArchiveRole(role)));
+			{
+				var created = await TryAsync(() => roles.CreateAsync(new ArchiveRole(role)));
+				if (!created.Succeeded && !await roles.RoleExistsAsync(role))
+					AssertSucceeded(created);
+			}
 		}
 		var result = new List<SeedAccount>();
 		foreach (var (email, displayName, role) in TestAccounts)
@@ -35,7 +42,11 @@ public static class AuthSeed
 			var id = await EnsureUserAsync(users, email.Trim(), displayName, token);
 			var user = (await users.FindByEmailAsync(email))!;
 			if (!await users.IsInRoleAsync(user, role))
-				AssertSucceeded(await users.AddToRoleAsync(user, role));
+			{
+				var assigned = await TryAsync(() => users.AddToRoleAsync(user, role));
+				if (!assigned.Succeeded && !await users.IsInRoleAsync(user, role))
+					AssertSucceeded(assigned);
+			}
 			result.Add(new SeedAccount(user.Email!, role, id));
 		}
 		return result;
@@ -59,14 +70,43 @@ public static class AuthSeed
 				DisplayName = string.IsNullOrWhiteSpace(displayName) ? null : displayName.Trim(),
 				EmailConfirmed = true,
 			};
-			AssertSucceeded(await users.CreateAsync(user));
+			var created = await TryAsync(() => users.CreateAsync(user));
+			if (!created.Succeeded)
+			{
+				user = await users.FindByEmailAsync(normalized);
+				if (user is null)
+					AssertSucceeded(created);
+			}
 		}
 		else if (!user.EmailConfirmed)
 		{
 			user.EmailConfirmed = true;
-			AssertSucceeded(await users.UpdateAsync(user));
+			var confirmed = await TryAsync(() => users.UpdateAsync(user!));
+			if (!confirmed.Succeeded)
+			{
+				user = await users.FindByEmailAsync(normalized);
+				if (user is null || !user.EmailConfirmed)
+					AssertSucceeded(confirmed);
+			}
 		}
-		return user.Id;
+		return user!.Id;
+	}
+
+	/// <summary>Runs an Identity write, reporting store races as failure instead of throwing.</summary>
+	private static async Task<IdentityResult> TryAsync(Func<Task<IdentityResult>> write)
+	{
+		try
+		{
+			return await write();
+		}
+		catch (Exception exception) when (exception is DbUpdateException or DbUpdateConcurrencyException)
+		{
+			return IdentityResult.Failed(new IdentityError
+			{
+				Code = "ConcurrencyConflict",
+				Description = "Concurrent seed write lost a store race; the caller re-reads state.",
+			});
+		}
 	}
 
 	private static void AssertSucceeded(IdentityResult result)
