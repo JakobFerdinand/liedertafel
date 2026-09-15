@@ -61,6 +61,10 @@ export function MitgliederVerwaltung() {
   const [emailFehler, setEmailFehler] = useState("");
   const [busy, setBusy] = useState(false);
   const [resendBusy, setResendBusy] = useState("");
+  const [aktionBusy, setAktionBusy] = useState("");
+  const [rollenEntwurf, setRollenEntwurf] = useState<Record<string, string>>(
+    {},
+  );
 
   const laden = useCallback(async (signal?: AbortSignal) => {
     const antwort = await fetchMe(signal);
@@ -83,8 +87,14 @@ export function MitgliederVerwaltung() {
   async function neuLaden() {
     setFehler("");
     try {
-      const liste = await fetchMitglieder();
-      setMitglieder(liste);
+      const aktuell = await fetchMe();
+      setMe(aktuell);
+      if (aktuell.authenticated && aktuell.roles.includes("Administrator")) {
+        const liste = await fetchMitglieder();
+        setMitglieder(liste);
+      } else {
+        setMitglieder(null);
+      }
     } catch (antwort) {
       setHinweisFehler(antwort);
     }
@@ -202,6 +212,77 @@ export function MitgliederVerwaltung() {
     }
   }
 
+  async function mitgliedAktion(
+    schluessel: string,
+    pfad: string,
+    nutzlast: unknown,
+  ) {
+    setHinweis("");
+    setErfolg("");
+    setAktionBusy(schluessel);
+    try {
+      const response = await postAuth(pfad, nutzlast);
+      const payload = await response.json().catch(() => null);
+      if (
+        response.status === 403 &&
+        payload?.title?.includes("erneute Anmeldung")
+      ) {
+        setHinweis(
+          "Für diese Aktion ist eine erneute Anmeldung mit Code erforderlich. Bitte erneut anmelden.",
+        );
+        return;
+      }
+      if (!response.ok) {
+        setHinweis(
+          payload?.title ?? "Das hat nicht geklappt. Bitte erneut versuchen.",
+        );
+        await neuLaden();
+        return;
+      }
+      setErfolg(payload?.message ?? "Änderung gespeichert.");
+      await neuLaden();
+    } catch {
+      setHinweis(
+        "Sicherheitstoken konnte nicht geladen werden. Seite neu laden.",
+      );
+    } finally {
+      setAktionBusy("");
+    }
+  }
+
+  async function deaktivieren(mitglied: Mitglied) {
+    await mitgliedAktion(
+      `deaktivieren:${mitglied.accountId}`,
+      "/api/admin/members/deactivate",
+      {
+        accountId: mitglied.accountId,
+      },
+    );
+  }
+
+  async function reaktivieren(mitglied: Mitglied) {
+    await mitgliedAktion(
+      `reaktivieren:${mitglied.accountId}`,
+      "/api/admin/members/reactivate",
+      {
+        accountId: mitglied.accountId,
+      },
+    );
+  }
+
+  async function rolleSpeichern(mitglied: Mitglied) {
+    const neu =
+      rollenEntwurf[mitglied.accountId] ?? mitglied.roles[0] ?? "Member";
+    await mitgliedAktion(
+      `rolle:${mitglied.accountId}`,
+      "/api/admin/members/role",
+      {
+        accountId: mitglied.accountId,
+        role: neu,
+      },
+    );
+  }
+
   if (fehler) {
     return (
       <div aria-live="polite">
@@ -304,6 +385,11 @@ export function MitgliederVerwaltung() {
 
       <section aria-labelledby="mitglieder-titel" className="mitglieder-liste">
         <h2 id="mitglieder-titel">Mitglieder und Einladungen</h2>
+        <p className="feld-hinweis">
+          Deaktivierte behalten Kennung und Verlauf; ihre Sitzungen werden
+          abgemeldet und eine erneute Anmeldung ist nach Reaktivierung nötig.
+          Rollen gelten ab der nächsten Anfrage.
+        </p>
         {mitglieder === null ? (
           <p aria-live="polite">Mitglieder werden geladen …</p>
         ) : mitglieder.length === 0 ? (
@@ -321,30 +407,90 @@ export function MitgliederVerwaltung() {
               </tr>
             </thead>
             <tbody>
-              {mitglieder.map((mitglied) => (
-                <tr key={mitglied.accountId}>
-                  <td>{mitglied.email}</td>
-                  <td>{mitglied.displayName ?? "–"}</td>
-                  <td>{rollenText(mitglied.roles)}</td>
-                  <td>{statusText(mitglied.status)}</td>
-                  <td>{mailText(mitglied.invitationMailStatus)}</td>
-                  <td>
-                    {mitglied.status === "invited" ? (
-                      <button
-                        type="button"
-                        disabled={resendBusy !== ""}
-                        onClick={() => erneutSenden(mitglied.email)}
-                      >
-                        {resendBusy === mitglied.email
-                          ? "Wird gesendet …"
-                          : "Erneut senden"}
-                      </button>
-                    ) : (
-                      "–"
-                    )}
-                  </td>
-                </tr>
-              ))}
+              {mitglieder.map((mitglied) => {
+                const Entwurf =
+                  rollenEntwurf[mitglied.accountId] ??
+                  mitglied.roles[0] ??
+                  "Member";
+                const beschaeftigt = resendBusy !== "" || aktionBusy !== "";
+                return (
+                  <tr key={mitglied.accountId}>
+                    <td>{mitglied.email}</td>
+                    <td>{mitglied.displayName ?? "–"}</td>
+                    <td>{rollenText(mitglied.roles)}</td>
+                    <td>{statusText(mitglied.status)}</td>
+                    <td>{mailText(mitglied.invitationMailStatus)}</td>
+                    <td>
+                      <div className="mitglied-aktionen">
+                        {mitglied.status === "invited" && (
+                          <button
+                            type="button"
+                            disabled={beschaeftigt}
+                            onClick={() => erneutSenden(mitglied.email)}
+                          >
+                            {resendBusy === mitglied.email
+                              ? "Wird gesendet …"
+                              : "Erneut senden"}
+                          </button>
+                        )}
+                        <label
+                          htmlFor={`rolle-${mitglied.accountId}`}
+                          className="visually-hidden"
+                        >
+                          Rolle für {mitglied.email}
+                        </label>
+                        <select
+                          id={`rolle-${mitglied.accountId}`}
+                          value={Entwurf}
+                          disabled={beschaeftigt}
+                          onChange={(event) =>
+                            setRollenEntwurf((bisher) => ({
+                              ...bisher,
+                              [mitglied.accountId]: event.target.value,
+                            }))
+                          }
+                        >
+                          {ROLLEN.map((eintrag) => (
+                            <option key={eintrag.wert} value={eintrag.wert}>
+                              {eintrag.beschriftung}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          disabled={beschaeftigt}
+                          onClick={() => rolleSpeichern(mitglied)}
+                        >
+                          {aktionBusy === `rolle:${mitglied.accountId}`
+                            ? "Wird gespeichert …"
+                            : "Rolle speichern"}
+                        </button>
+                        {mitglied.status === "deactivated" ? (
+                          <button
+                            type="button"
+                            disabled={beschaeftigt}
+                            onClick={() => reaktivieren(mitglied)}
+                          >
+                            {aktionBusy === `reaktivieren:${mitglied.accountId}`
+                              ? "Wird reaktiviert …"
+                              : "Reaktivieren"}
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={beschaeftigt}
+                            onClick={() => deaktivieren(mitglied)}
+                          >
+                            {aktionBusy === `deaktivieren:${mitglied.accountId}`
+                              ? "Wird deaktiviert …"
+                              : "Deaktivieren"}
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}

@@ -201,6 +201,28 @@ dd {
 .mitglieder-liste th {
   font-size: 0.85rem;
 }
+.mitglied-aktionen {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.mitglied-aktionen select {
+  font: inherit;
+  padding: 0.5rem;
+  border: 2px solid var(--ink);
+  border-radius: 0.3rem;
+  background: var(--paper);
+  color: var(--ink);
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
 .auth-zeile {
   display: inline-flex;
   align-items: center;
