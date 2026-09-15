@@ -44,7 +44,7 @@ jobs:
 
       - uses: azure/login@v3
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID_ARCHIVE }}
+          client-id: ${{ github.event_name == 'pull_request' && secrets.AZURE_CLIENT_ID_ARCHIVE_PREVIEW || secrets.AZURE_CLIENT_ID_ARCHIVE }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID_ARCHIVE }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID_ARCHIVE }}
 
@@ -74,7 +74,7 @@ jobs:
             --template-file infrastructure/archive/main.bicep \
             --parameters infrastructure/archive/main.bicepparam \
             --parameters containerImage="${{ steps.image.outputs.image }}" \
-            --parameters ghcrPassword="${{ secrets.GHCR_PULL_PAT_ARCHIVE }}" \
+            --parameters ghcrPassword="${{ github.event_name == 'pull_request' && 'what-if-placeholder' || secrets.GHCR_PULL_PAT_ARCHIVE }}" \
             --no-pretty-print > /tmp/what-if.json
 
       - name: Post what-if comment
