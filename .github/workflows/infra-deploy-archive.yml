@@ -1,0 +1,181 @@
+name: Deploy Archive Infrastructure
+
+# ARC-009: topology only. This workflow never selects the running image: it
+# reads the currently deployed image and passes it through, so an
+# infrastructure re-run cannot revert a release. Releases happen exclusively
+# through release-archive.yml.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'infrastructure/archive/**'
+      - '.github/workflows/infra-deploy-archive.yml'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - main
+    paths:
+      - 'infrastructure/archive/**'
+      - '.github/workflows/infra-deploy-archive.yml'
+  workflow_dispatch:
+    inputs:
+      initialImage:
+        description: 'Placeholder image used only when the container app does not exist yet (run a release immediately afterwards).'
+        required: false
+        default: 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+env:
+  RESOURCE_GROUP: RG-Liedertafel-Archive
+
+jobs:
+  what-if:
+    name: What-if preview
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID_ARCHIVE }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID_ARCHIVE }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID_ARCHIVE }}
+
+      - name: Compile Bicep templates
+        run: |
+          az bicep install
+          az bicep build --file infrastructure/archive/subscription.bicep --stdout >/dev/null
+          az bicep build --file infrastructure/archive/main.bicep --stdout >/dev/null
+
+      - name: Resolve current image
+        id: image
+        run: |
+          CURRENT_IMAGE=$(az containerapp show \
+            --name ca-liedertafel-archive \
+            --resource-group "$RESOURCE_GROUP" \
+            --query "properties.template.containers[0].image" -o tsv 2>/dev/null || true)
+          if [ -z "$CURRENT_IMAGE" ] || [ "$CURRENT_IMAGE" = "null" ]; then
+            CURRENT_IMAGE="${{ inputs.initialImage || 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest' }}"
+            echo "No deployed app found; using placeholder for preview only."
+          fi
+          echo "image=$CURRENT_IMAGE" >> "$GITHUB_OUTPUT"
+
+      - name: What-if resource group
+        run: |
+          az deployment group what-if \
+            --resource-group "$RESOURCE_GROUP" \
+            --template-file infrastructure/archive/main.bicep \
+            --parameters infrastructure/archive/main.bicepparam \
+            --parameters containerImage="${{ steps.image.outputs.image }}" \
+            --parameters ghcrPassword="${{ secrets.GHCR_PULL_PAT_ARCHIVE }}" \
+            --no-pretty-print > /tmp/what-if.json
+
+      - name: Post what-if comment
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- archive-infra-what-if -->';
+            let rows = '_no changes_';
+            try {
+              const data = JSON.parse(fs.readFileSync('/tmp/what-if.json', 'utf8'));
+              const changes = data.changes || [];
+              rows = changes.length
+                ? changes.map(c => `| ${c.changeType} | \`${c.resourceId}\` |`).join('\n')
+                : '_no changes_';
+            } catch (err) {
+              rows = `_failed to parse what-if output_\n\n\`\`\`\n${fs.readFileSync('/tmp/what-if.json', 'utf8')}\n\`\`\``;
+            }
+            const body = `## Archive infrastructure what-if preview\n\n| Change type | Resource |\n| --- | --- |\n${rows}\n\n${marker}`;
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number
+            });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: body.slice(0, 65535)
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body.slice(0, 65535)
+              });
+            }
+
+  deploy:
+    name: Deploy archive infrastructure
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID_ARCHIVE }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID_ARCHIVE }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID_ARCHIVE }}
+
+      - name: Compile Bicep templates
+        run: |
+          az bicep install
+          az bicep build --file infrastructure/archive/subscription.bicep --stdout >/dev/null
+          az bicep build --file infrastructure/archive/main.bicep --stdout >/dev/null
+
+      - name: Ensure resource group exists
+        run: |
+          if ! az group show --name "$RESOURCE_GROUP" >/dev/null 2>&1; then
+            echo "::error::Resource group $RESOURCE_GROUP is missing. A subscription Owner creates it once (see infrastructure/archive/README.md bootstrap); the release identity itself has no subscription-level rights."
+            exit 1
+          fi
+
+      - name: Resolve current image
+        id: image
+        run: |
+          CURRENT_IMAGE=$(az containerapp show \
+            --name ca-liedertafel-archive \
+            --resource-group "$RESOURCE_GROUP" \
+            --query "properties.template.containers[0].image" -o tsv 2>/dev/null || true)
+          if [ -z "$CURRENT_IMAGE" ] || [ "$CURRENT_IMAGE" = "null" ]; then
+            CURRENT_IMAGE="${{ inputs.initialImage || 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest' }}"
+            echo "::notice::No deployed app found; deploying placeholder image. Run release-archive.yml immediately afterwards."
+          else
+            echo "Preserving deployed image $CURRENT_IMAGE"
+          fi
+          echo "image=$CURRENT_IMAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Guard against destructive changes
+        run: |
+          if az deployment group what-if \
+            --resource-group "$RESOURCE_GROUP" \
+            --template-file infrastructure/archive/main.bicep \
+            --parameters infrastructure/archive/main.bicepparam \
+            --parameters containerImage="${{ steps.image.outputs.image }}" \
+            --parameters ghcrPassword="${{ secrets.GHCR_PULL_PAT_ARCHIVE }}" \
+            --no-pretty-print | jq -e 'any(.changes[]?; .changeType == "Delete" or .changeType == "Replace")' >/dev/null; then
+            echo "::error::What-if detected destructive (Delete/Replace) changes; refusing to apply."
+            exit 1
+          fi
+
+      - name: Deploy archive resources
+        run: |
+          az deployment group create \
+            --resource-group "$RESOURCE_GROUP" \
+            --template-file infrastructure/archive/main.bicep \
+            --parameters infrastructure/archive/main.bicepparam \
+            --parameters containerImage="${{ steps.image.outputs.image }}" \
+            --parameters ghcrPassword="${{ secrets.GHCR_PULL_PAT_ARCHIVE }}"

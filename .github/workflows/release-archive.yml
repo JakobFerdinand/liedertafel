@@ -1,0 +1,123 @@
+name: Release Archive
+
+# ARC-009: the only path that changes the running image. A maintainer
+# explicitly runs this workflow, it builds/checks a versioned image, pushes it
+# to private GHCR and deploys it by immutable digest. Infrastructure runs
+# (infra-deploy-archive.yml) can never revert the selection.
+#
+# Required repo configuration (maintainer, one-off):
+# - Environment `archive-prod` with required reviewers.
+# - Secrets AZURE_CLIENT_ID_ARCHIVE / AZURE_TENANT_ID_ARCHIVE /
+#   AZURE_SUBSCRIPTION_ID_ARCHIVE (sp-liedertafel-archive-iac OIDC),
+#   GHCR_PULL_PAT_ARCHIVE (fine-grained PAT, packages:read) for the
+#   infrastructure workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Assembly version baked into /api/build (e.g. 0.1.0).'
+        required: false
+        default: '0.1.0'
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+concurrency:
+  group: archive-prod
+
+env:
+  RESOURCE_GROUP: RG-Liedertafel-Archive
+  APP_NAME: ca-liedertafel-archive
+
+jobs:
+  release:
+    name: Build, push and deploy by digest
+    runs-on: ubuntu-latest
+    environment: archive-prod
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID_ARCHIVE }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID_ARCHIVE }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID_ARCHIVE }}
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build and push versioned image
+        id: image
+        run: |
+          OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE="ghcr.io/$OWNER_LC/liedertafel-archive"
+          TAG="${{ github.sha }}"
+          echo "Building $IMAGE:$TAG (version ${{ inputs.version }}, revision $GITHUB_SHA)"
+          docker build -f src/archive/Dockerfile \
+            --build-arg VERSION="${{ inputs.version }}" \
+            --build-arg REVISION="$GITHUB_SHA" \
+            -t "$IMAGE:$TAG" .
+          docker push "$IMAGE:$TAG"
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE:$TAG")
+          if [ -z "$DIGEST" ]; then
+            echo "::error::Could not resolve the pushed image digest."
+            exit 1
+          fi
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          echo "Deployed image: $DIGEST" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Deploy selected digest
+        run: |
+          az containerapp update \
+            --name "$APP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --image "${{ steps.image.outputs.digest }}"
+
+      - name: Wait for the app to answer
+        id: endpoint
+        run: |
+          FQDN=$(az containerapp show \
+            --name "$APP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --query "properties.configuration.ingress.fqdn" -o tsv)
+          echo "fqdn=$FQDN" >> "$GITHUB_OUTPUT"
+          echo "Waiting for https://$FQDN/alive (cold start up to ~60 s is expected)"
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent --max-time 10 "https://$FQDN/alive" >/dev/null; then
+              echo "App answered after ~$((attempt * 10)) s"
+              break
+            fi
+            if [ "$attempt" = "60" ]; then
+              echo "::error::App did not answer within 10 minutes."
+              exit 1
+            fi
+            sleep 10
+          done
+
+      - name: Smoke-check the shell
+        run: |
+          BASE="https://${{ steps.endpoint.outputs.fqdn }}"
+          echo "## Release smoke evidence" >> "$GITHUB_STEP_SUMMARY"
+          curl --fail --silent "$BASE/alive" >/dev/null
+          echo "- /alive: 200" >> "$GITHUB_STEP_SUMMARY"
+          BUILD=$(curl --fail --silent "$BASE/api/build")
+          echo "$BUILD" | jq -e '.development == false' >/dev/null
+          echo "$BUILD" | jq -e --arg v "${{ inputs.version }}" '.version | contains($v)' >/dev/null
+          echo "- /api/build: development=false, version contains ${{ inputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+          curl --fail --silent "$BASE/system/status/" | grep -q -i "archiv"
+          echo "- /system/status/: 200 with archive content" >> "$GITHUB_STEP_SUMMARY"
+          DEV_CODE=$(curl --silent -o /dev/null -w "%{http_code}" "$BASE/api/dev/database")
+          if [ "$DEV_CODE" != "404" ]; then
+            echo "::error::Expected 404 for /api/dev/database, got $DEV_CODE (dev endpoints must stay absent in production)."
+            exit 1
+          fi
+          echo "- /api/dev/database: 404 (no dev endpoints)" >> "$GITHUB_STEP_SUMMARY"
+          API_404=$(curl --silent -o /dev/null -w "%{http_code} %{content_type}" "$BASE/api/nonexistent-arc009-probe")
+          case "$API_404" in
+            404*"application/problem+json"*) echo "- unknown /api/*: 404 JSON Problem Details" >> "$GITHUB_STEP_SUMMARY" ;;
+            *) echo "::error::Expected 404 JSON for unknown API path, got $API_404."; exit 1 ;;
+          esac
+          echo "Deployed digest: ${{ steps.image.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"

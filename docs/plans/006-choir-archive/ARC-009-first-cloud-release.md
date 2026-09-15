@@ -1,6 +1,6 @@
 ---
 id: ARC-009
-status: planned
+status: in_progress
 phase: core
 kind: enabler
 depends_on: ["ARC-001", "ARC-004"]

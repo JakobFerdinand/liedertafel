@@ -141,6 +141,16 @@ uses its generated Next.js/Biome conventions and local `AGENTS.md`.
   - `az deployment group what-if --resource-group RG-Liedertafel --template-file infrastructure/main.bicep --parameters infrastructure/main.bicepparam`
 - Apply: `az deployment group create --resource-group RG-Liedertafel --template-file infrastructure/main.bicep --parameters infrastructure/main.bicepparam`
 - Destructive changes (Delete/Replace) are rejected by the workflow guard; keep adoption changes `Modify`-only.
+- Archive shell (ARC-009) lives in `infrastructure/archive/` targeting new group
+  `RG-Liedertafel-Archive`: `subscription.bicep` creates the group,
+  `main.bicep` owns topology (env/app 0–2 replicas, vault, workspace, runtime
+  identity, optional managed cert). The running image is selected only via
+  `release-archive.yml` (explicit `workflow_dispatch` on `archive-prod`,
+  deploy by GHCR digest); `infra-deploy-archive.yml` passes the deployed image
+  through so infra re-runs cannot revert a release. Runbook:
+  `infrastructure/archive/README.md`.
+  - `az bicep build --file infrastructure/archive/main.bicep --stdout`
+  - `az deployment sub what-if --location austriaeast --template-file infrastructure/archive/subscription.bicep --parameters archiveResourceGroupName=RG-Liedertafel-Archive --parameters resourceGroupLocation=austriaeast`
 - The dashboard SWA is auth-gated (GitHub EasyAuth, roles `admin`/`collaborator`);
   identity-provider enablement and role mapping are portal-managed, not Bicep.
   Deployments use the GitHub Actions secret
