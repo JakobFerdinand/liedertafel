@@ -25,5 +25,12 @@ public sealed class SignInCode
 
 	public int AttemptCount { get; set; }
 
+	/// <summary>
+	/// Application-bumped optimistic-concurrency token. Every mutation
+	/// increments it alongside the change, so exactly one concurrent
+	/// verifier wins on any provider (Npgsql and InMemory alike).
+	/// </summary>
+	public uint RowVersion { get; set; }
+
 	public DateTimeOffset? LastSentAt { get; set; }
 }

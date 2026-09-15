@@ -162,10 +162,39 @@ public sealed class SignInCodeService(
 
 		if (!AuthSecurity.VerifyCode(candidateCode, candidate.Salt, candidate.CodeHash))
 		{
-			// Bounded attempts persist across instances via the code row.
-			await db.SignInCodes
-				.Where(c => c.Id == candidate.Id)
-				.ExecuteUpdateAsync(s => s.SetProperty(c => c.AttemptCount, c => c.AttemptCount + 1), token);
+			// Bounded attempts persist across instances via the code row. The
+			// bumped concurrency token keeps concurrent failures from silently
+			// overwriting each other; a lost race retries against fresh state.
+			candidate.AttemptCount++;
+			candidate.RowVersion++;
+			try
+			{
+				await db.SaveChangesAsync(token);
+			}
+			catch (DbUpdateConcurrencyException)
+			{
+				db.Entry(candidate).State = EntityState.Detached;
+				var retry = await db.SignInCodes
+					.Where(c => c.Id == candidate.Id && c.ConsumedAt == null && c.ExpiresAt > now)
+					.FirstOrDefaultAsync(token);
+				if (retry is not null && retry.AttemptCount < auth.MaxVerifyAttemptsPerCode)
+				{
+					retry.AttemptCount++;
+					retry.RowVersion++;
+					try
+					{
+						await db.SaveChangesAsync(token);
+					}
+					catch (DbUpdateConcurrencyException)
+					{
+						// A further concurrent writer won; the attempt may be
+						// undercounted by one in this rare race, but the
+						// per-code attempt check and the email failure cap
+						// still bound abuse.
+						db.Entry(retry).State = EntityState.Detached;
+					}
+				}
+			}
 			await LogVerifyFailureAsync(normalizedEmail, ipHash, now, token);
 			AuthFailures.Add(1);
 			activity?.SetTag("auth.result", "failed");
@@ -173,12 +202,18 @@ public sealed class SignInCodeService(
 			return (CodeVerifyOutcome.Invalid, null, []);
 		}
 
-		// Atomically consume: exactly one concurrent submitter wins.
-		var consumed = await db.SignInCodes
-			.Where(c => c.Id == candidate.Id && c.ConsumedAt == null && c.ExpiresAt > now)
-			.ExecuteUpdateAsync(s => s.SetProperty(c => c.ConsumedAt, _ => now), token);
-		if (consumed == 0)
+		// Consume with an optimistic-concurrency bump: exactly one concurrent
+		// submitter's UPDATE matches the expected token, the rest observe no
+		// row and are rejected as invalid.
+		candidate.ConsumedAt = now;
+		candidate.RowVersion++;
+		try
 		{
+			await db.SaveChangesAsync(token);
+		}
+		catch (DbUpdateConcurrencyException)
+		{
+			db.Entry(candidate).State = EntityState.Detached;
 			await LogVerifyFailureAsync(normalizedEmail, ipHash, now, token);
 			AuthFailures.Add(1);
 			activity?.SetTag("auth.result", "failed");

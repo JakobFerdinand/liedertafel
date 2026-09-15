@@ -16,7 +16,7 @@ public static class AuthEndpoints
 	{
 		app.MapPost("/api/auth/code/request", async (
 			HttpContext context, IAntiforgery antiforgery, SignInCodeService codes, TimeProvider time, CancellationToken token,
-			CodeRequest body) =>
+			CodeRequest? body) =>
 		{
 			try { await antiforgery.ValidateRequestAsync(context); }
 			catch (AntiforgeryValidationException)
@@ -37,7 +37,7 @@ public static class AuthEndpoints
 
 		app.MapPost("/api/auth/code/verify", async (
 			HttpContext context, IAntiforgery antiforgery, SignInCodeService codes, TimeProvider time, CancellationToken token,
-			CodeVerify body) =>
+			CodeVerify? body) =>
 		{
 			try { await antiforgery.ValidateRequestAsync(context); }
 			catch (AntiforgeryValidationException)

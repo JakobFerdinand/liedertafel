@@ -44,6 +44,7 @@ public sealed class SignInCodeConfiguration : IEntityTypeConfiguration<SignInCod
 		builder.Property(x => x.CodeHash).IsRequired();
 		builder.Property(x => x.Salt).IsRequired();
 		builder.Property(x => x.AttemptCount).HasDefaultValue(0);
+		builder.Property(x => x.RowVersion).IsConcurrencyToken();
 		builder.HasIndex(x => x.NormalizedEmail);
 		builder.HasIndex(x => x.AccountId);
 		builder.HasIndex(x => x.ExpiresAt);
