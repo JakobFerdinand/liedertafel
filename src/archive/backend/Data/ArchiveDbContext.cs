@@ -20,6 +20,8 @@ public sealed class ArchiveDbContext(DbContextOptions<ArchiveDbContext> options)
 
 	public DbSet<MemberAdminAction> MemberAdminActions => Set<MemberAdminAction>();
 
+	public DbSet<MemberEmailChange> MemberEmailChanges => Set<MemberEmailChange>();
+
 	protected override void OnModelCreating(ModelBuilder modelBuilder)
 	{
 		base.OnModelCreating(modelBuilder);
