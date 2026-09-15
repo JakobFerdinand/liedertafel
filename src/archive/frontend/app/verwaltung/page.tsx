@@ -10,9 +10,10 @@ export default function VerwaltungSeite() {
         <p className="section-label">Verwaltung</p>
         <h1 id="verwaltung-titel">Mitgliederverwaltung</h1>
         <p>
-          Administratoren laden neue Mitglieder ein und senden ausstehende
-          Einladungen erneut. Eingeladene melden sich mit einem Code aus ihrer
-          E-Mail an.
+          Administratoren laden neue Mitglieder ein, senden ausstehende
+          Einladungen erneut, ändern Rollen und deaktivieren oder reaktivieren
+          Konten. Deaktivierte behalten Kennung und Verlauf; ihre Sitzungen
+          werden abgemeldet.
         </p>
       </section>
       <MitgliederVerwaltung />
