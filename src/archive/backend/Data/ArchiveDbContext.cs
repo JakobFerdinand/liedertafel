@@ -18,6 +18,8 @@ public sealed class ArchiveDbContext(DbContextOptions<ArchiveDbContext> options)
 
 	public DbSet<MemberInvitation> MemberInvitations => Set<MemberInvitation>();
 
+	public DbSet<MemberAdminAction> MemberAdminActions => Set<MemberAdminAction>();
+
 	protected override void OnModelCreating(ModelBuilder modelBuilder)
 	{
 		base.OnModelCreating(modelBuilder);

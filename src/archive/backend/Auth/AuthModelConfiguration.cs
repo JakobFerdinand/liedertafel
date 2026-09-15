@@ -54,6 +54,20 @@ public sealed class MemberInvitationConfiguration : IEntityTypeConfiguration<Mem
 	}
 }
 
+public sealed class MemberAdminActionConfiguration : IEntityTypeConfiguration<MemberAdminAction>
+{
+	public void Configure(EntityTypeBuilder<MemberAdminAction> builder)
+	{
+		builder.ToTable("member_admin_actions");
+		builder.HasKey(x => x.Id);
+		builder.Property(x => x.OldRoles).HasMaxLength(200).IsRequired();
+		builder.Property(x => x.NewRoles).HasMaxLength(200).IsRequired();
+		builder.Property(x => x.Action).HasConversion<int>().IsRequired();
+		builder.HasIndex(x => x.TargetUserId);
+		builder.HasIndex(x => x.OccurredAt);
+	}
+}
+
 public sealed class AuthRequestLogConfiguration : IEntityTypeConfiguration<AuthRequestLog>
 {
 	public void Configure(EntityTypeBuilder<AuthRequestLog> builder)
