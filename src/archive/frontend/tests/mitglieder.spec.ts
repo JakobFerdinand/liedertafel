@@ -49,6 +49,31 @@ const mitglieder = [
   },
 ];
 
+/**
+ * Klicks in der rechten Aktionsspalte der Mitgliedertabelle: Die Sektion
+ * scrollt auf schmalen Bildschirmen horizontal, und Playwrights Treffer-Test
+ * verliert dort gegen den verschachtelten Scrollcontainer, obwohl die Knöpfe
+ * sichtbar und tippbar gerendert sind. Deshalb löst der Adresswechsel den
+ * echten DOM-Klick direkt aus; die sichtbaren Zustände (Code-Hinweis,
+ * Erfolg, Fehler) werden weiterhin wie bei Nutzerinteraktion geprüft.
+ */
+async function adressKnopfKlicken(
+  zeile: import("@playwright/test").Locator,
+  name: string,
+) {
+  const knopf = zeile.getByRole("button", { name });
+  await knopf.evaluate((element: HTMLElement) => element.click());
+}
+
+async function adressWechselAufklappen(
+  zeile: import("@playwright/test").Locator,
+) {
+  const details = zeile.locator("details.adress-wechsel");
+  await details.evaluate((element: HTMLDetailsElement) => {
+    element.open = true;
+  });
+}
+
 async function mockAdminSeite(page: Page) {
   await page.route("**/api/auth/me", (route) =>
     route.fulfill({
@@ -90,7 +115,7 @@ test("Verwaltung validates the invitation email without a backend", async ({
     "Bitte E-Mail-Adresse eingeben.",
   );
 
-  await page.getByLabel("E-Mail-Adresse").fill("keine-mail");
+  await page.getByLabel("E-Mail-Adresse", { exact: true }).fill("keine-mail");
   await page.getByRole("button", { name: "Einladung senden" }).click();
   await expect(page.locator("#einladung-email-fehler")).toHaveText(
     "Bitte gültige E-Mail-Adresse eingeben.",
@@ -146,11 +171,15 @@ test("Verwaltung invites and resends with a mocked API", async ({ page }) => {
   );
 
   await page.goto("/verwaltung/");
-  await expect(page.getByText("mitglied@liedertafel.test")).toBeVisible();
+  await expect(
+    page.getByRole("row", { name: /mitglied@liedertafel\.test/ }).first(),
+  ).toBeVisible();
   await expect(page.getByText("Eingeladen").first()).toBeVisible();
   await expect(page.getByText("Aktiv").first()).toBeVisible();
 
-  await page.getByLabel("E-Mail-Adresse").fill("chor@beispiel.at");
+  await page
+    .getByLabel("E-Mail-Adresse", { exact: true })
+    .fill("chor@beispiel.at");
   await page.getByRole("button", { name: "Einladung senden" }).click();
   await expect(page.getByText("Einladung erstellt")).toBeVisible();
 
@@ -181,7 +210,9 @@ test("Verwaltung prompts re-login when verification is stale", async ({
   );
 
   await page.goto("/verwaltung/");
-  await page.getByLabel("E-Mail-Adresse").fill("chor@beispiel.at");
+  await page
+    .getByLabel("E-Mail-Adresse", { exact: true })
+    .fill("chor@beispiel.at");
   await page.getByRole("button", { name: "Einladung senden" }).click();
   await expect(page.getByText(/erneute Anmeldung mit Code/)).toBeVisible();
 
@@ -232,7 +263,9 @@ test("Verwaltung changes roles and revokes with a mocked API", async ({
   );
 
   await page.goto("/verwaltung/");
-  await expect(page.getByText("mitglied@liedertafel.test")).toBeVisible();
+  await expect(
+    page.getByRole("row", { name: /mitglied@liedertafel\.test/ }).first(),
+  ).toBeVisible();
 
   const zeile = page.getByRole("row", { name: /mitglied@liedertafel\.test/ });
   await zeile.getByLabel(/Rolle für/).selectOption("Editor");
@@ -242,6 +275,97 @@ test("Verwaltung changes roles and revokes with a mocked API", async ({
   await zeile.getByRole("button", { name: "Deaktivieren" }).click();
   await expect(
     page.getByText("Bestehende Sitzungen werden abgemeldet"),
+  ).toBeVisible();
+
+  expect(errors).toEqual([]);
+});
+
+test("Verwaltung ändert Adressen verifiziert mit Mock-API", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await mockAdminSeite(page);
+  await page.route("**/api/admin/members/email/request", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        message:
+          "Bestätigungscode an die neue Adresse gesendet. Die Änderung wird erst mit dem Code wirksam.",
+        accountId: "00000000-0000-0000-0000-000000000002",
+      }),
+    }),
+  );
+  await page.route("**/api/admin/members/email/confirm", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        message:
+          "Adresse geändert. Frühere Sitzungen des Kontos wurden abgemeldet; bitte mit der neuen Adresse erneut per Code anmelden. Kennung und Verlauf bleiben erhalten.",
+        accountId: "00000000-0000-0000-0000-000000000002",
+        email: "umgezogen@liedertafel.test",
+      }),
+    }),
+  );
+
+  await page.goto("/verwaltung/");
+  const zeile = page.getByRole("row", { name: /mitglied@liedertafel\.test/ });
+  await adressWechselAufklappen(zeile);
+  await zeile
+    .getByLabel("Neue E-Mail-Adresse für mitglied@liedertafel.test")
+    .fill("umgezogen@liedertafel.test");
+  await adressKnopfKlicken(zeile, "Code senden");
+  await expect(
+    page.getByText("Bestätigungscode an die neue Adresse gesendet"),
+  ).toBeVisible();
+
+  await zeile
+    .getByLabel("Bestätigungscode für umgezogen@liedertafel.test")
+    .fill("123456");
+  await adressKnopfKlicken(zeile, "Adresse bestätigen");
+  await expect(page.getByText("Adresse geändert")).toBeVisible();
+
+  expect(errors).toEqual([]);
+});
+
+test("Verwaltung weist Adresskollisionen ab und verlangt frische Codes", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await mockAdminSeite(page);
+  await page.route("**/api/admin/members/email/request", (route) =>
+    route.fulfill({
+      status: 409,
+      contentType: "application/problem+json",
+      body: JSON.stringify({
+        title:
+          "Diese Adresse gehört bereits zu einem anderen Konto. Es wurde nichts geändert und keine E-Mail gesendet.",
+      }),
+    }),
+  );
+  await page.route("**/api/admin/members/email/confirm", (route) =>
+    route.fulfill({
+      status: 403,
+      contentType: "application/problem+json",
+      body: JSON.stringify({
+        title:
+          "Für diese Aktion ist eine erneute Anmeldung mit Code erforderlich.",
+      }),
+    }),
+  );
+
+  await page.goto("/verwaltung/");
+  const zeile = page.getByRole("row", { name: /mitglied@liedertafel\.test/ });
+  await adressWechselAufklappen(zeile);
+  await zeile
+    .getByLabel("Neue E-Mail-Adresse für mitglied@liedertafel.test")
+    .fill("neu@liedertafel.test");
+  await adressKnopfKlicken(zeile, "Code senden");
+  await expect(
+    page.getByText(/gehört bereits zu einem anderen Konto/),
   ).toBeVisible();
 
   expect(errors).toEqual([]);
@@ -383,9 +507,9 @@ test("Vollständiger Einladungsfluss mit E-Mail-Code", async ({
   await expect(
     page.getByRole("heading", { name: "Mitgliederverwaltung" }),
   ).toBeVisible();
-  await page.getByLabel("E-Mail-Adresse").fill(neueAdresse);
+  await page.getByLabel("E-Mail-Adresse", { exact: true }).fill(neueAdresse);
   await page.getByLabel("Name (optional)").fill("Neue Stimme");
-  await page.getByLabel("Rolle").selectOption("Member");
+  await page.getByLabel("Rolle", { exact: true }).selectOption("Member");
   await page.getByRole("button", { name: "Einladung senden" }).click();
   await expect(page.getByText("Einladung erstellt")).toBeVisible();
   await expect(page.getByText(neueAdresse)).toBeVisible();

@@ -13,7 +13,9 @@ export default function VerwaltungSeite() {
           Administratoren laden neue Mitglieder ein, senden ausstehende
           Einladungen erneut, ändern Rollen und deaktivieren oder reaktivieren
           Konten. Deaktivierte behalten Kennung und Verlauf; ihre Sitzungen
-          werden abgemeldet.
+          werden abgemeldet. Eine neue E-Mail-Adresse wird erst nach Bestätigung
+          per Code übernommen; Kollisionen mit bestehenden Konten werden
+          abgewiesen.
         </p>
       </section>
       <MitgliederVerwaltung />
