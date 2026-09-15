@@ -1,5 +1,6 @@
 using Archive.Backend.Data;
 using Archive.Backend.Development;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -7,8 +8,9 @@ namespace Archive.Backend.Auth;
 
 /// <summary>
 /// Finite operator commands. <c>--bootstrap-admin</c> creates the very first
-/// administrator account; it refuses once any account exists (repair belongs to
-/// ARC-008). <c>--seed-dev-auth</c> is Development-only test data.
+/// administrator account through <see cref="UserManager{TUser}"/>; it refuses
+/// once any user exists (repair belongs to ARC-008).
+/// <c>--seed-dev-auth</c> is Development-only test data.
 /// </summary>
 public static class OperatorConfiguration
 {
@@ -25,10 +27,10 @@ public static class OperatorConfiguration
 		var environment = provider.GetRequiredService<IHostEnvironment>();
 		if (!environment.IsDevelopment())
 			throw new InvalidOperationException("Local service commands require Development.");
-		var db = provider.GetRequiredService<ArchiveDbContext>();
-		var time = provider.GetRequiredService<TimeProvider>();
+		var users = provider.GetRequiredService<UserManager<ArchiveUser>>();
+		var roles = provider.GetRequiredService<RoleManager<ArchiveRole>>();
 		var logger = provider.GetRequiredService<ILoggerFactory>().CreateLogger("Archive.Operator");
-		var accounts = await AuthSeed.EnsureTestAccountsAsync(db, time.GetUtcNow(), token);
+		var accounts = await AuthSeed.EnsureTestAccountsAsync(users, roles, token);
 		logger.LogInformation("Development test accounts ensured ({Count})", accounts.Count);
 	}
 
@@ -50,12 +52,23 @@ public static class OperatorConfiguration
 				|| !CryptographicEquals(expected, provided))
 				throw new InvalidOperationException("Bootstrap outside Development requires Archive:OperatorToken and --operator-token.");
 		}
+		var users = provider.GetRequiredService<UserManager<ArchiveUser>>();
+		var roles = provider.GetRequiredService<RoleManager<ArchiveRole>>();
 		var db = provider.GetRequiredService<ArchiveDbContext>();
 		var time = provider.GetRequiredService<TimeProvider>();
-		if (await db.Accounts.AnyAsync(token))
+		if (await db.Users.AnyAsync(token))
 			throw new InvalidOperationException("Archive already has accounts; use member administration instead of bootstrap.");
-		await AuthSeed.EnsureOperatorAccountAsync(
-			db, email!.Trim(), displayName, ArchiveRole.Administrator, operatorName, time.GetUtcNow(), token);
+		if (!await roles.RoleExistsAsync(ArchiveRoles.Administrator))
+		{
+			var created = await roles.CreateAsync(new ArchiveRole(ArchiveRoles.Administrator));
+			if (!created.Succeeded)
+				throw new InvalidOperationException("Administrator role could not be created.");
+		}
+		var id = await AuthSeed.EnsureUserAsync(users, email!.Trim(), displayName, token);
+		var admin = (await users.FindByIdAsync(id.ToString()))!;
+		var inRole = await users.AddToRoleAsync(admin, ArchiveRoles.Administrator);
+		if (!inRole.Succeeded)
+			throw new InvalidOperationException("Administrator role could not be assigned.");
 		// Log the domain only; never the full address from an operator command.
 		logger.LogInformation(
 			"Bootstrap administrator ensured for domain {Domain} by {Operator}",

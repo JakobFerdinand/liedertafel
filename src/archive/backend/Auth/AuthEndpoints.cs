@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Antiforgery;
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Identity;
 
 namespace Archive.Backend.Auth;
 
@@ -36,7 +35,7 @@ public static class AuthEndpoints
 		}).DisableAntiforgery();
 
 		app.MapPost("/api/auth/code/verify", async (
-			HttpContext context, IAntiforgery antiforgery, SignInCodeService codes, TimeProvider time, CancellationToken token,
+			HttpContext context, IAntiforgery antiforgery, SignInManager<ArchiveUser> signIn, SignInCodeService codes, TimeProvider time, CancellationToken token,
 			CodeVerify? body) =>
 		{
 			try { await antiforgery.ValidateRequestAsync(context); }
@@ -49,24 +48,25 @@ public static class AuthEndpoints
 			var code = AuthSecurity.NormalizeCode(body?.Code ?? string.Empty);
 			if (code.Length != 6)
 				return Results.Problem(statusCode: 400, title: "Der Code ist ungültig oder abgelaufen.");
-			var (outcome, account, roles) = await codes.VerifyCodeAsync(
+			var (outcome, user, roles) = await codes.VerifyCodeAsync(
 				normalized, code, AuthSecurity.HashIp(context.Connection.RemoteIpAddress?.ToString()), time.GetUtcNow(), token);
 			context.Response.Headers.CacheControl = "no-store";
 			if (outcome == CodeVerifyOutcome.RateLimited)
 				return Results.Problem(statusCode: 429, title: "Zu viele Anfragen. Bitte später erneut versuchen.");
-			if (outcome != CodeVerifyOutcome.Verified || account is null)
+			if (outcome != CodeVerifyOutcome.Verified || user is null)
 				return Results.Problem(statusCode: 400, title: "Der Code ist ungültig oder abgelaufen.");
-			await AuthSetup.SignInMemberAsync(context, account, roles, time.GetUtcNow());
+			await AuthSetup.SignInMemberAsync(signIn, user, roles, time.GetUtcNow());
 			return Results.Ok(new
 			{
 				message = "Anmeldung erfolgreich.",
-				accountId = account.Id,
-				displayName = account.DisplayName ?? account.Email,
-				roles = roles.Distinct().Select(ArchiveRoleNames.ToClaim).ToArray(),
+				accountId = user.Id,
+				displayName = user.DisplayName ?? user.Email,
+				roles = roles.Distinct().ToArray(),
 			});
 		}).DisableAntiforgery();
 
-		app.MapPost("/api/auth/logout", async (HttpContext context, IAntiforgery antiforgery) =>
+		app.MapPost("/api/auth/logout", async (
+			HttpContext context, IAntiforgery antiforgery, SignInManager<ArchiveUser> signIn) =>
 		{
 			try { await antiforgery.ValidateRequestAsync(context); }
 			catch (AntiforgeryValidationException)
@@ -75,7 +75,14 @@ public static class AuthEndpoints
 			}
 			if (context.User.Identity?.IsAuthenticated != true)
 				return Results.Problem(statusCode: 401, title: "Anmeldung erforderlich.");
-			await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+			var user = await signIn.UserManager.GetUserAsync(context.User);
+			if (user is not null)
+			{
+				// Server-side effect: previously issued tickets fail stamp
+				// validation instead of staying usable until expiry.
+				await signIn.UserManager.UpdateSecurityStampAsync(user);
+			}
+			await signIn.SignOutAsync();
 			context.Response.Headers.CacheControl = "no-store";
 			return Results.Ok(new { message = "Abmeldung erfolgreich." });
 		}).DisableAntiforgery();

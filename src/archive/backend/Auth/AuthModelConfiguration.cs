@@ -3,40 +3,17 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace Archive.Backend.Auth;
 
-public sealed class AccountConfiguration : IEntityTypeConfiguration<Account>
+public sealed class ArchiveUserConfiguration : IEntityTypeConfiguration<ArchiveUser>
 {
-	public void Configure(EntityTypeBuilder<Account> builder)
+	public void Configure(EntityTypeBuilder<ArchiveUser> builder)
 	{
-		builder.ToTable("auth_accounts");
-		builder.HasKey(x => x.Id);
-		builder.Property(x => x.Email).HasMaxLength(320).IsRequired();
-		builder.Property(x => x.NormalizedEmail).HasMaxLength(320).IsRequired();
 		builder.Property(x => x.DisplayName).HasMaxLength(200);
-		builder.HasIndex(x => x.NormalizedEmail).IsUnique();
 	}
 }
 
-public sealed class MembershipConfiguration : IEntityTypeConfiguration<Membership>
+public sealed class SignInChallengeConfiguration : IEntityTypeConfiguration<SignInChallenge>
 {
-	public void Configure(EntityTypeBuilder<Membership> builder)
-	{
-		builder.ToTable("auth_memberships");
-		builder.HasKey(x => x.Id);
-		builder.Property(x => x.Role).HasConversion<int>().IsRequired();
-		builder.Property(x => x.Status).HasConversion<int>().IsRequired();
-		builder.Property(x => x.InvitedBy).HasMaxLength(200);
-		builder.HasOne(x => x.Account)
-			.WithMany(a => a.Memberships)
-			.HasForeignKey(x => x.AccountId)
-			.OnDelete(DeleteBehavior.Restrict);
-		builder.HasIndex(x => x.AccountId);
-		builder.HasIndex(x => x.Status);
-	}
-}
-
-public sealed class SignInCodeConfiguration : IEntityTypeConfiguration<SignInCode>
-{
-	public void Configure(EntityTypeBuilder<SignInCode> builder)
+	public void Configure(EntityTypeBuilder<SignInChallenge> builder)
 	{
 		builder.ToTable("auth_sign_in_codes");
 		builder.HasKey(x => x.Id);
@@ -45,8 +22,12 @@ public sealed class SignInCodeConfiguration : IEntityTypeConfiguration<SignInCod
 		builder.Property(x => x.Salt).IsRequired();
 		builder.Property(x => x.AttemptCount).HasDefaultValue(0);
 		builder.Property(x => x.RowVersion).IsConcurrencyToken();
+		builder.HasOne(x => x.User)
+			.WithMany()
+			.HasForeignKey(x => x.UserId)
+			.OnDelete(DeleteBehavior.Cascade);
 		builder.HasIndex(x => x.NormalizedEmail);
-		builder.HasIndex(x => x.AccountId);
+		builder.HasIndex(x => x.UserId);
 		builder.HasIndex(x => x.ExpiresAt);
 		builder.ToTable(t => t.HasCheckConstraint("CK_auth_sign_in_codes_attempt_count", "\"AttemptCount\" >= 0"));
 	}

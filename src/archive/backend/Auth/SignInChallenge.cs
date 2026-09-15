@@ -1,15 +1,19 @@
 namespace Archive.Backend.Auth;
 
 /// <summary>
-/// A hashed one-time email code. The plaintext code is never persisted;
-/// only <see cref="CodeHash"/> (SHA-256 over salt + code) and <see cref="Salt"/> are stored.
+/// A hashed one-time email-code challenge for an invited user. The plaintext
+/// code is never persisted; only <see cref="CodeHash"/> (SHA-256 over salt +
+/// code) and <see cref="Salt"/> are stored. Managed by
+/// <see cref="EmailCodeTokenProvider"/>; consumed at most once via
+/// <see cref="RowVersion"/> optimistic concurrency.
 /// </summary>
-public sealed class SignInCode
+public sealed class SignInChallenge
 {
 	public Guid Id { get; set; } = Guid.CreateVersion7();
 
-	/// <summary>Null when the address has no active membership (kept for abuse limits, reveals nothing).</summary>
-	public Guid? AccountId { get; set; }
+	public Guid UserId { get; set; }
+
+	public ArchiveUser User { get; set; } = null!;
 
 	public required string NormalizedEmail { get; set; }
 
