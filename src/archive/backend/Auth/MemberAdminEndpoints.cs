@@ -13,9 +13,14 @@ public sealed record ReactivateRequest(string? AccountId);
 
 public sealed record RoleChangeRequest(string? AccountId, string? Role);
 
+public sealed record EmailChangeRequest(string? AccountId, string? NewEmail);
+
+public sealed record EmailChangeConfirm(string? AccountId, string? NewEmail, string? Code);
+
 /// <summary>
 /// Administrator member administration (ARC-006 invitations, ARC-007
-/// revocation). Reads use the shared database decision; all mutations require
+/// revocation, ARC-008 verified email change). Reads use the shared database
+/// decision; all mutations require
 /// the Administrator role from that decision (never a stale cookie role), a
 /// fresh code verification (10-minute window) and CSRF. Members/Editors
 /// receive 403; unauthenticated or revoked callers receive 401.
@@ -247,6 +252,82 @@ public static class MemberAdminEndpoints
 				RoleChangeOutcome.LastAdministrator => Results.Problem(
 					statusCode: 409, title: MemberRevocationService.LastAdministratorMessage),
 				_ => Results.Problem(statusCode: 404, title: MemberRevocationService.NotFoundMessage),
+			};
+		}).DisableAntiforgery();
+
+		app.MapPost("/api/admin/members/email/request", async (
+			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
+			ArchiveAccessService access, MemberEmailChangeService emailChange, TimeProvider time, CancellationToken token,
+			EmailChangeRequest? body) =>
+		{
+			try { await antiforgery.ValidateRequestAsync(context); }
+			catch (AntiforgeryValidationException)
+			{
+				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
+			}
+			context.Response.Headers.CacheControl = "no-store";
+			var (decision, error) = await RequireAdministratorAsync(context, accessor, access, requireFresh: true);
+			if (error is not null)
+				return error;
+			if (!Guid.TryParse(body?.AccountId, out var targetId) || targetId == Guid.Empty)
+				return Results.Problem(statusCode: 400, title: "Die Kennung ist ungültig.");
+			if (!AuthSecurity.TryNormalizeEmail(body?.NewEmail, out var normalized))
+				return Results.Problem(statusCode: 400, title: "Die E-Mail-Adresse ist ungültig.");
+			var (outcome, _) = await emailChange.RequestAsync(
+				targetId, normalized, body!.NewEmail!.Trim(), decision!.AccountId, time.GetUtcNow(), token);
+			return outcome switch
+			{
+				EmailChangeRequestOutcome.Requested => Results.Ok(new
+				{
+					message = MemberEmailChangeService.CodeSentMessage,
+					accountId = targetId,
+				}),
+				EmailChangeRequestOutcome.SameAddress => Results.Problem(
+					statusCode: 400, title: MemberEmailChangeService.SameAddressMessage),
+				EmailChangeRequestOutcome.Collision => Results.Problem(
+					statusCode: 409, title: MemberEmailChangeService.CollisionMessage),
+				EmailChangeRequestOutcome.MailFailed => Results.Problem(
+					statusCode: 502, title: MemberEmailChangeService.MailFailedMessage),
+				_ => Results.Problem(statusCode: 404, title: MemberEmailChangeService.NotFoundMessage),
+			};
+		}).DisableAntiforgery();
+
+		app.MapPost("/api/admin/members/email/confirm", async (
+			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
+			ArchiveAccessService access, MemberEmailChangeService emailChange, TimeProvider time, CancellationToken token,
+			EmailChangeConfirm? body) =>
+		{
+			try { await antiforgery.ValidateRequestAsync(context); }
+			catch (AntiforgeryValidationException)
+			{
+				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
+			}
+			context.Response.Headers.CacheControl = "no-store";
+			var (decision, error) = await RequireAdministratorAsync(context, accessor, access, requireFresh: true);
+			if (error is not null)
+				return error;
+			if (!Guid.TryParse(body?.AccountId, out var targetId) || targetId == Guid.Empty)
+				return Results.Problem(statusCode: 400, title: "Die Kennung ist ungültig.");
+			if (!AuthSecurity.TryNormalizeEmail(body?.NewEmail, out var normalized))
+				return Results.Problem(statusCode: 400, title: "Die E-Mail-Adresse ist ungültig.");
+			var code = AuthSecurity.NormalizeCode(body?.Code ?? string.Empty);
+			if (code.Length != 6)
+				return Results.Problem(statusCode: 400, title: MemberEmailChangeService.InvalidCodeMessage);
+			var (outcome, user) = await emailChange.ConfirmAsync(
+				targetId, normalized, body!.NewEmail!.Trim(), code, decision!.AccountId, time.GetUtcNow(), token);
+			return outcome switch
+			{
+				EmailChangeConfirmOutcome.Confirmed => Results.Ok(new
+				{
+					message = MemberEmailChangeService.ConfirmedMessage,
+					accountId = targetId,
+					email = user?.Email ?? body!.NewEmail!.Trim(),
+				}),
+				EmailChangeConfirmOutcome.Collision => Results.Problem(
+					statusCode: 409, title: MemberEmailChangeService.CollisionMessage),
+				EmailChangeConfirmOutcome.NotFound => Results.Problem(
+					statusCode: 404, title: MemberEmailChangeService.NotFoundMessage),
+				_ => Results.Problem(statusCode: 400, title: MemberEmailChangeService.InvalidCodeMessage),
 			};
 		}).DisableAntiforgery();
 	}

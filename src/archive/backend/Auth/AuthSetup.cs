@@ -59,22 +59,26 @@ public static class AuthSetup
 					context.ReplacePrincipal(new ClaimsPrincipal(new ClaimsIdentity(claims, authenticationType)));
 					context.ShouldRenew = true;
 				}
-				// No session revival after reactivation: tickets issued before
-				// the latest reactivation stay dead and require a fresh
-				// email-code sign-in. The stamp validator alone would allow a
-				// revival within its 5-minute window because deactivation and
-				// reactivation both bump the stamp but throttled validation
-				// does not compare on every request.
+				// No session revival after reactivation or repair: tickets issued
+				// before the latest reactivation, email change or maintainer
+				// repair stay dead and require a fresh email-code sign-in. The
+				// stamp validator alone would allow a revival within its
+				// 5-minute window because deactivation and reactivation both
+				// bump the stamp but throttled validation does not compare on
+				// every request.
 				var authenticatedAtValue = context.Principal.FindFirst(AuthClaims.AuthenticatedAt)?.Value;
 				if (DateTimeOffset.TryParse(authenticatedAtValue, out var authenticatedAt))
 				{
 					var db = context.HttpContext.RequestServices.GetRequiredService<ArchiveDbContext>();
-					var lastReactivation = await db.MemberAdminActions.AsNoTracking()
-						.Where(a => a.TargetUserId == user.Id && a.Action == MemberAdminActionType.Reactivated)
+					var lastSessionReset = await db.MemberAdminActions.AsNoTracking()
+						.Where(a => a.TargetUserId == user.Id
+							&& (a.Action == MemberAdminActionType.Reactivated
+								|| a.Action == MemberAdminActionType.EmailChanged
+								|| a.Action == MemberAdminActionType.AdministratorRepaired))
 						.OrderByDescending(a => a.OccurredAt)
 						.Select(a => (DateTimeOffset?)a.OccurredAt)
 						.FirstOrDefaultAsync();
-					if (lastReactivation.HasValue && authenticatedAt < lastReactivation.Value)
+					if (lastSessionReset.HasValue && authenticatedAt < lastSessionReset.Value)
 					{
 						context.RejectPrincipal();
 						await context.HttpContext.SignOutAsync(IdentityConstants.ApplicationScheme);
@@ -102,7 +106,8 @@ public static class AuthSetup
 
 	/// <summary>
 	/// Identity services without web cookie configuration, for finite operator
-	/// commands (<c>--bootstrap-admin</c>, <c>--seed-dev-auth</c>) that run on a
+	/// commands (<c>--bootstrap-admin</c>, <c>--repair-admin</c>,
+	/// <c>--seed-dev-auth</c>) that run on a
 	/// generic host without <see cref="IWebHostEnvironment"/>.
 	/// </summary>
 	public static IServiceCollection AddArchiveIdentity(this IServiceCollection services, IConfiguration configuration)
@@ -111,6 +116,7 @@ public static class AuthSetup
 		services.AddScoped<SignInCodeService>();
 		services.AddScoped<MemberInvitationService>();
 		services.AddScoped<MemberRevocationService>();
+		services.AddScoped<MemberEmailChangeService>();
 		services.AddScoped<ArchiveAccessService>();
 		services.AddScoped<EmailCodeTokenProvider>();
 		services.AddScoped<IArchiveMailSender, SmtpSignInCodeSender>();

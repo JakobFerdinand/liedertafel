@@ -63,8 +63,30 @@ public sealed class MemberAdminActionConfiguration : IEntityTypeConfiguration<Me
 		builder.Property(x => x.OldRoles).HasMaxLength(200).IsRequired();
 		builder.Property(x => x.NewRoles).HasMaxLength(200).IsRequired();
 		builder.Property(x => x.Action).HasConversion<int>().IsRequired();
+		builder.Property(x => x.Note).HasMaxLength(500);
 		builder.HasIndex(x => x.TargetUserId);
 		builder.HasIndex(x => x.OccurredAt);
+	}
+}
+
+public sealed class MemberEmailChangeConfiguration : IEntityTypeConfiguration<MemberEmailChange>
+{
+	public void Configure(EntityTypeBuilder<MemberEmailChange> builder)
+	{
+		builder.ToTable("member_email_changes");
+		builder.HasKey(x => x.Id);
+		builder.Property(x => x.NormalizedNewEmail).HasMaxLength(320).IsRequired();
+		builder.Property(x => x.CodeHash).IsRequired();
+		builder.Property(x => x.Salt).IsRequired();
+		builder.Property(x => x.AttemptCount).HasDefaultValue(0);
+		builder.Property(x => x.RowVersion).IsConcurrencyToken();
+		builder.HasOne(x => x.User)
+			.WithMany()
+			.HasForeignKey(x => x.UserId)
+			.OnDelete(DeleteBehavior.Cascade);
+		builder.HasIndex(x => x.UserId);
+		builder.HasIndex(x => x.ExpiresAt);
+		builder.ToTable(t => t.HasCheckConstraint("CK_member_email_changes_attempt_count", "\"AttemptCount\" >= 0"));
 	}
 }
 

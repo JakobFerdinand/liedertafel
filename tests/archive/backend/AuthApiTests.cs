@@ -520,8 +520,11 @@ internal sealed class FakeMailSender : IArchiveMailSender
 
 	public sealed record SentInvitation(string Email, string? DisplayName, string Role);
 
+	public sealed record SentEmailChange(string Email, string Code);
+
 	private readonly List<SentMail> sent = [];
 	private readonly List<SentInvitation> invitations = [];
+	private readonly List<SentEmailChange> emailChanges = [];
 	private readonly object gate = new();
 	private Func<string, Exception?>? invitationFailure;
 
@@ -538,6 +541,14 @@ internal sealed class FakeMailSender : IArchiveMailSender
 		get
 		{
 			lock (gate) return [.. invitations];
+		}
+	}
+
+	public IReadOnlyList<SentEmailChange> SentEmailChanges
+	{
+		get
+		{
+			lock (gate) return [.. emailChanges];
 		}
 	}
 
@@ -561,6 +572,18 @@ internal sealed class FakeMailSender : IArchiveMailSender
 		if (error is not null)
 			throw error;
 		lock (gate) invitations.Add(new SentInvitation(email, displayName, role));
+		return Task.CompletedTask;
+	}
+
+	public Task SendEmailChangeCodeAsync(string email, string code, TimeSpan lifetime, CancellationToken cancellationToken)
+	{
+		using var _ = Extensions.Activities.StartActivity("archive.mail.email_change.send", ActivityKind.Client);
+		Func<string, Exception?>? failure;
+		lock (gate) failure = invitationFailure;
+		var error = failure?.Invoke(email);
+		if (error is not null)
+			throw error;
+		lock (gate) emailChanges.Add(new SentEmailChange(email, code));
 		return Task.CompletedTask;
 	}
 }

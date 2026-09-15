@@ -8,11 +8,11 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 
 var command = args.FirstOrDefault();
-if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" or "--bootstrap-admin" or "--seed-dev-auth")
+if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" or "--bootstrap-admin" or "--repair-admin" or "--seed-dev-auth")
 {
     var jobs = Host.CreateApplicationBuilder(args.Skip(1).ToArray());
     jobs.AddServiceDefaults();
-    if (command != "--migrate" && !jobs.Environment.IsDevelopment() && command != "--bootstrap-admin")
+    if (command != "--migrate" && !jobs.Environment.IsDevelopment() && command != "--bootstrap-admin" && command != "--repair-admin")
         throw new InvalidOperationException("Local service commands require Development.");
     jobs.Services.AddDbContext<ArchiveDbContext>(options => options.UseNpgsql(
         OperatorConfiguration.Connection(jobs.Configuration)));
@@ -33,8 +33,10 @@ if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" o
             await provider.GetRequiredService<LocalServices>().ExerciseAsync(token);
         else if (command == "--seed-dev-auth")
             await OperatorConfiguration.SeedDevAuthAsync(provider, token);
-        else
+        else if (command == "--bootstrap-admin")
             await OperatorConfiguration.BootstrapAdminAsync(provider, host.Services.GetRequiredService<IConfiguration>(), args.Skip(1).ToArray(), token);
+        else
+            await OperatorConfiguration.RepairAdminAsync(provider, host.Services.GetRequiredService<IConfiguration>(), args.Skip(1).ToArray(), token);
     }, host.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping);
     return;
 }
