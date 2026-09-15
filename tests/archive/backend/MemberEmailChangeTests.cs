@@ -70,7 +70,11 @@ public sealed class MemberEmailChangeTests
 		Assert.Equal(neuId.ToString(), entry.GetProperty("accountId").GetString());
 		Assert.Equal("active", entry.GetProperty("status").GetString());
 		Assert.Contains("Member", entry.GetProperty("roles").EnumerateArray().Select(r => r.GetString()));
-		Assert.Equal(acceptedAtBefore, entry.GetProperty("acceptedAt").GetString());
+		// Compare instants, not strings: JSON trims trailing-zero ticks that
+		// the store preserves, so raw text differs one run in ten.
+		Assert.Equal(
+			DateTimeOffset.Parse(acceptedAtBefore),
+			DateTimeOffset.Parse(entry.GetProperty("acceptedAt").GetString()!));
 		Assert.Equal(adminId.ToString(), entry.GetProperty("invitedByAccountId").GetString());
 
 		// Obsolete sign-in challenges are gone; the invitation follows the move.
