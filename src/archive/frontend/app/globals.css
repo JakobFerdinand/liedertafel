@@ -146,6 +146,16 @@ dd {
   background: var(--paper);
   color: var(--ink);
 }
+.auth-karte select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.8rem;
+  border: 2px solid var(--ink);
+  border-radius: 0.3rem;
+  font: inherit;
+  background: var(--paper);
+  color: var(--ink);
+}
 .auth-karte input[aria-invalid="true"] {
   border-color: var(--brand);
 }
@@ -171,6 +181,25 @@ dd {
 }
 .auth-hinweis {
   font-size: 0.9rem;
+}
+.mitglieder-liste {
+  margin-top: 2.5rem;
+  overflow-x: auto;
+}
+.mitglieder-liste table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+.mitglieder-liste th,
+.mitglieder-liste td {
+  text-align: left;
+  padding: 0.6rem 0.8rem;
+  border-bottom: 1px solid var(--wash);
+  vertical-align: top;
+}
+.mitglieder-liste th {
+  font-size: 0.85rem;
 }
 .auth-zeile {
   display: inline-flex;
@@ -212,6 +241,10 @@ footer {
     align-items: flex-start;
     flex-direction: column;
     gap: 1.2rem;
+  }
+  nav {
+    flex-wrap: wrap;
+    row-gap: 0.8rem;
   }
   .introduction {
     padding-top: 2.5rem;
