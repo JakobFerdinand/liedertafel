@@ -160,11 +160,134 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         Assert.Single(race, s => s == HttpStatusCode.OK);
         Assert.Equal(4, race.Count(s => s == HttpStatusCode.BadRequest));
 
+        // ARC-006 invitations through the real Next.js proxy and Mailpit.
+        // The administrator signs in, invites a new singer, and the recipient
+        // accepts through the existing email-code flow with a stable account ID.
+        // A jar-free client carries exactly the manually attached session:
+        // the shared client's cookie jar still holds earlier member/editor
+        // tickets, and even a fresh HttpClient would accumulate competing
+        // archive.auth cookies from the verify responses below.
+        using var api = new HttpClient(new HttpClientHandler { UseCookies = false })
+        {
+            BaseAddress = frontend.BaseAddress,
+        };
+        var (adminCsrfCookie, adminToken) = await GetCsrfAsync(api, null, token);
+        using var adminRequest = new HttpRequestMessage(HttpMethod.Post, "/api/auth/code/request");
+        adminRequest.Headers.Add("Cookie", adminCsrfCookie);
+        adminRequest.Headers.Add("X-CSRF-TOKEN", adminToken);
+        adminRequest.Content = JsonContent.Create(new { email = "verwaltung@liedertafel.test" });
+        using var adminRequestResponse = await api.SendAsync(adminRequest, token);
+        Assert.Equal(HttpStatusCode.Accepted, adminRequestResponse.StatusCode);
+        var adminCode = await GetSignInCodeAsync(mail, "verwaltung@liedertafel.test", token);
+        var (adminVerifyCsrfCookie, adminVerifyToken) = await GetCsrfAsync(api, adminCsrfCookie, token);
+        using var adminVerify = new HttpRequestMessage(HttpMethod.Post, "/api/auth/code/verify");
+        adminVerify.Headers.Add("Cookie", adminVerifyCsrfCookie);
+        adminVerify.Headers.Add("X-CSRF-TOKEN", adminVerifyToken);
+        adminVerify.Content = JsonContent.Create(new { email = "verwaltung@liedertafel.test", code = adminCode });
+        using var adminVerifyResponse = await api.SendAsync(adminVerify, token);
+        Assert.Equal(HttpStatusCode.OK, adminVerifyResponse.StatusCode);
+        var adminSession = Assert.Single(
+            adminVerifyResponse.Headers.GetValues("Set-Cookie"), c => c.StartsWith("archive.auth=")).Split(';')[0];
+
+        var (inviteCsrfCookie, inviteToken) = await GetCsrfAsync(api, $"{adminVerifyCsrfCookie}; {adminSession}", token);
+        using var invite = new HttpRequestMessage(HttpMethod.Post, "/api/admin/invitations");
+        invite.Headers.Add("Cookie", $"{inviteCsrfCookie}; {adminSession}");
+        invite.Headers.Add("X-CSRF-TOKEN", inviteToken);
+        invite.Content = JsonContent.Create(new { email = "neu@liedertafel.test", displayName = "Neue Stimme", role = "Member" });
+        using var inviteResponse = await api.SendAsync(invite, token);
+        Assert.Equal(HttpStatusCode.Created, inviteResponse.StatusCode);
+        var inviteBody = await inviteResponse.Content.ReadFromJsonAsync<JsonElement>(token);
+        // Mail acceptance is reported, delivery is explicitly not confirmed.
+        Assert.Contains("zum Versand angenommen", inviteBody.GetProperty("message").GetString());
+        Assert.Contains("Zustellung wird nicht bestätigt", inviteBody.GetProperty("message").GetString());
+        var invitedAccountId = inviteBody.GetProperty("accountId").GetString()!;
+        await WaitForInvitationMailAsync(mail, "neu@liedertafel.test", token);
+
+        using var list = new HttpRequestMessage(HttpMethod.Get, "/api/admin/members");
+        list.Headers.Add("Cookie", adminSession);
+        using var listResponse = await api.SendAsync(list, token);
+        Assert.Equal(HttpStatusCode.OK, listResponse.StatusCode);
+        var listBody = await listResponse.Content.ReadFromJsonAsync<JsonElement>(token);
+        var invitedEntry = listBody.GetProperty("members").EnumerateArray()
+            .Single(m => m.GetProperty("email").GetString() == "neu@liedertafel.test");
+        Assert.Equal("invited", invitedEntry.GetProperty("status").GetString());
+        Assert.Contains("Member", invitedEntry.GetProperty("roles").EnumerateArray().Select(r => r.GetString()!));
+
+        // Repeated submissions neither duplicate nor change the role silently.
+        var (dupCsrfCookie, dupToken) = await GetCsrfAsync(api, $"{inviteCsrfCookie}; {adminSession}", token);
+        using var dupSame = new HttpRequestMessage(HttpMethod.Post, "/api/admin/invitations");
+        dupSame.Headers.Add("Cookie", $"{dupCsrfCookie}; {adminSession}");
+        dupSame.Headers.Add("X-CSRF-TOKEN", dupToken);
+        dupSame.Content = JsonContent.Create(new { email = "neu@liedertafel.test", displayName = "Neue Stimme", role = "Member" });
+        using var dupSameResponse = await api.SendAsync(dupSame, token);
+        Assert.Equal(HttpStatusCode.OK, dupSameResponse.StatusCode);
+        using var dupRole = new HttpRequestMessage(HttpMethod.Post, "/api/admin/invitations");
+        dupRole.Headers.Add("Cookie", $"{dupCsrfCookie}; {adminSession}");
+        dupRole.Headers.Add("X-CSRF-TOKEN", dupToken);
+        dupRole.Content = JsonContent.Create(new { email = "neu@liedertafel.test", role = "Editor" });
+        using var dupRoleResponse = await api.SendAsync(dupRole, token);
+        Assert.Equal(HttpStatusCode.Conflict, dupRoleResponse.StatusCode);
+        using var dupActive = new HttpRequestMessage(HttpMethod.Post, "/api/admin/invitations");
+        dupActive.Headers.Add("Cookie", $"{dupCsrfCookie}; {adminSession}");
+        dupActive.Headers.Add("X-CSRF-TOKEN", dupToken);
+        dupActive.Content = JsonContent.Create(new { email = "mitglied@liedertafel.test", role = "Editor" });
+        using var dupActiveResponse = await api.SendAsync(dupActive, token);
+        Assert.Equal(HttpStatusCode.Conflict, dupActiveResponse.StatusCode);
+
+        // The invited singer accepts with the existing code flow; the stable
+        // account ID from the invitation matches the verified session.
+        var (neuCsrfCookie, neuToken) = await GetCsrfAsync(api, dupCsrfCookie, token);
+        using var neuRequest = new HttpRequestMessage(HttpMethod.Post, "/api/auth/code/request");
+        neuRequest.Headers.Add("Cookie", neuCsrfCookie);
+        neuRequest.Headers.Add("X-CSRF-TOKEN", neuToken);
+        neuRequest.Content = JsonContent.Create(new { email = "neu@liedertafel.test" });
+        using var neuRequestResponse = await api.SendAsync(neuRequest, token);
+        Assert.Equal(HttpStatusCode.Accepted, neuRequestResponse.StatusCode);
+        var neuCode = await GetSignInCodeAsync(mail, "neu@liedertafel.test", token);
+        var (neuVerifyCsrfCookie, neuVerifyToken) = await GetCsrfAsync(api, neuCsrfCookie, token);
+        using var neuVerify = new HttpRequestMessage(HttpMethod.Post, "/api/auth/code/verify");
+        neuVerify.Headers.Add("Cookie", neuVerifyCsrfCookie);
+        neuVerify.Headers.Add("X-CSRF-TOKEN", neuVerifyToken);
+        neuVerify.Content = JsonContent.Create(new { email = "neu@liedertafel.test", code = neuCode });
+        using var neuVerifyResponse = await api.SendAsync(neuVerify, token);
+        Assert.Equal(HttpStatusCode.OK, neuVerifyResponse.StatusCode);
+        var neuVerifyBody = await neuVerifyResponse.Content.ReadFromJsonAsync<JsonElement>(token);
+        Assert.Equal(invitedAccountId, neuVerifyBody.GetProperty("accountId").GetString());
+        var neuSession = Assert.Single(
+            neuVerifyResponse.Headers.GetValues("Set-Cookie"), c => c.StartsWith("archive.auth=")).Split(';')[0];
+
+        // Ordinary members cannot invoke invitation administration.
+        var (memberCsrfCookie, memberToken) = await GetCsrfAsync(api, $"{neuVerifyCsrfCookie}; {neuSession}", token);
+        using var memberInvite = new HttpRequestMessage(HttpMethod.Post, "/api/admin/invitations");
+        memberInvite.Headers.Add("Cookie", $"{memberCsrfCookie}; {neuSession}");
+        memberInvite.Headers.Add("X-CSRF-TOKEN", memberToken);
+        memberInvite.Content = JsonContent.Create(new { email = "weiter@liedertafel.test", role = "Member" });
+        using var memberInviteResponse = await api.SendAsync(memberInvite, token);
+        Assert.Equal(HttpStatusCode.Forbidden, memberInviteResponse.StatusCode);
+
+        // After acceptance the member list shows the active state; resending
+        // an accepted invitation is rejected without side effects.
+        using var listAfter = new HttpRequestMessage(HttpMethod.Get, "/api/admin/members");
+        listAfter.Headers.Add("Cookie", adminSession);
+        using var listAfterResponse = await api.SendAsync(listAfter, token);
+        Assert.Equal(HttpStatusCode.OK, listAfterResponse.StatusCode);
+        var listAfterBody = await listAfterResponse.Content.ReadFromJsonAsync<JsonElement>(token);
+        Assert.Equal("active", listAfterBody.GetProperty("members").EnumerateArray()
+            .Single(m => m.GetProperty("email").GetString() == "neu@liedertafel.test")
+            .GetProperty("status").GetString());
+        using var resendAccepted = new HttpRequestMessage(HttpMethod.Post, "/api/admin/invitations/resend");
+        resendAccepted.Headers.Add("Cookie", $"{dupCsrfCookie}; {adminSession}");
+        resendAccepted.Headers.Add("X-CSRF-TOKEN", dupToken);
+        resendAccepted.Content = JsonContent.Create(new { email = "neu@liedertafel.test" });
+        using var resendAcceptedResponse = await api.SendAsync(resendAccepted, token);
+        Assert.Equal(HttpStatusCode.Conflict, resendAcceptedResponse.StatusCode);
+
         await commands.ExecuteCommandAsync("archive-worker-smoke", "start", token);
         await AssertSuccessfulCompletion(app.ResourceNotifications, "archive-worker-smoke", token);
         var messages = await mail.GetFromJsonAsync<JsonElement>("/api/v1/messages", token);
-        // Diagnostic mail + two sign-in code mails + worker-smoke mail.
-        Assert.Equal(4, messages.GetProperty("total").GetInt32());
+        // Diagnostic mail + member/editor/admin code mails + two invitation
+        // mails (invite + same-role resend) + invited code mail + worker mail.
+        Assert.Equal(8, messages.GetProperty("total").GetInt32());
     }
 
     private static async Task AssertSuccessfulCompletion(ResourceNotificationService notifications, string name, CancellationToken token)
@@ -218,5 +341,26 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
             await Task.Delay(TimeSpan.FromMilliseconds(500), token);
         }
         throw new Xunit.Sdk.XunitException($"No sign-in code mail found for {email}.");
+    }
+
+    private static async Task WaitForInvitationMailAsync(HttpClient mail, string email, CancellationToken token)
+    {
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            var list = await mail.GetFromJsonAsync<JsonElement>("/api/v1/messages?limit=50", token);
+            var ids = list.GetProperty("messages").EnumerateArray()
+                .Select(m => m.TryGetProperty("ID", out var id) ? id.GetString() : null)
+                .Where(id => id is not null).Cast<string>().ToArray();
+            foreach (var id in ids)
+            {
+                var detail = await mail.GetFromJsonAsync<JsonElement>($"/api/v1/message/{id}", token);
+                var raw = detail.GetRawText();
+                if (raw.Contains(email, StringComparison.OrdinalIgnoreCase)
+                    && raw.Contains("Einladung zum Liedertafel-Archiv", StringComparison.Ordinal))
+                    return;
+            }
+            await Task.Delay(TimeSpan.FromMilliseconds(500), token);
+        }
+        throw new Xunit.Sdk.XunitException($"No invitation mail found for {email}.");
     }
 }
