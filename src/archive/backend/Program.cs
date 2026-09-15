@@ -120,6 +120,7 @@ app.MapGet("/api/antiforgery", (HttpContext context, IAntiforgery antiforgery) =
     return Results.Ok(new { token = antiforgery.GetAndStoreTokens(context).RequestToken });
 });
 app.MapAuthEndpoints();
+app.MapMemberAdminEndpoints();
 app.MapDevelopmentDiagnostics();
 
 // A specific fallback reserves the entire API namespace, including missing files.

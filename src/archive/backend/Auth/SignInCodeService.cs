@@ -225,6 +225,14 @@ public sealed class SignInCodeService(
 			return (CodeVerifyOutcome.Invalid, null, []);
 		}
 
+		// Invitation acceptance links to the stable account ID: stamp the
+		// invitation row (attribution was recorded at invite time).
+		var invitation = await db.MemberInvitations.FirstOrDefaultAsync(i => i.UserId == user.Id, token);
+		if (invitation is not null && invitation.AcceptedAt is null)
+		{
+			invitation.AcceptedAt = now;
+		}
+
 		db.AuthRequestLogs.Add(new AuthRequestLog
 		{
 			NormalizedEmail = normalizedEmail, IpHash = ipHash,
@@ -261,9 +269,9 @@ public sealed class SignInCodeService(
 
 	/// <summary>
 	/// Persists pending log rows even when concurrently raced Identity
-	/// bookkeeping left stale tracked entries behind: only Added log rows are
-	/// kept, everything else is detached (their owners already saved or
-	/// tolerate the lost race, see the call sites).
+	/// bookkeeping left stale tracked entries behind: only Added log rows and
+	/// invitation acceptance stamps are kept, everything else is detached
+	/// (their owners already saved or tolerate the lost race, see the call sites).
 	/// </summary>
 	private async Task SaveLogResilientAsync(CancellationToken token)
 	{
@@ -277,8 +285,9 @@ public sealed class SignInCodeService(
 		}
 		foreach (var entry in db.ChangeTracker.Entries().ToArray())
 		{
-			if (entry.Entity is not AuthRequestLog)
-				entry.State = EntityState.Detached;
+			if (entry.Entity is AuthRequestLog or MemberInvitation)
+				continue;
+			entry.State = EntityState.Detached;
 		}
 		await db.SaveChangesAsync(token);
 	}

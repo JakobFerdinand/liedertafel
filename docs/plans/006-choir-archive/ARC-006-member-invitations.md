@@ -1,6 +1,6 @@
 ---
 id: ARC-006
-status: planned
+status: in_progress
 phase: core
 kind: slice
 depends_on: ["ARC-005"]
@@ -38,3 +38,25 @@ attempts by a Member and Editor.
 
 Reuse ARC-005's identity and mail contracts. Coordinate membership-admin routes
 with ARC-007/008; unrelated catalogue and event slices can proceed concurrently.
+
+## Implementation progress (2026-09-15)
+
+Design (Identity-native, no new auth engine):
+
+- Invited = unconfirmed `ArchiveUser` row, active = confirmed, revoked =
+  locked out (ARC-007). No separate membership table.
+- New `member_invitations` table links each invitation to the stable account ID
+  (`UserId`), records attribution (`InvitedByAccountId`, `InvitedAt`,
+  `AcceptedAt`) and retryable mail state (`LastSentAt`, `MailStatus`,
+  `LastError`). Resend never changes the role silently.
+- New admin endpoints (Administrator policy + fresh 10-min re-verification +
+  CSRF): `GET /api/admin/members`, `POST /api/admin/invitations`,
+  `POST /api/admin/invitations/resend`. Members/Editors get 403.
+- Invitation mail via extended `IArchiveMailSender.SendInvitationAsync`
+  (German template, `/anmelden/` link, no code). Success means "mail accepted
+  by sender", never "delivered". SMTP failure keeps the invitation retryable
+  and returns 502.
+- Acceptance = first email-code verification confirms the address and stamps
+  `AcceptedAt` on the invitation; the stable `accountId` never changes.
+- Frontend `/verwaltung/` (static export, client-side API): admin-gated German
+  member list + invite form + resend buttons with accessible error states.
