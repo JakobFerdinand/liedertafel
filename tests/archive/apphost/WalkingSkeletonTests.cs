@@ -391,12 +391,115 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         Assert.True(neu2MeBody.GetProperty("authenticated").GetBoolean());
         Assert.Contains("Editor", neu2MeBody.GetProperty("roles").EnumerateArray().Select(r => r.GetString()!));
 
+        // ARC-008 verified email change through the real proxy and Mailpit.
+        // The administrator moves the invited singer to a new address; the
+        // stable account ID and history follow, obsolete challenges die, the
+        // singer's open session dies on its next request, and the change mail
+        // alone never attaches the new address elsewhere.
+        var (changeCsrfCookie, changeToken) = await GetCsrfAsync(api, $"{roleCsrfCookie}; {adminSession}", token);
+        using var changeRequest = new HttpRequestMessage(HttpMethod.Post, "/api/admin/members/email/request");
+        changeRequest.Headers.Add("Cookie", $"{changeCsrfCookie}; {adminSession}");
+        changeRequest.Headers.Add("X-CSRF-TOKEN", changeToken);
+        changeRequest.Content = JsonContent.Create(new { accountId = invitedAccountId, newEmail = "umzug@liedertafel.test" });
+        using var changeRequestResponse = await api.SendAsync(changeRequest, token);
+        Assert.Equal(HttpStatusCode.OK, changeRequestResponse.StatusCode);
+        var changeCode = await GetEmailChangeCodeAsync(mail, "umzug@liedertafel.test", token);
+
+        // No silent attach: the sign-in flow has no account for the new
+        // address yet (uniform 202 without mail) and rejects the change code.
+        var (preCsrfCookie, preToken) = await GetCsrfAsync(api, changeCsrfCookie, token);
+        using var preRequest = new HttpRequestMessage(HttpMethod.Post, "/api/auth/code/request");
+        preRequest.Headers.Add("Cookie", preCsrfCookie);
+        preRequest.Headers.Add("X-CSRF-TOKEN", preToken);
+        preRequest.Content = JsonContent.Create(new { email = "umzug@liedertafel.test" });
+        using var preRequestResponse = await api.SendAsync(preRequest, token);
+        Assert.Equal(HttpStatusCode.Accepted, preRequestResponse.StatusCode);
+        var (misCsrfCookie, misToken) = await GetCsrfAsync(api, preCsrfCookie, token);
+        using var misuse = new HttpRequestMessage(HttpMethod.Post, "/api/auth/code/verify");
+        misuse.Headers.Add("Cookie", misCsrfCookie);
+        misuse.Headers.Add("X-CSRF-TOKEN", misToken);
+        misuse.Content = JsonContent.Create(new { email = "umzug@liedertafel.test", code = changeCode });
+        using var misuseResponse = await api.SendAsync(misuse, token);
+        Assert.Equal(HttpStatusCode.BadRequest, misuseResponse.StatusCode);
+
+        var (confirmCsrfCookie, confirmToken) = await GetCsrfAsync(api, $"{misCsrfCookie}; {adminSession}", token);
+        using var confirm = new HttpRequestMessage(HttpMethod.Post, "/api/admin/members/email/confirm");
+        confirm.Headers.Add("Cookie", $"{confirmCsrfCookie}; {adminSession}");
+        confirm.Headers.Add("X-CSRF-TOKEN", confirmToken);
+        confirm.Content = JsonContent.Create(new { accountId = invitedAccountId, newEmail = "umzug@liedertafel.test", code = changeCode });
+        using var confirmResponse = await api.SendAsync(confirm, token);
+        Assert.Equal(HttpStatusCode.OK, confirmResponse.StatusCode);
+        var confirmBody = await confirmResponse.Content.ReadFromJsonAsync<JsonElement>(token);
+        Assert.Contains("Adresse geändert", confirmBody.GetProperty("message").GetString());
+        Assert.Equal("umzug@liedertafel.test", confirmBody.GetProperty("email").GetString());
+
+        using var listMoved = new HttpRequestMessage(HttpMethod.Get, "/api/admin/members");
+        listMoved.Headers.Add("Cookie", adminSession);
+        using var listMovedResponse = await api.SendAsync(listMoved, token);
+        var listMovedBody = await listMovedResponse.Content.ReadFromJsonAsync<JsonElement>(token);
+        var movedEntry = listMovedBody.GetProperty("members").EnumerateArray()
+            .Single(m => m.GetProperty("email").GetString() == "umzug@liedertafel.test");
+        Assert.Equal(invitedAccountId, movedEntry.GetProperty("accountId").GetString());
+        Assert.Equal("active", movedEntry.GetProperty("status").GetString());
+        Assert.Contains("Editor", movedEntry.GetProperty("roles").EnumerateArray().Select(r => r.GetString()!));
+
+        // The singer's open session dies on its next request; the acting
+        // admin session is untouched.
+        using var neu2MeMoved = new HttpRequestMessage(HttpMethod.Get, "/api/auth/me");
+        neu2MeMoved.Headers.Add("Cookie", neu2Session);
+        using var neu2MeMovedResponse = await api.SendAsync(neu2MeMoved, token);
+        var neu2MeMovedBody = await neu2MeMovedResponse.Content.ReadFromJsonAsync<JsonElement>(token);
+        Assert.False(neu2MeMovedBody.GetProperty("authenticated").GetBoolean());
+
+        // The old address no longer signs in; the new one returns the same ID.
+        var (oldMailCsrfCookie, oldMailToken) = await GetCsrfAsync(api, confirmCsrfCookie, token);
+        using var oldMailRequest = new HttpRequestMessage(HttpMethod.Post, "/api/auth/code/request");
+        oldMailRequest.Headers.Add("Cookie", oldMailCsrfCookie);
+        oldMailRequest.Headers.Add("X-CSRF-TOKEN", oldMailToken);
+        oldMailRequest.Content = JsonContent.Create(new { email = "neu@liedertafel.test" });
+        using var oldMailRequestResponse = await api.SendAsync(oldMailRequest, token);
+        Assert.Equal(HttpStatusCode.Accepted, oldMailRequestResponse.StatusCode);
+        var (oldVerifyCsrfCookie, oldVerifyToken) = await GetCsrfAsync(api, oldMailCsrfCookie, token);
+        using var oldVerify = new HttpRequestMessage(HttpMethod.Post, "/api/auth/code/verify");
+        oldVerify.Headers.Add("Cookie", oldVerifyCsrfCookie);
+        oldVerify.Headers.Add("X-CSRF-TOKEN", oldVerifyToken);
+        oldVerify.Content = JsonContent.Create(new { email = "neu@liedertafel.test", code = neu2Code });
+        using var oldVerifyResponse = await api.SendAsync(oldVerify, token);
+        Assert.Equal(HttpStatusCode.BadRequest, oldVerifyResponse.StatusCode);
+
+        var (movedCsrfCookie, movedToken) = await GetCsrfAsync(api, oldVerifyCsrfCookie, token);
+        using var movedRequest = new HttpRequestMessage(HttpMethod.Post, "/api/auth/code/request");
+        movedRequest.Headers.Add("Cookie", movedCsrfCookie);
+        movedRequest.Headers.Add("X-CSRF-TOKEN", movedToken);
+        movedRequest.Content = JsonContent.Create(new { email = "umzug@liedertafel.test" });
+        using var movedRequestResponse = await api.SendAsync(movedRequest, token);
+        Assert.Equal(HttpStatusCode.Accepted, movedRequestResponse.StatusCode);
+        var movedCode = await GetSignInCodeAsync(mail, "umzug@liedertafel.test", token);
+        var (movedVerifyCsrfCookie, movedVerifyToken) = await GetCsrfAsync(api, movedCsrfCookie, token);
+        using var movedVerify = new HttpRequestMessage(HttpMethod.Post, "/api/auth/code/verify");
+        movedVerify.Headers.Add("Cookie", movedVerifyCsrfCookie);
+        movedVerify.Headers.Add("X-CSRF-TOKEN", movedVerifyToken);
+        movedVerify.Content = JsonContent.Create(new { email = "umzug@liedertafel.test", code = movedCode });
+        using var movedVerifyResponse = await api.SendAsync(movedVerify, token);
+        Assert.Equal(HttpStatusCode.OK, movedVerifyResponse.StatusCode);
+        var movedVerifyBody = await movedVerifyResponse.Content.ReadFromJsonAsync<JsonElement>(token);
+        Assert.Equal(invitedAccountId, movedVerifyBody.GetProperty("accountId").GetString());
+
+        // Collision with the administrator's address is rejected cleanly.
+        var (collisionCsrfCookie, collisionToken) = await GetCsrfAsync(api, $"{movedVerifyCsrfCookie}; {adminSession}", token);
+        using var collision = new HttpRequestMessage(HttpMethod.Post, "/api/admin/members/email/request");
+        collision.Headers.Add("Cookie", $"{collisionCsrfCookie}; {adminSession}");
+        collision.Headers.Add("X-CSRF-TOKEN", collisionToken);
+        collision.Content = JsonContent.Create(new { accountId = invitedAccountId, newEmail = "verwaltung@liedertafel.test" });
+        using var collisionResponse = await api.SendAsync(collision, token);
+        Assert.Equal(HttpStatusCode.Conflict, collisionResponse.StatusCode);
+
         // Last-administrator handling: the only administrator can neither be
         // deactivated nor demoted; repair belongs to the maintainer path.
         var adminEntry = listRevokedBody.GetProperty("members").EnumerateArray()
             .Single(m => m.GetProperty("email").GetString() == "verwaltung@liedertafel.test");
         var adminAccountId = adminEntry.GetProperty("accountId").GetString()!;
-        var (lastCsrfCookie, lastToken) = await GetCsrfAsync(api, $"{roleCsrfCookie}; {adminSession}", token);
+        var (lastCsrfCookie, lastToken) = await GetCsrfAsync(api, $"{collisionCsrfCookie}; {adminSession}", token);
         using var lastDeactivate = new HttpRequestMessage(HttpMethod.Post, "/api/admin/members/deactivate");
         lastDeactivate.Headers.Add("Cookie", $"{lastCsrfCookie}; {adminSession}");
         lastDeactivate.Headers.Add("X-CSRF-TOKEN", lastToken);
@@ -415,8 +518,9 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         var messages = await mail.GetFromJsonAsync<JsonElement>("/api/v1/messages", token);
         // Diagnostic mail + member/editor/admin code mails + two invitation
         // mails (invite + same-role resend) + invited code mail + reactivated
-        // code mail + worker mail.
-        Assert.Equal(9, messages.GetProperty("total").GetInt32());
+        // code mail + email-change code mail + moved-address code mail +
+        // worker mail.
+        Assert.Equal(11, messages.GetProperty("total").GetInt32());
     }
 
     private static async Task AssertSuccessfulCompletion(ResourceNotificationService notifications, string name, CancellationToken token)
@@ -494,6 +598,29 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
             await Task.Delay(TimeSpan.FromMilliseconds(500), token);
         }
         throw new Xunit.Sdk.XunitException($"No fresh sign-in code mail found for {email}.");
+    }
+
+    private static async Task<string> GetEmailChangeCodeAsync(HttpClient mail, string email, CancellationToken token)
+    {
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            var list = await mail.GetFromJsonAsync<JsonElement>("/api/v1/messages?limit=50", token);
+            var ids = list.GetProperty("messages").EnumerateArray()
+                .Select(m => m.TryGetProperty("ID", out var id) ? id.GetString() : null)
+                .Where(id => id is not null).Cast<string>().ToArray();
+            foreach (var id in ids)
+            {
+                var detail = await mail.GetFromJsonAsync<JsonElement>($"/api/v1/message/{id}", token);
+                if (!detail.GetRawText().Contains(email, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                var text = detail.TryGetProperty("Text", out var textProp) ? textProp.GetString() : null;
+                var match = Regex.Match(text ?? string.Empty, @"Bestätigungscode lautet:\s*(\d{6})");
+                if (match.Success)
+                    return match.Groups[1].Value;
+            }
+            await Task.Delay(TimeSpan.FromMilliseconds(500), token);
+        }
+        throw new Xunit.Sdk.XunitException($"No email-change code mail found for {email}.");
     }
 
     private static async Task WaitForInvitationMailAsync(HttpClient mail, string email, CancellationToken token)
