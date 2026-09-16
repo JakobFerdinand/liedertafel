@@ -28,7 +28,9 @@ preview, destructive-change guard, image pass-through).
    `pull_request` federated credential and group-scoped `Contributor`; store
    its client ID as `AZURE_CLIENT_ID_ARCHIVE_PREVIEW`. PR what-if uses this
    identity and a fake GHCR password, so neither role-assignment permission
-   nor the real pull credential enters a PR job.
+   nor the real pull credential enters a PR job. It previews with
+   `deployRoleAssignments=false`; role diffs are code-reviewed and applied by
+   the privileged deploy (`workflow_dispatch` previews with `true`).
 2. Create the empty group once as subscription Owner (the release identity
    has no subscription-level rights by design):
    `az deployment sub create --location austriaeast --template-file infrastructure/archive/subscription.bicep --parameters archiveResourceGroupName=RG-Liedertafel-Archive --parameters resourceGroupLocation=austriaeast`
