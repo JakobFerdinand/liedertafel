@@ -68,13 +68,14 @@ jobs:
           echo "image=$CURRENT_IMAGE" >> "$GITHUB_OUTPUT"
 
       - name: What-if resource group
+        env:
+          ARCHIVE_CONTAINER_IMAGE: ${{ steps.image.outputs.image }}
+          ARCHIVE_GHCR_PASSWORD: ${{ github.event_name == 'pull_request' && 'what-if-placeholder' || secrets.GHCR_PULL_PAT_ARCHIVE }}
         run: |
           az deployment group what-if \
             --resource-group "$RESOURCE_GROUP" \
             --template-file infrastructure/archive/main.bicep \
             --parameters infrastructure/archive/main.bicepparam \
-            --parameters containerImage="${{ steps.image.outputs.image }}" \
-            --parameters ghcrPassword="${{ github.event_name == 'pull_request' && 'what-if-placeholder' || secrets.GHCR_PULL_PAT_ARCHIVE }}" \
             --no-pretty-print > /tmp/what-if.json
 
       - name: Post what-if comment
@@ -159,23 +160,25 @@ jobs:
           echo "image=$CURRENT_IMAGE" >> "$GITHUB_OUTPUT"
 
       - name: Guard against destructive changes
+        env:
+          ARCHIVE_CONTAINER_IMAGE: ${{ steps.image.outputs.image }}
+          ARCHIVE_GHCR_PASSWORD: ${{ secrets.GHCR_PULL_PAT_ARCHIVE }}
         run: |
           if az deployment group what-if \
             --resource-group "$RESOURCE_GROUP" \
             --template-file infrastructure/archive/main.bicep \
             --parameters infrastructure/archive/main.bicepparam \
-            --parameters containerImage="${{ steps.image.outputs.image }}" \
-            --parameters ghcrPassword="${{ secrets.GHCR_PULL_PAT_ARCHIVE }}" \
             --no-pretty-print | jq -e 'any(.changes[]?; .changeType == "Delete" or .changeType == "Replace")' >/dev/null; then
             echo "::error::What-if detected destructive (Delete/Replace) changes; refusing to apply."
             exit 1
           fi
 
       - name: Deploy archive resources
+        env:
+          ARCHIVE_CONTAINER_IMAGE: ${{ steps.image.outputs.image }}
+          ARCHIVE_GHCR_PASSWORD: ${{ secrets.GHCR_PULL_PAT_ARCHIVE }}
         run: |
           az deployment group create \
             --resource-group "$RESOURCE_GROUP" \
             --template-file infrastructure/archive/main.bicep \
-            --parameters infrastructure/archive/main.bicepparam \
-            --parameters containerImage="${{ steps.image.outputs.image }}" \
-            --parameters ghcrPassword="${{ secrets.GHCR_PULL_PAT_ARCHIVE }}"
+            --parameters infrastructure/archive/main.bicepparam
