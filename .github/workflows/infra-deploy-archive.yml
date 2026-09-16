@@ -72,10 +72,19 @@ jobs:
           ARCHIVE_CONTAINER_IMAGE: ${{ steps.image.outputs.image }}
           ARCHIVE_GHCR_PASSWORD: ${{ github.event_name == 'pull_request' && 'what-if-placeholder' || secrets.GHCR_PULL_PAT_ARCHIVE }}
         run: |
+          # PR preview uses the Contributor-only identity without
+          # Microsoft.Authorization/roleAssignments/write, so skip RBAC there.
+          # workflow_dispatch uses the privileged identity and previews roles.
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            DEPLOY_ROLES=false
+          else
+            DEPLOY_ROLES=true
+          fi
           az deployment group what-if \
             --resource-group "$RESOURCE_GROUP" \
             --template-file infrastructure/archive/main.bicep \
             --parameters infrastructure/archive/main.bicepparam \
+            --parameters deployRoleAssignments="$DEPLOY_ROLES" \
             --no-pretty-print > /tmp/what-if.json
 
       - name: Post what-if comment
@@ -95,7 +104,7 @@ jobs:
             } catch (err) {
               rows = `_failed to parse what-if output_\n\n\`\`\`\n${fs.readFileSync('/tmp/what-if.json', 'utf8')}\n\`\`\``;
             }
-            const body = `## Archive infrastructure what-if preview\n\n| Change type | Resource |\n| --- | --- |\n${rows}\n\n${marker}`;
+            const body = `## Archive infrastructure what-if preview\n\n| Change type | Resource |\n| --- | --- |\n${rows}\n\n_PR preview skips RBAC role assignments (Contributor-only identity); role diffs are code-reviewed and applied by the privileged deploy._\n\n${marker}`;
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,

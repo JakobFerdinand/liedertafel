@@ -52,6 +52,9 @@ param bindCustomDomain bool = false
 @description('Log Analytics daily ingestion cap in GB. ARC-009 decision: 1 GB/day; the shell needs far less and PAYG retention stays at 31 days.')
 param logAnalyticsDailyCapGb int = 1
 
+@description('Deploy the RBAC role assignments. PR what-if uses a Contributor-only preview identity without Microsoft.Authorization/roleAssignments/write, so it previews with false; real deploys keep true.')
+param deployRoleAssignments bool = true
+
 resource workspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   name: workspaceName
   location: location
@@ -89,7 +92,10 @@ resource vault 'Microsoft.KeyVault/vaults@2023-07-01' = {
 
 // ARC-004 contract: runtime identity may read vault secrets (GHCR pull
 // lifecycle moves here in ARC-011) and publish monitoring metrics.
-resource vaultSecretsUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+// Skipped in PR what-if: the Contributor-only preview identity lacks
+// Microsoft.Authorization/roleAssignments/write by design.
+// Role diffs are reviewed via code and covered by the privileged deploy.
+resource vaultSecretsUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployRoleAssignments) {
   name: guid(vault.id, runtimeIdentity.id, 'secrets-user')
   scope: vault
   properties: {
@@ -102,7 +108,7 @@ resource vaultSecretsUser 'Microsoft.Authorization/roleAssignments@2022-04-01' =
   }
 }
 
-resource metricsPublisher 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource metricsPublisher 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployRoleAssignments) {
   name: guid(resourceGroup().id, runtimeIdentity.id, 'metrics-publisher')
   properties: {
     roleDefinitionId: subscriptionResourceId(
