@@ -1,8 +1,13 @@
 using './main.bicep'
 
 // Non-secret defaults for the archive shell. containerImage (immutable digest)
-// and ghcrPassword are injected per-run by the workflows so infrastructure
-// re-runs preserve the current release and secrets never land in the repo.
+// and ghcrPassword are required with no defaults: they are read from
+// environment variables so Bicep validates the params file before Azure CLI
+// overrides would apply (BCP258). Workflows set ARCHIVE_CONTAINER_IMAGE and
+// ARCHIVE_GHCR_PASSWORD per run, preserving the current release and keeping
+// secrets out of the repo. Missing variables fail the deployment explicitly.
+param containerImage = readEnvironmentVariable('ARCHIVE_CONTAINER_IMAGE')
+param ghcrPassword = readEnvironmentVariable('ARCHIVE_GHCR_PASSWORD')
 param location = 'austriaeast'
 param environmentName = 'cae-liedertafel-archive'
 param appName = 'ca-liedertafel-archive'
