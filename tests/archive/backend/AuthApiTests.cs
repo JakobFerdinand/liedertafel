@@ -376,7 +376,7 @@ public sealed class AuthApiTests
 		Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 		var body = await response.Content.ReadFromJsonAsync<JsonElement>();
 		var roles = body.GetProperty("accounts").EnumerateArray()
-			.Select(a => a.GetProperty("role").GetString()).OrderBy(r => r).ToArray();
+			.Select(a => a.GetProperty("role").GetString() ?? string.Empty).OrderBy(r => r).ToArray();
 		Assert.Equal(["Administrator", "Editor", "Member"], roles);
 
 		await using var production = new AuthApiFactory("Production", new InMemoryDatabaseRoot(), settings: AuthApiFactory.ProductionMailSettings);

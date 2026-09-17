@@ -17,8 +17,7 @@ namespace Archive.Backend.Auth;
 public sealed class EmailCodeTokenProvider(
 	ArchiveDbContext db,
 	IOptions<AuthOptions> options,
-	TimeProvider time,
-	ILogger<EmailCodeTokenProvider> logger) : IUserTwoFactorTokenProvider<ArchiveUser>
+	TimeProvider time) : IUserTwoFactorTokenProvider<ArchiveUser>
 {
 	public const string ProviderName = "EmailCode";
 

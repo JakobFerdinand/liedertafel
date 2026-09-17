@@ -227,7 +227,13 @@ Build/smoke the production image from the repository root:
 ```bash
 docker build -f src/archive/Dockerfile --build-arg VERSION=0.1.0 \
   --build-arg REVISION="$(git rev-parse HEAD)" -t liedertafel-archive:local .
-docker run --rm -d --name archive-smoke -p 127.0.0.1:18080:8080 liedertafel-archive:local
+# ARC-010: Production refuses to boot on local SMTP capture. The endpoint is
+# never contacted here (/alive, /api/build and static assets stay
+# dependency-free; the mail transport builds lazily on first send).
+docker run --rm -d --name archive-smoke -p 127.0.0.1:18080:8080 \
+  -e Mail__Provider=Azure \
+  -e Mail__AzureEndpoint=https://acs-liedertafel-test.communication.azure.com \
+  liedertafel-archive:local
 curl --fail http://localhost:18080/alive
 docker exec archive-smoke sh -c '! command -v node && id -u'
 ```
@@ -235,7 +241,8 @@ docker exec archive-smoke sh -c '! command -v node && id -u'
 Then run the same browser command with `ARCHIVE_BASE_URL=http://localhost:18080`
 from the frontend directory, and `docker stop archive-smoke` when finished.
 No database, storage, SMTP, OTLP endpoint or development environment is supplied
-to this smoke container. For Podman builds, additionally pass
+to this smoke container (only the Azure mail provider selection above, which is
+never contacted by the smoke). For Podman builds, additionally pass
 `--ignorefile src/archive/Dockerfile.dockerignore`; Docker automatically uses the
 Dockerfile-specific ignore file. The final image runs as the .NET non-root user.
 

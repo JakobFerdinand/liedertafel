@@ -201,6 +201,22 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
             cpu: json('0.25')
             memory: '0.5Gi'
           }
+          // ARC-010: Production refuses to boot on local SMTP capture, so the
+          // hosted shell selects the Azure provider with the verified
+          // choir-domain endpoint. Sends stay keyless via the runtime managed
+          // identity (ARC-011 wires AZURE_CLIENT_ID); the transport builds
+          // lazily, so /alive, /api/build and static assets stay
+          // dependency-free until then.
+          env: [
+            {
+              name: 'Mail__Provider'
+              value: 'Azure'
+            }
+            {
+              name: 'Mail__AzureEndpoint'
+              value: 'https://acs-liedertafel-archive.europe.communication.azure.com'
+            }
+          ]
           probes: [
             {
               type: 'Startup'

@@ -56,7 +56,14 @@ jobs:
         env:
           ARCHIVE_BASE_URL: http://localhost:18080
         run: |
-          docker run --rm -d --name archive-smoke -p 127.0.0.1:18080:8080 liedertafel-archive:check
+          # ARC-010: Production refuses to boot on local SMTP capture, so the
+          # smoke container selects the Azure provider. The endpoint is never
+          # contacted here (/alive, /api/build and static assets stay
+          # dependency-free; the mail transport builds lazily on first send).
+          docker run --rm -d --name archive-smoke -p 127.0.0.1:18080:8080 \
+            -e Mail__Provider=Azure \
+            -e Mail__AzureEndpoint=https://acs-liedertafel-test.communication.azure.com \
+            liedertafel-archive:check
           trap 'docker stop archive-smoke' EXIT
           for attempt in {1..30}; do
             if curl --fail --silent "$ARCHIVE_BASE_URL/alive"; then break; fi
