@@ -41,6 +41,9 @@ param runtimePrincipalId string = ''
 @description('Deploy the RBAC role assignment. PR what-if uses a Contributor-only preview identity without Microsoft.Authorization/roleAssignments/write, so it previews with an empty principal ID; real deploys pass the identity object ID.')
 param deployRoleAssignments bool = true
 
+@description('Link the verified domain to the Communication Service. Two stages like the ARC-009 certificate: deploy first with false (verification needs DNS first; linking an unverified domain fails with DomainValidationError), then flip to true after World4You entry plus initiate-verification.')
+param linkDomain bool = false
+
 resource emailService 'Microsoft.Communication/emailServices@2023-04-01' = {
   name: emailServiceName
   location: 'global'
@@ -73,9 +76,9 @@ resource communicationService 'Microsoft.Communication/communicationServices@202
   location: 'global'
   properties: {
     dataLocation: dataLocation
-    linkedDomains: [
+    linkedDomains: linkDomain ? [
       domain.id
-    ]
+    ] : []
   }
 }
 
@@ -101,8 +104,8 @@ resource mailSendPermission 'Microsoft.Authorization/roleAssignments@2022-04-01'
 @description('Full sender address used by the backend (Auth:MailFrom default).')
 output senderAddress string = '${senderUsername}@${senderDomain}'
 
-@description('Communication Services endpoint for EmailClient(Uri, DefaultAzureCredential).')
-output communicationEndpoint string = 'https://${communicationServiceName}.communication.azure.com'
+@description('Communication Services endpoint for EmailClient(Uri, DefaultAzureCredential). Europe geography regionalizes the host (verified live); do not use the unqualified .communication.azure.com form.')
+output communicationEndpoint string = 'https://${communicationServiceName}.europe.communication.azure.com'
 
 @description('Generated DNS records for World4You entry (ownership TXT, SPF, DKIM/DKIM2 CNAMEs). Read-only; supplied by Azure at creation.')
 output verificationRecords object = domain.properties.verificationRecords

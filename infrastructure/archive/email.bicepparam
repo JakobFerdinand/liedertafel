@@ -12,3 +12,4 @@ param senderUsername = 'archiv'
 param senderDisplayName = 'Liedertafel Archiv'
 param dataLocation = 'Europe'
 param deployRoleAssignments = true
+param linkDomain = false
