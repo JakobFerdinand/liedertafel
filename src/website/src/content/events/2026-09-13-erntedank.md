@@ -1,5 +1,5 @@
 ---
-date: "2026-09-13"
+date: "2026-09-20"
 name: "Erntedank"
 location: "Mining"
 ---
