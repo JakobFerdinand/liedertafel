@@ -230,9 +230,12 @@ docker build -f src/archive/Dockerfile --build-arg VERSION=0.1.0 \
 # ARC-010: Production refuses to boot on local SMTP capture. The endpoint is
 # never contacted here (/alive, /api/build and static assets stay
 # dependency-free; the mail transport builds lazily on first send).
+# ARC-011: Production additionally requires Blob/Key Vault key persistence;
+# the smoke stays dependency-free with the ephemeral test escape.
 docker run --rm -d --name archive-smoke -p 127.0.0.1:18080:8080 \
   -e Mail__Provider=Azure \
   -e Mail__AzureEndpoint=https://acs-liedertafel-test.communication.azure.com \
+  -e Authentication__AllowEphemeralKeysForTests=true \
   liedertafel-archive:local
 curl --fail http://localhost:18080/alive
 docker exec archive-smoke sh -c '! command -v node && id -u'
