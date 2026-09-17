@@ -344,7 +344,9 @@ public sealed class AuthApiTests
 	public async Task SessionCookieIsHttpOnlySameSiteAndSecureInProduction()
 	{
 		var root = new InMemoryDatabaseRoot();
-		await using var factory = new AuthApiFactory("Production", root);
+		// ARC-010: Production requires Mail:Provider=Azure at startup; the
+		// sender itself stays faked, so no network is involved.
+		await using var factory = new AuthApiFactory("Production", root, settings: AuthApiFactory.ProductionMailSettings);
 		await SeedActiveMemberAsync(factory, ActiveMember);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions
 		{
@@ -377,7 +379,7 @@ public sealed class AuthApiTests
 			.Select(a => a.GetProperty("role").GetString()).OrderBy(r => r).ToArray();
 		Assert.Equal(["Administrator", "Editor", "Member"], roles);
 
-		await using var production = new AuthApiFactory("Production", new InMemoryDatabaseRoot());
+		await using var production = new AuthApiFactory("Production", new InMemoryDatabaseRoot(), settings: AuthApiFactory.ProductionMailSettings);
 		using var prodClient = production.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 		using var prodSeed = await prodClient.PostAsync("/api/dev/auth/seed", JsonContent.Create(new { }));
 		Assert.Equal(HttpStatusCode.NotFound, prodSeed.StatusCode);
@@ -522,11 +524,15 @@ internal sealed class FakeMailSender : IArchiveMailSender
 
 	public sealed record SentEmailChange(string Email, string Code);
 
+	public sealed record SentTestMessage(string Email);
+
 	private readonly List<SentMail> sent = [];
 	private readonly List<SentInvitation> invitations = [];
 	private readonly List<SentEmailChange> emailChanges = [];
+	private readonly List<SentTestMessage> testMessages = [];
 	private readonly object gate = new();
 	private Func<string, Exception?>? invitationFailure;
+	private Func<string, Exception?>? codeFailure;
 
 	public IReadOnlyList<SentMail> Sent
 	{
@@ -552,13 +558,28 @@ internal sealed class FakeMailSender : IArchiveMailSender
 		}
 	}
 
+	public IReadOnlyList<SentTestMessage> SentTestMessages
+	{
+		get
+		{
+			lock (gate) return [.. testMessages];
+		}
+	}
+
 	public void FailInvitations(Func<string, Exception?> failure) => invitationFailure = failure;
+
+	public void FailCodes(Func<string, Exception?> failure) => codeFailure = failure;
 
 	public Task SendSignInCodeAsync(string email, string code, TimeSpan lifetime, CancellationToken cancellationToken)
 	{
 		// Mirror the production sender's span so telemetry assertions cover
 		// the mail path even with mail capture faked out.
 		using var _ = Extensions.Activities.StartActivity("archive.mail.send", ActivityKind.Client);
+		Func<string, Exception?>? failure;
+		lock (gate) failure = codeFailure;
+		var error = failure?.Invoke(email);
+		if (error is not null)
+			throw error;
 		lock (gate) sent.Add(new SentMail(email, code));
 		return Task.CompletedTask;
 	}
@@ -586,10 +607,28 @@ internal sealed class FakeMailSender : IArchiveMailSender
 		lock (gate) emailChanges.Add(new SentEmailChange(email, code));
 		return Task.CompletedTask;
 	}
+
+	public Task SendTestMessageAsync(string email, CancellationToken cancellationToken)
+	{
+		using var _ = Extensions.Activities.StartActivity("archive.mail.test.send", ActivityKind.Client);
+		lock (gate) testMessages.Add(new SentTestMessage(email));
+		return Task.CompletedTask;
+	}
 }
 
 internal sealed class AuthApiFactory : WebApplicationFactory<Program>
 {
+	/// <summary>
+	/// ARC-010: Production hosts require <c>Mail:Provider=Azure</c> at
+	/// startup. Tests keep the faked sender, so no network is involved; the
+	/// endpoint value is never contacted.
+	/// </summary>
+	internal static IDictionary<string, string?> ProductionMailSettings { get; } = new Dictionary<string, string?>
+	{
+		["Mail:Provider"] = "Azure",
+		["Mail:AzureEndpoint"] = "https://acs-liedertafel-test.communication.azure.com",
+	};
+
 	private readonly string environment;
 	private readonly string root = Path.Combine(Path.GetTempPath(), $"archive-auth-tests-{Guid.NewGuid():N}");
 	private readonly string database;
@@ -600,7 +639,9 @@ internal sealed class AuthApiFactory : WebApplicationFactory<Program>
 
 	public FakeMailSender Mail { get; } = new();
 
-	public AuthApiFactory(string environment = "Development", InMemoryDatabaseRoot? root = null, string? keysPath = null, string? databaseName = null, string? otlpEndpoint = null, TimeSpan? freshVerificationWindow = null)
+	private readonly IDictionary<string, string?>? extraSettings;
+
+	public AuthApiFactory(string environment = "Development", InMemoryDatabaseRoot? root = null, string? keysPath = null, string? databaseName = null, string? otlpEndpoint = null, TimeSpan? freshVerificationWindow = null, IDictionary<string, string?>? settings = null)
 	{
 		this.environment = environment;
 		sharedRoot = root ?? new InMemoryDatabaseRoot();
@@ -608,6 +649,7 @@ internal sealed class AuthApiFactory : WebApplicationFactory<Program>
 		this.keysPath = keysPath ?? Path.Combine(this.root, "keys");
 		this.otlpEndpoint = otlpEndpoint;
 		this.freshVerificationWindow = freshVerificationWindow;
+		this.extraSettings = settings;
 		Directory.CreateDirectory(Path.Combine(this.root, "system/status"));
 		File.WriteAllText(Path.Combine(this.root, "index.html"), "<html lang=de><h1>frontend-fixture</h1></html>");
 		File.WriteAllText(Path.Combine(this.root, "system/status/index.html"), "<html lang=de><h1>frontend-fixture status</h1></html>");
@@ -620,6 +662,13 @@ internal sealed class AuthApiFactory : WebApplicationFactory<Program>
 			.UseSetting("OTEL_EXPORTER_OTLP_ENDPOINT", otlpEndpoint ?? "http://127.0.0.1:1")
 			.UseSetting("OTEL_EXPORTER_OTLP_TIMEOUT", "10")
 			.UseSetting("Development:KeysPath", keysPath);
+		if (extraSettings is not null)
+		{
+			// Per-test configuration (e.g. the ARC-010 Azure mail provider
+			// for Production hosts, where mail stays faked below).
+			foreach (var (key, value) in extraSettings)
+				builder.UseSetting(key, value);
+		}
 		if (otlpEndpoint is not null)
 		{
 			// A live test collector: short export intervals so the test

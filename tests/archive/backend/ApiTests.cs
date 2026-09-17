@@ -108,13 +108,22 @@ internal sealed class ArchiveFactory : WebApplicationFactory<Program>
         File.WriteAllText(Path.Combine(root, "api/missing.js"), "frontend-fixture must never reach an API request");
     }
 
-    protected override void ConfigureWebHost(IWebHostBuilder builder) => builder
-        .UseEnvironment(environment).UseWebRoot(root)
-        .UseSetting("OTEL_EXPORTER_OTLP_ENDPOINT", "http://127.0.0.1:1")
-        .UseSetting("OTEL_EXPORTER_OTLP_TIMEOUT", "10")
-        .UseSetting("Development:KeysPath", Path.Combine(root, "keys"))
-        .ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(
-            new Dictionary<string, string?> { ["ConnectionStrings:archive-db"] = null }));
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder
+            .UseEnvironment(environment).UseWebRoot(root)
+            .UseSetting("OTEL_EXPORTER_OTLP_ENDPOINT", "http://127.0.0.1:1")
+            .UseSetting("OTEL_EXPORTER_OTLP_TIMEOUT", "10")
+            .UseSetting("Development:KeysPath", Path.Combine(root, "keys"))
+            .ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(
+                new Dictionary<string, string?> { ["ConnectionStrings:archive-db"] = null }));
+        // ARC-010: Production hosts require the Azure mail provider at
+        // startup. UseSetting flows into the app configuration (proven by
+        // AuthApiFactory); these tests never send mail, so the endpoint is
+        // never contacted and the sender stays lazily unconstructed.
+        foreach (var (key, value) in AuthApiFactory.ProductionMailSettings)
+            builder.UseSetting(key, value);
+    }
 
     public override async ValueTask DisposeAsync()
     {
