@@ -108,3 +108,77 @@ provision → migrate/grants → Key Vault secrets → infra deploy → image
 release → pilot bootstrap → restart/two-replica persistence, expired/reused
 codes, unauthorized access, failed-DB, cold-start timings, no keep-alive
 probe. No OpenTofu state is created by any step above.
+
+## Live provisioning and pre-release verification — 2026-09-17
+
+Neon (runbook `infrastructure/neon/README.md` §§1–4, `psql` via a local
+`postgres:17.6` image carrying the host CA bundle because the stock image
+fails `verify-full` here; SQL piped via stdin since host mounts are not
+visible to the container runtime):
+
+- Fresh project `liedertafel-archive-prod` (`muddy-leaf-09559586`): PG17,
+  `aws-eu-central-1`, six-hour history, 0.25–0.5 CU, `0` suspend,
+  `production` branch + active read-write endpoint, Neon Auth not
+  configured. Existing PG18 `bitter-base-66886756` untouched (only listed).
+- `bootstrap-roles.sql` as `archive_admin` committed; `\conninfo` reports
+  TLSv1.3 / TLS_AES_256_GCM_SHA384 under `verify-full`.
+- One process incident: the first migrator password was exposed in a local
+  shell error echo (bash `export` rejects `-` in
+  `ConnectionStrings__archive-migrations`). It was never used against the
+  database (the migration failed before connecting) and was immediately
+  rotated via admin; all later invocations use `env`. No secret entered the
+  repo.
+- All existing auth migrations applied explicitly as `archive_migrator`
+  (`--migrate`, Production mode); `runtime-grants.sql` as migrator;
+  scratch-table future-grant probe passed (runtime INSERT/UPDATE/SELECT/
+  DELETE ok); all eight negative checks denied (DDL, role admin, `SET ROLE
+  migrator`, EF-history read/write, temp tables); both roles show no
+  superuser/createdb/createrole/replication/bypass-RLS and no extra
+  memberships; scratch dropped; `--migrate` repeat clean.
+
+Azure (deployment `arc011-keys-and-wiring`, `Succeeded`; what-if and the
+workflow destructive-change guard clean — Modify/Create only):
+
+- `archive-db-connection` (runtime Npgsql string) and
+  `archive-operator-token` (`openssl rand -base64 32`) placed in
+  `kv-liedertafel-archive` (versioned IDs recorded in the deployment
+  session only). Maintainer `Secrets Officer` grant added for the operator
+  identity (one-off, documented in `infrastructure/archive/README.md`).
+- Reported outputs: key ring
+  `https://stliedertafelarchive.blob.core.windows.net/dataprotection/keys.xml`,
+  wrapping key
+  `https://kv-liedertafel-archive.vault.azure.net/keys/dataprotection-wrap`
+  (versionless). Live env audit: only the seven intended names (mail ×2,
+  runtime DB, operator token, `AZURE_CLIENT_ID`, both key URIs) — no
+  `OTEL_*`, no migrator/admin/Neon-API material, no `KeysPath`, no test
+  escape. Probes `/alive`-only, scale 0–2, image digest preserved
+  (`ab48b050…`, `0.2.0`).
+- Pilot bootstrap 2026-09-17 through the **runtime** connection only:
+  `Bootstrap administrator ensured for domain gmail.com`; DB row verified
+  (confirmed Administrator, exactly one user). No local identity or dev key
+  entered production.
+
+Hosted findings on the still-live `0.2.0` image (pre-ARC-011 code):
+
+- `/api/auth/me` without cookie → `authenticated:false`; revision restart
+  is zero-downtime; `/alive` stays dependency-free by construction.
+- **Latent hosted defect found and fixed on this branch (`021f17a`):**
+  Container Apps terminates TLS at the front proxy, so Kestrel sees plain
+  HTTP and antiforgery (`SecurePolicy.Always`) threw
+  `InvalidOperationException` from `CheckSSLConfig` — every hosted code
+  request answered 500 (Log Analytics type+frames evidence). Fix:
+  `UseForwardedHeaders` (XForwardedFor/Proto, front proxy trusted) first
+  in the pipeline. New test `HostedForwardedHttpsServesAntiforgeryWithout
+  ServerFailure` fails without the fix (500) and passes with it (German
+  400); full suite **107/107 green**.
+- Failed-DB drill against the fixed image locally (unreachable host,
+  ephemeral keys): `/alive` 200 during the outage; DB-backed POST answers
+  the German 500 with traceId after ~6 s (5 s Npgsql timeout, no retry
+  storm, no detail leak).
+
+Still inbox- and release-gated (maintainer): merge this branch, run
+`release-archive.yml` (builds the fixed image, deploys by digest, shell
+smoke), then with the pilot mailbox complete a real code sign-in, restart
+the revision, scale to two replicas, and exercise expired/reused codes plus
+revocation. Expired/reused/attempt-limit paths themselves are covered by
+the 107 green backend tests on the same engine.
