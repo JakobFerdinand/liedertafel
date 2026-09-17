@@ -12,4 +12,6 @@ param senderUsername = 'archiv'
 param senderDisplayName = 'Liedertafel Archiv'
 param dataLocation = 'Europe'
 param deployRoleAssignments = true
-param linkDomain = false
+// Stage 2 (2026-09-17): domain verified (Domain/SPF/DKIM/DKIM2), link it to
+// the Communication Service.
+param linkDomain = true

@@ -20,10 +20,11 @@ real inbox through Azure Email, and completes the existing sign-in journey.
 
 ## Acceptance criteria
 
-- [ ] Provision Azure Communication Services Email and linked resources with
+- [x] Provision Azure Communication Services Email and linked resources with
   Europe geography and a verified, recognizable choir-domain sender.
-  (Stage 1 deployed 2026-09-17, Europe confirmed; domain verification and
-  the link await the World4You entry below.)
+  (Stage 1 deployed 2026-09-17; maintainer entered all four DNS records
+  correctly on first try; Azure reports Domain/SPF/DKIM/DKIM2 `Verified`;
+  stage 2 `linkDomain=true` deployed and the domain is linked.)
 - [x] Implement the shared mail-sender adapter, German invitation/code templates,
   bounded send handling, and useful delivery-failure diagnostics.
 - [x] Define runtime managed-identity permissions and local authorized credentials;
@@ -108,12 +109,11 @@ Azure (subscription `8c599ae4-…`, deployment `email-arc010`):
 
 ## Remaining maintainer steps (external inputs)
 
-1. Enter the four DNS records in `infrastructure/archive/README.md` at
+1. ~~Enter the four DNS records in `infrastructure/archive/README.md` at
    World4You, wait 15–30 minutes, run `initiate-verification` per type until
-   all four read `Verified`.
-2. Flip `linkDomain = true` in `email.bicepparam` and re-run the stage-1
-   deployment command from the README.
-3. Provide pilot recipient mailboxes across representative providers; then run
+   all four read `Verified`.~~ Done 2026-09-17: records correct on first
+   attempt, propagation immediate, all four `Verified`, stage 2 linked.
+2. Provide pilot recipient mailboxes across representative providers; then run
    `archive-mail-test` (AppHost user secrets, never committed) and complete a
    real code request/verify plus an invitation acceptance to record inbox
    delivery evidence.
