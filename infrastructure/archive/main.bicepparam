@@ -17,6 +17,6 @@ param workspaceName = 'log-liedertafel-archive'
 param ghcrUsername = 'jakobferdinand'
 param customDomain = 'archiv.liedertafel-mining.at'
 param bindCustomDomain = true
-param bindManagedCertificate = false
+param bindManagedCertificate = true
 param logAnalyticsDailyCapGb = 1
 param deployRoleAssignments = true
