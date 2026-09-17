@@ -5,6 +5,7 @@ using Archive.Backend.Data;
 using Archive.Backend.Development;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 
 var command = args.FirstOrDefault();
@@ -51,6 +52,19 @@ builder.Services.AddSingleton<LocalServices>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddArchiveAuth(builder.Configuration, builder.Environment);
+// ARC-011: Container Apps terminates TLS at the front proxy and forwards
+// plain HTTP to the container. Without forwarded-header processing Kestrel
+// sees every hosted request as insecure, so antiforgery (SecurePolicy.Always
+// outside Development) throws before any endpoint runs and no hosted sign-in
+// can complete. The container is reachable only through the managed ingress,
+// so the front proxy is trusted explicitly. Must run before routing/auth.
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders =
+        ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
 builder.Services.AddAntiforgery(options =>
 {
     options.HeaderName = "X-CSRF-TOKEN";
@@ -63,6 +77,7 @@ builder.Services.AddAntiforgery(options =>
 builder.Services.ConfigureDataProtection(builder.Configuration, builder.Environment);
 
 var app = builder.Build();
+app.UseForwardedHeaders();
 if (!app.Environment.IsDevelopment()
 	&& !app.Configuration.GetValue<bool>(DataProtectionConfiguration.AllowEphemeralKeysForTestsKey))
 {
