@@ -1,9 +1,15 @@
 name: Release Archive
 
-# ARC-009: the only path that changes the running image. A maintainer
-# explicitly runs this workflow, it builds/checks a versioned image, pushes it
-# to private GHCR and deploys it by immutable digest. Infrastructure runs
-# (infra-deploy-archive.yml) can never revert the selection.
+# ARC-009: the only path that changes the running image. It builds/checks a
+# versioned image, pushes it to private GHCR and deploys it by immutable
+# digest. Infrastructure runs (infra-deploy-archive.yml) can never revert
+# the selection.
+#
+# Triggers: automatically on merge to main when image-affecting files change,
+# or manually via workflow_dispatch with an explicit version. Every run —
+# automatic or manual — waits for approval in the `archive-prod`
+# environment before building or deploying anything, so no merge reaches
+# production without a maintainer review.
 #
 # Required repo configuration (maintainer, one-off):
 # - Environment `archive-prod` with required reviewers.
@@ -13,6 +19,12 @@ name: Release Archive
 #   infrastructure workflow.
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/archive/**'
+      - 'global.json'
   workflow_dispatch:
     inputs:
       version:
@@ -40,6 +52,20 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Resolve release version
+        id: version
+        run: |
+          # Manual runs carry an explicit version input; automatic merge runs
+          # have no inputs, so label them 0.0.<run_number> (numeric, unique,
+          # monotonic). The label is informational only — the immutable image
+          # digest selected below is the real release identity.
+          VERSION="${{ inputs.version }}"
+          if [ -z "$VERSION" ]; then
+            VERSION="0.0.${{ github.run_number }}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Release version: $VERSION" >> "$GITHUB_STEP_SUMMARY"
+
       - uses: azure/login@v3
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID_ARCHIVE }}
@@ -55,9 +81,9 @@ jobs:
           OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           IMAGE="ghcr.io/$OWNER_LC/liedertafel-archive"
           TAG="${{ github.sha }}"
-          echo "Building $IMAGE:$TAG (version ${{ inputs.version }}, revision $GITHUB_SHA)"
+          echo "Building $IMAGE:$TAG (version ${{ steps.version.outputs.version }}, revision $GITHUB_SHA)"
           docker build -f src/archive/Dockerfile \
-            --build-arg VERSION="${{ inputs.version }}" \
+            --build-arg VERSION="${{ steps.version.outputs.version }}" \
             --build-arg REVISION="$GITHUB_SHA" \
             -t "$IMAGE:$TAG" .
           docker push "$IMAGE:$TAG"
@@ -84,14 +110,14 @@ jobs:
             --resource-group "$RESOURCE_GROUP" \
             --query "properties.configuration.ingress.fqdn" -o tsv)
           echo "fqdn=$FQDN" >> "$GITHUB_OUTPUT"
-          echo "Waiting for version ${{ inputs.version }} at https://$FQDN/api/build (cold start up to ~60 s is expected)"
+          echo "Waiting for version ${{ steps.version.outputs.version }} at https://$FQDN/api/build (cold start up to ~60 s is expected)"
           # Poll /api/build for the new version, not just /alive: the previous
           # revision keeps answering /alive with 200 during the traffic switch,
           # so an /alive-only wait lets the smoke check race the old revision.
           for attempt in $(seq 1 60); do
             if BUILD=$(curl --fail --silent --max-time 10 "https://$FQDN/api/build"); then
-              if echo "$BUILD" | grep -q "${{ inputs.version }}"; then
-                echo "New revision serves ${{ inputs.version }} after ~$((attempt * 10)) s"
+              if echo "$BUILD" | grep -q "${{ steps.version.outputs.version }}"; then
+                echo "New revision serves ${{ steps.version.outputs.version }} after ~$((attempt * 10)) s"
                 break
               fi
               echo "Attempt $attempt: still serving $(echo "$BUILD" | head -c 120)"
@@ -111,8 +137,8 @@ jobs:
           echo "- /alive: 200" >> "$GITHUB_STEP_SUMMARY"
           BUILD=$(curl --fail --silent "$BASE/api/build")
           echo "$BUILD" | jq -e '.development == false' >/dev/null
-          echo "$BUILD" | jq -e --arg v "${{ inputs.version }}" '.version | contains($v)' >/dev/null
-          echo "- /api/build: development=false, version contains ${{ inputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "$BUILD" | jq -e --arg v "${{ steps.version.outputs.version }}" '.version | contains($v)' >/dev/null
+          echo "- /api/build: development=false, version contains ${{ steps.version.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
           curl --fail --silent "$BASE/system/status/" | grep -q -i "archiv"
           echo "- /system/status/: 200 with archive content" >> "$GITHUB_STEP_SUMMARY"
           DEV_CODE=$(curl --silent -o /dev/null -w "%{http_code}" "$BASE/api/dev/database")
