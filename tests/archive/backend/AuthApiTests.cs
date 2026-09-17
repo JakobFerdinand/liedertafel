@@ -366,6 +366,31 @@ public sealed class AuthApiTests
 	}
 
 	[Fact]
+	public async Task HostedForwardedHttpsServesAntiforgeryWithoutServerFailure()
+	{
+		// ARC-011: Container Apps terminates TLS at the front proxy and
+		// forwards plain HTTP. The app must honor X-Forwarded-Proto, or every
+		// hosted antiforgery POST dies with an SSL 500 before any endpoint
+		// runs and no hosted sign-in can complete.
+		await using var factory = new AuthApiFactory("Production", new InMemoryDatabaseRoot(), settings: AuthApiFactory.ProductionMailSettings);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions
+		{
+			BaseAddress = new Uri("http://localhost"),
+			HandleCookies = false,
+		});
+		client.DefaultRequestHeaders.Add("X-Forwarded-Proto", "https");
+		using var tokenResponse = await client.GetAsync("/api/antiforgery");
+		Assert.Equal(HttpStatusCode.OK, tokenResponse.StatusCode);
+		Assert.Contains("secure", Assert.Single(tokenResponse.Headers.GetValues("Set-Cookie")));
+		using var request = new HttpRequestMessage(HttpMethod.Post, "/api/auth/code/request");
+		request.Content = JsonContent.Create(new { email = "gast@liedertafel.test" });
+		using var response = await client.SendAsync(request);
+		Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+		var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
+		Assert.Equal("Ungültiger Sicherheitstoken.", problem.GetProperty("title").GetString());
+	}
+
+	[Fact]
 	public async Task DevSeedCreatesAllRolesAndStaysAbsentInProduction()
 	{
 		await using var factory = new AuthApiFactory();
