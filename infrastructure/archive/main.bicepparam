@@ -16,6 +16,6 @@ param vaultName = 'kv-liedertafel-archive'
 param workspaceName = 'log-liedertafel-archive'
 param ghcrUsername = 'jakobferdinand'
 param customDomain = 'archiv.liedertafel-mining.at'
-param bindCustomDomain = false
+param bindCustomDomain = true
 param logAnalyticsDailyCapGb = 1
 param deployRoleAssignments = true
