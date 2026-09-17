@@ -1,5 +1,8 @@
 // ARC-009 — first cloud release: empty archive shell on scale-to-zero
 // Container Apps. Resource-group scope, deployed to RG-Liedertafel-Archive.
+// ARC-011 — hosted persistent sign-in: private Blob key ring protected by a
+// Key Vault wrapping key, Neon runtime connection plus operator token via
+// Key Vault references, and keyless Azure mail through the runtime identity.
 //
 // Scope notes:
 // - This template owns topology only (environment, app revisions config,
@@ -7,12 +10,15 @@
 //   release workflow supplies containerImage by immutable digest, and the
 //   infra workflow passes the currently deployed image through so an
 //   infrastructure re-run cannot revert a release.
-// - No storage account, queues, Neon or email resources here. Live Blob
-//   integration is ARC-049, hosted sign-in ARC-011, real email ARC-010.
-// - No database connection is configured: the shell boots dependency-free
-//   (DbContext resolves lazily; /alive, /api/build and static assets never
-//   touch it). DB-backed endpoints return a German 500 Problem until ARC-011
-//   wires Neon.
+// - No queues, Neon or email resources here. The key-ring storage account
+//   below is the only Blob integration in this template; member-file Blob
+//   integration stays ARC-049. Hosted sign-in is ARC-011, real email ARC-010.
+// - No database connection is baked in: the Neon runtime connection arrives
+//   as a Key Vault reference (secret `archive-db-connection`, placed by the
+//   maintainer per infrastructure/archive/README.md). The shell still boots
+//   dependency-free (/alive, /api/build and static assets never touch the
+//   database); DB-backed endpoints return a German 500 Problem until the
+//   ARC-011 secret is placed.
 targetScope = 'resourceGroup'
 
 @description('Azure region for all archive resources. Austria East preferred; West Europe is the fallback.')
@@ -57,6 +63,18 @@ param logAnalyticsDailyCapGb int = 1
 
 @description('Deploy the RBAC role assignments. PR what-if uses a Contributor-only preview identity without Microsoft.Authorization/roleAssignments/write, so it previews with false; real deploys keep true.')
 param deployRoleAssignments bool = true
+
+@description('Archive storage account name for the private Data Protection key ring (ARC-011). Lowercase alphanumeric, 3-24 chars, globally unique.')
+param storageAccountName string = 'stliedertafelarchive'
+
+@description('Private blob container holding the Data Protection key ring.')
+param keysContainerName string = 'dataprotection'
+
+@description('Blob object name for the Data Protection key ring inside the container.')
+param keysBlobName string = 'keys.xml'
+
+@description('Key Vault RSA wrapping-key name protecting the Data Protection key ring (ARC-011).')
+param keysKeyName string = 'dataprotection-wrap'
 
 resource workspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   name: workspaceName
@@ -117,6 +135,89 @@ resource metricsPublisher 'Microsoft.Authorization/roleAssignments@2022-04-01' =
     roleDefinitionId: subscriptionResourceId(
       'Microsoft.Authorization/roleDefinitions',
       '3913510d-42f4-4e42-8a64-420c390055eb'
+    )
+    principalId: runtimeIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// ARC-011 — private key-ring storage. No anonymous blob access; Entra-only
+// (shared-key access off, OAuth default). Consumption has no VNet injection,
+// so the public endpoint stays enabled but every blob call authenticates via
+// the runtime identity (Storage Blob Data Contributor below).
+resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
+  name: storageAccountName
+  location: location
+  sku: {
+    name: 'Standard_LRS'
+  }
+  kind: 'StorageV2'
+  properties: {
+    allowBlobPublicAccess: false
+    allowSharedKeyAccess: false
+    defaultToOAuthAuthentication: true
+    minimumTlsVersion: 'TLS1_2'
+    supportsHttpsTrafficOnly: true
+    publicNetworkAccess: 'Enabled'
+    accessTier: 'Hot'
+  }
+}
+
+resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01' = {
+  parent: storage
+  name: 'default'
+}
+
+resource keysContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
+  parent: blobService
+  name: keysContainerName
+  properties: {
+    publicAccess: 'None'
+  }
+}
+
+// ARC-011 — RSA wrapping key for the Data Protection ring. Standard vault is
+// enough; no HSM/Premium needed. The backend references the versionless key
+// URI so Key Vault rotation needs no app change; old key versions stay
+// enabled so still-valid cookies keep decrypting.
+resource keysKey 'Microsoft.KeyVault/vaults/keys@2023-07-01' = {
+  parent: vault
+  name: keysKeyName
+  properties: {
+    kty: 'RSA'
+    keySize: 2048
+    keyOps: [
+      'wrapKey'
+      'unwrapKey'
+    ]
+    attributes: {
+      enabled: true
+    }
+  }
+}
+
+// ARC-011: runtime reads/writes the key-ring blob (rotation must write) and
+// wraps/unwraps keys. Skipped in PR what-if like the other RBAC assignments.
+resource blobContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployRoleAssignments) {
+  name: guid(storage.id, runtimeIdentity.id, 'blob-contributor')
+  scope: storage
+  properties: {
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
+    )
+    principalId: runtimeIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource cryptoUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployRoleAssignments) {
+  name: guid(vault.id, runtimeIdentity.id, 'crypto-user')
+  scope: vault
+  properties: {
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      '12338af0-0e69-4776-bea7-57ae8d297424'
     )
     principalId: runtimeIdentity.properties.principalId
     principalType: 'ServicePrincipal'
@@ -190,6 +291,20 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
           name: 'ghcr-password'
           value: ghcrPassword
         }
+        // ARC-011: versionless Key Vault URLs rotate without a Bicep change.
+        // The maintainer places both secrets out of band (see README); the
+        // Neon value is the archive_runtime connection only, never the
+        // migrator/admin credential or a Neon API key.
+        {
+          name: 'archive-db-connection'
+          keyVaultUrl: '${vault.properties.vaultUri}secrets/archive-db-connection'
+          identity: runtimeIdentity.id
+        }
+        {
+          name: 'archive-operator-token'
+          keyVaultUrl: '${vault.properties.vaultUri}secrets/archive-operator-token'
+          identity: runtimeIdentity.id
+        }
       ]
     }
     template: {
@@ -204,9 +319,15 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
           // ARC-010: Production refuses to boot on local SMTP capture, so the
           // hosted shell selects the Azure provider with the verified
           // choir-domain endpoint. Sends stay keyless via the runtime managed
-          // identity (ARC-011 wires AZURE_CLIENT_ID); the transport builds
-          // lazily, so /alive, /api/build and static assets stay
-          // dependency-free until then.
+          // identity; the transport builds lazily, so /alive, /api/build and
+          // static assets stay dependency-free until the first send.
+          // ARC-011: the Neon runtime connection and operator token arrive as
+          // Key Vault references (the API never sees migrator/admin
+          // credentials or Neon API keys). AZURE_CLIENT_ID pins
+          // DefaultAzureCredential to the user-assigned identity for mail,
+          // Blob keys and Key Vault unwrap. The key-ring URIs carry no
+          // secrets; rotation (Blob ring append, versionless KV key) needs no
+          // Bicep change.
           env: [
             {
               name: 'Mail__Provider'
@@ -215,6 +336,26 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
             {
               name: 'Mail__AzureEndpoint'
               value: 'https://acs-liedertafel-archive.europe.communication.azure.com'
+            }
+            {
+              name: 'ConnectionStrings__archive-db'
+              secretRef: 'archive-db-connection'
+            }
+            {
+              name: 'Archive__OperatorToken'
+              secretRef: 'archive-operator-token'
+            }
+            {
+              name: 'AZURE_CLIENT_ID'
+              value: runtimeIdentity.properties.clientId
+            }
+            {
+              name: 'Authentication__KeysBlobUri'
+              value: 'https://${storage.name}.blob.${az.environment().suffixes.storage}/${keysContainerName}/${keysBlobName}'
+            }
+            {
+              name: 'Authentication__KeysKeyVaultKeyUri'
+              value: keysKey.properties.keyUri
             }
           ]
           probes: [
@@ -290,4 +431,7 @@ output environmentDefaultDomain string = environment.properties.defaultDomain
 output appFqdn string = app.properties.configuration.ingress.fqdn
 output vaultUri string = vault.properties.vaultUri
 output runtimeIdentityPrincipalId string = runtimeIdentity.properties.principalId
+output runtimeIdentityClientId string = runtimeIdentity.properties.clientId
+output keysBlobUri string = 'https://${storage.name}.blob.${az.environment().suffixes.storage}/${keysContainerName}/${keysBlobName}'
+output keysKeyVaultKeyUri string = keysKey.properties.keyUri
 output customDomainBound bool = bindCustomDomain
