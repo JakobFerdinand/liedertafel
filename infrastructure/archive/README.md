@@ -43,12 +43,16 @@ preview, destructive-change guard, image pass-through).
    `AZURE_CLIENT_ID_ARCHIVE` / `AZURE_TENANT_ID_ARCHIVE` /
    `AZURE_SUBSCRIPTION_ID_ARCHIVE` plus `GHCR_PULL_PAT_ARCHIVE`.
 4. DNS at World4You (recheck before changing; preserve unrelated TXT):
-   `archiv` CNAME → environment default domain (workflow/Bicep output
-   `environmentDefaultDomain`), then `asuid.archiv` TXT → env verification id
-   (`az containerapp env show -g RG-Liedertafel-Archive -n cae-liedertafel-archive
-    --query properties.customDomainConfiguration.customDomainVerificationId -o tsv`). Afterwards set
-   `bindCustomDomain=true` in `main.bicepparam` and re-run the infra workflow
-   to issue/bind the managed certificate.
+    `archiv` CNAME → environment default domain (workflow/Bicep output
+    `environmentDefaultDomain`), then `asuid.archiv` TXT → env verification id
+    (`az containerapp env show -g RG-Liedertafel-Archive -n cae-liedertafel-archive
+    --query properties.customDomainConfiguration.customDomainVerificationId -o tsv`).
+    Afterwards bind in two runs (certificate issuance requires the attached
+    hostname, so one atomic run fails with `RequireCustomHostnameInEnvironment`):
+    first push with `bindCustomDomain=true` / `bindManagedCertificate=false`
+    in `main.bicepparam` to attach the hostname, then flip
+    `bindManagedCertificate=true` and push again to issue/bind the managed
+    certificate.
 
 ## Routine operation
 

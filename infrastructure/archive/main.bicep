@@ -46,8 +46,11 @@ param ghcrPassword string
 @description('Public archive hostname.')
 param customDomain string = 'archiv.liedertafel-mining.at'
 
-@description('Bind the custom domain with a managed certificate. Requires the CNAME and asuid TXT records first; keep false until DNS is in place.')
+@description('Attach the custom domain as a hostname on the app ingress (HTTP until the certificate stage binds TLS). Requires the CNAME record first; keep false until DNS is in place.')
 param bindCustomDomain bool = false
+
+@description('Issue the managed CNAME-validated certificate and bind it to the custom hostname. Second stage: run once with only bindCustomDomain after the hostname is attached, then enable this. A fresh environment always needs the hostname-first run because certificate issuance requires the attached hostname.')
+param bindManagedCertificate bool = false
 
 @description('Log Analytics daily ingestion cap in GB. ARC-009 decision: 1 GB/day; the shell needs far less and PAYG retention stays at 31 days.')
 param logAnalyticsDailyCapGb int = 1
@@ -163,11 +166,15 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
         allowInsecure: false
         customDomains: bindCustomDomain
           ? [
-              {
-                name: customDomain
-                bindingType: 'SniEnabled'
-                certificateId: certificate.id
-              }
+              union(
+                {
+                  name: customDomain
+                  bindingType: bindManagedCertificate ? 'SniEnabled' : 'Disabled'
+                },
+                // Only referenced once the certificate stage is enabled; the
+                // hostname-first run deploys without it.
+                bindManagedCertificate ? { certificateId: certificate.id } : {}
+              )
             ]
           : []
       }
@@ -246,10 +253,14 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
   }
 }
 
-// Managed certificate with CNAME domain control validation. Created only
-// after the maintainer adds the CNAME plus asuid TXT records at World4You
-// (see infrastructure/archive/README.md); otherwise issuance fails.
-resource certificate 'Microsoft.App/managedEnvironments/managedCertificates@2024-03-01' = if (bindCustomDomain) {
+// Managed certificate with CNAME domain control validation. Second stage only:
+// the hostname must already be attached to the app (bindCustomDomain run) and
+// the CNAME plus asuid TXT records must exist (see
+// infrastructure/archive/README.md); otherwise issuance fails. No explicit
+// dependsOn: the app references the certificate once bound, so an explicit
+// back-reference would be circular; the persisted hostname from the first
+// stage satisfies the issuance prerequisite.
+resource certificate 'Microsoft.App/managedEnvironments/managedCertificates@2024-03-01' = if (bindCustomDomain && bindManagedCertificate) {
   parent: environment
   name: 'archiv-cert'
   location: location
