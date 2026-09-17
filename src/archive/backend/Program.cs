@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 
 var command = args.FirstOrDefault();
-if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" or "--bootstrap-admin" or "--repair-admin" or "--seed-dev-auth")
+if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" or "--bootstrap-admin" or "--repair-admin" or "--seed-dev-auth" or "--send-test-mail")
 {
     var jobs = Host.CreateApplicationBuilder(args.Skip(1).ToArray());
     jobs.AddServiceDefaults();
@@ -35,6 +35,8 @@ if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" o
             await OperatorConfiguration.SeedDevAuthAsync(provider, token);
         else if (command == "--bootstrap-admin")
             await OperatorConfiguration.BootstrapAdminAsync(provider, host.Services.GetRequiredService<IConfiguration>(), args.Skip(1).ToArray(), token);
+        else if (command == "--send-test-mail")
+            await SendTestMailAsync(provider, args.Skip(1).ToArray(), token);
         else
             await OperatorConfiguration.RepairAdminAsync(provider, host.Services.GetRequiredService<IConfiguration>(), args.Skip(1).ToArray(), token);
     }, host.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping);
@@ -141,5 +143,24 @@ app.MapFallback(async context =>
     }
 });
 await app.RunAsync();
+
+/// <summary>
+/// Explicit ARC-010 integration run: sends the marked German test message
+/// through the configured Azure sender. Development-only (see the gate
+/// above) and refuses to run unless <c>Mail:Provider=Azure</c> is selected,
+/// so ordinary local runs can never emit real mail by accident.
+/// </summary>
+static async Task SendTestMailAsync(IServiceProvider provider, string[] mailArgs, CancellationToken token)
+{
+    var configuration = provider.GetRequiredService<IConfiguration>();
+    var mail = configuration.GetSection(MailOptions.SectionName).Get<MailOptions>() ?? new MailOptions();
+    if (!mail.IsAzure)
+        throw new InvalidOperationException("Der Azure-Versandtest erfordert Mail:Provider=Azure.");
+    if (mailArgs.Length != 1 || !AuthSecurity.TryNormalizeEmail(mailArgs[0], out _))
+        throw new InvalidOperationException("Verwendung: --send-test-mail <empfaenger-adresse>.");
+    var logger = provider.GetRequiredService<ILoggerFactory>().CreateLogger("ArchiveMailTest");
+    await provider.GetRequiredService<IArchiveMailSender>().SendTestMessageAsync(mailArgs[0].Trim(), token);
+    logger.LogInformation("Azure test mail accepted for delivery");
+}
 
 public partial class Program;
