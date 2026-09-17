@@ -1,7 +1,7 @@
 # Choir Archive — Implementation Issue Index
 
-Status: ARC-001, ARC-003 and ARC-004 completed; remaining implementation issues are planned.
-Date: 2026-09-14
+Status: ARC-001, ARC-003, ARC-004, ARC-005, ARC-006, ARC-007 and ARC-008 completed; ARC-009 in progress (packaging/shell verified locally, live deploy pending maintainer bootstrap); remaining implementation issues are planned.
+Date: 2026-09-16
 Sources: [PRD](prd.md) · [Architecture](architecture.md)
 
 **Start here to pick work:** [ARC-002]
