@@ -76,7 +76,7 @@ jobs:
             --resource-group "$RESOURCE_GROUP" \
             --image "${{ steps.image.outputs.digest }}"
 
-      - name: Wait for the app to answer
+      - name: Wait for the new revision to serve traffic
         id: endpoint
         run: |
           FQDN=$(az containerapp show \
@@ -84,14 +84,20 @@ jobs:
             --resource-group "$RESOURCE_GROUP" \
             --query "properties.configuration.ingress.fqdn" -o tsv)
           echo "fqdn=$FQDN" >> "$GITHUB_OUTPUT"
-          echo "Waiting for https://$FQDN/alive (cold start up to ~60 s is expected)"
+          echo "Waiting for version ${{ inputs.version }} at https://$FQDN/api/build (cold start up to ~60 s is expected)"
+          # Poll /api/build for the new version, not just /alive: the previous
+          # revision keeps answering /alive with 200 during the traffic switch,
+          # so an /alive-only wait lets the smoke check race the old revision.
           for attempt in $(seq 1 60); do
-            if curl --fail --silent --max-time 10 "https://$FQDN/alive" >/dev/null; then
-              echo "App answered after ~$((attempt * 10)) s"
-              break
+            if BUILD=$(curl --fail --silent --max-time 10 "https://$FQDN/api/build"); then
+              if echo "$BUILD" | grep -q "${{ inputs.version }}"; then
+                echo "New revision serves ${{ inputs.version }} after ~$((attempt * 10)) s"
+                break
+              fi
+              echo "Attempt $attempt: still serving $(echo "$BUILD" | head -c 120)"
             fi
             if [ "$attempt" = "60" ]; then
-              echo "::error::App did not answer within 10 minutes."
+              echo "::error::New revision did not serve traffic within 10 minutes."
               exit 1
             fi
             sleep 10
