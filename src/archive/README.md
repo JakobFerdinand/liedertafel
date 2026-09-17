@@ -47,6 +47,7 @@ certificates. Production cookies are Secure; local cookies use SameAsRequest.
 | `archive-frontend` | Next.js/Turbopack; waits for API; receives `PORT` and server-only `ARCHIVE_API_URL` |
 | `archive-migrate` | **Explicit Start**; only resource receiving `ConnectionStrings__archive-migrations` |
 | `archive-worker-smoke` | **Explicit Start**; finite Blob/queue/mail verification with correlated producer/consumer tracing |
+| `archive-mail-test` | **Explicit Start**; ARC-010 integration run with Aspire telemetry: sends the marked German test message through the real Azure sender. Requires `Mail:Provider=Azure` plus `Archive:MailTestRecipient` in AppHost configuration and refuses otherwise |
 
 `WithArchiveDependencies` owns reference injection and readiness for local C#
 workers. Use `WithExplicitStart()` for operator-triggered work, and
@@ -55,6 +56,17 @@ smoke command is a contract example; real import/extraction work belongs to its
 feature slice. `Archive:PersistLocalData=false` gives integration tests fresh,
 ephemeral container data. Stop a running local AppHost before integration tests:
 both use the same frontend working directory.
+
+Mail transport selection (ARC-010): `Mail:Provider` defaults to `Smtp`, so
+ordinary startup stays on Mailpit capture via the injected
+`Mail__Host`/`Mail__Port`. Setting `Mail:Provider=Azure` (AppHost user secrets
+or environment, never committed) routes the backend through Azure
+Communication Services Email with the verified choir-domain sender; the local
+authorized credential is `Mail:AzureConnectionString`, while production sends
+keyless through the runtime managed identity. Production refuses to boot on
+`Smtp` and refuses sender secrets outright. The same `--send-test-mail
+<address>` operator command backs `archive-mail-test`; it requires the Azure
+provider and Development.
 
 The application uses `ConnectionStrings:archive-db` on demand, with a pool of
 at most five connections, zero minimum connections, five-second connect timeout,

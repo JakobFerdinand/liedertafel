@@ -21,9 +21,18 @@ var mail = builder.AddContainer("archive-mail", "docker.io/axllent/mailpit", "v1
     .WithHttpHealthCheck("/readyz");
 var dependencies = new ArchiveDependencies(database, blobs, queues, mail);
 
+// ARC-010: ordinary startup stays on Mailpit capture (Smtp default). Setting
+// Mail:Provider=Azure via user secrets or environment (never committed), plus
+// Mail:AzureConnectionString as the local authorized credential, routes the
+// API and the explicit archive-mail-test run below through the real sender.
+var mailSource = new ArchiveMailSource(
+    builder.Configuration.GetValue("Mail:Provider", "Smtp") ?? "Smtp",
+    builder.Configuration["Mail:AzureEndpoint"],
+    builder.Configuration["Mail:AzureConnectionString"]);
+
 var initialize = builder.AddProject<Projects.Archive_Backend>("archive-storage-init", launchProfileName: null)
     .WithArgs("--initialize-local-storage")
-    .WithArchiveDependencies(dependencies);
+    .WithArchiveDependencies(dependencies, mailSource);
 
 builder.AddProject<Projects.Archive_Backend>("archive-migrate", launchProfileName: null)
     .WithArgs("--migrate")
@@ -33,7 +42,7 @@ builder.AddProject<Projects.Archive_Backend>("archive-migrate", launchProfileNam
     .WithExplicitStart();
 
 var api = builder.AddProject<Projects.Archive_Backend>("archive-api", launchProfileName: "http")
-    .WithArchiveDependencies(dependencies)
+    .WithArchiveDependencies(dependencies, mailSource)
     .WithEnvironment("Development__KeysPath", Path.GetFullPath(Path.Combine(builder.AppHostDirectory, "../.local/keys")))
     .WaitForCompletion(initialize)
     .WithHttpHealthCheck("/alive");
@@ -41,7 +50,17 @@ var api = builder.AddProject<Projects.Archive_Backend>("archive-api", launchProf
 // This finite diagnostic demonstrates the registration/flush contract for later jobs.
 builder.AddProject<Projects.Archive_Backend>("archive-worker-smoke", launchProfileName: null)
     .WithArgs("--worker-smoke")
-    .WithArchiveDependencies(dependencies)
+    .WithArchiveDependencies(dependencies, mailSource)
+    .WaitForCompletion(initialize)
+    .WithExplicitStart();
+
+// Explicit ARC-010 integration run with Aspire telemetry: sends the marked
+// German test message via the real Azure sender. Requires Mail:Provider=Azure
+// and Archive:MailTestRecipient in AppHost configuration; the backend refuses
+// otherwise, so this resource can never emit real mail on default startup.
+builder.AddProject<Projects.Archive_Backend>("archive-mail-test", launchProfileName: null)
+    .WithArgs("--send-test-mail", builder.Configuration.GetValue("Archive:MailTestRecipient", string.Empty) ?? string.Empty)
+    .WithArchiveDependencies(dependencies, mailSource)
     .WaitForCompletion(initialize)
     .WithExplicitStart();
 

@@ -83,6 +83,77 @@ preview, destructive-change guard, image pass-through).
   `runtimeIdentityPrincipalId`, `customDomainBound`.
 - Release inputs: image digest (`ghcr.io/jakobferdinand/liedertafel-archive@sha256:…`).
 - Deliberately absent here (later slices): storage/queues, Neon wiring,
-  Blob-persisted Data Protection keys, ACS email. The shell boots
+  Blob-persisted Data Protection keys, and the hosted mail wiring (ARC-011
+  consumes the ARC-010 sender/identity outputs below). The shell boots
   dependency-free; DB-backed endpoints answer German 500 Problem Details
   until ARC-011 configures `ConnectionStrings__archive-db`.
+
+## Email sending (ARC-010, send-only)
+
+`email.bicep` / `email.bicepparam` own the send-only mail path: Email Service
+`liedertafel-archive` (Europe), custom domain `liedertafel-mining.at` with
+sender username `archiv` (`archiv@liedertafel-mining.at`), linked
+Communication Service `acs-liedertafel-archive` (Europe), and the
+`Communication and Email Service Owner` grant for `id-archive-app` on the
+Communication Service. Stage 1 (`linkDomain=false`) is deployed
+(`email-arc010`, 2026-09-17); the domain link flips on after DNS verification.
+
+Deploy/refresh stage 1 (no secrets; the principal ID is the identity object
+ID, not a credential):
+
+```bash
+ARCHIVE_RUNTIME_PRINCIPAL_ID="5a43cf72-429e-4cd1-b055-2fdff4b07988" \
+  az deployment group create --resource-group RG-Liedertafel-Archive \
+  --template-file infrastructure/archive/email.bicep \
+  --parameters infrastructure/archive/email.bicepparam --name email-arc010
+```
+
+### DNS at World4You (maintainer, recheck before changing)
+
+Enter these Azure-generated records for the apex `liedertafel-mining.at`
+(send-only: no MX record is issued or required):
+
+| Host | Type | Value |
+| --- | --- | --- |
+| `liedertafel-mining.at` | TXT | `ms-domain-verification=71ecb910-8ba7-4cf6-a4ca-0f39942434a0` |
+| `liedertafel-mining.at` | TXT (merge into the single apex SPF TXT) | `v=spf1 include:spf.protection.outlook.com -all` |
+| `selector1-azurecomm-prod-net._domainkey` | CNAME | `selector1-azurecomm-prod-net._domainkey.azurecomm.net` |
+| `selector2-azurecomm-prod-net._domainkey` | CNAME | `selector2-azurecomm-prod-net._domainkey.azurecomm.net` |
+
+After 15–30 minutes propagation, trigger verification out of band and watch
+all four reach `Verified`:
+
+```bash
+for t in Domain SPF DKIM DKIM2; do
+  az communication email domain initiate-verification \
+    --domain-name liedertafel-mining.at --email-service-name liedertafel-archive \
+    --resource-group RG-Liedertafel-Archive --verification-type $t
+done
+az communication email domain show -g RG-Liedertafel-Archive \
+  --email-service-name liedertafel-archive --domain-name liedertafel-mining.at \
+  --query verificationStates
+```
+
+Then stage 2: set `linkDomain = true` in `email.bicepparam` and re-run the
+deployment above. Linking an unverified domain fails with
+`DomainValidationError` by design (observed 2026-09-17).
+
+### Sending notes for ARC-011 and the pilot
+
+- Runtime sends keyless via `EmailClient(endpoint,
+  DefaultAzureCredential)` with endpoint
+  `https://acs-liedertafel-archive.europe.communication.azure.com` (Europe
+  geography regionalizes the host). With the user-assigned identity, the
+  container needs `AZURE_CLIENT_ID=2f6f5bc6-b441-4ed4-abfa-c2e53f994547`;
+  ARC-011 wires this with the remaining runtime configuration.
+- Quotas are subscription-wide and shared with the unrelated alpakasoelde
+  sender: 30 sends/min, 100 sends/hour for custom domains. API acceptance
+  (`Succeeded`) never promises inbox arrival.
+- Local integration run (telemetry stays in Aspire): set AppHost user secrets
+  `Mail:Provider=Azure`, `Mail:AzureConnectionString` (from
+  `az communication list-key -g RG-Liedertafel-Archive -n
+  acs-liedertafel-archive`, never committed) and `Archive:MailTestRecipient`,
+  then start the explicit `archive-mail-test` resource. Ordinary startup stays
+  on Mailpit capture.
+- Pre-link rejection evidence (2026-09-17): data-plane send from the unlinked
+  domain answers `404 DomainNotLinked`, nothing delivered.

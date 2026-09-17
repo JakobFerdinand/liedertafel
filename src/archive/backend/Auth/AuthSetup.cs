@@ -3,6 +3,7 @@ using Archive.Backend.Data;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace Archive.Backend.Auth;
 
@@ -10,6 +11,9 @@ public static class AuthSetup
 {
 	public static IServiceCollection AddArchiveAuth(this IServiceCollection services, IConfiguration configuration, IWebHostEnvironment environment)
 	{
+		// ARC-010: local SMTP capture must never serve production, and sender
+		// secrets must never reach production. Fails startup loudly otherwise.
+		MailGuards.ValidateProductionMail(configuration, environment);
 		services.AddArchiveIdentity(configuration);
 		services.ConfigureApplicationCookie(cookie =>
 		{
@@ -113,13 +117,33 @@ public static class AuthSetup
 	public static IServiceCollection AddArchiveIdentity(this IServiceCollection services, IConfiguration configuration)
 	{
 		services.Configure<AuthOptions>(configuration.GetSection(AuthOptions.SectionName));
+		services.Configure<MailOptions>(configuration.GetSection(MailOptions.SectionName));
 		services.AddScoped<SignInCodeService>();
 		services.AddScoped<MemberInvitationService>();
 		services.AddScoped<MemberRevocationService>();
 		services.AddScoped<MemberEmailChangeService>();
 		services.AddScoped<ArchiveAccessService>();
 		services.AddScoped<EmailCodeTokenProvider>();
-		services.AddScoped<IArchiveMailSender, SmtpSignInCodeSender>();
+		// ARC-010 transport selection: SMTP capture stays the default so
+		// ordinary AppHost startup is unchanged; Mail:Provider=Azure selects
+		// the Communication Services sender. The EmailClient transport is a
+		// lazily built singleton (SDK clients are thread-safe) and is only
+		// ever constructed on the Azure path.
+		services.AddScoped<SmtpSignInCodeSender>();
+		services.AddScoped<AzureCommunicationMailSender>();
+		services.AddScoped<IArchiveMailSender>(provider =>
+			provider.GetRequiredService<IOptions<MailOptions>>().Value.IsAzure
+				? provider.GetRequiredService<AzureCommunicationMailSender>()
+				: provider.GetRequiredService<SmtpSignInCodeSender>());
+		services.AddSingleton<IAzureEmailTransport>(provider =>
+		{
+			var environment = provider.GetRequiredService<IHostEnvironment>();
+			var mail = provider.GetRequiredService<IOptions<MailOptions>>().Value;
+			if (!environment.IsDevelopment() && !string.IsNullOrWhiteSpace(mail.AzureConnectionString))
+				throw new InvalidOperationException(
+					"Mail:AzureConnectionString is a local development credential and is forbidden outside Development.");
+			return EmailClientTransport.Create(mail);
+		});
 		services.AddScoped<CurrentUserAccessor>();
 
 		services.AddIdentity<ArchiveUser, ArchiveRole>(options =>

@@ -112,6 +112,13 @@ public sealed class SignInCodeService(
 		}
 		catch (Exception exception)
 		{
+			// Safe resend (ARC-010): the challenge was persisted before the
+			// send, so without this an immediate retry would hit the resend
+			// cooldown and report success while no mail ever went out.
+			// Expiring the undelivered challenge makes the next request mint
+			// a fresh code and attempt delivery; hourly abuse caps still bound
+			// retries after repeated failures.
+			await ExpireUndeliveredChallengeAsync(normalizedEmail, now, token);
 			logger.LogError("Sign-in code mail failed ({ExceptionType})", exception.GetType().Name);
 			throw;
 		}
@@ -243,6 +250,34 @@ public sealed class SignInCodeService(
 		activity?.SetTag("auth.result", "verified");
 		logger.LogInformation("Sign-in code verified");
 		return (CodeVerifyOutcome.Verified, user, roles);
+	}
+
+	/// <summary>
+	/// Expires the just-created challenge after a failed send (best effort).
+	/// A lost concurrency race is tolerated: the next request then mints a
+	/// fresh code instead of honestly reporting a suppressed resend.
+	/// </summary>
+	private async Task ExpireUndeliveredChallengeAsync(string normalizedEmail, DateTimeOffset now, CancellationToken token)
+	{
+		try
+		{
+			var latest = await db.SignInChallenges
+				.Where(c => c.NormalizedEmail == normalizedEmail && c.ConsumedAt == null && c.ExpiresAt > now)
+				.OrderByDescending(c => c.CreatedAt)
+				.FirstOrDefaultAsync(token);
+			if (latest is null)
+				return;
+			latest.ExpiresAt = now;
+			await db.SaveChangesAsync(token);
+		}
+		catch (DbUpdateConcurrencyException)
+		{
+			foreach (var entry in db.ChangeTracker.Entries().ToArray())
+			{
+				if (entry.Entity is SignInChallenge)
+					entry.State = EntityState.Detached;
+			}
+		}
 	}
 
 	/// <summary>User update that reports concurrency races as failure instead of throwing.</summary>
