@@ -80,13 +80,14 @@ preview, destructive-change guard, image pass-through).
 ## Handoff outputs (for ARC-011/012)
 
 - Bicep outputs: `environmentDefaultDomain`, `appFqdn`, `vaultUri`,
-  `runtimeIdentityPrincipalId`, `customDomainBound`.
+  `runtimeIdentityPrincipalId`, `runtimeIdentityClientId`, `keysBlobUri`,
+  `keysKeyVaultKeyUri`, `customDomainBound`.
 - Release inputs: image digest (`ghcr.io/jakobferdinand/liedertafel-archive@sha256:…`).
-- Deliberately absent here (later slices): storage/queues, Neon wiring,
-  Blob-persisted Data Protection keys, and the hosted mail wiring (ARC-011
-  consumes the ARC-010 sender/identity outputs below). The shell boots
-  dependency-free; DB-backed endpoints answer German 500 Problem Details
-  until ARC-011 configures `ConnectionStrings__archive-db`.
+- Deliberately absent here (later slices): member-file storage/queues
+  (ARC-049). Hosted sign-in (ARC-011) is wired: Blob key ring, Key Vault
+  wrapping key, Neon runtime connection and operator token. The shell still
+  boots dependency-free; DB-backed endpoints answer a German 500 Problem
+  until the `archive-db-connection` secret is placed.
 
 ## Email sending (ARC-010, send-only)
 
@@ -157,3 +158,89 @@ deployment above. Linking an unverified domain fails with
   on Mailpit capture.
 - Pre-link rejection evidence (2026-09-17): data-plane send from the unlinked
   domain answers `404 DomainNotLinked`, nothing delivered.
+
+## Hosted persistent sign-in (ARC-011)
+
+`main.bicep` additionally owns: storage account `stliedertafelarchive`
+(Entra-only, no anonymous blob) with private container `dataprotection`,
+Key Vault RSA wrapping key `dataprotection-wrap` (2048, wrap/unwrap), and
+`Storage Blob Data Contributor` plus `Key Vault Crypto User` for
+`id-archive-app`. The container receives `ConnectionStrings__archive-db`
+and `Archive__OperatorToken` as Key Vault references, `AZURE_CLIENT_ID`,
+and the non-secret `Authentication__KeysBlobUri` /
+`Authentication__KeysKeyVaultKeyUri` (versionless key URI: rotation needs
+no Bicep change). Probes stay `/alive`-only; scale stays 0–2. The backend
+fails fast in Production without both key URIs, refuses the pre-ARC-011
+`Authentication:KeysPath` placeholder, and honors `X-Forwarded-Proto`
+(Container Apps terminates TLS at the front proxy; without it every hosted
+antiforgery POST dies with an SSL 500 — observed live 2026-09-17).
+
+Live Neon project (provisioned 2026-09-17 per `infrastructure/neon/`):
+`liedertafel-archive-prod` (`muddy-leaf-09559586`), PG17, Frankfurt,
+`production` branch, 0.25–0.5 CU, six-hour history, Neon Auth disabled.
+The existing PG18 project is untouched (no version-reconciliation
+decision). Credential model: the admin password is never stored — reveal it
+per maintenance window via the Neon API with maintainer CLI auth; the
+migrator password is ephemeral per window (set via admin, migrate, grants,
+discard); only the `archive_runtime` connection persists, as Key Vault
+secret `archive-db-connection`. The API never receives migrator/admin
+credentials or Neon API keys. No OpenTofu state exists for any of this.
+
+### Maintainer one-off: vault secret management
+
+The vault uses RBAC and grants the runtime only Secrets User. A human
+maintainer needs Secrets Officer once (replace the object ID with the
+second maintainer for shared ownership):
+
+```bash
+az role assignment create --assignee <maintainer-object-id> \
+  --role "Key Vault Secrets Officer" \
+  --scope "$(az keyvault show -g RG-Liedertafel-Archive -n kv-liedertafel-archive --query id -o tsv)"
+```
+
+Place (or rotate) the two runtime secrets — values never enter the repo;
+rotation needs no Bicep change, then restart the revision:
+
+```bash
+az keyvault secret set --vault-name kv-liedertafel-archive \
+  --name archive-db-connection --value "$NEON_RUNTIME_CONNECTION" --output none
+az keyvault secret set --vault-name kv-liedertafel-archive \
+  --name archive-operator-token --value "$OPERATOR_TOKEN" --output none
+az containerapp revision restart -g RG-Liedertafel-Archive -n ca-liedertafel-archive
+```
+
+`$NEON_RUNTIME_CONNECTION` is the `archive_runtime` Npgsql string
+(`SSL Mode=VerifyFull`, pool max 5 / min 0, timeout 5, command timeout 10,
+keepalive 0). Generate `$OPERATOR_TOKEN` with `openssl rand -base64 32`
+and hand it to the second maintainer out of band.
+
+### Pilot bootstrap and hosted verification
+
+Bootstrap uses the runtime connection only (least privilege proven
+2026-09-17); never the migrator/admin credential:
+
+```bash
+env "ConnectionStrings__archive-db=$(az keyvault secret show \
+    --vault-name kv-liedertafel-archive --name archive-db-connection \
+    --query value -o tsv)" \
+  "Archive__OperatorToken=$(az keyvault secret show \
+    --vault-name kv-liedertafel-archive --name archive-operator-token \
+    --query value -o tsv)" \
+  dotnet run --project src/archive/backend --no-launch-profile -- \
+  --bootstrap-admin --email <pilot-address> --name "<display>" \
+  --operator "<name>" --operator-token "$(az keyvault secret show \
+    --vault-name kv-liedertafel-archive --name archive-operator-token \
+    --query value -o tsv)"
+```
+
+Hosted checklist after the ARC-011 image release: request/enter a real code
+at `https://archiv.liedertafel-mining.at`, restart the revision and confirm
+the session survives, scale to two replicas and repeat, then exercise
+expired/reused codes, revocation (logout/member admin kills tickets),
+unauthorized `/api/auth/me` (`authenticated:false`), and the bounded German
+500 on DB failure. Pre-release evidence 2026-09-17: unauthenticated `/me`
+correct, CSRF-less POST rejected, `/alive` 200 during a total DB outage
+with the DB-backed POST failing bounded (~6 s, German 500 with traceId),
+probes `/alive`-only, no `OTEL_*` env (no prod export to Aspire), image
+carries no AppHost. Inbox-dependent steps (real code, restart/replica
+persistence, revocation) run with the pilot mailbox after release.
