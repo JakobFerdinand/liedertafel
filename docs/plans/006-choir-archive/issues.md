@@ -1,6 +1,6 @@
 # Choir Archive — Implementation Issue Index
 
-Status: ARC-001, ARC-003, ARC-004, ARC-005, ARC-006, ARC-007 and ARC-008 completed; ARC-009 in progress (live-proven except the World4You custom-domain bind); remaining implementation issues are planned.
+Status: ARC-001, ARC-003, ARC-004, ARC-005, ARC-006, ARC-007, ARC-008 and ARC-009 completed; remaining implementation issues are planned.
 Date: 2026-09-17
 Sources: [PRD](prd.md) · [Architecture](architecture.md)
 

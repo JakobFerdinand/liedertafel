@@ -1,6 +1,6 @@
 ---
 id: ARC-009
-status: in_progress
+status: done
 phase: core
 kind: enabler
 depends_on: ["ARC-001", "ARC-004"]
@@ -27,7 +27,7 @@ A maintainer selects a tested image and opens its build/version screen at
 - [x] Package the production app independently of local Aspire orchestration;
   neither AppHost nor the dashboard becomes a required hosted service, and
   development OTLP endpoints/credentials are not baked into the image.
-- [ ] Bind the domain and managed HTTPS certificate; verify SPA deep links,
+- [x] Bind the domain and managed HTTPS certificate; verify SPA deep links,
   correct API error routing, and no development endpoints or seeded choir data.
 - [x] Configure Consumption zero-to-two replica bounds, process-based probes,
   and image ownership so an infrastructure update cannot revert a release.
@@ -94,6 +94,29 @@ Single remaining box: the World4You DNS records (`archiv` CNAME →
 `asuid.archiv` TXT → env verification id) plus setting
 `bindCustomDomain=true` and re-running the infra workflow for the managed
 certificate. Everything else in the acceptance list is proven above.
+
+## Verification evidence (2026-09-17, custom domain bound — issue closed)
+
+- World4You records confirmed propagating (`archiv` CNAME → env default
+  domain, `asuid.archiv` TXT → `D66CEF97…EBD97`).
+- First bind attempt failed as designed: one atomic Bicep run cannot issue
+  the managed cert before the hostname exists
+  (`RequireCustomHostnameInEnvironment`). Split into two explicit stages in
+  `main.bicep` (`bindCustomDomain` attaches the hostname `Disabled`,
+  `bindManagedCertificate` issues + binds `SniEnabled`); runbook updated.
+- Stage 1 (`35187983598`, green): hostname `archiv.liedertafel-mining.at`
+  attached, image untouched. Stage 2 (`35188194225`, green after ~25 min of
+  server-side CNAME validation): managed certificate `archiv-cert` issued
+  and bound (`SniEnabled`).
+- Live on the domain: `https://archiv.liedertafel-mining.at/api/build`
+  reports `0.2.0+ebd8075…`, `development=false`, same digest
+  `sha256:ab48b050…`; `/system/status/` 200, `/api/dev/database` 404.
+
+All acceptance criteria check out; status → `done`. Handoff outputs for
+ARC-011/012: env default domain
+`ca-liedertafel-archive.gentleforest-881bec30.austriaeast.azurecontainerapps.io`,
+`appFqdn` likewise, `vaultUri` from Bicep outputs, release digests
+`sha256:397baf27…` (`0.1.0`) and `sha256:ab48b050…` (`0.2.0`).
 
 ## Verification
 
