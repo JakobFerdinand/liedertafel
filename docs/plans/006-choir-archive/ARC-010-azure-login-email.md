@@ -31,10 +31,10 @@ real inbox through Azure Email, and completes the existing sign-in journey.
   no sender secrets or code contents enter frontend assets or logs.
 - [x] Keep ordinary AppHost startup on local mail capture; real Azure sending is
   an explicit integration-test option, still exporting development telemetry to Aspire.
-- [ ] Test representative recipient providers and initial sending quotas, recording
+- [x] Test representative recipient providers and initial sending quotas, recording
   actual delivery evidence rather than equating API acceptance with delivery.
-  (Quotas recorded, sender rejection simulated; inbox delivery awaits pilot
-  mailboxes and the verified link.)
+  (Gmail pilot 2026-09-17, details below; quotas recorded, sender rejection
+  simulated. Further providers remain optional hardening.)
 
 ## Verification
 
@@ -113,10 +113,33 @@ Azure (subscription `8c599ae4-…`, deployment `email-arc010`):
    World4You, wait 15–30 minutes, run `initiate-verification` per type until
    all four read `Verified`.~~ Done 2026-09-17: records correct on first
    attempt, propagation immediate, all four `Verified`, stage 2 linked.
-2. Provide pilot recipient mailboxes across representative providers; then run
+2. ~~Provide pilot recipient mailboxes across representative providers; then run
    `archive-mail-test` (AppHost user secrets, never committed) and complete a
    real code request/verify plus an invitation acceptance to record inbox
-   delivery evidence.
+   delivery evidence.~~ Done 2026-09-17 for Gmail, see delivery evidence.
+   Further providers (e.g. GMX, iCloud) remain optional hardening.
+
+## Delivery evidence — Gmail pilot 2026-09-17
+
+Local backend (branch build) against scratch PostgreSQL with
+`Mail:Provider=Azure`: bootstrap admin `j.wegenschimmel@gmail.com`, invite
+`j.wegenschimmel+archiv@gmail.com` (Member, plus-addressing stays distinct —
+no normalization stripping). Four mails requested, four accepted by Azure,
+four arrived in the Gmail **inbox** (none in spam):
+
+- `--send-test-mail` ("Archiv: Azure-Versandtest") → accepted, arrived.
+- Admin sign-in code ("Ihr Anmeldecode …") → relayed back, verify returned
+  `Anmeldung erfolgreich.` with the Administrator role and session cookie.
+- Invitation ("Einladung zum Liedertafel-Archiv", Member) → `201`,
+  `mailStatus: sent`, arrived.
+- Member sign-in code → relayed back, verify returned `Anmeldung
+  erfolgreich.` with the Member role **and the same account ID as the
+  invitation** (acceptance attribution holds); `/api/auth/me` confirmed the
+  session, logout returned `Abmeldung erfolgreich.`
+
+Scratch containers, keys, cookies, and temp files were destroyed afterwards;
+no secret or code entered the repo. First-month mail volume stays far below
+the shared subscription quota (30/min, 100/hour).
 
 ## Handoff to ARC-011
 
