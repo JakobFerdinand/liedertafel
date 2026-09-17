@@ -622,11 +622,16 @@ internal sealed class AuthApiFactory : WebApplicationFactory<Program>
 	/// ARC-010: Production hosts require <c>Mail:Provider=Azure</c> at
 	/// startup. Tests keep the faked sender, so no network is involved; the
 	/// endpoint value is never contacted.
+	/// ARC-011: Production hosts additionally require Blob/Key Vault key
+	/// persistence. Tests stay ephemeral via
+	/// <c>Authentication:AllowEphemeralKeysForTests</c>; real hosted
+	/// deployments must leave that unset and supply both URIs.
 	/// </summary>
 	internal static IDictionary<string, string?> ProductionMailSettings { get; } = new Dictionary<string, string?>
 	{
 		["Mail:Provider"] = "Azure",
 		["Mail:AzureEndpoint"] = "https://acs-liedertafel-test.communication.azure.com",
+		["Authentication:AllowEphemeralKeysForTests"] = "true",
 	};
 
 	private readonly string environment;

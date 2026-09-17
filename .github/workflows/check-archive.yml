@@ -60,9 +60,13 @@ jobs:
           # smoke container selects the Azure provider. The endpoint is never
           # contacted here (/alive, /api/build and static assets stay
           # dependency-free; the mail transport builds lazily on first send).
+          # ARC-011: Production additionally requires Blob/Key Vault key
+          # persistence. The smoke stays dependency-free with the ephemeral
+          # test escape; real hosted deployments supply both key URIs.
           docker run --rm -d --name archive-smoke -p 127.0.0.1:18080:8080 \
             -e Mail__Provider=Azure \
             -e Mail__AzureEndpoint=https://acs-liedertafel-test.communication.azure.com \
+            -e Authentication__AllowEphemeralKeysForTests=true \
             liedertafel-archive:check
           trap 'docker stop archive-smoke' EXIT
           for attempt in {1..30}; do

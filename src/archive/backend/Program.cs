@@ -60,24 +60,17 @@ builder.Services.AddAntiforgery(options =>
     options.Cookie.SecurePolicy = builder.Environment.IsDevelopment()
         ? CookieSecurePolicy.SameAsRequest : CookieSecurePolicy.Always;
 });
-var protection = builder.Services.AddDataProtection().SetApplicationName(
-    builder.Environment.IsDevelopment() ? "Liedertafel.Archive.Development" : "Liedertafel.Archive");
-if (builder.Environment.IsDevelopment())
-{
-    var path = builder.Configuration["Development:KeysPath"]
-        ?? Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "../.local/keys"));
-    protection.PersistKeysToFileSystem(Directory.CreateDirectory(path));
-}
-else if (!string.IsNullOrWhiteSpace(builder.Configuration["Authentication:KeysPath"]))
-{
-    // ARC-011 owns Blob/Key Vault persistence. Until then an explicitly configured
-    // filesystem path (mounted volume) keeps sessions restart-safe without
-    // inventing a production Blob path in this slice.
-    protection.PersistKeysToFileSystem(
-        Directory.CreateDirectory(builder.Configuration["Authentication:KeysPath"]!));
-}
+builder.Services.ConfigureDataProtection(builder.Configuration, builder.Environment);
 
 var app = builder.Build();
+if (!app.Environment.IsDevelopment()
+	&& !app.Configuration.GetValue<bool>(DataProtectionConfiguration.AllowEphemeralKeysForTestsKey))
+{
+	// URIs only: they name the account/vault/key, never a secret.
+	app.Logger.LogInformation("Data Protection keys persist in {KeysBlobUri} wrapped by {KeysKeyVaultKeyUri}",
+		app.Configuration[DataProtectionConfiguration.BlobUriKey],
+		app.Configuration[DataProtectionConfiguration.KeyVaultKeyUriKey]);
+}
 // Do not return provider exception details (including credentials) to browsers.
 app.UseExceptionHandler(new ExceptionHandlerOptions
 {
