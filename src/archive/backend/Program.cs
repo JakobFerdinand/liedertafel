@@ -140,6 +140,7 @@ app.MapGet("/api/antiforgery", (HttpContext context, IAntiforgery antiforgery) =
 // see the German maintenance banner.
 app.MapMaintenanceEndpoints();
 app.MapAuthEndpoints();
+app.MapPasskeyEndpoints();
 app.MapMemberAdminEndpoints();
 app.MapDevelopmentDiagnostics();
 

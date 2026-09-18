@@ -14,6 +14,11 @@ public static class AuthSetup
 		// ARC-010: local SMTP capture must never serve production, and sender
 		// secrets must never reach production. Fails startup loudly otherwise.
 		MailGuards.ValidateProductionMail(configuration, environment);
+		// ARC-011-1: passkey ceremonies need a stable relying-party ID in
+		// production; deriving it from request host headers is forbidden.
+		if (!environment.IsDevelopment() && string.IsNullOrWhiteSpace(configuration["Authentication:PasskeyRelyingPartyId"]))
+			throw new InvalidOperationException(
+				"Authentication:PasskeyRelyingPartyId ist ausserhalb von Development erforderlich.");
 		services.AddArchiveIdentity(configuration);
 		services.ConfigureApplicationCookie(cookie =>
 		{
@@ -145,6 +150,7 @@ public static class AuthSetup
 			return EmailClientTransport.Create(mail);
 		});
 		services.AddScoped<CurrentUserAccessor>();
+		services.AddScoped<PasskeyService>();
 
 		services.AddIdentity<ArchiveUser, ArchiveRole>(options =>
 			{
@@ -162,6 +168,11 @@ public static class AuthSetup
 				options.Lockout.AllowedForNewUsers = true;
 				options.Lockout.MaxFailedAccessAttempts = 20;
 				options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
+				// ARC-011-1: Identity schema version 3 persists
+				// IdentityUserPasskey<Guid> (AspNetUserPasskeys). The
+				// DbContext override keeps design-time migrations on the
+				// same version when no IdentityOptions provider exists.
+				options.Stores.SchemaVersion = IdentitySchemaVersions.Version3;
 			})
 			.AddEntityFrameworkStores<ArchiveDbContext>()
 			.AddDefaultTokenProviders()
@@ -171,18 +182,51 @@ public static class AuthSetup
 		// next request; the stamp validator stays on a tight interval so
 		// deactivation/reactivation bumps kill tickets without per-request
 		// stamp I/O. Role changes sync via principal replacement.
+		// ARC-011-1: stable account claims come from ArchiveClaimsFactory;
+		// session claims (AuthenticatedAt, auth method) are copied from the
+		// expiring ticket so refresh never resets freshness.
+		services.AddScoped<IUserClaimsPrincipalFactory<ArchiveUser>, ArchiveClaimsFactory>();
+		services.AddSingleton<IConfigureOptions<IdentityPasskeyOptions>, PasskeyOptionsSetup>();
 		services.Configure<SecurityStampValidatorOptions>(options =>
-			options.ValidationInterval = TimeSpan.FromMinutes(5));
+		{
+			options.ValidationInterval = TimeSpan.FromMinutes(5);
+			options.OnRefreshingPrincipal = context =>
+			{
+				var current = context.CurrentPrincipal;
+				var identity = context.NewPrincipal?.Identity as ClaimsIdentity;
+				if (identity is null)
+					return Task.CompletedTask;
+				foreach (var type in new[] { AuthClaims.AuthenticatedAt, AuthClaims.AuthenticationMethod })
+				{
+					if (identity.FindFirst(type) is not null)
+						continue;
+					var carried = current?.FindFirst(type)?.Value;
+					if (!string.IsNullOrEmpty(carried))
+						identity.AddClaim(new Claim(type, carried));
+				}
+				// Backwards compatibility: tickets issued before ARC-011-1
+				// carry no method claim and count as email-code sessions.
+				if (identity.FindFirst(AuthClaims.AuthenticationMethod) is null)
+					identity.AddClaim(new Claim(AuthClaims.AuthenticationMethod, AuthClaims.EmailCode));
+				return Task.CompletedTask;
+			};
+		});
 		return services;
 	}
 
-	public static async Task SignInMemberAsync(
+	public static Task SignInMemberAsync(
 		SignInManager<ArchiveUser> signIn, ArchiveUser user, IList<string> roles, DateTimeOffset now)
+		=> SignInMemberAsync(signIn, user, now, AuthClaims.EmailCode);
+
+	public static async Task SignInMemberAsync(
+		SignInManager<ArchiveUser> signIn, ArchiveUser user, DateTimeOffset now, string authenticationMethod)
 	{
+		var method = authenticationMethod == AuthClaims.Passkey ? AuthClaims.Passkey : AuthClaims.EmailCode;
 		var claims = new List<Claim>
 		{
 			new(AuthClaims.AccountId, user.Id.ToString()),
 			new(AuthClaims.AuthenticatedAt, now.ToString("O")),
+			new(AuthClaims.AuthenticationMethod, method),
 		};
 		var displayName = user.DisplayName ?? user.Email;
 		if (!string.IsNullOrWhiteSpace(displayName))

@@ -7,6 +7,9 @@ export type MeResponse =
       displayName: string | null;
       roles: string[];
       verifiedAt: string;
+      // ARC-011-1: how the current session was created ("email_code" or
+      // "passkey"); older tickets count as email-code sessions.
+      authMethod: "email_code" | "passkey";
     };
 
 export async function getCsrfToken(): Promise<string> {

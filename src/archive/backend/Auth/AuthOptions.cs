@@ -30,4 +30,16 @@ public sealed class AuthOptions
 	public TimeSpan FreshVerificationWindow { get; set; } = TimeSpan.FromMinutes(10);
 
 	public string CookieName { get; set; } = "archive.auth";
+
+	/// <summary>Stable production WebAuthn relying-party ID (effective domain). Required outside Development.</summary>
+	public string? PasskeyRelyingPartyId { get; set; }
+
+	/// <summary>Exact trusted origins for passkey ceremonies (e.g. https://archiv.liedertafel-mining.at).</summary>
+	public string[] PasskeyOrigins { get; set; } = [];
+
+	/// <summary>Maximum passkeys per account; bounds ceremony state and list rendering.</summary>
+	public int PasskeyMaxPerAccount { get; set; } = 10;
+
+	/// <summary>Maximum display-name length for a registered passkey.</summary>
+	public int PasskeyNameMaxLength { get; set; } = 100;
 }

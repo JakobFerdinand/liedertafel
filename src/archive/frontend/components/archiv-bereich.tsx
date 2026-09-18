@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { PasskeyVerwaltung } from "@/components/passkey-verwaltung";
 import { fetchMe, type MeResponse, postAuth } from "@/lib/auth";
 
 export function ArchivBereich() {
@@ -65,6 +66,7 @@ export function ArchivBereich() {
       <button type="button" onClick={abmelden} disabled={busy}>
         Abmelden
       </button>
+      <PasskeyVerwaltung />
     </div>
   );
 }

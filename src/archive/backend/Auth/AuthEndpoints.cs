@@ -109,6 +109,7 @@ public static class AuthEndpoints
 				displayName = current.DisplayName,
 				roles = current.Roles,
 				verifiedAt = current.AuthenticatedAt,
+				authMethod = current.AuthenticationMethod,
 			});
 		});
 	}

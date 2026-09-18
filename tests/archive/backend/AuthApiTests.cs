@@ -657,6 +657,7 @@ internal sealed class AuthApiFactory : WebApplicationFactory<Program>
 		["Mail:Provider"] = "Azure",
 		["Mail:AzureEndpoint"] = "https://acs-liedertafel-test.communication.azure.com",
 		["Authentication:AllowEphemeralKeysForTests"] = "true",
+		["Authentication:PasskeyRelyingPartyId"] = "archiv.liedertafel.test",
 	};
 
 	private readonly string environment;

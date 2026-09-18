@@ -321,6 +321,10 @@ public sealed class MemberEmailChangeTests
 		member.LockoutEnd = DateTimeOffset.UtcNow.AddYears(100);
 		Assert.True((await users.UpdateAsync(member)).Succeeded);
 		Assert.True(await users.IsLockedOutAsync(member));
+		// ARC-011-1 compromise recovery: a repair revokes registered passkeys.
+		Assert.True((await users.AddOrUpdatePasskeyAsync(member, new UserPasskeyInfo(
+			[1, 2, 3, 4], [5, 6], DateTimeOffset.UtcNow, 1, null, true, false, false, [7], [8]))).Succeeded);
+		Assert.Single(await users.GetPasskeysAsync(member));
 		var repairedMemberId = await OperatorConfiguration.RepairAdminAsync(provider, configuration,
 			["--email", Member, "--operator", "Wartung"], CancellationToken.None);
 		Assert.Equal(member.Id, repairedMemberId);
@@ -329,6 +333,7 @@ public sealed class MemberEmailChangeTests
 		Assert.True(repaired.EmailConfirmed);
 		Assert.False(await users.IsLockedOutAsync(repaired));
 		Assert.True(await users.IsInRoleAsync(repaired, ArchiveRoles.Administrator));
+		Assert.Empty(await users.GetPasskeysAsync(repaired!));
 		var repairAudit = await db.MemberAdminActions
 			.Where(a => a.TargetUserId == member.Id && a.Action == MemberAdminActionType.AdministratorRepaired)
 			.SingleAsync();
@@ -361,6 +366,11 @@ public sealed class MemberEmailChangeTests
 			AcceptedAt = DateTimeOffset.UtcNow,
 		});
 		await db.SaveChangesAsync();
+		// ARC-011-1 compromise recovery: moving an account revokes passkeys
+		// even though credentials belong to the stable account ID.
+		Assert.True((await users.AddOrUpdatePasskeyAsync(member, new UserPasskeyInfo(
+			[1, 2, 3, 4], [5, 6], DateTimeOffset.UtcNow, 1, null, true, false, false, [7], [8]))).Succeeded);
+		Assert.Single(await users.GetPasskeysAsync(member));
 		var other = new ArchiveUser { UserName = "anderer@liedertafel.test", Email = "anderer@liedertafel.test", EmailConfirmed = true };
 		Assert.True((await users.CreateAsync(other)).Succeeded);
 
@@ -388,6 +398,7 @@ public sealed class MemberEmailChangeTests
 			.Where(a => a.TargetUserId == member.Id && a.Action == MemberAdminActionType.AdministratorRepaired)
 			.SingleAsync();
 		Assert.Contains("Wartung", audit.Note);
+		Assert.Empty(await users.GetPasskeysAsync(moved!));
 	}
 
 	[Fact]

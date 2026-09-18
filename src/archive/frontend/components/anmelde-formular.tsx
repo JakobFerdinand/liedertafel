@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { postAuth } from "@/lib/auth";
+import { loginOptions, loginPasskey, webAuthnSupported } from "@/lib/passkeys";
 
 type Step = "email" | "code";
 
@@ -14,7 +15,59 @@ export function AnmeldeFormular() {
   const [hinweis, setHinweis] = useState("");
   const [erfolg, setErfolg] = useState("");
   const [busy, setBusy] = useState(false);
+  const [passkeyBusy, setPasskeyBusy] = useState(false);
+  // WebAuthn support is detected after mount only: a direct render-time
+  // branch on `typeof window` would break server/client hydration.
+  const [passkeyUnterstuetzt, setPasskeyUnterstuetzt] = useState(false);
   const [cooldown, setCooldown] = useState(0);
+
+  useEffect(() => {
+    setPasskeyUnterstuetzt(webAuthnSupported());
+  }, []);
+
+  async function mitPasskeyAnmelden() {
+    if (!webAuthnSupported()) {
+      setHinweis(
+        "Dieses Browser unterstützt keine Passkeys. Code-Anmeldung verwenden.",
+      );
+      return;
+    }
+    setPasskeyBusy(true);
+    setHinweis("");
+    setErfolg("");
+    try {
+      const options = await loginOptions();
+      const credential = await navigator.credentials.get({
+        publicKey: PublicKeyCredential.parseRequestOptionsFromJSON(options),
+      });
+      if (credential === null) {
+        setHinweis("Passkey-Anmeldung abgebrochen. Bitte erneut versuchen.");
+        return;
+      }
+      const response = await loginPasskey(credential);
+      if (response.ok) {
+        setErfolg("Anmeldung erfolgreich. Mitgliederbereich wird geöffnet.");
+        window.location.assign("/archiv/");
+        return;
+      }
+      const problem = await response.json().catch(() => null);
+      if (problem?.title === "Ungültiger Sicherheitstoken.") {
+        setHinweis(
+          "Sicherheitstoken konnte nicht geladen werden. Seite neu laden.",
+        );
+      } else {
+        setHinweis("Passkey-Anmeldung fehlgeschlagen. Bitte erneut versuchen.");
+      }
+    } catch (fehler) {
+      if (fehler instanceof DOMException && fehler.name === "NotAllowedError") {
+        // Abbruch oder Zeitüberschreitung im Authenticator-Dialog: normal.
+        return;
+      }
+      setHinweis("Passkey-Anmeldung fehlgeschlagen. Bitte erneut versuchen.");
+    } finally {
+      setPasskeyBusy(false);
+    }
+  }
 
   async function codeAnfordern(event: React.FormEvent) {
     event.preventDefault();
@@ -147,6 +200,19 @@ export function AnmeldeFormular() {
               {busy ? "Code wird gesendet …" : "Code anfordern"}
             </button>
           </div>
+          {passkeyUnterstuetzt && (
+            <div className="auth-aktionen">
+              <button
+                type="button"
+                disabled={passkeyBusy}
+                onClick={mitPasskeyAnmelden}
+              >
+                {passkeyBusy
+                  ? "Passkey wird geprüft …"
+                  : "Mit Passkey anmelden"}
+              </button>
+            </div>
+          )}
         </form>
       ) : (
         <form onSubmit={anmelden} noValidate>

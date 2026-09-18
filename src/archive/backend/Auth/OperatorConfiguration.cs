@@ -215,6 +215,7 @@ public static class OperatorConfiguration
 			}
 		}
 		await InvalidateChallengesAsync(db, user.Id, now, token);
+		await RevokePasskeysAsync(users, logger, user, operatorName);
 		try
 		{
 			await users.UpdateSecurityStampAsync(user);
@@ -322,6 +323,8 @@ public static class OperatorConfiguration
 				db.Entry(existing).State = EntityState.Detached;
 				existing = await users.FindByEmailAsync(normalized);
 			}
+			if (existing is not null)
+				await RevokePasskeysAsync(users, logger, existing, operatorName);
 			var newRoles = existing is null ? [ArchiveRoles.Administrator]
 				: (await users.GetRolesAsync(existing)).OrderBy(r => r).ToArray();
 			db.MemberAdminActions.Add(new MemberAdminAction
@@ -384,6 +387,29 @@ public static class OperatorConfiguration
 			"Repair invited administrator {TargetId} for domain {Domain} by {Operator}",
 			admin.Id, AuthSecurity.DomainOf(normalized).ToLowerInvariant(), operatorName);
 		return admin.Id;
+	}
+
+	/// <summary>
+	/// Compromise recovery (ARC-011-1): a maintainer repair revokes every
+	/// registered passkey of the repaired account. Credential revocation is
+	/// defined separately from session revocation: ordinary email changes
+	/// keep passkeys (they belong to the stable account ID), only this
+	/// repair path revokes them. Fails loudly so the operator can retry.
+	/// </summary>
+	private static async Task RevokePasskeysAsync(
+		UserManager<ArchiveUser> users, ILogger logger, ArchiveUser user, string operatorName)
+	{
+		var passkeys = await users.GetPasskeysAsync(user);
+		foreach (var passkey in passkeys)
+		{
+			var removed = await users.RemovePasskeyAsync(user, passkey.CredentialId);
+			if (!removed.Succeeded)
+				throw new InvalidOperationException("Repair could not revoke a registered passkey.");
+		}
+		if (passkeys.Count > 0)
+			logger.LogInformation(
+				"Repair revoked {Count} passkey(s) of {TargetId} by {Operator}",
+				passkeys.Count, user.Id, operatorName);
 	}
 
 	private static async Task InvalidateChallengesAsync(ArchiveDbContext db, Guid userId, DateTimeOffset now, CancellationToken token)

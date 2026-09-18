@@ -360,6 +360,18 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
               name: 'Authentication__KeysKeyVaultKeyUri'
               value: keysKey.properties.keyUri
             }
+            // ARC-011-1: stable WebAuthn relying-party ID and the exact
+            // trusted ceremony origins. Never derived from request host
+            // headers; the startup guard fails without the RP ID outside
+            // Development.
+            {
+              name: 'Authentication__PasskeyRelyingPartyId'
+              value: customDomain
+            }
+            {
+              name: 'Authentication__PasskeyOrigins__0'
+              value: 'https://${customDomain}'
+            }
             // ARC-012: shared maintenance state, declared in topology so it
             // is visible and preserved. The release workflow toggles the
             // live value with az containerapp update --set-env-vars around

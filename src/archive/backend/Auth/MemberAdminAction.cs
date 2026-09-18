@@ -18,6 +18,9 @@ public enum MemberAdminActionType
 	RoleChanged = 2,
 	EmailChanged = 3,
 	AdministratorRepaired = 4,
+	PasskeyRegistered = 5,
+	PasskeyRemoved = 6,
+	PasskeyRenamed = 7,
 }
 
 public sealed class MemberAdminAction

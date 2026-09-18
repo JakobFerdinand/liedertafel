@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Npgsql;
 
 namespace Archive.Backend.Data;
@@ -12,6 +14,12 @@ namespace Archive.Backend.Data;
 public sealed class ArchiveDbContext(DbContextOptions<ArchiveDbContext> options)
 	: IdentityDbContext<ArchiveUser, ArchiveRole, Guid>(options)
 {
+	// ARC-011-1: Identity schema version 3 (passkey tables). The version is
+	// carried by IdentityOptions.Stores.SchemaVersion (set in AddArchiveIdentity)
+	// and reaches the model through the EF application service provider.
+	// Design-time builds without a service provider are covered by
+	// ArchiveDbContextFactory below.
+
 	public DbSet<SignInChallenge> SignInChallenges => Set<SignInChallenge>();
 
 	public DbSet<AuthRequestLog> AuthRequestLogs => Set<AuthRequestLog>();
@@ -34,8 +42,20 @@ public sealed class ArchiveDbContextFactory : IDesignTimeDbContextFactory<Archiv
     public ArchiveDbContext CreateDbContext(string[] args)
     {
         var configuration = new ConfigurationBuilder().AddEnvironmentVariables().AddCommandLine(args).Build();
+        // Design-time builds have no application service provider, so the
+        // Identity schema version would silently fall back to Version 1 and
+        // migrations would miss the passkey tables. Supply the same version
+        // the runtime registers (ARC-011-1).
+        var identityOptions = new OptionsWrapper<IdentityOptions>(new IdentityOptions
+        {
+            Stores = { SchemaVersion = IdentitySchemaVersions.Version3 },
+        });
+        var applicationServices = new ServiceCollection()
+            .AddSingleton<IOptions<IdentityOptions>>(identityOptions)
+            .BuildServiceProvider();
         return new ArchiveDbContext(new DbContextOptionsBuilder<ArchiveDbContext>()
-            .UseNpgsql(DatabaseConfiguration.Connection(configuration, "archive-migrations")).Options);
+            .UseNpgsql(DatabaseConfiguration.Connection(configuration, "archive-migrations"))
+            .UseApplicationServiceProvider(applicationServices).Options);
     }
 }
 
