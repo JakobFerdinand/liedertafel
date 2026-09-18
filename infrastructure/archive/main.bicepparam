@@ -20,3 +20,7 @@ param bindCustomDomain = true
 param bindManagedCertificate = true
 param logAnalyticsDailyCapGb = 1
 param deployRoleAssignments = true
+// ARC-012: declared default only. Workflows override this per run with the
+// live value (infra) or the release window state (release), so neither a
+// fresh deploy nor an infra re-run silently reopens member access.
+param maintenanceMode = false

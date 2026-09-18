@@ -64,6 +64,9 @@ param logAnalyticsDailyCapGb int = 1
 @description('Deploy the RBAC role assignments. PR what-if uses a Contributor-only preview identity without Microsoft.Authorization/roleAssignments/write, so it previews with false; real deploys keep true.')
 param deployRoleAssignments bool = true
 
+@description('Maintenance mode flag (ARC-012). True pauses member API access with a German maintenance state. The release workflow toggles the live value around migrations; the infrastructure workflow preserves it on re-runs, so an infrastructure change cannot silently reopen the window.')
+param maintenanceMode bool = false
+
 @description('Archive storage account name for the private Data Protection key ring (ARC-011). Lowercase alphanumeric, 3-24 chars, globally unique.')
 param storageAccountName string = 'stliedertafelarchive'
 
@@ -356,6 +359,15 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
             {
               name: 'Authentication__KeysKeyVaultKeyUri'
               value: keysKey.properties.keyUri
+            }
+            // ARC-012: shared maintenance state, declared in topology so it
+            // is visible and preserved. The release workflow toggles the
+            // live value with az containerapp update --set-env-vars around
+            // migrations; the infrastructure workflow passes the live value
+            // through (like the image) instead of resetting it.
+            {
+              name: 'Archive__MaintenanceMode'
+              value: maintenanceMode ? 'true' : 'false'
             }
           ]
           probes: [

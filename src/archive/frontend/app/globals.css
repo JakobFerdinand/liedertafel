@@ -103,6 +103,18 @@ main {
   padding: 0.2rem 1.5rem;
   margin-block: 1rem 3rem;
 }
+.maintenance-banner {
+  display: block;
+  background: var(--brand);
+  color: var(--paper);
+  padding: 0.9rem max(6vw, calc((100vw - 68rem) / 2));
+  margin: 0;
+  font-weight: 600;
+  max-width: none;
+}
+.maintenance-banner a {
+  color: inherit;
+}
 .system-status {
   background: var(--wash);
   padding: clamp(1.2rem, 4vw, 2.5rem);
