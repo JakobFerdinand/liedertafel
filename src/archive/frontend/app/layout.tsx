@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { AuthStatus } from "@/components/auth-status";
+import { MaintenanceBanner } from "@/components/maintenance-banner";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -36,6 +37,7 @@ export default function RootLayout({
             <AuthStatus />
           </nav>
         </header>
+        <MaintenanceBanner />
         <main id="inhalt">{children}</main>
         <footer>Gemeinsam singen. Gemeinsam bewahren.</footer>
       </body>
