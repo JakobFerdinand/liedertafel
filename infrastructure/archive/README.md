@@ -244,3 +244,75 @@ with the DB-backed POST failing bounded (~6 s, German 500 with traceId),
 probes `/alive`-only, no `OTEL_*` env (no prod export to Aspire), image
 carries no AppHost. Inbox-dependent steps (real code, restart/replica
 persistence, revocation) run with the pilot mailbox after release.
+
+## Controlled database releases (ARC-012)
+
+Releases carrying a schema change run inside a maintenance window owned by
+`release-archive.yml`. Code-only releases (`workflow_dispatch` with
+`run_migration=false`, for already-applied or schema-free changes) skip the
+window; push-triggered runs always migrate.
+
+### Operator sequence
+
+1. Review the migration (`src/archive/backend/Data/Migrations/`) and keep
+   the change additive where possible (new tables, new nullable columns,
+   new indexes). Destructive changes (renames/drops, new `NOT NULL`
+   without default, type changes) break the previous image — split them
+   across releases (additive first, cleanup later).
+2. Place the per-window migration credential (maintainer, never committed):
+   reveal the Neon admin password via the Neon API with maintainer CLI
+   auth, set an ephemeral `archive_migrator` password, and store its Npgsql
+   string as Key Vault secret `archive-migrations-connection`
+   (`az keyvault secret set --vault-name kv-liedertafel-archive --name
+   archive-migrations-connection --value "$MIGRATOR_CONNECTION" --output
+   none`). Only the `archive_runtime` connection persists; this secret is
+   discarded after the window.
+3. Run `release-archive.yml` (`workflow_dispatch`, inputs `version` plus
+   `run_migration=true`) and approve in `archive-prod`. The workflow then:
+   enters maintenance (`Archive__MaintenanceMode=true`, members see the
+   German banner/`/wartung/`, conflicting API work answers 503), runs the
+   selected image's `--migrate` exactly once with the migration role,
+   deploys the digest, proves the window on the new revision, reopens
+   access, and smoke-checks (`/alive`, `/api/build`,
+   `/api/maintenance:false`, `/system/status/`, `/wartung/`,
+   `/api/antiforgery:200`, dev-absence, unknown-API 404).
+4. Discard the migrator password (rotate via the Neon API) and delete the
+   `archive-migrations-connection` secret version.
+
+Competing runs serialize on the `archive-prod` concurrency group: a second
+release waits instead of migrating alongside the first. EF records applied
+versions in the migration history, so a queued run or a replay is a safe
+no-op — an applied migration never runs twice.
+
+### Credentials
+
+- The release identity (`sp-liedertafel-archive-iac`) needs one additional
+  grant to read the per-window credential (maintainer, one-off):
+  `Key Vault Secrets User` on `kv-liedertafel-archive`. It never receives
+  the admin credential or Neon API keys.
+- Ordinary container startup never migrates: the app image has no
+  migration credential and `Program.cs` applies nothing on boot.
+  `--migrate` inside the release step is the only production migration
+  path.
+
+### Failure handling and rollback
+
+- Migration failure: the run fails with the `[migrate]` diagnostics and
+  **maintenance stays active**. Inspect, fix forward in code (new
+  migration/image), and retry the release. Never retry blindly and never
+  restore the database.
+- Failed pre-open checks keep maintenance active the same way. A failed
+  final smoke after reopening means fix-forward with a new release.
+- Rollback is code-only: redeploy the previous digest (a new release run
+  or `az containerapp update --image`), valid only while that image stays
+  schema-compatible (additive changes). There is deliberately no database
+  restore/export and no backup job; editor trash and revision history
+  remain the ordinary recovery path.
+
+### Job contract (handoff to ARC-032/035)
+
+`GET /api/maintenance` (`{ maintenance, message }`, `no-store`) is the
+machine-readable window state; `Archive:MaintenanceMode` carries the same
+flag in configuration. Future extraction/import jobs must read it before
+conflicting work and pause while `maintenance` is true. Probes plus
+`/api/build` and `/api/maintenance` always stay available for observers.
