@@ -3,6 +3,7 @@ using System.Reflection;
 using Archive.Backend.Auth;
 using Archive.Backend.Data;
 using Archive.Backend.Development;
+using Archive.Backend.Maintenance;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -113,6 +114,7 @@ app.UseWhen(context => !context.Request.Path.StartsWithSegments("/api"), fronten
     frontend.UseStaticFiles();
 });
 app.UseRouting();
+app.UseArchiveMaintenanceMode();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapDefaultEndpoints();
@@ -131,6 +133,12 @@ app.MapGet("/api/antiforgery", (HttpContext context, IAntiforgery antiforgery) =
     context.Response.Headers.CacheControl = "no-store";
     return Results.Ok(new { token = antiforgery.GetAndStoreTokens(context).RequestToken });
 });
+// ARC-012: maintenance contract endpoint. The pausing middleware runs
+// above (before auth), so conflicting work answers 503 while the flag is
+// set. Probes and release endpoints (/alive, /health, /api/build,
+// /api/maintenance) stay available; the frontend keeps serving so members
+// see the German maintenance banner.
+app.MapMaintenanceEndpoints();
 app.MapAuthEndpoints();
 app.MapMemberAdminEndpoints();
 app.MapDevelopmentDiagnostics();
