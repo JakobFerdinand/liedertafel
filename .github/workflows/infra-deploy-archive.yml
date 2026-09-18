@@ -67,6 +67,22 @@ jobs:
           fi
           echo "image=$CURRENT_IMAGE" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve current maintenance flag
+        id: maintenance
+        run: |
+          # ARC-012: preserve the live maintenance state like the image, so
+          # an infrastructure re-run cannot silently reopen member access
+          # mid-window. Missing app or flag means available (false).
+          CURRENT_MAINTENANCE=$(az containerapp show \
+            --name ca-liedertafel-archive \
+            --resource-group "$RESOURCE_GROUP" \
+            --query "properties.template.containers[0].env[?name=='Archive__MaintenanceMode'].value | [0]" -o tsv 2>/dev/null || true)
+          if [ "$CURRENT_MAINTENANCE" != "true" ]; then
+            CURRENT_MAINTENANCE="false"
+          fi
+          echo "Preserving maintenance flag $CURRENT_MAINTENANCE"
+          echo "mode=$CURRENT_MAINTENANCE" >> "$GITHUB_OUTPUT"
+
       - name: What-if resource group
         env:
           ARCHIVE_CONTAINER_IMAGE: ${{ steps.image.outputs.image }}
@@ -85,6 +101,7 @@ jobs:
             --template-file infrastructure/archive/main.bicep \
             --parameters infrastructure/archive/main.bicepparam \
             --parameters deployRoleAssignments="$DEPLOY_ROLES" \
+            --parameters maintenanceMode="${{ steps.maintenance.outputs.mode }}" \
             --no-pretty-print > /tmp/what-if.json
 
       - name: Post what-if comment
@@ -168,6 +185,20 @@ jobs:
           fi
           echo "image=$CURRENT_IMAGE" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve current maintenance flag
+        id: maintenance
+        run: |
+          # ARC-012: preserve the live maintenance state like the image.
+          CURRENT_MAINTENANCE=$(az containerapp show \
+            --name ca-liedertafel-archive \
+            --resource-group "$RESOURCE_GROUP" \
+            --query "properties.template.containers[0].env[?name=='Archive__MaintenanceMode'].value | [0]" -o tsv 2>/dev/null || true)
+          if [ "$CURRENT_MAINTENANCE" != "true" ]; then
+            CURRENT_MAINTENANCE="false"
+          fi
+          echo "Preserving maintenance flag $CURRENT_MAINTENANCE"
+          echo "mode=$CURRENT_MAINTENANCE" >> "$GITHUB_OUTPUT"
+
       - name: Guard against destructive changes
         env:
           ARCHIVE_CONTAINER_IMAGE: ${{ steps.image.outputs.image }}
@@ -177,6 +208,7 @@ jobs:
             --resource-group "$RESOURCE_GROUP" \
             --template-file infrastructure/archive/main.bicep \
             --parameters infrastructure/archive/main.bicepparam \
+            --parameters maintenanceMode="${{ steps.maintenance.outputs.mode }}" \
             --no-pretty-print | jq -e 'any(.changes[]?; .changeType == "Delete" or .changeType == "Replace")' >/dev/null; then
             echo "::error::What-if detected destructive (Delete/Replace) changes; refusing to apply."
             exit 1
@@ -190,4 +222,5 @@ jobs:
           az deployment group create \
             --resource-group "$RESOURCE_GROUP" \
             --template-file infrastructure/archive/main.bicep \
-            --parameters infrastructure/archive/main.bicepparam
+            --parameters infrastructure/archive/main.bicepparam \
+            --parameters maintenanceMode="${{ steps.maintenance.outputs.mode }}"

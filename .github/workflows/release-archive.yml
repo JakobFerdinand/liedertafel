@@ -5,6 +5,29 @@ name: Release Archive
 # digest. Infrastructure runs (infra-deploy-archive.yml) can never revert
 # the selection.
 #
+# ARC-012: releases carrying a database change run inside a maintenance
+# window. The sequence is: enter maintenance (members see the German
+# maintenance state, conflicting API work and jobs pause) -> run the
+# selected image's reviewed migration exactly once with the migration
+# credential -> deploy the matching image -> targeted smoke checks -> open
+# member access. A failed migration or smoke check keeps maintenance active
+# and fails the run: the maintainer inspects, fixes forward, and retries.
+# There is no database restore/export and no backup job by design.
+#
+# Schema compatibility (when the previous image may stay live):
+# additive-only migrations (new tables, new nullable columns, new indexes)
+# keep the previous image readable, so a code-only rollback (redeploying the
+# previous digest, no database change) is valid. Anything destructive
+# (column renames/drops, new NOT NULL without default, type changes) breaks
+# the previous image: rollback is fix-forward only, and such changes must be
+# split across releases (additive first, cleanup later).
+#
+# Serialization: concurrency group `archive-prod` queues competing runs, so
+# two releases can never migrate or deploy at once. EF migrations are
+# idempotent (applied versions are recorded in the migration history), so a
+# queued run re-entering an already-migrated schema is a safe no-op, and a
+# replay never reruns an applied migration.
+#
 # Triggers: automatically on merge to main when image-affecting files change,
 # or manually via workflow_dispatch with an explicit version. Every run —
 # automatic or manual — waits for approval in the `archive-prod`
@@ -17,6 +40,18 @@ name: Release Archive
 #   AZURE_SUBSCRIPTION_ID_ARCHIVE (sp-liedertafel-archive-iac OIDC),
 #   GHCR_PULL_PAT_ARCHIVE (fine-grained PAT, packages:read) for the
 #   infrastructure workflow.
+# - Key Vault secret `archive-migrations-connection` (migration-role Npgsql
+#   string, placed per window and discarded afterwards — never the admin
+#   credential or a Neon API key), plus `Key Vault Secrets User` on
+#   kv-liedertafel-archive for sp-liedertafel-archive-iac so this workflow
+#   can read it. See infrastructure/archive/README.md.
+#
+# workflow_dispatch inputs:
+# - version: assembly version baked into /api/build (default 0.1.0).
+# - run_migration: true (default) enters the maintenance window and runs
+#   --migrate once. Set false only for code-only releases whose migrations
+#   are already applied (or which carry no schema change); push-triggered
+#   runs always migrate.
 
 on:
   push:
@@ -31,6 +66,11 @@ on:
         description: 'Assembly version baked into /api/build (e.g. 0.1.0).'
         required: false
         default: '0.1.0'
+      run_migration:
+        description: 'Run the maintenance window with the once-only migration (false = code-only release).'
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -43,6 +83,7 @@ concurrency:
 env:
   RESOURCE_GROUP: RG-Liedertafel-Archive
   APP_NAME: ca-liedertafel-archive
+  VAULT_NAME: kv-liedertafel-archive
 
 jobs:
   release:
@@ -95,6 +136,79 @@ jobs:
           echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
           echo "Deployed image: $DIGEST" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Resolve app endpoint
+        id: endpoint
+        run: |
+          FQDN=$(az containerapp show \
+            --name "$APP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --query "properties.configuration.ingress.fqdn" -o tsv)
+          echo "fqdn=$FQDN" >> "$GITHUB_OUTPUT"
+
+      - name: Enter maintenance window
+        id: maintenance
+        run: |
+          # Push-triggered runs carry no inputs: they always migrate.
+          RUN_MIGRATION="${{ inputs.run_migration }}"
+          if [ -z "$RUN_MIGRATION" ]; then
+            RUN_MIGRATION="true"
+          fi
+          echo "run_migration=$RUN_MIGRATION" >> "$GITHUB_OUTPUT"
+          if [ "$RUN_MIGRATION" != "true" ]; then
+            echo "Code-only release: no maintenance window, no migration." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "Entering maintenance: member API access pauses with a German maintenance state."
+          az containerapp update \
+            --name "$APP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --set-env-vars Archive__MaintenanceMode=true >/dev/null
+          FQDN="${{ steps.endpoint.outputs.fqdn }}"
+          echo "Waiting for /api/maintenance to report the window (cold start up to ~60 s is expected)"
+          for attempt in $(seq 1 30); do
+            if MAINT=$(curl --fail --silent --max-time 10 "https://$FQDN/api/maintenance"); then
+              if echo "$MAINT" | grep -q '"maintenance":true'; then
+                echo "- maintenance window active after ~$((attempt * 10)) s" >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
+              echo "Attempt $attempt: still serving $(echo "$MAINT" | head -c 120)"
+            fi
+            if [ "$attempt" = "30" ]; then
+              echo "::error::Maintenance window did not activate within 5 minutes; refusing to migrate without paused member access."
+              exit 1
+            fi
+            sleep 10
+          done
+
+      - name: Run reviewed migration once
+        if: steps.maintenance.outputs.run_migration == 'true'
+        run: |
+          set -o pipefail
+          # The selected image migrates itself exactly once with the
+          # restricted migration role. Ordinary container startup never
+          # migrates; this step is the only production migration path.
+          # The credential travels only in this step's environment (masked,
+          # never logged) and is discarded with the runner afterwards.
+          MIGRATOR=$(az keyvault secret show \
+            --vault-name "$VAULT_NAME" \
+            --name archive-migrations-connection \
+            --query value -o tsv)
+          if [ -z "$MIGRATOR" ]; then
+            echo "::error::Key Vault secret archive-migrations-connection is missing. The maintainer places the per-window migration credential before approving; see infrastructure/archive/README.md."
+            exit 1
+          fi
+          echo "::add-mask::$MIGRATOR"
+          docker pull "${{ steps.image.outputs.digest }}"
+          if env "ConnectionStrings__archive-migrations=$MIGRATOR" \
+            docker run --rm \
+              -e ConnectionStrings__archive-migrations \
+              "${{ steps.image.outputs.digest }}" --migrate 2>&1 | sed 's/.*/[migrate]/'; then
+            echo "- reviewed migration applied exactly once (replays are EF-history no-ops)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::error::Migration failed. Maintenance stays ACTIVE: inspect the [migrate] diagnostics above, fix forward in code, and retry the release. Never retry blindly and never restore the database."
+            exit 1
+          fi
+
       - name: Deploy selected digest
         run: |
           az containerapp update \
@@ -103,13 +217,8 @@ jobs:
             --image "${{ steps.image.outputs.digest }}"
 
       - name: Wait for the new revision to serve traffic
-        id: endpoint
         run: |
-          FQDN=$(az containerapp show \
-            --name "$APP_NAME" \
-            --resource-group "$RESOURCE_GROUP" \
-            --query "properties.configuration.ingress.fqdn" -o tsv)
-          echo "fqdn=$FQDN" >> "$GITHUB_OUTPUT"
+          FQDN="${{ steps.endpoint.outputs.fqdn }}"
           echo "Waiting for version ${{ steps.version.outputs.version }} at https://$FQDN/api/build (cold start up to ~60 s is expected)"
           # Poll /api/build for the new version, not just /alive: the previous
           # revision keeps answering /alive with 200 during the traffic switch,
@@ -129,6 +238,46 @@ jobs:
             sleep 10
           done
 
+      - name: Pre-open checks under maintenance
+        if: steps.maintenance.outputs.run_migration == 'true'
+        run: |
+          # The new revision must prove the window is still enforced before
+          # member access reopens. Any failure here keeps maintenance active.
+          BASE="https://${{ steps.endpoint.outputs.fqdn }}"
+          echo "## Pre-open maintenance evidence" >> "$GITHUB_STEP_SUMMARY"
+          MAINT=$(curl --fail --silent "$BASE/api/maintenance")
+          echo "$MAINT" | jq -e '.maintenance == true' >/dev/null
+          echo "- /api/maintenance still reports the window on the new revision" >> "$GITHUB_STEP_SUMMARY"
+          CSRF_CODE=$(curl --silent -o /dev/null -w "%{http_code}" "$BASE/api/antiforgery")
+          if [ "$CSRF_CODE" != "503" ]; then
+            echo "::error::Expected 503 for /api/antiforgery under maintenance, got $CSRF_CODE (conflicting writes must pause)."
+            exit 1
+          fi
+          curl --silent "$BASE/api/antiforgery" | grep -q -i "wartung"
+          echo "- conflicting API work pauses with a German 503" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Open member access
+        if: steps.maintenance.outputs.run_migration == 'true'
+        run: |
+          az containerapp update \
+            --name "$APP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --set-env-vars Archive__MaintenanceMode=false >/dev/null
+          FQDN="${{ steps.endpoint.outputs.fqdn }}"
+          for attempt in $(seq 1 30); do
+            if MAINT=$(curl --fail --silent --max-time 10 "https://$FQDN/api/maintenance"); then
+              if echo "$MAINT" | grep -q '"maintenance":false'; then
+                echo "- member access reopened after ~$((attempt * 10)) s" >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
+            fi
+            if [ "$attempt" = "30" ]; then
+              echo "::error::Member access did not reopen within 5 minutes; inspect the revision before retrying."
+              exit 1
+            fi
+            sleep 10
+          done
+
       - name: Smoke-check the shell
         run: |
           BASE="https://${{ steps.endpoint.outputs.fqdn }}"
@@ -139,8 +288,19 @@ jobs:
           echo "$BUILD" | jq -e '.development == false' >/dev/null
           echo "$BUILD" | jq -e --arg v "${{ steps.version.outputs.version }}" '.version | contains($v)' >/dev/null
           echo "- /api/build: development=false, version contains ${{ steps.version.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+          MAINT=$(curl --fail --silent "$BASE/api/maintenance")
+          echo "$MAINT" | jq -e '.maintenance == false' >/dev/null
+          echo "- /api/maintenance: window closed" >> "$GITHUB_STEP_SUMMARY"
           curl --fail --silent "$BASE/system/status/" | grep -q -i "archiv"
           echo "- /system/status/: 200 with archive content" >> "$GITHUB_STEP_SUMMARY"
+          curl --fail --silent "$BASE/wartung/" | grep -q -i "wartung"
+          echo "- /wartung/: 200 with maintenance page" >> "$GITHUB_STEP_SUMMARY"
+          CSRF_CODE=$(curl --silent -o /dev/null -w "%{http_code}" -H "X-Forwarded-Proto: https" "$BASE/api/antiforgery")
+          if [ "$CSRF_CODE" != "200" ]; then
+            echo "::error::Expected 200 for /api/antiforgery after reopening, got $CSRF_CODE."
+            exit 1
+          fi
+          echo "- /api/antiforgery: 200 (member writes accepted again)" >> "$GITHUB_STEP_SUMMARY"
           DEV_CODE=$(curl --silent -o /dev/null -w "%{http_code}" "$BASE/api/dev/database")
           if [ "$DEV_CODE" != "404" ]; then
             echo "::error::Expected 404 for /api/dev/database, got $DEV_CODE (dev endpoints must stay absent in production)."
