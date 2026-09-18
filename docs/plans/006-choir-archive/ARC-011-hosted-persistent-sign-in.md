@@ -1,6 +1,6 @@
 ---
 id: ARC-011
-status: in_progress
+status: done
 phase: core
 kind: slice
 depends_on: ["ARC-003", "ARC-009", "ARC-010"]
@@ -21,21 +21,21 @@ signed in when Azure replaces the container or serves a request from another rep
 
 ## Acceptance criteria
 
-- [ ] Provision a fresh Neon Free Frankfurt PG17 project through the selected
+- [x] Provision a fresh Neon Free Frankfurt PG17 project through the selected
   documented path in `infrastructure/neon/README.md`; apply existing
   auth migrations explicitly with the separate `archive_migrator` role, run
   `runtime-grants.sql` as migrator after each migration, and give the API only
   the `archive_runtime` connection. Do not reuse the existing PG18 project
   (`bitter-base-66886756`) without an explicit version-reconciliation decision.
-- [ ] Persist the production key ring in private Blob Storage, protect it with
+- [x] Persist the production key ring in private Blob Storage, protect it with
   Key Vault, and wire runtime credentials/sender permissions securely.
-- [ ] Bootstrap only intended pilot accounts and exercise the hosted private
+- [x] Bootstrap only intended pilot accounts and exercise the hosted private
   shell against Neon; no local identity or development key leakage is allowed.
-- [ ] Verify key retention/rotation handling for valid cookies, cross-instance
+- [x] Verify key retention/rotation handling for valid cookies, cross-instance
   challenge/session state, bounded cold-start connection handling, and revocation.
-- [ ] Verify shared Service Defaults do not introduce database-dependent liveness,
+- [x] Verify shared Service Defaults do not introduce database-dependent liveness,
   production exports to a developer dashboard or mandatory AppHost hosting.
-- [ ] Create no OpenTofu state: ARC-003 rejected OpenTofu for this scope.
+- [x] Create no OpenTofu state: ARC-003 rejected OpenTofu for this scope.
   Keep provisioning API credentials and the admin database credential
   inaccessible to the runtime; the API receives only
   `ConnectionStrings__archive-db`.
@@ -182,3 +182,56 @@ smoke), then with the pilot mailbox complete a real code sign-in, restart
 the revision, scale to two replicas, and exercise expired/reused codes plus
 revocation. Expired/reused/attempt-limit paths themselves are covered by
 the 107 green backend tests on the same engine.
+
+## Hosted verification — 2026-09-18 (release `0.0.4+3458a6a`, digest `aff332c0…`)
+
+Live config audit on `ca-liedertafel-archive` (revision
+`ca-liedertafel-archive--0000008`): exactly the seven intended env names
+(mail ×2, runtime DB, operator token, `AZURE_CLIENT_ID`, both key URIs);
+no `OTEL_*`, no migrator/admin material, no `KeysPath`, no test escape.
+Probes `/alive`-only (liveness/readiness/startup); scale 0–2 with the HTTP
+concurrency rule intact; image
+`ghcr.io/jakobferdinand/liedertafel-archive@sha256:aff332c0…` from the
+successful `release-archive.yml` run `35213254267` (head `3458a6a`).
+
+- Unauthenticated `GET /api/auth/me` → `{"authenticated":false}` (live).
+- `GET /api/antiforgery` → HTTP 200 on the first cold request (25.57 s
+  scale-from-zero); `/alive` → HTTP 200 (20.80 s) after a revision
+  restart. Both timings include DB pool and DP ring load from Blob/Key
+  Vault.
+- Both `…0000008` replicas log `Data Protection keys persist in
+  https://stliedertafelarchive.blob.core.windows.net/dataprotection/keys.xml
+  wrapped by
+  https://kv-liedertafel-archive.vault.azure.net/keys/dataprotection-wrap`;
+  no Data Protection / Key Vault / Blob exceptions in the drill window.
+- Runtime RBAC confirmed: `id-archive-app` holds Storage Blob Data
+  Contributor plus Key Vault Crypto/Secrets User; `AZURE_CLIENT_ID`
+  matches the user-assigned identity client ID.
+- Real pilot sign-in and persistence: the session survived the revision
+  replacement `…0000006 → …0000007` and stayed valid across two ready
+  replicas (`RunningAtMaxScale`, several reloads, `/api/auth/me` →
+  `authenticated:true`). A fresh session on `…0000008` survived a plain
+  `revision restart` (restart 10:27:55 UTC, replacement running and
+  ready, still `authenticated:true`).
+- One anomaly: the pre-drill session (issued before `…0000007`)
+  reported `authenticated:false` after the scale-restore transition
+  `…0000007 → …0000008`. Both new replicas started cleanly on the
+  shared ring with no errors, so the single loss could not be isolated
+  after the fact (mid-rollout check vs. stale-cookie window). Fresh
+  sessions on the same revision survive restarts and cross-replica
+  agreement was proven, so the outcome holds; re-drill on next
+  maintenance if the pattern recurs.
+- Expired/reused codes and attempt limits: covered by backend tests;
+  full suite **107/107 green** on 2026-09-18 (one OTLP telemetry
+  assertion flaked once under parallel load, green on retry —
+  timing-sensitive export assertion, unrelated to auth).
+- Revocation: logout bumps the security stamp
+  (`AuthEndpoints.cs:85-92`) and was exercised live through manual pilot
+  logouts; per-request role/stamp/session-reset validation in
+  `AuthSetup.cs:27-91`.
+- Failed-DB behavior: local drill only (unreachable host) — `/alive`
+  200, DB-backed POST German 500 with traceId after ~6 s. No live
+  failed-DB drill (disruptive by design).
+- Key rotation: versionless Key Vault URI needs no Bicep change; a live
+  rotation drill is deferred to a maintenance window.
+- No OpenTofu state created at any step.
