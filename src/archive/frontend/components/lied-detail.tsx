@@ -52,6 +52,9 @@ export function LiedDetail() {
   const [fassungHinzufuegen, setFassungHinzufuegen] = useState<string | null>(
     null,
   );
+  const [fassungBearbeitet, setFassungBearbeitet] = useState<string | null>(
+    null,
+  );
   const [versuch, setVersuch] = useState(0);
 
   const editor =
@@ -239,6 +242,7 @@ export function LiedDetail() {
                         : arrangement.id,
                     );
                     setFassungHinzufuegen(null);
+                    setFassungBearbeitet(null);
                   }}
                 >
                   {arrangementBearbeitet === arrangement.id
@@ -254,6 +258,7 @@ export function LiedDetail() {
                         : arrangement.id,
                     );
                     setArrangementBearbeitet(null);
+                    setFassungBearbeitet(null);
                   }}
                 >
                   {fassungHinzufuegen === arrangement.id
@@ -292,6 +297,45 @@ export function LiedDetail() {
                   }}
                 />
               )}
+              {arrangement.musicalVersions.map((fassung) => (
+                <div key={fassung.id} className="lied-fassung-version">
+                  <p className="lied-fassung-titel">{fassung.label}</p>
+                  <div className="lieder-aktionen">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFassungBearbeitet(
+                          fassungBearbeitet === fassung.id ? null : fassung.id,
+                        );
+                        setArrangementBearbeitet(null);
+                        setFassungHinzufuegen(null);
+                      }}
+                    >
+                      {fassungBearbeitet === fassung.id
+                        ? "Bearbeiten schließen"
+                        : "Fassung bearbeiten"}
+                    </button>
+                  </div>
+                  {fassungBearbeitet === fassung.id && (
+                    <FassungsFormular
+                      variante="version"
+                      methode="patch"
+                      pfad={`/api/musical-versions/${encodeURIComponent(fassung.id)}`}
+                      idPraefix={`fassung-bearbeiten-${fassung.id}`}
+                      absendenText="Fassung speichern"
+                      anfang={{
+                        label: fassung.label,
+                        person: fassung.creator ?? "",
+                        zusatz: fassung.musicalKey ?? "",
+                      }}
+                      onSuccess={(gespeichert, meldung) => {
+                        gesichertSpeichern(gespeichert, meldung);
+                        setFassungBearbeitet(null);
+                      }}
+                    />
+                  )}
+                </div>
+              ))}
             </div>
           ))}
           <h3>Neues Arrangement</h3>

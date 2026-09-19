@@ -621,6 +621,64 @@ test("Redaktion legt Arrangement und Fassung an und sieht Tonarten", async ({
   expect(errors).toEqual([]);
 });
 
+test("Redaktion bearbeitet eine Fassung und ändert die Tonart", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await mockSitzung(page, editorMe);
+
+  const detailVorher = JSON.parse(
+    JSON.stringify(mehrfachDetail),
+  ) as typeof mehrfachDetail;
+  const detailNachher = {
+    song: {
+      ...detailVorher.song,
+      updatedAt: "2026-09-19T10:00:00.000Z",
+      arrangements: detailVorher.song.arrangements.map((eintrag) =>
+        eintrag.id === maennerchorId
+          ? {
+              ...eintrag,
+              musicalVersions: eintrag.musicalVersions.map((fassung) =>
+                fassung.id === maennerchorFassungId
+                  ? { ...fassung, musicalKey: "C-Dur" }
+                  : fassung,
+              ),
+            }
+          : eintrag,
+      ),
+    },
+  };
+
+  await page.route(`**/api/songs/${publishedId}`, (route) =>
+    route.fulfill(json(detailVorher)),
+  );
+  await page.route(`**/api/musical-versions/${maennerchorFassungId}`, (route) =>
+    route.fulfill(json(detailNachher)),
+  );
+
+  await page.goto(`/lied/?id=${publishedId}`);
+
+  const maennerBlock = page
+    .locator(".lied-fassung-block")
+    .filter({ hasText: "Satz für Männerchor" });
+  await maennerBlock
+    .getByRole("button", { name: "Fassung bearbeiten" })
+    .click();
+  await maennerBlock
+    .locator("input[id^='fassung-bearbeiten-'][id$='-zusatz']")
+    .fill("C-Dur");
+  await maennerBlock.getByRole("button", { name: "Fassung speichern" }).click();
+  await expect(page.getByText("Fassung gespeichert.")).toBeVisible();
+  await expect(
+    page.getByRole("button", {
+      name: "Männerchor · Hans Schmid · Tonart: C-Dur",
+    }),
+  ).toBeVisible();
+
+  expect(errors).toEqual([]);
+});
+
 test("Fehlende optionale Felder erscheinen nicht als Platzhaltertext", async ({
   page,
 }) => {
