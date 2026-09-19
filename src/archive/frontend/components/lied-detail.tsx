@@ -27,12 +27,21 @@ export function LiedDetail() {
     async (signal?: AbortSignal) => {
       const antwort = await fetchMe(signal);
       if (!signal?.aborted) setMe(antwort);
+      if (!antwort.authenticated) return;
       if (!id) {
         if (!signal?.aborted) setNichtGefunden(true);
         return;
       }
-      const details = await fetchSong(id, signal);
-      if (!signal?.aborted) setLied(details);
+      try {
+        const details = await fetchSong(id, signal);
+        if (!signal?.aborted) setLied(details);
+      } catch (ursache) {
+        if (ursache instanceof Response && ursache.status === 401) {
+          if (!signal?.aborted) setMe({ authenticated: false });
+          return;
+        }
+        throw ursache;
+      }
     },
     [id],
   );
@@ -178,7 +187,6 @@ export function LiedDetail() {
           <h2 id="lied-bearbeiten-titel">Lied bearbeiten</h2>
           <LiedFormular
             lied={lied}
-            beschriftung="Lied bearbeiten"
             absendenText="Änderungen speichern"
             onSuccess={(gespeichert) => {
               setLied(gespeichert as LiedDetails);

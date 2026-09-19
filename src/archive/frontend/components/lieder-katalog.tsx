@@ -27,8 +27,21 @@ export function LiederKatalog() {
   const laden = useCallback(async (signal?: AbortSignal) => {
     const antwort = await fetchMe(signal);
     if (!signal?.aborted) setMe(antwort);
-    const liste = await fetchSongs(signal);
-    if (!signal?.aborted) setLieder(liste);
+    if (!antwort.authenticated) return;
+    try {
+      const liste = await fetchSongs(signal);
+      if (!signal?.aborted) setLieder(liste);
+    } catch (ursache) {
+      if (
+        ursache instanceof Response &&
+        ursache.status === 401 &&
+        !signal?.aborted
+      ) {
+        setMe({ authenticated: false });
+        return;
+      }
+      throw ursache;
+    }
   }, []);
 
   useEffect(() => {
@@ -106,7 +119,6 @@ export function LiederKatalog() {
         >
           <h2 id="lied-anlegen-titel">Neues Lied</h2>
           <LiedFormular
-            beschriftung="Neues Lied anlegen"
             absendenText="Lied anlegen"
             onSuccess={(gespeichert) => {
               setLieder((bisher) => [...(bisher ?? []), gespeichert]);
@@ -217,7 +229,6 @@ export function LiederKatalog() {
                   <div className="lied-bearbeiten auth-karte">
                     <LiedFormular
                       lied={lied}
-                      beschriftung="Lied bearbeiten"
                       absendenText="Änderungen speichern"
                       onSuccess={(gespeichert) => {
                         setLieder((bisher) =>

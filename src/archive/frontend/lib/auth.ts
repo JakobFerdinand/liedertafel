@@ -33,6 +33,19 @@ export async function postAuth(path: string, body: unknown): Promise<Response> {
   });
 }
 
+export async function patchAuth(
+  path: string,
+  body: unknown,
+): Promise<Response> {
+  const token = await getCsrfToken();
+  return fetch(path, {
+    method: "PATCH",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json", "X-CSRF-TOKEN": token },
+    body: JSON.stringify(body),
+  });
+}
+
 export async function fetchMe(signal?: AbortSignal): Promise<MeResponse> {
   const response = await fetch("/api/auth/me", {
     credentials: "same-origin",

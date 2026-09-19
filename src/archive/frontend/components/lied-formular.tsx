@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { postAuth } from "@/lib/auth";
+import { patchAuth, postAuth } from "@/lib/auth";
 import type { Lied } from "@/lib/songs";
 
 type LiedFormularWerte = {
@@ -22,12 +22,10 @@ const LEER: LiedFormularWerte = {
 
 export function LiedFormular({
   lied,
-  beschriftung,
   absendenText,
   onSuccess,
 }: {
   lied?: Lied | null;
-  beschriftung: string;
   absendenText: string;
   onSuccess: (lied: Lied, meldung: string) => void;
 }) {
@@ -79,7 +77,7 @@ export function LiedFormular({
               : null,
           };
       const response = lied
-        ? await postAuth(`/api/songs/${encodeURIComponent(lied.id)}`, body)
+        ? await patchAuth(`/api/songs/${encodeURIComponent(lied.id)}`, body)
         : await postAuth("/api/songs", body);
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
@@ -109,7 +107,6 @@ export function LiedFormular({
 
   return (
     <form onSubmit={speichern} noValidate>
-      {lied ? null : <h3>{beschriftung}</h3>}
       <label htmlFor={lied ? `lied-titel-${lied.id}` : "lied-titel"}>
         Titel
       </label>
