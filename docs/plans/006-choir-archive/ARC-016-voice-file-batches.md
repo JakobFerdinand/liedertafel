@@ -69,7 +69,7 @@ Design decisions:
   "Vollmix" option — no fixed SATB list.
 
 - [x] Slice 1: backend audio/midi types + per-type validation
-- [ ] Slice 2: description + metadata edit endpoint + song detail embedding
+- [x] Slice 2: description + metadata edit endpoint + song detail embedding
 - [ ] Slice 3: partial-success guarantee test
 - [ ] Slice 4: frontend batch upload + grouped material list
 - [ ] Slice 5: apphost mixed-batch integration test
