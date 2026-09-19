@@ -147,7 +147,6 @@ jobs:
 
       - name: Enter maintenance window
         id: maintenance
-        if: ${{ false }}
         run: |
           # Push-triggered runs carry no inputs: they always migrate.
           RUN_MIGRATION="${{ inputs.run_migration }}"
