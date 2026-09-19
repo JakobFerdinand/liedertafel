@@ -265,17 +265,18 @@ public static class CatalogueEndpoints
 			var song = await db.Songs.FirstOrDefaultAsync(s => s.Id == id, token);
 			if (song is null)
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
-			var now = time.GetUtcNow();
-			song.Arrangements.Add(new Arrangement
-			{
-				Song = song,
-				Label = label,
-				Arranger = arranger,
-				VoiceConfiguration = voiceConfiguration,
-				CreatedAt = now,
-				CreatedByAccountId = decision!.AccountId,
-			});
-			song.UpdatedAt = now;
+		var now = time.GetUtcNow();
+		var arrangement = new Arrangement
+		{
+			SongId = song.Id,
+			Label = label,
+			Arranger = arranger,
+			VoiceConfiguration = voiceConfiguration,
+			CreatedAt = now,
+			CreatedByAccountId = decision!.AccountId,
+		};
+		db.Arrangements.Add(arrangement);
+		song.UpdatedAt = now;
 			song.UpdatedByAccountId = decision.AccountId;
 			song.RowVersion++;
 			try
@@ -363,15 +364,16 @@ public static class CatalogueEndpoints
 			if (arrangement is null || arrangement.Song is null)
 				return Results.Problem(statusCode: 404, title: ArrangementNotFoundMessage);
 			var now = time.GetUtcNow();
-			arrangement.MusicalVersions.Add(new MusicalVersion
+			var version = new MusicalVersion
 			{
-				Arrangement = arrangement,
+				ArrangementId = arrangement.Id,
 				Label = label,
 				Creator = creator,
 				MusicalKey = musicalKey,
 				CreatedAt = now,
 				CreatedByAccountId = decision!.AccountId,
-			});
+			};
+			db.MusicalVersions.Add(version);
 			arrangement.Song.UpdatedAt = now;
 			arrangement.Song.UpdatedByAccountId = decision.AccountId;
 			arrangement.Song.RowVersion++;
