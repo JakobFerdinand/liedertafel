@@ -341,10 +341,10 @@ public sealed class CatalogueApiTests
 	}
 
 	[Fact]
-	public async Task SecondArrangementCreationAnswersConcurrencyConflict()
+	public async Task SecondArrangementCreationPersistsFields()
 	{
 		await using var factory = new AuthApiFactory();
-		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		var editorId = await SeedAsync(factory, Editor, ArchiveRoles.Editor);
 		var editorSession = await SignInAsync(factory, Editor);
 		var songId = await CreateSongAsync(factory, client: null, editorSession, "Lied mit Fassungen");
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
@@ -358,25 +358,33 @@ public sealed class CatalogueApiTests
 			new { label = "Männerchor-Bearbeitung", arranger = "Hans Schmid", voiceConfiguration = "TTBB" },
 			$"{cookie}; {editorSession}", token);
 		using var response = await client.SendAsync(create);
-		Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
-		var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
-		Assert.Equal(CatalogueEndpoints.ConcurrencyMessage, problem.GetProperty("title").GetString());
+		Assert.Equal(HttpStatusCode.Created, response.StatusCode);
 
 		var after = await GetSongDetailAsync(client, editorSession, songId);
 		var arrangements = after.GetProperty("arrangements").EnumerateArray().ToList();
-		Assert.Single(arrangements);
-		Assert.Equal(firstArrangementId, Guid.Parse(arrangements[0].GetProperty("id").GetString()!));
+		Assert.Equal(2, arrangements.Count);
+		var second = arrangements.Single(a =>
+			a.GetProperty("label").GetString() == "Männerchor-Bearbeitung");
+		var secondArrangementId = Guid.Parse(second.GetProperty("id").GetString()!);
+		Assert.NotEqual(firstArrangementId, secondArrangementId);
+		Assert.Equal("Hans Schmid", second.GetProperty("arranger").GetString());
+		Assert.Equal("TTBB", second.GetProperty("voiceConfiguration").GetString());
 
 		using var scope = factory.Services.CreateScope();
 		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-		Assert.Equal(1, await db.Arrangements.CountAsync(a => a.SongId == songId));
+		Assert.Equal(2, await db.Arrangements.CountAsync(a => a.SongId == songId));
+		var persisted = await db.Arrangements.SingleAsync(a => a.Id == secondArrangementId);
+		Assert.Equal(songId, persisted.SongId);
+		Assert.Equal("Hans Schmid", persisted.Arranger);
+		Assert.Equal("TTBB", persisted.VoiceConfiguration);
+		Assert.Equal(editorId, persisted.CreatedByAccountId);
 	}
 
 	[Fact]
-	public async Task VersionCreationAnswersConcurrencyConflict()
+	public async Task VersionCreationPersistsFields()
 	{
 		await using var factory = new AuthApiFactory();
-		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		var editorId = await SeedAsync(factory, Editor, ArchiveRoles.Editor);
 		var editorSession = await SignInAsync(factory, Editor);
 		var songId = await CreateSongAsync(factory, client: null, editorSession, "Lied mit Tonarten");
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
@@ -393,19 +401,27 @@ public sealed class CatalogueApiTests
 			new { label = "Notenausgabe 1952", creator = "Archiv", musicalKey = "Es-Dur" },
 			$"{cookie}; {editorSession}", token);
 		using var response = await client.SendAsync(create);
-		Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
-		var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
-		Assert.Equal(CatalogueEndpoints.ConcurrencyMessage, problem.GetProperty("title").GetString());
+		Assert.Equal(HttpStatusCode.Created, response.StatusCode);
 
 		var after = await GetSongDetailAsync(client, editorSession, songId);
 		var versions = after.GetProperty("arrangements")[0]
 			.GetProperty("musicalVersions").EnumerateArray().ToList();
-		Assert.Single(versions);
-		Assert.Equal(versionId, Guid.Parse(versions[0].GetProperty("id").GetString()!));
+		Assert.Equal(2, versions.Count);
+		var second = versions.Single(v =>
+			v.GetProperty("label").GetString() == "Notenausgabe 1952");
+		var newVersionId = Guid.Parse(second.GetProperty("id").GetString()!);
+		Assert.NotEqual(versionId, newVersionId);
+		Assert.Equal("Archiv", second.GetProperty("creator").GetString());
+		Assert.Equal("Es-Dur", second.GetProperty("musicalKey").GetString());
 
 		using var scope = factory.Services.CreateScope();
 		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-		Assert.Equal(1, await db.MusicalVersions.CountAsync(v => v.ArrangementId == arrangementId));
+		Assert.Equal(2, await db.MusicalVersions.CountAsync(v => v.ArrangementId == arrangementId));
+		var persisted = await db.MusicalVersions.SingleAsync(v => v.Id == newVersionId);
+		Assert.Equal(arrangementId, persisted.ArrangementId);
+		Assert.Equal("Archiv", persisted.Creator);
+		Assert.Equal("Es-Dur", persisted.MusicalKey);
+		Assert.Equal(editorId, persisted.CreatedByAccountId);
 	}
 
 	[Fact]
@@ -492,6 +508,7 @@ public sealed class CatalogueApiTests
 		var editorSession = await SignInAsync(factory, Editor);
 		var songId = await CreateSongAsync(factory, client: null, editorSession, "Identitätsbeispiel");
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var (cookie, token) = await GetCsrfAsync(client, editorSession);
 
 		var detail = await GetSongDetailAsync(client, editorSession, songId);
 		var songLabel = detail.GetProperty("title").GetString();
@@ -505,16 +522,43 @@ public sealed class CatalogueApiTests
 		Assert.Equal(CatalogueEndpoints.DefaultLabel, versions[0].GetProperty("label").GetString());
 
 		// Identical labels do not merge: three distinct, stable Guid identities.
+		Assert.Equal("Identitätsbeispiel", songLabel);
 		Assert.NotEqual(songId, arrangementId);
 		Assert.NotEqual(songId, versionId);
 		Assert.NotEqual(arrangementId, versionId);
 
+		// Acceptance example: two arrangements and two versions with identical
+		// labels stay separate rows.
+		using var secondArrangement = AuthedPost($"/api/songs/{songId}/arrangements",
+			new { label = CatalogueEndpoints.DefaultLabel }, $"{cookie}; {editorSession}", token);
+		using var secondArrangementResponse = await client.SendAsync(secondArrangement);
+		Assert.Equal(HttpStatusCode.Created, secondArrangementResponse.StatusCode);
+
+		using var secondVersion = AuthedPost($"/api/arrangements/{arrangementId}/versions",
+			new { label = CatalogueEndpoints.DefaultLabel }, $"{cookie}; {editorSession}", token);
+		using var secondVersionResponse = await client.SendAsync(secondVersion);
+		Assert.Equal(HttpStatusCode.Created, secondVersionResponse.StatusCode);
+
 		var reloaded = await GetSongDetailAsync(client, editorSession, songId);
-		Assert.Equal(arrangementId, Guid.Parse(
-			reloaded.GetProperty("arrangements")[0].GetProperty("id").GetString()!));
-		Assert.Equal(versionId, Guid.Parse(
-			reloaded.GetProperty("arrangements")[0].GetProperty("musicalVersions")[0]
-				.GetProperty("id").GetString()!));
+		var reloadedArrangements = reloaded.GetProperty("arrangements")
+			.EnumerateArray().OrderBy(a => a.GetProperty("id").GetString()).ToList();
+		Assert.Equal(2, reloadedArrangements.Count);
+		var reloadedIds = reloadedArrangements
+			.Select(a => Guid.Parse(a.GetProperty("id").GetString()!)).ToList();
+		Assert.Equal(arrangementId, reloadedIds[0]);
+		Assert.NotEqual(reloadedIds[0], reloadedIds[1]);
+		Assert.All(reloadedArrangements,
+			a => Assert.Equal(CatalogueEndpoints.DefaultLabel, a.GetProperty("label").GetString()));
+
+		var reloadedVersions = reloadedArrangements[0].GetProperty("musicalVersions")
+			.EnumerateArray().OrderBy(v => v.GetProperty("id").GetString()).ToList();
+		Assert.Equal(2, reloadedVersions.Count);
+		var reloadedVersionIds = reloadedVersions
+			.Select(v => Guid.Parse(v.GetProperty("id").GetString()!)).ToList();
+		Assert.Equal(versionId, reloadedVersionIds[0]);
+		Assert.NotEqual(reloadedVersionIds[0], reloadedVersionIds[1]);
+		Assert.All(reloadedVersions,
+			v => Assert.Equal(CatalogueEndpoints.DefaultLabel, v.GetProperty("label").GetString()));
 	}
 
 	[Fact]
@@ -754,11 +798,15 @@ public sealed class CatalogueApiTests
 		Assert.Equal("Entwurfsausgabe", versions[0].GetProperty("label").GetString());
 		Assert.Equal("C-Dur", versions[0].GetProperty("musicalKey").GetString());
 
-		// Adding another version to the draft conflicts like on published songs.
+		// Adding another version to the draft succeeds like on published songs.
 		using var addVersion = AuthedPost($"/api/arrangements/{arrangementId}/versions",
 			new { label = "Zweite Ausgabe" }, $"{cookie}; {editorSession}", token);
 		using var addVersionResponse = await client.SendAsync(addVersion);
-		Assert.Equal(HttpStatusCode.Conflict, addVersionResponse.StatusCode);
+		Assert.Equal(HttpStatusCode.Created, addVersionResponse.StatusCode);
+		var added = await GetSongDetailAsync(client, editorSession, songId);
+		var addedVersions = added.GetProperty("arrangements").EnumerateArray().Single()
+			.GetProperty("musicalVersions").EnumerateArray().ToList();
+		Assert.Equal(2, addedVersions.Count);
 	}
 
 	private static async Task<Guid> CreateSongAsync(
