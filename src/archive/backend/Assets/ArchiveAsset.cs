@@ -23,6 +23,9 @@ public sealed class ArchiveAsset
 	/// <summary>Optional per-voice label; ARC-016 fills it for voice-specific audio.</summary>
 	public string? VoiceLabel { get; set; }
 
+	/// <summary>Optional free-text description (ARC-016), at most 500 characters.</summary>
+	public string? Description { get; set; }
+
 	public Guid CreatedByAccountId { get; set; }
 
 	public DateTimeOffset CreatedAt { get; set; }

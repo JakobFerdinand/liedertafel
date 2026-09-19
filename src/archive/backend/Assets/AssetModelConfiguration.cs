@@ -13,6 +13,7 @@ public sealed class AssetModelConfiguration
 		builder.HasKey(x => x.Id);
 		builder.Property(x => x.AssetType).HasMaxLength(100).IsRequired().HasDefaultValue("score");
 		builder.Property(x => x.VoiceLabel).HasMaxLength(200);
+		builder.Property(x => x.Description).HasMaxLength(500);
 		builder.Property(x => x.RowVersion).IsConcurrencyToken();
 		/// <summary>
 		/// Deletion flows through the retained-reference contract (ARC-037),

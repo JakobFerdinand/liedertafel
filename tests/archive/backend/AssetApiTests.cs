@@ -370,6 +370,199 @@ public sealed class AssetApiTests
 	}
 
 	[Fact]
+	public async Task CreateAssetWithDescriptionPersistsAndEmbedsInSongDetail()
+	{
+		await using var factory = new AuthApiFactory();
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		var editorSession = await SignInAsync(factory, Editor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var (songId, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
+
+		using var createResponse = await PostJsonAsync(client,
+			$"/api/musical-versions/{versionId}/assets",
+			new { assetType = "audio", voiceLabel = "Tenor", description = "  Probeaufnahme vom 3. Mai  " },
+			editorSession);
+		Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+		var assetBody = await createResponse.Content.ReadFromJsonAsync<JsonElement>();
+		Assert.Equal("Probeaufnahme vom 3. Mai", assetBody.GetProperty("description").GetString());
+
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			var asset = await db.Assets.SingleAsync();
+			Assert.Equal("Probeaufnahme vom 3. Mai", asset.Description);
+		}
+
+		// A second asset without description reports null in the payload.
+		await CreateAssetAsync(client, editorSession, versionId, "score");
+		var detail = await GetSongDetailAsync(client, editorSession, songId);
+		var assets = detail.GetProperty("arrangements")[0]
+			.GetProperty("musicalVersions")[0].GetProperty("assets").EnumerateArray().ToList();
+		Assert.Equal(2, assets.Count);
+		Assert.Equal("Probeaufnahme vom 3. Mai", assets[0].GetProperty("description").GetString());
+		Assert.True(assets[1].GetProperty("description").ValueKind is JsonValueKind.Null);
+	}
+
+	[Fact]
+	public async Task PatchAssetUpdatesVoiceLabelDescriptionAndPendingType()
+	{
+		await using var factory = new AuthApiFactory();
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		var editorSession = await SignInAsync(factory, Editor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
+		var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
+
+		using var patchResponse = await PatchJsonAsync(client,
+			$"/api/assets/{assetId}",
+			new { assetType = "audio", voiceLabel = " Tenor ", description = " Probeaufnahme " },
+			editorSession);
+		Assert.Equal(HttpStatusCode.OK, patchResponse.StatusCode);
+		var body = await patchResponse.Content.ReadFromJsonAsync<JsonElement>();
+		Assert.Equal(assetId, Guid.Parse(body.GetProperty("id").GetString()!));
+		Assert.Equal("audio", body.GetProperty("assetType").GetString());
+		Assert.Equal("Tenor", body.GetProperty("voiceLabel").GetString());
+		Assert.Equal("Probeaufnahme", body.GetProperty("description").GetString());
+		Assert.True(body.GetProperty("currentRevision").ValueKind is JsonValueKind.Null);
+
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			var asset = await db.Assets.SingleAsync();
+			Assert.Equal("audio", asset.AssetType);
+			Assert.Equal("Tenor", asset.VoiceLabel);
+			Assert.Equal("Probeaufnahme", asset.Description);
+		}
+
+		// Absent fields leave values unchanged.
+		using (var unchanged = await PatchJsonAsync(client, $"/api/assets/{assetId}", new { }, editorSession))
+		{
+			Assert.Equal(HttpStatusCode.OK, unchanged.StatusCode);
+			var unchangedBody = await unchanged.Content.ReadFromJsonAsync<JsonElement>();
+			Assert.Equal("Tenor", unchangedBody.GetProperty("voiceLabel").GetString());
+			Assert.Equal("Probeaufnahme", unchangedBody.GetProperty("description").GetString());
+		}
+
+		// Empty strings clear optional fields.
+		using (var cleared = await PatchJsonAsync(client, $"/api/assets/{assetId}",
+			new { voiceLabel = "  ", description = "" }, editorSession))
+		{
+			Assert.Equal(HttpStatusCode.OK, cleared.StatusCode);
+			var clearedBody = await cleared.Content.ReadFromJsonAsync<JsonElement>();
+			Assert.True(clearedBody.GetProperty("voiceLabel").ValueKind is JsonValueKind.Null);
+			Assert.True(clearedBody.GetProperty("description").ValueKind is JsonValueKind.Null);
+		}
+
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			var asset = await db.Assets.SingleAsync();
+			Assert.Null(asset.VoiceLabel);
+			Assert.Null(asset.Description);
+		}
+	}
+
+	[Fact]
+	public async Task PatchAssetTypeWithCurrentRevisionIsRejected()
+	{
+		await using var factory = new AuthApiFactory();
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		var editorSession = await SignInAsync(factory, Editor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
+		var assetId = await CreateScoreAssetAsync(client, editorSession, versionId);
+		await UploadAndFinalizeAsync(factory, client, editorSession, assetId);
+
+		using var response = await PatchJsonAsync(client,
+			$"/api/assets/{assetId}", new { assetType = "audio" }, editorSession);
+		Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+		var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
+		Assert.Equal("Der Materialtyp kann nach dem ersten Hochladen nicht geändert werden.",
+			problem.GetProperty("title").GetString());
+
+		// Metadata edits without a type change still work.
+		using var labelPatch = await PatchJsonAsync(client,
+			$"/api/assets/{assetId}", new { voiceLabel = "Bass" }, editorSession);
+		Assert.Equal(HttpStatusCode.OK, labelPatch.StatusCode);
+
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			var asset = await db.Assets.SingleAsync();
+			Assert.Equal(AssetEndpoints.ScoreAssetType, asset.AssetType);
+			Assert.Equal("Bass", asset.VoiceLabel);
+			Assert.NotNull(asset.CurrentRevisionId);
+		}
+	}
+
+	[Fact]
+	public async Task PatchAssetByOtherEditorIsRejected()
+	{
+		await using var factory = new AuthApiFactory();
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		await SeedAsync(factory, SecondEditor, ArchiveRoles.Editor);
+		var editorSession = await SignInAsync(factory, Editor);
+		var secondSession = await SignInAsync(factory, SecondEditor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
+		var assetId = await CreateScoreAssetAsync(client, editorSession, versionId);
+
+		using var response = await PatchJsonAsync(client,
+			$"/api/assets/{assetId}", new { voiceLabel = "Tenor" }, secondSession);
+		Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+		var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
+		Assert.Equal("Nur die anlegendende Person kann das Material bearbeiten.",
+			problem.GetProperty("title").GetString());
+
+		using var scope = factory.Services.CreateScope();
+		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+		Assert.Null((await db.Assets.SingleAsync()).VoiceLabel);
+	}
+
+	[Fact]
+	public async Task MemberCannotPatchAssets()
+	{
+		await using var factory = new AuthApiFactory();
+		await SeedAsync(factory, Member, ArchiveRoles.Member);
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		var memberSession = await SignInAsync(factory, Member);
+		var editorSession = await SignInAsync(factory, Editor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
+		var assetId = await CreateScoreAssetAsync(client, editorSession, versionId);
+
+		using var response = await PatchJsonAsync(client,
+			$"/api/assets/{assetId}", new { voiceLabel = "Tenor" }, memberSession);
+		Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+		var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
+		Assert.Equal(CatalogueEndpoints.ForbiddenMessage, problem.GetProperty("title").GetString());
+	}
+
+	[Fact]
+	public async Task OverlongDescriptionIsRejected()
+	{
+		await using var factory = new AuthApiFactory();
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		var editorSession = await SignInAsync(factory, Editor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
+		var assetId = await CreateScoreAssetAsync(client, editorSession, versionId);
+
+		using var createResponse = await PostJsonAsync(client,
+			$"/api/musical-versions/{versionId}/assets",
+			new { assetType = "score", description = new string('x', 501) }, editorSession);
+		Assert.Equal(HttpStatusCode.BadRequest, createResponse.StatusCode);
+		var createProblem = await createResponse.Content.ReadFromJsonAsync<JsonElement>();
+		Assert.Equal("Die Beschreibung ist zu lang.", createProblem.GetProperty("title").GetString());
+
+		using var patchResponse = await PatchJsonAsync(client,
+			$"/api/assets/{assetId}", new { description = new string('x', 501) }, editorSession);
+		Assert.Equal(HttpStatusCode.BadRequest, patchResponse.StatusCode);
+		var patchProblem = await patchResponse.Content.ReadFromJsonAsync<JsonElement>();
+		Assert.Equal("Die Beschreibung ist zu lang.", patchProblem.GetProperty("title").GetString());
+	}
+
+	[Fact]
 	public async Task AssetForUnknownVersionIsRejected()
 	{
 		await using var factory = new AuthApiFactory();
@@ -729,6 +922,22 @@ public sealed class AssetApiTests
 	{
 		var (cookie, token) = await GetCsrfAsync(client, session);
 		return await client.SendAsync(AuthedPost(path, body, $"{cookie}; {session}", token));
+	}
+
+	private static async Task<HttpResponseMessage> PatchJsonAsync(
+		HttpClient client, string path, object body, string session)
+	{
+		var (cookie, token) = await GetCsrfAsync(client, session);
+		return await client.SendAsync(AuthedPatch(path, body, $"{cookie}; {session}", token));
+	}
+
+	private static HttpRequestMessage AuthedPatch(string path, object body, string cookie, string token)
+	{
+		var request = new HttpRequestMessage(HttpMethod.Patch, path);
+		request.Headers.Add("Cookie", cookie);
+		request.Headers.Add("X-CSRF-TOKEN", token);
+		request.Content = JsonContent.Create(body);
+		return request;
 	}
 
 	private static async Task<Guid> CreateSongAsync(

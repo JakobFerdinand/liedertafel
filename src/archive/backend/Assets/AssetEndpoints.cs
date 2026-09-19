@@ -35,6 +35,14 @@ public static class AssetEndpoints
 
 	public const string UploadOwnerMessage = "Nur die anlegendende Person kann den Upload abschließen.";
 
+	public const string AssetOwnerMessage = "Nur die anlegendende Person kann das Material bearbeiten.";
+
+	public const string AssetTypeLockedMessage = "Der Materialtyp kann nach dem ersten Hochladen nicht geändert werden.";
+
+	public const string VoiceLabelTooLongMessage = "Das Stimmenlabel ist zu lang.";
+
+	public const string DescriptionTooLongMessage = "Die Beschreibung ist zu lang.";
+
 	public const string UploadAbandonedMessage = "Upload wurde abgebrochen.";
 
 	public const string UploadExpiredMessage = "Der Uploadzeitraum ist abgelaufen.";
@@ -105,9 +113,12 @@ public static class AssetEndpoints
 		var assetType = (body?.AssetType ?? ScoreAssetType).Trim().ToLowerInvariant();
 		if (!IsKnownAssetType(assetType))
 			return Results.Problem(statusCode: 422, title: UnknownAssetTypeMessage);
-			var voiceLabel = CleanOptional(body?.VoiceLabel, "Das Stimmenlabel ist zu lang.", out var voiceError);
+			var voiceLabel = CleanOptional(body?.VoiceLabel, VoiceLabelTooLongMessage, out var voiceError);
 			if (voiceError is not null)
 				return voiceError;
+			var description = CleanOptional(body?.Description, DescriptionTooLongMessage, out var descriptionError);
+			if (descriptionError is not null)
+				return descriptionError;
 			var version = await db.MusicalVersions.FirstOrDefaultAsync(v => v.Id == id, token);
 			if (version is null)
 				return Results.Problem(statusCode: 404, title: MusicalVersionNotFoundMessage);
@@ -116,6 +127,7 @@ public static class AssetEndpoints
 				MusicalVersionId = version.Id,
 				AssetType = assetType,
 				VoiceLabel = voiceLabel,
+				Description = description,
 				CreatedAt = time.GetUtcNow(),
 				CreatedByAccountId = decision!.AccountId,
 			};
@@ -127,8 +139,73 @@ public static class AssetEndpoints
 				musicalVersionId = asset.MusicalVersionId,
 				assetType = asset.AssetType,
 				voiceLabel = asset.VoiceLabel,
+				description = asset.Description,
 				createdAt = asset.CreatedAt,
 				currentRevision = (object?)null,
+			});
+		}).DisableAntiforgery();
+
+		app.MapPatch("/api/assets/{id}", async (
+			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
+			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time, Guid id, CancellationToken token,
+			PatchAssetRequest? body) =>
+		{
+			try { await antiforgery.ValidateRequestAsync(context); }
+			catch (AntiforgeryValidationException)
+			{
+				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
+			}
+			context.Response.Headers.CacheControl = "no-store";
+			var (decision, error) = await RequireEditorAsync(context, accessor, access);
+			if (error is not null)
+				return error;
+			var asset = await db.Assets
+				.Include(a => a.CurrentRevision)
+				.FirstOrDefaultAsync(a => a.Id == id, token);
+			if (asset is null)
+				return Results.Problem(statusCode: 404, title: AssetNotFoundMessage);
+			if (asset.CreatedByAccountId != decision!.AccountId)
+				return Results.Problem(statusCode: 403, title: AssetOwnerMessage);
+			string? assetType = null;
+			if (body?.AssetType is not null)
+			{
+				assetType = body.AssetType.Trim().ToLowerInvariant();
+				if (!IsKnownAssetType(assetType))
+					return Results.Problem(statusCode: 422, title: UnknownAssetTypeMessage);
+				if (asset.CurrentRevisionId is not null && assetType != asset.AssetType)
+					return Results.Problem(statusCode: 409, title: AssetTypeLockedMessage);
+			}
+			var voiceLabel = PatchOptional(body?.VoiceLabel, VoiceLabelTooLongMessage, out var voiceError);
+			if (voiceError is not null)
+				return voiceError;
+			var description = PatchOptional(body?.Description, DescriptionTooLongMessage, out var descriptionError);
+			if (descriptionError is not null)
+				return descriptionError;
+			if (assetType is not null)
+				asset.AssetType = assetType;
+			if (body?.VoiceLabel is not null)
+				asset.VoiceLabel = voiceLabel;
+			if (body?.Description is not null)
+				asset.Description = description;
+			try
+			{
+				await db.SaveChangesAsync(token);
+			}
+			catch (DbUpdateConcurrencyException)
+			{
+				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
+			}
+			return Results.Ok(new
+			{
+				id = asset.Id,
+				musicalVersionId = asset.MusicalVersionId,
+				assetType = asset.AssetType,
+				voiceLabel = asset.VoiceLabel,
+				description = asset.Description,
+				createdAt = asset.CreatedAt,
+				currentRevision = asset.CurrentRevision is null
+					? null
+					: (object)RevisionPayload(asset.CurrentRevision),
 			});
 		}).DisableAntiforgery();
 
@@ -376,6 +453,10 @@ public static class AssetEndpoints
 		return string.IsNullOrEmpty(trimmed) ? null : trimmed;
 	}
 
+	/// <summary>Mirrors <see cref="CleanOptional"/> for PATCH semantics: absent means unchanged, empty clears.</summary>
+	private static string? PatchOptional(string? raw, string tooLongTitle, out IResult? error)
+		=> CleanOptional(raw, tooLongTitle, out error);
+
 	private static bool IsEditor(ArchiveAccessDecision decision)
 		=> decision.IsAdministrator || decision.Roles.Contains(ArchiveRoles.Editor);
 
@@ -404,4 +485,6 @@ public static class AssetEndpoints
 	}
 }
 
-public sealed record CreateAssetRequest(string? AssetType, string? VoiceLabel);
+public sealed record CreateAssetRequest(string? AssetType, string? VoiceLabel, string? Description);
+
+public sealed record PatchAssetRequest(string? AssetType, string? VoiceLabel, string? Description);

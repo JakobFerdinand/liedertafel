@@ -476,6 +476,7 @@ public static class CatalogueEndpoints
 					id = a.Id,
 					assetType = a.AssetType,
 					voiceLabel = a.VoiceLabel,
+					description = a.Description,
 					currentRevision = a.CurrentRevision is null
 						? null
 						: (object)new
