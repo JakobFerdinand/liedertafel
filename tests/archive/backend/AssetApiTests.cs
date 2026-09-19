@@ -207,7 +207,7 @@ public sealed class AssetApiTests
 		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
 
 		using var response = await PostJsonAsync(client,
-			$"/api/musical-versions/{versionId}/assets", new { assetType = "audio" }, editorSession);
+			$"/api/musical-versions/{versionId}/assets", new { assetType = "video" }, editorSession);
 		Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
 		var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
 		Assert.Equal(AssetEndpoints.UnknownAssetTypeMessage, problem.GetProperty("title").GetString());
@@ -215,6 +215,141 @@ public sealed class AssetApiTests
 		using var scope = factory.Services.CreateScope();
 		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
 		Assert.Equal(0, await db.Assets.CountAsync());
+
+		using var videoResponse = await PostJsonAsync(client,
+			$"/api/musical-versions/{versionId}/assets", new { assetType = "  VIDEO  " }, editorSession);
+		Assert.Equal(HttpStatusCode.UnprocessableEntity, videoResponse.StatusCode);
+		var videoProblem = await videoResponse.Content.ReadFromJsonAsync<JsonElement>();
+		Assert.Equal(AssetEndpoints.UnknownAssetTypeMessage, videoProblem.GetProperty("title").GetString());
+		Assert.Equal(0, await db.Assets.CountAsync());
+	}
+
+	[Fact]
+	public async Task AudioAssetUploadSessionFinalizesWithWhitelistedContentType()
+	{
+		await using var factory = new AuthApiFactory();
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		var editorSession = await SignInAsync(factory, Editor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
+
+		using var createResponse = await PostJsonAsync(client,
+			$"/api/musical-versions/{versionId}/assets", new { assetType = " Audio " }, editorSession);
+		Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+		var assetBody = await createResponse.Content.ReadFromJsonAsync<JsonElement>();
+		Assert.Equal("audio", assetBody.GetProperty("assetType").GetString());
+		var assetId = Guid.Parse(assetBody.GetProperty("id").GetString()!);
+
+		var (sessionId, uploadUrl, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			var session = await db.UploadSessions.SingleAsync();
+			Assert.Equal(AssetEndpoints.Mp3ContentType, session.ContentType);
+		}
+		factory.Storage.Store(factory.Storage.Find(uploadUrl)!.BlobName,
+			new byte[512], AssetEndpoints.Mp3ContentType);
+
+		using var finalize = await FinalizeAsync(client, editorSession, sessionId);
+		Assert.Equal(HttpStatusCode.OK, finalize.StatusCode);
+		var revision = await finalize.Content.ReadFromJsonAsync<JsonElement>();
+		Assert.Equal(AssetEndpoints.Mp3ContentType, revision.GetProperty("contentType").GetString());
+		Assert.Equal(512, revision.GetProperty("sizeBytes").GetInt64());
+
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			var revisionRow = await db.FileRevisions.SingleAsync();
+			Assert.Equal(AssetEndpoints.Mp3ContentType, revisionRow.ContentType);
+			var asset = await db.Assets.SingleAsync();
+			Assert.Equal(revisionRow.Id, asset.CurrentRevisionId);
+			var session = await db.UploadSessions.SingleAsync();
+			Assert.Equal(PendingUploadState.Finalized, session.State);
+		}
+		Assert.False(factory.Storage.Has(factory.Storage.Find(uploadUrl)!.BlobName));
+	}
+
+	[Fact]
+	public async Task MidiAssetFinalizeAcceptsMidiContentTypes()
+	{
+		await using var factory = new AuthApiFactory();
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		var editorSession = await SignInAsync(factory, Editor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
+		var assetId = await CreateAssetAsync(client, editorSession, versionId, "midi");
+		var (sessionId, uploadUrl, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			Assert.Equal(AssetEndpoints.MidiContentType, (await db.UploadSessions.SingleAsync()).ContentType);
+		}
+		factory.Storage.Store(factory.Storage.Find(uploadUrl)!.BlobName,
+			new byte[256], AssetEndpoints.XMidiContentType);
+
+		using var finalize = await FinalizeAsync(client, editorSession, sessionId);
+		Assert.Equal(HttpStatusCode.OK, finalize.StatusCode);
+		var revision = await finalize.Content.ReadFromJsonAsync<JsonElement>();
+		Assert.Equal(AssetEndpoints.XMidiContentType, revision.GetProperty("contentType").GetString());
+
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			Assert.Equal(AssetEndpoints.XMidiContentType, (await db.FileRevisions.SingleAsync()).ContentType);
+		}
+	}
+
+	[Fact]
+	public async Task AudioFinalizeRejectsContentOutsideWhitelist()
+	{
+		await using var factory = new AuthApiFactory();
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		var editorSession = await SignInAsync(factory, Editor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
+		var assetId = await CreateAssetAsync(client, editorSession, versionId, "audio");
+		var (sessionId, uploadUrl, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
+		factory.Storage.Store(factory.Storage.Find(uploadUrl)!.BlobName,
+			ValidPdf(512), AssetEndpoints.PdfContentType);
+
+		using var response = await FinalizeAsync(client, editorSession, sessionId);
+		Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+		var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
+		Assert.Equal(AssetEndpoints.InvalidAudioMessage, problem.GetProperty("title").GetString());
+
+		using var scope = factory.Services.CreateScope();
+		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+		Assert.Equal(PendingUploadState.Abandoned, (await db.UploadSessions.SingleAsync()).State);
+		Assert.Equal(0, await db.FileRevisions.CountAsync());
+		Assert.Null((await db.Assets.SingleAsync()).CurrentRevisionId);
+		Assert.Equal(0, factory.Storage.ObjectCount);
+	}
+
+	[Fact]
+	public async Task ScoreFinalizeStillRequiresPdfMagicBytes()
+	{
+		await using var factory = new AuthApiFactory();
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		var editorSession = await SignInAsync(factory, Editor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
+		var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
+		var (sessionId, uploadUrl, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
+		// Correct content type, wrong magic bytes.
+		factory.Storage.Store(factory.Storage.Find(uploadUrl)!.BlobName,
+			"MIDI-Datei, kein PDF."u8.ToArray(), AssetEndpoints.PdfContentType);
+
+		using var response = await FinalizeAsync(client, editorSession, sessionId);
+		Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+		var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
+		Assert.Equal(AssetEndpoints.InvalidPdfMessage, problem.GetProperty("title").GetString());
+
+		using var scope = factory.Services.CreateScope();
+		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+		Assert.Equal(PendingUploadState.Abandoned, (await db.UploadSessions.SingleAsync()).State);
+		Assert.Equal(0, await db.FileRevisions.CountAsync());
+		Assert.Null((await db.Assets.SingleAsync()).CurrentRevisionId);
+		Assert.Equal(0, factory.Storage.ObjectCount);
 	}
 
 	[Fact]
@@ -538,11 +673,16 @@ public sealed class AssetApiTests
 		return (songId, versionId);
 	}
 
+	/// <summary>Creates a score asset (the ARC-015 default type).</summary>
 	private static async Task<Guid> CreateScoreAssetAsync(
 		HttpClient client, string editorSession, Guid versionId)
+		=> await CreateAssetAsync(client, editorSession, versionId, "score");
+
+	private static async Task<Guid> CreateAssetAsync(
+		HttpClient client, string editorSession, Guid versionId, string assetType)
 	{
 		using var response = await PostJsonAsync(client,
-			$"/api/musical-versions/{versionId}/assets", new { assetType = "score" }, editorSession);
+			$"/api/musical-versions/{versionId}/assets", new { assetType }, editorSession);
 		Assert.Equal(HttpStatusCode.Created, response.StatusCode);
 		var body = await response.Content.ReadFromJsonAsync<JsonElement>();
 		return Guid.Parse(body.GetProperty("id").GetString()!);
@@ -677,7 +817,7 @@ internal sealed class FakeAssetStorage : IAssetStorageAdapter
 {
 	public sealed record IssuedTicket(string Url, string BlobName, TimeSpan Lifetime, bool Download);
 
-	private readonly ConcurrentDictionary<string, byte[]> objects = new(StringComparer.Ordinal);
+	private readonly ConcurrentDictionary<string, (byte[] Bytes, string? ContentType)> objects = new(StringComparer.Ordinal);
 	private readonly List<IssuedTicket> tickets = [];
 	private readonly object gate = new();
 	private int sequence;
@@ -695,7 +835,15 @@ internal sealed class FakeAssetStorage : IAssetStorageAdapter
 	public IssuedTicket? Find(string url) =>
 		Tickets.FirstOrDefault(t => string.Equals(t.Url, url, StringComparison.Ordinal));
 
-	public void Store(string blobName, byte[] content) => objects[blobName] = content;
+	/// <summary>
+	/// Stores an object without a content type; ProbeAsync then reports null,
+	/// which skips the endpoint's content-type check (pre-existing behavior).
+	/// </summary>
+	public void Store(string blobName, byte[] content) => objects[blobName] = (content, ContentType: null);
+
+	/// <summary>Stores an object remembering the transfer content type.</summary>
+	public void Store(string blobName, byte[] content, string contentType) =>
+		objects[blobName] = (content, contentType);
 
 	public bool Has(string blobName) => objects.ContainsKey(blobName);
 
@@ -714,22 +862,22 @@ internal sealed class FakeAssetStorage : IAssetStorageAdapter
 	}
 
 	public Task<AssetObjectInfo?> ProbeAsync(string blobName, CancellationToken cancellationToken) =>
-		Task.FromResult(objects.TryGetValue(blobName, out var bytes)
-			? new AssetObjectInfo(bytes.LongLength, ContentType: null)
+		Task.FromResult(objects.TryGetValue(blobName, out var stored)
+			? new AssetObjectInfo(stored.Bytes.LongLength, stored.ContentType)
 			: null);
 
 	public Task<byte[]?> ReadHeaderAsync(string blobName, int length, CancellationToken cancellationToken) =>
-		Task.FromResult<byte[]?>(objects.TryGetValue(blobName, out var bytes)
-			? bytes[..Math.Min(length, bytes.Length)]
+		Task.FromResult<byte[]?>(objects.TryGetValue(blobName, out var stored)
+			? stored.Bytes[..Math.Min(length, stored.Bytes.Length)]
 			: null);
 
 	public Task PromoteAsync(string sourceBlobName, string targetBlobName, CancellationToken cancellationToken)
 	{
-		if (!objects.TryGetValue(sourceBlobName, out var bytes))
+		if (!objects.TryGetValue(sourceBlobName, out var stored))
 			throw new InvalidOperationException("Speicherdienst nicht erreichbar.");
 		// Mirror the Azure copy semantics: the staged object survives until
 		// the endpoint deletes it after a successful promotion.
-		objects[targetBlobName] = bytes;
+		objects[targetBlobName] = stored;
 		return Task.CompletedTask;
 	}
 

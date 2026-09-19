@@ -45,6 +45,10 @@ public static class AssetEndpoints
 
 	public const string InvalidPdfMessage = "Die Datei ist kein gültiges PDF.";
 
+	public const string InvalidAudioMessage = "Die Datei ist keine gültige Audiodatei.";
+
+	public const string InvalidMidiMessage = "Die Datei ist keine gültige MIDI-Datei.";
+
 	public const string StorageFailureMessage = "Speicherdienst nicht erreichbar.";
 
 	public const string NoCurrentRevisionMessage = "Für diese Fassung liegen noch keine aktuellen Noten vor.";
@@ -53,7 +57,34 @@ public static class AssetEndpoints
 
 	public const string ScoreAssetType = "score";
 
+	public const string AudioAssetType = "audio";
+
+	public const string MidiAssetType = "midi";
+
 	public const string PdfContentType = "application/pdf";
+
+	public const string Mp3ContentType = "audio/mpeg";
+
+	public const string MidiContentType = "audio/midi";
+
+	public const string XMidiContentType = "audio/x-midi";
+
+	/// <summary>ARC-016 content-type whitelist per asset type.</summary>
+	private static readonly IReadOnlyDictionary<string, string[]> AssetTypeContentTypes =
+		new Dictionary<string, string[]>(StringComparer.Ordinal)
+		{
+			[ScoreAssetType] = [PdfContentType],
+			[AudioAssetType] = [Mp3ContentType, "audio/mp4", "audio/x-m4a", "audio/wav", "audio/ogg"],
+			[MidiAssetType] = [MidiContentType, XMidiContentType],
+		};
+
+	private static bool IsKnownAssetType(string assetType) =>
+		AssetTypeContentTypes.ContainsKey(assetType);
+
+	private static string[] ContentTypeWhitelist(string assetType) =>
+		AssetTypeContentTypes.TryGetValue(assetType, out var contentTypes)
+			? contentTypes
+			: [PdfContentType];
 
 	public static void MapAssetEndpoints(this IEndpointRouteBuilder app)
 	{
@@ -71,10 +102,9 @@ public static class AssetEndpoints
 			var (decision, error) = await RequireEditorAsync(context, accessor, access);
 			if (error is not null)
 				return error;
-			var assetType = (body?.AssetType ?? ScoreAssetType).Trim();
-			if (!string.Equals(assetType.ToLowerInvariant(), ScoreAssetType, StringComparison.Ordinal))
-				return Results.Problem(statusCode: 422, title: UnknownAssetTypeMessage);
-			assetType = ScoreAssetType;
+		var assetType = (body?.AssetType ?? ScoreAssetType).Trim().ToLowerInvariant();
+		if (!IsKnownAssetType(assetType))
+			return Results.Problem(statusCode: 422, title: UnknownAssetTypeMessage);
 			var voiceLabel = CleanOptional(body?.VoiceLabel, "Das Stimmenlabel ist zu lang.", out var voiceError);
 			if (voiceError is not null)
 				return voiceError;
@@ -124,7 +154,7 @@ public static class AssetEndpoints
 			{
 				AssetId = asset.Id,
 				BlobName = $"pending/{Guid.CreateVersion7()}",
-				ContentType = PdfContentType,
+				ContentType = ContentTypeWhitelist(asset.AssetType)[0],
 				MaxSizeBytes = options.Value.MaxUploadBytes,
 				UploadTicketExpiresAt = now + options.Value.UploadSessionLifetime,
 				State = PendingUploadState.Pending,
@@ -202,13 +232,29 @@ public static class AssetEndpoints
 				await db.SaveChangesAsync(token);
 				return Results.Problem(statusCode: 413, title: UploadTooLargeMessage);
 			}
-			if ((probe.ContentType is { Length: > 0 } && !string.Equals(probe.ContentType, PdfContentType, StringComparison.OrdinalIgnoreCase))
-				|| header is null || !header.AsSpan().StartsWith("%PDF-"u8))
+			var whitelistedContentTypes = ContentTypeWhitelist(session.Asset.AssetType);
+			var invalidTypeMessage = session.Asset.AssetType switch
+			{
+				AudioAssetType => InvalidAudioMessage,
+				MidiAssetType => InvalidMidiMessage,
+				_ => InvalidPdfMessage,
+			};
+			// Score keeps the ARC-015 behavior: a missing stored content type
+			// skips the check (the magic bytes gate); audio/MIDI must present
+			// a whitelisted content type and skip magic-byte validation.
+			var contentTypeValid = session.Asset.AssetType == ScoreAssetType
+				? probe.ContentType is not { Length: > 0 }
+					|| string.Equals(probe.ContentType, PdfContentType, StringComparison.OrdinalIgnoreCase)
+				: probe.ContentType is { Length: > 0 } storedType
+					&& whitelistedContentTypes.Contains(storedType, StringComparer.OrdinalIgnoreCase);
+			var magicBytesValid = session.Asset.AssetType != ScoreAssetType
+				|| (header is not null && header.AsSpan().StartsWith("%PDF-"u8));
+			if (!contentTypeValid || !magicBytesValid)
 			{
 				await DeletePendingBestEffortAsync(storage, session.BlobName, token);
 				session.State = PendingUploadState.Abandoned;
 				await db.SaveChangesAsync(token);
-				return Results.Problem(statusCode: 422, title: InvalidPdfMessage);
+				return Results.Problem(statusCode: 422, title: invalidTypeMessage);
 			}
 			var asset = session.Asset;
 			var revision = new FileRevision
@@ -216,7 +262,9 @@ public static class AssetEndpoints
 				AssetId = asset.Id,
 				RevisionNumber = asset.Revisions.Count == 0 ? 1 : asset.Revisions.Max(r => r.RevisionNumber) + 1,
 				BlobName = $"revisions/{asset.Id}/{Guid.CreateVersion7()}",
-				ContentType = PdfContentType,
+				ContentType = probe.ContentType is { Length: > 0 } revisionType
+					? revisionType
+					: session.ContentType,
 				SizeBytes = probe.SizeBytes,
 				CreatedByAccountId = decision.AccountId,
 				CreatedAt = time.GetUtcNow(),
