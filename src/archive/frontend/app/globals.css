@@ -431,6 +431,49 @@ dd {
   border-top: 1px dashed var(--wash);
   padding-block: 0.4rem;
 }
+.noten-bereich {
+  margin-block: 1.2rem 0;
+  border-top: 1px solid var(--wash);
+  padding-block-start: 1rem;
+}
+.noten-bereich h3 {
+  margin-block: 0 0.4rem;
+}
+.noten-info {
+  font-size: 0.95rem;
+  margin-block: 0.2rem 0;
+}
+.noten-aktionen {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-block: 0.6rem;
+}
+.noten-laden {
+  display: inline-block;
+  color: var(--brand);
+  border: 2px solid var(--brand);
+  border-radius: 0.3rem;
+  padding: 0.45rem 0.85rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+.noten-laden:hover {
+  background: var(--brand);
+  color: var(--paper);
+}
+.noten-ansicht {
+  display: block;
+  width: 100%;
+  min-height: 70vh;
+  box-sizing: border-box;
+  border: 2px solid var(--wash);
+  border-radius: 0.4rem;
+  margin-block: 0.6rem;
+  background: var(--paper);
+}
 .auth-zeile {
   display: inline-flex;
   align-items: center;

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { FassungsFormular } from "@/components/fassungs-formular";
 import { FassungsWahl } from "@/components/fassungs-wahl";
 import { LiedFormular } from "@/components/lied-formular";
+import { NotenBereich } from "@/components/noten-bereich";
 import { fetchMe, type MeResponse, postAuth } from "@/lib/auth";
 import { fetchSong, type LiedDetails } from "@/lib/songs";
 
@@ -30,6 +31,32 @@ function bestimmeFassung(
   return {
     arrangementId: arrangement.id,
     versionId: fassung ? fassung.id : "",
+  };
+}
+
+// Noten-Assets hängen an jeder Fassung; Schreibaktionen liefern derzeit
+// Fassungen ohne Assets zurück, deshalb bleiben die letzten bekannten
+// Noten beim Ersetzen des Liedes erhalten (ARC-015).
+function notenErhalten(vorher: LiedDetails | null, naechstes: LiedDetails) {
+  if (!vorher) return naechstes;
+  return {
+    ...naechstes,
+    arrangements: naechstes.arrangements.map((arrangement) => {
+      const alt = vorher.arrangements.find(
+        (eintrag) => eintrag.id === arrangement.id,
+      );
+      return {
+        ...arrangement,
+        musicalVersions: arrangement.musicalVersions.map((fassung) => {
+          const fassungAlt = alt?.musicalVersions.find(
+            (eintrag) => eintrag.id === fassung.id,
+          );
+          return (fassung.assets?.length ?? 0) === 0 && fassungAlt
+            ? { ...fassung, assets: fassungAlt.assets ?? [] }
+            : fassung;
+        }),
+      };
+    }),
   };
 }
 
@@ -83,6 +110,16 @@ export function LiedDetail() {
     },
     [id],
   );
+
+  const notenAktualisieren = useCallback(async () => {
+    if (!id) return;
+    try {
+      const details = await fetchSong(id);
+      setLied((vorher) => notenErhalten(vorher, details));
+    } catch {
+      // Eine fehlgeschlagene Aktualisierung darf die Ansicht nicht abbrechen.
+    }
+  }, [id]);
 
   useEffect(() => {
     const abort = new AbortController();
@@ -184,8 +221,12 @@ export function LiedDetail() {
 
   const auswahl = bestimmeFassung(lied, fassungParameter, versionParameter);
 
+  const ausgewaehlteFassung = lied.arrangements
+    .find((eintrag) => eintrag.id === auswahl?.arrangementId)
+    ?.musicalVersions.find((eintrag) => eintrag.id === auswahl?.versionId);
+
   function gesichertSpeichern(gespeichert: LiedDetails, meldung: string) {
-    setLied(gespeichert);
+    setLied((vorher) => notenErhalten(vorher, gespeichert));
     setErfolg(meldung);
     setHinweis("");
   }
@@ -220,6 +261,14 @@ export function LiedDetail() {
               onSelect={fassungWaehlen}
             />
           )
+        )}
+        {auswahl && ausgewaehlteFassung && (
+          <NotenBereich
+            fassungId={ausgewaehlteFassung.id}
+            assets={ausgewaehlteFassung.assets ?? []}
+            isEditor={editor === true}
+            aktualisieren={() => void notenAktualisieren()}
+          />
         )}
       </article>
 

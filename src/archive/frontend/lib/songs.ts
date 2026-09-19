@@ -7,11 +7,27 @@ export type Lied = {
   publishedAt: string | null;
 };
 
+export type LiedRevision = {
+  revisionId: string;
+  revisionNumber: number;
+  contentType: string;
+  sizeBytes: number;
+  createdAt: string;
+};
+
+export type LiedAsset = {
+  id: string;
+  assetType: string;
+  voiceLabel: string | null;
+  currentRevision: LiedRevision | null;
+};
+
 export type LiedMusicalVersion = {
   id: string;
   label: string;
   creator: string | null;
   musicalKey: string | null;
+  assets: LiedAsset[];
 };
 
 export type LiedArrangement = {
