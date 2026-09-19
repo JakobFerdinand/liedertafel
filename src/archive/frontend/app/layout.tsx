@@ -32,6 +32,7 @@ export default function RootLayout({
           <nav aria-label="Hauptnavigation">
             <Link href="/">Archiv</Link>
             <Link href="/archiv/">Mitgliederbereich</Link>
+            <Link href="/lieder/">Liederkatalog</Link>
             <Link href="/verwaltung/">Verwaltung</Link>
             <Link href="/system/status/">Systemstatus</Link>
             <AuthStatus />
