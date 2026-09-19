@@ -1,9 +1,10 @@
-name: Release Archive
+name: Archive
 
-# ARC-009: the only path that changes the running image. It builds/checks a
-# versioned image, pushes it to private GHCR and deploys it by immutable
-# digest. Infrastructure runs (infra-deploy-archive.yml) can never revert
-# the selection.
+# ARC-009: the only path that changes the running image. The check job runs
+# the full regression suite and builds the production image exactly once; the
+# release job reuses that exact image from the run artifact (never rebuilds),
+# pushes it to private GHCR and deploys it by immutable digest. Infrastructure
+# runs (infra-deploy-archive.yml) can never revert the selection.
 #
 # ARC-012: releases carrying a database change run inside a maintenance
 # window. The sequence is: enter maintenance (members see the German
@@ -22,17 +23,24 @@ name: Release Archive
 # the previous image: rollback is fix-forward only, and such changes must be
 # split across releases (additive first, cleanup later).
 #
-# Serialization: concurrency group `archive-prod` queues competing runs, so
-# two releases can never migrate or deploy at once. EF migrations are
-# idempotent (applied versions are recorded in the migration history), so a
-# queued run re-entering an already-migrated schema is a safe no-op, and a
+# Serialization: the release job's concurrency group `archive-prod` queues
+# competing runs, so two releases can never migrate or deploy at once. Checks
+# (including PRs) are not part of that group and always run. EF migrations
+# are idempotent (applied versions are recorded in the migration history), so
+# a queued run re-entering an already-migrated schema is a safe no-op, and a
 # replay never reruns an applied migration.
 #
-# Triggers: automatically on merge to main when image-affecting files change,
-# or manually via workflow_dispatch with an explicit version. Every run —
-# automatic or manual — waits for approval in the `archive-prod`
-# environment before building or deploying anything, so no merge reaches
-# production without a maintainer review.
+# Triggers: the check job runs on every archive-affecting PR, push to main
+# and manual dispatch. The release job follows only after a successful check
+# and only when it matters:
+# - push to main: automatically, when image-affecting files changed
+#   (`src/archive/**` or `global.json`); test- or docs-only pushes skip it.
+# - workflow_dispatch: always (the manual release path).
+# Every release — automatic or manual — waits for approval in the
+# `archive-prod` environment before anything is pushed or deployed, so no
+# merge reaches production without a maintainer review. Building the image
+# earlier in the check job is deliberate: the approved release deploys the
+# byte-identical image that passed the full suite, not a later rebuild.
 #
 # Required repo configuration (maintainer, one-off):
 # - Environment `archive-prod` with required reviewers.
@@ -59,7 +67,15 @@ on:
       - main
     paths:
       - 'src/archive/**'
+      - 'tests/archive/**'
       - 'global.json'
+      - '.github/workflows/archive.yml'
+  pull_request:
+    paths:
+      - 'src/archive/**'
+      - 'tests/archive/**'
+      - 'global.json'
+      - '.github/workflows/archive.yml'
   workflow_dispatch:
     inputs:
       version:
@@ -72,26 +88,27 @@ on:
         default: true
         type: boolean
 
-permissions:
-  contents: read
-  packages: write
-  id-token: write
-
-concurrency:
-  group: archive-prod
-
 env:
   RESOURCE_GROUP: RG-Liedertafel-Archive
   APP_NAME: ca-liedertafel-archive
   VAULT_NAME: kv-liedertafel-archive
 
 jobs:
-  release:
-    name: Build, push and deploy by digest
+  check:
+    name: Check and build image
     runs-on: ubuntu-latest
-    environment: archive-prod
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      release: ${{ steps.release-gate.outputs.release }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Full history so the release gate can diff the pushed range
+          # against github.event.before below.
+          fetch-depth: 0
 
       - name: Resolve release version
         id: version
@@ -99,13 +116,124 @@ jobs:
           # Manual runs carry an explicit version input; automatic merge runs
           # have no inputs, so label them 0.0.<run_number> (numeric, unique,
           # monotonic). The label is informational only — the immutable image
-          # digest selected below is the real release identity.
+          # digest selected below is the real release identity. It is baked
+          # into the image here so the release job verifies the same build.
           VERSION="${{ inputs.version }}"
           if [ -z "$VERSION" ]; then
             VERSION="0.0.${{ github.run_number }}"
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Release version: $VERSION" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Decide whether this run releases
+        id: release-gate
+        run: |
+          RELEASE=false
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            RELEASE=true
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            BEFORE="${{ github.event.before }}"
+            if [ "$BEFORE" = "0000000000000000000000000000000000000000" ] || \
+              ! git rev-parse -q --verify "$BEFORE^{commit}" >/dev/null; then
+              # New/force-pushed history: release to stay safe.
+              RELEASE=true
+            elif git diff --name-only "$BEFORE" "$GITHUB_SHA" | grep -qE '^(src/archive/|global\.json$)'; then
+              RELEASE=true
+            fi
+          fi
+          echo "release=$RELEASE" >> "$GITHUB_OUTPUT"
+          echo "Release after check: $RELEASE" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.3.0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: src/archive/frontend/pnpm-lock.yaml
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: src/archive/frontend
+      - name: Check and export frontend
+        run: pnpm run check && pnpm run build
+        working-directory: src/archive/frontend
+      - name: Backend and OTLP regression checks
+        run: dotnet test tests/archive/backend
+      - name: Clean Aspire stack integration
+        run: dotnet test tests/archive/apphost
+      - name: Install browser
+        run: pnpm exec playwright install --with-deps chromium
+        working-directory: src/archive/frontend
+      - name: Build production image
+        run: docker build -f src/archive/Dockerfile \
+          --build-arg VERSION="${{ steps.version.outputs.version }}" \
+          --build-arg REVISION="$GITHUB_SHA" \
+          -t liedertafel-archive:candidate .
+      - name: Production browser smoke
+        working-directory: src/archive/frontend
+        env:
+          ARCHIVE_BASE_URL: http://localhost:18080
+        run: |
+          # ARC-010: Production refuses to boot on local SMTP capture, so the
+          # smoke container selects the Azure provider. The endpoint is never
+          # contacted here (/alive, /api/build and static assets stay
+          # dependency-free; the mail transport builds lazily on first send).
+          # ARC-011: Production additionally requires Blob/Key Vault key
+          # persistence. The smoke stays dependency-free with the ephemeral
+          # test escape; real hosted deployments supply both key URIs.
+          docker run --rm -d --name archive-smoke -p 127.0.0.1:18080:8080 \
+            -e Mail__Provider=Azure \
+            -e Mail__AzureEndpoint=https://acs-liedertafel-test.communication.azure.com \
+            -e Authentication__AllowEphemeralKeysForTests=true \
+            liedertafel-archive:candidate
+          trap 'docker stop archive-smoke' EXIT
+          for attempt in {1..30}; do
+            if curl --fail --silent "$ARCHIVE_BASE_URL/alive"; then break; fi
+            sleep 1
+          done
+          curl --fail "$ARCHIVE_BASE_URL/alive"
+          docker exec archive-smoke sh -c '! command -v node && test "$(id -u)" != 0'
+          pnpm run test:browser
+      - name: Export checked image for the release job
+        if: steps.release-gate.outputs.release == 'true'
+        run: docker save liedertafel-archive:candidate | gzip > "${{ runner.temp }}/archive-image.tar.gz"
+      - name: Upload checked image
+        if: steps.release-gate.outputs.release == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: archive-image-${{ github.run_id }}
+          path: ${{ runner.temp }}/archive-image.tar.gz
+          retention-days: 2
+          if-no-files-found: error
+
+  release:
+    name: Push checked image and deploy by digest
+    needs: check
+    if: needs.check.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    environment: archive-prod
+    # Serializes competing releases: two runs can never migrate or deploy
+    # at once. Queued runs see an already-migrated schema as an EF no-op.
+    concurrency:
+      group: archive-prod
+      cancel-in-progress: false
+    steps:
+      - name: Download checked image
+        uses: actions/download-artifact@v8
+        with:
+          name: archive-image-${{ github.run_id }}
+          path: ${{ runner.temp }}
+
+      - name: Load checked image
+        run: docker load --input "${{ runner.temp }}/archive-image.tar.gz"
 
       - uses: azure/login@v3
         with:
@@ -116,17 +244,14 @@ jobs:
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      - name: Build and push versioned image
+      - name: Push checked image by digest
         id: image
         run: |
           OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           IMAGE="ghcr.io/$OWNER_LC/liedertafel-archive"
           TAG="${{ github.sha }}"
-          echo "Building $IMAGE:$TAG (version ${{ steps.version.outputs.version }}, revision $GITHUB_SHA)"
-          docker build -f src/archive/Dockerfile \
-            --build-arg VERSION="${{ steps.version.outputs.version }}" \
-            --build-arg REVISION="$GITHUB_SHA" \
-            -t "$IMAGE:$TAG" .
+          echo "Pushing $IMAGE:$TAG (version ${{ needs.check.outputs.version }}, revision $GITHUB_SHA)"
+          docker tag liedertafel-archive:candidate "$IMAGE:$TAG"
           docker push "$IMAGE:$TAG"
           DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE:$TAG")
           if [ -z "$DIGEST" ]; then
@@ -219,14 +344,14 @@ jobs:
       - name: Wait for the new revision to serve traffic
         run: |
           FQDN="${{ steps.endpoint.outputs.fqdn }}"
-          echo "Waiting for version ${{ steps.version.outputs.version }} at https://$FQDN/api/build (cold start up to ~60 s is expected)"
+          echo "Waiting for version ${{ needs.check.outputs.version }} at https://$FQDN/api/build (cold start up to ~60 s is expected)"
           # Poll /api/build for the new version, not just /alive: the previous
           # revision keeps answering /alive with 200 during the traffic switch,
           # so an /alive-only wait lets the smoke check race the old revision.
           for attempt in $(seq 1 60); do
             if BUILD=$(curl --fail --silent --max-time 10 "https://$FQDN/api/build"); then
-              if echo "$BUILD" | grep -q "${{ steps.version.outputs.version }}"; then
-                echo "New revision serves ${{ steps.version.outputs.version }} after ~$((attempt * 10)) s"
+              if echo "$BUILD" | grep -q "${{ needs.check.outputs.version }}"; then
+                echo "New revision serves ${{ needs.check.outputs.version }} after ~$((attempt * 10)) s"
                 break
               fi
               echo "Attempt $attempt: still serving $(echo "$BUILD" | head -c 120)"
@@ -286,8 +411,8 @@ jobs:
           echo "- /alive: 200" >> "$GITHUB_STEP_SUMMARY"
           BUILD=$(curl --fail --silent "$BASE/api/build")
           echo "$BUILD" | jq -e '.development == false' >/dev/null
-          echo "$BUILD" | jq -e --arg v "${{ steps.version.outputs.version }}" '.version | contains($v)' >/dev/null
-          echo "- /api/build: development=false, version contains ${{ steps.version.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "$BUILD" | jq -e --arg v "${{ needs.check.outputs.version }}" '.version | contains($v)' >/dev/null
+          echo "- /api/build: development=false, version contains ${{ needs.check.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
           MAINT=$(curl --fail --silent "$BASE/api/maintenance")
           echo "$MAINT" | jq -e '.maintenance == false' >/dev/null
           echo "- /api/maintenance: window closed" >> "$GITHUB_STEP_SUMMARY"

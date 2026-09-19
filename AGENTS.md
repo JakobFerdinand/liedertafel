@@ -145,7 +145,9 @@ uses its generated Next.js/Biome conventions and local `AGENTS.md`.
   `RG-Liedertafel-Archive`: `subscription.bicep` creates the group,
   `main.bicep` owns topology (env/app 0–2 replicas, vault, workspace, runtime
   identity, optional managed cert). The running image is selected only via
-  `release-archive.yml` (explicit `workflow_dispatch` on `archive-prod`,
+  `archive.yml` (merged check + release: full check suite first, then a
+  `archive-prod`-gated release job that reuses the checked image; push to
+  `main` on image-affecting files or explicit `workflow_dispatch`,
   deploy by GHCR digest); `infra-deploy-archive.yml` passes the deployed image
   through so infra re-runs cannot revert a release. PR what-if uses a separate
   Contributor-only preview identity. Runbook:

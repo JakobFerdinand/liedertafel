@@ -249,8 +249,8 @@ never contacted by the smoke). For Podman builds, additionally pass
 `--ignorefile src/archive/Dockerfile.dockerignore`; Docker automatically uses the
 Dockerfile-specific ignore file. The final image runs as the .NET non-root user.
 
-`.github/workflows/check-archive.yml` runs these checks and the production smoke
-on archive changes. The full repository SDK compatibility check is
+`.github/workflows/archive.yml` runs these checks and the production smoke
+on archive changes (its release job then reuses the checked image to deploy). The full repository SDK compatibility check is
 `dotnet build liedertafel.slnx`; existing analytics checks remain
 `dotnet run --project tests/dashboard-api`.
 

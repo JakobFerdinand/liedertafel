@@ -3,7 +3,7 @@ name: Deploy Archive Infrastructure
 # ARC-009: topology only. This workflow never selects the running image: it
 # reads the currently deployed image and passes it through, so an
 # infrastructure re-run cannot revert a release. Releases happen exclusively
-# through release-archive.yml.
+# through archive.yml.
 
 on:
   push:
@@ -179,7 +179,7 @@ jobs:
             --query "properties.template.containers[0].image" -o tsv 2>/dev/null || true)
           if [ -z "$CURRENT_IMAGE" ] || [ "$CURRENT_IMAGE" = "null" ]; then
             CURRENT_IMAGE="${{ inputs.initialImage || 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest' }}"
-            echo "::notice::No deployed app found; deploying placeholder image. Run release-archive.yml immediately afterwards."
+            echo "::notice::No deployed app found; deploying placeholder image. Run archive.yml immediately afterwards."
           else
             echo "Preserving deployed image $CURRENT_IMAGE"
           fi

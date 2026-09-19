@@ -12,7 +12,7 @@ through an explicit release run, by immutable digest.
 
 `../../../.github/workflows/infra-deploy-archive.yml` owns topology (what-if
 preview, destructive-change guard, image pass-through).
-`../../../.github/workflows/release-archive.yml` owns the image
+`../../../.github/workflows/archive.yml` owns the image
 (build/check/push to private GHCR, deploy by digest, shell smoke checks).
 
 ## One-off bootstrap (maintainer, subscription Owner)
@@ -37,8 +37,8 @@ preview, destructive-change guard, image pass-through).
    (plain `az group create -n RG-Liedertafel-Archive -l austriaeast` works too).
    Grant the app group-scoped `Contributor` plus `User Access Administrator`
    (or group `Owner`). Then run `infra-deploy-archive.yml` once via
-   `workflow_dispatch` (placeholder image) — then immediately run
-   `release-archive.yml`.
+   `workflow_dispatch`    (placeholder image) — then immediately run
+   `archive.yml` (workflow_dispatch).
 3. Repo settings: environment `archive-prod` with required reviewers; secrets
    `AZURE_CLIENT_ID_ARCHIVE` / `AZURE_TENANT_ID_ARCHIVE` /
    `AZURE_SUBSCRIPTION_ID_ARCHIVE` plus `GHCR_PULL_PAT_ARCHIVE`.
@@ -56,8 +56,10 @@ preview, destructive-change guard, image pass-through).
 
 ## Routine operation
 
-- Release: run `release-archive.yml` (`workflow_dispatch`, input `version`),
-  approve in `archive-prod`, keep the digest from the run summary.
+- Release: merges to `main` touching `src/archive/**` or `global.json` run
+  `archive.yml` automatically; or run it via `workflow_dispatch` (input
+  `version`). The check runs first, then the release job — approve in
+  `archive-prod` and keep the digest from the run summary.
 - Infrastructure change: normal PR; what-if comment appears; merge deploys.
   The workflow preserves the deployed image — verify the digest in
   `/api/build` afterwards.
@@ -74,7 +76,7 @@ preview, destructive-change guard, image pass-through).
   (rotates the Container Apps registry secret; running revision unaffected
   until the next release, which pulls with the new credential).
 - Second maintainer path: approve the `archive-prod` run, pick the digest
-  from the previous run summary (or `gh run list --workflow release-archive.yml`),
+   from the previous run summary (or `gh run list --workflow archive.yml`),
   follow this file; no Azure portal rights beyond Reader are needed.
 
 ## Handoff outputs (for ARC-011/012)
@@ -248,7 +250,7 @@ persistence, revocation) run with the pilot mailbox after release.
 ## Controlled database releases (ARC-012)
 
 Releases carrying a schema change run inside a maintenance window owned by
-`release-archive.yml`. Code-only releases (`workflow_dispatch` with
+`archive.yml`. Code-only releases (`workflow_dispatch` with
 `run_migration=false`, for already-applied or schema-free changes) skip the
 window; push-triggered runs always migrate.
 
@@ -267,7 +269,7 @@ window; push-triggered runs always migrate.
    archive-migrations-connection --value "$MIGRATOR_CONNECTION" --output
    none`). Only the `archive_runtime` connection persists; this secret is
    discarded after the window.
-3. Run `release-archive.yml` (`workflow_dispatch`, inputs `version` plus
+3. Run `archive.yml` (`workflow_dispatch`, inputs `version` plus
    `run_migration=true`) and approve in `archive-prod`. The workflow then:
    enters maintenance (`Archive__MaintenanceMode=true`, members see the
    German banner/`/wartung/`, conflicting API work answers 503), runs the
