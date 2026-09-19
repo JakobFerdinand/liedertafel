@@ -1,4 +1,5 @@
 using Archive.Backend.Auth;
+using Archive.Backend.Catalogue;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
@@ -29,6 +30,12 @@ public sealed class ArchiveDbContext(DbContextOptions<ArchiveDbContext> options)
 	public DbSet<MemberAdminAction> MemberAdminActions => Set<MemberAdminAction>();
 
 	public DbSet<MemberEmailChange> MemberEmailChanges => Set<MemberEmailChange>();
+
+	public DbSet<Song> Songs => Set<Song>();
+
+	public DbSet<Arrangement> Arrangements => Set<Arrangement>();
+
+	public DbSet<MusicalVersion> MusicalVersions => Set<MusicalVersion>();
 
 	protected override void OnModelCreating(ModelBuilder modelBuilder)
 	{
