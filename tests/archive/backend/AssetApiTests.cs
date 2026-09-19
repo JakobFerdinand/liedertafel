@@ -326,6 +326,113 @@ public sealed class AssetApiTests
 	}
 
 	[Fact]
+	public async Task FinalizeFailureForOneAssetDoesNotAffectOtherAssets()
+	{
+		await using var factory = new AuthApiFactory();
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		var editorSession = await SignInAsync(factory, Editor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var (songId, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
+		var assetAId = await CreateAssetAsync(client, editorSession, versionId, "audio");
+		var assetBId = await CreateAssetAsync(client, editorSession, versionId, "audio");
+
+		// A uploads valid audio and finalizes successfully.
+		var (sessionAId, uploadUrlA, _) = await CreateUploadSessionAsync(client, editorSession, assetAId);
+		factory.Storage.Store(factory.Storage.Find(uploadUrlA)!.BlobName,
+			new byte[512], AssetEndpoints.Mp3ContentType);
+		Guid revisionAId;
+		using (var finalizeA = await FinalizeAsync(client, editorSession, sessionAId))
+		{
+			Assert.Equal(HttpStatusCode.OK, finalizeA.StatusCode);
+			var revisionA = await finalizeA.Content.ReadFromJsonAsync<JsonElement>();
+			Assert.Equal(1, revisionA.GetProperty("revisionNumber").GetInt32());
+			revisionAId = Guid.Parse(revisionA.GetProperty("revisionId").GetString()!);
+		}
+
+		// B fails: PDF content for an audio asset.
+		var (sessionBId, uploadUrlB, _) = await CreateUploadSessionAsync(client, editorSession, assetBId);
+		factory.Storage.Store(factory.Storage.Find(uploadUrlB)!.BlobName,
+			ValidPdf(512), AssetEndpoints.PdfContentType);
+		using (var finalizeB = await FinalizeAsync(client, editorSession, sessionBId))
+		{
+			Assert.Equal(HttpStatusCode.UnprocessableEntity, finalizeB.StatusCode);
+			var problem = await finalizeB.Content.ReadFromJsonAsync<JsonElement>();
+			Assert.Equal(AssetEndpoints.InvalidAudioMessage, problem.GetProperty("title").GetString());
+		}
+
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			var assetA = await db.Assets.SingleAsync(a => a.Id == assetAId);
+			Assert.Equal(revisionAId, assetA.CurrentRevisionId);
+			Assert.Equal(1, await db.FileRevisions.CountAsync());
+			var assetB = await db.Assets.SingleAsync(a => a.Id == assetBId);
+			Assert.Null(assetB.CurrentRevisionId);
+			var sessionB = await db.UploadSessions.SingleAsync(s => s.Id == sessionBId);
+			Assert.Equal(PendingUploadState.Abandoned, sessionB.State);
+		}
+		Assert.False(factory.Storage.Has(factory.Storage.Find(uploadUrlB)!.BlobName));
+
+		// A's revision is untouched and finalize stays idempotent.
+		using (var retryA = await FinalizeAsync(client, editorSession, sessionAId))
+		{
+			Assert.Equal(HttpStatusCode.OK, retryA.StatusCode);
+			var retryBody = await retryA.Content.ReadFromJsonAsync<JsonElement>();
+			Assert.Equal(revisionAId, Guid.Parse(retryBody.GetProperty("revisionId").GetString()!));
+		}
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			Assert.Equal(1, await db.FileRevisions.CountAsync());
+		}
+
+		// B retries with a fresh session and valid audio content.
+		var (sessionB2Id, uploadUrlB2, _) = await CreateUploadSessionAsync(client, editorSession, assetBId);
+		factory.Storage.Store(factory.Storage.Find(uploadUrlB2)!.BlobName,
+			new byte[384], AssetEndpoints.Mp3ContentType);
+		JsonElement revisionB;
+		using (var finalizeB2 = await FinalizeAsync(client, editorSession, sessionB2Id))
+		{
+			Assert.Equal(HttpStatusCode.OK, finalizeB2.StatusCode);
+			revisionB = await finalizeB2.Content.ReadFromJsonAsync<JsonElement>();
+			Assert.Equal(1, revisionB.GetProperty("revisionNumber").GetInt32());
+		}
+
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			var assetA = await db.Assets.SingleAsync(a => a.Id == assetAId);
+			var assetB = await db.Assets.SingleAsync(a => a.Id == assetBId);
+			Assert.Equal(revisionAId, assetA.CurrentRevisionId);
+			Assert.NotEqual(revisionAId, assetB.CurrentRevisionId);
+			Assert.Equal(2, await db.FileRevisions.CountAsync());
+		}
+
+		var detail = await GetSongDetailAsync(client, editorSession, songId);
+		var detailAssets = detail.GetProperty("arrangements")[0]
+			.GetProperty("musicalVersions")[0].GetProperty("assets").EnumerateArray()
+			.ToDictionary(a => Guid.Parse(a.GetProperty("id").GetString()!));
+		Assert.Equal(2, detailAssets.Count);
+		Assert.Equal(revisionAId, Guid.Parse(
+			detailAssets[assetAId].GetProperty("currentRevision").GetProperty("revisionId").GetString()!));
+		Assert.Equal(Guid.Parse(revisionB.GetProperty("revisionId").GetString()!), Guid.Parse(
+			detailAssets[assetBId].GetProperty("currentRevision").GetProperty("revisionId").GetString()!));
+
+		// Finalizing A again still returns the same revision: no duplicate row.
+		using (var retryA2 = await FinalizeAsync(client, editorSession, sessionAId))
+		{
+			Assert.Equal(HttpStatusCode.OK, retryA2.StatusCode);
+			var retryBody = await retryA2.Content.ReadFromJsonAsync<JsonElement>();
+			Assert.Equal(revisionAId, Guid.Parse(retryBody.GetProperty("revisionId").GetString()!));
+		}
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			Assert.Equal(2, await db.FileRevisions.CountAsync());
+		}
+	}
+
+	[Fact]
 	public async Task ScoreFinalizeStillRequiresPdfMagicBytes()
 	{
 		await using var factory = new AuthApiFactory();
