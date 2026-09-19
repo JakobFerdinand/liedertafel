@@ -1,3 +1,4 @@
+using Archive.Backend.Assets;
 using System.Diagnostics;
 using System.Text.Json;
 using Azure.Storage.Blobs;
@@ -22,6 +23,7 @@ public sealed class LocalServices(IConfiguration configuration)
     {
         await Blobs.GetBlobContainerClient(ContainerName).CreateIfNotExistsAsync(cancellationToken: cancellationToken);
         await Queues.GetQueueClient(QueueName).CreateIfNotExistsAsync(cancellationToken: cancellationToken);
+        await AssetStorageEmulatorBootstrap.EnsureEmulatorCorsAsync(Blobs, cancellationToken);
     }
 
     public async Task ExerciseAsync(CancellationToken cancellationToken)

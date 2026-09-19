@@ -1,3 +1,4 @@
+using Archive.Backend.Assets;
 using Archive.Backend.Auth;
 using Archive.Backend.Catalogue;
 using Microsoft.AspNetCore.Identity;
@@ -36,6 +37,12 @@ public sealed class ArchiveDbContext(DbContextOptions<ArchiveDbContext> options)
 	public DbSet<Arrangement> Arrangements => Set<Arrangement>();
 
 	public DbSet<MusicalVersion> MusicalVersions => Set<MusicalVersion>();
+
+	public DbSet<ArchiveAsset> Assets => Set<ArchiveAsset>();
+
+	public DbSet<FileRevision> FileRevisions => Set<FileRevision>();
+
+	public DbSet<PendingUpload> UploadSessions => Set<PendingUpload>();
 
 	protected override void OnModelCreating(ModelBuilder modelBuilder)
 	{

@@ -1,5 +1,6 @@
 using System.Diagnostics.Metrics;
 using System.Reflection;
+using Archive.Backend.Assets;
 using Archive.Backend.Auth;
 using Archive.Backend.Catalogue;
 using Archive.Backend.Data;
@@ -52,6 +53,9 @@ builder.Services.AddDbContext<ArchiveDbContext>(options => options.UseNpgsql(
     DatabaseConfiguration.Connection(builder.Configuration, "archive-db")));
 builder.Services.AddSingleton<LocalServices>();
 builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddOptions<AssetStorageOptions>().BindConfiguration("Archive:Assets");
+builder.Services.AddSingleton<BlobAssetStorageAdapter>();
+builder.Services.AddSingleton<IAssetStorageAdapter>(sp => sp.GetRequiredService<BlobAssetStorageAdapter>());
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddArchiveAuth(builder.Configuration, builder.Environment);
 // ARC-011: Container Apps terminates TLS at the front proxy and forwards
