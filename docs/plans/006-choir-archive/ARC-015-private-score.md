@@ -1,6 +1,6 @@
 ---
 id: ARC-015
-status: planned
+status: in_progress
 phase: core
 kind: slice
 depends_on: ["ARC-013"]
@@ -42,3 +42,39 @@ and direct anonymous access. Live SAS/CORS behaviour is required in ARC-042.
 This is the shared upload/access boundary for batches, event documents and import.
 Document extension points for new owners and file types. Coordinate changes to
 upload state and revision IDs; do not couple its completion to every media player.
+
+## Progress
+
+Branch: `feat/arc-015-private-score`.
+
+Design decisions (see also `architecture.md` §Uploads and §Media transfer):
+
+- New `Assets` feature folder in `backend/`: `ArchiveAsset` (logical asset,
+  owned by a `MusicalVersion`, `AssetType` string starting with `"score"`,
+  optional `VoiceLabel` string for ARC-016), `FileRevision` (immutable
+  revision with stable Guid v7 id, monotonic `RevisionNumber`, blob name,
+  content type, byte size), `PendingUpload` (upload session state machine
+  Pending → Finalized/Abandoned). `ArchiveAsset.CurrentRevisionId` is the
+  current-revision pointer.
+- Storage/ticket adapter behind `IAssetStorageAdapter` interface: local
+  implementation over `BlobServiceClient` + `StorageSharedKeyCredential`
+  (Azurite), generating blob-scoped SAS tickets (upload: PUT, read: GET,
+  15 minutes; download adds `rscd=attachment`). Production identity
+  configuration (user-delegation SAS via managed identity) is a documented
+  ARC-049 configuration point; no storage key ever reaches the frontend.
+- Local Azurite CORS bootstrap (permissive emulator rule for direct browser
+  PUT/GET, no credentials needed) lives in the dev-only local storage
+  initialization; live CORS/SAS behaviour stays with ARC-042/ARC-049.
+- Endpoints: `POST /api/musical-versions/{id}/assets` (create logical asset),
+  `POST /api/assets/{id}/upload-session` (pending object + bounded upload
+  ticket), `POST /api/upload-sessions/{id}/finalize` (validates existence,
+  size, `%PDF-` magic bytes, ownership; idempotent retry), `GET
+  /api/assets/{id}/access` (member + visibility check → 15-minute scoped
+  read/download tickets). Song detail response carries current assets per
+  musical version; pending revisions are never exposed.
+- Extension points for later slices: asset types (ARC-016 audio/MIDI, ARC-023
+  event documents reuse the owner contract), voice labels (ARC-016),
+  revision-change (ARC-031 swaps the current pointer and notifies extraction/
+  search), retained-reference (ARC-037: revisions stay live until explicitly
+  removed; final deletion consults retained references).
+
