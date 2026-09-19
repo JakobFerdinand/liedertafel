@@ -168,10 +168,11 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
         working-directory: src/archive/frontend
       - name: Build production image
-        run: docker build -f src/archive/Dockerfile \
-          --build-arg VERSION="${{ steps.version.outputs.version }}" \
-          --build-arg REVISION="$GITHUB_SHA" \
-          -t liedertafel-archive:candidate .
+        run: |
+          docker build -f src/archive/Dockerfile \
+            --build-arg VERSION="${{ steps.version.outputs.version }}" \
+            --build-arg REVISION="$GITHUB_SHA" \
+            -t liedertafel-archive:candidate .
       - name: Production browser smoke
         working-directory: src/archive/frontend
         env:
