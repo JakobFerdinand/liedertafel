@@ -26,9 +26,9 @@ downloads that score from its arrangement page through authorized file access.
 - [x] Implement the provider-backed storage/ticket adapter with Aspire-managed
   Azurite/reference injection and production identity configuration points;
   start with a bounded small PDF and trace safe dependency operations to Aspire.
-- [ ] Read/download through scoped 15-minute tickets after visibility/membership
+- [x] Read/download through scoped 15-minute tickets after visibility/membership
   checks. Pending files, drafts and mismatched target IDs remain inaccessible.
-- [ ] Render a usable phone/tablet PDF view and file metadata. Define asset-type,
+- [x] Render a usable phone/tablet PDF view and file metadata. Define asset-type,
   voice-label, revision-change and retained-reference contracts for later slices.
 
 ## Verification
@@ -77,4 +77,27 @@ Design decisions (see also `architecture.md` §Uploads and §Media transfer):
   revision-change (ARC-031 swaps the current pointer and notifies extraction/
   search), retained-reference (ARC-037: revisions stay live until explicitly
   removed; final deletion consults retained references).
+
+Verification (final integration pass): the backend xUnit matrix in
+`tests/archive/backend/AssetApiTests.cs` (17 tests, `FakeAssetStorage`)
+covers the editor upload flow with idempotent finalize, song-detail asset
+embedding, role/validation negatives, wrong-owner/missing-object/invalid-PDF/
+oversized/expired sessions, and member/editor/anonymous/inactive read access.
+Browser Playwright specs (`src/archive/frontend/tests/noten.spec.ts`) cover
+upload from the editor UI, member view/download with correct transfer order,
+the empty state, oversized files and finalize-failure messaging. The Aspire
+integration test `PrivateScoreUploadRoundtripThroughRealAzuriteStorage`
+(`tests/archive/apphost/WalkingSkeletonTests.cs`) runs the full stack against
+real Azurite: catalogue creation, direct-to-blob PUT of a tiny valid PDF to the
+issued ticket URL, idempotent finalize, and ticket reads that round-trip the
+exact bytes — plus the negatives (finalize without object → 409, invalid PDF →
+422, access before finalize → 404, anonymous → 401, member on draft → 404,
+wrong-owner finalize → 403). The integration pass surfaced a real emulator
+topology bug: the server-side revision copy fetches its signed source URL from
+inside the Azurite container, which cannot resolve a randomized host port —
+fixed by pinning the blob host port to the container port in the AppHost
+(`WithBlobPort(10000)`) and passing `DcpPublisher:RandomizePorts=false` in the
+integration test. Still open for ARC-042/ARC-049: live SAS/CORS behaviour in
+real Azure Storage and the managed-identity (user-delegation SAS) ticket
+switch.
 

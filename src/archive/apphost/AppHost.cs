@@ -12,6 +12,11 @@ var storage = builder.AddAzureStorage("archive-storage")
     {
         emulator.WithImageTag("3.35.0");
         if (persist) emulator.WithDataVolume();
+        // Ticket URLs (ARC-015 upload/read, key persistence blob) carry the
+        // mapped host port. The emulator's server-side blob copy fetches the
+        // copy source from inside its own container, so the mapped host port
+        // must equal the container port (10000) for that source to resolve.
+        emulator.WithBlobPort(10000);
     });
 var blobs = storage.AddBlobs("archive-blobs");
 var queues = storage.AddQueues("archive-queues");

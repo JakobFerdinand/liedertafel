@@ -189,6 +189,37 @@ To inspect actual export after a browser check:
    `archive.build.requests`. Refresh the frontend and allow five seconds for
    another metric export. HTTP/runtime instruments are also present.
 
+## ARC-015 private score assets
+
+One private score per musical version flows through a three-step upload
+protocol: `POST /api/musical-versions/{id}/assets` creates the logical asset,
+`POST /api/assets/{id}/upload-session` issues a pending upload session with a
+bounded write ticket, the browser PUTs the file directly to that ticket URL,
+and `POST /api/upload-sessions/{id}/finalize` validates existence, size and the
+`%PDF-` magic bytes before promoting the object server-side into an immutable
+file revision (idempotent retry returns the same revision). Reads go through
+`GET /api/assets/{id}/access`, which checks membership and song visibility and
+returns blob-scoped 15-minute view/download ticket URLs; ticket URLs exist only
+in JSON responses and are never logged.
+
+The storage/ticket adapter (`IAssetStorageAdapter`,
+`BlobAssetStorageAdapter`) lives in `backend/Assets/AssetStorage.cs` and is
+configured under `Archive:Assets` (`ContainerName` defaults to
+`archive-assets`, max upload size, upload-session and read-ticket lifetimes).
+It uses the injected `ConnectionStrings__archive-blobs` connection string.
+Locally the container and a permissive emulator CORS rule for direct browser
+transfers are created by `archive-storage-init` (`Development/LocalServices.cs`,
+`AssetStorageEmulatorBootstrap`); production CORS and the keyless identity
+switch (user-delegation SAS via managed identity, ARC-049) are documented
+configuration points and not yet wired.
+
+The revision promotion is a server-side blob copy whose source is a signed
+ticket URL. The emulator fetches that source from inside its own container, so
+the AppHost pins the Azurite blob host port to the container port
+(`WithBlobPort(10000)`); the ticket host then resolves in both directions.
+Integration tests must pass `DcpPublisher:RandomizePorts=false` for the pin to
+apply (testing mode randomizes proxied ports by default).
+
 ## Focused verification
 
 From the repository root:
