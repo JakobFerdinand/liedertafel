@@ -675,6 +675,191 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         Assert.Contains("attachment", downloadResponse.Content.Headers.ContentDisposition?.DispositionType ?? "");
     }
 
+    [Fact]
+    public async Task MixedVoiceBatchRoundtripThroughRealAzuriteStorage()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+        var token = timeout.Token;
+        var builder = await DistributedApplicationTestingBuilder.CreateAsync<Projects.Archive_AppHost>(
+            ["--Archive:PersistLocalData=false", "DcpPublisher:RandomizePorts=false"],
+            (options, _) => options.DisableDashboard = false, token);
+        await using var app = await builder.BuildAsync(token);
+        await app.StartAsync(token);
+        try
+        {
+            await app.ResourceNotifications.WaitForResourceHealthyAsync("archive-api", token);
+        }
+        catch
+        {
+            var logs = app.Services.GetRequiredService<ResourceLoggerService>();
+            foreach (var name in new[] { "archive-api", "archive-storage-init" })
+                await foreach (var batch in logs.GetAllAsync(name))
+                    foreach (var line in batch) output.WriteLine($"{name}: {line.Content}");
+            throw;
+        }
+        await app.ResourceNotifications.WaitForResourceHealthyAsync("archive-frontend", token);
+
+        var commands = app.Services.GetRequiredService<ResourceCommandService>();
+        await commands.ExecuteCommandAsync("archive-migrate", "start", token);
+        await AssertSuccessfulCompletion(app.ResourceNotifications, "archive-migrate", token);
+
+        using var frontend = app.CreateHttpClient("archive-frontend", "http");
+        using var mail = app.CreateHttpClient("archive-mail", "http");
+        using var api = new HttpClient(new HttpClientHandler { UseCookies = false })
+        {
+            BaseAddress = frontend.BaseAddress,
+        };
+        using var storage = new HttpClient();
+
+        var (seedCsrfCookie, seedToken) = await GetCsrfAsync(api, null, token);
+        using var seed = new HttpRequestMessage(HttpMethod.Post, "/api/dev/auth/seed");
+        seed.Headers.Add("Cookie", seedCsrfCookie);
+        seed.Headers.Add("X-CSRF-TOKEN", seedToken);
+        seed.Content = JsonContent.Create(new { });
+        using var seedResponse = await api.SendAsync(seed, token);
+        Assert.Equal(HttpStatusCode.OK, seedResponse.StatusCode);
+
+        var editorSession = await SignInAsync(api, mail, "redaktion@liedertafel.test", token);
+        var memberSession = await SignInAsync(api, mail, "mitglied@liedertafel.test", token);
+
+        using var songResponse = await PostJsonAsync(api, "/api/songs",
+            new { title = "ARC-016 Stimmenpaket" }, editorSession, token);
+        Assert.Equal(HttpStatusCode.Created, songResponse.StatusCode);
+        var songBody = await songResponse.Content.ReadFromJsonAsync<JsonElement>(token);
+        var songId = Guid.Parse(songBody.GetProperty("song").GetProperty("id").GetString()!);
+        using var detailResponse = await GetAsync(api, $"/api/songs/{songId}", editorSession, token);
+        detailResponse.EnsureSuccessStatusCode();
+        var detail = await detailResponse.Content.ReadFromJsonAsync<JsonElement>(token);
+        var versionId = Guid.Parse(detail.GetProperty("song").GetProperty("arrangements")[0]
+            .GetProperty("musicalVersions")[0].GetProperty("id").GetString()!);
+
+        var scoreAsset = await CreateAssetAsync(api, editorSession, versionId, token,
+            assetType: "score", description: "Partitur für den Vollmix");
+        var audioAsset = await CreateAssetAsync(api, editorSession, versionId, token,
+            assetType: "audio", voiceLabel: "Alt", description: "Altstimme als Referenzaufnahme");
+        var midiAsset = await CreateAssetAsync(api, editorSession, versionId, token,
+            assetType: "midi", voiceLabel: "Sopran");
+
+        var pdf = ValidPdf(768);
+        var (scoreSessionId, scoreRevisionId) = await TransferAndFinalizeAsync(
+            api, storage, editorSession, scoreAsset, pdf, token);
+
+        var midi = "MThd"u8.ToArray()
+            .Concat(new byte[] { 0x00, 0x00, 0x00, 0x06, 0x00, 0x01, 0x00, 0x02, 0x01, 0xE0 })
+            .Concat("MTrk"u8.ToArray())
+            .Concat(new byte[] { 0x00, 0x00, 0x00, 0x04, 0x00, 0x90, 0x3C, 0x40, 0x00 })
+            .ToArray();
+        var (midiSessionId, midiRevisionId) = await TransferAndFinalizeAsync(
+            api, storage, editorSession, midiAsset, midi, token, contentType: "audio/midi");
+        Assert.NotEqual(scoreRevisionId, midiRevisionId);
+
+        var audioBytes = "ID3"u8.ToArray().Concat(new byte[509]).ToArray();
+        // Non-whitelisted content type for an audio asset: the bytes reach
+        // storage, but finalization rejects the upload with the audio message
+        // and leaves the other assets' finalized revisions untouched.
+        var (audioFailedSession, audioUploadUrl, _) = await CreateUploadSessionAsync(
+            api, editorSession, audioAsset, token);
+        using var rejectedPut = new HttpRequestMessage(HttpMethod.Put, audioUploadUrl)
+        {
+            Content = new ByteArrayContent(pdf),
+        };
+        rejectedPut.Content.Headers.ContentType = new("application/pdf");
+        rejectedPut.Headers.Add("x-ms-blob-type", "BlockBlob");
+        using var rejectedPutResponse = await storage.SendAsync(rejectedPut, token);
+        Assert.Equal(HttpStatusCode.Created, rejectedPutResponse.StatusCode);
+        using var rejectedFinalize = await PostJsonAsync(api,
+            $"/api/upload-sessions/{audioFailedSession}/finalize", new { }, editorSession, token);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, rejectedFinalize.StatusCode);
+        var rejectedBody = await rejectedFinalize.Content.ReadFromJsonAsync<JsonElement>(token);
+        Assert.Equal("Die Datei ist keine gültige Audiodatei.",
+            rejectedBody.GetProperty("title").GetString());
+
+        using var scoreRetry = await PostJsonAsync(api,
+            $"/api/upload-sessions/{scoreSessionId}/finalize", new { }, editorSession, token);
+        Assert.Equal(HttpStatusCode.OK, scoreRetry.StatusCode);
+        var scoreRetryBody = await scoreRetry.Content.ReadFromJsonAsync<JsonElement>(token);
+        Assert.Equal(scoreRevisionId, Guid.Parse(scoreRetryBody.GetProperty("revisionId").GetString()!));
+        using var midiRetry = await PostJsonAsync(api,
+            $"/api/upload-sessions/{midiSessionId}/finalize", new { }, editorSession, token);
+        Assert.Equal(HttpStatusCode.OK, midiRetry.StatusCode);
+        var midiRetryBody = await midiRetry.Content.ReadFromJsonAsync<JsonElement>(token);
+        Assert.Equal(midiRevisionId, Guid.Parse(midiRetryBody.GetProperty("revisionId").GetString()!));
+
+        var (audioSessionId, audioRevisionId) = await TransferAndFinalizeAsync(
+            api, storage, editorSession, audioAsset, audioBytes, token, contentType: "audio/mpeg");
+
+        using var reloaded = await GetAsync(api, $"/api/songs/{songId}", editorSession, token);
+        Assert.Equal(HttpStatusCode.OK, reloaded.StatusCode);
+        var reloadedBody = await reloaded.Content.ReadFromJsonAsync<JsonElement>(token);
+        var versionAssets = reloadedBody.GetProperty("song").GetProperty("arrangements")[0]
+            .GetProperty("musicalVersions")[0].GetProperty("assets");
+        var scoreEntry = versionAssets.EnumerateArray()
+            .Single(a => a.GetProperty("id").GetString() == scoreAsset.ToString());
+        var audioEntry = versionAssets.EnumerateArray()
+            .Single(a => a.GetProperty("id").GetString() == audioAsset.ToString());
+        var midiEntry = versionAssets.EnumerateArray()
+            .Single(a => a.GetProperty("id").GetString() == midiAsset.ToString());
+        Assert.Equal("score", scoreEntry.GetProperty("assetType").GetString());
+        Assert.Equal(JsonValueKind.Null, scoreEntry.GetProperty("voiceLabel").ValueKind);
+        Assert.Equal("Partitur für den Vollmix", scoreEntry.GetProperty("description").GetString());
+        Assert.Equal(scoreRevisionId, Guid.Parse(scoreEntry.GetProperty("currentRevision").GetProperty("revisionId").GetString()!));
+        Assert.Equal(1, scoreEntry.GetProperty("currentRevision").GetProperty("revisionNumber").GetInt32());
+        Assert.Equal("application/pdf", scoreEntry.GetProperty("currentRevision").GetProperty("contentType").GetString());
+        Assert.Equal("audio", audioEntry.GetProperty("assetType").GetString());
+        Assert.Equal("Alt", audioEntry.GetProperty("voiceLabel").GetString());
+        Assert.Equal("Altstimme als Referenzaufnahme", audioEntry.GetProperty("description").GetString());
+        Assert.Equal(audioRevisionId, Guid.Parse(audioEntry.GetProperty("currentRevision").GetProperty("revisionId").GetString()!));
+        Assert.Equal(1, audioEntry.GetProperty("currentRevision").GetProperty("revisionNumber").GetInt32());
+        Assert.Equal("audio/mpeg", audioEntry.GetProperty("currentRevision").GetProperty("contentType").GetString());
+        Assert.Equal("midi", midiEntry.GetProperty("assetType").GetString());
+        Assert.Equal("Sopran", midiEntry.GetProperty("voiceLabel").GetString());
+        Assert.Equal(JsonValueKind.Null, midiEntry.GetProperty("description").ValueKind);
+        Assert.Equal(midiRevisionId, Guid.Parse(midiEntry.GetProperty("currentRevision").GetProperty("revisionId").GetString()!));
+        Assert.Equal(1, midiEntry.GetProperty("currentRevision").GetProperty("revisionNumber").GetInt32());
+        Assert.Equal("audio/midi", midiEntry.GetProperty("currentRevision").GetProperty("contentType").GetString());
+        Assert.NotEqual(audioRevisionId, scoreRevisionId);
+        Assert.NotEqual(audioRevisionId, midiRevisionId);
+
+        // Members cannot edit catalogue materials: the PATCH gate is closed
+        // before any ownership check happens.
+        using var memberPatch = await PatchJsonAsync(api, $"/api/assets/{scoreAsset}",
+            new { description = "Von der Stimme geändert" }, memberSession, token);
+        Assert.Equal(HttpStatusCode.Forbidden, memberPatch.StatusCode);
+        var memberPatchBody = await memberPatch.Content.ReadFromJsonAsync<JsonElement>(token);
+        Assert.Equal("Keine Berechtigung für das Liedverzeichnis.",
+            memberPatchBody.GetProperty("title").GetString());
+
+        using var publish = await PostJsonAsync(api, $"/api/songs/{songId}/publish",
+            new { }, editorSession, token);
+        Assert.Equal(HttpStatusCode.OK, publish.StatusCode);
+
+        var memberViews = new (Guid Asset, byte[] Content, string ContentType)[]
+        {
+            (scoreAsset, pdf, "application/pdf"),
+            (audioAsset, audioBytes, "audio/mpeg"),
+            (midiAsset, midi, "audio/midi"),
+        };
+        foreach (var (asset, content, contentType) in memberViews)
+        {
+            using var memberAccess = await GetAsync(api, $"/api/assets/{asset}/access", memberSession, token);
+            Assert.Equal(HttpStatusCode.OK, memberAccess.StatusCode);
+            var memberAccessBody = await memberAccess.Content.ReadFromJsonAsync<JsonElement>(token);
+            Assert.Equal(contentType, memberAccessBody.GetProperty("contentType").GetString());
+            Assert.Equal(content.Length, memberAccessBody.GetProperty("sizeBytes").GetInt64());
+            var memberViewUrl = memberAccessBody.GetProperty("viewUrl").GetString()!;
+            var memberDownloadUrl = memberAccessBody.GetProperty("downloadUrl").GetString()!;
+            Assert.NotEqual(memberViewUrl, memberDownloadUrl);
+            using var memberView = await storage.GetAsync(memberViewUrl, token);
+            Assert.Equal(HttpStatusCode.OK, memberView.StatusCode);
+            Assert.Equal(content, await memberView.Content.ReadAsByteArrayAsync(token));
+            using var memberDownload = await storage.GetAsync(memberDownloadUrl, token);
+            Assert.Equal(HttpStatusCode.OK, memberDownload.StatusCode);
+            Assert.Equal(content, await memberDownload.Content.ReadAsByteArrayAsync(token));
+            Assert.Contains("attachment",
+                memberDownload.Content.Headers.ContentDisposition?.DispositionType ?? "");
+        }
+    }
+
     private static byte[] ValidPdf(int size)
     {
         var bytes = new byte[size];
@@ -715,6 +900,17 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         return await client.SendAsync(request, token);
     }
 
+    private static async Task<HttpResponseMessage> PatchJsonAsync(
+        HttpClient client, string path, object body, string sessionCookie, CancellationToken token)
+    {
+        var (cookie, csrfToken) = await GetCsrfAsync(client, sessionCookie, token);
+        using var request = new HttpRequestMessage(HttpMethod.Patch, path);
+        request.Headers.Add("Cookie", $"{cookie}; {sessionCookie}");
+        request.Headers.Add("X-CSRF-TOKEN", csrfToken);
+        request.Content = JsonContent.Create(body);
+        return await client.SendAsync(request, token);
+    }
+
     private static async Task<HttpResponseMessage> GetAsync(
         HttpClient client, string path, string sessionCookie, CancellationToken token)
     {
@@ -724,10 +920,12 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
     }
 
     private static async Task<Guid> CreateAssetAsync(
-        HttpClient client, string sessionCookie, Guid versionId, CancellationToken token)
+        HttpClient client, string sessionCookie, Guid versionId, CancellationToken token,
+        string assetType = "score", string? voiceLabel = null, string? description = null)
     {
         using var response = await PostJsonAsync(client,
-            $"/api/musical-versions/{versionId}/assets", new { assetType = "score" }, sessionCookie, token);
+            $"/api/musical-versions/{versionId}/assets",
+            new { assetType, voiceLabel, description }, sessionCookie, token);
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>(token);
         return Guid.Parse(body.GetProperty("id").GetString()!);
@@ -748,14 +946,15 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
 
     private async Task<(Guid UploadSessionId, Guid RevisionId)> TransferAndFinalizeAsync(
         HttpClient api, HttpClient storage, string sessionCookie, Guid assetId,
-        byte[] content, CancellationToken token, HttpStatusCode? expectFailure = null)
+        byte[] content, CancellationToken token, HttpStatusCode? expectFailure = null,
+        string contentType = "application/pdf")
     {
         var (uploadSessionId, uploadUrl, _) = await CreateUploadSessionAsync(api, sessionCookie, assetId, token);
         using var put = new HttpRequestMessage(HttpMethod.Put, uploadUrl)
         {
             Content = new ByteArrayContent(content),
         };
-        put.Content.Headers.ContentType = new("application/pdf");
+        put.Content.Headers.ContentType = new(contentType);
         put.Headers.Add("x-ms-blob-type", "BlockBlob");
         using var putResponse = await storage.SendAsync(put, token);
         Assert.Equal(HttpStatusCode.Created, putResponse.StatusCode);
