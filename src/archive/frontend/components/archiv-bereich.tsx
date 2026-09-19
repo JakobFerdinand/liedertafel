@@ -59,7 +59,12 @@ export function ArchivBereich() {
   }
   return (
     <div>
-      <p>Willkommen im Archiv. Inhalte folgen in den nächsten Schritten.</p>
+      <p>Willkommen im Archiv. Hier entsteht die Sammlung unseres Chores.</p>
+      <p>
+        Der <Link href="/lieder/">Liederkatalog</Link> ist jetzt geöffnet:
+        Veröffentlichte Lieder mit Fassungen und Bearbeitungen sind dort
+        sichtbar.
+      </p>
       <p>
         Angemeldet als {me.displayName ?? me.email} ({me.roles.join(", ")})
       </p>

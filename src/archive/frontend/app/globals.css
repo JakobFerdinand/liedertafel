@@ -320,6 +320,57 @@ dd {
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+.lieder-liste {
+  margin-top: 2.5rem;
+}
+.lieder-liste ul,
+.lied-arrangements {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.lieder-eintrag {
+  border-bottom: 1px solid var(--wash);
+  padding: 1rem 0;
+}
+.lieder-eintrag h3 {
+  margin-block: 0;
+}
+.lieder-urheber {
+  font-size: 0.9rem;
+  margin-block: 0.4rem;
+}
+.lieder-status {
+  display: inline-block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--brand);
+  border: 2px solid var(--brand);
+  border-radius: 0.3rem;
+  padding: 0.1rem 0.5rem;
+  margin-block: 0.4rem 0;
+}
+.lieder-aktionen {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 0.6rem;
+}
+.lied-anlegen {
+  margin-block: 0 2.5rem;
+}
+.lied-ansicht h2 {
+  margin-block: 0.2rem 0.6rem;
+}
+.lied-arrangements li {
+  margin-block: 1.2rem;
+}
+.lied-arrangements li ul {
+  list-style: disc;
+  margin-block: 0.4rem;
+  padding-left: 1.4rem;
+}
 .auth-zeile {
   display: inline-flex;
   align-items: center;
