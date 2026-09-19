@@ -75,8 +75,15 @@ h3 {
 }
 nav {
   display: flex;
+  align-items: center;
   gap: 1.4rem;
   font-size: 0.95rem;
+  flex-wrap: wrap;
+  row-gap: 0.7rem;
+}
+.site-header button {
+  padding: 0.4rem 0.9rem;
+  font-size: 0.9rem;
 }
 main {
   max-width: 68rem;
@@ -177,6 +184,7 @@ dd {
   margin-block: 0.4rem 0;
 }
 .feld-hinweis {
+  display: block;
   font-size: 0.9rem;
   margin-block: 0.4rem 0;
 }
@@ -190,6 +198,57 @@ dd {
   gap: 1rem;
   flex-wrap: wrap;
   margin-top: 1rem;
+}
+.auth-aktionen input {
+  width: auto;
+  flex: 1 1 12rem;
+  min-width: 0;
+  padding: 0.7rem 0.8rem;
+}
+.passkey-verwaltung {
+  margin-top: 2.25rem;
+  padding-top: 1.4rem;
+  border-top: 1px solid rgba(64, 35, 38, 0.2);
+}
+.passkey-verwaltung h3 {
+  font-size: 1.25rem;
+  margin-block: 0 0.9rem;
+}
+.passkey-liste {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.6rem;
+}
+.passkey-liste li {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.passkey-liste li > span {
+  flex: 1 1 8rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+.passkey-liste input {
+  width: auto;
+  flex: 1 1 10rem;
+  min-width: 0;
+  padding: 0.5rem;
+}
+.passkey-liste button {
+  padding: 0.45rem 0.85rem;
+  font-size: 0.9rem;
+  background: transparent;
+  color: var(--brand);
+  border: 2px solid var(--brand);
+}
+.passkey-liste button:hover:not(:disabled) {
+  background: var(--brand);
+  color: var(--paper);
 }
 .auth-hinweis {
   font-size: 0.9rem;
@@ -297,6 +356,9 @@ footer {
   top: 1rem;
 }
 @media (max-width: 540px) {
+  .passkey-liste li > span {
+    flex-basis: 100%;
+  }
   .site-header {
     align-items: flex-start;
     flex-direction: column;

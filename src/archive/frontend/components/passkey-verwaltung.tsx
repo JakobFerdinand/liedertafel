@@ -103,11 +103,11 @@ export function PasskeyVerwaltung() {
   }
   return (
     <div className="passkey-verwaltung">
-      <p>Passkeys dieses Kontos</p>
+      <h3>Passkeys dieses Kontos</h3>
       {passkeys.length === 0 ? (
         <p className="feld-hinweis">Noch kein Passkey registriert.</p>
       ) : (
-        <ul>
+        <ul className="passkey-liste">
           {passkeys.map((passkey) => (
             <li key={passkey.credentialId}>
               {bearbeitet === passkey.credentialId ? (
