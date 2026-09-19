@@ -4,6 +4,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using Archive.Backend.Assets;
 using Archive.Backend.Auth;
 using Archive.Backend.Data;
 using Archive.Backend.Development;
@@ -670,6 +671,9 @@ internal sealed class AuthApiFactory : WebApplicationFactory<Program>
 
 	public FakeMailSender Mail { get; } = new();
 
+	/// <summary>ARC-015: in-memory blob storage so no real provider is touched.</summary>
+	public FakeAssetStorage Storage { get; } = new();
+
 	private readonly IDictionary<string, string?>? extraSettings;
 
 	public AuthApiFactory(string environment = "Development", InMemoryDatabaseRoot? root = null, string? keysPath = null, string? databaseName = null, string? otlpEndpoint = null, TimeSpan? freshVerificationWindow = null, IDictionary<string, string?>? settings = null)
@@ -722,6 +726,12 @@ internal sealed class AuthApiFactory : WebApplicationFactory<Program>
 			services.AddDbContext<ArchiveDbContext>(options => options.UseInMemoryDatabase(database, sharedRoot));
 			services.RemoveAll<IArchiveMailSender>();
 			services.AddSingleton<IArchiveMailSender>(Mail);
+			// Program registers both the concrete adapter and a forwarding
+			// interface registration; both must go before the fake replaces
+			// the real Blob storage path (no network, no credentials).
+			services.RemoveAll<IAssetStorageAdapter>();
+			services.RemoveAll<BlobAssetStorageAdapter>();
+			services.AddSingleton<IAssetStorageAdapter>(Storage);
 			if (freshVerificationWindow.HasValue)
 			{
 				var window = freshVerificationWindow.Value;
