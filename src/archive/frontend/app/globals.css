@@ -323,8 +323,7 @@ dd {
 .lieder-liste {
   margin-top: 2.5rem;
 }
-.lieder-liste ul,
-.lied-arrangements {
+.lieder-liste ul {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -363,13 +362,51 @@ dd {
 .lied-ansicht h2 {
   margin-block: 0.2rem 0.6rem;
 }
-.lied-arrangements li {
-  margin-block: 1.2rem;
+.fassungs-wahl {
+  margin-block: 1.2rem 0;
 }
-.lied-arrangements li ul {
-  list-style: disc;
-  margin-block: 0.4rem;
-  padding-left: 1.4rem;
+.fassungs-wahl legend {
+  padding: 0;
+}
+.fassungs-gruppe {
+  border-top: 1px solid var(--wash);
+  margin-block: 1.2rem;
+  padding-block-start: 1rem;
+}
+.fassungs-gruppe:first-child {
+  border-top: 0;
+  padding-block-start: 0;
+}
+.fassungs-gruppe[data-gewaehlt="true"] {
+  border-left: 4px solid var(--brand);
+  padding-left: 0.8rem;
+}
+.fassungs-gruppe h3 {
+  margin-block: 0 0.4rem;
+}
+.fassungs-liste {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+.fassungs-liste button {
+  background: transparent;
+  color: var(--ink);
+  border: 2px solid var(--ink);
+  border-radius: 0.3rem;
+  padding: 0.5rem 0.8rem;
+  font: inherit;
+}
+.fassungs-liste button:hover:not(:disabled) {
+  background: var(--wash);
+}
+.fassungs-liste button[aria-pressed="true"] {
+  background: var(--brand);
+  color: var(--paper);
+  border-color: var(--brand);
 }
 .auth-zeile {
   display: inline-flex;

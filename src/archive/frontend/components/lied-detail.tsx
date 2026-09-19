@@ -1,15 +1,43 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { FassungsWahl } from "@/components/fassungs-wahl";
 import { LiedFormular } from "@/components/lied-formular";
 import { fetchMe, type MeResponse, postAuth } from "@/lib/auth";
 import { fetchSong, type LiedDetails } from "@/lib/songs";
 
+type FassungsAuswahl = {
+  arrangementId: string;
+  versionId: string;
+};
+
+function bestimmeFassung(
+  lied: LiedDetails,
+  fassungParameter: string | null,
+  versionParameter: string | null,
+): FassungsAuswahl | null {
+  const arrangement =
+    lied.arrangements.find((eintrag) => eintrag.id === fassungParameter) ??
+    lied.arrangements[0];
+  if (!arrangement) return null;
+  const fassung =
+    arrangement.musicalVersions.find(
+      (eintrag) => eintrag.id === versionParameter,
+    ) ?? arrangement.musicalVersions[0];
+  return {
+    arrangementId: arrangement.id,
+    versionId: fassung ? fassung.id : "",
+  };
+}
+
 export function LiedDetail() {
   const suchParameter = useSearchParams();
+  const router = useRouter();
   const id = suchParameter.get("id");
+  const fassungParameter = suchParameter.get("fassung");
+  const versionParameter = suchParameter.get("version");
   const [me, setMe] = useState<MeResponse | null>(null);
   const [lied, setLied] = useState<LiedDetails | null>(null);
   const [nichtGefunden, setNichtGefunden] = useState(false);
@@ -93,6 +121,13 @@ export function LiedDetail() {
     }
   }
 
+  function fassungWaehlen(arrangementId: string, versionId: string) {
+    const parameter = new URLSearchParams(suchParameter);
+    parameter.set("fassung", arrangementId);
+    parameter.set("version", versionId);
+    router.replace(`/lied/?${parameter.toString()}`, { scroll: false });
+  }
+
   if (fehler) {
     return (
       <div aria-live="polite">
@@ -137,6 +172,8 @@ export function LiedDetail() {
     );
   }
 
+  const auswahl = bestimmeFassung(lied, fassungParameter, versionParameter);
+
   return (
     <div>
       <article className="lied-ansicht">
@@ -159,26 +196,14 @@ export function LiedDetail() {
         {lied.arrangements.length === 0 ? (
           <p>Für dieses Lied ist noch keine Fassung erfasst.</p>
         ) : (
-          <ul className="lied-arrangements">
-            {lied.arrangements.map((arrangement) => (
-              <li key={arrangement.id}>
-                <h3>{arrangement.label}</h3>
-                {arrangement.arranger && (
-                  <p className="feld-hinweis">
-                    Bearbeitung: {arrangement.arranger}
-                  </p>
-                )}
-                <ul>
-                  {arrangement.musicalVersions.map((fassung) => (
-                    <li key={fassung.id}>
-                      {fassung.label}
-                      {fassung.creator ? ` · ${fassung.creator}` : ""}
-                    </li>
-                  ))}
-                </ul>
-              </li>
-            ))}
-          </ul>
+          auswahl && (
+            <FassungsWahl
+              lied={lied}
+              arrangementId={auswahl.arrangementId}
+              versionId={auswahl.versionId}
+              onSelect={fassungWaehlen}
+            />
+          )
         )}
       </article>
 
