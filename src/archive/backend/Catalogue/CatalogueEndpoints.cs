@@ -1,0 +1,331 @@
+using Archive.Backend.Auth;
+using Archive.Backend.Data;
+using Microsoft.AspNetCore.Antiforgery;
+using Microsoft.EntityFrameworkCore;
+
+namespace Archive.Backend.Catalogue;
+
+public sealed record CreateSongRequest(string? Title, string? Composer, string? Lyricist, string? ArrangementLabel, string? VersionLabel);
+
+public sealed record PatchSongRequest(string? Title, string? Composer, string? Lyricist);
+
+/// <summary>
+/// Member catalogue API (ARC-013). Reads use the shared database decision:
+/// an active member sees published songs, editors/administrators also see
+/// drafts (see <see cref="CatalogueVisibility"/>). All mutations require the
+/// Editor or Administrator role from that decision, CSRF and antiforgery
+/// validation; actors and timestamps are attributed from the decision and the
+/// injected TimeProvider. Members receive 403; unauthenticated or revoked
+/// callers receive 401.
+/// </summary>
+public static class CatalogueEndpoints
+{
+	public const string ForbiddenMessage = "Keine Berechtigung für das Liedverzeichnis.";
+
+	public const string ConcurrencyMessage = "Der Eintrag wurde zwischenzeitlich geändert.";
+
+	public const string NotFoundMessage = "Das Lied wurde nicht gefunden.";
+
+	public const string DefaultLabel = "Standardfassung";
+
+	public static void MapCatalogueEndpoints(this WebApplication app)
+	{
+		app.MapGet("/api/songs", async (HttpContext context, CurrentUserAccessor accessor,
+			ArchiveAccessService access, ArchiveDbContext db, CancellationToken token) =>
+		{
+			context.Response.Headers.CacheControl = "no-store";
+			var (decision, error) = await RequireMemberAsync(context, accessor, access);
+			if (error is not null)
+				return error;
+			var isEditor = IsEditor(decision!);
+			var songs = await QueryVisible(db.Songs, isEditor)
+				.OrderBy(s => s.Id)
+				.Select(s => new SongSummary(s.Id, s.Title, s.Composer, s.Lyricist, s.PublishedAt))
+				.ToListAsync(token);
+			return Results.Ok(new
+			{
+				songs = songs.Select(s => new
+				{
+					id = s.Id,
+					title = s.Title,
+					composer = s.Composer,
+					lyricist = s.Lyricist,
+					published = s.PublishedAt is not null,
+					publishedAt = s.PublishedAt,
+				}),
+			});
+		});
+
+		app.MapGet("/api/songs/{id}", async (HttpContext context, CurrentUserAccessor accessor,
+			ArchiveAccessService access, ArchiveDbContext db, Guid id, CancellationToken token) =>
+		{
+			context.Response.Headers.CacheControl = "no-store";
+			var (decision, error) = await RequireMemberAsync(context, accessor, access);
+			if (error is not null)
+				return error;
+			var isEditor = IsEditor(decision!);
+			var song = await db.Songs.AsNoTracking()
+				.Include(s => s.Arrangements).ThenInclude(a => a.MusicalVersions)
+				.FirstOrDefaultAsync(s => s.Id == id, token);
+			if (song is null || (!isEditor && !CatalogueVisibility.IsMemberVisible(song)))
+				return Results.Problem(statusCode: 404, title: NotFoundMessage);
+			return Results.Ok(new { song = SongDetail(song) });
+		});
+
+		app.MapPost("/api/songs", async (
+			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
+			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time, CancellationToken token,
+			CreateSongRequest? body) =>
+		{
+			try { await antiforgery.ValidateRequestAsync(context); }
+			catch (AntiforgeryValidationException)
+			{
+				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
+			}
+			context.Response.Headers.CacheControl = "no-store";
+			var (decision, error) = await RequireEditorAsync(context, accessor, access);
+			if (error is not null)
+				return error;
+			if (!TryValidateTitle(body?.Title, out var title, out var titleError))
+				return titleError;
+			var composer = CleanOptional(body?.Composer, "Der Komponist ist zu lang.", out var composerError);
+			if (composerError is not null)
+				return composerError;
+			var lyricist = CleanOptional(body?.Lyricist, "Der Textdichter ist zu lang.", out var lyricistError);
+			if (lyricistError is not null)
+				return lyricistError;
+			var arrangementLabel = CleanOptional(body?.ArrangementLabel, "Die Bezeichnung ist zu lang.", out var arrangementError);
+			if (arrangementError is not null)
+				return arrangementError;
+			var versionLabel = CleanOptional(body?.VersionLabel, "Die Bezeichnung ist zu lang.", out var versionError);
+			if (versionError is not null)
+				return versionError;
+			var now = time.GetUtcNow();
+			var song = new Song
+			{
+				Title = title,
+				Composer = composer,
+				Lyricist = lyricist,
+				CreatedAt = now,
+				CreatedByAccountId = decision!.AccountId,
+				UpdatedAt = now,
+				UpdatedByAccountId = decision.AccountId,
+			};
+			song.Arrangements.Add(new Arrangement
+			{
+				Song = song,
+				Label = arrangementLabel ?? DefaultLabel,
+				CreatedAt = now,
+				CreatedByAccountId = decision.AccountId,
+				MusicalVersions =
+				[
+					new MusicalVersion
+					{
+						Label = versionLabel ?? DefaultLabel,
+						CreatedAt = now,
+						CreatedByAccountId = decision.AccountId,
+					},
+				],
+			});
+			db.Songs.Add(song);
+			await db.SaveChangesAsync(token);
+			return Results.Created($"/api/songs/{song.Id}", new { song = SongDetail(song) });
+		}).DisableAntiforgery();
+
+		app.MapPatch("/api/songs/{id}", async (
+			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
+			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time, Guid id, CancellationToken token,
+			PatchSongRequest? body) =>
+		{
+			try { await antiforgery.ValidateRequestAsync(context); }
+			catch (AntiforgeryValidationException)
+			{
+				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
+			}
+			context.Response.Headers.CacheControl = "no-store";
+			var (decision, error) = await RequireEditorAsync(context, accessor, access);
+			if (error is not null)
+				return error;
+			if (body?.Title is not null && !TryValidateTitle(body.Title, out _, out var titleError))
+				return titleError;
+			var composer = PatchOptional(body?.Composer, "Der Komponist ist zu lang.", out var composerError);
+			if (composerError is not null)
+				return composerError;
+			var lyricist = PatchOptional(body?.Lyricist, "Der Textdichter ist zu lang.", out var lyricistError);
+			if (lyricistError is not null)
+				return lyricistError;
+			var song = await db.Songs.FirstOrDefaultAsync(s => s.Id == id, token);
+			if (song is null)
+				return Results.Problem(statusCode: 404, title: NotFoundMessage);
+			if (body?.Title is not null)
+				song.Title = body.Title.Trim();
+			if (body?.Composer is not null)
+				song.Composer = composer;
+			if (body?.Lyricist is not null)
+				song.Lyricist = lyricist;
+			var now = time.GetUtcNow();
+			song.UpdatedAt = now;
+			song.UpdatedByAccountId = decision!.AccountId;
+			song.RowVersion++;
+			try
+			{
+				await db.SaveChangesAsync(token);
+			}
+			catch (DbUpdateConcurrencyException)
+			{
+				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
+			}
+			return Results.Ok(new { song = SongDetail((await LoadDetailAsync(db, id, token))!) });
+		}).DisableAntiforgery();
+
+		app.MapPost("/api/songs/{id}/publish", async (
+			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
+			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time, Guid id, CancellationToken token) =>
+		{
+			try { await antiforgery.ValidateRequestAsync(context); }
+			catch (AntiforgeryValidationException)
+			{
+				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
+			}
+			context.Response.Headers.CacheControl = "no-store";
+			var (decision, error) = await RequireEditorAsync(context, accessor, access);
+			if (error is not null)
+				return error;
+			var song = await db.Songs.FirstOrDefaultAsync(s => s.Id == id, token);
+			if (song is null)
+				return Results.Problem(statusCode: 404, title: NotFoundMessage);
+			if (song.PublishedAt is null)
+			{
+				song.PublishedAt = time.GetUtcNow();
+				song.PublishedByAccountId = decision!.AccountId;
+				song.RowVersion++;
+				await db.SaveChangesAsync(token);
+			}
+			return Results.Ok(new { song = SongDetail((await LoadDetailAsync(db, id, token))!) });
+		}).DisableAntiforgery();
+
+		app.MapPost("/api/songs/{id}/unpublish", async (
+			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
+			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time, Guid id, CancellationToken token) =>
+		{
+			try { await antiforgery.ValidateRequestAsync(context); }
+			catch (AntiforgeryValidationException)
+			{
+				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
+			}
+			context.Response.Headers.CacheControl = "no-store";
+			var (decision, error) = await RequireEditorAsync(context, accessor, access);
+			if (error is not null)
+				return error;
+			var song = await db.Songs.FirstOrDefaultAsync(s => s.Id == id, token);
+			if (song is null)
+				return Results.Problem(statusCode: 404, title: NotFoundMessage);
+			if (song.PublishedAt is not null)
+			{
+				song.PublishedAt = null;
+				song.PublishedByAccountId = null;
+				song.RowVersion++;
+				await db.SaveChangesAsync(token);
+			}
+			return Results.Ok(new { song = SongDetail((await LoadDetailAsync(db, id, token))!) });
+		}).DisableAntiforgery();
+	}
+
+	private static IQueryable<Song> QueryVisible(IQueryable<Song> songs, bool isEditor)
+		=> isEditor ? songs : songs.Where(s => s.PublishedAt != null);
+
+	private static bool IsEditor(ArchiveAccessDecision decision)
+		=> decision.IsAdministrator || decision.Roles.Contains(ArchiveRoles.Editor);
+
+	private static async Task<Song?> LoadDetailAsync(ArchiveDbContext db, Guid id, CancellationToken token)
+		=> await db.Songs.AsNoTracking()
+			.Include(s => s.Arrangements).ThenInclude(a => a.MusicalVersions)
+			.FirstOrDefaultAsync(s => s.Id == id, token);
+
+	private static object SongDetail(Song song) => new
+	{
+		id = song.Id,
+		title = song.Title,
+		composer = song.Composer,
+		lyricist = song.Lyricist,
+		published = song.PublishedAt is not null,
+		publishedAt = song.PublishedAt,
+		createdAt = song.CreatedAt,
+		updatedAt = song.UpdatedAt,
+		arrangements = song.Arrangements.OrderBy(a => a.Id).Select(a => new
+		{
+			id = a.Id,
+			label = a.Label,
+			arranger = a.Arranger,
+			musicalVersions = a.MusicalVersions.OrderBy(v => v.Id).Select(v => new
+			{
+				id = v.Id,
+				label = v.Label,
+				creator = v.Creator,
+			}),
+		}),
+	};
+
+	private static bool TryValidateTitle(string? raw, out string title, out IResult? error)
+	{
+		var title_ = (raw ?? string.Empty).Trim();
+		if (title_.Length == 0)
+		{
+			title = string.Empty;
+			error = Results.Problem(statusCode: 400, title: "Der Titel ist erforderlich.");
+			return false;
+		}
+		if (title_.Length > 200)
+		{
+			title = string.Empty;
+			error = Results.Problem(statusCode: 400, title: "Der Titel ist zu lang.");
+			return false;
+		}
+		title = title_;
+		error = null;
+		return true;
+	}
+
+	private static string? CleanOptional(string? raw, string tooLongTitle, out IResult? error)
+	{
+		error = null;
+		var trimmed = raw?.Trim();
+		if (trimmed is { Length: > 200 })
+		{
+			error = Results.Problem(statusCode: 400, title: tooLongTitle);
+			return null;
+		}
+		return string.IsNullOrEmpty(trimmed) ? null : trimmed;
+	}
+
+	private static string? PatchOptional(string? raw, string tooLongTitle, out IResult? error)
+		=> CleanOptional(raw, tooLongTitle, out error);
+
+	private static async Task<(ArchiveAccessDecision? Decision, IResult? Error)> RequireMemberAsync(
+		HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access)
+	{
+		// Cookie presence first for a useful signed-out state: revoked or
+		// signed-out callers have no principal and get 401.
+		if (accessor.Current is null)
+			return (null, Results.Problem(statusCode: 401, title: "Anmeldung erforderlich."));
+		var decision = await access.GetDecisionAsync(context.User);
+		if (decision is null || !decision.IsActive)
+			return (null, Results.Problem(statusCode: 401, title: "Anmeldung erforderlich."));
+		return (decision, null);
+	}
+
+	private static async Task<(ArchiveAccessDecision? Decision, IResult? Error)> RequireEditorAsync(
+		HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access)
+	{
+		if (accessor.Current is null)
+			return (null, Results.Problem(statusCode: 401, title: "Anmeldung erforderlich."));
+		var decision = await access.GetDecisionAsync(context.User);
+		if (decision is null || !decision.IsActive)
+			return (null, Results.Problem(statusCode: 401, title: "Anmeldung erforderlich."));
+		if (!IsEditor(decision))
+			return (null, Results.Problem(statusCode: 403, title: ForbiddenMessage));
+		return (decision, null);
+	}
+
+	private sealed record SongSummary(Guid Id, string Title, string? Composer, string? Lyricist, DateTimeOffset? PublishedAt);
+}

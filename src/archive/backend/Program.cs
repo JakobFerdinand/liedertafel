@@ -1,6 +1,7 @@
 using System.Diagnostics.Metrics;
 using System.Reflection;
 using Archive.Backend.Auth;
+using Archive.Backend.Catalogue;
 using Archive.Backend.Data;
 using Archive.Backend.Development;
 using Archive.Backend.Maintenance;
@@ -142,6 +143,7 @@ app.MapMaintenanceEndpoints();
 app.MapAuthEndpoints();
 app.MapPasskeyEndpoints();
 app.MapMemberAdminEndpoints();
+app.MapCatalogueEndpoints();
 app.MapDevelopmentDiagnostics();
 
 // A specific fallback reserves the entire API namespace, including missing files.
