@@ -36,14 +36,13 @@ name: Archive
 # - push to main: automatically, when image-affecting files changed
 #   (`src/archive/**` or `global.json`); test- or docs-only pushes skip it.
 # - workflow_dispatch: always (the manual release path).
-# Every release — automatic or manual — waits for approval in the
-# `archive-prod` environment before anything is pushed or deployed, so no
-# merge reaches production without a maintainer review. Building the image
-# earlier in the check job is deliberate: the approved release deploys the
-# byte-identical image that passed the full suite, not a later rebuild.
+# Releases run without a manual approval gate; the `archive-prod` environment
+# restricts them to the protected `main` branch. Building the image earlier
+# in the check job is deliberate: the release deploys the byte-identical
+# image that passed the full suite, not a later rebuild.
 #
 # Required repo configuration (maintainer, one-off):
-# - Environment `archive-prod` with required reviewers.
+# - Environment `archive-prod` (branch policy on main, no required reviewers).
 # - Secrets AZURE_CLIENT_ID_ARCHIVE / AZURE_TENANT_ID_ARCHIVE /
 #   AZURE_SUBSCRIPTION_ID_ARCHIVE (sp-liedertafel-archive-iac OIDC),
 #   GHCR_PULL_PAT_ARCHIVE (fine-grained PAT, packages:read) for the
@@ -324,7 +323,7 @@ jobs:
             --name archive-migrations-connection \
             --query value -o tsv)
           if [ -z "$MIGRATOR" ]; then
-            echo "::error::Key Vault secret archive-migrations-connection is missing. The maintainer places the per-window migration credential before approving; see infrastructure/archive/README.md."
+            echo "::error::Key Vault secret archive-migrations-connection is missing. The maintainer places the per-window migration credential before starting a migration release; see infrastructure/archive/README.md."
             exit 1
           fi
           echo "::add-mask::$MIGRATOR"

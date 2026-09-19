@@ -39,7 +39,8 @@ preview, destructive-change guard, image pass-through).
    (or group `Owner`). Then run `infra-deploy-archive.yml` once via
    `workflow_dispatch`    (placeholder image) — then immediately run
    `archive.yml` (workflow_dispatch).
-3. Repo settings: environment `archive-prod` with required reviewers; secrets
+3. Repo settings: environment `archive-prod` (branch policy on main, no
+   required reviewers); secrets
    `AZURE_CLIENT_ID_ARCHIVE` / `AZURE_TENANT_ID_ARCHIVE` /
    `AZURE_SUBSCRIPTION_ID_ARCHIVE` plus `GHCR_PULL_PAT_ARCHIVE`.
 4. DNS at World4You (recheck before changing; preserve unrelated TXT):
@@ -58,8 +59,8 @@ preview, destructive-change guard, image pass-through).
 
 - Release: merges to `main` touching `src/archive/**` or `global.json` run
   `archive.yml` automatically; or run it via `workflow_dispatch` (input
-  `version`). The check runs first, then the release job — approve in
-  `archive-prod` and keep the digest from the run summary.
+  `version`). The check runs first, then the release job runs without an
+  approval gate — keep the digest from the run summary.
 - Infrastructure change: normal PR; what-if comment appears; merge deploys.
   The workflow preserves the deployed image — verify the digest in
   `/api/build` afterwards.
@@ -75,9 +76,9 @@ preview, destructive-change guard, image pass-through).
 - Renewal: create a new PAT, update the secret, re-run the infra workflow
   (rotates the Container Apps registry secret; running revision unaffected
   until the next release, which pulls with the new credential).
-- Second maintainer path: approve the `archive-prod` run, pick the digest
-   from the previous run summary (or `gh run list --workflow archive.yml`),
-  follow this file; no Azure portal rights beyond Reader are needed.
+- Second maintainer path: pick the digest from the latest `archive-prod` run
+   (or `gh run list --workflow archive.yml`),
+   follow this file; no Azure portal rights beyond Reader are needed.
 
 ## Handoff outputs (for ARC-011/012)
 
@@ -270,7 +271,7 @@ window; push-triggered runs always migrate.
    none`). Only the `archive_runtime` connection persists; this secret is
    discarded after the window.
 3. Run `archive.yml` (`workflow_dispatch`, inputs `version` plus
-   `run_migration=true`) and approve in `archive-prod`. The workflow then:
+   `run_migration=true`). The workflow then:
    enters maintenance (`Archive__MaintenanceMode=true`, members see the
    German banner/`/wartung/`, conflicting API work answers 503), runs the
    selected image's `--migrate` exactly once with the migration role,
