@@ -19,15 +19,17 @@ German maintenance state and conflicting writes/jobs remain paused.
 
 ## Acceptance criteria
 
-- [ ] Serialize releases and enter a shared maintenance state before migrations;
+- [x] Serialize releases and enter a shared maintenance state before migrations;
   expose a contract that future jobs must honor before conflicting work.
 - [ ] Run the selected image's reviewed migration exactly once through restricted
-  tooling, never on ordinary container startup.
-- [ ] Keep maintenance active on failure, record actionable diagnostics, and
+  tooling, never on ordinary container startup. *(Implemented and rehearsed
+  locally; the actual restricted run happens with the first live release.)*
+- [x] Keep maintenance active on failure, record actionable diagnostics, and
   require inspected fix-forward handling before retry/reopening.
 - [ ] Deploy matching app/job versions and perform targeted smoke checks before
   opening access. Define when a previous image remains schema-compatible.
-- [ ] Document the operator sequence, credentials, failure handling, and code-only
+  *(Workflow and compatibility rule in place; live smoke pass pending.)*
+- [x] Document the operator sequence, credentials, failure handling, and code-only
   rollback. Add no database restore/export or backup job.
 
 ## Verification
