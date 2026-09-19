@@ -19,6 +19,7 @@ export type LiedAsset = {
   id: string;
   assetType: string;
   voiceLabel: string | null;
+  description: string | null;
   currentRevision: LiedRevision | null;
 };
 

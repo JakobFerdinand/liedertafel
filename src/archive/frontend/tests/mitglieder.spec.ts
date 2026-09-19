@@ -489,6 +489,7 @@ test("Vollständiger Einladungsfluss mit E-Mail-Code", async ({
       )
       ?.value.split(";")[0] ?? "";
   expect(sessionCookie).toContain("archive.auth=");
+  await page.goto("/");
   const basis = new URL(page.url().split("/").slice(0, 3).join("/"));
   await context.addCookies([
     {
@@ -512,7 +513,7 @@ test("Vollständiger Einladungsfluss mit E-Mail-Code", async ({
   await page.getByLabel("Rolle", { exact: true }).selectOption("Member");
   await page.getByRole("button", { name: "Einladung senden" }).click();
   await expect(page.getByText("Einladung erstellt")).toBeVisible();
-  await expect(page.getByText(neueAdresse)).toBeVisible();
+  await expect(page.getByRole("cell", { name: neueAdresse })).toBeVisible();
 
   // Einladungsmail im lokalen Postfach prüfen (Annahme, keine Zustellgarantie).
   let einladungGefunden = false;

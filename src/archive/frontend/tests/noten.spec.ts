@@ -147,7 +147,7 @@ test("Mitglied sieht Noten und kann sie anzeigen und herunterladen", async ({
   await expect(page.getByText("Noten hochladen")).toHaveCount(0);
 
   await page.getByRole("button", { name: "Noten anzeigen" }).click();
-  const rahmen = page.locator("iframe[title='Noten (PDF)']");
+  const rahmen = page.locator("iframe[title^='Noten (PDF)']");
   await expect(rahmen).toBeVisible();
   await expect(rahmen).toHaveAttribute("src", viewUrl);
   const laden = page.getByRole("link", { name: "Herunterladen" });
@@ -238,11 +238,11 @@ test("Redaktion lädt Noten hoch; Reihenfolge und Übertragung stimmen", async (
 
   await page.goto(`/lied/?id=${songId}`);
   await expect(
-    page.getByRole("button", { name: "Noten hochladen" }),
+    page.getByRole("button", { name: "Material hochladen" }),
   ).toBeVisible();
 
   const wahl = page.waitForEvent("filechooser");
-  await page.getByRole("button", { name: "Noten hochladen" }).click();
+  await page.getByRole("button", { name: "Material hochladen" }).click();
   const chooser = await wahl;
   await chooser.setFiles({
     name: "noten.pdf",
@@ -250,12 +250,13 @@ test("Redaktion lädt Noten hoch; Reihenfolge und Übertragung stimmen", async (
     buffer: Buffer.from("%PDF-1.4 wandern"),
   });
 
-  await expect(page.getByText("Noten veröffentlicht.")).toBeVisible();
+  await page.getByRole("button", { name: "Material übertragen" }).click();
+  await expect(page.getByText("1 von 1 Dateien gespeichert.")).toBeVisible();
   await expect(
     page.getByText("Noten · Fassung 1 · 0,4 MB · PDF"),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Neue Fassung hochladen" }),
+    page.getByRole("button", { name: "Material hochladen" }),
   ).toBeVisible();
   expect(schritte).toEqual([
     "asset",
@@ -273,6 +274,9 @@ test("Zu große Dateien werden nicht übertragen", async ({ page }) => {
   await mockSitzung(page, editorMe);
   await page.route(`**/api/songs/${songId}`, (route) =>
     route.fulfill(json(detail([leeresAsset]))),
+  );
+  await page.route(`**/api/assets/${assetId}`, (route) =>
+    route.fulfill(json({ ...asset, currentRevision: null })),
   );
   await page.route(`**/api/assets/${assetId}/upload-session`, (route) =>
     route.fulfill(
@@ -299,6 +303,7 @@ test("Zu große Dateien werden nicht übertragen", async ({ page }) => {
     mimeType: "application/pdf",
     buffer: Buffer.from("%PDF-1.4 viel zu große Notendatei"),
   });
+  await page.getByRole("button", { name: "Material übertragen" }).click();
   await expect(page.getByText("Die Datei ist zu groß.")).toBeVisible();
   expect(uebertragen).toBe(0);
 
@@ -313,6 +318,9 @@ test("Fehlgeschlagener Abschluss zeigt eine verständliche Meldung", async ({
   await mockSitzung(page, editorMe);
   await page.route(`**/api/songs/${songId}`, (route) =>
     route.fulfill(json(detail([leeresAsset]))),
+  );
+  await page.route(`**/api/assets/${assetId}`, (route) =>
+    route.fulfill(json({ ...asset, currentRevision: null })),
   );
   await page.route(`**/api/assets/${assetId}/upload-session`, (route) =>
     route.fulfill(
@@ -338,6 +346,7 @@ test("Fehlgeschlagener Abschluss zeigt eine verständliche Meldung", async ({
     mimeType: "application/pdf",
     buffer: Buffer.from("%PDF-1.4 wandern"),
   });
+  await page.getByRole("button", { name: "Material übertragen" }).click();
   await expect(
     page.getByText("Die Datei ist kein gültiges PDF."),
   ).toBeVisible();
