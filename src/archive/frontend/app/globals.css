@@ -408,6 +408,24 @@ dd {
   color: var(--paper);
   border-color: var(--brand);
 }
+.lied-fassungen {
+  margin-top: 2.5rem;
+}
+.lied-fassungen h3 {
+  margin-block: 1.4rem 0;
+}
+.lied-fassung-block {
+  border-top: 1px solid var(--wash);
+  padding-block: 0.8rem;
+}
+.lied-fassung-block:first-of-type {
+  border-top: 0;
+  padding-block-start: 0;
+}
+.lied-fassung-titel {
+  font-weight: 600;
+  margin-block: 0 0.4rem;
+}
 .auth-zeile {
   display: inline-flex;
   align-items: center;

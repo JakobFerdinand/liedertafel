@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { FassungsFormular } from "@/components/fassungs-formular";
 import { FassungsWahl } from "@/components/fassungs-wahl";
 import { LiedFormular } from "@/components/lied-formular";
 import { fetchMe, type MeResponse, postAuth } from "@/lib/auth";
@@ -45,6 +46,12 @@ export function LiedDetail() {
   const [hinweis, setHinweis] = useState("");
   const [erfolg, setErfolg] = useState("");
   const [aktionBusy, setAktionBusy] = useState("");
+  const [arrangementBearbeitet, setArrangementBearbeitet] = useState<
+    string | null
+  >(null);
+  const [fassungHinzufuegen, setFassungHinzufuegen] = useState<string | null>(
+    null,
+  );
   const [versuch, setVersuch] = useState(0);
 
   const editor =
@@ -174,6 +181,12 @@ export function LiedDetail() {
 
   const auswahl = bestimmeFassung(lied, fassungParameter, versionParameter);
 
+  function gesichertSpeichern(gespeichert: LiedDetails, meldung: string) {
+    setLied(gespeichert);
+    setErfolg(meldung);
+    setHinweis("");
+  }
+
   return (
     <div>
       <article className="lied-ansicht">
@@ -206,6 +219,92 @@ export function LiedDetail() {
           )
         )}
       </article>
+
+      {editor && (
+        <section
+          className="auth-karte lied-fassungen"
+          aria-labelledby="lied-fassungen-titel"
+        >
+          <h2 id="lied-fassungen-titel">Fassungen pflegen</h2>
+          {lied.arrangements.map((arrangement) => (
+            <div key={arrangement.id} className="lied-fassung-block">
+              <p className="lied-fassung-titel">{arrangement.label}</p>
+              <div className="lieder-aktionen">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setArrangementBearbeitet(
+                      arrangementBearbeitet === arrangement.id
+                        ? null
+                        : arrangement.id,
+                    );
+                    setFassungHinzufuegen(null);
+                  }}
+                >
+                  {arrangementBearbeitet === arrangement.id
+                    ? "Bearbeiten schließen"
+                    : "Arrangement bearbeiten"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFassungHinzufuegen(
+                      fassungHinzufuegen === arrangement.id
+                        ? null
+                        : arrangement.id,
+                    );
+                    setArrangementBearbeitet(null);
+                  }}
+                >
+                  {fassungHinzufuegen === arrangement.id
+                    ? "Hinzufügen schließen"
+                    : "Fassung hinzufügen"}
+                </button>
+              </div>
+              {arrangementBearbeitet === arrangement.id && (
+                <FassungsFormular
+                  variante="arrangement"
+                  methode="patch"
+                  pfad={`/api/arrangements/${encodeURIComponent(arrangement.id)}`}
+                  idPraefix={`arrangement-${arrangement.id}`}
+                  absendenText="Arrangement speichern"
+                  anfang={{
+                    label: arrangement.label,
+                    person: arrangement.arranger ?? "",
+                    zusatz: arrangement.voiceConfiguration ?? "",
+                  }}
+                  onSuccess={(gespeichert, meldung) => {
+                    gesichertSpeichern(gespeichert, meldung);
+                    setArrangementBearbeitet(null);
+                  }}
+                />
+              )}
+              {fassungHinzufuegen === arrangement.id && (
+                <FassungsFormular
+                  variante="version"
+                  methode="post"
+                  pfad={`/api/arrangements/${encodeURIComponent(arrangement.id)}/versions`}
+                  idPraefix={`fassung-${arrangement.id}`}
+                  absendenText="Fassung anlegen"
+                  onSuccess={(gespeichert, meldung) => {
+                    gesichertSpeichern(gespeichert, meldung);
+                    setFassungHinzufuegen(null);
+                  }}
+                />
+              )}
+            </div>
+          ))}
+          <h3>Neues Arrangement</h3>
+          <FassungsFormular
+            variante="arrangement"
+            methode="post"
+            pfad={`/api/songs/${encodeURIComponent(lied.id)}/arrangements`}
+            idPraefix="neues-arrangement"
+            absendenText="Arrangement anlegen"
+            onSuccess={gesichertSpeichern}
+          />
+        </section>
+      )}
 
       {editor && (
         <section className="auth-karte" aria-labelledby="lied-bearbeiten-titel">
