@@ -70,7 +70,7 @@ Design decisions:
 
 - [x] Slice 1: backend audio/midi types + per-type validation
 - [x] Slice 2: description + metadata edit endpoint + song detail embedding
-- [ ] Slice 3: partial-success guarantee test
-- [ ] Slice 4: frontend batch upload + grouped material list
+- [x] Slice 3: partial-success guarantee test
+- [x] Slice 4: frontend batch upload + grouped material list
 - [ ] Slice 5: apphost mixed-batch integration test
 - [ ] Final verification + documentation
