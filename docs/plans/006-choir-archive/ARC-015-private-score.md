@@ -19,11 +19,11 @@ downloads that score from its arrangement page through authorized file access.
 
 ## Acceptance criteria
 
-- [ ] Introduce a logical asset, immutable file-revision ID and current-revision
+- [x] Introduce a logical asset, immutable file-revision ID and current-revision
   pointer, linked to the specific musical version rather than only the song.
-- [ ] Create a pending upload session, transfer directly to private Blob storage,
+- [x] Create a pending upload session, transfer directly to private Blob storage,
   and validate object size/type/ownership before idempotent finalization.
-- [ ] Implement the provider-backed storage/ticket adapter with Aspire-managed
+- [x] Implement the provider-backed storage/ticket adapter with Aspire-managed
   Azurite/reference injection and production identity configuration points;
   start with a bounded small PDF and trace safe dependency operations to Aspire.
 - [ ] Read/download through scoped 15-minute tickets after visibility/membership
