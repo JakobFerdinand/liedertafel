@@ -220,6 +220,29 @@ the AppHost pins the Azurite blob host port to the container port
 Integration tests must pass `DcpPublisher:RandomizePorts=false` for the pin to
 apply (testing mode randomizes proxied ports by default).
 
+## ARC-016 labelled voice file batches
+
+Batch uploads ride the unchanged ARC-015 three-step protocol, one independent
+upload session per file. Asset types expand to `score`, `audio` and `midi`
+with a per-type content-type whitelist
+(`backend/Assets/AssetEndpoints.cs`): finalize validates type-conditionally —
+score keeps the `%PDF-` magic-byte check, audio/MIDI check only the
+whitelisted content types. Each asset additionally carries an optional
+`Description` (≤ 500 chars, explicit migration `ArchiveAssetDescription`) and
+the free-text `VoiceLabel`; editors edit these plus the asset type through
+`PATCH /api/assets/{id}`, which requires the editor role and the creating
+editor's ownership and locks the type once a current revision exists.
+Song detail embeds `description` next to type/voice for every asset; pending
+items expose no tickets.
+
+The editor UI (`components/noten-bereich.tsx`) selects multiple files into an
+editable batch list (type, voice suggestions from the arrangement's voice
+configuration plus "Vollmix", description) and transfers with bounded
+concurrency (2 parallel workers), per-file status and per-file retry that
+reuses the created asset — a failed file never duplicates or rolls back
+successful ones. Published materials are listed grouped by type and voice;
+audio/MIDI offer authorized downloads until ARC-018/019 add players.
+
 ## Focused verification
 
 From the repository root:
