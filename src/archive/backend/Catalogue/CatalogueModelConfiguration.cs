@@ -24,6 +24,7 @@ public sealed class CatalogueModelConfiguration
 		builder.HasKey(x => x.Id);
 		builder.Property(x => x.Label).HasMaxLength(200).IsRequired();
 		builder.Property(x => x.Arranger).HasMaxLength(200);
+		builder.Property(x => x.VoiceConfiguration).HasMaxLength(200);
 		builder.HasOne(x => x.Song)
 			.WithMany(s => s.Arrangements)
 			.HasForeignKey(x => x.SongId)
@@ -37,6 +38,7 @@ public sealed class CatalogueModelConfiguration
 		builder.HasKey(x => x.Id);
 		builder.Property(x => x.Label).HasMaxLength(200).IsRequired();
 		builder.Property(x => x.Creator).HasMaxLength(200);
+		builder.Property(x => x.MusicalKey).HasMaxLength(200);
 		builder.HasOne(x => x.Arrangement)
 			.WithMany(a => a.MusicalVersions)
 			.HasForeignKey(x => x.ArrangementId)

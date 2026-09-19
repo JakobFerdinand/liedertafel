@@ -16,6 +16,8 @@ public sealed class MusicalVersion
 
 	public string? Creator { get; set; }
 
+	public string? MusicalKey { get; set; }
+
 	public DateTimeOffset CreatedAt { get; set; }
 
 	public Guid CreatedByAccountId { get; set; }

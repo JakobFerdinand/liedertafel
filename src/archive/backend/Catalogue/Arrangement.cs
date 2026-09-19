@@ -16,6 +16,8 @@ public sealed class Arrangement
 
 	public string? Arranger { get; set; }
 
+	public string? VoiceConfiguration { get; set; }
+
 	public DateTimeOffset CreatedAt { get; set; }
 
 	public Guid CreatedByAccountId { get; set; }
