@@ -1,6 +1,6 @@
 ---
 id: ARC-016
-status: planned
+status: in-progress
 phase: core
 kind: slice
 depends_on: ["ARC-015"]
@@ -39,3 +39,38 @@ unauthorized type/owner changes through the API.
 ARC-018/019 consume the labelled material list and ticket endpoint. ARC-017 may
 improve the transfer engine concurrently; agree on stable upload-session/status
 contracts rather than sharing ad hoc component state.
+
+## Progress
+
+Branch: `feat/arc-016-voice-file-batches`.
+
+TDD seams agreed with the user:
+
+- Backend HTTP API (`tests/archive/backend/AssetApiTests.cs`, EF InMemory +
+  `FakeAssetStorage`): audio/midi asset types with per-type content-type
+  whitelists and finalize validation; `Description` field + `PATCH
+  /api/assets/{id}` metadata edits with editor/owner checks; per-file
+  independent sessions guarantee partial success; song detail embeds labelled
+  materials.
+- Frontend Playwright (`src/archive/frontend/tests`, route mocks): batch
+  upload with per-file status, bounded concurrency, retry of a rejected file,
+  grouped material list by type and voice, unauthorized metadata edits.
+- AppHost integration test: mixed batch (PDF + audio + MIDI) through real
+  Azurite with labels/ownership after reload.
+
+Design decisions:
+
+- Asset types: `score` (existing), `audio`, `midi`. Type-based content-type
+  whitelist: audio accepts `audio/mpeg`, `audio/mp4`, `audio/x-m4a`, `audio/wav`,
+  `audio/ogg`; midi accepts `audio/midi` and `audio/x-midi`. Size cap reused
+  from `Archive:Assets:MaxUploadBytes`. Magic-byte check stays PDF-only.
+- Voice labels: backend keeps free text (`VoiceLabel`); the UI offers
+  suggestions parsed from the arrangement's `VoiceConfiguration` plus a
+  "Vollmix" option — no fixed SATB list.
+
+- [x] Slice 1: backend audio/midi types + per-type validation
+- [ ] Slice 2: description + metadata edit endpoint + song detail embedding
+- [ ] Slice 3: partial-success guarantee test
+- [ ] Slice 4: frontend batch upload + grouped material list
+- [ ] Slice 5: apphost mixed-batch integration test
+- [ ] Final verification + documentation
