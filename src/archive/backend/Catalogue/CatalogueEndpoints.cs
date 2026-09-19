@@ -9,6 +9,14 @@ public sealed record CreateSongRequest(string? Title, string? Composer, string? 
 
 public sealed record PatchSongRequest(string? Title, string? Composer, string? Lyricist);
 
+public sealed record CreateArrangementRequest(string? Label, string? Arranger, string? VoiceConfiguration);
+
+public sealed record PatchArrangementRequest(string? Label, string? Arranger, string? VoiceConfiguration);
+
+public sealed record CreateMusicalVersionRequest(string? Label, string? Creator, string? MusicalKey);
+
+public sealed record PatchMusicalVersionRequest(string? Label, string? Creator, string? MusicalKey);
+
 /// <summary>
 /// Member catalogue API (ARC-013). Reads use the shared database decision:
 /// an active member sees published songs, editors/administrators also see
@@ -25,6 +33,8 @@ public static class CatalogueEndpoints
 	public const string ConcurrencyMessage = "Der Eintrag wurde zwischenzeitlich geändert.";
 
 	public const string NotFoundMessage = "Das Lied wurde nicht gefunden.";
+
+	public const string ArrangementNotFoundMessage = "Die Fassung wurde nicht gefunden.";
 
 	public const string DefaultLabel = "Standardfassung";
 
@@ -229,6 +239,200 @@ public static class CatalogueEndpoints
 			}
 			return Results.Ok(new { song = SongDetail((await LoadDetailAsync(db, id, token))!) });
 		}).DisableAntiforgery();
+
+		app.MapPost("/api/songs/{id}/arrangements", async (
+			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
+			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time, Guid id, CancellationToken token,
+			CreateArrangementRequest? body) =>
+		{
+			try { await antiforgery.ValidateRequestAsync(context); }
+			catch (AntiforgeryValidationException)
+			{
+				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
+			}
+			context.Response.Headers.CacheControl = "no-store";
+			var (decision, error) = await RequireEditorAsync(context, accessor, access);
+			if (error is not null)
+				return error;
+			if (!TryValidateLabel(body?.Label, out var label, out var labelError))
+				return labelError;
+			var arranger = CleanOptional(body?.Arranger, "Der Arrangeur ist zu lang.", out var arrangerError);
+			if (arrangerError is not null)
+				return arrangerError;
+			var voiceConfiguration = CleanOptional(body?.VoiceConfiguration, "Die Stimmverteilung ist zu lang.", out var voiceError);
+			if (voiceError is not null)
+				return voiceError;
+			var song = await db.Songs.FirstOrDefaultAsync(s => s.Id == id, token);
+			if (song is null)
+				return Results.Problem(statusCode: 404, title: NotFoundMessage);
+			var now = time.GetUtcNow();
+			song.Arrangements.Add(new Arrangement
+			{
+				Song = song,
+				Label = label,
+				Arranger = arranger,
+				VoiceConfiguration = voiceConfiguration,
+				CreatedAt = now,
+				CreatedByAccountId = decision!.AccountId,
+			});
+			song.UpdatedAt = now;
+			song.UpdatedByAccountId = decision.AccountId;
+			song.RowVersion++;
+			try
+			{
+				await db.SaveChangesAsync(token);
+			}
+			catch (DbUpdateConcurrencyException)
+			{
+				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
+			}
+			return Results.Created($"/api/songs/{song.Id}", new { song = SongDetail((await LoadDetailAsync(db, song.Id, token))!) });
+		}).DisableAntiforgery();
+
+		app.MapPatch("/api/arrangements/{id}", async (
+			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
+			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time, Guid id, CancellationToken token,
+			PatchArrangementRequest? body) =>
+		{
+			try { await antiforgery.ValidateRequestAsync(context); }
+			catch (AntiforgeryValidationException)
+			{
+				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
+			}
+			context.Response.Headers.CacheControl = "no-store";
+			var (decision, error) = await RequireEditorAsync(context, accessor, access);
+			if (error is not null)
+				return error;
+			if (body?.Label is not null && !TryValidateLabel(body.Label, out _, out var labelError))
+				return labelError;
+			var arranger = PatchOptional(body?.Arranger, "Der Arrangeur ist zu lang.", out var arrangerError);
+			if (arrangerError is not null)
+				return arrangerError;
+			var voiceConfiguration = PatchOptional(body?.VoiceConfiguration, "Die Stimmverteilung ist zu lang.", out var voiceError);
+			if (voiceError is not null)
+				return voiceError;
+			var arrangement = await db.Arrangements.Include(a => a.Song)
+				.FirstOrDefaultAsync(a => a.Id == id, token);
+			if (arrangement is null || arrangement.Song is null)
+				return Results.Problem(statusCode: 404, title: ArrangementNotFoundMessage);
+			if (body?.Label is not null)
+				arrangement.Label = body.Label.Trim();
+			if (body?.Arranger is not null)
+				arrangement.Arranger = arranger;
+			if (body?.VoiceConfiguration is not null)
+				arrangement.VoiceConfiguration = voiceConfiguration;
+			var now = time.GetUtcNow();
+			arrangement.Song.UpdatedAt = now;
+			arrangement.Song.UpdatedByAccountId = decision!.AccountId;
+			arrangement.Song.RowVersion++;
+			try
+			{
+				await db.SaveChangesAsync(token);
+			}
+			catch (DbUpdateConcurrencyException)
+			{
+				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
+			}
+			return Results.Ok(new { song = SongDetail((await LoadDetailAsync(db, arrangement.Song.Id, token))!) });
+		}).DisableAntiforgery();
+
+		app.MapPost("/api/arrangements/{id}/versions", async (
+			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
+			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time, Guid id, CancellationToken token,
+			CreateMusicalVersionRequest? body) =>
+		{
+			try { await antiforgery.ValidateRequestAsync(context); }
+			catch (AntiforgeryValidationException)
+			{
+				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
+			}
+			context.Response.Headers.CacheControl = "no-store";
+			var (decision, error) = await RequireEditorAsync(context, accessor, access);
+			if (error is not null)
+				return error;
+			if (!TryValidateLabel(body?.Label, out var label, out var labelError))
+				return labelError;
+			var creator = CleanOptional(body?.Creator, "Der Ersteller ist zu lang.", out var creatorError);
+			if (creatorError is not null)
+				return creatorError;
+			var musicalKey = CleanOptional(body?.MusicalKey, "Die Tonart ist zu lang.", out var keyError);
+			if (keyError is not null)
+				return keyError;
+			var arrangement = await db.Arrangements.Include(a => a.Song)
+				.FirstOrDefaultAsync(a => a.Id == id, token);
+			if (arrangement is null || arrangement.Song is null)
+				return Results.Problem(statusCode: 404, title: ArrangementNotFoundMessage);
+			var now = time.GetUtcNow();
+			arrangement.MusicalVersions.Add(new MusicalVersion
+			{
+				Arrangement = arrangement,
+				Label = label,
+				Creator = creator,
+				MusicalKey = musicalKey,
+				CreatedAt = now,
+				CreatedByAccountId = decision!.AccountId,
+			});
+			arrangement.Song.UpdatedAt = now;
+			arrangement.Song.UpdatedByAccountId = decision.AccountId;
+			arrangement.Song.RowVersion++;
+			try
+			{
+				await db.SaveChangesAsync(token);
+			}
+			catch (DbUpdateConcurrencyException)
+			{
+				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
+			}
+			return Results.Created($"/api/songs/{arrangement.Song.Id}", new { song = SongDetail((await LoadDetailAsync(db, arrangement.Song.Id, token))!) });
+		}).DisableAntiforgery();
+
+		app.MapPatch("/api/musical-versions/{id}", async (
+			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
+			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time, Guid id, CancellationToken token,
+			PatchMusicalVersionRequest? body) =>
+		{
+			try { await antiforgery.ValidateRequestAsync(context); }
+			catch (AntiforgeryValidationException)
+			{
+				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
+			}
+			context.Response.Headers.CacheControl = "no-store";
+			var (decision, error) = await RequireEditorAsync(context, accessor, access);
+			if (error is not null)
+				return error;
+			if (body?.Label is not null && !TryValidateLabel(body.Label, out _, out var labelError))
+				return labelError;
+			var creator = PatchOptional(body?.Creator, "Der Ersteller ist zu lang.", out var creatorError);
+			if (creatorError is not null)
+				return creatorError;
+			var musicalKey = PatchOptional(body?.MusicalKey, "Die Tonart ist zu lang.", out var keyError);
+			if (keyError is not null)
+				return keyError;
+			var version = await db.MusicalVersions
+				.Include(v => v.Arrangement).ThenInclude(a => a.Song)
+				.FirstOrDefaultAsync(v => v.Id == id, token);
+			if (version is null || version.Arrangement?.Song is null)
+				return Results.Problem(statusCode: 404, title: ArrangementNotFoundMessage);
+			if (body?.Label is not null)
+				version.Label = body.Label.Trim();
+			if (body?.Creator is not null)
+				version.Creator = creator;
+			if (body?.MusicalKey is not null)
+				version.MusicalKey = musicalKey;
+			var now = time.GetUtcNow();
+			version.Arrangement.Song.UpdatedAt = now;
+			version.Arrangement.Song.UpdatedByAccountId = decision!.AccountId;
+			version.Arrangement.Song.RowVersion++;
+			try
+			{
+				await db.SaveChangesAsync(token);
+			}
+			catch (DbUpdateConcurrencyException)
+			{
+				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
+			}
+			return Results.Ok(new { song = SongDetail((await LoadDetailAsync(db, version.Arrangement.Song.Id, token))!) });
+		}).DisableAntiforgery();
 	}
 
 	private static IQueryable<Song> QueryVisible(IQueryable<Song> songs, bool isEditor)
@@ -257,11 +461,13 @@ public static class CatalogueEndpoints
 			id = a.Id,
 			label = a.Label,
 			arranger = a.Arranger,
+			voiceConfiguration = a.VoiceConfiguration,
 			musicalVersions = a.MusicalVersions.OrderBy(v => v.Id).Select(v => new
 			{
 				id = v.Id,
 				label = v.Label,
 				creator = v.Creator,
+				musicalKey = v.MusicalKey,
 			}),
 		}),
 	};
@@ -282,6 +488,26 @@ public static class CatalogueEndpoints
 			return false;
 		}
 		title = title_;
+		error = null;
+		return true;
+	}
+
+	private static bool TryValidateLabel(string? raw, out string label, out IResult? error)
+	{
+		var label_ = (raw ?? string.Empty).Trim();
+		if (label_.Length == 0)
+		{
+			label = string.Empty;
+			error = Results.Problem(statusCode: 400, title: "Das Label ist erforderlich.");
+			return false;
+		}
+		if (label_.Length > 200)
+		{
+			label = string.Empty;
+			error = Results.Problem(statusCode: 400, title: "Das Label ist zu lang.");
+			return false;
+		}
+		label = label_;
 		error = null;
 		return true;
 	}
