@@ -79,7 +79,12 @@ public static class CatalogueEndpoints
 				.FirstOrDefaultAsync(s => s.Id == id, token);
 			if (song is null || (!isEditor && !CatalogueVisibility.IsMemberVisible(song)))
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
-			return Results.Ok(new { song = SongDetail(song) });
+			var versionIds = song.Arrangements
+				.SelectMany(a => a.MusicalVersions)
+				.Select(v => v.Id)
+				.ToList();
+			var versionAssets = await LoadVersionAssetsAsync(db, versionIds, token);
+			return Results.Ok(new { song = SongDetail(song, versionAssets) });
 		});
 
 		app.MapPost("/api/songs", async (
@@ -448,31 +453,76 @@ public static class CatalogueEndpoints
 			.Include(s => s.Arrangements).ThenInclude(a => a.MusicalVersions)
 			.FirstOrDefaultAsync(s => s.Id == id, token);
 
-	private static object SongDetail(Song song) => new
+	/// <summary>
+	/// Loads the per-version asset summaries (ARC-015) for a song detail
+	/// payload: only current revisions are exposed, pending or older revisions
+	/// never appear (revision history inspection is ARC-031).
+	/// </summary>
+	public static async Task<List<(Guid VersionId, List<object> Assets)>> LoadVersionAssetsAsync(
+		ArchiveDbContext db, IReadOnlyCollection<Guid> versionIds, CancellationToken token)
 	{
-		id = song.Id,
-		title = song.Title,
-		composer = song.Composer,
-		lyricist = song.Lyricist,
-		published = song.PublishedAt is not null,
-		publishedAt = song.PublishedAt,
-		createdAt = song.CreatedAt,
-		updatedAt = song.UpdatedAt,
-		arrangements = song.Arrangements.OrderBy(a => a.Id).Select(a => new
+		if (versionIds.Count == 0)
+			return [];
+		var assets = await db.Assets.AsNoTracking()
+			.Include(a => a.CurrentRevision)
+			.Where(a => versionIds.Contains(a.MusicalVersionId))
+			.OrderBy(a => a.Id)
+			.ToListAsync(token);
+		return assets
+			.GroupBy(a => a.MusicalVersionId)
+			.Select(group => (group.Key, group
+				.Select(a => (object)new
+				{
+					id = a.Id,
+					assetType = a.AssetType,
+					voiceLabel = a.VoiceLabel,
+					currentRevision = a.CurrentRevision is null
+						? null
+						: (object)new
+						{
+							revisionId = a.CurrentRevision.Id,
+							revisionNumber = a.CurrentRevision.RevisionNumber,
+							contentType = a.CurrentRevision.ContentType,
+							sizeBytes = a.CurrentRevision.SizeBytes,
+							createdAt = a.CurrentRevision.CreatedAt,
+						},
+				})
+				.ToList()))
+			.ToList();
+	}
+
+	private static object SongDetail(Song song, List<(Guid VersionId, List<object> Assets)>? versionAssets = null)
+	{
+		var assetMap = versionAssets?.ToDictionary(entry => entry.VersionId, entry => entry.Assets);
+		return new
 		{
-			id = a.Id,
-			label = a.Label,
-			arranger = a.Arranger,
-			voiceConfiguration = a.VoiceConfiguration,
-			musicalVersions = a.MusicalVersions.OrderBy(v => v.Id).Select(v => new
+			id = song.Id,
+			title = song.Title,
+			composer = song.Composer,
+			lyricist = song.Lyricist,
+			published = song.PublishedAt is not null,
+			publishedAt = song.PublishedAt,
+			createdAt = song.CreatedAt,
+			updatedAt = song.UpdatedAt,
+			arrangements = song.Arrangements.OrderBy(a => a.Id).Select(a => new
 			{
-				id = v.Id,
-				label = v.Label,
-				creator = v.Creator,
-				musicalKey = v.MusicalKey,
+				id = a.Id,
+				label = a.Label,
+				arranger = a.Arranger,
+				voiceConfiguration = a.VoiceConfiguration,
+				musicalVersions = a.MusicalVersions.OrderBy(v => v.Id).Select(v => new
+				{
+					id = v.Id,
+					label = v.Label,
+					creator = v.Creator,
+					musicalKey = v.MusicalKey,
+					assets = assetMap is not null && assetMap.TryGetValue(v.Id, out var assets)
+						? assets
+						: (List<object>)[],
+				}),
 			}),
-		}),
-	};
+		};
+	}
 
 	private static bool TryValidateTitle(string? raw, out string title, out IResult? error)
 	{

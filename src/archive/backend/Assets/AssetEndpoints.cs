@@ -1,0 +1,359 @@
+using Archive.Backend.Auth;
+using Archive.Backend.Catalogue;
+using Archive.Backend.Data;
+using Microsoft.AspNetCore.Antiforgery;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+
+namespace Archive.Backend.Assets;
+
+/// <summary>
+/// ARC-015 private score assets: one upload protocol, one visibility decision.
+/// Slice boundary and extension points:
+/// - New asset types (audio, MIDI, event documents) register in the create
+///   endpoint's type check (ARC-016/ARC-023); "score" is the only type here.
+/// - The upload session contract (create ticket, browser PUT, finalize) is
+///   shared with ARC-017; block upload extends it, it does not replace it.
+/// - ARC-023 extends this pattern with event-owned assets via an owner
+///   registry instead of the musical-version link.
+/// - Revision changes: swapping <see cref="ArchiveAsset.CurrentRevisionId"/> is
+///   the atom ARC-031 performs; extraction/search consumers subscribe later
+///   (ARC-032/ARC-033).
+/// - Retained reference: revisions must not be removed while referenced
+///   (ARC-037); the database enforces this via the current-revision FK.
+/// Signed ticket URLs exist only in JSON responses and are never logged.
+/// </summary>
+public static class AssetEndpoints
+{
+	public const string UnknownAssetTypeMessage = "Unbekannter Materialtyp.";
+
+	public const string MusicalVersionNotFoundMessage = "Musikalische Fassung nicht gefunden.";
+
+	public const string AssetNotFoundMessage = "Material nicht gefunden.";
+
+	public const string UploadNotFoundMessage = "Upload nicht gefunden.";
+
+	public const string UploadOwnerMessage = "Nur die anlegendende Person kann den Upload abschließen.";
+
+	public const string UploadAbandonedMessage = "Upload wurde abgebrochen.";
+
+	public const string UploadExpiredMessage = "Der Uploadzeitraum ist abgelaufen.";
+
+	public const string UploadMissingMessage = "Die Datei wurde noch nicht übertragen.";
+
+	public const string UploadTooLargeMessage = "Die Datei ist zu groß.";
+
+	public const string InvalidPdfMessage = "Die Datei ist kein gültiges PDF.";
+
+	public const string StorageFailureMessage = "Speicherdienst nicht erreichbar.";
+
+	public const string NoCurrentRevisionMessage = "Für diese Fassung liegen noch keine aktuellen Noten vor.";
+
+	public const string ConcurrencyMessage = "Der Eintrag wurde zwischenzeitlich geändert.";
+
+	public const string ScoreAssetType = "score";
+
+	public const string PdfContentType = "application/pdf";
+
+	public static void MapAssetEndpoints(this IEndpointRouteBuilder app)
+	{
+		app.MapPost("/api/musical-versions/{id}/assets", async (
+			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
+			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time, Guid id, CancellationToken token,
+			CreateAssetRequest? body) =>
+		{
+			try { await antiforgery.ValidateRequestAsync(context); }
+			catch (AntiforgeryValidationException)
+			{
+				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
+			}
+			context.Response.Headers.CacheControl = "no-store";
+			var (decision, error) = await RequireEditorAsync(context, accessor, access);
+			if (error is not null)
+				return error;
+			var assetType = (body?.AssetType ?? ScoreAssetType).Trim();
+			if (!string.Equals(assetType.ToLowerInvariant(), ScoreAssetType, StringComparison.Ordinal))
+				return Results.Problem(statusCode: 422, title: UnknownAssetTypeMessage);
+			assetType = ScoreAssetType;
+			var voiceLabel = CleanOptional(body?.VoiceLabel, "Das Stimmenlabel ist zu lang.", out var voiceError);
+			if (voiceError is not null)
+				return voiceError;
+			var version = await db.MusicalVersions.FirstOrDefaultAsync(v => v.Id == id, token);
+			if (version is null)
+				return Results.Problem(statusCode: 404, title: MusicalVersionNotFoundMessage);
+			var asset = new ArchiveAsset
+			{
+				MusicalVersionId = version.Id,
+				AssetType = assetType,
+				VoiceLabel = voiceLabel,
+				CreatedAt = time.GetUtcNow(),
+				CreatedByAccountId = decision!.AccountId,
+			};
+			db.Assets.Add(asset);
+			await db.SaveChangesAsync(token);
+			return Results.Created($"/api/assets/{asset.Id}", new
+			{
+				id = asset.Id,
+				musicalVersionId = asset.MusicalVersionId,
+				assetType = asset.AssetType,
+				voiceLabel = asset.VoiceLabel,
+				createdAt = asset.CreatedAt,
+				currentRevision = (object?)null,
+			});
+		}).DisableAntiforgery();
+
+		app.MapPost("/api/assets/{id}/upload-session", async (
+			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
+			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time,
+			IOptions<AssetStorageOptions> options, IAssetStorageAdapter storage, Guid id, CancellationToken token) =>
+		{
+			try { await antiforgery.ValidateRequestAsync(context); }
+			catch (AntiforgeryValidationException)
+			{
+				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
+			}
+			context.Response.Headers.CacheControl = "no-store";
+			var (decision, error) = await RequireEditorAsync(context, accessor, access);
+			if (error is not null)
+				return error;
+			var asset = await db.Assets.FirstOrDefaultAsync(a => a.Id == id, token);
+			if (asset is null)
+				return Results.Problem(statusCode: 404, title: AssetNotFoundMessage);
+			var now = time.GetUtcNow();
+			var pending = new PendingUpload
+			{
+				AssetId = asset.Id,
+				BlobName = $"pending/{Guid.CreateVersion7()}",
+				ContentType = PdfContentType,
+				MaxSizeBytes = options.Value.MaxUploadBytes,
+				UploadTicketExpiresAt = now + options.Value.UploadSessionLifetime,
+				State = PendingUploadState.Pending,
+				CreatedByAccountId = decision!.AccountId,
+				CreatedAt = now,
+			};
+			db.UploadSessions.Add(pending);
+			await db.SaveChangesAsync(token);
+			var uploadUrl = await storage.CreateUploadTicketAsync(
+				pending.BlobName, options.Value.UploadSessionLifetime, token);
+			return Results.Created($"/api/assets/{asset.Id}/access", new
+			{
+				uploadSessionId = pending.Id,
+				blobName = (string?)null,
+				uploadUrl,
+				expiresAt = pending.UploadTicketExpiresAt,
+				maxBytes = pending.MaxSizeBytes,
+			});
+		}).DisableAntiforgery();
+
+		app.MapPost("/api/upload-sessions/{id}/finalize", async (
+			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
+			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time,
+			IAssetStorageAdapter storage, Guid id, CancellationToken token) =>
+		{
+			try { await antiforgery.ValidateRequestAsync(context); }
+			catch (AntiforgeryValidationException)
+			{
+				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
+			}
+			context.Response.Headers.CacheControl = "no-store";
+			var (decision, error) = await RequireEditorAsync(context, accessor, access);
+			if (error is not null)
+				return error;
+			var session = await db.UploadSessions
+				.Include(s => s.Asset).ThenInclude(a => a.Revisions)
+				.Include(s => s.FinalizedRevision)
+				.FirstOrDefaultAsync(s => s.Id == id, token);
+			if (session is null)
+				return Results.Problem(statusCode: 404, title: UploadNotFoundMessage);
+			if (session.CreatedByAccountId != decision!.AccountId)
+				return Results.Problem(statusCode: 403, title: UploadOwnerMessage);
+			if (session.State == PendingUploadState.Finalized)
+			{
+				var finalized = session.FinalizedRevision;
+				if (finalized is null)
+					return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
+				return Results.Ok(RevisionPayload(finalized));
+			}
+			if (session.State != PendingUploadState.Pending)
+				return Results.Problem(statusCode: 409, title: UploadAbandonedMessage);
+			if (session.UploadTicketExpiresAt < time.GetUtcNow())
+			{
+				session.State = PendingUploadState.Abandoned;
+				await db.SaveChangesAsync(token);
+				return Results.Problem(statusCode: 409, title: UploadExpiredMessage);
+			}
+			AssetObjectInfo? probe;
+			byte[]? header;
+			try
+			{
+				probe = await storage.ProbeAsync(session.BlobName, token);
+				header = await storage.ReadHeaderAsync(session.BlobName, 5, token);
+			}
+			catch (InvalidOperationException)
+			{
+				return Results.Problem(statusCode: 502, title: StorageFailureMessage);
+			}
+			if (probe is null)
+				return Results.Problem(statusCode: 409, title: UploadMissingMessage);
+			if (probe.SizeBytes > session.MaxSizeBytes)
+			{
+				await DeletePendingBestEffortAsync(storage, session.BlobName, token);
+				session.State = PendingUploadState.Abandoned;
+				await db.SaveChangesAsync(token);
+				return Results.Problem(statusCode: 413, title: UploadTooLargeMessage);
+			}
+			if ((probe.ContentType is { Length: > 0 } && !string.Equals(probe.ContentType, PdfContentType, StringComparison.OrdinalIgnoreCase))
+				|| header is null || !header.AsSpan().StartsWith("%PDF-"u8))
+			{
+				await DeletePendingBestEffortAsync(storage, session.BlobName, token);
+				session.State = PendingUploadState.Abandoned;
+				await db.SaveChangesAsync(token);
+				return Results.Problem(statusCode: 422, title: InvalidPdfMessage);
+			}
+			var asset = session.Asset;
+			var revision = new FileRevision
+			{
+				AssetId = asset.Id,
+				RevisionNumber = asset.Revisions.Count == 0 ? 1 : asset.Revisions.Max(r => r.RevisionNumber) + 1,
+				BlobName = $"revisions/{asset.Id}/{Guid.CreateVersion7()}",
+				ContentType = PdfContentType,
+				SizeBytes = probe.SizeBytes,
+				CreatedByAccountId = decision.AccountId,
+				CreatedAt = time.GetUtcNow(),
+			};
+			try
+			{
+				await storage.PromoteAsync(session.BlobName, revision.BlobName, token);
+			}
+			catch (InvalidOperationException)
+			{
+				return Results.Problem(statusCode: 502, title: StorageFailureMessage);
+			}
+			await DeletePendingBestEffortAsync(storage, session.BlobName, token);
+			db.FileRevisions.Add(revision);
+			asset.CurrentRevisionId = revision.Id;
+			asset.RowVersion++;
+			session.State = PendingUploadState.Finalized;
+			session.FinalizedRevisionId = revision.Id;
+			try
+			{
+				await db.SaveChangesAsync(token);
+			}
+			catch (DbUpdateConcurrencyException)
+			{
+				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
+			}
+			return Results.Ok(RevisionPayload(revision));
+		}).DisableAntiforgery();
+
+		app.MapGet("/api/assets/{id}/access", async (
+			HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access,
+			ArchiveDbContext db, TimeProvider time, IOptions<AssetStorageOptions> options,
+			IAssetStorageAdapter storage, Guid id, CancellationToken token) =>
+		{
+			context.Response.Headers.CacheControl = "no-store";
+			var (decision, error) = await RequireMemberAsync(context, accessor, access);
+			if (error is not null)
+				return error;
+			var isEditor = IsEditor(decision!);
+			var asset = await db.Assets.AsNoTracking()
+				.Include(a => a.CurrentRevision)
+				.Include(a => a.MusicalVersion).ThenInclude(v => v.Arrangement).ThenInclude(a => a.Song)
+				.FirstOrDefaultAsync(a => a.Id == id, token);
+			if (asset?.MusicalVersion?.Arrangement?.Song is null)
+				return Results.Problem(statusCode: 404, title: AssetNotFoundMessage);
+			if (!isEditor && !CatalogueVisibility.IsMemberVisible(asset.MusicalVersion.Arrangement.Song))
+				return Results.Problem(statusCode: 404, title: AssetNotFoundMessage);
+			var revision = asset.CurrentRevision;
+			if (revision is null)
+				return Results.Problem(statusCode: 404, title: NoCurrentRevisionMessage);
+			var lifetime = options.Value.ReadTicketLifetime;
+			string viewUrl;
+			string downloadUrl;
+			try
+			{
+				viewUrl = await storage.CreateReadTicketAsync(revision.BlobName, lifetime, asDownload: false, token);
+				downloadUrl = await storage.CreateReadTicketAsync(revision.BlobName, lifetime, asDownload: true, token);
+			}
+			catch (InvalidOperationException)
+			{
+				return Results.Problem(statusCode: 502, title: StorageFailureMessage);
+			}
+			return Results.Ok(new
+			{
+				assetId = asset.Id,
+				revisionId = revision.Id,
+				revisionNumber = revision.RevisionNumber,
+				contentType = revision.ContentType,
+				sizeBytes = revision.SizeBytes,
+				createdAt = revision.CreatedAt,
+				viewUrl,
+				downloadUrl,
+				expiresAt = time.GetUtcNow() + lifetime,
+			});
+		});
+	}
+
+	private static object RevisionPayload(FileRevision revision) => new
+	{
+		assetId = revision.AssetId,
+		revisionId = revision.Id,
+		revisionNumber = revision.RevisionNumber,
+		contentType = revision.ContentType,
+		sizeBytes = revision.SizeBytes,
+		createdAt = revision.CreatedAt,
+	};
+
+	private static async Task DeletePendingBestEffortAsync(
+		IAssetStorageAdapter storage, string blobName, CancellationToken token)
+	{
+		try
+		{
+			await storage.DeleteAsync(blobName, token);
+		}
+		catch (InvalidOperationException)
+		{
+		}
+	}
+
+	private static string? CleanOptional(string? raw, string tooLongTitle, out IResult? error)
+	{
+		error = null;
+		var trimmed = raw?.Trim();
+		if (trimmed is { Length: > 200 })
+		{
+			error = Results.Problem(statusCode: 400, title: tooLongTitle);
+			return null;
+		}
+		return string.IsNullOrEmpty(trimmed) ? null : trimmed;
+	}
+
+	private static bool IsEditor(ArchiveAccessDecision decision)
+		=> decision.IsAdministrator || decision.Roles.Contains(ArchiveRoles.Editor);
+
+	private static async Task<(ArchiveAccessDecision? Decision, IResult? Error)> RequireMemberAsync(
+		HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access)
+	{
+		if (accessor.Current is null)
+			return (null, Results.Problem(statusCode: 401, title: "Anmeldung erforderlich."));
+		var decision = await access.GetDecisionAsync(context.User);
+		if (decision is null || !decision.IsActive)
+			return (null, Results.Problem(statusCode: 401, title: "Anmeldung erforderlich."));
+		return (decision, null);
+	}
+
+	private static async Task<(ArchiveAccessDecision? Decision, IResult? Error)> RequireEditorAsync(
+		HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access)
+	{
+		if (accessor.Current is null)
+			return (null, Results.Problem(statusCode: 401, title: "Anmeldung erforderlich."));
+		var decision = await access.GetDecisionAsync(context.User);
+		if (decision is null || !decision.IsActive)
+			return (null, Results.Problem(statusCode: 401, title: "Anmeldung erforderlich."));
+		if (!IsEditor(decision))
+			return (null, Results.Problem(statusCode: 403, title: "Keine Berechtigung für das Liedverzeichnis."));
+		return (decision, null);
+	}
+}
+
+public sealed record CreateAssetRequest(string? AssetType, string? VoiceLabel);
