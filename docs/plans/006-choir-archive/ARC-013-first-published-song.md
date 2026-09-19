@@ -1,6 +1,6 @@
 ---
 id: ARC-013
-status: in_progress
+status: done
 phase: core
 kind: slice
 depends_on: ["ARC-005"]
@@ -19,15 +19,15 @@ publishes it, and a member finds it in the catalogue and opens its page.
 
 ## Acceptance criteria
 
-- [ ] Implement creation/editing, persistence, draft/published visibility and a
+- [x] Implement creation/editing, persistence, draft/published visibility and a
   member catalogue/detail route through the real API and database.
-- [ ] Give Song, Arrangement and MusicalVersion distinct stable IDs from the
+- [x] Give Song, Arrangement and MusicalVersion distinct stable IDs from the
   start; a single initial arrangement/version is enough for this slice.
-- [ ] Capture title, optional creator information and clear arrangement/version
+- [x] Capture title, optional creator information and clear arrangement/version
   labels; allow explicitly missing optional information.
-- [ ] Record actor/time for edits, enforce Editor/Administrator writes, and deny
+- [x] Record actor/time for edits, enforce Editor/Administrator writes, and deny
   draft reads through member API requests as well as navigation.
-- [ ] Define publication/deletion/reference contracts so later files, history and
+- [x] Define publication/deletion/reference contracts so later files, history and
   trash share one visibility decision rather than reproducing it inconsistently.
 
 ## Verification
@@ -88,3 +88,52 @@ Editor/Administrator enforcement mirrors the member-admin guard:
 authenticated account id and injected `TimeProvider`.
 
 ## Implementation progress — 2026-09-19 (branch `feat/arc-013-first-published-song`)
+
+Backend (`f1e211c`, `e4e48c7`, `16b1951`):
+
+- `Catalogue/Song.cs`, `Arrangement.cs`, `MusicalVersion.cs` with distinct
+  Guid v7 IDs; `CatalogueModelConfiguration.cs` (snake_case tables, cascade
+  FKs, max lengths, `RowVersion` concurrency like the auth slices, title
+  index). `CatalogueVisibility.IsMemberVisible` is the single shared
+  publication/deletion/reference decision point.
+- `Catalogue/CatalogueEndpoints.cs` registered in `Program.cs`: member reads
+  (`GET /api/songs`, `GET /api/songs/{id}`, 401 unauthenticated, 404 for
+  drafts), editor writes (`POST`, `PATCH`, `publish`/`unpublish`) with
+  Editor/Administrator enforcement, German ProblemDetails, manual CSRF, and
+  `TimeProvider`/account-id attribution on create, edit and publication.
+- Explicit migration `20260919125632_CatalogueSongs`; `WalkingSkeletonTests`
+  now asserts it in the pending-migrations list.
+- `tests/archive/backend/CatalogueApiTests.cs`: editor create (201 with one
+  arrangement + one labelled version, default labels), member 403 on writes,
+  draft hidden from member list and 404 on member detail, publish/unpublish
+  with persisted actor/time and idempotent replay, PATCH attribution,
+  unauthenticated 401, duplicate titles allowed, German validation 400s,
+  unknown id 404.
+
+Frontend (`1d10601`, `5397427`, `5461867`):
+
+- `/lieder/` member catalogue (loading/sign-in/gate/content states; editors
+  additionally see drafts marked „Entwurf" plus create form, inline core-data
+  edit and publish/unpublish controls); `/lied/?id=…` detail page with
+  arrangements, labelled musical versions, German 404 and editor badge.
+  `/archiv` placeholder replaced by a CTA into the catalogue. Shared
+  `LiedFormular`, `lib/songs.ts`, `patchAuth` in `lib/auth.ts`, new
+  `lieder-*` CSS classes without new colors.
+
+## Verification — 2026-09-19 (branch `feat/arc-013-first-published-song`)
+
+- `dotnet build src/archive/Archive.slnx` 0 errors; `dotnet test
+  tests/archive/backend` **137/137 green** (125 prior + 12 new catalogue
+  tests).
+- `dotnet test tests/archive/apphost` (Podman, fresh containers) **green**:
+  the walking skeleton still holds and the `CatalogueSongs` migration is
+  listed as pending before and absent after `archive-migrate` on real
+  PostgreSQL.
+- Frontend `pnpm run check` clean (Biome + route types + tsc); `pnpm run
+  build` statically exports `/lied` and `/lieder`; mocked Playwright suite
+  `tests/lieder.spec.ts` 12/12 green (6 tests × desktop/mobile): member list
+  and detail, member draft 404, editor create→publish, ProblemDetails
+  400/409 surfacing, editor detail controls, unauthenticated gate — every
+  test asserts no page errors. Real-backend browser flows were not run (no
+  dev backend during authoring); the apphost integration test covers the
+  real API/database path.
