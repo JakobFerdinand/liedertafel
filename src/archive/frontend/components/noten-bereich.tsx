@@ -33,6 +33,7 @@ type DateiZeile = {
   beschreibung: string;
   assetId: string | null;
   status: MaterialStatus;
+  fortschritt: number;
   fehler: string;
 };
 
@@ -71,12 +72,15 @@ function istAssetTyp(typ: string): typ is AssetType {
   return typ === "score" || typ === "audio" || typ === "midi";
 }
 
-function statusText(status: MaterialStatus): string {
-  switch (status) {
+function statusText(zeile: {
+  status: MaterialStatus;
+  fortschritt: number;
+}): string {
+  switch (zeile.status) {
     case "warten":
       return "wartet";
     case "uebertragen":
-      return "wird übertragen …";
+      return `wird übertragen … ${Math.round(zeile.fortschritt)} %`;
     case "geprueft":
       return "wird geprüft …";
     case "gespeichert":
@@ -147,6 +151,7 @@ export function NotenBereich({
       beschreibung: "",
       assetId: null,
       status: "warten",
+      fortschritt: 0,
       fehler: "",
     }));
     if (neue.length === 0) return;
@@ -202,6 +207,13 @@ export function NotenBereich({
         contentTypeFuerAssetTyp(zeile.assetTyp, zeile.datei),
         (schritt: MaterialSchritt) => {
           zeileAendern(zeile.id, { status: schritt });
+        },
+        {
+          onFortschritt: (uebertragenBytes, gesamtBytes) => {
+            zeileAendern(zeile.id, {
+              fortschritt: (uebertragenBytes / gesamtBytes) * 100,
+            });
+          },
         },
       );
       zeileAendern(zeile.id, {
@@ -534,7 +546,7 @@ export function NotenBereich({
                       {groesseText(zeile.datei.size)}
                     </span>
                     <span className="material-datei-status" aria-live="polite">
-                      {statusText(zeile.status)}
+                      {statusText(zeile)}
                     </span>
                   </div>
                   {zeile.status === "gescheitert" && (

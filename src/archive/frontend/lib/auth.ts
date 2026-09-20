@@ -46,6 +46,15 @@ export async function patchAuth(
   });
 }
 
+export async function deleteAuth(path: string): Promise<Response> {
+  const token = await getCsrfToken();
+  return fetch(path, {
+    method: "DELETE",
+    credentials: "same-origin",
+    headers: { "X-CSRF-TOKEN": token },
+  });
+}
+
 export async function fetchMe(signal?: AbortSignal): Promise<MeResponse> {
   const response = await fetch("/api/auth/me", {
     credentials: "same-origin",

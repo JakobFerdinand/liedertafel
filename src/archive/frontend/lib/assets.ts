@@ -1,4 +1,4 @@
-import { patchAuth, postAuth } from "@/lib/auth";
+import { deleteAuth, patchAuth, postAuth } from "@/lib/auth";
 import type { LiedAsset, LiedRevision } from "@/lib/songs";
 
 export type AssetType = "score" | "audio" | "midi";
@@ -16,9 +16,11 @@ export type AssetMetadata = {
 
 export type UploadSessionResponse = {
   uploadSessionId: string;
+  blobName: string | null;
   uploadUrl: string;
   expiresAt: string;
   maxBytes: number;
+  blockBytes: number;
 };
 
 export type RevisionResponse = LiedRevision & {
@@ -200,24 +202,47 @@ export async function patchAsset(
   if (!response.ok) throw response;
   return (await response.json()) as AssetResponse;
 }
+export type DateiIdentitaet = {
+  sizeBytes: number;
+  fileName: string;
+};
 
 export async function createUploadSession(
   assetId: string,
+  identitaet?: DateiIdentitaet,
 ): Promise<UploadSessionResponse> {
   const response = await postAuth(
     `/api/assets/${encodeURIComponent(assetId)}/upload-session`,
+    identitaet ?? {},
+  );
+  if (!response.ok) throw response;
+  return (await response.json()) as UploadSessionResponse;
+}
+
+export async function renewUploadSession(
+  uploadSessionId: string,
+): Promise<UploadSessionResponse> {
+  const response = await postAuth(
+    `/api/upload-sessions/${encodeURIComponent(uploadSessionId)}/renew`,
     {},
   );
   if (!response.ok) throw response;
   return (await response.json()) as UploadSessionResponse;
 }
 
+export async function cancelUploadSession(uploadSessionId: string) {
+  await deleteAuth(
+    `/api/upload-sessions/${encodeURIComponent(uploadSessionId)}`,
+  );
+}
+
 export async function finalizeUpload(
   uploadSessionId: string,
+  identitaet?: DateiIdentitaet,
 ): Promise<RevisionResponse> {
   const response = await postAuth(
     `/api/upload-sessions/${encodeURIComponent(uploadSessionId)}/finalize`,
-    {},
+    identitaet ?? {},
   );
   if (!response.ok) throw response;
   return (await response.json()) as RevisionResponse;
@@ -253,33 +278,157 @@ function abschlussFehler(ursache: unknown): string {
   return "Abschluss fehlgeschlagen. Bitte erneut versuchen.";
 }
 
+function blockIdFolge(index: number): string {
+  return btoa(String(index).padStart(6, "0"));
+}
+
+function blockIdIndex(blockId: string): number {
+  try {
+    return Number(atob(blockId));
+  } catch {
+    return Number.NaN;
+  }
+}
+
+function blockPutUrl(uploadUrl: string, index: number): string {
+  return `${uploadUrl}&comp=block&blockid=${blockIdFolge(index)}`;
+}
+
+function blocklisteUrl(uploadUrl: string): string {
+  return `${uploadUrl}&comp=blocklist&blocklisttype=all`;
+}
+
+function blocklisteXml(blockIds: string[]): string {
+  return `<BlockList>${blockIds
+    .map((blockId) => `<Latest>${blockId}</Latest>`)
+    .join("")}</BlockList>`;
+}
+
+function committierteBloecke(xml: string): string[] {
+  if (!xml.trim()) return [];
+  const dokument = new DOMParser().parseFromString(xml, "application/xml");
+  if (dokument.querySelector("parsererror")) return [];
+  const bloecke: string[] = [];
+  for (const bereich of ["CommittedBlocks", "UncommittedBlocks"]) {
+    const gruppe = dokument.getElementsByTagName(bereich)[0];
+    for (const block of gruppe?.getElementsByTagName("Latest") ?? []) {
+      const blockId = block.textContent?.trim() ?? "";
+      if (blockId && !bloecke.includes(blockId)) bloecke.push(blockId);
+    }
+  }
+  return bloecke.sort((a, b) => blockIdIndex(a) - blockIdIndex(b));
+}
+
+function istAbbruch(ursache: unknown): boolean {
+  return ursache instanceof DOMException && ursache.name === "AbortError";
+}
+
+async function putzeBlock(
+  uploadUrl: string,
+  index: number,
+  daten: Blob,
+  contentType: string,
+  signal?: AbortSignal,
+) {
+  for (let versuch = 0; versuch < 3; versuch += 1) {
+    try {
+      const antwort = await fetch(blockPutUrl(uploadUrl, index), {
+        method: "PUT",
+        headers: { "Content-Type": contentType },
+        body: daten,
+        signal,
+      });
+      if (antwort.ok) return;
+    } catch (ursache) {
+      if (istAbbruch(ursache)) throw ursache;
+    }
+  }
+  throw new MaterialFehler("Übertragung zum Speicherdienst fehlgeschlagen.");
+}
+
+async function verbindeBloecke(
+  uploadUrl: string,
+  blockIds: string[],
+  signal?: AbortSignal,
+) {
+  let antwort: Response;
+  try {
+    antwort = await fetch(`${uploadUrl}&comp=blocklist`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/xml" },
+      body: blocklisteXml(blockIds),
+      signal,
+    });
+  } catch (ursache) {
+    if (istAbbruch(ursache)) throw ursache;
+    throw new MaterialFehler("Übertragung zum Speicherdienst fehlgeschlagen.");
+  }
+  if (!antwort.ok) {
+    throw new MaterialFehler("Übertragung zum Speicherdienst fehlgeschlagen.");
+  }
+}
+
 export async function uebertrageDatei(
   assetId: string,
   datei: File,
   contentType: string,
   onSchritt?: (schritt: MaterialSchritt) => void,
+  optionen: {
+    onFortschritt?: (uebertragenBytes: number, gesamtBytes: number) => void;
+    signal?: AbortSignal;
+    sitzung?: UploadSessionResponse;
+    bereitsCommittiert?: number;
+    sitzungSpeichern?: (sitzung: UploadSessionResponse) => void;
+  } = {},
 ): Promise<RevisionResponse> {
-  const sitzung = await createUploadSession(assetId);
+  const identitaet: DateiIdentitaet = {
+    sizeBytes: datei.size,
+    fileName: datei.name,
+  };
+  const sitzung =
+    optionen.sitzung ?? (await createUploadSession(assetId, identitaet));
+  optionen.sitzungSpeichern?.(sitzung);
   if (datei.size > sitzung.maxBytes) {
     throw new MaterialFehler("Die Datei ist zu groß.");
   }
-  onSchritt?.("uebertragen");
-  let uebertragung: Response | null = null;
-  try {
-    uebertragung = await fetch(sitzung.uploadUrl, {
-      method: "PUT",
-      headers: { "Content-Type": contentType },
-      body: datei,
-    });
-  } catch {
-    throw new MaterialFehler("Übertragung zum Speicherdienst fehlgeschlagen.");
+  if (optionen.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+  const blockBytes = Math.max(1, sitzung.blockBytes);
+  const gesamt = Math.ceil(datei.size / blockBytes);
+  const committiert = new Set(
+    optionen.bereitsCommittiert !== undefined
+      ? Array.from({ length: optionen.bereitsCommittiert }, (_, i) =>
+          blockIdFolge(i),
+        )
+      : [],
+  );
+  const verbundene: string[] = [];
+  let uebertragen = 0;
+  for (let index = 0; index < gesamt; index += 1) {
+    const blockId = blockIdFolge(index);
+    if (committiert.has(blockId)) {
+      uebertragen += blockBytes;
+      optionen.onFortschritt?.(Math.min(uebertragen, datei.size), datei.size);
+      verbundene.push(blockId);
+      continue;
+    }
+    const start = index * blockBytes;
+    const daten = datei.slice(start, Math.min(start + blockBytes, datei.size));
+    await putzeBlock(
+      sitzung.uploadUrl,
+      index,
+      daten,
+      contentType,
+      optionen.signal,
+    );
+    uebertragen += blockBytes;
+    optionen.onFortschritt?.(Math.min(uebertragen, datei.size), datei.size);
+    verbundene.push(blockId);
   }
-  if (!uebertragung.ok) {
-    throw new MaterialFehler("Übertragung zum Speicherdienst fehlgeschlagen.");
-  }
+  await verbindeBloecke(sitzung.uploadUrl, verbundene, optionen.signal);
   onSchritt?.("geprueft");
   try {
-    return await finalizeUpload(sitzung.uploadSessionId);
+    const revision = await finalizeUpload(sitzung.uploadSessionId, identitaet);
+    return revision;
   } catch (ursache) {
     throw new MaterialFehler(
       await problemTitel(ursache, abschlussFehler(ursache)),

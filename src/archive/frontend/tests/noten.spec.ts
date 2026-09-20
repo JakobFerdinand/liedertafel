@@ -108,6 +108,14 @@ const downloadUrl = "https://speicher.test/laden?sig=laden-1";
 const uploadUrl = "https://speicher.test/ubertragung?sig=upload-1";
 const uploadMuster = /speicher\.test\/ubertragung/;
 
+function gatedBlock() {
+  let loslassen: () => void = () => {};
+  const complete = new Promise<void>((aufloesen) => {
+    loslassen = aufloesen;
+  });
+  return { complete, loslassen };
+}
+
 function zugriff() {
   return {
     assetId,
@@ -211,27 +219,45 @@ test("Redaktion lädt Noten hoch; Reihenfolge und Übertragung stimmen", async (
   await page.route(`**/api/assets/${neueAssetId}/upload-session`, (route) => {
     schritte.push("sitzung");
     expect(route.request().method()).toBe("POST");
+    expect(route.request().postDataJSON()).toEqual({
+      sizeBytes: 16,
+      fileName: "noten.pdf",
+    });
     return route.fulfill(
       json(
         {
           uploadSessionId: "00000000-0000-0000-0000-0000000000aa",
+          blobName: null,
           uploadUrl,
           expiresAt: "2026-09-19T12:15:00.000Z",
           maxBytes: 5242880,
+          blockBytes: 5242880,
         },
         201,
       ),
     );
   });
   await page.route(uploadMuster, (route) => {
+    const anfrage = route.request();
     schritte.push("uebertragung");
-    expect(route.request().method()).toBe("PUT");
-    expect(route.request().headers()["content-type"]).toBe("application/pdf");
+    expect(anfrage.method()).toBe("PUT");
+    if (anfrage.url().includes("comp=blocklist")) {
+      expect(anfrage.headers()["content-type"]).toBe("application/xml");
+      expect(anfrage.postData()).toBe(
+        "<BlockList><Latest>MDAwMDAw</Latest></BlockList>",
+      );
+    } else {
+      expect(anfrage.headers()["content-type"]).toBe("application/pdf");
+    }
     return route.fulfill(json({}, 201));
   });
   await page.route("**/api/upload-sessions/*/finalize", (route) => {
     schritte.push("finalisierung");
     expect(route.request().method()).toBe("POST");
+    expect(route.request().postDataJSON()).toEqual({
+      sizeBytes: 16,
+      fileName: "noten.pdf",
+    });
     notenAssets = [asset];
     return route.fulfill(json({ assetId, ...revision }));
   });
@@ -262,8 +288,118 @@ test("Redaktion lädt Noten hoch; Reihenfolge und Übertragung stimmen", async (
     "asset",
     "sitzung",
     "uebertragung",
+    "uebertragung",
     "finalisierung",
   ]);
+
+  expect(errors).toEqual([]);
+});
+
+test("Noten werden blockweise mit Fortschritt übertragen", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await mockSitzung(page, editorMe);
+
+  const inhalt = "%PDF-1.4 blockweise1";
+  const blockGroesse = 8;
+  const neueAssetId = "00000000-0000-0000-0000-00000000e00b";
+  const sitzungsId = "00000000-0000-0000-0000-0000000000aa";
+  const blockIds: string[] = [];
+  const blockInhalte: string[] = [];
+  let blocklistenInhalt = "";
+  const awaitBlock = [null, gatedBlock(), gatedBlock()];
+
+  await page.route(`**/api/songs/${songId}`, (route) =>
+    route.fulfill(json(detail([]))),
+  );
+  await page.route(`**/api/musical-versions/${versionId}/assets`, (route) =>
+    route.fulfill(
+      json(
+        {
+          id: neueAssetId,
+          musicalVersionId: versionId,
+          assetType: "score",
+          voiceLabel: null,
+          createdAt: "2026-09-19T12:00:00.000Z",
+          currentRevision: null,
+        },
+        201,
+      ),
+    ),
+  );
+  await page.route(`**/api/assets/${neueAssetId}/upload-session`, (route) => {
+    expect(route.request().method()).toBe("POST");
+    expect(route.request().postDataJSON()).toEqual({
+      sizeBytes: inhalt.length,
+      fileName: "noten.pdf",
+    });
+    return route.fulfill(
+      json(
+        {
+          uploadSessionId: sitzungsId,
+          blobName: null,
+          uploadUrl,
+          expiresAt: "2026-09-19T12:15:00.000Z",
+          maxBytes: 5242880,
+          blockBytes: blockGroesse,
+        },
+        201,
+      ),
+    );
+  });
+  await page.route(uploadMuster, async (route) => {
+    const anfrage = route.request();
+    if (anfrage.url().includes("comp=blocklist")) {
+      expect(anfrage.method()).toBe("PUT");
+      expect(anfrage.headers()["content-type"]).toBe("application/xml");
+      blocklistenInhalt = anfrage.postData() ?? "";
+      return route.fulfill(json({}, 201));
+    }
+    expect(anfrage.method()).toBe("PUT");
+    expect(anfrage.url()).toContain("comp=block&blockid=");
+    const blockId = new URL(anfrage.url()).searchParams.get("blockid") ?? "";
+    const index = Number(atob(blockId));
+    blockIds[index] = blockId;
+    blockInhalte[index] = anfrage.postData() ?? "";
+    await awaitBlock[index]?.complete;
+    return route.fulfill(json({}, 201));
+  });
+  await page.route("**/api/upload-sessions/*/finalize", (route) => {
+    expect(route.request().method()).toBe("POST");
+    expect(route.request().postDataJSON()).toEqual({
+      sizeBytes: inhalt.length,
+      fileName: "noten.pdf",
+    });
+    return route.fulfill(json({ assetId: neueAssetId, ...revision }));
+  });
+
+  await page.goto(`/lied/?id=${songId}`);
+  const wahl = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Material hochladen" }).click();
+  const chooser = await wahl;
+  await chooser.setFiles({
+    name: "noten.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from(inhalt),
+  });
+
+  await page.getByRole("button", { name: "Material übertragen" }).click();
+  const zeile = page.locator(".material-datei");
+  await expect(zeile.getByText("wird übertragen … 40 %")).toBeVisible();
+  awaitBlock[1]?.loslassen();
+  await expect(zeile.getByText("wird übertragen … 80 %")).toBeVisible();
+  awaitBlock[2]?.loslassen();
+  await expect(page.getByText("1 von 1 Dateien gespeichert.")).toBeVisible();
+
+  expect(blockIds).toEqual(["MDAwMDAw", "MDAwMDAx", "MDAwMDAy"]);
+  expect(blockInhalte).toEqual([
+    inhalt.slice(0, 8),
+    inhalt.slice(8, 16),
+    inhalt.slice(16, 24),
+  ]);
+  expect(blocklistenInhalt).toBe(
+    "<BlockList><Latest>MDAwMDAw</Latest><Latest>MDAwMDAx</Latest><Latest>MDAwMDAy</Latest></BlockList>",
+  );
 
   expect(errors).toEqual([]);
 });
@@ -283,9 +419,11 @@ test("Zu große Dateien werden nicht übertragen", async ({ page }) => {
       json(
         {
           uploadSessionId: "00000000-0000-0000-0000-0000000000aa",
+          blobName: null,
           uploadUrl,
           expiresAt: "2026-09-19T12:15:00.000Z",
           maxBytes: 10,
+          blockBytes: 5242880,
         },
         201,
       ),
@@ -327,9 +465,11 @@ test("Fehlgeschlagener Abschluss zeigt eine verständliche Meldung", async ({
       json(
         {
           uploadSessionId: "00000000-0000-0000-0000-0000000000aa",
+          blobName: null,
           uploadUrl,
           expiresAt: "2026-09-19T12:15:00.000Z",
           maxBytes: 5242880,
+          blockBytes: 5242880,
         },
         201,
       ),

@@ -170,9 +170,11 @@ test("Mehrere Dateien werden nacheinander mit Status und ohne Duplikate hochgela
       json(
         {
           uploadSessionId: sitzungsId,
+          blobName: null,
           uploadUrl: `https://speicher.test/ubertragung?sig=${stimme}`,
           expiresAt: "2026-09-19T12:15:00.000Z",
           maxBytes: 5242880,
+          blockBytes: 5242880,
         },
         201,
       ),
@@ -181,10 +183,13 @@ test("Mehrere Dateien werden nacheinander mit Status und ohne Duplikate hochgela
   await page.route(/speicher\.test\/ubertragung/, async (route) => {
     const stimme = new URL(route.request().url()).searchParams.get("sig") ?? "";
     schritte[stimme]?.push("uebertragung");
-    expect(route.request().method()).toBe("PUT");
-    expect(route.request().headers()["content-type"]).toBe(
-      erwarteterInhaltstyp[stimme],
-    );
+    const anfrage = route.request();
+    expect(anfrage.method()).toBe("PUT");
+    if (!anfrage.url().includes("comp=blocklist")) {
+      expect(anfrage.headers()["content-type"]).toBe(
+        erwarteterInhaltstyp[stimme],
+      );
+    }
     gleichzeitig += 1;
     maximalGleichzeitig = Math.max(maximalGleichzeitig, gleichzeitig);
     try {
@@ -264,11 +269,13 @@ test("Mehrere Dateien werden nacheinander mit Status und ohne Duplikate hochgela
     "asset",
     "sitzung",
     "uebertragung",
+    "uebertragung",
     "finalisierung",
   ]);
   expect(schritte.Tenor).toEqual([
     "asset",
     "sitzung",
+    "uebertragung",
     "uebertragung",
     "finalisierung",
   ]);
@@ -276,8 +283,10 @@ test("Mehrere Dateien werden nacheinander mit Status und ohne Duplikate hochgela
     "asset",
     "sitzung",
     "uebertragung",
+    "uebertragung",
     "finalisierung",
     "sitzung",
+    "uebertragung",
     "uebertragung",
     "finalisierung",
   ]);
@@ -319,9 +328,11 @@ test("Stimmenlabels können vor der Übertragung gesetzt werden", async ({
       json(
         {
           uploadSessionId: `sitz-${pfadTeil(route.request().url(), 3)}`,
+          blobName: null,
           uploadUrl: "https://speicher.test/ubertragung?sig=probe",
           expiresAt: "2026-09-19T12:15:00.000Z",
           maxBytes: 5242880,
+          blockBytes: 5242880,
         },
         201,
       ),
@@ -329,7 +340,9 @@ test("Stimmenlabels können vor der Übertragung gesetzt werden", async ({
   );
   const inhaltstypen: string[] = [];
   await page.route(/speicher\.test\/ubertragung/, async (route) => {
-    inhaltstypen.push(route.request().headers()["content-type"] ?? "");
+    if (!route.request().url().includes("comp=blocklist")) {
+      inhaltstypen.push(route.request().headers()["content-type"] ?? "");
+    }
     return route.fulfill(json({}, 201));
   });
   await page.route("**/api/upload-sessions/*/finalize", (route) =>
