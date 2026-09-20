@@ -294,6 +294,161 @@ public sealed class UploadSessionResumeTests
 		Assert.Equal(0, await db.UploadSessions.CountAsync());
 	}
 
+	[Fact]
+	public async Task CancelPendingSessionMarksCancelledAndDeletesPendingBlob()
+	{
+		await using var factory = new AuthApiFactory();
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		var editorSession = await SignInAsync(factory, Editor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
+		var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
+		var (sessionId, uploadUrl, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
+		var blobName = factory.Storage.Find(uploadUrl)!.BlobName;
+		factory.Storage.Store(blobName, ValidPdf(128));
+
+		using var response = await DeleteAsync(client,
+			$"/api/upload-sessions/{sessionId}", editorSession);
+		Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			var session = await db.UploadSessions.SingleAsync(s => s.Id == sessionId);
+			Assert.Equal(PendingUploadState.Cancelled, session.State);
+			Assert.Equal(blobName, session.BlobName);
+		}
+		Assert.False(factory.Storage.Has(blobName));
+	}
+
+	[Fact]
+	public async Task CancelRejectsUnknownOtherOwnerAndTerminalStates()
+	{
+		await using var factory = new AuthApiFactory();
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		await SeedAsync(factory, SecondEditor, ArchiveRoles.Editor);
+		var editorSession = await SignInAsync(factory, Editor);
+		var secondSession = await SignInAsync(factory, SecondEditor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
+		var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
+
+		using (var unknown = await DeleteAsync(client,
+			$"/api/upload-sessions/{Guid.CreateVersion7()}", editorSession))
+		{
+			Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
+			var unknownProblem = await unknown.Content.ReadFromJsonAsync<JsonElement>();
+			Assert.Equal(AssetEndpoints.UploadNotFoundMessage, unknownProblem.GetProperty("title").GetString());
+		}
+
+		var (pendingId, _, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
+		using (var other = await DeleteAsync(client,
+			$"/api/upload-sessions/{pendingId}", secondSession))
+		{
+			Assert.Equal(HttpStatusCode.Forbidden, other.StatusCode);
+			var otherProblem = await other.Content.ReadFromJsonAsync<JsonElement>();
+			Assert.Equal(AssetEndpoints.UploadOwnerMessage, otherProblem.GetProperty("title").GetString());
+		}
+
+		// Finalized: a committed revision must not be cancelled.
+		var (finalizedId, _, _) = await UploadAndFinalizeAsync(factory, client, editorSession, assetId);
+		using (var finalized = await DeleteAsync(client,
+			$"/api/upload-sessions/{finalizedId}", editorSession))
+		{
+			Assert.Equal(HttpStatusCode.Conflict, finalized.StatusCode);
+			var finalizedProblem = await finalized.Content.ReadFromJsonAsync<JsonElement>();
+			Assert.Equal(AssetEndpoints.UploadAbandonedMessage, finalizedProblem.GetProperty("title").GetString());
+		}
+
+		// Abandoned: terminal refusal.
+		var (abandonedId, _, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			(await db.UploadSessions.SingleAsync(s => s.Id == abandonedId)).State =
+				PendingUploadState.Abandoned;
+			await db.SaveChangesAsync();
+		}
+		using (var abandoned = await DeleteAsync(client,
+			$"/api/upload-sessions/{abandonedId}", editorSession))
+		{
+			Assert.Equal(HttpStatusCode.Conflict, abandoned.StatusCode);
+			var abandonedProblem = await abandoned.Content.ReadFromJsonAsync<JsonElement>();
+			Assert.Equal(AssetEndpoints.UploadAbandonedMessage, abandonedProblem.GetProperty("title").GetString());
+		}
+
+		// Cancelled: cancelling twice reports the distinct cancelled conflict.
+		var (cancelledId, _, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
+		using (var first = await DeleteAsync(client,
+			$"/api/upload-sessions/{cancelledId}", editorSession))
+		{
+			Assert.Equal(HttpStatusCode.NoContent, first.StatusCode);
+		}
+		using (var replay = await DeleteAsync(client,
+			$"/api/upload-sessions/{cancelledId}", editorSession))
+		{
+			Assert.Equal(HttpStatusCode.Conflict, replay.StatusCode);
+			var replayProblem = await replay.Content.ReadFromJsonAsync<JsonElement>();
+			Assert.Equal(AssetEndpoints.UploadCancelledMessage, replayProblem.GetProperty("title").GetString());
+		}
+	}
+
+	[Fact]
+	public async Task FinalizeOnCancelledSessionIsTerminalAndLeavesStateUntouched()
+	{
+		await using var factory = new AuthApiFactory();
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		var editorSession = await SignInAsync(factory, Editor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
+		var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
+		var (sessionId, uploadUrl, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
+		var blobName = factory.Storage.Find(uploadUrl)!.BlobName;
+
+		using var cancel = await DeleteAsync(client,
+			$"/api/upload-sessions/{sessionId}", editorSession);
+		Assert.Equal(HttpStatusCode.NoContent, cancel.StatusCode);
+
+		// Finalizing a cancelled session is refused without abandoning or
+		// deleting anything further.
+		using var finalize = await FinalizeAsync(client, editorSession, sessionId);
+		Assert.Equal(HttpStatusCode.Conflict, finalize.StatusCode);
+		var problem = await finalize.Content.ReadFromJsonAsync<JsonElement>();
+		Assert.Equal(AssetEndpoints.UploadCancelledMessage, problem.GetProperty("title").GetString());
+
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			var session = await db.UploadSessions.SingleAsync(s => s.Id == sessionId);
+			Assert.Equal(PendingUploadState.Cancelled, session.State);
+			Assert.Null(session.FinalizedRevisionId);
+			Assert.Equal(0, await db.FileRevisions.CountAsync());
+		}
+		Assert.False(factory.Storage.Has(blobName));
+	}
+
+	[Fact]
+	public async Task RenewOnCancelledSessionIsRejected()
+	{
+		await using var factory = new AuthApiFactory();
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		var editorSession = await SignInAsync(factory, Editor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
+		var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
+		var (sessionId, _, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
+
+		using var cancel = await DeleteAsync(client,
+			$"/api/upload-sessions/{sessionId}", editorSession);
+		Assert.Equal(HttpStatusCode.NoContent, cancel.StatusCode);
+
+		using var renew = await PostJsonAsync(client,
+			$"/api/upload-sessions/{sessionId}/renew", new { }, editorSession);
+		Assert.Equal(HttpStatusCode.Conflict, renew.StatusCode);
+		var problem = await renew.Content.ReadFromJsonAsync<JsonElement>();
+		Assert.Equal(AssetEndpoints.UploadAbandonedMessage, problem.GetProperty("title").GetString());
+	}
+
 	private static async Task<(Guid SongId, Guid VersionId)> CreateSongWithVersionAsync(
 		AuthApiFactory factory, HttpClient client, string editorSession, string title = "Notenlied")
 	{
@@ -355,6 +510,17 @@ public sealed class UploadSessionResumeTests
 	{
 		var (cookie, token) = await GetCsrfAsync(client, session);
 		return await client.SendAsync(AuthedPost(path, body, $"{cookie}; {session}", token));
+	}
+
+	private static async Task<HttpResponseMessage> DeleteAsync(
+		HttpClient client, string path, string session)
+	{
+		var (cookie, token) = await GetCsrfAsync(client, session);
+		var request = new HttpRequestMessage(HttpMethod.Delete, path);
+		request.Headers.Add("Cookie", $"{cookie}; {session}");
+		request.Headers.Add("X-CSRF-TOKEN", token);
+		request.Content = JsonContent.Create(new { });
+		return await client.SendAsync(request);
 	}
 
 	private static async Task<Guid> CreateSongAsync(

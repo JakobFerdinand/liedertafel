@@ -49,6 +49,8 @@ public static class AssetEndpoints
 
 	public const string UploadAlreadyFinalizedMessage = "Der Upload wurde bereits abgeschlossen.";
 
+	public const string UploadCancelledMessage = "Der Upload wurde abgebrochen.";
+
 	public const string FileNameTooLongMessage = "Der Dateiname ist zu lang.";
 
 	public const string UploadMissingMessage = "Die Datei wurde noch nicht übertragen.";
@@ -330,6 +332,40 @@ public static class AssetEndpoints
 			});
 		}).DisableAntiforgery();
 
+		/// <summary>
+		/// ARC-017: editors abandon a stale transfer explicitly; cancellation
+		/// is terminal, releases the pending blob immediately and keeps the
+		/// session row so late renew/finalize calls report the cancelled state.
+		/// </summary>
+		app.MapDelete("/api/upload-sessions/{id}", async (
+			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
+			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time,
+			IAssetStorageAdapter storage, Guid id, CancellationToken token) =>
+		{
+			try { await antiforgery.ValidateRequestAsync(context); }
+			catch (AntiforgeryValidationException)
+			{
+				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
+			}
+			context.Response.Headers.CacheControl = "no-store";
+			var (decision, error) = await RequireEditorAsync(context, accessor, access);
+			if (error is not null)
+				return error;
+			var session = await db.UploadSessions.FirstOrDefaultAsync(s => s.Id == id, token);
+			if (session is null)
+				return Results.Problem(statusCode: 404, title: UploadNotFoundMessage);
+			if (session.CreatedByAccountId != decision!.AccountId)
+				return Results.Problem(statusCode: 403, title: UploadOwnerMessage);
+			if (session.State is PendingUploadState.Finalized or PendingUploadState.Abandoned)
+				return Results.Problem(statusCode: 409, title: UploadAbandonedMessage);
+			if (session.State == PendingUploadState.Cancelled)
+				return Results.Problem(statusCode: 409, title: UploadCancelledMessage);
+			session.State = PendingUploadState.Cancelled;
+			await db.SaveChangesAsync(token);
+			await DeletePendingBestEffortAsync(storage, session.BlobName, token);
+			return Results.NoContent();
+		}).DisableAntiforgery();
+
 		app.MapPost("/api/upload-sessions/{id}/finalize", async (
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
 			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time,
@@ -359,6 +395,8 @@ public static class AssetEndpoints
 					return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
 				return Results.Ok(RevisionPayload(finalized));
 			}
+			if (session.State == PendingUploadState.Cancelled)
+				return Results.Problem(statusCode: 409, title: UploadCancelledMessage);
 			if (session.State != PendingUploadState.Pending)
 				return Results.Problem(statusCode: 409, title: UploadAbandonedMessage);
 			if (session.UploadTicketExpiresAt < time.GetUtcNow())

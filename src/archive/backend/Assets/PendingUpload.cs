@@ -6,6 +6,9 @@ public enum PendingUploadState
 	Pending = 0,
 	Finalized = 1,
 	Abandoned = 2,
+
+	/// <summary>ARC-017: terminal state after the editor cancelled the session.</summary>
+	Cancelled = 3,
 }
 
 /// <summary>
