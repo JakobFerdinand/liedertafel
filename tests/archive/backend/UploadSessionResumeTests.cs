@@ -449,6 +449,143 @@ public sealed class UploadSessionResumeTests
 		Assert.Equal(AssetEndpoints.UploadAbandonedMessage, problem.GetProperty("title").GetString());
 	}
 
+	[Fact]
+	public async Task FinalizeRejectsMismatchedDeclaredIdentityAndStaysPending()
+	{
+		await using var factory = new AuthApiFactory();
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		var editorSession = await SignInAsync(factory, Editor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
+		var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
+		var (sessionId, uploadUrl, _) = await CreateUploadSessionAsync(client, editorSession, assetId,
+			new { sizeBytes = 1024, fileName = "lied.pdf" });
+		var blobName = factory.Storage.Find(uploadUrl)!.BlobName;
+		factory.Storage.Store(blobName, ValidPdf(1024));
+
+		// Mismatched declared size: refused before storage is touched.
+		using (var sizeMismatch = await PostJsonAsync(client,
+			$"/api/upload-sessions/{sessionId}/finalize",
+			new { sizeBytes = 512, fileName = "lied.pdf" }, editorSession))
+		{
+			Assert.Equal(HttpStatusCode.Conflict, sizeMismatch.StatusCode);
+			var sizeProblem = await sizeMismatch.Content.ReadFromJsonAsync<JsonElement>();
+			Assert.Equal(AssetEndpoints.UploadMismatchMessage, sizeProblem.GetProperty("title").GetString());
+			Assert.True(factory.Storage.Has(blobName));
+		}
+
+		// Mismatched declared file name: same refusal.
+		using (var nameMismatch = await PostJsonAsync(client,
+			$"/api/upload-sessions/{sessionId}/finalize",
+			new { sizeBytes = 1024, fileName = "anders.pdf" }, editorSession))
+		{
+			Assert.Equal(HttpStatusCode.Conflict, nameMismatch.StatusCode);
+			var nameProblem = await nameMismatch.Content.ReadFromJsonAsync<JsonElement>();
+			Assert.Equal(AssetEndpoints.UploadMismatchMessage, nameProblem.GetProperty("title").GetString());
+		}
+
+		// The session stays pending and retryable with the correct file.
+		using (var retry = await PostJsonAsync(client,
+			$"/api/upload-sessions/{sessionId}/finalize",
+			new { sizeBytes = 1024, fileName = "lied.pdf" }, editorSession))
+		{
+			Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
+		}
+
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			Assert.Equal(1, await db.FileRevisions.CountAsync());
+		}
+	}
+
+	[Fact]
+	public async Task FinalizeComparesOnlyDimensionsPresentOnBothSides()
+	{
+		await using var factory = new AuthApiFactory();
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		var editorSession = await SignInAsync(factory, Editor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
+		var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
+
+		// Session without declared identity: a declaring finalize is not a mismatch.
+		var (undeclaredId, uploadUrl, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
+		factory.Storage.Store(factory.Storage.Find(uploadUrl)!.BlobName, ValidPdf(1024));
+		using (var response = await PostJsonAsync(client,
+			$"/api/upload-sessions/{undeclaredId}/finalize", new { sizeBytes = 1024 }, editorSession))
+		{
+			Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+		}
+
+		// Declared size only: an absent fileName dimension cannot conflict.
+		var (sizeOnlyId, sizeOnlyUrl, _) = await CreateUploadSessionAsync(client, editorSession, assetId,
+			new { sizeBytes = 512 });
+		factory.Storage.Store(factory.Storage.Find(sizeOnlyUrl)!.BlobName, ValidPdf(512));
+		using (var response = await PostJsonAsync(client,
+			$"/api/upload-sessions/{sizeOnlyId}/finalize",
+			new { sizeBytes = 512, fileName = "irgendwas.pdf" }, editorSession))
+		{
+			Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+		}
+
+		// Declared fileName only: a matching name without size still finalizes.
+		var (nameOnlyId, nameOnlyUrl, _) = await CreateUploadSessionAsync(client, editorSession, assetId,
+			new { fileName = "stimme.pdf" });
+		factory.Storage.Store(factory.Storage.Find(nameOnlyUrl)!.BlobName, ValidPdf(256));
+		using (var response = await PostJsonAsync(client,
+			$"/api/upload-sessions/{nameOnlyId}/finalize",
+			new { sizeBytes = 999, fileName = "stimme.pdf" }, editorSession))
+		{
+			Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+		}
+
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			Assert.Equal(3, await db.FileRevisions.CountAsync());
+		}
+	}
+
+	[Fact]
+	public async Task CollectionLimitAtFinalizationAbandonsTheSession()
+	{
+		await using var factory = new AuthApiFactory(settings: new Dictionary<string, string?>
+		{
+			["Archive:Assets:MaxUploadBytes"] = "4096",
+			["Archive:Assets:MaxCollectionBytes"] = "4096",
+		});
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		var editorSession = await SignInAsync(factory, Editor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
+		var assetAId = await CreateAssetAsync(client, editorSession, versionId, "score");
+		var assetBId = await CreateAssetAsync(client, editorSession, versionId, "score");
+
+		// A finalizes 1024 bytes; B then transfers 3073 bytes, which together
+		// exceed the 4096-byte version budget.
+		await UploadAndFinalizeAsync(factory, client, editorSession, assetAId, size: 1024);
+		var (sessionBId, uploadUrlB, _) = await CreateUploadSessionAsync(client, editorSession, assetBId);
+		var blobNameB = factory.Storage.Find(uploadUrlB)!.BlobName;
+		factory.Storage.Store(blobNameB, ValidPdf(3073));
+
+		using var response = await FinalizeAsync(client, editorSession, sessionBId);
+		Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
+		var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
+		Assert.Equal(AssetEndpoints.UploadTooLargeMessage, problem.GetProperty("title").GetString());
+
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			var session = await db.UploadSessions.SingleAsync(s => s.Id == sessionBId);
+			Assert.Equal(PendingUploadState.Abandoned, session.State);
+			Assert.Equal(1, await db.FileRevisions.CountAsync(
+				r => r.AssetId == assetAId));
+			Assert.Null((await db.Assets.SingleAsync(a => a.Id == assetBId)).CurrentRevisionId);
+		}
+		Assert.False(factory.Storage.Has(blobNameB));
+	}
+
 	private static async Task<(Guid SongId, Guid VersionId)> CreateSongWithVersionAsync(
 		AuthApiFactory factory, HttpClient client, string editorSession, string title = "Notenlied")
 	{

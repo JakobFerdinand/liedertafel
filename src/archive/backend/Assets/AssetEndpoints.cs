@@ -51,6 +51,8 @@ public static class AssetEndpoints
 
 	public const string UploadCancelledMessage = "Der Upload wurde abgebrochen.";
 
+	public const string UploadMismatchMessage = "Die Datei passt nicht zur bestehenden Uploadsitzung.";
+
 	public const string FileNameTooLongMessage = "Der Dateiname ist zu lang.";
 
 	public const string UploadMissingMessage = "Die Datei wurde noch nicht übertragen.";
@@ -369,7 +371,8 @@ public static class AssetEndpoints
 		app.MapPost("/api/upload-sessions/{id}/finalize", async (
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
 			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time,
-			IAssetStorageAdapter storage, Guid id, CancellationToken token) =>
+			IOptions<AssetStorageOptions> options, IAssetStorageAdapter storage, Guid id, CancellationToken token,
+			FinalizeUploadRequest? body) =>
 		{
 			try { await antiforgery.ValidateRequestAsync(context); }
 			catch (AntiforgeryValidationException)
@@ -405,6 +408,19 @@ public static class AssetEndpoints
 				await db.SaveChangesAsync(token);
 				return Results.Problem(statusCode: 409, title: UploadExpiredMessage);
 			}
+			// ARC-017: verify the declared identity before touching storage;
+			// a mismatch keeps the session pending so the editor can retry
+			// after re-selecting the correct file.
+			var declaredSize = body?.SizeBytes;
+			var declaredFileName = body?.FileName?.Trim();
+			if (declaredSize is long requestedSize
+				&& session.DeclaredSizeBytes is long storedSize
+				&& requestedSize != storedSize)
+				return Results.Problem(statusCode: 409, title: UploadMismatchMessage);
+			if (!string.IsNullOrEmpty(declaredFileName)
+				&& session.DeclaredFileName is string storedName
+				&& !string.Equals(declaredFileName, storedName, StringComparison.Ordinal))
+				return Results.Problem(statusCode: 409, title: UploadMismatchMessage);
 			AssetObjectInfo? probe;
 			byte[]? header;
 			try
@@ -419,6 +435,19 @@ public static class AssetEndpoints
 			if (probe is null)
 				return Results.Problem(statusCode: 409, title: UploadMissingMessage);
 			if (probe.SizeBytes > session.MaxSizeBytes)
+			{
+				await DeletePendingBestEffortAsync(storage, session.BlobName, token);
+				session.State = PendingUploadState.Abandoned;
+				await db.SaveChangesAsync(token);
+				return Results.Problem(statusCode: 413, title: UploadTooLargeMessage);
+			}
+			// ARC-017: at finalization the actual size must fit alongside the
+			// version's finalized revisions; the same terminal shape as the
+			// per-file oversize branch applies.
+			var finalizedBytes = await db.FileRevisions
+				.Where(r => r.Asset.MusicalVersionId == session.Asset.MusicalVersionId)
+				.SumAsync(r => (long?)r.SizeBytes, token) ?? 0;
+			if (probe.SizeBytes + finalizedBytes > options.Value.MaxCollectionBytes)
 			{
 				await DeletePendingBestEffortAsync(storage, session.BlobName, token);
 				session.State = PendingUploadState.Abandoned;
@@ -607,3 +636,6 @@ public sealed record PatchAssetRequest(string? AssetType, string? VoiceLabel, st
 
 /// <summary>ARC-017: optional declared file identity at upload-session initiation.</summary>
 public sealed record CreateUploadSessionRequest(long? SizeBytes, string? FileName);
+
+/// <summary>ARC-017: optional observed file identity at finalization, compared against the declaration.</summary>
+public sealed record FinalizeUploadRequest(long? SizeBytes, string? FileName);
