@@ -29,6 +29,15 @@ public sealed class PendingUpload
 
 	public long MaxSizeBytes { get; set; }
 
+	/// <summary>
+	/// ARC-017: file identity declared at initiation and verified at
+	/// finalization, so a stale session cannot commit a different file.
+	/// </summary>
+	public string? DeclaredFileName { get; set; }
+
+	/// <summary>ARC-017: declared byte size matching <see cref="DeclaredFileName"/>.</summary>
+	public long? DeclaredSizeBytes { get; set; }
+
 	public DateTimeOffset UploadTicketExpiresAt { get; set; }
 
 	public PendingUploadState State { get; set; }

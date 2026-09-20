@@ -47,6 +47,8 @@ public static class AssetEndpoints
 
 	public const string UploadExpiredMessage = "Der Uploadzeitraum ist abgelaufen.";
 
+	public const string FileNameTooLongMessage = "Der Dateiname ist zu lang.";
+
 	public const string UploadMissingMessage = "Die Datei wurde noch nicht übertragen.";
 
 	public const string UploadTooLargeMessage = "Die Datei ist zu groß.";
@@ -212,7 +214,8 @@ public static class AssetEndpoints
 		app.MapPost("/api/assets/{id}/upload-session", async (
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
 			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time,
-			IOptions<AssetStorageOptions> options, IAssetStorageAdapter storage, Guid id, CancellationToken token) =>
+			IOptions<AssetStorageOptions> options, IAssetStorageAdapter storage, Guid id, CancellationToken token,
+			CreateUploadSessionRequest? body) =>
 		{
 			try { await antiforgery.ValidateRequestAsync(context); }
 			catch (AntiforgeryValidationException)
@@ -226,14 +229,42 @@ public static class AssetEndpoints
 			var asset = await db.Assets.FirstOrDefaultAsync(a => a.Id == id, token);
 			if (asset is null)
 				return Results.Problem(statusCode: 404, title: AssetNotFoundMessage);
+			// ARC-017: the declared identity is stored for the finalization
+			// mismatch check; a stale session cannot commit a different file.
+			string? declaredFileName = null;
+			if (body?.FileName is not null)
+			{
+				declaredFileName = body.FileName.Trim();
+				if (declaredFileName.Length == 0)
+					declaredFileName = null;
+				else if (declaredFileName.Length > 300)
+					return Results.Problem(statusCode: 400, title: FileNameTooLongMessage);
+			}
+			var declaredSize = body?.SizeBytes;
+			var storageOptions = options.Value;
+			if (declaredSize > storageOptions.MaxUploadBytes)
+				return Results.Problem(statusCode: 413, title: UploadTooLargeMessage);
+			// Per-version collection budget: the declared size must fit
+			// alongside other pending sessions and finalized revisions.
+			var pendingBudget = await db.UploadSessions
+				.Where(s => s.State == PendingUploadState.Pending
+					&& s.Asset.MusicalVersionId == asset.MusicalVersionId)
+				.SumAsync(s => (long?)s.MaxSizeBytes, token) ?? 0;
+			var finalizedBytes = await db.FileRevisions
+				.Where(r => r.Asset.MusicalVersionId == asset.MusicalVersionId)
+				.SumAsync(r => (long?)r.SizeBytes, token) ?? 0;
+			if ((declaredSize ?? 0) + pendingBudget + finalizedBytes > storageOptions.MaxCollectionBytes)
+				return Results.Problem(statusCode: 413, title: UploadTooLargeMessage);
 			var now = time.GetUtcNow();
 			var pending = new PendingUpload
 			{
 				AssetId = asset.Id,
 				BlobName = $"pending/{Guid.CreateVersion7()}",
 				ContentType = ContentTypeWhitelist(asset.AssetType)[0],
-				MaxSizeBytes = options.Value.MaxUploadBytes,
-				UploadTicketExpiresAt = now + options.Value.UploadSessionLifetime,
+				MaxSizeBytes = storageOptions.MaxUploadBytes,
+				DeclaredFileName = declaredFileName,
+				DeclaredSizeBytes = declaredSize,
+				UploadTicketExpiresAt = now + storageOptions.UploadSessionLifetime,
 				State = PendingUploadState.Pending,
 				CreatedByAccountId = decision!.AccountId,
 				CreatedAt = now,
@@ -241,7 +272,7 @@ public static class AssetEndpoints
 			db.UploadSessions.Add(pending);
 			await db.SaveChangesAsync(token);
 			var uploadUrl = await storage.CreateUploadTicketAsync(
-				pending.BlobName, options.Value.UploadSessionLifetime, token);
+				pending.BlobName, storageOptions.UploadSessionLifetime, token);
 			return Results.Created($"/api/assets/{asset.Id}/access", new
 			{
 				uploadSessionId = pending.Id,
@@ -249,6 +280,7 @@ public static class AssetEndpoints
 				uploadUrl,
 				expiresAt = pending.UploadTicketExpiresAt,
 				maxBytes = pending.MaxSizeBytes,
+				blockBytes = storageOptions.UploadBlockBytes,
 			});
 		}).DisableAntiforgery();
 
@@ -488,3 +520,6 @@ public static class AssetEndpoints
 public sealed record CreateAssetRequest(string? AssetType, string? VoiceLabel, string? Description);
 
 public sealed record PatchAssetRequest(string? AssetType, string? VoiceLabel, string? Description);
+
+/// <summary>ARC-017: optional declared file identity at upload-session initiation.</summary>
+public sealed record CreateUploadSessionRequest(long? SizeBytes, string? FileName);

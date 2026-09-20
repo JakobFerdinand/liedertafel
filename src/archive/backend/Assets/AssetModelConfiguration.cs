@@ -56,6 +56,7 @@ public sealed class AssetModelConfiguration
 		builder.HasKey(x => x.Id);
 		builder.Property(x => x.BlobName).HasMaxLength(300).IsRequired();
 		builder.Property(x => x.ContentType).HasMaxLength(100).IsRequired();
+		builder.Property(x => x.DeclaredFileName).HasMaxLength(300);
 		builder.HasOne(x => x.Asset)
 			.WithMany()
 			.HasForeignKey(x => x.AssetId)

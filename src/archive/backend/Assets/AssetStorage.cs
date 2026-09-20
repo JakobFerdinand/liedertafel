@@ -40,7 +40,13 @@ public sealed class AssetStorageOptions
 {
 	public string ContainerName { get; set; } = "archive-assets";
 
-	public long MaxUploadBytes { get; set; } = 20 * 1024 * 1024;
+	public long MaxUploadBytes { get; set; } = 10 * 1024L * 1024 * 1024;
+
+	/// <summary>ARC-017: recommended client block size for block uploads.</summary>
+	public long UploadBlockBytes { get; set; } = 8 * 1024 * 1024;
+
+	/// <summary>ARC-017: per musical version budget across pending sessions and finalized revisions.</summary>
+	public long MaxCollectionBytes { get; set; } = 40 * 1024L * 1024 * 1024;
 
 	public TimeSpan UploadSessionLifetime { get; set; } = TimeSpan.FromMinutes(30);
 

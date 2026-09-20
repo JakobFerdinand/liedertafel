@@ -54,7 +54,7 @@ public sealed class AssetApiTests
 		}
 
 		var (sessionId, uploadUrl, sessionBody) = await CreateUploadSessionAsync(client, editorSession, assetId);
-		Assert.Equal(20 * 1024 * 1024, sessionBody.GetProperty("maxBytes").GetInt64());
+		Assert.Equal(10 * 1024L * 1024 * 1024, sessionBody.GetProperty("maxBytes").GetInt64());
 		var expiresAt = DateTimeOffset.Parse(sessionBody.GetProperty("expiresAt").GetString()!);
 		Assert.InRange(expiresAt, DateTimeOffset.UtcNow.AddMinutes(29), DateTimeOffset.UtcNow.AddMinutes(31));
 
@@ -770,7 +770,12 @@ public sealed class AssetApiTests
 	[Fact]
 	public async Task OversizedFileIsRejectedAndAbandonsSession()
 	{
-		await using var factory = new AuthApiFactory();
+		// ARC-017: the default limit grew to ~10 GiB, so the oversize probe
+		// uses a bounded per-test limit instead of the global default.
+		await using var factory = new AuthApiFactory(settings: new Dictionary<string, string?>
+		{
+			["Archive:Assets:MaxUploadBytes"] = "512",
+		});
 		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
