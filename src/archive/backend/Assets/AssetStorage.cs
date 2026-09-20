@@ -50,6 +50,9 @@ public sealed class AssetStorageOptions
 
 	public TimeSpan UploadSessionLifetime { get; set; } = TimeSpan.FromMinutes(30);
 
+	/// <summary>ARC-017: grace beyond ticket expiry before cleanup abandons a session.</summary>
+	public TimeSpan ExpiryGrace { get; set; } = TimeSpan.FromHours(1);
+
 	public TimeSpan ReadTicketLifetime { get; set; } = TimeSpan.FromMinutes(15);
 }
 

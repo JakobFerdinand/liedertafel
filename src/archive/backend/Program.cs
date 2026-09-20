@@ -12,7 +12,7 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 
 var command = args.FirstOrDefault();
-if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" or "--bootstrap-admin" or "--repair-admin" or "--seed-dev-auth" or "--send-test-mail")
+if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" or "--bootstrap-admin" or "--repair-admin" or "--seed-dev-auth" or "--send-test-mail" or "--cleanup-uploads")
 {
     var jobs = Host.CreateApplicationBuilder(args.Skip(1).ToArray());
     jobs.AddServiceDefaults();
@@ -23,6 +23,10 @@ if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" o
     jobs.Services.AddArchiveIdentity(jobs.Configuration);
     jobs.Services.AddSingleton<LocalServices>();
     jobs.Services.AddSingleton(TimeProvider.System);
+    jobs.Services.AddOptions<AssetStorageOptions>().BindConfiguration("Archive:Assets");
+    jobs.Services.AddSingleton<BlobAssetStorageAdapter>();
+    jobs.Services.AddSingleton<IAssetStorageAdapter>(sp => sp.GetRequiredService<BlobAssetStorageAdapter>());
+    jobs.Services.AddScoped<UploadSessionCleaner>();
     using var host = jobs.Build();
     await host.StartAsync();
     Environment.ExitCode = await host.RunArchiveJobAsync(command[2..], async token =>
@@ -35,6 +39,15 @@ if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" o
             await provider.GetRequiredService<LocalServices>().InitializeAsync(token);
         else if (command == "--worker-smoke")
             await provider.GetRequiredService<LocalServices>().ExerciseAsync(token);
+        else if (command == "--cleanup-uploads")
+        {
+            // ARC-017 bounded cleanup: finite job abandons ticket-expired
+            // upload sessions and releases their pending blobs best-effort.
+            var cleaned = await provider.GetRequiredService<UploadSessionCleaner>()
+                .CleanAsync(token);
+            provider.GetRequiredService<ILoggerFactory>().CreateLogger("Archive.Jobs")
+                .LogInformation("Cleanup marked {AbandonedCount} upload sessions abandoned", cleaned);
+        }
         else if (command == "--seed-dev-auth")
             await OperatorConfiguration.SeedDevAuthAsync(provider, token);
         else if (command == "--bootstrap-admin")
@@ -56,6 +69,7 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddOptions<AssetStorageOptions>().BindConfiguration("Archive:Assets");
 builder.Services.AddSingleton<BlobAssetStorageAdapter>();
 builder.Services.AddSingleton<IAssetStorageAdapter>(sp => sp.GetRequiredService<BlobAssetStorageAdapter>());
+builder.Services.AddScoped<UploadSessionCleaner>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddArchiveAuth(builder.Configuration, builder.Environment);
 // ARC-011: Container Apps terminates TLS at the front proxy and forwards

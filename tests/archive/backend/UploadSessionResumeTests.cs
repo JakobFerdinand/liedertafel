@@ -586,6 +586,100 @@ public sealed class UploadSessionResumeTests
 		Assert.False(factory.Storage.Has(blobNameB));
 	}
 
+	[Fact]
+	public async Task CleanerMarksExpiredPendingSessionsAbandonedWithinGrace()
+	{
+		await using var factory = new AuthApiFactory();
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		var editorSession = await SignInAsync(factory, Editor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
+		var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
+		var (expiredId, expiredUrl, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
+		var expiredBlob = factory.Storage.Find(expiredUrl)!.BlobName;
+		factory.Storage.Store(expiredBlob, ValidPdf(128));
+		var (freshId, freshUrl, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
+		var freshBlob = factory.Storage.Find(freshUrl)!.BlobName;
+		factory.Storage.Store(freshBlob, ValidPdf(128));
+
+		// One hour grace: the expired session slipped past it, the fresh one
+		// expired minutes ago only.
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			(await db.UploadSessions.SingleAsync(s => s.Id == expiredId)).UploadTicketExpiresAt =
+				DateTimeOffset.UtcNow.AddHours(-1).AddMinutes(-5);
+			(await db.UploadSessions.SingleAsync(s => s.Id == freshId)).UploadTicketExpiresAt =
+				DateTimeOffset.UtcNow.AddMinutes(-30);
+			await db.SaveChangesAsync();
+		}
+
+		using (var scope = factory.Services.CreateScope())
+		{
+			var cleaner = scope.ServiceProvider.GetRequiredService<UploadSessionCleaner>();
+			Assert.Equal(1, await cleaner.CleanAsync(CancellationToken.None));
+		}
+
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			Assert.Equal(PendingUploadState.Abandoned,
+				(await db.UploadSessions.SingleAsync(s => s.Id == expiredId)).State);
+			Assert.Equal(PendingUploadState.Pending,
+				(await db.UploadSessions.SingleAsync(s => s.Id == freshId)).State);
+		}
+		Assert.False(factory.Storage.Has(expiredBlob));
+		Assert.True(factory.Storage.Has(freshBlob));
+
+		// A second run has nothing left to clean.
+		using (var scope = factory.Services.CreateScope())
+		{
+			var cleaner = scope.ServiceProvider.GetRequiredService<UploadSessionCleaner>();
+			Assert.Equal(0, await cleaner.CleanAsync(CancellationToken.None));
+		}
+	}
+
+	[Fact]
+	public async Task CancelledAndFinalizedSessionsAreNeverCleaned()
+	{
+		await using var factory = new AuthApiFactory();
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		var editorSession = await SignInAsync(factory, Editor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
+		var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
+		var (_, _, _) = await UploadAndFinalizeAsync(factory, client, editorSession, assetId);
+		var (cancelledId, _, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
+		using (var cancel = await DeleteAsync(client,
+			$"/api/upload-sessions/{cancelledId}", editorSession))
+		{
+			Assert.Equal(HttpStatusCode.NoContent, cancel.StatusCode);
+		}
+
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			foreach (var session in await db.UploadSessions.ToListAsync())
+				session.UploadTicketExpiresAt = DateTimeOffset.UtcNow.AddHours(-2);
+			await db.SaveChangesAsync();
+		}
+
+		using (var scope = factory.Services.CreateScope())
+		{
+			var cleaner = scope.ServiceProvider.GetRequiredService<UploadSessionCleaner>();
+			Assert.Equal(0, await cleaner.CleanAsync(CancellationToken.None));
+		}
+
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			var session = await db.UploadSessions.SingleAsync(s => s.Id == cancelledId);
+			Assert.Equal(PendingUploadState.Cancelled, session.State);
+			Assert.Equal(PendingUploadState.Finalized,
+				(await db.UploadSessions.SingleAsync(s => s.State == PendingUploadState.Finalized)).State);
+		}
+	}
+
 	private static async Task<(Guid SongId, Guid VersionId)> CreateSongWithVersionAsync(
 		AuthApiFactory factory, HttpClient client, string editorSession, string title = "Notenlied")
 	{
