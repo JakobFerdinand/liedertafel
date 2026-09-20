@@ -1,6 +1,9 @@
 using System.Net.Http.Json;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
 using Microsoft.Extensions.Configuration;
 using Xunit.Abstractions;
 
@@ -860,6 +863,254 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         }
     }
 
+    [Fact]
+    public async Task LargeUploadInterruptResumeRoundtripThroughRealAzuriteStorage()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+        var token = timeout.Token;
+        var builder = await DistributedApplicationTestingBuilder.CreateAsync<Projects.Archive_AppHost>(
+            // Port randomization is off so the pinned Azurite blob port (see
+            // AppHost) is honored: the server-side copy fetches the copy
+            // source from inside the emulator container, which can only
+            // resolve the ticket host when container and host ports match.
+            ["--Archive:PersistLocalData=false", "DcpPublisher:RandomizePorts=false"],
+            (options, _) => options.DisableDashboard = false, token);
+        await using var app = await builder.BuildAsync(token);
+        await app.StartAsync(token);
+        try
+        {
+            await app.ResourceNotifications.WaitForResourceHealthyAsync("archive-api", token);
+        }
+        catch
+        {
+            var logs = app.Services.GetRequiredService<ResourceLoggerService>();
+            foreach (var name in new[] { "archive-api", "archive-storage-init" })
+                await foreach (var batch in logs.GetAllAsync(name))
+                    foreach (var line in batch) output.WriteLine($"{name}: {line.Content}");
+            throw;
+        }
+        await app.ResourceNotifications.WaitForResourceHealthyAsync("archive-frontend", token);
+
+        // Merely starting the API did not apply a schema. Execute it explicitly.
+        var commands = app.Services.GetRequiredService<ResourceCommandService>();
+        await commands.ExecuteCommandAsync("archive-migrate", "start", token);
+        await AssertSuccessfulCompletion(app.ResourceNotifications, "archive-migrate", token);
+
+        using var frontend = app.CreateHttpClient("archive-frontend", "http");
+        using var mail = app.CreateHttpClient("archive-mail", "http");
+        // A jar-free client carries exactly the manually attached session so
+        // editor/admin/member tickets never compete (see ARC-006 comment in
+        // the walking skeleton above).
+        using var api = new HttpClient(new HttpClientHandler { UseCookies = false })
+        {
+            BaseAddress = frontend.BaseAddress,
+        };
+        // Server-side transfer client: CORS is irrelevant off-browser, the
+        // upload URL points straight at the local Azurite endpoint.
+        using var storage = new HttpClient();
+
+        var (seedCsrfCookie, seedToken) = await GetCsrfAsync(api, null, token);
+        using var seed = new HttpRequestMessage(HttpMethod.Post, "/api/dev/auth/seed");
+        seed.Headers.Add("Cookie", seedCsrfCookie);
+        seed.Headers.Add("X-CSRF-TOKEN", seedToken);
+        seed.Content = JsonContent.Create(new { });
+        using var seedResponse = await api.SendAsync(seed, token);
+        Assert.Equal(HttpStatusCode.OK, seedResponse.StatusCode);
+
+        var editorSession = await SignInAsync(api, mail, "redaktion@liedertafel.test", token);
+
+        static string WithQuery(string url, string suffix) =>
+            url + (url.Contains('?') ? "&" : "?") + suffix;
+
+        // Editor builds the catalogue row: song → arrangement → version, then
+        // one asset per scenario: main resume roundtrip, file mismatch,
+        // cancellation, out-of-limit initiation.
+        using var songResponse = await PostJsonAsync(api, "/api/songs",
+            new { title = "ARC-017 Fortsetzungslied" }, editorSession, token);
+        Assert.Equal(HttpStatusCode.Created, songResponse.StatusCode);
+        var songBody = await songResponse.Content.ReadFromJsonAsync<JsonElement>(token);
+        var songId = Guid.Parse(songBody.GetProperty("song").GetProperty("id").GetString()!);
+        using var detailResponse = await GetAsync(api, $"/api/songs/{songId}", editorSession, token);
+        detailResponse.EnsureSuccessStatusCode();
+        var detail = await detailResponse.Content.ReadFromJsonAsync<JsonElement>(token);
+        var versionId = Guid.Parse(detail.GetProperty("song").GetProperty("arrangements")[0]
+            .GetProperty("musicalVersions")[0].GetProperty("id").GetString()!);
+
+        var assets = new Guid[4];
+        for (var i = 0; i < assets.Length; i++)
+            assets[i] = await CreateAssetAsync(api, editorSession, versionId, token);
+
+        // 12 MiB with the configured 8 MiB recommended block size splits into
+        // exactly two blocks: one staged before the simulated interruption and
+        // one remaining for the resume.
+        var pdf = ValidPdf(12 * 1024 * 1024);
+        using var sessionResponse = await PostJsonAsync(api,
+            $"/api/assets/{assets[0]}/upload-session",
+            new { sizeBytes = pdf.Length, fileName = "fortsetzung-partitur.pdf" }, editorSession, token);
+        Assert.Equal(HttpStatusCode.Created, sessionResponse.StatusCode);
+        var sessionBody = await sessionResponse.Content.ReadFromJsonAsync<JsonElement>(token);
+        var uploadSessionId = Guid.Parse(sessionBody.GetProperty("uploadSessionId").GetString()!);
+        var uploadUrl = sessionBody.GetProperty("uploadUrl").GetString()!;
+        var blockBytes = sessionBody.GetProperty("blockBytes").GetInt64();
+        Assert.True(blockBytes > 0, "Session response must advertise a positive block size.");
+        var blockCount = (int)((pdf.Length + blockBytes - 1) / blockBytes);
+        var blocks = new (string Id, byte[] Content)[blockCount];
+        for (var i = 0; i < blockCount; i++)
+        {
+            var from = (int)(i * blockBytes);
+            blocks[i] = (
+                Convert.ToBase64String(Encoding.UTF8.GetBytes($"arc017-{i:000}")),
+                pdf[from..Math.Min(from + (int)blockBytes, pdf.Length)]);
+        }
+        Assert.Equal(2, blocks.Length);
+
+        async Task PutBlockAsync(string targetUrl, string blockId, byte[] content)
+        {
+            using var put = new HttpRequestMessage(HttpMethod.Put,
+                WithQuery(targetUrl, $"comp=block&blockid={Uri.EscapeDataString(blockId)}"))
+            {
+                Content = new ByteArrayContent(content),
+            };
+            using var response = await storage.SendAsync(put, token);
+            Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        }
+
+        // Simulated interrupt: only the first block was transferred when the
+        // connection dropped; nothing was committed to the blob yet.
+        await PutBlockAsync(uploadUrl, blocks[0].Id, blocks[0].Content);
+
+        // Ticket renewal: the fresh ticket must not be expired and carries the
+        // same pending blob name so committed progress can be resumed.
+        using var renew = await PostJsonAsync(api,
+            $"/api/upload-sessions/{uploadSessionId}/renew", new { }, editorSession, token);
+        Assert.Equal(HttpStatusCode.OK, renew.StatusCode);
+        var renewBody = await renew.Content.ReadFromJsonAsync<JsonElement>(token);
+        Assert.True(renewBody.GetProperty("expiresAt").GetDateTimeOffset() > DateTimeOffset.UtcNow,
+            "Renewed upload ticket must expire in the future.");
+        var renewedUploadUrl = renewBody.GetProperty("uploadUrl").GetString()!;
+        Assert.Equal("pending/", renewBody.GetProperty("blobName").GetString()![..8]);
+
+        // Resume discovery: the interrupted block survived as uncommitted
+        // progress on the pending blob and is found by its exact id.
+        using var blockList = await storage.GetAsync(
+            WithQuery(renewedUploadUrl, "comp=blocklist&blocklisttype=all"), token);
+        Assert.Equal(HttpStatusCode.OK, blockList.StatusCode);
+        var blockListXml = XDocument.Parse(await blockList.Content.ReadAsStringAsync(token));
+        var stagedIds = blockListXml.Descendants("Block")
+            .Select(b => b.Element("Name")?.Value ?? string.Empty).ToArray();
+        Assert.Equal([blocks[0].Id], stagedIds);
+
+        // Resume: transfer the remaining block, then commit all blocks in
+        // order onto the pending blob.
+        foreach (var block in blocks.Skip(1))
+            await PutBlockAsync(renewedUploadUrl, block.Id, block.Content);
+        var commitXml = new XElement("BlockList",
+            blocks.Select(b => new XElement("Latest", b.Id))).ToString();
+        using var commit = new HttpRequestMessage(HttpMethod.Put,
+            WithQuery(renewedUploadUrl, "comp=blocklist"))
+        {
+            Content = new StringContent(commitXml, Encoding.UTF8, "application/xml"),
+        };
+        using var commitResponse = await storage.SendAsync(commit, token);
+        Assert.Equal(HttpStatusCode.Created, commitResponse.StatusCode);
+
+        // Finalize with the declared identity: the revision size matches the
+        // original byte length and the download round-trips the exact
+        // checksum (SHA-256) of the original bytes.
+        using var finalize = await PostJsonAsync(api,
+            $"/api/upload-sessions/{uploadSessionId}/finalize",
+            new { sizeBytes = pdf.Length, fileName = "fortsetzung-partitur.pdf" }, editorSession, token);
+        Assert.Equal(HttpStatusCode.OK, finalize.StatusCode);
+        var revision = await finalize.Content.ReadFromJsonAsync<JsonElement>(token);
+        var revisionId = Guid.Parse(revision.GetProperty("revisionId").GetString()!);
+        Assert.Equal(pdf.Length, revision.GetProperty("sizeBytes").GetInt64());
+
+        using var access = await GetAsync(api, $"/api/assets/{assets[0]}/access", editorSession, token);
+        Assert.Equal(HttpStatusCode.OK, access.StatusCode);
+        var accessBody = await access.Content.ReadFromJsonAsync<JsonElement>(token);
+        Assert.Equal(revisionId, Guid.Parse(accessBody.GetProperty("revisionId").GetString()!));
+        Assert.Equal(pdf.Length, accessBody.GetProperty("sizeBytes").GetInt64());
+        var downloadUrl = accessBody.GetProperty("downloadUrl").GetString()!;
+        using var download = await storage.GetAsync(downloadUrl, token);
+        Assert.Equal(HttpStatusCode.OK, download.StatusCode);
+        var downloaded = await download.Content.ReadAsByteArrayAsync(token);
+        Assert.Equal(SHA256.HashData(pdf), SHA256.HashData(downloaded));
+
+        // Replayed finalization is idempotent: the identical revision comes
+        // back and no extra revision was created.
+        using var replay = await PostJsonAsync(api,
+            $"/api/upload-sessions/{uploadSessionId}/finalize", new { }, editorSession, token);
+        Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+        var replayBody = await replay.Content.ReadFromJsonAsync<JsonElement>(token);
+        Assert.Equal(revisionId, Guid.Parse(replayBody.GetProperty("revisionId").GetString()!));
+
+        // File mismatch: a fully transferred file cannot be finalized under a
+        // different declared identity; the session stays pending so the
+        // correct identity finalizes normally afterwards.
+        var small = ValidPdf(768);
+        using var mismatchSessionResponse = await PostJsonAsync(api,
+            $"/api/assets/{assets[1]}/upload-session",
+            new { sizeBytes = small.Length, fileName = "original.pdf" }, editorSession, token);
+        Assert.Equal(HttpStatusCode.Created, mismatchSessionResponse.StatusCode);
+        var mismatchSessionBody = await mismatchSessionResponse.Content.ReadFromJsonAsync<JsonElement>(token);
+        var mismatchSessionId = Guid.Parse(mismatchSessionBody.GetProperty("uploadSessionId").GetString()!);
+        var mismatchUploadUrl = mismatchSessionBody.GetProperty("uploadUrl").GetString()!;
+        using var singlePut = new HttpRequestMessage(HttpMethod.Put, mismatchUploadUrl)
+        {
+            Content = new ByteArrayContent(small),
+        };
+        singlePut.Content.Headers.ContentType = new("application/pdf");
+        singlePut.Headers.Add("x-ms-blob-type", "BlockBlob");
+        using var singlePutResponse = await storage.SendAsync(singlePut, token);
+        Assert.Equal(HttpStatusCode.Created, singlePutResponse.StatusCode);
+
+        using var sizeMismatch = await PostJsonAsync(api,
+            $"/api/upload-sessions/{mismatchSessionId}/finalize",
+            new { sizeBytes = small.Length + 1, fileName = "original.pdf" }, editorSession, token);
+        Assert.Equal(HttpStatusCode.Conflict, sizeMismatch.StatusCode);
+        var sizeMismatchBody = await sizeMismatch.Content.ReadFromJsonAsync<JsonElement>(token);
+        Assert.Equal("Die Datei passt nicht zur bestehenden Uploadsitzung.",
+            sizeMismatchBody.GetProperty("title").GetString());
+        using var nameMismatch = await PostJsonAsync(api,
+            $"/api/upload-sessions/{mismatchSessionId}/finalize",
+            new { sizeBytes = small.Length, fileName = "anders.pdf" }, editorSession, token);
+        Assert.Equal(HttpStatusCode.Conflict, nameMismatch.StatusCode);
+        var nameMismatchBody = await nameMismatch.Content.ReadFromJsonAsync<JsonElement>(token);
+        Assert.Equal("Die Datei passt nicht zur bestehenden Uploadsitzung.",
+            nameMismatchBody.GetProperty("title").GetString());
+        using var corrected = await PostJsonAsync(api,
+            $"/api/upload-sessions/{mismatchSessionId}/finalize",
+            new { sizeBytes = small.Length, fileName = "original.pdf" }, editorSession, token);
+        Assert.Equal(HttpStatusCode.OK, corrected.StatusCode);
+
+        // Cancellation: staged uncommitted progress, then DELETE. The session
+        // is terminal afterwards: finalize reports the cancelled state.
+        var (cancelSessionId, cancelUploadUrl, _) = await CreateUploadSessionAsync(
+            api, editorSession, assets[2], token);
+        await PutBlockAsync(cancelUploadUrl,
+            Convert.ToBase64String(Encoding.UTF8.GetBytes("arc017-cancel")),
+            new byte[1024]);
+        using var cancel = await DeleteAsync(api,
+            $"/api/upload-sessions/{cancelSessionId}", editorSession, token);
+        Assert.Equal(HttpStatusCode.NoContent, cancel.StatusCode);
+        using var cancelledFinalize = await PostJsonAsync(api,
+            $"/api/upload-sessions/{cancelSessionId}/finalize", new { }, editorSession, token);
+        Assert.Equal(HttpStatusCode.Conflict, cancelledFinalize.StatusCode);
+        var cancelledBody = await cancelledFinalize.Content.ReadFromJsonAsync<JsonElement>(token);
+        Assert.Equal("Der Upload wurde abgebrochen.",
+            cancelledBody.GetProperty("title").GetString());
+
+        // Out-of-limit: a declared size above the configured per-file maximum
+        // is rejected at initiation, before any transfer happens.
+        var maxBytes = sessionBody.GetProperty("maxBytes").GetInt64();
+        using var overLimit = await PostJsonAsync(api,
+            $"/api/assets/{assets[3]}/upload-session",
+            new { sizeBytes = maxBytes + 1, fileName = "zu-gross.pdf" }, editorSession, token);
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, overLimit.StatusCode);
+        var overLimitBody = await overLimit.Content.ReadFromJsonAsync<JsonElement>(token);
+        Assert.Equal("Die Datei ist zu groß.", overLimitBody.GetProperty("title").GetString());
+    }
+
     private static byte[] ValidPdf(int size)
     {
         var bytes = new byte[size];
@@ -908,6 +1159,16 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         request.Headers.Add("Cookie", $"{cookie}; {sessionCookie}");
         request.Headers.Add("X-CSRF-TOKEN", csrfToken);
         request.Content = JsonContent.Create(body);
+        return await client.SendAsync(request, token);
+    }
+
+    private static async Task<HttpResponseMessage> DeleteAsync(
+        HttpClient client, string path, string sessionCookie, CancellationToken token)
+    {
+        var (cookie, csrfToken) = await GetCsrfAsync(client, sessionCookie, token);
+        using var request = new HttpRequestMessage(HttpMethod.Delete, path);
+        request.Headers.Add("Cookie", $"{cookie}; {sessionCookie}");
+        request.Headers.Add("X-CSRF-TOKEN", csrfToken);
         return await client.SendAsync(request, token);
     }
 
