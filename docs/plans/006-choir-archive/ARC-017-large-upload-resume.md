@@ -70,8 +70,8 @@ Slices:
   → 409).
 - [x] Backend D: finalize identity check + collection limit at finalization.
 - [x] Backend E: abandoned-session cleanup contract (bounded job).
-- [ ] Frontend F: chunked block upload engine with progress + blocklist commit.
-- [ ] Frontend G: cancellation, resume after reload (localStorage identity
+- [x] Frontend F: chunked block upload engine with progress + blocklist commit.
+- [x] Frontend G: cancellation, resume after reload (localStorage identity
   check, renewal, committed-block resume), batch UI integration.
 - [ ] Integration: apphost interrupt → renew → resume → finalize roundtrip
   with size/checksum comparison plus cancellation/mismatch/replay/limit
