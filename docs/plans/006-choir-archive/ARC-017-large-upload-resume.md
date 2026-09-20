@@ -1,6 +1,6 @@
 ---
 id: ARC-017
-status: planned
+status: in_progress
 phase: core
 kind: slice
 depends_on: ["ARC-002", "ARC-015"]
@@ -40,3 +40,40 @@ finalization and out-of-limit uploads. Repeat real Azure transfer in ARC-042.
 
 Publish the block/session and streaming-finalization contract to ARC-035. Batch
 label UI ARC-016 can proceed concurrently if transfer-state ownership is agreed.
+
+## Progress
+
+Branch: `feat/arc-017-large-upload-resume`.
+
+Seams under test (TDD, red → green per slice):
+
+1. Backend HTTP seam (`tests/archive/backend/AssetApiTests.cs`): session
+   initiation with declared file identity, ticket renewal (`POST
+   /api/upload-sessions/{id}/renew`), cancellation (`DELETE
+   /api/upload-sessions/{id}`), finalize identity/limit checks, cleanup job
+   entry point.
+2. Storage seam (`IAssetStorageAdapter` + real Azurite in
+   `tests/archive/apphost/WalkingSkeletonTests.cs`): upload tickets grant
+   block transfer (`Write|Create|Read`), block PUT/PUT-blocklist roundtrip,
+   committed-block listing for resume.
+3. Frontend transfer engine seam (`lib/assets.ts` +
+   `src/archive/frontend/tests/noten.spec.ts`): chunked block PUTs with
+   progress, cancellation, resume after reload with file identity check.
+
+Slices:
+
+- [x] Backend A: declared identity + limits at initiation (migration,
+  `MaxUploadBytes` raised to ~10 GiB, `UploadBlockBytes`, per-version
+  `MaxCollectionBytes`, pending-budget enforcement).
+- [x] Backend B: ticket renewal endpoint (extends lifetime, fresh ticket).
+- [x] Backend C: cancellation state + cancel endpoint (finalize on cancelled
+  → 409).
+- [x] Backend D: finalize identity check + collection limit at finalization.
+- [x] Backend E: abandoned-session cleanup contract (bounded job).
+- [ ] Frontend F: chunked block upload engine with progress + blocklist commit.
+- [ ] Frontend G: cancellation, resume after reload (localStorage identity
+  check, renewal, committed-block resume), batch UI integration.
+- [ ] Integration: apphost interrupt → renew → resume → finalize roundtrip
+  with size/checksum comparison plus cancellation/mismatch/replay/limit
+  negatives through real Azurite.
+- [ ] Docs: README ARC-017 section, handoff contract to ARC-035/ARC-016.
