@@ -18,7 +18,12 @@ public sealed record AssetObjectInfo(long SizeBytes, string? ContentType);
 /// </summary>
 public interface IAssetStorageAdapter
 {
-	/// <summary>Creates a time-bounded write SAS ticket for the browser upload.</summary>
+	/// <summary>
+	/// Creates a time-bounded write SAS ticket for the browser upload.
+	/// ARC-017: Read is included so the browser can query the pending blob's
+	/// committed block list (<c>?comp=blocklist</c>) to resume interrupted
+	/// block transfers.
+	/// </summary>
 	Task<string> CreateUploadTicketAsync(string blobName, TimeSpan lifetime, CancellationToken cancellationToken);
 
 	/// <summary>Creates a time-bounded read SAS ticket; <paramref name="asDownload"/> forces a download disposition.</summary>
@@ -83,7 +88,7 @@ public sealed class BlobAssetStorageAdapter(
 	public Task<string> CreateUploadTicketAsync(string blobName, TimeSpan lifetime, CancellationToken cancellationToken) =>
 		ExecuteAsync("upload_ticket", () => Task.FromResult(
 			Blob(blobName).GenerateSasUri(BuildBuilder(blobName, lifetime,
-				BlobSasPermissions.Write | BlobSasPermissions.Create)).ToString()));
+				BlobSasPermissions.Write | BlobSasPermissions.Create | BlobSasPermissions.Read)).ToString()));
 
 	public Task<string> CreateReadTicketAsync(string blobName, TimeSpan lifetime, bool asDownload, CancellationToken cancellationToken) =>
 		ExecuteAsync("read_ticket", () =>
