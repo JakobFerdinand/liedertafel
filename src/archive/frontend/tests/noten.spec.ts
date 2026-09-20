@@ -493,3 +493,387 @@ test("Fehlgeschlagener Abschluss zeigt eine verständliche Meldung", async ({
 
   expect(errors).toEqual([]);
 });
+
+test("Unterbrochener Upload wird nach dem Neuladen fortgesetzt", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await mockSitzung(page, editorMe);
+
+  const inhalt = "%PDF-1.4 blockweise1";
+  const sitzungsId = "00000000-0000-0000-0000-0000000000aa";
+  const schluessel = `arc-upload-${assetId}`;
+  let phase = 1;
+  let erlaubt = false;
+  const blockPuts: { phase: number; index: number }[] = [];
+  let blocklistenAbfragen = 0;
+  let verbindungen = 0;
+  let verbindungsXml = "";
+  let verlaengerungen = 0;
+  let finalisierungen = 0;
+
+  await page.route(`**/api/songs/${songId}`, (route) =>
+    route.fulfill(json(detail([leeresAsset]))),
+  );
+  await page.route(`**/api/assets/${assetId}`, (route) =>
+    route.fulfill(json({ ...asset, currentRevision: null })),
+  );
+  await page.route(`**/api/assets/${assetId}/upload-session`, (route) =>
+    route.fulfill(
+      json(
+        {
+          uploadSessionId: sitzungsId,
+          blobName: null,
+          uploadUrl,
+          expiresAt: "2026-09-19T12:15:00.000Z",
+          maxBytes: 5242880,
+          blockBytes: 8,
+        },
+        201,
+      ),
+    ),
+  );
+  await page.route(uploadMuster, async (route) => {
+    const anfrage = route.request();
+    if (anfrage.method() === "GET") {
+      blocklistenAbfragen += 1;
+      return route.fulfill({
+        status: 200,
+        contentType: "application/xml",
+        body: `<BlockList><CommittedBlocks><Block><Name>MDAwMDAw</Name><Size>8</Size></Block></CommittedBlocks><UncommittedBlocks /></BlockList>`,
+      });
+    }
+    if (anfrage.url().includes("comp=blocklist")) {
+      verbindungen += 1;
+      verbindungsXml = anfrage.postData() ?? "";
+      return route.fulfill(json({}, 201));
+    }
+    const index = Number(
+      atob(new URL(anfrage.url()).searchParams.get("blockid") ?? ""),
+    );
+    blockPuts.push({ phase, index });
+    if (index !== 0 && !erlaubt) {
+      return route.fulfill(problem("Übertragung unterbrochen.", 500));
+    }
+    return route.fulfill(json({}, 201));
+  });
+  await page.route("**/api/upload-sessions/*/renew", (route) => {
+    verlaengerungen += 1;
+    return route.fulfill(
+      json({
+        uploadSessionId: sitzungsId,
+        blobName: null,
+        uploadUrl,
+        expiresAt: "2026-09-19T12:30:00.000Z",
+        maxBytes: 5242880,
+        blockBytes: 8,
+      }),
+    );
+  });
+  await page.route("**/api/upload-sessions/*/finalize", (route) => {
+    finalisierungen += 1;
+    expect(route.request().postDataJSON()).toEqual({
+      sizeBytes: inhalt.length,
+      fileName: "noten.pdf",
+    });
+    return route.fulfill(json({ assetId, ...revision }));
+  });
+
+  await page.goto(`/lied/?id=${songId}`);
+  const wahl = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Material hochladen" }).click();
+  const chooser = await wahl;
+  await chooser.setFiles({
+    name: "noten.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from(inhalt),
+  });
+  await page.getByRole("button", { name: "Material übertragen" }).click();
+  const zeile = page.locator(".material-datei");
+  await expect(zeile.getByText("gescheitert")).toBeVisible();
+  expect(blockPuts).toEqual([
+    { phase: 1, index: 0 },
+    { phase: 1, index: 1 },
+    { phase: 1, index: 1 },
+    { phase: 1, index: 1 },
+  ]);
+  const eintrag = JSON.parse(
+    (await page.evaluate((k) => window.localStorage.getItem(k), schluessel)) ??
+      "null",
+  ) as {
+    uploadSessionId: string;
+    fileName: string;
+    sizeBytes: number;
+    lastModified: number;
+    blockBytes: number;
+  };
+  expect(eintrag).toEqual({
+    uploadSessionId: sitzungsId,
+    fileName: "noten.pdf",
+    sizeBytes: inhalt.length,
+    lastModified: eintrag.lastModified,
+    blockBytes: 8,
+  });
+  expect(eintrag.lastModified).toBeGreaterThan(0);
+
+  phase = 2;
+  erlaubt = true;
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Fortsetzen" })).toBeVisible();
+  await page.getByRole("button", { name: "Fortsetzen" }).click();
+  await page.evaluate(
+    ({ name, inhalt, lastModified }) => {
+      const datei = new File([inhalt], name, {
+        type: "application/pdf",
+        lastModified,
+      });
+      const eingabe =
+        document.querySelector<HTMLInputElement>("input[type='file']");
+      if (!eingabe) throw new Error("Eingabe fehlt");
+      const transport = new DataTransfer();
+      transport.items.add(datei);
+      eingabe.files = transport.files;
+      eingabe.dispatchEvent(new Event("change", { bubbles: true }));
+    },
+    { name: "noten.pdf", inhalt, lastModified: eintrag.lastModified },
+  );
+
+  await expect(page.getByText("1 von 1 Dateien gespeichert.")).toBeVisible();
+  expect(verlaengerungen).toBe(1);
+  expect(blocklistenAbfragen).toBe(1);
+  expect(blockPuts).toEqual([
+    { phase: 1, index: 0 },
+    { phase: 1, index: 1 },
+    { phase: 1, index: 1 },
+    { phase: 1, index: 1 },
+    { phase: 2, index: 1 },
+    { phase: 2, index: 2 },
+  ]);
+  expect(verbindungen).toBe(1);
+  expect(verbindungsXml).toBe(
+    "<BlockList><Latest>MDAwMDAw</Latest><Latest>MDAwMDAx</Latest><Latest>MDAwMDAy</Latest></BlockList>",
+  );
+  expect(finalisierungen).toBe(1);
+  expect(
+    await page.evaluate((k) => window.localStorage.getItem(k), schluessel),
+  ).toBeNull();
+
+  expect(errors).toEqual([]);
+});
+
+test("Abweichende Datei beim Fortsetzen startet eine frische Übertragung", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await mockSitzung(page, editorMe);
+
+  const inhalt = "%PDF-1.4 blockweise1";
+  const abweichend = "%PDF-1.4 anders";
+  const sitzungsId = "00000000-0000-0000-0000-0000000000aa";
+  const schluessel = `arc-upload-${assetId}`;
+  let erlaubt = false;
+  const blockPuts: number[] = [];
+  let verlaengerungen = 0;
+  let abrechnungen = 0;
+  let frischeSitzungen = 0;
+
+  await page.route(`**/api/songs/${songId}`, (route) =>
+    route.fulfill(json(detail([leeresAsset]))),
+  );
+  await page.route(`**/api/assets/${assetId}`, (route) =>
+    route.fulfill(json({ ...asset, currentRevision: null })),
+  );
+  await page.route(`**/api/assets/${assetId}/upload-session`, (route) => {
+    frischeSitzungen += 1;
+    return route.fulfill(
+      json(
+        {
+          uploadSessionId: `sitzung-${frischeSitzungen}`,
+          blobName: null,
+          uploadUrl,
+          expiresAt: "2026-09-19T12:15:00.000Z",
+          maxBytes: 5242880,
+          blockBytes: 8,
+        },
+        201,
+      ),
+    );
+  });
+  await page.route(uploadMuster, async (route) => {
+    const anfrage = route.request();
+    if (anfrage.method() === "GET") {
+      return route.fulfill({
+        status: 200,
+        contentType: "application/xml",
+        body: "<BlockList />",
+      });
+    }
+    if (anfrage.url().includes("comp=blocklist")) {
+      return route.fulfill(json({}, 201));
+    }
+    const index = Number(
+      atob(new URL(anfrage.url()).searchParams.get("blockid") ?? ""),
+    );
+    blockPuts.push(index);
+    if (index !== 0 && !erlaubt) {
+      return route.fulfill(problem("Übertragung unterbrochen.", 500));
+    }
+    return route.fulfill(json({}, 201));
+  });
+  await page.route("**/api/upload-sessions/*/renew", (route) => {
+    verlaengerungen += 1;
+    return route.fulfill(json({}, 200));
+  });
+  await page.route("**/api/upload-sessions/*", (route) => {
+    expect(route.request().method()).toBe("DELETE");
+    abrechnungen += 1;
+    return route.fulfill(json({}, 204));
+  });
+  await page.route("**/api/upload-sessions/*/finalize", (route) =>
+    route.fulfill(json({ assetId, ...revision })),
+  );
+
+  await page.goto(`/lied/?id=${songId}`);
+  const wahl = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Material hochladen" }).click();
+  const chooser = await wahl;
+  await chooser.setFiles({
+    name: "noten.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from(inhalt),
+  });
+  await page.getByRole("button", { name: "Material übertragen" }).click();
+  const zeile = page.locator(".material-datei");
+  await expect(zeile.getByText("gescheitert")).toBeVisible();
+  const eintrag = JSON.parse(
+    (await page.evaluate((k) => window.localStorage.getItem(k), schluessel)) ??
+      "null",
+  ) as { lastModified: number };
+  expect(eintrag).not.toBeNull();
+
+  erlaubt = true;
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Fortsetzen" })).toBeVisible();
+  await page.getByRole("button", { name: "Fortsetzen" }).click();
+  await page.evaluate(
+    ({ name, inhalt, lastModified }) => {
+      const datei = new File([inhalt], name, {
+        type: "application/pdf",
+        lastModified,
+      });
+      const eingabe =
+        document.querySelector<HTMLInputElement>("input[type='file']");
+      if (!eingabe) throw new Error("Eingabe fehlt");
+      const transport = new DataTransfer();
+      transport.items.add(datei);
+      eingabe.files = transport.files;
+      eingabe.dispatchEvent(new Event("change", { bubbles: true }));
+    },
+    {
+      name: "noten.pdf",
+      inhalt: abweichend,
+      lastModified: eintrag.lastModified,
+    },
+  );
+
+  await expect(page.getByText("1 von 1 Dateien gespeichert.")).toBeVisible();
+  expect(verlaengerungen).toBe(0);
+  expect(abrechnungen).toBe(1);
+  expect(frischeSitzungen).toBe(2);
+  expect(blockPuts.filter((index) => index === 0)).toHaveLength(2);
+  expect(
+    await page.evaluate((k) => window.localStorage.getItem(k), schluessel),
+  ).toBeNull();
+
+  expect(errors).toEqual([]);
+});
+
+test("Abbrechen meldet die Uploadsitzung ab und bereinigt den Eintrag", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await mockSitzung(page, editorMe);
+
+  const inhalt = "%PDF-1.4 blockweise1";
+  const sitzungsId = "00000000-0000-0000-0000-0000000000aa";
+  const schluessel = `arc-upload-${assetId}`;
+  const awarten = gatedBlock();
+  const blockPuts: number[] = [];
+  let abrechnungen = 0;
+  let finalisierungen = 0;
+
+  await page.route(`**/api/songs/${songId}`, (route) =>
+    route.fulfill(json(detail([leeresAsset]))),
+  );
+  await page.route(`**/api/assets/${assetId}`, (route) =>
+    route.fulfill(json({ ...asset, currentRevision: null })),
+  );
+  await page.route(`**/api/assets/${assetId}/upload-session`, (route) =>
+    route.fulfill(
+      json(
+        {
+          uploadSessionId: sitzungsId,
+          blobName: null,
+          uploadUrl,
+          expiresAt: "2026-09-19T12:15:00.000Z",
+          maxBytes: 5242880,
+          blockBytes: 8,
+        },
+        201,
+      ),
+    ),
+  );
+  await page.route(uploadMuster, async (route) => {
+    const anfrage = route.request();
+    if (anfrage.url().includes("comp=blocklist")) {
+      return route.fulfill(json({}, 201));
+    }
+    const index = Number(
+      atob(new URL(anfrage.url()).searchParams.get("blockid") ?? ""),
+    );
+    blockPuts.push(index);
+    if (index === 1) {
+      await awarten.complete;
+    }
+    return route.fulfill(json({}, 201));
+  });
+  await page.route("**/api/upload-sessions/*", (route) => {
+    expect(route.request().method()).toBe("DELETE");
+    abrechnungen += 1;
+    return route.fulfill(json({}, 204));
+  });
+  await page.route("**/api/upload-sessions/*/finalize", (route) => {
+    finalisierungen += 1;
+    return route.fulfill(json({ assetId, ...revision }));
+  });
+
+  await page.goto(`/lied/?id=${songId}`);
+  const wahl = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Material hochladen" }).click();
+  const chooser = await wahl;
+  await chooser.setFiles({
+    name: "noten.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from(inhalt),
+  });
+  await page.getByRole("button", { name: "Material übertragen" }).click();
+  const zeile = page.locator(".material-datei");
+  await expect(zeile.getByText("wird übertragen … 40 %")).toBeVisible();
+  expect(blockPuts).toEqual([0, 1]);
+
+  await zeile.getByRole("button", { name: "Abbrechen" }).click();
+  await expect(zeile.getByText("abgebrochen")).toBeVisible();
+  expect(abrechnungen).toBe(1);
+
+  await awarten.loslassen();
+  await expect(page.getByText("0 von 1 Dateien gespeichert.")).toBeVisible();
+  expect(finalisierungen).toBe(0);
+  expect(
+    await page.evaluate((k) => window.localStorage.getItem(k), schluessel),
+  ).toBeNull();
+
+  expect(errors).toEqual([]);
+});

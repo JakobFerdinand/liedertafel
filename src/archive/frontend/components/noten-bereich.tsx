@@ -1,17 +1,23 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
+  AbbruchFehler,
   type AssetAccessResponse,
   type AssetType,
   assetTypFuerDatei,
+  cancelUploadSession,
   contentTypeFuerAssetTyp,
   createAsset,
+  entferneUploadSitzung,
   fetchAssetAccess,
+  type GespeicherteUploadSitzung,
+  liesUploadSitzung,
   MaterialFehler,
   type MaterialSchritt,
   patchAsset,
   problemTitel,
+  setzeUploadFort,
   stimmeAusDateiname,
   stimmenVorschlaege,
   uebertrageDatei,
@@ -23,7 +29,15 @@ type MaterialStatus =
   | "uebertragen"
   | "geprueft"
   | "gespeichert"
-  | "gescheitert";
+  | "gescheitert"
+  | "abbruchLaeuft"
+  | "abgebrochen";
+
+type FortsetzungsWunsch = {
+  assetId: string;
+  assetTyp: AssetType;
+  eintrag: GespeicherteUploadSitzung;
+};
 
 type DateiZeile = {
   id: number;
@@ -72,21 +86,22 @@ function istAssetTyp(typ: string): typ is AssetType {
   return typ === "score" || typ === "audio" || typ === "midi";
 }
 
-function statusText(zeile: {
-  status: MaterialStatus;
-  fortschritt: number;
-}): string {
-  switch (zeile.status) {
+function statusTextFuer(status: MaterialStatus, fortschritt: number): string {
+  switch (status) {
     case "warten":
       return "wartet";
     case "uebertragen":
-      return `wird übertragen … ${Math.round(zeile.fortschritt)} %`;
+      return `wird übertragen … ${Math.round(fortschritt)} %`;
     case "geprueft":
       return "wird geprüft …";
     case "gespeichert":
       return "gespeichert.";
     case "gescheitert":
       return "gescheitert";
+    case "abbruchLaeuft":
+      return "wird abgebrochen …";
+    case "abgebrochen":
+      return "abgebrochen";
   }
 }
 
@@ -109,9 +124,12 @@ export function NotenBereich({
   const eingabeRef = useRef<HTMLInputElement>(null);
   const naechsteZeileId = useRef(0);
   const zeilenRef = useRef<DateiZeile[]>([]);
+  const abbrueche = useRef(new Map<number, AbortController>());
+  const fortsetzungWunsch = useRef<FortsetzungsWunsch | null>(null);
   const [zeilen, setZeilen] = useState<DateiZeile[]>([]);
   const [uebertragLaeuft, setUebertragLaeuft] = useState(false);
   const [batchMeldung, setBatchMeldung] = useState("");
+  const [fortsetzbar, setFortsetzbar] = useState<FortsetzungsWunsch[]>([]);
   const [zugriffe, setZugriffe] = useState<Record<string, AssetAccessResponse>>(
     {},
   );
@@ -123,6 +141,30 @@ export function NotenBereich({
   const [bearbeitenBusy, setBearbeitenBusy] = useState(false);
   const [bearbeitenFehler, setBearbeitenFehler] = useState("");
   const [bearbeitenErfolg, setBearbeitenErfolg] = useState("");
+
+  useEffect(() => {
+    if (!isEditor) return;
+    const eintraege: FortsetzungsWunsch[] = [];
+    for (const asset of assets) {
+      if (!istAssetTyp(asset.assetType)) continue;
+      if (asset.currentRevision !== null) {
+        entferneUploadSitzung(asset.id);
+        continue;
+      }
+      const eintrag = liesUploadSitzung(asset.id);
+      if (
+        eintrag &&
+        !zeilenRef.current.some((zeile) => zeile.assetId === asset.id)
+      ) {
+        eintraege.push({
+          assetId: asset.id,
+          assetTyp: asset.assetType,
+          eintrag,
+        });
+      }
+    }
+    setFortsetzbar(eintraege);
+  }, [assets, isEditor]);
 
   if (fassungId === "") return null;
 
@@ -142,7 +184,6 @@ export function NotenBereich({
   }
 
   function dateienHinzufuegen(liste: FileList | File[]) {
-    const vorschlaege = stimmenVorschlaege(stimmenKonfiguration);
     const neue: DateiZeile[] = Array.from(liste).map((datei) => ({
       id: naechsteZeileId.current++,
       datei,
@@ -165,7 +206,19 @@ export function NotenBereich({
     const liste = Array.from(event.target.files ?? []);
     event.target.value = "";
     if (liste.length === 0) return;
+    const wunsch = fortsetzungWunsch.current;
+    fortsetzungWunsch.current = null;
+    if (wunsch && liste.length > 0) {
+      void fuehreFortsetzungAus(wunsch, liste[0]);
+      return;
+    }
     dateienHinzufuegen(liste);
+  }
+
+  function fortsetzenStarten(wunsch: FortsetzungsWunsch) {
+    if (uebertragLaeuft) return;
+    fortsetzungWunsch.current = wunsch;
+    eingabeRef.current?.click();
   }
 
   function ablegen(event: React.DragEvent<HTMLElement>) {
@@ -182,7 +235,13 @@ export function NotenBereich({
     zeile: DateiZeile,
     wiederverwendbar: string | null,
   ) {
-    zeileAendern(zeile.id, { status: "uebertragen", fehler: "" });
+    const abbruch = new AbortController();
+    abbrueche.current.set(zeile.id, abbruch);
+    zeileAendern(zeile.id, {
+      status: "uebertragen",
+      fehler: "",
+      fortschritt: 0,
+    });
     let assetId = zeile.assetId;
     try {
       if (!assetId) {
@@ -214,6 +273,7 @@ export function NotenBereich({
               fortschritt: (uebertragenBytes / gesamtBytes) * 100,
             });
           },
+          signal: abbruch.signal,
         },
       );
       zeileAendern(zeile.id, {
@@ -223,11 +283,109 @@ export function NotenBereich({
       });
       void revision;
     } catch (ursache) {
+      const abgebrochen =
+        abbruch.signal.aborted || ursache instanceof AbbruchFehler;
       zeileAendern(zeile.id, {
-        status: "gescheitert",
+        status: abgebrochen ? "abgebrochen" : "gescheitert",
         assetId,
-        fehler: await fehlerMeldung(ursache, startMeldung),
+        fehler: abgebrochen ? "" : await fehlerMeldung(ursache, startMeldung),
       });
+    } finally {
+      abbrueche.current.delete(zeile.id);
+    }
+  }
+
+  function abbrechen(zeile: DateiZeile) {
+    if (abbrueche.current.has(zeile.id)) {
+      zeileAendern(zeile.id, { status: "abbruchLaeuft" });
+      abbrueche.current.get(zeile.id)?.abort();
+    }
+  }
+
+  async function fuehreFortsetzungAus(wunsch: FortsetzungsWunsch, datei: File) {
+    const identisch =
+      datei.name === wunsch.eintrag.fileName &&
+      datei.size === wunsch.eintrag.sizeBytes &&
+      datei.lastModified === wunsch.eintrag.lastModified;
+    if (!identisch) {
+      entferneUploadSitzung(wunsch.assetId);
+      void cancelUploadSession(wunsch.eintrag.uploadSessionId).catch(() => {});
+      const neue: DateiZeile = {
+        id: naechsteZeileId.current++,
+        datei,
+        assetTyp: wunsch.assetTyp,
+        stimme: stimmeAusDateiname(
+          datei.name,
+          stimmenVorschlaege(stimmenKonfiguration),
+        ),
+        beschreibung: "",
+        assetId: wunsch.assetId,
+        status: "warten",
+        fortschritt: 0,
+        fehler: "",
+      };
+      zeilenRef.current = [...zeilenRef.current, neue];
+      setZeilen(zeilenRef.current);
+      setUebertragLaeuft(true);
+      await starteZeile(neue, null);
+      setUebertragLaeuft(false);
+      batchMeldungNeu(zeilenRef.current);
+      aktualisieren();
+      return;
+    }
+    const zeile: DateiZeile = {
+      id: naechsteZeileId.current++,
+      datei,
+      assetTyp: wunsch.assetTyp,
+      stimme: stimmeAusDateiname(
+        datei.name,
+        stimmenVorschlaege(stimmenKonfiguration),
+      ),
+      beschreibung: "",
+      assetId: wunsch.assetId,
+      status: "uebertragen",
+      fortschritt: 0,
+      fehler: "",
+    };
+    zeilenRef.current = [...zeilenRef.current, zeile];
+    setZeilen(zeilenRef.current);
+    setFortsetzbar((vorher) =>
+      vorher.filter((eintrag) => eintrag.assetId !== wunsch.assetId),
+    );
+    setUebertragLaeuft(true);
+    const abbruch = new AbortController();
+    abbrueche.current.set(zeile.id, abbruch);
+    try {
+      const revision = await setzeUploadFort(
+        wunsch.assetId,
+        datei,
+        contentTypeFuerAssetTyp(wunsch.assetTyp, datei),
+        (schritt: MaterialSchritt) => {
+          zeileAendern(zeile.id, { status: schritt });
+        },
+        {
+          onFortschritt: (uebertragenBytes, gesamtBytes) => {
+            zeileAendern(zeile.id, {
+              fortschritt: (uebertragenBytes / gesamtBytes) * 100,
+            });
+          },
+          signal: abbruch.signal,
+        },
+      );
+      zeileAendern(zeile.id, { status: "gespeichert", fehler: "" });
+      void revision;
+    } catch (ursache) {
+      const abgebrochen =
+        abbruch.signal.aborted || ursache instanceof AbbruchFehler;
+      zeileAendern(zeile.id, {
+        status: abgebrochen ? "abgebrochen" : "gescheitert",
+        fehler: abgebrochen ? "" : await fehlerMeldung(ursache, startMeldung),
+      });
+    } finally {
+      abbrueche.current.delete(zeile.id);
+      setUebertragLaeuft(false);
+      batchMeldungNeu(zeilenRef.current);
+      aktualisieren();
     }
   }
 
@@ -530,6 +688,28 @@ export function NotenBereich({
               {batchMeldung}
             </output>
           )}
+          {fortsetzbar.length > 0 && (
+            <div className="material-fortsetzungen">
+              <p>Unterbrochene Übertragungen</p>
+              {fortsetzbar.map((wunsch) => (
+                <div className="material-fortsetzung" key={wunsch.assetId}>
+                  <span className="material-datei-name">
+                    {wunsch.eintrag.fileName}
+                  </span>
+                  <span className="material-datei-groesse">
+                    {groesseText(wunsch.eintrag.sizeBytes)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => fortsetzenStarten(wunsch)}
+                    disabled={uebertragLaeuft}
+                  >
+                    Fortsetzen
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           {zeilen.length > 0 && (
             <ul className="material-dateien">
               {zeilen.map((zeile) => (
@@ -546,10 +726,24 @@ export function NotenBereich({
                       {groesseText(zeile.datei.size)}
                     </span>
                     <span className="material-datei-status" aria-live="polite">
-                      {statusText(zeile)}
+                      {statusTextFuer(zeile.status, zeile.fortschritt)}
                     </span>
                   </div>
-                  {zeile.status === "gescheitert" && (
+                  {(zeile.status === "uebertragen" ||
+                    zeile.status === "geprueft" ||
+                    zeile.status === "abbruchLaeuft") && (
+                    <button
+                      type="button"
+                      onClick={() => abbrechen(zeile)}
+                      disabled={zeile.status === "abbruchLaeuft"}
+                    >
+                      {zeile.status === "abbruchLaeuft"
+                        ? "Wird abgebrochen …"
+                        : "Abbrechen"}
+                    </button>
+                  )}
+                  {(zeile.status === "gescheitert" ||
+                    zeile.status === "abgebrochen") && (
                     <>
                       <output aria-live="polite" className="feld-fehler">
                         {zeile.fehler}

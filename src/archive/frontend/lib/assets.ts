@@ -43,6 +43,77 @@ export type MaterialSchritt = "uebertragen" | "geprueft";
 
 export class MaterialFehler extends Error {}
 
+export class AbbruchFehler extends MaterialFehler {
+  constructor() {
+    super("Übertragung wurde abgebrochen.");
+  }
+}
+
+export type GespeicherteUploadSitzung = {
+  uploadSessionId: string;
+  fileName: string;
+  sizeBytes: number;
+  lastModified: number;
+  blockBytes: number;
+};
+
+const uploadSpeicherPraefix = "arc-upload-";
+
+function uploadSpeicherSchluessel(assetId: string): string {
+  return `${uploadSpeicherPraefix}${assetId}`;
+}
+
+export function liesUploadSitzung(
+  assetId: string,
+): GespeicherteUploadSitzung | null {
+  try {
+    const roh = window.localStorage.getItem(uploadSpeicherSchluessel(assetId));
+    if (!roh) return null;
+    const eintrag = JSON.parse(roh) as GespeicherteUploadSitzung;
+    if (
+      typeof eintrag?.uploadSessionId !== "string" ||
+      typeof eintrag?.fileName !== "string" ||
+      typeof eintrag?.sizeBytes !== "number" ||
+      typeof eintrag?.lastModified !== "number" ||
+      typeof eintrag?.blockBytes !== "number"
+    ) {
+      return null;
+    }
+    return eintrag;
+  } catch {
+    return null;
+  }
+}
+
+function speichereUploadSitzung(
+  assetId: string,
+  sitzung: UploadSessionResponse,
+  datei: File,
+) {
+  try {
+    window.localStorage.setItem(
+      uploadSpeicherSchluessel(assetId),
+      JSON.stringify({
+        uploadSessionId: sitzung.uploadSessionId,
+        fileName: datei.name,
+        sizeBytes: datei.size,
+        lastModified: datei.lastModified,
+        blockBytes: sitzung.blockBytes,
+      }),
+    );
+  } catch {
+    // Ohne lokalen Speicher entfällt nur das Fortsetzen nach dem Neuladen.
+  }
+}
+
+export function entferneUploadSitzung(assetId: string) {
+  try {
+    window.localStorage.removeItem(uploadSpeicherSchluessel(assetId));
+  } catch {
+    // Ohne lokalen Speicher entfällt nur das Fortsetzen nach dem Neuladen.
+  }
+}
+
 const erlaubteInhaltstypen: Record<AssetType, string[]> = {
   score: ["application/pdf"],
   audio: ["audio/mpeg", "audio/mp4", "audio/x-m4a", "audio/wav", "audio/ogg"],
@@ -264,8 +335,14 @@ export async function fetchAssetAccess(
   return (await response.json()) as AssetAccessResponse;
 }
 
-function abschlussFehler(ursache: unknown): string {
+async function abschlussFehler(ursache: unknown): Promise<string> {
   if (ursache instanceof Response) {
+    const inhalt = (await ursache.json().catch(() => null)) as {
+      title?: unknown;
+    } | null;
+    if (typeof inhalt?.title === "string" && inhalt.title) {
+      return inhalt.title;
+    }
     if (ursache.status === 409) {
       return "Die Datei wurde noch nicht übertragen. Bitte erneut hochladen.";
     }
@@ -309,18 +386,32 @@ function committierteBloecke(xml: string): string[] {
   const dokument = new DOMParser().parseFromString(xml, "application/xml");
   if (dokument.querySelector("parsererror")) return [];
   const bloecke: string[] = [];
-  for (const bereich of ["CommittedBlocks", "UncommittedBlocks"]) {
-    const gruppe = dokument.getElementsByTagName(bereich)[0];
-    for (const block of gruppe?.getElementsByTagName("Latest") ?? []) {
-      const blockId = block.textContent?.trim() ?? "";
-      if (blockId && !bloecke.includes(blockId)) bloecke.push(blockId);
-    }
+  for (const block of dokument.getElementsByTagName("Name")) {
+    const blockId = block.textContent?.trim() ?? "";
+    if (blockId && !bloecke.includes(blockId)) bloecke.push(blockId);
   }
   return bloecke.sort((a, b) => blockIdIndex(a) - blockIdIndex(b));
 }
 
 function istAbbruch(ursache: unknown): boolean {
   return ursache instanceof DOMException && ursache.name === "AbortError";
+}
+
+async function holeBlockliste(
+  uploadUrl: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  try {
+    const antwort = await fetch(blocklisteUrl(uploadUrl), {
+      method: "GET",
+      signal,
+    });
+    if (!antwort.ok) return "";
+    return await antwort.text();
+  } catch (ursache) {
+    if (istAbbruch(ursache)) throw ursache;
+    return "";
+  }
 }
 
 async function putzeBlock(
@@ -377,8 +468,7 @@ export async function uebertrageDatei(
     onFortschritt?: (uebertragenBytes: number, gesamtBytes: number) => void;
     signal?: AbortSignal;
     sitzung?: UploadSessionResponse;
-    bereitsCommittiert?: number;
-    sitzungSpeichern?: (sitzung: UploadSessionResponse) => void;
+    committiertAb?: number;
   } = {},
 ): Promise<RevisionResponse> {
   const identitaet: DateiIdentitaet = {
@@ -387,51 +477,113 @@ export async function uebertrageDatei(
   };
   const sitzung =
     optionen.sitzung ?? (await createUploadSession(assetId, identitaet));
-  optionen.sitzungSpeichern?.(sitzung);
+  if (optionen.sitzung === undefined) {
+    speichereUploadSitzung(assetId, sitzung, datei);
+  }
   if (datei.size > sitzung.maxBytes) {
     throw new MaterialFehler("Die Datei ist zu groß.");
   }
-  if (optionen.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+  if (optionen.signal?.aborted) {
+    werfeAbbruch(assetId, sitzung);
+  }
+  onSchritt?.("uebertragen");
   const blockBytes = Math.max(1, sitzung.blockBytes);
   const gesamt = Math.ceil(datei.size / blockBytes);
-  const committiert = new Set(
-    optionen.bereitsCommittiert !== undefined
-      ? Array.from({ length: optionen.bereitsCommittiert }, (_, i) =>
-          blockIdFolge(i),
-        )
-      : [],
-  );
-  const verbundene: string[] = [];
-  let uebertragen = 0;
-  for (let index = 0; index < gesamt; index += 1) {
-    const blockId = blockIdFolge(index);
-    if (committiert.has(blockId)) {
-      uebertragen += blockBytes;
-      optionen.onFortschritt?.(Math.min(uebertragen, datei.size), datei.size);
-      verbundene.push(blockId);
-      continue;
+  const abIndex = Math.min(optionen.committiertAb ?? 0, gesamt);
+  const verbundene = Array.from({ length: abIndex }, (_, i) => blockIdFolge(i));
+  let uebertragen = Math.min(abIndex * blockBytes, datei.size);
+  optionen.onFortschritt?.(uebertragen, datei.size);
+  try {
+    for (let index = abIndex; index < gesamt; index += 1) {
+      const start = index * blockBytes;
+      const daten = datei.slice(
+        start,
+        Math.min(start + blockBytes, datei.size),
+      );
+      await putzeBlock(
+        sitzung.uploadUrl,
+        index,
+        daten,
+        contentType,
+        optionen.signal,
+      );
+      verbundene.push(blockIdFolge(index));
+      uebertragen = Math.min(start + daten.size, datei.size);
+      optionen.onFortschritt?.(uebertragen, datei.size);
     }
-    const start = index * blockBytes;
-    const daten = datei.slice(start, Math.min(start + blockBytes, datei.size));
-    await putzeBlock(
-      sitzung.uploadUrl,
-      index,
-      daten,
-      contentType,
-      optionen.signal,
-    );
-    uebertragen += blockBytes;
-    optionen.onFortschritt?.(Math.min(uebertragen, datei.size), datei.size);
-    verbundene.push(blockId);
+    await verbindeBloecke(sitzung.uploadUrl, verbundene, optionen.signal);
+  } catch (ursache) {
+    if (optionen.signal?.aborted || istAbbruch(ursache)) {
+      werfeAbbruch(assetId, sitzung);
+    }
+    throw ursache;
   }
-  await verbindeBloecke(sitzung.uploadUrl, verbundene, optionen.signal);
+  if (optionen.signal?.aborted) {
+    werfeAbbruch(assetId, sitzung);
+  }
   onSchritt?.("geprueft");
   try {
     const revision = await finalizeUpload(sitzung.uploadSessionId, identitaet);
+    entferneUploadSitzung(assetId);
     return revision;
   } catch (ursache) {
+    if (optionen.signal?.aborted) {
+      werfeAbbruch(assetId, sitzung);
+    }
+    throw new MaterialFehler(await abschlussFehler(ursache));
+  }
+}
+
+function werfeAbbruch(assetId: string, sitzung: UploadSessionResponse): never {
+  entferneUploadSitzung(assetId);
+  void cancelUploadSession(sitzung.uploadSessionId).catch(() => {});
+  throw new AbbruchFehler();
+}
+
+export async function setzeUploadFort(
+  assetId: string,
+  datei: File,
+  contentType: string,
+  onSchritt?: (schritt: MaterialSchritt) => void,
+  optionen: {
+    onFortschritt?: (uebertragenBytes: number, gesamtBytes: number) => void;
+    signal?: AbortSignal;
+  } = {},
+): Promise<RevisionResponse> {
+  const eintrag = liesUploadSitzung(assetId);
+  if (!eintrag) {
     throw new MaterialFehler(
-      await problemTitel(ursache, abschlussFehler(ursache)),
+      "Keine unterbrochene Übertragung vorhanden. Bitte erneut hochladen.",
     );
   }
+  let sitzung: UploadSessionResponse;
+  try {
+    sitzung = await renewUploadSession(eintrag.uploadSessionId);
+  } catch (ursache) {
+    throw new MaterialFehler(
+      await problemTitel(
+        ursache,
+        "Die Unterbrechung konnte nicht aufgelöst werden. Bitte erneut versuchen.",
+      ),
+    );
+  }
+  if (optionen.signal?.aborted) {
+    werfeAbbruch(assetId, sitzung);
+  }
+  const blockBytes = Math.max(1, sitzung.blockBytes);
+  const gesamt = Math.ceil(datei.size / blockBytes);
+  const committiert = new Set(
+    committierteBloecke(
+      await holeBlockliste(sitzung.uploadUrl, optionen.signal),
+    ),
+  );
+  let abIndex = 0;
+  while (abIndex < gesamt && committiert.has(blockIdFolge(abIndex))) {
+    abIndex += 1;
+  }
+  return await uebertrageDatei(assetId, datei, contentType, onSchritt, {
+    ...optionen,
+    sitzung,
+    committiertAb: abIndex,
+  });
 }
