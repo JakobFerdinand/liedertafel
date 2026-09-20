@@ -47,6 +47,8 @@ public static class AssetEndpoints
 
 	public const string UploadExpiredMessage = "Der Uploadzeitraum ist abgelaufen.";
 
+	public const string UploadAlreadyFinalizedMessage = "Der Upload wurde bereits abgeschlossen.";
+
 	public const string FileNameTooLongMessage = "Der Dateiname ist zu lang.";
 
 	public const string UploadMissingMessage = "Die Datei wurde noch nicht übertragen.";
@@ -280,6 +282,50 @@ public static class AssetEndpoints
 				uploadUrl,
 				expiresAt = pending.UploadTicketExpiresAt,
 				maxBytes = pending.MaxSizeBytes,
+				blockBytes = storageOptions.UploadBlockBytes,
+			});
+		}).DisableAntiforgery();
+
+		/// <summary>
+		/// ARC-017: renewed upload sessions keep their pending blob name so a
+		/// browser can resume committed blocks; the fresh ticket replaces an
+		/// expired one even when the previous lifetime already elapsed.
+		/// </summary>
+		app.MapPost("/api/upload-sessions/{id}/renew", async (
+			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
+			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time,
+			IOptions<AssetStorageOptions> options, IAssetStorageAdapter storage, Guid id, CancellationToken token) =>
+		{
+			try { await antiforgery.ValidateRequestAsync(context); }
+			catch (AntiforgeryValidationException)
+			{
+				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
+			}
+			context.Response.Headers.CacheControl = "no-store";
+			var (decision, error) = await RequireEditorAsync(context, accessor, access);
+			if (error is not null)
+				return error;
+			var session = await db.UploadSessions.FirstOrDefaultAsync(s => s.Id == id, token);
+			if (session is null)
+				return Results.Problem(statusCode: 404, title: UploadNotFoundMessage);
+			if (session.CreatedByAccountId != decision!.AccountId)
+				return Results.Problem(statusCode: 403, title: UploadOwnerMessage);
+			if (session.State == PendingUploadState.Finalized)
+				return Results.Problem(statusCode: 409, title: UploadAlreadyFinalizedMessage);
+			if (session.State != PendingUploadState.Pending)
+				return Results.Problem(statusCode: 409, title: UploadAbandonedMessage);
+			var storageOptions = options.Value;
+			session.UploadTicketExpiresAt = time.GetUtcNow() + storageOptions.UploadSessionLifetime;
+			await db.SaveChangesAsync(token);
+			var uploadUrl = await storage.CreateUploadTicketAsync(
+				session.BlobName, storageOptions.UploadSessionLifetime, token);
+			return Results.Ok(new
+			{
+				uploadSessionId = session.Id,
+				blobName = session.BlobName,
+				uploadUrl,
+				expiresAt = session.UploadTicketExpiresAt,
+				maxBytes = session.MaxSizeBytes,
 				blockBytes = storageOptions.UploadBlockBytes,
 			});
 		}).DisableAntiforgery();

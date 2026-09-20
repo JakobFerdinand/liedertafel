@@ -20,6 +20,161 @@ namespace Archive.Backend.Tests;
 public sealed class UploadSessionResumeTests
 {
 	private const string Editor = "redaktion@liedertafel.test";
+	private const string SecondEditor = "zweitredaktion@liedertafel.test";
+	private const string Member = "mitglied@liedertafel.test";
+
+	[Fact]
+	public async Task RenewReturnsFreshTicketAndExtendsLifetime()
+	{
+		await using var factory = new AuthApiFactory(settings: new Dictionary<string, string?>
+		{
+			["Archive:Assets:MaxUploadBytes"] = "2048",
+			["Archive:Assets:UploadBlockBytes"] = "524288",
+		});
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		var editorSession = await SignInAsync(factory, Editor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
+		var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
+		var (sessionId, uploadUrl, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
+		string blobName;
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			var session = await db.UploadSessions.SingleAsync(s => s.Id == sessionId);
+			blobName = session.BlobName;
+			Assert.Equal(factory.Storage.Find(uploadUrl)!.BlobName, blobName);
+		}
+		var ticketsBefore = factory.Storage.Tickets.Count;
+
+		using var response = await PostJsonAsync(client,
+			$"/api/upload-sessions/{sessionId}/renew", new { }, editorSession);
+		Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+		var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+		Assert.Equal(sessionId, Guid.Parse(body.GetProperty("uploadSessionId").GetString()!));
+		Assert.Equal(blobName, body.GetProperty("blobName").GetString());
+		Assert.Equal(2048, body.GetProperty("maxBytes").GetInt64());
+		Assert.Equal(524288, body.GetProperty("blockBytes").GetInt64());
+		var expiresAt = DateTimeOffset.Parse(body.GetProperty("expiresAt").GetString()!);
+		Assert.InRange(expiresAt, DateTimeOffset.UtcNow.AddMinutes(29), DateTimeOffset.UtcNow.AddMinutes(31));
+
+		// A fresh upload ticket was issued for the same pending blob.
+		var renewedUrl = body.GetProperty("uploadUrl").GetString()!;
+		Assert.NotEqual(uploadUrl, renewedUrl);
+		Assert.Equal(ticketsBefore + 1, factory.Storage.Tickets.Count);
+		var renewedTicket = factory.Storage.Find(renewedUrl)!;
+		Assert.Equal(blobName, renewedTicket.BlobName);
+		Assert.Equal(TimeSpan.FromMinutes(30), renewedTicket.Lifetime);
+	}
+
+	[Fact]
+	public async Task RenewalWorksAfterTicketExpiry()
+	{
+		await using var factory = new AuthApiFactory();
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		var editorSession = await SignInAsync(factory, Editor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
+		var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
+		var (sessionId, _, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			var session = await db.UploadSessions.SingleAsync(s => s.Id == sessionId);
+			session.UploadTicketExpiresAt = DateTimeOffset.UtcNow.AddMinutes(-5);
+			await db.SaveChangesAsync();
+		}
+
+		using var response = await PostJsonAsync(client,
+			$"/api/upload-sessions/{sessionId}/renew", new { }, editorSession);
+		Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+		var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+		var expiresAt = DateTimeOffset.Parse(body.GetProperty("expiresAt").GetString()!);
+		Assert.InRange(expiresAt, DateTimeOffset.UtcNow.AddMinutes(29), DateTimeOffset.UtcNow.AddMinutes(31));
+
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			var session = await db.UploadSessions.SingleAsync(s => s.Id == sessionId);
+			Assert.Equal(PendingUploadState.Pending, session.State);
+			Assert.InRange(session.UploadTicketExpiresAt,
+				DateTimeOffset.UtcNow.AddMinutes(29), DateTimeOffset.UtcNow.AddMinutes(31));
+		}
+	}
+
+	[Fact]
+	public async Task RenewRejectsUnknownOtherOwnerFinalizedAndAbandonedSessions()
+	{
+		await using var factory = new AuthApiFactory();
+		await SeedAsync(factory, Member, ArchiveRoles.Member);
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		await SeedAsync(factory, SecondEditor, ArchiveRoles.Editor);
+		var memberSession = await SignInAsync(factory, Member);
+		var editorSession = await SignInAsync(factory, Editor);
+		var secondSession = await SignInAsync(factory, SecondEditor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
+		var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
+
+		var (sessionId, _, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
+		using (var memberResponse = await PostJsonAsync(client,
+			$"/api/upload-sessions/{sessionId}/renew", new { }, memberSession))
+		{
+			Assert.Equal(HttpStatusCode.Forbidden, memberResponse.StatusCode);
+			var memberProblem = await memberResponse.Content.ReadFromJsonAsync<JsonElement>();
+			Assert.Equal(CatalogueEndpoints.ForbiddenMessage, memberProblem.GetProperty("title").GetString());
+		}
+
+		var (anonCookie, anonToken) = await GetCsrfAsync(client);
+		using var anonResponse = await client.SendAsync(AuthedPost(
+			$"/api/upload-sessions/{sessionId}/renew", new { }, anonCookie, anonToken));
+		Assert.Equal(HttpStatusCode.Unauthorized, anonResponse.StatusCode);
+
+		using (var otherResponse = await PostJsonAsync(client,
+			$"/api/upload-sessions/{sessionId}/renew", new { }, secondSession))
+		{
+			Assert.Equal(HttpStatusCode.Forbidden, otherResponse.StatusCode);
+			var otherProblem = await otherResponse.Content.ReadFromJsonAsync<JsonElement>();
+			Assert.Equal(AssetEndpoints.UploadOwnerMessage, otherProblem.GetProperty("title").GetString());
+		}
+
+		using (var unknown = await PostJsonAsync(client,
+			$"/api/upload-sessions/{Guid.CreateVersion7()}/renew", new { }, editorSession))
+		{
+			Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
+			var unknownProblem = await unknown.Content.ReadFromJsonAsync<JsonElement>();
+			Assert.Equal(AssetEndpoints.UploadNotFoundMessage, unknownProblem.GetProperty("title").GetString());
+		}
+
+		// Finalized sessions report the distinct already-finalized conflict.
+		var finalizedId = await UploadAndFinalizeAsync(factory, client, editorSession, assetId).ContinueWith(
+			t => t.Result.SessionId);
+		using (var finalized = await PostJsonAsync(client,
+			$"/api/upload-sessions/{finalizedId}/renew", new { }, editorSession))
+		{
+			Assert.Equal(HttpStatusCode.Conflict, finalized.StatusCode);
+			var finalizedProblem = await finalized.Content.ReadFromJsonAsync<JsonElement>();
+			Assert.Equal(AssetEndpoints.UploadAlreadyFinalizedMessage, finalizedProblem.GetProperty("title").GetString());
+		}
+
+		// Abandoned sessions stay terminally refused.
+		var abandonedFactorySession = await CreateUploadSessionAsync(client, editorSession, assetId);
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			var session = await db.UploadSessions.SingleAsync(
+				s => s.Id == abandonedFactorySession.SessionId);
+			session.State = PendingUploadState.Abandoned;
+			await db.SaveChangesAsync();
+		}
+		using (var abandoned = await PostJsonAsync(client,
+			$"/api/upload-sessions/{abandonedFactorySession.SessionId}/renew", new { }, editorSession))
+		{
+			Assert.Equal(HttpStatusCode.Conflict, abandoned.StatusCode);
+			var abandonedProblem = await abandoned.Content.ReadFromJsonAsync<JsonElement>();
+			Assert.Equal(AssetEndpoints.UploadAbandonedMessage, abandonedProblem.GetProperty("title").GetString());
+		}
+	}
 
 	[Fact]
 	public async Task CreateSessionStoresDeclaredIdentityAndReportsBlockBytes()
