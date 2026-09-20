@@ -220,6 +220,49 @@ the AppHost pins the Azurite blob host port to the container port
 Integration tests must pass `DcpPublisher:RandomizePorts=false` for the pin to
 apply (testing mode randomizes proxied ports by default).
 
+## ARC-017 large uploads with resume and cancellation
+
+Upload sessions scale to representative large originals (~10 GiB per-file limit
+`Archive:Assets:MaxUploadBytes`, recommended `UploadBlockBytes` 8 MiB block
+size in the session response). The browser transfers in Azure Blob block
+operations directly against the ticket URL — `?comp=block&blockid=…` per
+chunk, `?comp=blocklist&blocklisttype=all` to discover retained progress,
+`?comp=blocklist` to commit — so file bytes never traverse ASP.NET and memory
+stays bounded to one block. Upload tickets now grant `Write|Create|Read` (Read
+powers the committed-block listing used for resume).
+
+Session contract on top of ARC-015/ARC-016:
+- Initiation declares a file identity (`sizeBytes`, `fileName`); per-file and
+  per-musical-version collection limits (`MaxCollectionBytes`, 40 GiB default)
+  are enforced at initiation (declared) and finalization (actual), 413.
+- `POST /api/upload-sessions/{id}/renew` extends a pending session's lifetime
+  and issues a fresh ticket — this is the recovery path after an interruption,
+  even when the old ticket already expired. Finalized/abandoned/cancelled
+  sessions answer 409.
+- `DELETE /api/upload-sessions/{id}` cancels a pending session (terminal
+  `Cancelled` state, pending blob deleted best-effort); finalize on cancelled
+  sessions is refused with 409.
+- Finalize validates the declared identity: a mismatch answers 409 `Die Datei
+  passt nicht zur bestehenden Uploadsitzung.` before touching storage and
+  keeps the session retryable, so a stale session can never commit a
+  different file.
+- Block-list commits carry no content type; finalize treats the storage
+  default (`application/octet-stream`) as unset and falls back to the
+  session's declared whitelisted type.
+
+The editor UI shows per-row progress percentages, offers cancellation during
+transfer and a resume path after reload: the browser persists
+`arc-upload-<assetId>` (session id, name, size, lastModified), re-selection is
+checked against that identity, and only missing blocks are re-transferred.
+Abandoned sessions are cleaned by the bounded `--cleanup-uploads` job
+(`UploadSessionCleaner`, Development-gated like the other finite jobs): pending
+sessions expired for longer than `Archive:Assets:ExpiryGrace` (1 hour default)
+are marked Abandoned and their pending blobs deleted.
+
+The contract above is the handoff to ARC-035 (streaming finalization consumes
+the same session/blocks) and the transfer-state ownership note for ARC-016's
+batch UI, which rides this engine unchanged.
+
 ## ARC-016 labelled voice file batches
 
 Batch uploads ride the unchanged ARC-015 three-step protocol, one independent
