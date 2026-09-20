@@ -67,6 +67,9 @@ public static class AssetEndpoints
 
 	public const string StorageFailureMessage = "Speicherdienst nicht erreichbar.";
 
+	/// <summary>ARC-017: storage default for block-list commits without an explicit blob content type.</summary>
+	public const string StorageDefaultContentType = "application/octet-stream";
+
 	public const string NoCurrentRevisionMessage = "Für diese Fassung liegen noch keine aktuellen Noten vor.";
 
 	public const string ConcurrencyMessage = "Der Eintrag wurde zwischenzeitlich geändert.";
@@ -461,14 +464,21 @@ public static class AssetEndpoints
 				MidiAssetType => InvalidMidiMessage,
 				_ => InvalidPdfMessage,
 			};
-			// Score keeps the ARC-015 behavior: a missing stored content type
-			// skips the check (the magic bytes gate); audio/MIDI must present
-			// a whitelisted content type and skip magic-byte validation.
+			// ARC-017: a block-list commit carries no blob content type (the
+			// storage reports its default application/octet-stream), so a
+			// missing/default stored type falls back to the session's declared
+			// whitelisted type — the same fallback the revision payload uses.
+			var effectiveContentType = probe.ContentType is { Length: > 0 } storedType
+				&& !string.Equals(storedType, StorageDefaultContentType, StringComparison.OrdinalIgnoreCase)
+					? storedType
+					: session.ContentType;
+			// Score keeps the ARC-015 behavior: the effective type is checked
+			// against the whitelist and the magic bytes gate; audio/MIDI must
+			// present an effective whitelisted type and skip magic-byte
+			// validation.
 			var contentTypeValid = session.Asset.AssetType == ScoreAssetType
-				? probe.ContentType is not { Length: > 0 }
-					|| string.Equals(probe.ContentType, PdfContentType, StringComparison.OrdinalIgnoreCase)
-				: probe.ContentType is { Length: > 0 } storedType
-					&& whitelistedContentTypes.Contains(storedType, StringComparer.OrdinalIgnoreCase);
+				? string.Equals(effectiveContentType, PdfContentType, StringComparison.OrdinalIgnoreCase)
+				: whitelistedContentTypes.Contains(effectiveContentType, StringComparer.OrdinalIgnoreCase);
 			var magicBytesValid = session.Asset.AssetType != ScoreAssetType
 				|| (header is not null && header.AsSpan().StartsWith("%PDF-"u8));
 			if (!contentTypeValid || !magicBytesValid)
@@ -484,9 +494,7 @@ public static class AssetEndpoints
 				AssetId = asset.Id,
 				RevisionNumber = asset.Revisions.Count == 0 ? 1 : asset.Revisions.Max(r => r.RevisionNumber) + 1,
 				BlobName = $"revisions/{asset.Id}/{Guid.CreateVersion7()}",
-				ContentType = probe.ContentType is { Length: > 0 } revisionType
-					? revisionType
-					: session.ContentType,
+				ContentType = effectiveContentType,
 				SizeBytes = probe.SizeBytes,
 				CreatedByAccountId = decision.AccountId,
 				CreatedAt = time.GetUtcNow(),

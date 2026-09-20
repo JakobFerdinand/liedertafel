@@ -548,6 +548,55 @@ public sealed class UploadSessionResumeTests
 	}
 
 	[Fact]
+	public async Task FinalizeFallsBackToSessionContentTypeForBlockCommits()
+	{
+		await using var factory = new AuthApiFactory();
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		var editorSession = await SignInAsync(factory, Editor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
+		var scoreAssetId = await CreateAssetAsync(client, editorSession, versionId, "score");
+		var audioAssetId = await CreateAssetAsync(client, editorSession, versionId, "audio");
+
+		// A block-list commit carries no blob content type (the storage
+		// reports its default), so finalize falls back to the session's
+		// declared whitelisted type.
+		var (scoreSessionId, scoreUploadUrl, _) = await CreateUploadSessionAsync(client, editorSession, scoreAssetId);
+		factory.Storage.Store(factory.Storage.Find(scoreUploadUrl)!.BlobName,
+			ValidPdf(1024), AssetEndpoints.StorageDefaultContentType);
+		using (var score = await PostJsonAsync(client,
+			$"/api/upload-sessions/{scoreSessionId}/finalize", new { }, editorSession))
+		{
+			Assert.Equal(HttpStatusCode.OK, score.StatusCode);
+			var revision = await score.Content.ReadFromJsonAsync<JsonElement>();
+			Assert.Equal(AssetEndpoints.PdfContentType, revision.GetProperty("contentType").GetString());
+		}
+
+		var (audioSessionId, audioUploadUrl, _) = await CreateUploadSessionAsync(client, editorSession, audioAssetId);
+		factory.Storage.Store(factory.Storage.Find(audioUploadUrl)!.BlobName,
+			new byte[512], AssetEndpoints.StorageDefaultContentType);
+		using (var audio = await PostJsonAsync(client,
+			$"/api/upload-sessions/{audioSessionId}/finalize", new { }, editorSession))
+		{
+			Assert.Equal(HttpStatusCode.OK, audio.StatusCode);
+			var revision = await audio.Content.ReadFromJsonAsync<JsonElement>();
+			Assert.Equal(AssetEndpoints.Mp3ContentType, revision.GetProperty("contentType").GetString());
+		}
+
+		// A stored non-whitelisted type is still rejected.
+		var (textSessionId, textUploadUrl, _) = await CreateUploadSessionAsync(client, editorSession, scoreAssetId);
+		factory.Storage.Store(factory.Storage.Find(textUploadUrl)!.BlobName,
+			ValidPdf(512), "text/plain");
+		using (var text = await PostJsonAsync(client,
+			$"/api/upload-sessions/{textSessionId}/finalize", new { }, editorSession))
+		{
+			Assert.Equal(HttpStatusCode.UnprocessableEntity, text.StatusCode);
+			var problem = await text.Content.ReadFromJsonAsync<JsonElement>();
+			Assert.Equal(AssetEndpoints.InvalidPdfMessage, problem.GetProperty("title").GetString());
+		}
+	}
+
+	[Fact]
 	public async Task CollectionLimitAtFinalizationAbandonsTheSession()
 	{
 		await using var factory = new AuthApiFactory(settings: new Dictionary<string, string?>
