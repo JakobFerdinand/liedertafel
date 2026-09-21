@@ -866,7 +866,8 @@ test("Abbrechen meldet die Uploadsitzung ab und bereinigt den Eintrag", async ({
 
   await zeile.getByRole("button", { name: "Abbrechen" }).click();
   await expect(zeile.getByText("abgebrochen")).toBeVisible();
-  expect(abrechnungen).toBe(1);
+  // Die Abmeldung läuft nebenläufig zum Statuswechsel: erst warten.
+  await expect.poll(() => abrechnungen).toBe(1);
 
   await awarten.loslassen();
   await expect(page.getByText("0 von 1 Dateien gespeichert.")).toBeVisible();
