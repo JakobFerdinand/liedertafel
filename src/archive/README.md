@@ -234,7 +234,13 @@ powers the committed-block listing used for resume).
 Session contract on top of ARC-015/ARC-016:
 - Initiation declares a file identity (`sizeBytes`, `fileName`); per-file and
   per-musical-version collection limits (`MaxCollectionBytes`, 40 GiB default)
-  are enforced at initiation (declared) and finalization (actual), 413.
+  are enforced at initiation (declared) and finalization (actual), 413. In the
+  pending budget a declared session reserves its declared size, an undeclared
+  session its per-file cap.
+- A new session supersedes the editor's earlier pending sessions on the same
+  asset (terminal `Cancelled` state, pending blobs deleted best-effort), so
+  failed transfers cannot starve the version budget until the grace-window
+  cleanup catches them; other users' and other assets' sessions are untouched.
 - `POST /api/upload-sessions/{id}/renew` extends a pending session's lifetime
   and issues a fresh ticket — this is the recovery path after an interruption,
   even when the old ticket already expired. Finalized/abandoned/cancelled

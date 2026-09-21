@@ -273,6 +273,126 @@ public sealed class UploadSessionResumeTests
 	}
 
 	[Fact]
+	public async Task PendingBudgetCountsDeclaredSizesInsteadOfSessionCaps()
+	{
+		// A pending session without a declared identity reserves its per-file
+		// cap; a declared session reserves only its declared size.
+		await using var factory = new AuthApiFactory(settings: new Dictionary<string, string?>
+		{
+			["Archive:Assets:MaxUploadBytes"] = "2048",
+			["Archive:Assets:MaxCollectionBytes"] = "4096",
+		});
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		var editorSession = await SignInAsync(factory, Editor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
+		var assetAId = await CreateAssetAsync(client, editorSession, versionId, "score");
+		var assetBId = await CreateAssetAsync(client, editorSession, versionId, "score");
+		var assetCId = await CreateAssetAsync(client, editorSession, versionId, "score");
+		var assetDId = await CreateAssetAsync(client, editorSession, versionId, "score");
+
+		await CreateUploadSessionAsync(client, editorSession, assetAId,
+			new { sizeBytes = 1024, fileName = "a.pdf" });
+		await CreateUploadSessionAsync(client, editorSession, assetBId);
+
+		// Fits exactly: 1024 (declared) + 2048 (cap, undeclared) + 1024 = 4096.
+		var (_, _, fitted) = await CreateUploadSessionAsync(client, editorSession, assetCId,
+			new { sizeBytes = 1024, fileName = "c.pdf" });
+		Assert.Equal(2048, fitted.GetProperty("maxBytes").GetInt64());
+
+		// Exceeds: the session is refused and no row is created.
+		using var response = await PostJsonAsync(client,
+			$"/api/assets/{assetDId}/upload-session", new { sizeBytes = 1025 }, editorSession);
+		Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
+		var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
+		Assert.Equal(AssetEndpoints.UploadTooLargeMessage, problem.GetProperty("title").GetString());
+
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			Assert.Equal(3, await db.UploadSessions.CountAsync(
+				s => s.State == PendingUploadState.Pending));
+			Assert.Equal(0, await db.UploadSessions
+				.Where(s => s.AssetId == assetDId).CountAsync());
+		}
+	}
+
+	[Fact]
+	public async Task NewUploadSessionCancelsPriorPendingSessionsOfSameAssetAndOwner()
+	{
+		await using var factory = new AuthApiFactory();
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		await SeedAsync(factory, SecondEditor, ArchiveRoles.Editor);
+		var editorSession = await SignInAsync(factory, Editor);
+		var secondSession = await SignInAsync(factory, SecondEditor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
+		var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
+		var otherAssetId = await CreateAssetAsync(client, editorSession, versionId, "score");
+
+		// The editor's earlier attempt left a pending session behind, as did
+		// a second editor and an upload to another asset of the version.
+		var (staleId, staleUrl, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
+		var staleBlob = factory.Storage.Find(staleUrl)!.BlobName;
+		factory.Storage.Store(staleBlob, ValidPdf(128));
+		var (foreignId, foreignUrl, _) = await CreateUploadSessionAsync(client, secondSession, assetId);
+		var foreignBlob = factory.Storage.Find(foreignUrl)!.BlobName;
+		factory.Storage.Store(foreignBlob, ValidPdf(128));
+		var (otherAssetSessionId, _, _) = await CreateUploadSessionAsync(client, editorSession, otherAssetId);
+
+		var (freshId, _, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
+
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			Assert.Equal(PendingUploadState.Cancelled,
+				(await db.UploadSessions.SingleAsync(s => s.Id == staleId)).State);
+			Assert.Equal(PendingUploadState.Pending,
+				(await db.UploadSessions.SingleAsync(s => s.Id == foreignId)).State);
+			Assert.Equal(PendingUploadState.Pending,
+				(await db.UploadSessions.SingleAsync(s => s.Id == otherAssetSessionId)).State);
+			Assert.Equal(PendingUploadState.Pending,
+				(await db.UploadSessions.SingleAsync(s => s.Id == freshId)).State);
+		}
+		Assert.False(factory.Storage.Has(staleBlob));
+		Assert.True(factory.Storage.Has(foreignBlob));
+	}
+
+	[Fact]
+	public async Task RetryOnSameAssetFreesTheCollectionBudget()
+	{
+		// The production failure shape: repeated attempts on one asset left
+		// pending sessions that reserved the per-file cap each and starved
+		// the version budget, so even tiny uploads were refused as too large.
+		await using var factory = new AuthApiFactory(settings: new Dictionary<string, string?>
+		{
+			["Archive:Assets:MaxUploadBytes"] = "2048",
+			["Archive:Assets:MaxCollectionBytes"] = "4096",
+		});
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		var editorSession = await SignInAsync(factory, Editor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
+		var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
+
+		var identity = new { sizeBytes = 2048, fileName = "lied.pdf" };
+		var (firstId, _, _) = await CreateUploadSessionAsync(client, editorSession, assetId, identity);
+
+		// The retry supersedes the failed attempt instead of exhausting the budget.
+		var (retryId, _, _) = await CreateUploadSessionAsync(client, editorSession, assetId, identity);
+		Assert.NotEqual(firstId, retryId);
+
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			Assert.Equal(PendingUploadState.Cancelled,
+				(await db.UploadSessions.SingleAsync(s => s.Id == firstId)).State);
+			Assert.Equal(PendingUploadState.Pending,
+				(await db.UploadSessions.SingleAsync(s => s.Id == retryId)).State);
+		}
+	}
+
+	[Fact]
 	public async Task OverlongDeclaredFileNameIsRejected()
 	{
 		await using var factory = new AuthApiFactory();
@@ -643,11 +763,12 @@ public sealed class UploadSessionResumeTests
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
-		var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
-		var (expiredId, expiredUrl, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
+		var expiredAssetId = await CreateAssetAsync(client, editorSession, versionId, "score");
+		var freshAssetId = await CreateAssetAsync(client, editorSession, versionId, "score");
+		var (expiredId, expiredUrl, _) = await CreateUploadSessionAsync(client, editorSession, expiredAssetId);
 		var expiredBlob = factory.Storage.Find(expiredUrl)!.BlobName;
 		factory.Storage.Store(expiredBlob, ValidPdf(128));
-		var (freshId, freshUrl, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
+		var (freshId, freshUrl, _) = await CreateUploadSessionAsync(client, editorSession, freshAssetId);
 		var freshBlob = factory.Storage.Find(freshUrl)!.BlobName;
 		factory.Storage.Store(freshBlob, ValidPdf(128));
 

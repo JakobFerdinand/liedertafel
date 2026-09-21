@@ -253,12 +253,32 @@ public static class AssetEndpoints
 			var storageOptions = options.Value;
 			if (declaredSize > storageOptions.MaxUploadBytes)
 				return Results.Problem(statusCode: 413, title: UploadTooLargeMessage);
+			// ARC-017: a new session supersedes the editor's earlier pending
+			// sessions on the same asset; failed transfers would otherwise
+			// reserve budget until the grace-window cleanup catches them.
+			var staleSessions = await db.UploadSessions
+				.Where(s => s.AssetId == asset.Id
+					&& s.CreatedByAccountId == decision!.AccountId
+					&& s.State == PendingUploadState.Pending)
+				.ToListAsync(token);
+			foreach (var stale in staleSessions)
+			{
+				stale.State = PendingUploadState.Cancelled;
+			}
+			if (staleSessions.Count > 0)
+				await db.SaveChangesAsync(token);
+			foreach (var stale in staleSessions)
+			{
+				await DeletePendingBestEffortAsync(storage, stale.BlobName, token);
+			}
 			// Per-version collection budget: the declared size must fit
 			// alongside other pending sessions and finalized revisions.
+			// Undeclared sessions reserve their per-file cap; declared ones
+			// only their declared size.
 			var pendingBudget = await db.UploadSessions
 				.Where(s => s.State == PendingUploadState.Pending
 					&& s.Asset.MusicalVersionId == asset.MusicalVersionId)
-				.SumAsync(s => (long?)s.MaxSizeBytes, token) ?? 0;
+				.SumAsync(s => (long?)(s.DeclaredSizeBytes ?? s.MaxSizeBytes), token) ?? 0;
 			var finalizedBytes = await db.FileRevisions
 				.Where(r => r.Asset.MusicalVersionId == asset.MusicalVersionId)
 				.SumAsync(r => (long?)r.SizeBytes, token) ?? 0;
