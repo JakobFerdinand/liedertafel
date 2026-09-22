@@ -318,6 +318,40 @@ already-issued URL keeps its bounded lifetime. `restlaufzeitMs` in
 `lib/assets.ts` plus `fetchAssetAccess` are the ticket-renewal primitives for
 ARC-028's concert video.
 
+## ARC-019 MIDI listening with practice tempo
+
+Published MIDI assets are playable in the browser through
+`components/midi-spieler.tsx` using the same "Anhören" flow as audio: one
+access fetch, then the player beside the retained authorized "Herunterladen"
+link. The approach is deliberately bounded and self-contained: a
+dependency-free SMF parser (`lib/midi.ts`, formats 0/1, running status,
+tempo map, SMPTE files rejected with the corrupt-file copy) turns the bytes —
+fetched once through the ticketed `viewUrl` — into a seconds timeline, and a
+small Web Audio synthesizer (triangle oscillator with per-note envelope into
+a master gain) provides basic sound. No samples are downloaded, no remote
+conversion service is involved, and no new dependency is added; soundfont
+libraries were rejected because they fetch samples from third-party CDNs at
+play time.
+
+Controls mirror the audio player: play/pause, seek slider, tabular time
+display, volume and a 50–150 % tempo slider — all labelled per voice
+(`MIDI-Spieler · Sopran`, `Sopran (MIDI) abspielen`). The AudioContext is
+created and resumed synchronously inside the play-button click (user-gesture
+requirement on mobile browsers); tempo/seek changes re-anchor the running
+scheduler so playback continues seamlessly at the new rate; the position
+lives on the file's own tempo timeline. Playback stops and the context is
+closed on unmount, and the materials area's single-active rule covers both
+player types. Corrupt or unsupported files report the non-playable format
+(download stays available) without affecting other catalogue material;
+transient load failures offer "Erneut versuchen", which re-fetches fresh
+access first (404/401 map to specific copy). Because the bytes are fully
+loaded before playback, no ticket renewal is needed mid-listen.
+
+One production note: the bytes fetch is a CORS request against blob storage
+(the audio element sidesteps CORS). Locally the permissive emulator rule
+covers it; production blob CORS is the documented configuration point for
+ARC-049.
+
 ## Focused verification
 
 From the repository root:
