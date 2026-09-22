@@ -1,6 +1,6 @@
 ---
 id: ARC-020
-status: planned
+status: done
 phase: core
 kind: slice
 depends_on: ["ARC-013"]
@@ -81,15 +81,15 @@ catalogue entry from the search-first home using those words.
 
 ## Acceptance criteria
 
-- [ ] Extend catalogue editing for alternate titles, composer/arranger/lyricist
+- [x] Extend catalogue editing for alternate titles, composer/arranger/lyricist
   information and entered lyrics/opening words where not already present.
-- [ ] Implement bounded, database-backed search with deterministic pagination,
+- [x] Implement bounded, database-backed search with deterministic pagination,
   useful German text behaviour, and matching arrangement context in results.
-- [ ] Preserve query state in navigation and provide usable loading/empty/error
+- [x] Preserve query state in navigation and provide usable loading/empty/error
   states on phone and desktop.
-- [ ] Share publication/deletion authorization with catalogue reads; draft text
+- [x] Share publication/deletion authorization with catalogue reads; draft text
   cannot leak through results, result counts or snippets.
-- [ ] Establish an authorized search-result contract that can later include PDF
+- [x] Establish an authorized search-result contract that can later include PDF
   matches without replacing this initial searchable journey.
 
 ## Verification
@@ -102,3 +102,64 @@ restoration; no dedicated search service is introduced.
 
 ARC-021 adds filters and ARC-033 adds PDF text. Coordinate catalogue metadata and
 home-screen edits with ARC-014/029; file-transfer implementation can proceed separately.
+
+## Implementation progress — 2026-09-22 (branch `main`)
+
+Backend (`be870b6`):
+
+- `Catalogue/SongTitle.cs` (Guid v7, cascade, `Value` ≤ 200, attribution) and
+  `Song.Lyrics` ≤ 5000; `CatalogueModelConfiguration` configures `song_titles`
+  with a `SongId` index; `ArchiveDbContext` gains `DbSet<SongTitle>`.
+- Tool-generated migration `20260922110543_SongAlternateTitlesAndLyrics`
+  (`songs.lyrics varchar(5000)`, `song_titles` table); the apphost
+  walking-skeleton pending-migrations assertion now lists it.
+- `Catalogue/CatalogueText.cs` implements the frozen German fold (umlaut
+  expansion then digraph collapse) as a pure helper; matching in
+  `CatalogueEndpoints` runs over one database-projected visible set (token AND
+  across fields, rank 0 exact folded title / 1 all tokens in title / 2
+  elsewhere, `Skip/Take` paging, fixed pageSize 20, page clamp, `total`,
+  `matchedIn`, `lyricsSnippet: null`), with `Cache-Control: no-store` and the
+  shared `QueryVisible`/`CatalogueVisibility` decision point.
+- Detail gains `lyrics`/`alternateTitles`; `PATCH /api/songs/{id}` gains
+  `lyrics?` and `alternateTitles?` (full replacement, 0–10 entries, fresh
+  attribution, RowVersion bump, unchanged 409 message). `q` > 200 answers 400
+  „Die Suche ist zu lang."; punctuation-only queries match nothing.
+- `tests/archive/backend/SearchApiTests.cs`: 16 tests over umlaut equivalence
+  („Müller"/„Mueller"/„Muller"), alternate titles, creators, lyric words,
+  member-vs-editor draft protection for results and totals, deterministic
+  pagination (21 songs → 20+1, beyond-end empty, clamped pages), cross-field
+  token AND, PATCH round-trips and German validation titles.
+
+Frontend (`607a444`):
+
+- `lib/songs.ts` extends `Lied`/`LiedDetails` with the new fields and adds
+  `fetchSongSearch` (same-origin, `no-store`, throws `Response`).
+- `components/lieder-katalog.tsx`: search-first catalogue driven by the
+  `suche`/`seite` URL parameters (navigation like the existing
+  `fassung`/`version` deep links), fixed pageSize 20 with „Zurück"/„Weiter"
+  pagination showing „Seite X von Y", German loading/empty/error states with
+  the retry pattern, „Auch bekannt als …" lines and matched-in hints
+  („Getroffen: Fassung …", „Getroffen im Liedtext."), editor draft badge and
+  controls unchanged on the new shape.
+- `components/suche-formular.tsx` + home `app/page.tsx`: the home screen opens
+  with a search form that navigates to `/lieder/?suche=…&seite=1`.
+- `components/lied-formular.tsx`: edit form gains the optional „Liedtext"
+  textarea (≤ 5000) and an „Andere Titel" dynamic list (0–10 entries); the
+  create request body is unchanged. `lieder-suche*`/`lieder-seiten*` CSS
+  classes extend the existing tokens with a small-screen media query.
+- `tests/suche.spec.ts`: 8 mocked Playwright tests × desktop/mobile over home
+  navigation, request mapping (`?q=…`/`page=…`), query restoration on reload,
+  match hints, empty/error/retry states, pagination, editor drafts and the
+  lyrics/alternate-title edit flow.
+
+## Verification — 2026-09-22
+
+- `dotnet build src/archive/Archive.slnx` 0 errors; `dotnet test
+  tests/archive/backend` **214/214 green** (198 prior + 16 new search tests).
+- Frontend `pnpm run check` clean (Biome + route types + tsc); `pnpm run
+  build` statically exports all routes; mocked Playwright suite 104/112 green
+  with the remaining 8 failures being the real-backend `shell.spec.ts` smoke
+  tests (no dev backend during authoring — same record as ARC-019).
+- Real-PostgreSQL behaviour of the migration and apphost integration checks
+  were not executed locally (Podman integration run left for CI/release);
+  the in-memory tests cover the fold/rank/pagination logic provider-independently.
