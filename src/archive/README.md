@@ -357,6 +357,15 @@ One production note: the bytes fetch is a CORS request against blob storage
 covers it; production blob CORS is the documented configuration point for
 ARC-051.
 
+## ARC-022 grounded history chat
+
+Members chat with the archive at `/fragen` („Fragen zum Archiv"): `POST /api/chat` implements the AG-UI 1.0 wire contract (stable `AGUI.Server` 1.0.0 / `AGUI.Abstractions` 1.0.0 on `Microsoft.Extensions.AI` 10.10.0, superseding ARC-021's preview MAF hosting adapter). The bounded loop runs on an `IChatClient` provider seam — Development and tests use the deterministic `ScriptedChatClient` (cited answers from tool results only, honest unknown/refusal behaviour); the real Azure OpenAI implementation (managed identity, pinned GPT-5.4-mini, EU Data Zone) plugs into the seam when credentials exist, and embeddings/pgvector move with it.
+
+- Threads persist in the existing PostgreSQL (`chat_threads`/`chat_messages`, migration `20260922214454_ArchiveChat`), are owned by the asking member, are bounded to the last 20 messages, and are validated for ownership on every request. The client generates the thread id (`localStorage` key `arc-chat-thread`); server-side history is authoritative — client-provided older messages are ignored as tamper-proof grounding. `GET /api/chat/thread/{id}` restores the owner's history; foreign/missing threads answer an indistinguishable 404.
+- Tools are allow-listed and authorized inside themselves: `catalogue_search` (published-only, `CatalogueText.Fold` token-AND like ARC-020, ≤ 10 results, 300-char lyrics excerpt) and `song_details`. Document text is data, never instructions; no editing tools, no raw queries, no general-knowledge answers.
+- Per-request bounds are app-enforced: question ≤ 2000 chars, ≤ 5 tool iterations, 30 s no-token abort, 120 s overall cap, client-disconnect cancellation, one pre-first-token retry, German `RUN_ERROR` failure state. Aggregate cost: each run appends a `chat_usage_entries` row (tokens + rounded EUR-cent estimate from `Archive:Chat` reference prices); when the monthly sum exceeds `MonthlyBudgetEur` (5) the backend logs the maintainer warning — the chat is never auto-disabled; exceeding triggers review and manual `Archive:Chat:Disabled`.
+- The chat answers 503 „Der Archiv-Chat ist derzeit nicht verfügbar." unless `Archive:Chat:Enabled=true` and `Disabled=false`, so production stays inert until the provider step. Performance/evidence questions answer honestly that no Aufführungsdaten exist yet (ARC-024/026/028/031 provide them); the synthetic evaluation (`tests/archive/backend/ChatEvaluationTests.cs`, `--filter FullyQualifiedName~ChatEvaluation`) verifies the grounding bar — every citation verifiable against the authorized result set, zero unsupported claims, honest unknown behaviour, recorded EUR-per-answer cost — and must be rerun against the pinned live model before first production chat use.
+
 ## Focused verification
 
 From the repository root:
