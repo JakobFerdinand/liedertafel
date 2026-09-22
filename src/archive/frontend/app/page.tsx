@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { SucheFormular } from "@/components/suche-formular";
 import { SystemStatus } from "@/components/system-status";
 
 export default function Home() {
@@ -15,6 +16,7 @@ export default function Home() {
           Hier entsteht das gemeinsame Archiv der Liedertafel Mining: für unsere
           Noten, Aufnahmen und die Erinnerung an unsere Auftritte.
         </p>
+        <SucheFormular feldId="suche-start" />
       </section>
       <section className="archive-note" aria-labelledby="setup-title">
         <h2 id="setup-title">Der Anfang ist gemacht.</h2>

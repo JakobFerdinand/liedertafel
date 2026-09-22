@@ -5,6 +5,23 @@ export type Lied = {
   lyricist: string | null;
   published: boolean;
   publishedAt: string | null;
+  alternateTitles: string[];
+  arrangements: LiedArrangementKurz[];
+  matchedIn: string[];
+};
+
+export type LiedArrangementKurz = {
+  id: string;
+  label: string;
+  arranger: string | null;
+};
+
+export type LiedSuchErgebnis = {
+  query: string | null;
+  page: number;
+  pageSize: number;
+  total: number;
+  songs: Lied[];
 };
 
 export type LiedRevision = {
@@ -39,21 +56,33 @@ export type LiedArrangement = {
   musicalVersions: LiedMusicalVersion[];
 };
 
-export type LiedDetails = Lied & {
+export type LiedDetails = Omit<Lied, "arrangements"> & {
   createdAt: string;
   updatedAt: string;
+  lyrics: string | null;
   arrangements: LiedArrangement[];
 };
 
-export async function fetchSongs(signal?: AbortSignal): Promise<Lied[]> {
-  const response = await fetch("/api/songs", {
+export function liedUrlPfad(query: string | null, page: number): string {
+  const parameter = new URLSearchParams();
+  if (query) parameter.set("q", query);
+  if (page > 1) parameter.set("page", String(page));
+  const zeichenkette = parameter.toString();
+  return zeichenkette ? `/api/songs?${zeichenkette}` : "/api/songs";
+}
+
+export async function fetchSongSearch(
+  query: string | null,
+  page: number,
+  signal?: AbortSignal,
+): Promise<LiedSuchErgebnis> {
+  const response = await fetch(liedUrlPfad(query, page), {
     credentials: "same-origin",
     cache: "no-store",
     signal,
   });
   if (!response.ok) throw response;
-  const data = (await response.json()) as { songs?: Lied[] };
-  return data.songs ?? [];
+  return (await response.json()) as LiedSuchErgebnis;
 }
 
 export async function fetchSong(

@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { LiederKatalog } from "@/components/lieder-katalog";
 
 export default function LiederSeite() {
@@ -11,7 +12,9 @@ export default function LiederSeite() {
           musikalischen Fassungen.
         </p>
       </section>
-      <LiederKatalog />
+      <Suspense fallback={<p aria-live="polite">Lieder werden geladen …</p>}>
+        <LiederKatalog />
+      </Suspense>
     </>
   );
 }

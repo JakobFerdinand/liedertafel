@@ -645,6 +645,90 @@ footer {
 .skip-link:focus {
   top: 1rem;
 }
+.lied-bearbeiten {
+  margin-block: 0.6rem 0;
+}
+.auth-karte textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.8rem;
+  border: 2px solid var(--ink);
+  border-radius: 0.3rem;
+  font: inherit;
+  background: var(--paper);
+  color: var(--ink);
+  resize: vertical;
+}
+.lied-andere-titel {
+  border: 0;
+  padding: 0;
+  margin-block: 0 0.4rem;
+}
+.lied-andere-titel legend {
+  font-weight: 600;
+  padding: 0;
+  margin-block: 0.6rem 0.2rem;
+}
+.lied-anderer-titel {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  margin-block: 0.4rem;
+}
+.lied-anderer-titel input {
+  width: auto;
+  flex: 1 1 10rem;
+  min-width: 0;
+}
+.lied-anderer-titel button {
+  padding: 0.45rem 0.85rem;
+  font-size: 0.9rem;
+  background: transparent;
+  color: var(--brand);
+  border: 2px solid var(--brand);
+}
+.lied-anderer-titel button:hover:not(:disabled) {
+  background: var(--brand);
+  color: var(--paper);
+}
+.lieder-suche {
+  margin-block: 0 2.5rem;
+}
+.lieder-suche h2 {
+  margin-block: 0 0.2rem;
+}
+.lieder-suche label {
+  display: block;
+  font-weight: 600;
+  margin-block: 1rem 0.4rem;
+}
+.lieder-suche input {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+.lieder-suche-felder {
+  display: flex;
+  gap: 0.6rem;
+  align-items: stretch;
+}
+.lieder-suche-felder button {
+  flex: 0 0 auto;
+}
+.lieder-andere-titel,
+.lieder-fundstelle {
+  font-size: 0.9rem;
+  margin-block: 0.4rem;
+}
+.lieder-seiten {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+  margin-block: 1rem 0;
+}
+.lieder-seiten-stand {
+  font-size: 0.9rem;
+}
 @media (max-width: 540px) {
   .passkey-liste li > span {
     flex-basis: 100%;
@@ -666,6 +750,13 @@ footer {
   nav {
     flex-wrap: wrap;
     row-gap: 0.8rem;
+  }
+  .lieder-suche-felder {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .lieder-suche-felder input {
+    width: 100%;
   }
   .introduction {
     padding-top: 2.5rem;

@@ -671,7 +671,6 @@ test("Abweichende Datei beim Fortsetzen startet eine frische Übertragung", asyn
 
   const inhalt = "%PDF-1.4 blockweise1";
   const abweichend = "%PDF-1.4 anders";
-  const sitzungsId = "00000000-0000-0000-0000-0000000000aa";
   const schluessel = `arc-upload-${assetId}`;
   let erlaubt = false;
   const blockPuts: number[] = [];

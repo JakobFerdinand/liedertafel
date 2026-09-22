@@ -335,7 +335,7 @@ test("Fehlermeldungen aus ProblemDetails werden angezeigt", async ({
     .getByRole("listitem")
     .filter({ hasText: "Das Wandern ist des Müllers Lust" });
   await zeile.getByRole("button", { name: "Bearbeiten", exact: true }).click();
-  await zeile.getByLabel(/Titel/).fill("Geänderte Weise");
+  await zeile.getByLabel("Titel", { exact: true }).fill("Geänderte Weise");
   await zeile.getByRole("button", { name: "Änderungen speichern" }).click();
   await expect(
     page.getByText("Der Eintrag wurde zwischenzeitlich geändert."),
