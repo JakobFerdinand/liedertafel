@@ -68,6 +68,14 @@ export function AudioSpieler({
   const [dauer, setDauer] = useState<number | null>(null);
   const [lautstaerke, setLautstaerke] = useState(1);
   const [fehler, setFehler] = useState<FehlerArt | null>(null);
+  // Die Ticket-URL wird erst nach dem Mount gesetzt: servergerendertes
+  // Audio lädt sofort und kann Fehler feuern, bevor React die Behandler
+  // angehängt hat.
+  const [eingehaengt, setEingehaengt] = useState(false);
+
+  useEffect(() => {
+    setEingehaengt(true);
+  }, []);
 
   const erneuern = useCallback(
     async (hintergrund: boolean) => {
@@ -161,41 +169,46 @@ export function AudioSpieler({
   }
 
   async function beiFehler() {
-    const code = audioRef.current?.error?.code;
-    if (code === 4 || code === 3) {
-      // 4: Format wird nicht unterstützt, 3: Dekodierfehler. Nicht
-      // abgespielbare Originale bleiben Herunterladsache; wir behandeln
-      // sie nie als verifizierten abspielbaren Ableger.
-      setFehler({
-        art: "format",
-        meldung:
-          "Dieses Audioformat kann im Browser nicht wiedergegeben werden. Die Datei kann weiterhin heruntergeladen werden.",
-      });
+    // Abgelaufene Tickets, Netzwerkfehler und nicht dekodierbare Originale
+    // äussern sich alle als Ladefehler: erst einmal still erneuern und an
+    // derselben Position weiterspielen.
+    if (!stillerVersuchRef.current) {
+      stillerVersuchRef.current = true;
+      await erneuern(false);
       return;
     }
-    // Netzwerkfehler und während der Wiedergabe abgelaufene Tickets:
-    // einmal still erneuern und an derselben Position weiterspielen.
-    if (stillerVersuchRef.current) {
+    if (audioRef.current?.error?.code === 2) {
+      // 2: Übertragungsfehler – erneut versuchen bleibt möglich.
       setFehler({
         art: "laden",
         meldung: "Audio konnte nicht geladen werden. Bitte erneut versuchen.",
       });
       return;
     }
-    stillerVersuchRef.current = true;
-    await erneuern(false);
+    // Nicht abgespielbare Originale bleiben Herunterladsache; wir behandeln
+    // sie nie als verifizierten abspielbaren Ableger.
+    setFehler({
+      art: "format",
+      meldung:
+        "Dieses Audioformat kann im Browser nicht wiedergegeben werden. Die Datei kann weiterhin heruntergeladen werden.",
+    });
   }
 
   function umschalten() {
     const audio = audioRef.current;
     if (!audio) return;
     if (audio.paused) {
-      void audio.play().catch(() =>
-        setFehler({
-          art: "laden",
-          meldung: "Audio konnte nicht geladen werden. Bitte erneut versuchen.",
-        }),
-      );
+      void audio.play().catch(() => {
+        // Ein vorhandener Ladefehler entscheidet die Meldung; sonst war es
+        // ein transienter Startfehler.
+        if (audio.error) void beiFehler();
+        else {
+          setFehler({
+            art: "laden",
+            meldung: "Audio konnte nicht geladen werden. Bitte erneut versuchen.",
+          });
+        }
+      });
     } else {
       audio.pause();
     }
@@ -222,7 +235,7 @@ export function AudioSpieler({
       {/* biome-ignore lint/a11y/useMediaCaption: voice tracks have no caption assets */}
       <audio
         ref={audioRef}
-        src={zugriff.viewUrl}
+        src={eingehaengt ? zugriff.viewUrl : undefined}
         preload="metadata"
         onPlay={beiWiedergabeStart}
         onPause={beiWiedergabeStopp}
