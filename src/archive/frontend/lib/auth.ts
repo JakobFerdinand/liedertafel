@@ -66,11 +66,16 @@ async function authedFetch(path: string, init: RequestInit): Promise<Response> {
   return antwort;
 }
 
-export async function postAuth(path: string, body: unknown): Promise<Response> {
+export async function postAuth(
+  path: string,
+  body: unknown,
+  signal?: AbortSignal,
+): Promise<Response> {
   return authedFetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    signal,
   });
 }
 
