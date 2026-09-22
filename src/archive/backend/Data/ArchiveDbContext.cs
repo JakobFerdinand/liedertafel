@@ -46,6 +46,12 @@ public sealed class ArchiveDbContext(DbContextOptions<ArchiveDbContext> options)
 
 	public DbSet<PendingUpload> UploadSessions => Set<PendingUpload>();
 
+	public DbSet<Chat.ChatThread> ChatThreads => Set<Chat.ChatThread>();
+
+	public DbSet<Chat.ChatMessage> ChatMessages => Set<Chat.ChatMessage>();
+
+	public DbSet<Chat.ChatUsageEntry> ChatUsageEntries => Set<Chat.ChatUsageEntry>();
+
 	protected override void OnModelCreating(ModelBuilder modelBuilder)
 	{
 		base.OnModelCreating(modelBuilder);

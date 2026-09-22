@@ -3,6 +3,7 @@ using System.Reflection;
 using Archive.Backend.Assets;
 using Archive.Backend.Auth;
 using Archive.Backend.Catalogue;
+using Archive.Backend.Chat;
 using Archive.Backend.Data;
 using Archive.Backend.Development;
 using Archive.Backend.Maintenance;
@@ -10,6 +11,7 @@ using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.AI;
 
 var command = args.FirstOrDefault();
 if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" or "--bootstrap-admin" or "--repair-admin" or "--seed-dev-auth" or "--send-test-mail" or "--cleanup-uploads")
@@ -71,6 +73,16 @@ builder.Services.AddSingleton<BlobAssetStorageAdapter>();
 builder.Services.AddSingleton<IAssetStorageAdapter>(sp => sp.GetRequiredService<BlobAssetStorageAdapter>());
 builder.Services.AddScoped<UploadSessionCleaner>();
 builder.Services.AddHttpContextAccessor();
+// ARC-022: bounded archive chat configuration (availability gate and caps).
+builder.Services.AddOptions<Archive.Backend.Chat.ChatOptions>()
+	.BindConfiguration(Archive.Backend.Chat.ChatOptions.SectionName);
+// Provider seam: Development without provider configuration runs the
+// deterministic ScriptedChatClient; a real Azure OpenAI implementation
+// (managed identity, pinned model) is added with ARC-022's provider step.
+// The Enabled gate keeps ordinary runs inert, so the scripted stand-in is
+// registered unconditionally for every environment.
+builder.Services.AddSingleton<IChatClient, ScriptedChatClient>();
+builder.Services.AddScoped<ArchiveChatService>();
 builder.Services.AddArchiveAuth(builder.Configuration, builder.Environment);
 // ARC-011: Container Apps terminates TLS at the front proxy and forwards
 // plain HTTP to the container. Without forwarded-header processing Kestrel
@@ -162,6 +174,7 @@ app.MapAuthEndpoints();
 app.MapPasskeyEndpoints();
 app.MapMemberAdminEndpoints();
 app.MapCatalogueEndpoints();
+app.MapChatEndpoints();
 app.MapAssetEndpoints();
 app.MapDevelopmentDiagnostics();
 
