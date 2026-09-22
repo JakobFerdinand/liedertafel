@@ -968,6 +968,122 @@ public sealed class AssetApiTests
 		Assert.Equal("Anmeldung erforderlich.", problem.GetProperty("title").GetString());
 	}
 
+	[Fact]
+	public async Task MembershipRevocationStopsRenewalWhileIssuedTicketsStayBounded()
+	{
+		await using var factory = new AuthApiFactory();
+		await SeedAsync(factory, Member, ArchiveRoles.Member);
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		var memberSession = await SignInAsync(factory, Member);
+		var editorSession = await SignInAsync(factory, Editor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var (songId, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
+		var assetId = await CreateScoreAssetAsync(client, editorSession, versionId);
+		await UploadAndFinalizeAsync(factory, client, editorSession, assetId);
+		var (cookie, token) = await GetCsrfAsync(client, editorSession);
+		using (var publish = AuthedPost($"/api/songs/{songId}/publish", new { }, $"{cookie}; {editorSession}", token))
+		using (var publishResponse = await client.SendAsync(publish))
+		{
+			Assert.Equal(HttpStatusCode.OK, publishResponse.StatusCode);
+		}
+
+		// First renewal: the member receives bounded read tickets.
+		string firstViewUrl;
+		string firstDownloadUrl;
+		using (var access = new HttpRequestMessage(HttpMethod.Get, $"/api/assets/{assetId}/access"))
+		{
+			access.Headers.Add("Cookie", memberSession);
+			using var response = await client.SendAsync(access);
+			Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+			var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+			firstViewUrl = body.GetProperty("viewUrl").GetString()!;
+			firstDownloadUrl = body.GetProperty("downloadUrl").GetString()!;
+		}
+
+		var ticketsAtIssue = factory.Storage.Tickets.Count;
+		var issuedView = factory.Storage.Find(firstViewUrl)!;
+		var issuedDownload = factory.Storage.Find(firstDownloadUrl)!;
+		Assert.Equal(TimeSpan.FromMinutes(15), issuedView.Lifetime);
+		Assert.Equal(TimeSpan.FromMinutes(15), issuedDownload.Lifetime);
+
+		// Revoking confirmation turns the signed-in member inactive: the next
+		// access call re-checks membership and refuses to renew.
+		using (var scope = factory.Services.CreateScope())
+		{
+			var users = scope.ServiceProvider.GetRequiredService<UserManager<ArchiveUser>>();
+			var user = await users.FindByEmailAsync(Member);
+			user!.EmailConfirmed = false;
+			Assert.True((await users.UpdateAsync(user)).Succeeded);
+		}
+
+		using (var renewal = new HttpRequestMessage(HttpMethod.Get, $"/api/assets/{assetId}/access"))
+		{
+			renewal.Headers.Add("Cookie", memberSession);
+			using var response = await client.SendAsync(renewal);
+			Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+			var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
+			Assert.Equal("Anmeldung erforderlich.", problem.GetProperty("title").GetString());
+		}
+
+		// No fresh tickets were issued after revocation; the already-issued
+		// URLs keep their bounded 15-minute lifetime and are never extended.
+		Assert.Equal(ticketsAtIssue, factory.Storage.Tickets.Count);
+		Assert.Equal(TimeSpan.FromMinutes(15), factory.Storage.Find(firstViewUrl)!.Lifetime);
+		Assert.Equal(TimeSpan.FromMinutes(15), factory.Storage.Find(firstDownloadUrl)!.Lifetime);
+	}
+
+	[Fact]
+	public async Task VisibilityRevocationStopsRenewalWhileIssuedTicketsStayBounded()
+	{
+		await using var factory = new AuthApiFactory();
+		await SeedAsync(factory, Member, ArchiveRoles.Member);
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		var memberSession = await SignInAsync(factory, Member);
+		var editorSession = await SignInAsync(factory, Editor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var (songId, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
+		var assetId = await CreateScoreAssetAsync(client, editorSession, versionId);
+		await UploadAndFinalizeAsync(factory, client, editorSession, assetId);
+		var (cookie, token) = await GetCsrfAsync(client, editorSession);
+		using (var publish = AuthedPost($"/api/songs/{songId}/publish", new { }, $"{cookie}; {editorSession}", token))
+		using (var publishResponse = await client.SendAsync(publish))
+		{
+			Assert.Equal(HttpStatusCode.OK, publishResponse.StatusCode);
+		}
+
+		string firstViewUrl;
+		using (var access = new HttpRequestMessage(HttpMethod.Get, $"/api/assets/{assetId}/access"))
+		{
+			access.Headers.Add("Cookie", memberSession);
+			using var response = await client.SendAsync(access);
+			Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+			var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+			firstViewUrl = body.GetProperty("viewUrl").GetString()!;
+		}
+
+		var ticketsAtIssue = factory.Storage.Tickets.Count;
+
+		// Withdrawing publication hides the song from members again; the next
+		// access call answers 404 and stops issuing tickets.
+		using (var unpublish = AuthedPost($"/api/songs/{songId}/unpublish", new { }, $"{cookie}; {editorSession}", token))
+		using (var unpublishResponse = await client.SendAsync(unpublish))
+		{
+			Assert.Equal(HttpStatusCode.OK, unpublishResponse.StatusCode);
+		}
+
+		using (var renewal = new HttpRequestMessage(HttpMethod.Get, $"/api/assets/{assetId}/access"))
+		{
+			renewal.Headers.Add("Cookie", memberSession);
+			using var response = await client.SendAsync(renewal);
+			Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+			var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
+			Assert.Equal(AssetEndpoints.AssetNotFoundMessage, problem.GetProperty("title").GetString());
+		}
+
+		Assert.Equal(ticketsAtIssue, factory.Storage.Tickets.Count);
+		Assert.Equal(TimeSpan.FromMinutes(15), factory.Storage.Find(firstViewUrl)!.Lifetime);
+	}
+
 	private static async Task<(Guid SongId, Guid VersionId)> CreateSongWithVersionAsync(
 		AuthApiFactory factory, HttpClient client, string editorSession, string title = "Notenlied")
 	{
