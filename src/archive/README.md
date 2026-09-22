@@ -290,7 +290,33 @@ configuration plus "Vollmix", description) and transfers with bounded
 concurrency (2 parallel workers), per-file status and per-file retry that
 reuses the created asset — a failed file never duplicates or rolls back
 successful ones. Published materials are listed grouped by type and voice;
-audio/MIDI offer authorized downloads until ARC-018/019 add players.
+audio offers the ARC-018 player, MIDI authorized downloads until ARC-019
+adds a MIDI listener.
+
+## ARC-018 practice audio listening
+
+Audio assets in published material are playable in the browser through
+`components/audio-spieler.tsx`: the "Anhören" button loads
+`GET /api/assets/{id}/access` once and the player renders play/pause, seek,
+volume and a time display with per-voice labels; only one entry plays at a
+time. The authorized download link stays beside the player.
+
+The 15-minute read tickets are renewed transparently: the player schedules a
+silent re-fetch of `/api/assets/{id}/access` 60 seconds before the response's
+`expiresAt` (retried after 30 seconds on failure) and swaps the `<audio>`
+`src` on the same element, restoring the captured position and play state in
+`loadedmetadata` — seeking uses the blob's native `Range` support, so
+playback continues across renewed URLs. Media errors first attempt one
+silent renewal, then show an understandable state: unsupported/undecodable
+originals report the non-playable format (the original is never treated as a
+verified playable derivative; download stays available), transient failures
+offer "Erneut versuchen", and a removed access (404) or expired member
+session (401) shows specific copy. Renewal re-checks active membership and
+member visibility on every call because the endpoint recomputes
+authorization per request; revoked access stops ticket issuance while an
+already-issued URL keeps its bounded lifetime. `restlaufzeitMs` in
+`lib/assets.ts` plus `fetchAssetAccess` are the ticket-renewal primitives for
+ARC-028's concert video.
 
 ## Focused verification
 
