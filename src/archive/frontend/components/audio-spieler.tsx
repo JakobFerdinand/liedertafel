@@ -4,19 +4,21 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { AssetAccessResponse } from "@/lib/assets";
 import { fetchAssetAccess, restlaufzeitMs } from "@/lib/assets";
 
-/**
- * Vorlauf vor dem Ticketablauf, zu dem die Wiedergabe neue Ticket-URLs
- * anfordert, damit ein laufendes Anhören nicht an der 15-Minuten-Grenze
- * abbricht.
- */
+type FehlerArt = {
+  art: "format" | "laden";
+  meldung: string;
+};
+
+/** Vorlauf vor dem Ticketablauf, zu dem still neue Tickets angefordert werden. */
 const ErneuerungsVorlaufMs = 60_000;
 
 /** Nachlauf für einen stillen Erneuerungsversuch nach einem Fehlschlag. */
 const ErneuerungsWiederholungMs = 30_000;
 
-type FehlerArt = {
-  art: "format" | "laden";
-  meldung: string;
+/** Wiederholbare Meldung für vorübergehende Ladefehler. */
+const LadeFehler: FehlerArt = {
+  art: "laden",
+  meldung: "Audio konnte nicht geladen werden. Bitte erneut versuchen.",
 };
 
 export type AudioSpielerProps = {
@@ -99,15 +101,20 @@ export function AudioSpieler({
           return;
         }
         const status = ursache instanceof Response ? ursache.status : 0;
-        setFehler({
-          art: "laden",
-          meldung:
-            status === 404
-              ? "Für dieses Material liegt keine abrufbare Datei vor."
-              : status === 401
-                ? "Die Anmeldung ist abgelaufen. Bitte lade die Seite neu."
-                : "Audio konnte nicht geladen werden. Bitte erneut versuchen.",
-        });
+        setFehler(
+          status === 404
+            ? {
+                art: "laden",
+                meldung: "Für dieses Material liegt keine abrufbare Datei vor.",
+              }
+            : status === 401
+              ? {
+                  art: "laden",
+                  meldung:
+                    "Die Anmeldung ist abgelaufen. Bitte lade die Seite neu.",
+                }
+              : LadeFehler,
+        );
       }
     },
     [assetId],
@@ -179,10 +186,7 @@ export function AudioSpieler({
     }
     if (audioRef.current?.error?.code === 2) {
       // 2: Übertragungsfehler – erneut versuchen bleibt möglich.
-      setFehler({
-        art: "laden",
-        meldung: "Audio konnte nicht geladen werden. Bitte erneut versuchen.",
-      });
+      setFehler(LadeFehler);
       return;
     }
     // Nicht abgespielbare Originale bleiben Herunterladsache; wir behandeln
@@ -202,12 +206,7 @@ export function AudioSpieler({
         // Ein vorhandener Ladefehler entscheidet die Meldung; sonst war es
         // ein transienter Startfehler.
         if (audio.error) void beiFehler();
-        else {
-          setFehler({
-            art: "laden",
-            meldung: "Audio konnte nicht geladen werden. Bitte erneut versuchen.",
-          });
-        }
+        else setFehler(LadeFehler);
       });
     } else {
       audio.pause();
@@ -230,9 +229,9 @@ export function AudioSpieler({
       className={`audio-spieler${wiedergabe ? " audio-laeuft" : ""}`}
       aria-label={`Audio-Spieler · ${stimme}`}
     >
-      {/* Voice practice tracks ship without caption assets; the labelled
-          controls and live status carry the accessible experience. */}
-      {/* biome-ignore lint/a11y/useMediaCaption: voice tracks have no caption assets */}
+      {/* Sprachaufnahmen ohne Untertitel-Datei: die beschrifteten
+          Bedienelemente und der Status im Klartext tragen die Zugänglichkeit. */}
+      {/* biome-ignore lint/a11y/useMediaCaption: Sprachaufnahmen haben keine Untertitel-Dateien */}
       <audio
         ref={audioRef}
         src={eingehaengt ? zugriff.viewUrl : undefined}

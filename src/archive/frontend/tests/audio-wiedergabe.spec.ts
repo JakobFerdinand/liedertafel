@@ -284,12 +284,15 @@ test("Wiedergabe läuft nach erneuertem Ticket an derselben Position weiter", as
   // Der Spieler fordert kurz vor Ablauf frische Tickets an und setzt ohne
   // Neustart an derselben Position fort.
   await expect
-    .poll(async () => {
-      const quelle = await page.evaluate(
-        () => document.querySelector("audio")?.src,
-      );
-      return zweite !== null && quelle === zweite;
-    }, { timeout: 20_000 })
+    .poll(
+      async () => {
+        const quelle = await page.evaluate(
+          () => document.querySelector("audio")?.src,
+        );
+        return zweite !== null && quelle === zweite;
+      },
+      { timeout: 20_000 },
+    )
     .toBe(true);
   expect(zugriffe).toBe(2);
   await expect
