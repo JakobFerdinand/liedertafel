@@ -35,5 +35,10 @@ public sealed class Song
 	/// </summary>
 	public uint RowVersion { get; set; }
 
+	/// <summary>Optional entered lyrics or opening words (ARC-020).</summary>
+	public string? Lyrics { get; set; }
+
 	public List<Arrangement> Arrangements { get; set; } = [];
+
+	public List<SongTitle> AlternateTitles { get; set; } = [];
 }

@@ -5,7 +5,8 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 namespace Archive.Backend.Catalogue;
 
 public sealed class CatalogueModelConfiguration
-	: IEntityTypeConfiguration<Song>, IEntityTypeConfiguration<Arrangement>, IEntityTypeConfiguration<MusicalVersion>
+	: IEntityTypeConfiguration<Song>, IEntityTypeConfiguration<Arrangement>, IEntityTypeConfiguration<MusicalVersion>,
+		IEntityTypeConfiguration<SongTitle>
 {
 	public void Configure(EntityTypeBuilder<Song> builder)
 	{
@@ -14,6 +15,7 @@ public sealed class CatalogueModelConfiguration
 		builder.Property(x => x.Title).HasMaxLength(200).IsRequired();
 		builder.Property(x => x.Composer).HasMaxLength(200);
 		builder.Property(x => x.Lyricist).HasMaxLength(200);
+		builder.Property(x => x.Lyrics).HasMaxLength(5000);
 		builder.Property(x => x.RowVersion).IsConcurrencyToken();
 		builder.HasIndex(x => x.Title);
 	}
@@ -44,6 +46,18 @@ public sealed class CatalogueModelConfiguration
 			.HasForeignKey(x => x.ArrangementId)
 			.OnDelete(DeleteBehavior.Cascade);
 		builder.HasIndex(x => x.ArrangementId);
+	}
+
+	public void Configure(EntityTypeBuilder<SongTitle> builder)
+	{
+		builder.ToTable("song_titles");
+		builder.HasKey(x => x.Id);
+		builder.Property(x => x.Value).HasMaxLength(200).IsRequired();
+		builder.HasOne(x => x.Song)
+			.WithMany(s => s.AlternateTitles)
+			.HasForeignKey(x => x.SongId)
+			.OnDelete(DeleteBehavior.Cascade);
+		builder.HasIndex(x => x.SongId);
 	}
 }
 

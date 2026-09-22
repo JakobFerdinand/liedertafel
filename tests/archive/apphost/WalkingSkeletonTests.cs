@@ -49,6 +49,7 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         Assert.Contains(pending, m => m.EndsWith("_AuthSignInConcurrency", StringComparison.Ordinal));
         Assert.Contains(pending, m => m.EndsWith("_CatalogueSongs", StringComparison.Ordinal));
         Assert.Contains(pending, m => m.EndsWith("_ArrangementVoiceConfigurationAndVersionKeys", StringComparison.Ordinal));
+        Assert.Contains(pending, m => m.EndsWith("_SongAlternateTitlesAndLyrics", StringComparison.Ordinal));
         Assert.Contains(pending, m => m.EndsWith("_ArchiveAssetsAndUploadSessions", StringComparison.Ordinal));
 
         // Merely starting the API did not apply a schema. Execute it explicitly.

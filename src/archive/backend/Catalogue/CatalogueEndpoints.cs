@@ -7,7 +7,7 @@ namespace Archive.Backend.Catalogue;
 
 public sealed record CreateSongRequest(string? Title, string? Composer, string? Lyricist, string? ArrangementLabel, string? VersionLabel);
 
-public sealed record PatchSongRequest(string? Title, string? Composer, string? Lyricist);
+public sealed record PatchSongRequest(string? Title, string? Composer, string? Lyricist, string? Lyrics, List<string?>? AlternateTitles);
 
 public sealed record CreateArrangementRequest(string? Label, string? Arranger, string? VoiceConfiguration);
 
@@ -38,30 +38,202 @@ public static class CatalogueEndpoints
 
 	public const string DefaultLabel = "Standardfassung";
 
+	public const string SearchTooLongMessage = "Die Suche ist zu lang.";
+
+	public const string LyricsTooLongMessage = "Der Liedtext ist zu lang.";
+
+	public const string AlternateTitleEmptyMessage = "Ein anderer Titel darf nicht leer sein.";
+
+	public const string AlternateTitleTooLongMessage = "Ein anderer Titel ist zu lang.";
+
+	public const string AlternateTitleTooManyMessage = "Es sind höchstens 10 andere Titel möglich.";
+
 	public static void MapCatalogueEndpoints(this WebApplication app)
 	{
 		app.MapGet("/api/songs", async (HttpContext context, CurrentUserAccessor accessor,
-			ArchiveAccessService access, ArchiveDbContext db, CancellationToken token) =>
+			ArchiveAccessService access, ArchiveDbContext db, CancellationToken token,
+			string? q, int? page) =>
 		{
 			context.Response.Headers.CacheControl = "no-store";
 			var (decision, error) = await RequireMemberAsync(context, accessor, access);
 			if (error is not null)
 				return error;
 			var isEditor = IsEditor(decision!);
-			var songs = await QueryVisible(db.Songs, isEditor)
+			const int pageSize = 20;
+			var requestedPage = page is null or < 1 ? 1 : page.Value;
+			var query = (q ?? string.Empty).Trim();
+			if (query.Length > 200)
+				return Results.Problem(statusCode: 400, title: SearchTooLongMessage);
+			if (query.Length == 0)
+			{
+				// No query: existing list behaviour (plain Id order) with the
+				// search response fields added around it.
+				var allSongs = await QueryVisible(db.Songs, isEditor)
+					.OrderBy(s => s.Id)
+					.Select(s => new SongSummary(s.Id, s.Title, s.Composer, s.Lyricist, s.PublishedAt))
+					.ToListAsync(token);
+				var totalAll = allSongs.Count;
+				var plainPage = allSongs
+					.Skip((requestedPage - 1) * pageSize)
+					.Take(pageSize)
+					.ToList();
+				var plainIds = plainPage.Select(s => s.Id).ToList();
+				var plainArrangements = await LoadArrangementSummariesAsync(db, plainIds, token);
+				var plainAlternateTitles = await LoadAlternateTitlesAsync(db, plainIds, token);
+				return Results.Ok(new
+				{
+					query = (string?)null,
+					page = requestedPage,
+					pageSize = pageSize,
+					total = totalAll,
+					songs = plainPage.Select(s => new
+					{
+						id = s.Id,
+						title = s.Title,
+						composer = s.Composer,
+						lyricist = s.Lyricist,
+						published = s.PublishedAt is not null,
+						publishedAt = s.PublishedAt,
+						alternateTitles = plainAlternateTitles.GetValueOrDefault(s.Id, []),
+						arrangements = plainArrangements.GetValueOrDefault(s.Id, []),
+						matchedIn = Array.Empty<string>(),
+						lyricsSnippet = (string?)null,
+					}),
+				});
+			}
+			// Tokenized AND search over one database-projected visible set;
+			// matching runs in C# so InMemory tests and PostgreSQL agree.
+			var queryFold = CatalogueText.Fold(query);
+			var tokens = query.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+				.Select(CatalogueText.Fold)
+				.Where(t => t.Length > 0)
+				.ToList();
+			if (tokens.Count == 0)
+			{
+				return Results.Ok(new
+				{
+					query,
+					page = requestedPage,
+					pageSize = pageSize,
+					total = 0,
+					songs = Array.Empty<object>(),
+				});
+			}
+			var visible = await QueryVisible(db.Songs, isEditor)
 				.OrderBy(s => s.Id)
-				.Select(s => new SongSummary(s.Id, s.Title, s.Composer, s.Lyricist, s.PublishedAt))
+				.Select(s => new SearchRow(s.Id, s.Title, s.Composer, s.Lyricist, s.PublishedAt, s.Lyrics))
 				.ToListAsync(token);
+			var visibleIds = visible.Select(s => s.Id).ToList();
+			var alternateTitleRows = await db.SongTitles.AsNoTracking()
+				.Where(t => visibleIds.Contains(t.SongId))
+				.OrderBy(t => t.Id)
+				.Select(t => new { t.SongId, t.Value })
+				.ToListAsync(token);
+			var alternateTitleMap = alternateTitleRows
+				.GroupBy(t => t.SongId)
+				.ToDictionary(g => g.Key, g => g.Select(t => t.Value).ToList());
+			var arrangementRows = await db.Arrangements.AsNoTracking()
+				.Where(a => visibleIds.Contains(a.SongId))
+				.OrderBy(a => a.Id)
+				.Select(a => new { a.Id, a.SongId, a.Label, a.Arranger })
+				.ToListAsync(token);
+			var arrangementMap = arrangementRows
+				.GroupBy(a => a.SongId)
+				.ToDictionary(g => g.Key, g => g.ToList());
+			var matches = new List<(SearchRow Song, int Rank, SortedSet<string> MatchedIn)>();
+			foreach (var song in visible)
+			{
+				var matchedIn = new SortedSet<string>();
+				var titleFold = CatalogueText.Fold(song.Title);
+				var titles = alternateTitleMap.TryGetValue(song.Id, out var titles_)
+					? titles_.Select(CatalogueText.Fold).ToList()
+					: [];
+				var composerFold = CatalogueText.Fold(song.Composer);
+				var lyricistFold = CatalogueText.Fold(song.Lyricist);
+				var lyricsFold = CatalogueText.Fold(song.Lyrics);
+				var arrangementTexts = arrangementMap.TryGetValue(song.Id, out var arrangements_)
+					? arrangements_.SelectMany(a => new[] { CatalogueText.Fold(a.Label), CatalogueText.Fold(a.Arranger) }).ToList()
+					: [];
+				// AND semantics: every token must occur (substring) in at least
+				// one of the searchable fields; matchedIn lists every field a
+				// token hit, sorted alphabetically.
+				var allFound = true;
+				foreach (var current in tokens)
+				{
+					var found = false;
+					if (titleFold.Contains(current))
+					{
+						found = true;
+						matchedIn.Add("title");
+					}
+					if (titles.Any(t => t.Contains(current)))
+					{
+						found = true;
+						matchedIn.Add("alternateTitles");
+					}
+					if (composerFold.Contains(current))
+					{
+						found = true;
+						matchedIn.Add("composer");
+					}
+					if (lyricistFold.Contains(current))
+					{
+						found = true;
+						matchedIn.Add("lyricist");
+					}
+					if (lyricsFold.Contains(current))
+					{
+						found = true;
+						matchedIn.Add("lyrics");
+					}
+					if (arrangementTexts.Any(t => t.Contains(current)))
+					{
+						found = true;
+						matchedIn.Add("arrangements");
+					}
+					if (!found)
+					{
+						allFound = false;
+						break;
+					}
+				}
+				if (!allFound)
+					continue;
+				var rank = titleFold == queryFold ? 0
+					: tokens.All(t => titleFold.Contains(t)) ? 1
+					: 2;
+				matches.Add((song, rank, matchedIn));
+			}
+			var ordered = matches
+				.OrderBy(m => m.Rank)
+				.ThenBy(m => m.Song.Id)
+				.ToList();
+			var total = ordered.Count;
+			var pageItems = ordered
+				.Skip((requestedPage - 1) * pageSize)
+				.Take(pageSize)
+				.ToList();
+			var pageIds = pageItems.Select(m => m.Song.Id).ToList();
+			var pageArrangements = await LoadArrangementSummariesAsync(db, pageIds, token);
+			var pageAlternateTitles = await LoadAlternateTitlesAsync(db, pageIds, token);
 			return Results.Ok(new
 			{
-				songs = songs.Select(s => new
+				query,
+				page = requestedPage,
+				pageSize = pageSize,
+				total,
+				songs = pageItems.Select(m => new
 				{
-					id = s.Id,
-					title = s.Title,
-					composer = s.Composer,
-					lyricist = s.Lyricist,
-					published = s.PublishedAt is not null,
-					publishedAt = s.PublishedAt,
+					id = m.Song.Id,
+					title = m.Song.Title,
+					composer = m.Song.Composer,
+					lyricist = m.Song.Lyricist,
+					published = m.Song.PublishedAt is not null,
+					publishedAt = m.Song.PublishedAt,
+					alternateTitles = pageAlternateTitles.GetValueOrDefault(m.Song.Id, []),
+					arrangements = pageArrangements.GetValueOrDefault(m.Song.Id, []),
+					matchedIn = m.MatchedIn.ToArray(),
+					lyricsSnippet = (string?)null,
 				}),
 			});
 		});
@@ -76,6 +248,7 @@ public static class CatalogueEndpoints
 			var isEditor = IsEditor(decision!);
 			var song = await db.Songs.AsNoTracking()
 				.Include(s => s.Arrangements).ThenInclude(a => a.MusicalVersions)
+				.Include(s => s.AlternateTitles)
 				.FirstOrDefaultAsync(s => s.Id == id, token);
 			if (song is null || (!isEditor && !CatalogueVisibility.IsMemberVisible(song)))
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
@@ -169,7 +342,21 @@ public static class CatalogueEndpoints
 			var lyricist = PatchOptional(body?.Lyricist, "Der Textdichter ist zu lang.", out var lyricistError);
 			if (lyricistError is not null)
 				return lyricistError;
-			var song = await db.Songs.FirstOrDefaultAsync(s => s.Id == id, token);
+			string? lyrics = null;
+			if (body?.Lyrics is not null)
+			{
+				var trimmedLyrics = body.Lyrics.Trim();
+				if (trimmedLyrics.Length > 5000)
+					return Results.Problem(statusCode: 400, title: LyricsTooLongMessage);
+				lyrics = trimmedLyrics.Length == 0 ? null : trimmedLyrics;
+			}
+			if (body?.AlternateTitles is not null)
+			{
+				var alternateError = ValidateAlternateTitles(body.AlternateTitles);
+				if (alternateError is not null)
+					return alternateError;
+			}
+			var song = await db.Songs.Include(s => s.AlternateTitles).FirstOrDefaultAsync(s => s.Id == id, token);
 			if (song is null)
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
 			if (body?.Title is not null)
@@ -178,6 +365,25 @@ public static class CatalogueEndpoints
 				song.Composer = composer;
 			if (body?.Lyricist is not null)
 				song.Lyricist = lyricist;
+			if (body?.Lyrics is not null)
+				song.Lyrics = lyrics;
+			if (body?.AlternateTitles is not null)
+			{
+				// Full replacement: delete the existing rows and re-add them in
+				// list order with fresh attribution (Guid v7 keeps the order).
+				db.SongTitles.RemoveRange(song.AlternateTitles);
+				var now_ = time.GetUtcNow();
+				foreach (var value in body.AlternateTitles.Select(t => t!.Trim()))
+				{
+					db.SongTitles.Add(new SongTitle
+					{
+						SongId = song.Id,
+						Value = value,
+						CreatedAt = now_,
+						CreatedByAccountId = decision!.AccountId,
+					});
+				}
+			}
 			var now = time.GetUtcNow();
 			song.UpdatedAt = now;
 			song.UpdatedByAccountId = decision!.AccountId;
@@ -451,6 +657,7 @@ public static class CatalogueEndpoints
 	private static async Task<Song?> LoadDetailAsync(ArchiveDbContext db, Guid id, CancellationToken token)
 		=> await db.Songs.AsNoTracking()
 			.Include(s => s.Arrangements).ThenInclude(a => a.MusicalVersions)
+			.Include(s => s.AlternateTitles)
 			.FirstOrDefaultAsync(s => s.Id == id, token);
 
 	/// <summary>
@@ -505,6 +712,8 @@ public static class CatalogueEndpoints
 			publishedAt = song.PublishedAt,
 			createdAt = song.CreatedAt,
 			updatedAt = song.UpdatedAt,
+			lyrics = song.Lyrics,
+			alternateTitles = song.AlternateTitles.OrderBy(t => t.Id).Select(t => t.Value),
 			arrangements = song.Arrangements.OrderBy(a => a.Id).Select(a => new
 			{
 				id = a.Id,
@@ -580,6 +789,75 @@ public static class CatalogueEndpoints
 	private static string? PatchOptional(string? raw, string tooLongTitle, out IResult? error)
 		=> CleanOptional(raw, tooLongTitle, out error);
 
+	/// <summary>
+	/// Validates an alternate-title replacement list (ARC-020): entries are
+	/// trimmed, must be non-empty and ≤ 200 characters, at most 10 entries.
+	/// Returns the German ProblemDetails error or null when valid.
+	/// </summary>
+	private static IResult? ValidateAlternateTitles(List<string?>? entries)
+	{
+		if (entries is null)
+			return null;
+		if (entries.Count > 10)
+			return Results.Problem(statusCode: 400, title: AlternateTitleTooManyMessage);
+		foreach (var entry in entries)
+		{
+			var trimmed = entry?.Trim();
+			if (string.IsNullOrEmpty(trimmed))
+				return Results.Problem(statusCode: 400, title: AlternateTitleEmptyMessage);
+			if (trimmed.Length > 200)
+				return Results.Problem(statusCode: 400, title: AlternateTitleTooLongMessage);
+		}
+		return null;
+	}
+
+	/// <summary>
+	/// Loads the arrangement summaries (id, label, arranger ordered by id) for
+	/// the given song ids into a per-song map for list/search responses.
+	/// </summary>
+	private static async Task<Dictionary<Guid, List<object>>> LoadArrangementSummariesAsync(
+		ArchiveDbContext db, List<Guid> songIds, CancellationToken token)
+	{
+		if (songIds.Count == 0)
+			return [];
+		var arrangements = await db.Arrangements.AsNoTracking()
+			.Where(a => songIds.Contains(a.SongId))
+			.OrderBy(a => a.Id)
+			.Select(a => new { a.Id, a.SongId, a.Label, a.Arranger })
+			.ToListAsync(token);
+		return arrangements
+			.GroupBy(a => a.SongId)
+			.ToDictionary(
+				g => g.Key,
+				g => g.Select(a => (object)new
+				{
+					id = a.Id,
+					label = a.Label,
+					arranger = a.Arranger,
+				}).ToList());
+	}
+
+	/// <summary>
+	/// Loads the alternate titles (values ordered by id) for the given song ids
+	/// into a per-song map for list/search responses.
+	/// </summary>
+	private static async Task<Dictionary<Guid, List<string>>> LoadAlternateTitlesAsync(
+		ArchiveDbContext db, List<Guid> songIds, CancellationToken token)
+	{
+		if (songIds.Count == 0)
+			return [];
+		var titles = await db.SongTitles.AsNoTracking()
+			.Where(t => songIds.Contains(t.SongId))
+			.OrderBy(t => t.Id)
+			.Select(t => new { t.SongId, t.Value })
+			.ToListAsync(token);
+		return titles
+			.GroupBy(t => t.SongId)
+			.ToDictionary(
+				g => g.Key,
+				g => g.Select(t => t.Value).ToList());
+	}
+
 	private static async Task<(ArchiveAccessDecision? Decision, IResult? Error)> RequireMemberAsync(
 		HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access)
 	{
@@ -607,4 +885,8 @@ public static class CatalogueEndpoints
 	}
 
 	private sealed record SongSummary(Guid Id, string Title, string? Composer, string? Lyricist, DateTimeOffset? PublishedAt);
+
+	/// <summary>Database-projected row for C#-side catalogue search (ARC-020).</summary>
+	private sealed record SearchRow(Guid Id, string Title, string? Composer, string? Lyricist,
+		DateTimeOffset? PublishedAt, string? Lyrics);
 }
