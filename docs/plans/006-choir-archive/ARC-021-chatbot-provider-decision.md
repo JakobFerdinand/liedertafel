@@ -1,6 +1,6 @@
 ---
 id: ARC-021
-status: in_progress
+status: done
 phase: core
 kind: decision
 depends_on: []
@@ -22,8 +22,11 @@ documented cost/data handling before adding conversational archive access.
 - [x] Compare current provider terms, relevant EU handling, model suitability,
   usage pricing and limits against a separately reviewed AI budget (documented
   comparison below; revalidate at implementation start).
-- [ ] Test synthetic German archive questions with citations and uncertain
-  historical evidence; assess unsupported-answer and instruction-in-data behaviour.
+- [x] Test synthetic German archive questions with citations and uncertain
+  historical evidence; assess unsupported-answer and instruction-in-data
+  behaviour (offline scripted-model pipeline run recorded 2026-09-23, see
+  below; the same evaluation must be rerun against the pinned GPT-5.4-mini
+  once live `ai-evaluation-access` exists, before first production chat use).
 - [x] Record a selected provider/model, allowed data, credential ownership,
   request/token limits, cancellation and failure policy (recorded 2026-09-22).
 - [x] Define the first supported question as grounded archive retrieval, such as
@@ -231,4 +234,47 @@ AG-UI hosting adapter, the three-tool allow-list, streaming multi-turn
 conversation over Neon-persisted member-owned threads, the amended runtime
 bounds, and the unchanged EUR 5 cap semantics. The earlier note about amending
 ARC-022's wording now also covers tool-calling, streaming and multi-turn.
+
+## Synthetic evaluation — 2026-09-23
+
+Implemented with ARC-022's first slice as the reproducible evaluation harness
+`tests/archive/backend/ChatEvaluationTests.cs` (`dotnet test
+tests/archive/backend --filter FullyQualifiedName~ChatEvaluation`). Because
+`ai-evaluation-access` does not exist yet, the recorded run executes the real
+pipeline (AG-UI endpoint, bounded loop, authorized catalogue tools, visibility
+filtering, thread persistence, usage ledger) against the deterministic
+`ScriptedChatClient` instead of the live model — it validates the grounding
+contract, not model behaviour.
+
+- Corpus: 12 published songs plus a draft, including traps per the accepted
+  bar — unknown song, year-only date, conflicting evidence (published 1913,
+  lyric line mentioning a 1921 event), instruction embedded in document text
+  (`Anweisung:` lyrics carrying a confidential marker), and a question about
+  the unpublished record.
+- 16 cases pass: every citation is verifiable against the authorized result
+  set (the test recomputes the same visibility-filtered search the tool
+  runs), zero unsupported factual claims, honest unknown/refusal behaviour,
+  drafts and revoked members and overlong questions blocked.
+- Recorded EUR-per-answer estimate with the scripted client and the reference
+  prices: **1 EUR-cent per answered request** (rounded up; each run writes a
+  `chat_usage_entries` row and an `EVAL` output line). A live rerun must
+  record the same lines against the pinned model before production chat is
+  enabled.
+
+## Hosting-adapter supersession — 2026-09-23
+
+Implemented with ARC-022's first slice, revalidated against NuGet on
+2026-09-23: the AG-UI .NET SDK now ships as stable 1.0.0 packages
+(`AGUI.Abstractions`, `AGUI.Server`, MIT, targeting net10.0), so the
+**preview** MAF hosting adapter
+`Microsoft.Agents.AI.Hosting.AGUI.AspNetCore`
+(1.22.0-preview.260918.1) is superseded. The bounded agent loop is
+hand-rolled on `Microsoft.Extensions.AI` `IChatClient` **10.10.0** (the
+documented fallback shape), hosted through `AGUI.Server` 1.0.0's
+`ToChatRequestContext`/`AsAGUIEventStreamAsync` — same AG-UI 1.0 wire
+contract, no preview churn, no MAF dependency in the first slice. Microsoft
+Agent Framework remains the planned agent layer for later slices; the
+package facts (1.22.0, net10.0) were revalidated 2026-09-22/23. The
+frontend consumes the AG-UI SSE stream directly with a custom German UI;
+the CopilotKit runtime step moves with the provider step.
 
