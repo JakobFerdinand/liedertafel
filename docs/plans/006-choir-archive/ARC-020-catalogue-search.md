@@ -157,9 +157,30 @@ Frontend (`607a444`):
 - `dotnet build src/archive/Archive.slnx` 0 errors; `dotnet test
   tests/archive/backend` **214/214 green** (198 prior + 16 new search tests).
 - Frontend `pnpm run check` clean (Biome + route types + tsc); `pnpm run
-  build` statically exports all routes; mocked Playwright suite 104/112 green
-  with the remaining 8 failures being the real-backend `shell.spec.ts` smoke
-  tests (no dev backend during authoring — same record as ARC-019).
+  build` statically exports all routes; mocked Playwright suite **108/114
+  green** with the remaining 6 failures being the real-backend `shell.spec.ts`
+  smoke tests (no dev backend during authoring — same record as ARC-019).
 - Real-PostgreSQL behaviour of the migration and apphost integration checks
   were not executed locally (Podman integration run left for CI/release);
   the in-memory tests cover the fold/rank/pagination logic provider-independently.
+
+## Review — 2026-09-22
+
+Two-axis review (standards + spec) against the ARC-013 baseline fixed three
+follow-ups (commit `f603952`):
+
+- Lyrics can now be cleared through the UI: the detail view (which knows the
+  previous text) sends an empty string on an emptied field, while catalogue
+  editing without a known previous value only sends typed text — the earlier
+  form always sent `null` (= „unverändert"), making lyrics settable but
+  never removable.
+- The lyrics textarea gained `maxLength={5000}` to match the other inputs.
+- The duplicated per-song response shape in the two `GET /api/songs` branches
+  is now one shared `SongItem` helper with a typed `ArrangementSummary`, and
+  the search branch reuses `LoadAlternateTitlesAsync` instead of an inline
+  duplicate query. JSON keys are unchanged; backend tests stayed green.
+
+Accepted judgement calls: the `matchedIn` field keys stay as contract-documented
+strings (no separate service introduced), the arrangement match hint names the
+first arrangement (the contract carries no per-arrangement hit information),
+and stale beyond-end page URLs simply show the empty state.
