@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { AudioSpieler } from "@/components/audio-spieler";
 import {
   AbbruchFehler,
   type AssetAccessResponse,
@@ -141,6 +142,9 @@ export function NotenBereich({
   const [bearbeitenBusy, setBearbeitenBusy] = useState(false);
   const [bearbeitenFehler, setBearbeitenFehler] = useState("");
   const [bearbeitenErfolg, setBearbeitenErfolg] = useState("");
+  // Nur ein Audio-Spieler läuft gleichzeitig; über die Id merkt sich der
+  // Bereich, welcher Eintrag gerade die aktive Datei spielt.
+  const [spielendesAudio, setSpielendesAudio] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isEditor) return;
@@ -581,7 +585,42 @@ export function NotenBereich({
                             Herunterladen
                           </a>
                         )}
-                        {typ !== "score" &&
+                        {typ === "audio" &&
+                          (zugriff ? (
+                            <>
+                              <AudioSpieler
+                                assetId={asset.id}
+                                stimme={stimme}
+                                zugriff={zugriff}
+                                aktiv={spielendesAudio === asset.id}
+                                onAbspielen={() => setSpielendesAudio(asset.id)}
+                                onErneuert={(erneuert) =>
+                                  setZugriffe((vorher) => ({
+                                    ...vorher,
+                                    [asset.id]: erneuert,
+                                  }))
+                                }
+                              />
+                              <a
+                                className="noten-laden"
+                                href={zugriff.downloadUrl}
+                                download
+                              >
+                                Herunterladen
+                              </a>
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => void anzeigen(asset)}
+                              disabled={zugriffBusy[asset.id] === true}
+                            >
+                              {zugriffBusy[asset.id]
+                                ? "Wird vorbereitet …"
+                                : "Anhören"}
+                            </button>
+                          ))}
+                        {typ === "midi" &&
                           (zugriff ? (
                             <a
                               className="noten-laden"

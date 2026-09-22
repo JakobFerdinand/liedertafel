@@ -494,6 +494,39 @@ dd {
 .material-eintrag:first-of-type {
   border-top: 0;
 }
+.audio-spieler {
+  display: grid;
+  gap: 0.4rem;
+  border: 1px solid var(--wash);
+  border-radius: 0.3rem;
+  padding: 0.6rem;
+  margin-block: 0.4rem;
+}
+.audio-spieler.audio-laeuft {
+  border-color: var(--brand);
+}
+.audio-steuerung {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.audio-zeit {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.9rem;
+}
+.audio-bereiche {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+.audio-bereiche input[type="range"] {
+  flex: 1;
+  min-width: 6rem;
+}
+.audio-lautstaerke {
+  max-width: 7rem;
+}
 .material-stimme {
   font-weight: 600;
   margin-block: 0.4rem 0;

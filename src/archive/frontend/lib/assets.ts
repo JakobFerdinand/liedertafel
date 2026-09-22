@@ -335,6 +335,17 @@ export async function fetchAssetAccess(
   return (await response.json()) as AssetAccessResponse;
 }
 
+/**
+ * Verbleibende Laufzeit eines Datei-Tickets in Millisekunden. Ein unparsbares
+ * Ablaufdatum zählt als abgelaufen, damit Wiedergaben nicht auf ein
+ * möglicherweise veraltetes Ticket bauen.
+ */
+export function restlaufzeitMs(expiresAt: string, jetzt: number = Date.now()) {
+  const ablauf = Date.parse(expiresAt);
+  if (Number.isNaN(ablauf)) return 0;
+  return ablauf - jetzt;
+}
+
 async function abschlussFehler(ursache: unknown): Promise<string> {
   if (ursache instanceof Response) {
     const inhalt = (await ursache.json().catch(() => null)) as {
