@@ -878,3 +878,161 @@ test("Abbrechen meldet die Uploadsitzung ab und bereinigt den Eintrag", async ({
 
   expect(errors).toEqual([]);
 });
+
+test("Parallele Uploads teilen sich ein Sicherheitstoken-Paar", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await mockSitzung(page, editorMe);
+
+  // Jeder Abruf rotiert das Cookie; parallel hochgeladene Dateien dürfen das
+  // Paar also nur einmal laden und müssen denselben Token verwenden.
+  let antiforgeryAbrufe = 0;
+  await page.route("**/api/antiforgery", (route) => {
+    antiforgeryAbrufe += 1;
+    return route.fulfill(json({ token: "test" }));
+  });
+
+  const tokens: string[] = [];
+  const pdfId = "00000000-0000-0000-0000-00000000e10a";
+  const audioId = "00000000-0000-0000-0000-00000000e10b";
+  await page.route(`**/api/songs/${songId}`, (route) =>
+    route.fulfill(json(detail([]))),
+  );
+  await page.route(`**/api/musical-versions/${versionId}/assets`, (route) => {
+    tokens.push(route.request().headers()["x-csrf-token"]);
+    const assetType = route.request().postDataJSON().assetType;
+    return route.fulfill(
+      json(
+        {
+          id: assetType === "score" ? pdfId : audioId,
+          musicalVersionId: versionId,
+          assetType,
+          voiceLabel: null,
+          createdAt: "2026-09-19T12:00:00.000Z",
+          currentRevision: null,
+        },
+        201,
+      ),
+    );
+  });
+  await page.route("**/api/assets/*/upload-session", (route) =>
+    route.fulfill(
+      json(
+        {
+          uploadSessionId: "00000000-0000-0000-0000-0000000000aa",
+          blobName: null,
+          uploadUrl,
+          expiresAt: "2026-09-19T12:15:00.000Z",
+          maxBytes: 5242880,
+          blockBytes: 5242880,
+        },
+        201,
+      ),
+    ),
+  );
+  await page.route(uploadMuster, (route) => route.fulfill(json({}, 201)));
+  await page.route("**/api/upload-sessions/*/finalize", (route) =>
+    route.fulfill(json({ assetId, ...revision })),
+  );
+
+  await page.goto(`/lied/?id=${songId}`);
+  const wahl = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Material hochladen" }).click();
+  await (await wahl).setFiles([
+    {
+      name: "noten.pdf",
+      mimeType: "application/pdf",
+      buffer: Buffer.from("%PDF-1.4 zwei"),
+    },
+    {
+      name: "lied.mp3",
+      mimeType: "audio/mpeg",
+      buffer: Buffer.from("ID3 parallel"),
+    },
+  ]);
+  await page.getByRole("button", { name: "Material übertragen" }).click();
+  await expect(page.getByText("2 von 2 Dateien gespeichert.")).toBeVisible();
+
+  expect(antiforgeryAbrufe).toBe(1);
+  expect(tokens).toEqual(["test", "test"]);
+  expect(errors).toEqual([]);
+});
+
+test("Abgelehnter Sicherheitstoken wird ersetzt und die Anfrage wiederholt", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await mockSitzung(page, editorMe);
+
+  let tokenAbrufe = 0;
+  await page.route("**/api/antiforgery", (route) => {
+    tokenAbrufe += 1;
+    return route.fulfill(json({ token: tokenAbrufe === 1 ? "alt" : "neu" }));
+  });
+
+  const tokens: string[] = [];
+  let assetVersuche = 0;
+  const neueAssetId = "00000000-0000-0000-0000-00000000e00b";
+  let notenAssets: unknown[] = [];
+  await page.route(`**/api/songs/${songId}`, (route) =>
+    route.fulfill(json(detail(notenAssets))),
+  );
+  await page.route(`**/api/musical-versions/${versionId}/assets`, (route) => {
+    tokens.push(route.request().headers()["x-csrf-token"]);
+    assetVersuche += 1;
+    if (assetVersuche === 1) {
+      return route.fulfill(problem("Ungültiger Sicherheitstoken.", 400));
+    }
+    return route.fulfill(
+      json(
+        {
+          id: neueAssetId,
+          musicalVersionId: versionId,
+          assetType: "score",
+          voiceLabel: null,
+          createdAt: "2026-09-19T12:00:00.000Z",
+          currentRevision: null,
+        },
+        201,
+      ),
+    );
+  });
+  await page.route(`**/api/assets/${neueAssetId}/upload-session`, (route) =>
+    route.fulfill(
+      json(
+        {
+          uploadSessionId: "00000000-0000-0000-0000-0000000000aa",
+          blobName: null,
+          uploadUrl,
+          expiresAt: "2026-09-19T12:15:00.000Z",
+          maxBytes: 5242880,
+          blockBytes: 5242880,
+        },
+        201,
+      ),
+    ),
+  );
+  await page.route(uploadMuster, (route) => route.fulfill(json({}, 201)));
+  await page.route("**/api/upload-sessions/*/finalize", (route) => {
+    notenAssets = [asset];
+    return route.fulfill(json({ assetId, ...revision }));
+  });
+
+  await page.goto(`/lied/?id=${songId}`);
+  const wahl = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Material hochladen" }).click();
+  await (await wahl).setFiles({
+    name: "noten.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from("%PDF-1.4 token"),
+  });
+  await page.getByRole("button", { name: "Material übertragen" }).click();
+  await expect(page.getByText("1 von 1 Dateien gespeichert.")).toBeVisible();
+
+  expect(tokens).toEqual(["alt", "neu"]);
+  expect(tokenAbrufe).toBe(2);
+  expect(errors).toEqual([]);
+});

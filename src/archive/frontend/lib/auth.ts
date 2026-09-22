@@ -12,7 +12,7 @@ export type MeResponse =
       authMethod: "email_code" | "passkey";
     };
 
-export async function getCsrfToken(): Promise<string> {
+async function getCsrfToken(): Promise<string> {
   const response = await fetch("/api/antiforgery", {
     credentials: "same-origin",
     cache: "no-store",
@@ -23,12 +23,53 @@ export async function getCsrfToken(): Promise<string> {
   return token;
 }
 
-export async function postAuth(path: string, body: unknown): Promise<Response> {
-  const token = await getCsrfToken();
-  return fetch(path, {
-    method: "POST",
+// Jeder Abruf von /api/antiforgery rotiert das archive.csrf-Cookie, und das
+// Antwortpaar (Cookie + Token) ist nur miteinander gültig. Ein frischer Token
+// pro Anfrage würde also gleichzeitig laufende Geschwisteranfragen brechen
+// (parallel hochgeladene Dateien erhielten sonst „Ungültiger
+// Sicherheitstoken.“). Ein Paar wird daher einmal pro Seite geladen und
+// wiederverwendet; erst nach einer Ablehnung wird es ersetzt.
+let csrfLadelauf: Promise<string> | null = null;
+
+export function holeCsrfToken(): Promise<string> {
+  csrfLadelauf ??= getCsrfToken().catch((fehler) => {
+    csrfLadelauf = null;
+    throw fehler;
+  });
+  return csrfLadelauf;
+}
+
+const sicherheitstokenTitel = "Ungültiger Sicherheitstoken.";
+
+async function istSicherheitstokenFehler(antwort: Response): Promise<boolean> {
+  if (antwort.status !== 400) return false;
+  const inhalt = (await antwort
+    .clone()
+    .json()
+    .catch(() => null)) as { title?: unknown } | null;
+  return inhalt?.title === sicherheitstokenTitel;
+}
+
+async function authedFetch(path: string, init: RequestInit): Promise<Response> {
+  const anfrage = (token: string): RequestInit => ({
+    ...init,
     credentials: "same-origin",
-    headers: { "Content-Type": "application/json", "X-CSRF-TOKEN": token },
+    headers: { ...init.headers, "X-CSRF-TOKEN": token },
+  });
+  let antwort = await fetch(path, anfrage(await holeCsrfToken()));
+  if (await istSicherheitstokenFehler(antwort)) {
+    // Das Paar wurde woanders rotiert (Anmeldestatuswechsel, zweiter Tab);
+    // einmal frisch laden und dieselbe Anfrage unverändert wiederholen.
+    csrfLadelauf = null;
+    antwort = await fetch(path, anfrage(await holeCsrfToken()));
+  }
+  return antwort;
+}
+
+export async function postAuth(path: string, body: unknown): Promise<Response> {
+  return authedFetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
 }
@@ -37,22 +78,15 @@ export async function patchAuth(
   path: string,
   body: unknown,
 ): Promise<Response> {
-  const token = await getCsrfToken();
-  return fetch(path, {
+  return authedFetch(path, {
     method: "PATCH",
-    credentials: "same-origin",
-    headers: { "Content-Type": "application/json", "X-CSRF-TOKEN": token },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
 }
 
 export async function deleteAuth(path: string): Promise<Response> {
-  const token = await getCsrfToken();
-  return fetch(path, {
-    method: "DELETE",
-    credentials: "same-origin",
-    headers: { "X-CSRF-TOKEN": token },
-  });
+  return authedFetch(path, { method: "DELETE" });
 }
 
 export async function fetchMe(signal?: AbortSignal): Promise<MeResponse> {

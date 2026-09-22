@@ -1,4 +1,4 @@
-import { getCsrfToken } from "@/lib/auth";
+import { holeCsrfToken } from "@/lib/auth";
 
 export type Passkey = {
   credentialId: string;
@@ -17,7 +17,7 @@ export function webAuthnSupported(): boolean {
 }
 
 async function post(path: string, body: unknown): Promise<Response> {
-  const token = await getCsrfToken();
+  const token = await holeCsrfToken();
   return fetch(path, {
     method: "POST",
     credentials: "same-origin",
