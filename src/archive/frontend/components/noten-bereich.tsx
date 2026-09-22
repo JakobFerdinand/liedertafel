@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { AudioSpieler } from "@/components/audio-spieler";
+import { MidiSpieler } from "@/components/midi-spieler";
 import {
   AbbruchFehler,
   type AssetAccessResponse,
@@ -622,13 +623,28 @@ export function NotenBereich({
                           ))}
                         {typ === "midi" &&
                           (zugriff ? (
-                            <a
-                              className="noten-laden"
-                              href={zugriff.downloadUrl}
-                              download
-                            >
-                              Herunterladen
-                            </a>
+                            <>
+                              <MidiSpieler
+                                assetId={asset.id}
+                                stimme={stimme}
+                                zugriff={zugriff}
+                                aktiv={spielendesAudio === asset.id}
+                                onAbspielen={() => setSpielendesAudio(asset.id)}
+                                onErneuert={(erneuert) =>
+                                  setZugriffe((vorher) => ({
+                                    ...vorher,
+                                    [asset.id]: erneuert,
+                                  }))
+                                }
+                              />
+                              <a
+                                className="noten-laden"
+                                href={zugriff.downloadUrl}
+                                download
+                              >
+                                Herunterladen
+                              </a>
+                            </>
                           ) : (
                             <button
                               type="button"
@@ -637,7 +653,7 @@ export function NotenBereich({
                             >
                               {zugriffBusy[asset.id]
                                 ? "Wird vorbereitet …"
-                                : "Herunterladen"}
+                                : "Anhören"}
                             </button>
                           ))}
                         {isEditor && (
