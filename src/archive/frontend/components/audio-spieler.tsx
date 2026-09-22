@@ -1,13 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AssetAccessResponse } from "@/lib/assets";
-import { fetchAssetAccess, restlaufzeitMs } from "@/lib/assets";
-
-type FehlerArt = {
-  art: "format" | "laden";
-  meldung: string;
-};
+import type { AssetAccessResponse, SpielerFehler } from "@/lib/assets";
+import {
+  fetchAssetAccess,
+  ladeFehlerAusUrsache,
+  restlaufzeitMs,
+  zeitText,
+} from "@/lib/assets";
 
 /** Vorlauf vor dem Ticketablauf, zu dem still neue Tickets angefordert werden. */
 const ErneuerungsVorlaufMs = 60_000;
@@ -16,7 +16,7 @@ const ErneuerungsVorlaufMs = 60_000;
 const ErneuerungsWiederholungMs = 30_000;
 
 /** Wiederholbare Meldung für vorübergehende Ladefehler. */
-const LadeFehler: FehlerArt = {
+const LadeFehler: SpielerFehler = {
   art: "laden",
   meldung: "Audio konnte nicht geladen werden. Bitte erneut versuchen.",
 };
@@ -31,17 +31,6 @@ export type AudioSpielerProps = {
   onAbspielen: () => void;
   onErneuert: (zugriff: AssetAccessResponse) => void;
 };
-
-function zeitText(sekunden: number) {
-  if (!Number.isFinite(sekunden) || sekunden < 0) return "0:00";
-  const gesamt = Math.floor(sekunden);
-  const stunden = Math.floor(gesamt / 3600);
-  const minuten = Math.floor((gesamt % 3600) / 60);
-  const rest = gesamt % 60;
-  const mm = stunden > 0 ? String(minuten).padStart(2, "0") : String(minuten);
-  const ss = String(rest).padStart(2, "0");
-  return stunden > 0 ? `${stunden}:${mm}:${ss}` : `${mm}:${ss}`;
-}
 
 export function AudioSpieler({
   assetId,
@@ -69,7 +58,7 @@ export function AudioSpieler({
   const [position, setPosition] = useState(0);
   const [dauer, setDauer] = useState<number | null>(null);
   const [lautstaerke, setLautstaerke] = useState(1);
-  const [fehler, setFehler] = useState<FehlerArt | null>(null);
+  const [fehler, setFehler] = useState<SpielerFehler | null>(null);
   // Die Ticket-URL wird erst nach dem Mount gesetzt: servergerendertes
   // Audio lädt sofort und kann Fehler feuern, bevor React die Behandler
   // angehängt hat.
@@ -100,21 +89,7 @@ export function AudioSpieler({
           }, ErneuerungsWiederholungMs);
           return;
         }
-        const status = ursache instanceof Response ? ursache.status : 0;
-        setFehler(
-          status === 404
-            ? {
-                art: "laden",
-                meldung: "Für dieses Material liegt keine abrufbare Datei vor.",
-              }
-            : status === 401
-              ? {
-                  art: "laden",
-                  meldung:
-                    "Die Anmeldung ist abgelaufen. Bitte lade die Seite neu.",
-                }
-              : LadeFehler,
-        );
+        setFehler(ladeFehlerAusUrsache(ursache, LadeFehler.meldung));
       }
     },
     [assetId],

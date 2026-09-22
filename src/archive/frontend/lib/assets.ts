@@ -346,6 +346,48 @@ export function restlaufzeitMs(expiresAt: string, jetzt: number = Date.now()) {
   return ablauf - jetzt;
 }
 
+/** Verständliche Meldung eines Material-Spielers. */
+export type SpielerFehler = {
+  art: "format" | "laden";
+  meldung: string;
+};
+
+/**
+ * Ordnet einer fehlgeschlagenen Ticket- oder Byte-Anfrage eine verständliche
+ * Meldung zu; der Ersatztext nennt das Material („Audio …", „MIDI …").
+ */
+export function ladeFehlerAusUrsache(
+  ursache: unknown,
+  ersatz: string,
+): SpielerFehler {
+  const status = ursache instanceof Response ? ursache.status : 0;
+  if (status === 404) {
+    return {
+      art: "laden",
+      meldung: "Für dieses Material liegt keine abrufbare Datei vor.",
+    };
+  }
+  if (status === 401) {
+    return {
+      art: "laden",
+      meldung: "Die Anmeldung ist abgelaufen. Bitte lade die Seite neu.",
+    };
+  }
+  return { art: "laden", meldung: ersatz };
+}
+
+/** Tabulare Zeitangabe m:ss (beziehungsweise h:mm:ss). */
+export function zeitText(sekunden: number) {
+  if (!Number.isFinite(sekunden) || sekunden < 0) return "0:00";
+  const gesamt = Math.floor(sekunden);
+  const stunden = Math.floor(gesamt / 3600);
+  const minuten = Math.floor((gesamt % 3600) / 60);
+  const rest = gesamt % 60;
+  const mm = stunden > 0 ? String(minuten).padStart(2, "0") : String(minuten);
+  const ss = String(rest).padStart(2, "0");
+  return stunden > 0 ? `${stunden}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
 async function abschlussFehler(ursache: unknown): Promise<string> {
   if (ursache instanceof Response) {
     const inhalt = (await ursache.json().catch(() => null)) as {

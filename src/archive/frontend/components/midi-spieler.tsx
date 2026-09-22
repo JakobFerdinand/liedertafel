@@ -1,18 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AssetAccessResponse } from "@/lib/assets";
-import { fetchAssetAccess } from "@/lib/assets";
+import type { AssetAccessResponse, SpielerFehler } from "@/lib/assets";
+import { fetchAssetAccess, ladeFehlerAusUrsache, zeitText } from "@/lib/assets";
 import type { MidiStueck } from "@/lib/midi";
 import { liesMidi, MidiFehler } from "@/lib/midi";
 
-type FehlerArt = {
-  art: "format" | "laden";
-  meldung: string;
-};
-
 /** Wiederholbare Meldung für vorübergehende Ladefehler. */
-const LadeFehler: FehlerArt = {
+const LadeFehler: SpielerFehler = {
   art: "laden",
   meldung: "MIDI konnte nicht geladen werden. Bitte erneut versuchen.",
 };
@@ -43,35 +38,6 @@ export type MidiSpielerProps = {
   onErneuert: (zugriff: AssetAccessResponse) => void;
 };
 
-function zeitText(sekunden: number) {
-  if (!Number.isFinite(sekunden) || sekunden < 0) return "0:00";
-  const gesamt = Math.floor(sekunden);
-  const stunden = Math.floor(gesamt / 3600);
-  const minuten = Math.floor((gesamt % 3600) / 60);
-  const rest = gesamt % 60;
-  const mm = stunden > 0 ? String(minuten).padStart(2, "0") : String(minuten);
-  const ss = String(rest).padStart(2, "0");
-  return stunden > 0 ? `${stunden}:${mm}:${ss}` : `${mm}:${ss}`;
-}
-
-/** Meldung zu einer fehlgeschlagenen Ticket- oder Byte-Anfrage. */
-function ladeFehlerAusUrsache(ursache: unknown): FehlerArt {
-  const status = ursache instanceof Response ? ursache.status : 0;
-  if (status === 404) {
-    return {
-      art: "laden",
-      meldung: "Für dieses Material liegt keine abrufbare Datei vor.",
-    };
-  }
-  if (status === 401) {
-    return {
-      art: "laden",
-      meldung: "Die Anmeldung ist abgelaufen. Bitte lade die Seite neu.",
-    };
-  }
-  return LadeFehler;
-}
-
 export function MidiSpieler({
   assetId,
   stimme,
@@ -86,7 +52,7 @@ export function MidiSpieler({
   const [lautstaerke, setLautstaerke] = useState(1);
   const [stueck, setStueck] = useState<MidiStueck | null>(null);
   const [laedt, setLaedt] = useState(false);
-  const [fehler, setFehler] = useState<FehlerArt | null>(null);
+  const [fehler, setFehler] = useState<SpielerFehler | null>(null);
   // Bytes erst nach dem Mount holen: der statische Export rendert diese
   // Komponente serverseitig mit, und dort gibt es kein fetchen.
   const [eingehaengt, setEingehaengt] = useState(false);
@@ -201,12 +167,8 @@ export function MidiSpieler({
     try {
       // Ticketierte Blob-URL: die Bytes kommen ohne Anmeldeinformationen.
       const antwort = await fetch(ticket.viewUrl);
-      if (antwort.status === 404) {
-        setFehler(ladeFehlerAusUrsache(antwort));
-        return;
-      }
-      if (antwort.status === 401) {
-        setFehler(ladeFehlerAusUrsache(antwort));
+      if (antwort.status === 404 || antwort.status === 401) {
+        setFehler(ladeFehlerAusUrsache(antwort, LadeFehler.meldung));
         return;
       }
       if (!antwort.ok) throw antwort;
@@ -226,7 +188,7 @@ export function MidiSpieler({
         });
         return;
       }
-      setFehler(ladeFehlerAusUrsache(ursache));
+      setFehler(ladeFehlerAusUrsache(ursache, LadeFehler.meldung));
     } finally {
       setLaedt(false);
     }
@@ -251,17 +213,10 @@ export function MidiSpieler({
   useEffect(() => {
     return () => {
       window.clearInterval(taktRef.current);
-      for (const quelle of quellenRef.current) {
-        try {
-          quelle.stop();
-        } catch {
-          // Quelle startete nie oder endete bereits.
-        }
-      }
-      quellenRef.current = [];
+      stoppQuellen();
       void contextRef.current?.close();
     };
-  }, []);
+  }, [stoppQuellen]);
 
   function umschalten() {
     const geplant = stueckRef.current;
@@ -276,7 +231,11 @@ export function MidiSpieler({
       const context = new AudioContext();
       const master = context.createGain();
       master.gain.value = lautstaerkeRef.current;
-      master.connect(context.destination);
+      // Der Begrenzer hält Summenklirren dichter Akkorde unterhalb der
+      // Vollaussteuerung, ohne normale Wiedergabe zu verändern.
+      const begrenzer = context.createDynamicsCompressor();
+      master.connect(begrenzer);
+      begrenzer.connect(context.destination);
       contextRef.current = context;
       masterRef.current = master;
     }
@@ -341,7 +300,7 @@ export function MidiSpieler({
     try {
       neu = await fetchAssetAccess(assetId);
     } catch (ursache) {
-      setFehler(ladeFehlerAusUrsache(ursache));
+      setFehler(ladeFehlerAusUrsache(ursache, LadeFehler.meldung));
       return;
     }
     onErneuertRef.current(neu);
