@@ -1,17 +1,17 @@
 ---
-id: ARC-027
+id: ARC-029
 status: planned
 phase: core
 kind: slice
-depends_on: ["ARC-024", "ARC-026"]
+depends_on: ["ARC-026", "ARC-028"]
 touches: ["programmes", "performances", "db-migrations"]
 external_inputs: []
 ---
 
-# ARC-027 — Confirm what was actually sung after an event
+# ARC-029 — Confirm what was actually sung after an event
 
-**Depends on:** [ARC-024](ARC-024-publish-programme.md),
-[ARC-026](ARC-026-performance-evidence.md).
+**Depends on:** [ARC-026](ARC-026-publish-programme.md),
+[ARC-028](ARC-028-performance-evidence.md).
 
 ## Outcome
 
@@ -22,7 +22,7 @@ skipped song and adds an encore while preserving the original plan.
 
 - [ ] Build an actual-performance review from a specific published revision,
   allowing bulk confirmation, omissions, additions and corrected selections.
-- [ ] Persist actual occurrences using ARC-026's identity/evidence model and link
+- [ ] Persist actual occurrences using ARC-028's identity/evidence model and link
   them to their originating planned items where applicable.
 - [ ] Repeated confirmation updates the same occurrences rather than doubling
   them; genuine repeated songs remain distinct performances.
@@ -38,6 +38,6 @@ content remains intact and only confirmed actual occurrences affect totals.
 
 ## Handoff and parallel work
 
-ARC-029/030 consume performance IDs regardless of whether entered historically
-or confirmed here. Coordinate shared occurrence mapping with ARC-025, but do not
+ARC-031/030 consume performance IDs regardless of whether entered historically
+or confirmed here. Coordinate shared occurrence mapping with ARC-027, but do not
 block unrelated recording-player work.

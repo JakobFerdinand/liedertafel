@@ -34,11 +34,11 @@ recover from an interrupted connection, and finalize exactly one archive file.
 
 Interrupt a generated/authorized representative large upload, renew its ticket,
 resume, and compare size/checksum. Test cancellation, file mismatch, replayed
-finalization and out-of-limit uploads. Repeat real Azure transfer in ARC-042.
+finalization and out-of-limit uploads. Repeat real Azure transfer in ARC-044.
 
 ## Handoff and parallel work
 
-Publish the block/session and streaming-finalization contract to ARC-035. Batch
+Publish the block/session and streaming-finalization contract to ARC-037. Batch
 label UI ARC-016 can proceed concurrently if transfer-state ownership is agreed.
 
 ## Progress
@@ -76,7 +76,7 @@ Slices:
 - [x] Integration: apphost interrupt → renew → resume → finalize roundtrip
   with size/checksum comparison plus cancellation/mismatch/replay/limit
   negatives through real Azurite.
-- [x] Docs: README ARC-017 section, handoff contract to ARC-035/ARC-016.
+- [x] Docs: README ARC-017 section, handoff contract to ARC-037/ARC-016.
 
 ## Implementation and verification
 
@@ -117,9 +117,9 @@ SHA-256 comparison of the downloaded revision, idempotent finalize replay,
 file-mismatch 409 then correct finalize 200, cancellation 409, and
 out-of-limit initiation 413. It surfaced a real product bug (block commits
 arrive without a stored content type and were rejected by finalize) — fixed
-by the octet-stream fallback above. Live Azure transfer stays with ARC-042;
-keyless user-delegation SAS stays with ARC-049.
+by the octet-stream fallback above. Live Azure transfer stays with ARC-044;
+keyless user-delegation SAS stays with ARC-051.
 
-Handoff: the block/session contract above is published for ARC-035
+Handoff: the block/session contract above is published for ARC-037
 (streaming finalization consumes the same session and blocks); ARC-016's
 batch UI rides this engine unchanged, so transfer-state ownership is settled.

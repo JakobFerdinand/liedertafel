@@ -1,16 +1,16 @@
 ---
-id: ARC-036
+id: ARC-038
 status: planned
 phase: core
 kind: slice
-depends_on: ["ARC-035"]
+depends_on: ["ARC-037"]
 touches: ["import", "catalogue", "assets", "db-migrations"]
 external_inputs: []
 ---
 
-# ARC-036 — Bulk-publish clear imports and resolve ambiguous ones
+# ARC-038 — Bulk-publish clear imports and resolve ambiguous ones
 
-**Depends on:** [ARC-035](ARC-035-copy-reviewed-folder.md).
+**Depends on:** [ARC-037](ARC-037-copy-reviewed-folder.md).
 
 ## Outcome
 
@@ -20,7 +20,7 @@ duplicate candidates stay in a manageable private review queue.
 ## Acceptance criteria
 
 - [ ] Add bounded review lists, clear/uncertain/failed filters and bulk acceptance
-  with per-item validation/results, reusing verified copies from ARC-035.
+  with per-item validation/results, reusing verified copies from ARC-037.
 - [ ] Resolve import duplicates by explicitly selecting existing catalogue
   identities, remapping or rejecting candidates before publication.
 - [ ] Publish useful partial records with visible optional-metadata gaps; never
@@ -28,7 +28,7 @@ duplicate candidates stay in a manageable private review queue.
 - [ ] Resume review/publication and repeat scans without duplicating public
   songs, file revisions or source associations.
 - [ ] Produce an import summary for operator/editor review. General-purpose
-  merging of already-published duplicates remains ARC-044.
+  merging of already-published duplicates remains ARC-046.
 
 ## Verification
 
@@ -38,6 +38,6 @@ verify exactly the intended member-visible collection with retained provenance.
 
 ## Handoff and parallel work
 
-The capability is tested on a bounded sample here. ARC-043 performs the actual
+The capability is tested on a bounded sample here. ARC-045 performs the actual
 catalogue rollout after the technical pilot; that rollout is not required to
 finish this implementation slice.

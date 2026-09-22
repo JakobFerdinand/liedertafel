@@ -1,16 +1,16 @@
 ---
-id: ARC-048
+id: ARC-050
 status: planned
 phase: follow-up
 kind: slice
-depends_on: ["ARC-044"]
+depends_on: ["ARC-046"]
 touches: ["catalogue-merge", "assets", "programmes", "performances", "db-migrations"]
 external_inputs: []
 ---
 
-# ARC-048 — Merge duplicate arrangements with explicit version mapping
+# ARC-050 — Merge duplicate arrangements with explicit version mapping
 
-**Depends on:** [ARC-044](ARC-044-merge-songs.md).
+**Depends on:** [ARC-046](ARC-046-merge-songs.md).
 
 ## Outcome
 

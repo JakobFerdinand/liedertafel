@@ -1,5 +1,5 @@
 ---
-id: ARC-022
+id: ARC-024
 status: planned
 phase: core
 kind: slice
@@ -8,7 +8,7 @@ touches: ["events", "app-shell", "db-migrations"]
 external_inputs: []
 ---
 
-# ARC-022 — Publish an event even when its historical date is uncertain
+# ARC-024 — Publish an event even when its historical date is uncertain
 
 **Depends on:** [ARC-005](ARC-005-email-code-sign-in.md).
 

@@ -32,7 +32,7 @@ repair administrative access when the old inbox is unavailable.
 
 Change a seeded member's address and verify history, old/new login behaviour,
 collision rejection, and session handling. Exercise the repair command locally;
-verify its Azure execution permission boundary in ARC-042.
+verify its Azure execution permission boundary in ARC-044.
 
 ## Verification evidence (2026-09-15)
 
@@ -67,7 +67,7 @@ verify its Azure execution permission boundary in ARC-042.
   src/archive/backend --no-launch-profile -- --repair-admin` without
   `--email` reaches the command and fails fast with
   `InvalidOperationException` (only the type is logged, per the no-PII error
-  policy). Azure execution permission boundary stays with ARC-042.
+  policy). Azure execution permission boundary stays with ARC-044.
 - Frontend `pnpm run check` + `pnpm run build` (with `/verwaltung/`
   email-change UI) green; `dotnet build liedertafel.slnx` green. Browser
   mocks against the static export: **16/16 green** (desktop + mobile,
@@ -132,7 +132,7 @@ Design (Identity-native, no new auth engine):
 - Frontend `/verwaltung/`: per-row new-address input plus code request and
   confirmation with German accessible states, fresh-verification re-login
   prompt and 409 collision display.
-- Second-maintainer access (handoff to ARC-042 for the Azure permission
+- Second-maintainer access (handoff to ARC-044 for the Azure permission
   boundary): run the published container/CLI with the migration-role
   connection plus `Archive:OperatorToken` from Key Vault, e.g.
   `dotnet run --project src/archive/backend --no-launch-profile --

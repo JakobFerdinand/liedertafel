@@ -1,18 +1,18 @@
 ---
-id: ARC-033
+id: ARC-035
 status: planned
 phase: core
 kind: slice
-depends_on: ["ARC-020", "ARC-031", "ARC-032"]
+depends_on: ["ARC-020", "ARC-033", "ARC-034"]
 touches: ["search", "document-extraction", "assets", "db-migrations"]
 external_inputs: []
 ---
 
-# ARC-033 — Find a song from words inside its current score
+# ARC-035 — Find a song from words inside its current score
 
 **Depends on:** [ARC-020](ARC-020-catalogue-search.md),
-[ARC-031](ARC-031-score-revisions.md),
-[ARC-032](ARC-032-pdf-extraction.md).
+[ARC-033](ARC-033-score-revisions.md),
+[ARC-034](ARC-034-pdf-extraction.md).
 
 ## Outcome
 
@@ -38,5 +38,5 @@ results/snippets for Member versus Editor and a useful scanned-PDF fallback.
 
 ## Handoff and parallel work
 
-Coordinate query/result changes with ARC-021/030. This completes PDF search as a
+Coordinate query/result changes with ARC-023/030. This completes PDF search as a
 member journey; the pilot should verify it, not implement missing indexing joins.

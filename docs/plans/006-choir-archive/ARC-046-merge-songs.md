@@ -1,19 +1,19 @@
 ---
-id: ARC-044
+id: ARC-046
 status: planned
 phase: follow-up
 kind: slice
-depends_on: ["ARC-030", "ARC-033", "ARC-036", "ARC-038"]
+depends_on: ["ARC-032", "ARC-035", "ARC-038", "ARC-040"]
 touches: ["catalogue-merge", "catalogue", "performances", "import", "db-migrations"]
 external_inputs: []
 ---
 
-# ARC-044 — Merge two duplicate songs without losing their history
+# ARC-046 — Merge two duplicate songs without losing their history
 
-**Depends on:** [ARC-030](ARC-030-recording-passages.md),
-[ARC-033](ARC-033-search-score-text.md),
-[ARC-036](ARC-036-import-review-publication.md),
-[ARC-038](ARC-038-event-trash.md).
+**Depends on:** [ARC-032](ARC-032-recording-passages.md),
+[ARC-035](ARC-035-search-score-text.md),
+[ARC-038](ARC-038-import-review-publication.md),
+[ARC-040](ARC-040-event-trash.md).
 
 ## Outcome
 
@@ -39,6 +39,6 @@ search and an attempted concurrent edit after preview.
 
 ## Handoff and parallel work
 
-Phase is follow-up even if technical dependencies finish before launch. ARC-048
+Phase is follow-up even if technical dependencies finish before launch. ARC-050
 adds arrangement-level merging as a separate operation. Correction inbox work
 can proceed beside this slice with coordinated shared reference changes.

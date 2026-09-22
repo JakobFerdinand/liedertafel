@@ -1,17 +1,17 @@
 ---
-id: ARC-024
+id: ARC-026
 status: planned
 phase: core
 kind: slice
-depends_on: ["ARC-014", "ARC-022"]
+depends_on: ["ARC-014", "ARC-024"]
 touches: ["programmes", "events", "db-migrations"]
 external_inputs: []
 ---
 
-# ARC-024 — Publish an ordered programme for an upcoming appearance
+# ARC-026 — Publish an ordered programme for an upcoming appearance
 
 **Depends on:** [ARC-014](ARC-014-arrangements-and-keys.md),
-[ARC-022](ARC-022-historical-event.md).
+[ARC-024](ARC-024-historical-event.md).
 
 ## Outcome
 
@@ -38,6 +38,6 @@ and absence of draft exposure before the first publication.
 
 ## Handoff and parallel work
 
-Publish revision/item and arrangement-picker contracts. ARC-025 extends revision
-editing; ARC-027 later confirms actual performances. Historical entry ARC-026
+Publish revision/item and arrangement-picker contracts. ARC-027 extends revision
+editing; ARC-029 later confirms actual performances. Historical entry ARC-028
 is independent and must not share planned/confirmed state accidentally.

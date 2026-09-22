@@ -99,4 +99,4 @@ leaving the audio entry untouched, transient-failure recovery via "Erneut
 versuchen" with re-fetched access, and a denied 401 byte fetch showing the
 expired-session copy on load and on the retry path. The 6
 `shell.spec.ts` checks per project still require a live backend and run in CI.
-Real long listening on devices remains with the hosted pilot (ARC-042).
+Real long listening on devices remains with the hosted pilot (ARC-044).

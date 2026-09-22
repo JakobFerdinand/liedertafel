@@ -1,16 +1,16 @@
 ---
-id: ARC-025
+id: ARC-027
 status: planned
 phase: core
 kind: slice
-depends_on: ["ARC-024"]
+depends_on: ["ARC-026"]
 touches: ["programmes", "db-migrations"]
 external_inputs: []
 ---
 
-# ARC-025 — Revise a programme without exposing unfinished edits
+# ARC-027 — Revise a programme without exposing unfinished edits
 
-**Depends on:** [ARC-024](ARC-024-publish-programme.md).
+**Depends on:** [ARC-026](ARC-026-publish-programme.md).
 
 ## Outcome
 
@@ -36,6 +36,6 @@ edits/publications and an event that already has historical evidence.
 
 ## Handoff and parallel work
 
-Coordinate programme identity/locking with ARC-027; historical entry and media
-playback can progress independently. ARC-038 later adds deletion/recovery to both
+Coordinate programme identity/locking with ARC-029; historical entry and media
+playback can progress independently. ARC-040 later adds deletion/recovery to both
 working and published programme state.

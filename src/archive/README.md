@@ -210,7 +210,7 @@ It uses the injected `ConnectionStrings__archive-blobs` connection string.
 Locally the container and a permissive emulator CORS rule for direct browser
 transfers are created by `archive-storage-init` (`Development/LocalServices.cs`,
 `AssetStorageEmulatorBootstrap`); production CORS and the keyless identity
-switch (user-delegation SAS via managed identity, ARC-049) are documented
+switch (user-delegation SAS via managed identity, ARC-051) are documented
 configuration points and not yet wired.
 
 The revision promotion is a server-side blob copy whose source is a signed
@@ -265,7 +265,7 @@ Abandoned sessions are cleaned by the bounded `--cleanup-uploads` job
 sessions expired for longer than `Archive:Assets:ExpiryGrace` (1 hour default)
 are marked Abandoned and their pending blobs deleted.
 
-The contract above is the handoff to ARC-035 (streaming finalization consumes
+The contract above is the handoff to ARC-037 (streaming finalization consumes
 the same session/blocks) and the transfer-state ownership note for ARC-016's
 batch UI, which rides this engine unchanged.
 
@@ -316,7 +316,7 @@ member visibility on every call because the endpoint recomputes
 authorization per request; revoked access stops ticket issuance while an
 already-issued URL keeps its bounded lifetime. `restlaufzeitMs` in
 `lib/assets.ts` plus `fetchAssetAccess` are the ticket-renewal primitives for
-ARC-028's concert video.
+ARC-030's concert video.
 
 ## ARC-019 MIDI listening with practice tempo
 
@@ -355,7 +355,7 @@ loaded before playback, no ticket renewal is needed mid-listen.
 One production note: the bytes fetch is a CORS request against blob storage
 (the audio element sidesteps CORS). Locally the permissive emulator rule
 covers it; production blob CORS is the documented configuration point for
-ARC-049.
+ARC-051.
 
 ## Focused verification
 

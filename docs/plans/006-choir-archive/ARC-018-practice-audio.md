@@ -40,7 +40,7 @@ continues beyond the first 15-minute file-ticket lifetime.
   for audio; MIDI stays download-only for ARC-019).
 - [x] Frontend E: browser tests for playback/seek, renewal with preserved
   position, unsupported format and temporary failure states.
-- [x] Docs: README ARC-018 section, plan update, handoff to ARC-028/ARC-019.
+- [x] Docs: README ARC-018 section, plan update, handoff to ARC-030/ARC-019.
 
 ## Verification
 
@@ -50,7 +50,7 @@ assert renewal fails while an already-issued URL retains its bounded lifetime.
 
 ## Handoff and parallel work
 
-Expose player/ticket-renewal primitives for concert video ARC-028. MIDI ARC-019
+Expose player/ticket-renewal primitives for concert video ARC-030. MIDI ARC-019
 can proceed beside this slice; coordinate shared controls and material-list slots.
 
 ## Implementation and verification
@@ -93,7 +93,7 @@ errors before React attaches handlers. In `noten-bereich.tsx` the audio group
 offers "Anhören" (loads access, then player + authorized "Herunterladen"
 link); MIDI stays download-only for ARC-019. The renewal primitive
 (`fetchAssetAccess` + `restlaufzeitMs`) is the documented handoff for the
-ARC-028 concert video player.
+ARC-030 concert video player.
 
 Verification: 198 backend xUnit tests green (2 new). The Playwright suite
 passes 80 mocked-API checks (of 92; the 6 `shell.spec.ts` checks per project
@@ -103,4 +103,4 @@ renewal across a simulated 3-second ticket expiry with continued playback at
 the preserved position, unsupported-format state, and transient-failure
 recovery via "Erneut versuchen". `pnpm run check` and `pnpm run build`
 (static export) stay green. Real long playback in the hosted pilot remains
-with ARC-042; the accelerated-expiry play-through used mocked blob bytes.
+with ARC-044; the accelerated-expiry play-through used mocked blob bytes.

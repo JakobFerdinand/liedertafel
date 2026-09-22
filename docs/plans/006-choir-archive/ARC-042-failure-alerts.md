@@ -1,17 +1,17 @@
 ---
-id: ARC-040
+id: ARC-042
 status: planned
 phase: core
 kind: slice
-depends_on: ["ARC-032", "ARC-035"]
+depends_on: ["ARC-034", "ARC-037"]
 touches: ["observability", "service-defaults", "azure-alerts", "release-workflow", "azure-jobs"]
 external_inputs: ["azure-maintainer-access", "maintainer-alert-destinations"]
 ---
 
-# ARC-040 — A maintainer receives an actionable failure alert
+# ARC-042 — A maintainer receives an actionable failure alert
 
-**Depends on:** [ARC-032](ARC-032-pdf-extraction.md),
-[ARC-035](ARC-035-copy-reviewed-folder.md).
+**Depends on:** [ARC-034](ARC-034-pdf-extraction.md),
+[ARC-037](ARC-037-copy-reviewed-folder.md).
 
 ## Outcome
 
@@ -42,6 +42,6 @@ and metrics reach Aspire after finite-job shutdown.
 
 ## Handoff and parallel work
 
-Share alert routing/diagnostic conventions with ARC-041 while coordinating Bicep
+Share alert routing/diagnostic conventions with ARC-043 while coordinating Bicep
 alert resources. The monthly review/runbook should be executable by the second
 maintainer rather than rely on the original developer's memory.

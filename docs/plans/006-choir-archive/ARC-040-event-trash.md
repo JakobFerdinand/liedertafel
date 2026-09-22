@@ -1,19 +1,19 @@
 ---
-id: ARC-038
+id: ARC-040
 status: planned
 phase: core
 kind: slice
-depends_on: ["ARC-025", "ARC-027", "ARC-028", "ARC-037"]
+depends_on: ["ARC-027", "ARC-029", "ARC-030", "ARC-039"]
 touches: ["event-trash", "events", "performances", "recordings", "db-migrations"]
 external_inputs: []
 ---
 
-# ARC-038 — Recover a deleted event with its programme and recordings
+# ARC-040 — Recover a deleted event with its programme and recordings
 
-**Depends on:** [ARC-025](ARC-025-programme-revisions.md),
-[ARC-027](ARC-027-confirm-actual-programme.md),
-[ARC-028](ARC-028-concert-recording.md),
-[ARC-037](ARC-037-catalogue-trash.md).
+**Depends on:** [ARC-027](ARC-027-programme-revisions.md),
+[ARC-029](ARC-029-confirm-actual-programme.md),
+[ARC-030](ARC-030-concert-recording.md),
+[ARC-039](ARC-039-catalogue-trash.md).
 
 ## Outcome
 
@@ -41,5 +41,5 @@ then verify expired cleanup cannot delete a still-referenced object.
 ## Handoff and parallel work
 
 This completes the cross-feature trash contract before launch. Coordinate
-recording/occurrence reference checks with ARC-030; unrelated import UI and MIDI
+recording/occurrence reference checks with ARC-032; unrelated import UI and MIDI
 work can proceed concurrently.

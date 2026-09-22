@@ -1,16 +1,16 @@
 ---
-id: ARC-043
+id: ARC-045
 status: planned
 phase: launch
 kind: validation
-depends_on: ["ARC-042"]
+depends_on: ["ARC-044"]
 touches: ["launch-content", "planning"]
 external_inputs: ["drive-migration-access", "launch-content-selection", "member-invitation-list"]
 ---
 
-# ARC-043 — Launch a usable catalogue and representative history to members
+# ARC-045 — Launch a usable catalogue and representative history to members
 
-**Depends on:** [ARC-042](ARC-042-restricted-production-pilot.md).
+**Depends on:** [ARC-044](ARC-044-restricted-production-pilot.md).
 
 ## Outcome
 

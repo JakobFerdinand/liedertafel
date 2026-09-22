@@ -35,7 +35,7 @@ downloads that score from its arrangement page through authorized file access.
 
 Upload/view/download through a browser using local storage; retry finalization
 and test wrong owner, missing object, invalid PDF, inactive member, expired ticket
-and direct anonymous access. Live SAS/CORS behaviour is required in ARC-042.
+and direct anonymous access. Live SAS/CORS behaviour is required in ARC-044.
 
 ## Handoff and parallel work
 
@@ -61,10 +61,10 @@ Design decisions (see also `architecture.md` §Uploads and §Media transfer):
   (Azurite), generating blob-scoped SAS tickets (upload: PUT, read: GET,
   15 minutes; download adds `rscd=attachment`). Production identity
   configuration (user-delegation SAS via managed identity) is a documented
-  ARC-049 configuration point; no storage key ever reaches the frontend.
+  ARC-051 configuration point; no storage key ever reaches the frontend.
 - Local Azurite CORS bootstrap (permissive emulator rule for direct browser
   PUT/GET, no credentials needed) lives in the dev-only local storage
-  initialization; live CORS/SAS behaviour stays with ARC-042/ARC-049.
+  initialization; live CORS/SAS behaviour stays with ARC-044/ARC-051.
 - Endpoints: `POST /api/musical-versions/{id}/assets` (create logical asset),
   `POST /api/assets/{id}/upload-session` (pending object + bounded upload
   ticket), `POST /api/upload-sessions/{id}/finalize` (validates existence,
@@ -72,10 +72,10 @@ Design decisions (see also `architecture.md` §Uploads and §Media transfer):
   /api/assets/{id}/access` (member + visibility check → 15-minute scoped
   read/download tickets). Song detail response carries current assets per
   musical version; pending revisions are never exposed.
-- Extension points for later slices: asset types (ARC-016 audio/MIDI, ARC-023
+- Extension points for later slices: asset types (ARC-016 audio/MIDI, ARC-025
   event documents reuse the owner contract), voice labels (ARC-016),
-  revision-change (ARC-031 swaps the current pointer and notifies extraction/
-  search), retained-reference (ARC-037: revisions stay live until explicitly
+  revision-change (ARC-033 swaps the current pointer and notifies extraction/
+  search), retained-reference (ARC-039: revisions stay live until explicitly
   removed; final deletion consults retained references).
 
 Verification (final integration pass): the backend xUnit matrix in
@@ -97,7 +97,7 @@ topology bug: the server-side revision copy fetches its signed source URL from
 inside the Azurite container, which cannot resolve a randomized host port —
 fixed by pinning the blob host port to the container port in the AppHost
 (`WithBlobPort(10000)`) and passing `DcpPublisher:RandomizePorts=false` in the
-integration test. Still open for ARC-042/ARC-049: live SAS/CORS behaviour in
+integration test. Still open for ARC-044/ARC-051: live SAS/CORS behaviour in
 real Azure Storage and the managed-identity (user-delegation SAS) ticket
 switch.
 

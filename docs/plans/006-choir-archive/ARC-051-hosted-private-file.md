@@ -1,6 +1,6 @@
 ---
-id: ARC-049
-status: in-progress
+id: ARC-051
+status: in_progress
 phase: core
 kind: slice
 depends_on: ["ARC-011", "ARC-015"]
@@ -8,7 +8,7 @@ touches: ["azure-media", "storage", "assets"]
 external_inputs: ["azure-maintainer-access"]
 ---
 
-# ARC-049 — Upload and read the first private file on real Azure storage
+# ARC-051 — Upload and read the first private file on real Azure storage
 
 **Depends on:** [ARC-011](ARC-011-hosted-persistent-sign-in.md),
 [ARC-015](ARC-015-private-score.md).
@@ -62,6 +62,6 @@ tickets, hidden catalogue owners and allowed/rejected origins.
 
 ## Handoff and parallel work
 
-ARC-032/035 consume these working live storage outputs. ARC-039 later adds the
+ARC-034/035 consume these working live storage outputs. ARC-041 later adds the
 Hot/Cold recording policy. The late-assigned identifier does not make this a
 post-launch issue: its phase and dependencies place it in the early core path.

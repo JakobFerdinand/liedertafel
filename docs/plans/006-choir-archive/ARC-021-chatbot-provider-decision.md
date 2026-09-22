@@ -1,16 +1,16 @@
 ---
-id: ARC-046
+id: ARC-021
 status: planned
-phase: later
+phase: core
 kind: decision
 depends_on: []
 touches: ["ai-evaluation", "planning"]
 external_inputs: ["ai-evaluation-access"]
 ---
 
-# ARC-046 — Validate a usage-billed provider for grounded German answers
+# ARC-021 — Validate a usage-billed provider for grounded German answers
 
-**Depends on:** None; this is explicitly a **later-phase** decision.
+**Depends on:** None; it is the prioritized next decision.
 
 ## Outcome
 
@@ -32,9 +32,9 @@ documented cost/data handling before adding conversational archive access.
 
 Record a small reproducible synthetic evaluation and per-answer cost estimate.
 Do not use private choir data until its handling has been decided. Revalidate
-provider facts when this later phase is actually enabled.
+provider facts when implementation starts.
 
 ## Handoff and parallel work
 
-Supply the provider contract to ARC-047. No technical prerequisites means the
-research is independent, not that it is part of today's core work queue.
+Supply the provider contract to ARC-022. No technical prerequisites means the
+research can start immediately and is the next planned work item.

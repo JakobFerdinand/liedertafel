@@ -1,17 +1,17 @@
 ---
-id: ARC-045
+id: ARC-047
 status: planned
 phase: follow-up
 kind: slice
-depends_on: ["ARC-030", "ARC-038"]
+depends_on: ["ARC-032", "ARC-040"]
 touches: ["corrections", "assets", "db-migrations"]
 external_inputs: []
 ---
 
-# ARC-045 — Submit a contextual correction and resolve it as an editor
+# ARC-047 — Submit a contextual correction and resolve it as an editor
 
-**Depends on:** [ARC-030](ARC-030-recording-passages.md),
-[ARC-038](ARC-038-event-trash.md).
+**Depends on:** [ARC-032](ARC-032-recording-passages.md),
+[ARC-040](ARC-040-event-trash.md).
 
 ## Outcome
 

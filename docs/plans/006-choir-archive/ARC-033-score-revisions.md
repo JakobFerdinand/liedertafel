@@ -1,5 +1,5 @@
 ---
-id: ARC-031
+id: ARC-033
 status: planned
 phase: core
 kind: slice
@@ -8,7 +8,7 @@ touches: ["assets", "catalogue-materials", "db-migrations"]
 external_inputs: []
 ---
 
-# ARC-031 — Correct a score while retaining its previous revision
+# ARC-033 — Correct a score while retaining its previous revision
 
 **Depends on:** [ARC-015](ARC-015-private-score.md).
 
@@ -38,5 +38,5 @@ reads. Recheck identity and attribution after reload.
 
 ## Handoff and parallel work
 
-ARC-033 integrates current-revision text visibility. Coordinate upload/revision
+ARC-035 integrates current-revision text visibility. Coordinate upload/revision
 contracts with ARC-017/032; player implementation need not wait for this history UI.

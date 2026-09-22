@@ -40,7 +40,7 @@ with a safe additive change. A replay must not rerun an applied migration.
 
 ## Handoff and parallel work
 
-Publish maintenance checks and release/job inputs to ARC-032/035. Feature code
+Publish maintenance checks and release/job inputs to ARC-034/035. Feature code
 can develop locally concurrently; serialize edits to release definitions and
 shared migration snapshots during integration.
 
@@ -85,7 +85,7 @@ Release and topology (`19f9885`):
 - Operator runbook (`infrastructure/archive/README.md`, ARC-012 section):
   sequence, per-window migrator credential plus the one-off Secrets User
   grant for the release identity, failure handling, code-only rollback,
-  no database restore/export/backup job, and the ARC-032/035 job
+  no database restore/export/backup job, and the ARC-034/035 job
   contract.
 
 Remaining (live, needs maintainer-visible execution): place the

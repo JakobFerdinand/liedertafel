@@ -1,5 +1,5 @@
 ---
-id: ARC-034
+id: ARC-036
 status: planned
 phase: core
 kind: slice
@@ -8,7 +8,7 @@ touches: ["import", "catalogue", "operator-commands", "db-migrations"]
 external_inputs: ["drive-sample-access"]
 ---
 
-# ARC-034 — Preview a Drive folder as proposed catalogue entries
+# ARC-036 — Preview a Drive folder as proposed catalogue entries
 
 **Depends on:** [ARC-002](ARC-002-source-inventory.md),
 [ARC-014](ARC-014-arrangements-and-keys.md).
@@ -39,6 +39,6 @@ stable source identity and retained editor decisions without copying media yet.
 
 ## Handoff and parallel work
 
-ARC-035 consumes reviewed candidate IDs and the source/checkpoint contract.
+ARC-037 consumes reviewed candidate IDs and the source/checkpoint contract.
 This preview runs locally while cloud transfer/jobs are developed; it does not
 depend on document extraction or full media playback.

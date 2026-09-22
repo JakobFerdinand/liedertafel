@@ -1,19 +1,19 @@
 ---
-id: ARC-047
+id: ARC-022
 status: planned
-phase: later
+phase: core
 kind: slice
-depends_on: ["ARC-007", "ARC-030", "ARC-033", "ARC-046"]
+depends_on: ["ARC-007", "ARC-032", "ARC-035", "ARC-021"]
 touches: ["chatbot", "search", "song-history"]
 external_inputs: ["ai-runtime-credentials"]
 ---
 
-# ARC-047 — Ask when a song was sung and receive a cited German answer
+# ARC-022 — Ask when a song was sung and receive a cited German answer
 
 **Depends on:** [ARC-007](ARC-007-membership-revocation.md),
-[ARC-030](ARC-030-recording-passages.md),
-[ARC-033](ARC-033-search-score-text.md),
-[ARC-046](ARC-046-chatbot-provider-decision.md).
+[ARC-032](ARC-032-recording-passages.md),
+[ARC-035](ARC-035-search-score-text.md),
+[ARC-021](ARC-021-chatbot-provider-decision.md).
 
 ## Outcome
 
@@ -39,5 +39,5 @@ Inspect every citation against the authorized source result set.
 
 ## Handoff and parallel work
 
-This later slice does not require member corrections or duplicate merging to be
+This slice does not require member corrections or duplicate merging to be
 finished. Coordinate changes to the stable search/history result contracts.

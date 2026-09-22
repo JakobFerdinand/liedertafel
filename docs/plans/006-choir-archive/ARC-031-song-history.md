@@ -1,16 +1,16 @@
 ---
-id: ARC-029
+id: ARC-031
 status: planned
 phase: core
 kind: slice
-depends_on: ["ARC-026"]
+depends_on: ["ARC-028"]
 touches: ["song-history", "performances", "catalogue"]
 external_inputs: []
 ---
 
-# ARC-029 — See a song's history with honest performance totals
+# ARC-031 — See a song's history with honest performance totals
 
-**Depends on:** [ARC-026](ARC-026-performance-evidence.md).
+**Depends on:** [ARC-028](ARC-028-performance-evidence.md).
 
 ## Outcome
 
@@ -38,6 +38,6 @@ Changing one occurrence's evidence status changes the right total once.
 
 ## Handoff and parallel work
 
-ARC-030 supplies passage links through the performance slot. This history view
+ARC-032 supplies passage links through the performance slot. This history view
 can proceed while concert playback is built; coordinate the shared song page
 with catalogue/search contributors.

@@ -1,16 +1,16 @@
 ---
-id: ARC-037
+id: ARC-039
 status: planned
 phase: core
 kind: slice
-depends_on: ["ARC-031"]
+depends_on: ["ARC-033"]
 touches: ["catalogue-trash", "assets", "catalogue", "db-migrations"]
 external_inputs: []
 ---
 
-# ARC-037 — Recover an accidentally deleted song or score
+# ARC-039 — Recover an accidentally deleted song or score
 
-**Depends on:** [ARC-031](ARC-031-score-revisions.md).
+**Depends on:** [ARC-033](ARC-033-score-revisions.md).
 
 ## Outcome
 
@@ -38,6 +38,6 @@ reference-protected items are not silently purged. This is editor recovery, not 
 
 ## Handoff and parallel work
 
-ARC-038 extends this same contract to events. Coordinate asset identity/current
-revision changes with ARC-031/033; feature authors adding references must register
+ARC-040 extends this same contract to events. Coordinate asset identity/current
+revision changes with ARC-033/033; feature authors adding references must register
 them before their entities can participate in permanent cleanup.

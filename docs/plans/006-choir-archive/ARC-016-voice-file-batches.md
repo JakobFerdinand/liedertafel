@@ -137,5 +137,5 @@ PATCH rejection and byte-exact member downloads. `pnpm run check` and
 `pnpm run build` stay clean; static export intact.
 
 Still open for later slices: ARC-017 (resumable large transfers), ARC-018/019
-(in-browser audio/MIDI playback), ARC-042/ARC-049 (live CORS/SAS and
+(in-browser audio/MIDI playback), ARC-044/ARC-051 (live CORS/SAS and
 managed-identity tickets).

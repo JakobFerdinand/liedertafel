@@ -1,18 +1,18 @@
 ---
-id: ARC-039
+id: ARC-041
 status: planned
 phase: core
 kind: slice
-depends_on: ["ARC-017", "ARC-028", "ARC-049"]
+depends_on: ["ARC-017", "ARC-030", "ARC-051"]
 touches: ["storage", "azure-media", "recordings"]
 external_inputs: ["azure-maintainer-access"]
 ---
 
-# ARC-039 — Keep a playable copy online while storing its original in Cold
+# ARC-041 — Keep a playable copy online while storing its original in Cold
 
 **Depends on:** [ARC-017](ARC-017-large-upload-resume.md),
-[ARC-028](ARC-028-concert-recording.md),
-[ARC-049](ARC-049-hosted-private-file.md).
+[ARC-030](ARC-030-concert-recording.md),
+[ARC-051](ARC-051-hosted-private-file.md).
 
 ## Outcome
 
@@ -21,7 +21,7 @@ preservation original to Cold storage without interrupting member playback.
 
 ## Acceptance criteria
 
-- [ ] Extend the working live storage configuration from ARC-049 with the selected
+- [ ] Extend the working live storage configuration from ARC-051 with the selected
   Hot/Cold policy and any bounded tier-transition worker permissions.
 - [ ] Keep member-facing files Hot; permit Cold originals only with verified
   usable online material. If one object serves both roles, keep that object online
@@ -41,6 +41,6 @@ continue Hot playback. Test an ineligible shared original/playback object and fa
 
 ## Handoff and parallel work
 
-Supply actual tier/capacity measurements to ARC-041/042. Coordinate media-resource
+Supply actual tier/capacity measurements to ARC-043/042. Coordinate media-resource
 changes with extraction/import jobs. Basic live Blob access is already delivered
-by ARC-049, so those jobs do not depend on this recording-tier feature.
+by ARC-051, so those jobs do not depend on this recording-tier feature.

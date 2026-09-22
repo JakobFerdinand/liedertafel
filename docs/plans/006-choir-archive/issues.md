@@ -1,10 +1,12 @@
 # Choir Archive — Implementation Issue Index
 
-Status: ARC-001, ARC-003, ARC-004, ARC-005, ARC-006, ARC-007, ARC-008 and ARC-009 completed; remaining implementation issues are planned.
-Date: 2026-09-17
+Status: ARC-001, ARC-003, ARC-004, ARC-005, ARC-006, ARC-007, ARC-008, ARC-009, ARC-011, ARC-011-1, ARC-013, ARC-014, ARC-015, ARC-016, ARC-017, ARC-018, ARC-019 and ARC-020 completed; ARC-010, ARC-012 and ARC-051 are in progress; remaining implementation issues are planned.
+Date: 2026-09-22
 Sources: [PRD](prd.md) · [Architecture](architecture.md)
 
-**Start here to pick work:** [ARC-002]
+**Start here to pick work:** [ARC-021] is the next priority — choose the AI
+provider for grounded chat; it has no implementation dependencies. Beyond it,
+[ARC-002]
 has no implementation dependencies and can start in parallel, subject to its
 external access requirements. Completed [ARC-001] provides **Aspire local
 orchestration and development OpenTelemetry export to the Aspire dashboard**;
@@ -13,10 +15,10 @@ orchestration and development OpenTelemetry export to the Aspire dashboard**;
 Completed [ARC-004] provides the **Austria East footprint, identity/OIDC contract,
 and cost worksheet** consumed by [ARC-009] and [ARC-010].
 
-There are **49 file-based issues** in this directory: 42 core issues, two launch
-gates, three follow-up slices and two later AI issues. IDs are stable identifiers,
-not priority numbers or a mandatory execution order. For example, ARC-048 is a
-follow-up arrangement merge, while ARC-049 is an early core live-storage slice.
+There are **49 file-based issues** in this directory: 44 core issues, two launch
+gates and three follow-up slices. IDs are stable identifiers, not priority
+numbers or a mandatory execution order. For example, ARC-050 is a follow-up
+arrangement merge, while ARC-051 is an early core live-storage slice.
 
 ## How to read and update an issue
 
@@ -76,13 +78,13 @@ flowchart TB
     I010 --> I011
 
     I005 --> I013["ARC-013<br/>First published song"]
-    I005 --> I022["ARC-022<br/>Historical event"]
+    I005 --> I022["ARC-024<br/>Historical event"]
     I013 --> I014["ARC-014<br/>Arrangements and keys"]
     I013 --> I015["ARC-015<br/>Private score"]
-    I015 --> I049["ARC-049<br/>Hosted private file"]
+    I015 --> I049["ARC-051<br/>Hosted private file"]
     I011 --> I049
     I013 --> I020["ARC-020<br/>Catalogue search"]
-    I014 --> I034["ARC-034<br/>Import preview"]
+    I014 --> I034["ARC-036<br/>Import preview"]
     I002 --> I034
 ```
 
@@ -99,16 +101,17 @@ issues in an earlier row. External inputs and shared edits still apply.
 
 | Layer | Issues that can become ready together |
 | --- | --- |
-| 0 | [ARC-001], [ARC-002], [ARC-003], [ARC-004] |
+| 0 | [ARC-001], [ARC-002], [ARC-003], [ARC-004], [ARC-021] |
 | 1 | [ARC-005], [ARC-009] |
-| 2 | [ARC-006], [ARC-007], [ARC-008], [ARC-010], [ARC-013], [ARC-022] |
-| 3 | [ARC-011], [ARC-014], [ARC-015], [ARC-020], [ARC-026] |
-| 4 | [ARC-012], [ARC-016], [ARC-017], [ARC-021], [ARC-023], [ARC-024], [ARC-029], [ARC-031], [ARC-034], [ARC-041], [ARC-049] |
-| 5 | [ARC-018], [ARC-019], [ARC-025], [ARC-027], [ARC-032], [ARC-035], [ARC-037] |
-| 6 | [ARC-028], [ARC-033], [ARC-036], [ARC-040] |
-| 7 | [ARC-030], [ARC-038], [ARC-039] |
-| 8 | [ARC-042] |
-| 9 | [ARC-043] |
+| 2 | [ARC-006], [ARC-007], [ARC-008], [ARC-010], [ARC-013], [ARC-024] |
+| 3 | [ARC-011], [ARC-014], [ARC-015], [ARC-020], [ARC-028] |
+| 4 | [ARC-012], [ARC-016], [ARC-017], [ARC-023], [ARC-025], [ARC-026], [ARC-031], [ARC-033], [ARC-036], [ARC-043], [ARC-051] |
+| 5 | [ARC-018], [ARC-019], [ARC-027], [ARC-029], [ARC-034], [ARC-037], [ARC-039] |
+| 6 | [ARC-030], [ARC-035], [ARC-038], [ARC-042] |
+| 7 | [ARC-032], [ARC-040], [ARC-041] |
+| 8 | [ARC-022] |
+| 9 | [ARC-044] |
+| 10 | [ARC-045] |
 
 ### Coordination that is not a dependency
 
@@ -153,44 +156,46 @@ product slices each own their UI/API/data/authorization work as required.
 | [ARC-013] | Publish the first song and musical identity | [ARC-005] | Catalogue, shell |
 | [ARC-014] | Choose arrangements and transposed versions | [ARC-013] | Catalogue, picker |
 | [ARC-015] | Upload/read one private score | [ARC-013] | Assets, storage, catalogue materials |
-| [ARC-049] | Upload/read that private file on real Azure storage | [ARC-011], [ARC-015] | Live Blob integration, assets |
+| [ARC-051] | Upload/read that private file on real Azure storage | [ARC-011], [ARC-015] | Live Blob integration, assets |
 | [ARC-016] | Upload a labelled batch of voice files | [ARC-015] | Assets, catalogue materials |
 | [ARC-017] | Resume an interrupted approximately 10 GB upload | [ARC-002], [ARC-015] | Upload client, storage |
 | [ARC-018] | Play practice audio through ticket renewal | [ARC-016] | Media player, assets |
 | [ARC-019] | Listen to MIDI with tempo control | [ARC-016] | MIDI player, catalogue materials |
 | [ARC-020] | Search titles, creators and entered lyrics | [ARC-013] | Search, catalogue, home |
-| [ARC-021] | Filter musical versions and available practice files | [ARC-014], [ARC-015], [ARC-020] | Search, catalogue |
-| [ARC-022] | Publish an event with explicit date uncertainty | [ARC-005] | Events, navigation |
-| [ARC-023] | Read historical programme scans/photos | [ARC-015], [ARC-022] | Event materials, assets |
-| [ARC-024] | Publish an ordered upcoming programme | [ARC-014], [ARC-022] | Programmes, events |
-| [ARC-025] | Publish a revision without exposing unfinished edits | [ARC-024] | Programmes |
-| [ARC-026] | Record confirmed performance or programme evidence | [ARC-013], [ARC-022] | Performances, events |
-| [ARC-027] | Confirm actual songs, skips and encore | [ARC-024], [ARC-026] | Programmes, performances |
-| [ARC-028] | Publish/play a whole concert recording | [ARC-018], [ARC-023] | Recordings, event materials, player |
-| [ARC-029] | Read song history and honest occurrence counts | [ARC-026] | Song history, performances |
-| [ARC-030] | Jump to indexed passages and find recorded songs | [ARC-021], [ARC-028], [ARC-029] | Recordings, history, search |
-| [ARC-031] | Correct a score while preserving revisions | [ARC-015] | Assets, catalogue materials |
-| [ARC-032] | Extract PDF text with visible durable job status | [ARC-012], [ARC-049] | Extraction, Azure jobs, AppHost, OTel |
-| [ARC-033] | Search inside the current authorized score | [ARC-020], [ARC-031], [ARC-032] | Search, extraction, revisions |
-| [ARC-034] | Preview folder-to-catalogue mapping | [ARC-002], [ARC-014] | Import, catalogue |
-| [ARC-035] | Copy one reviewed Drive folder safely | [ARC-012], [ARC-017], [ARC-034], [ARC-049] | Import, assets, jobs, AppHost, OTel |
-| [ARC-036] | Bulk-publish clear imports and resolve ambiguity | [ARC-035] | Import, catalogue, assets |
-| [ARC-037] | Recover deleted catalogue items within seven days | [ARC-031] | Catalogue trash, assets |
-| [ARC-038] | Recover a deleted event with its linked history | [ARC-025], [ARC-027], [ARC-028], [ARC-037] | Event trash, programmes, recordings |
-| [ARC-039] | Keep playback Hot and separate originals Cold | [ARC-017], [ARC-028], [ARC-049] | Storage tiers, recordings |
-| [ARC-040] | Receive actionable failed-job/release alerts | [ARC-032], [ARC-035] | Observability, alerts, jobs |
-| [ARC-041] | Notice cost/quota/credential limits | [ARC-002], [ARC-011] | Observability, alerts, operator checks |
+| [ARC-021] | Choose/test an appropriate AI provider and bounded question | — | AI evaluation, planning |
+| [ARC-022] | Answer a German history question with authorized citations | [ARC-007], [ARC-032], [ARC-035], [ARC-021] | Chatbot, search, history |
+| [ARC-023] | Filter musical versions and available practice files | [ARC-014], [ARC-015], [ARC-020] | Search, catalogue |
+| [ARC-024] | Publish an event with explicit date uncertainty | [ARC-005] | Events, navigation |
+| [ARC-025] | Read historical programme scans/photos | [ARC-015], [ARC-024] | Event materials, assets |
+| [ARC-026] | Publish an ordered upcoming programme | [ARC-014], [ARC-024] | Programmes, events |
+| [ARC-027] | Publish a revision without exposing unfinished edits | [ARC-026] | Programmes |
+| [ARC-028] | Record confirmed performance or programme evidence | [ARC-013], [ARC-024] | Performances, events |
+| [ARC-029] | Confirm actual songs, skips and encore | [ARC-026], [ARC-028] | Programmes, performances |
+| [ARC-030] | Publish/play a whole concert recording | [ARC-018], [ARC-025] | Recordings, event materials, player |
+| [ARC-031] | Read song history and honest occurrence counts | [ARC-028] | Song history, performances |
+| [ARC-032] | Jump to indexed passages and find recorded songs | [ARC-023], [ARC-030], [ARC-031] | Recordings, history, search |
+| [ARC-033] | Correct a score while preserving revisions | [ARC-015] | Assets, catalogue materials |
+| [ARC-034] | Extract PDF text with visible durable job status | [ARC-012], [ARC-051] | Extraction, Azure jobs, AppHost, OTel |
+| [ARC-035] | Search inside the current authorized score | [ARC-020], [ARC-033], [ARC-034] | Search, extraction, revisions |
+| [ARC-036] | Preview folder-to-catalogue mapping | [ARC-002], [ARC-014] | Import, catalogue |
+| [ARC-037] | Copy one reviewed Drive folder safely | [ARC-012], [ARC-017], [ARC-036], [ARC-051] | Import, assets, jobs, AppHost, OTel |
+| [ARC-038] | Bulk-publish clear imports and resolve ambiguity | [ARC-037] | Import, catalogue, assets |
+| [ARC-039] | Recover deleted catalogue items within seven days | [ARC-033] | Catalogue trash, assets |
+| [ARC-040] | Recover a deleted event with its linked history | [ARC-027], [ARC-029], [ARC-030], [ARC-039] | Event trash, programmes, recordings |
+| [ARC-041] | Keep playback Hot and separate originals Cold | [ARC-017], [ARC-030], [ARC-051] | Storage tiers, recordings |
+| [ARC-042] | Receive actionable failed-job/release alerts | [ARC-034], [ARC-037] | Observability, alerts, jobs |
+| [ARC-043] | Notice cost/quota/credential limits | [ARC-002], [ARC-011] | Observability, alerts, operator checks |
 
 ## Launch gates
 
-ARC-042 depends on the terminal core slices. Following their dependency chains
-covers **every core issue ARC-001 through ARC-041 plus ARC-049**. Its purpose is verification
+ARC-044 depends on the terminal core slices. Following their dependency chains
+covers **every core issue ARC-001 through ARC-043 plus ARC-051**. Its purpose is verification
 on the real deployment; feature implementation belongs in the slices above.
 
 | ID | Slice / outcome | Direct dependencies | Shared areas |
 | --- | --- | --- | --- |
-| [ARC-042] | Restricted production pilot and final cost/performance evidence | [ARC-006], [ARC-007], [ARC-008], [ARC-019], [ARC-030], [ARC-033], [ARC-036], [ARC-038], [ARC-039], [ARC-040], [ARC-041] | Pilot evidence, planning |
-| [ARC-043] | Reviewed catalogue/history rollout and member invitations | [ARC-042] | Launch content, editor coordination |
+| [ARC-044] | Restricted production pilot and final cost/performance evidence | [ARC-006], [ARC-007], [ARC-008], [ARC-019], [ARC-022], [ARC-032], [ARC-035], [ARC-038], [ARC-040], [ARC-041], [ARC-042], [ARC-043] | Pilot evidence, planning |
+| [ARC-045] | Reviewed catalogue/history rollout and member invitations | [ARC-044] | Launch content, editor coordination |
 
 ## Follow-up phase
 
@@ -200,20 +205,9 @@ requirement to finish all other post-launch work first.
 
 | ID | Slice / outcome | Direct dependencies | Shared areas |
 | --- | --- | --- | --- |
-| [ARC-044] | Merge duplicate songs and preserve links | [ARC-030], [ARC-033], [ARC-036], [ARC-038] | Merge, catalogue, history, import |
-| [ARC-048] | Merge duplicate arrangements with explicit key mapping | [ARC-044] | Merge, assets, programmes |
-| [ARC-045] | Member correction with attachment and editor resolution | [ARC-030], [ARC-038] | Corrections, assets |
-
-## Later AI phase
-
-ARC-046 has no code prerequisites, but its phase is **later**, so it is not a fifth
-initial core task. The chatbot can follow its actual prerequisites without waiting
-for the merge or correction-inbox features.
-
-| ID | Slice / outcome | Direct dependencies | Shared areas |
-| --- | --- | --- | --- |
-| [ARC-046] | Choose/test an appropriate AI provider and bounded question | — | AI evaluation, planning |
-| [ARC-047] | Answer a German history question with authorized citations | [ARC-007], [ARC-030], [ARC-033], [ARC-046] | Chatbot, search, history |
+| [ARC-046] | Merge duplicate songs and preserve links | [ARC-032], [ARC-035], [ARC-038], [ARC-040] | Merge, catalogue, history, import |
+| [ARC-050] | Merge duplicate arrangements with explicit key mapping | [ARC-046] | Merge, assets, programmes |
+| [ARC-047] | Member correction with attachment and editor resolution | [ARC-032], [ARC-040] | Corrections, assets |
 
 ## External inputs
 
@@ -234,8 +228,8 @@ one of them before it can start.
 | `maintainer-alert-destinations` | Primary/secondary maintainer notification destinations and ownership |
 | `launch-content-selection` | Editor-selected concerts and source batches for the agreed launch coverage |
 | `member-invitation-list` | Approved current-member/musical-leadership recipients and intended roles |
-| `ai-evaluation-access` | Later-phase provider evaluation access and budget/data-handling decision authority |
-| `ai-runtime-credentials` | Credentials and allowed settings for the provider selected in ARC-046 |
+| `ai-evaluation-access` | Provider evaluation access and budget/data-handling decision authority |
+| `ai-runtime-credentials` | Credentials and allowed settings for the provider selected in ARC-021 |
 
 ## Shared definition of done
 
@@ -263,21 +257,21 @@ one of them before it can start.
 
 | PRD / architecture area | Owning slices |
 | --- | --- |
-| Aspire startup, development services and OTel | [ARC-001], [ARC-032], [ARC-035], [ARC-040], [ARC-042] |
+| Aspire startup, development services and OTel | [ARC-001], [ARC-034], [ARC-037], [ARC-042], [ARC-044] |
 | Invitations, roles, email repair, 30-day sessions | [ARC-005], [ARC-006], [ARC-007], [ARC-008], [ARC-010], [ARC-011] |
 | Regional/provider choices and private-image deployment | [ARC-003], [ARC-004], [ARC-009], [ARC-011], [ARC-012] |
 | Song/arrangement/musical-version identity | [ARC-013], [ARC-014] |
-| Private files, voice labels, large uploads and score revisions | [ARC-015], [ARC-049], [ARC-016], [ARC-017], [ARC-031] |
-| Audio, MIDI, concert video, passages and media tiers | [ARC-018], [ARC-019], [ARC-028], [ARC-030], [ARC-039] |
-| Metadata/lyric/filter/PDF search | [ARC-020], [ARC-021], [ARC-030], [ARC-032], [ARC-033] |
-| Event-centred history, documents and uncertainty | [ARC-022], [ARC-023], [ARC-026], [ARC-029] |
-| Published programmes, revisions and actual confirmation | [ARC-024], [ARC-025], [ARC-027] |
-| Drive mapping, copied files, review and safe reruns | [ARC-002], [ARC-034], [ARC-035], [ARC-036] |
-| Editor deletion/recovery and retained references | [ARC-031], [ARC-037], [ARC-038] |
-| Diagnostics, notifications, quota/cost/credential checks | [ARC-040], [ARC-041] |
-| Restricted pilot and reviewed member rollout | [ARC-042], [ARC-043] |
-| Follow-up merges and corrections | [ARC-044], [ARC-048], [ARC-045] |
-| Later grounded chatbot | [ARC-046], [ARC-047] |
+| Private files, voice labels, large uploads and score revisions | [ARC-015], [ARC-051], [ARC-016], [ARC-017], [ARC-033] |
+| Audio, MIDI, concert video, passages and media tiers | [ARC-018], [ARC-019], [ARC-030], [ARC-032], [ARC-041] |
+| Metadata/lyric/filter/PDF search | [ARC-020], [ARC-023], [ARC-032], [ARC-034], [ARC-035] |
+| Event-centred history, documents and uncertainty | [ARC-024], [ARC-025], [ARC-028], [ARC-031] |
+| Published programmes, revisions and actual confirmation | [ARC-026], [ARC-027], [ARC-029] |
+| Drive mapping, copied files, review and safe reruns | [ARC-002], [ARC-036], [ARC-037], [ARC-038] |
+| Editor deletion/recovery and retained references | [ARC-033], [ARC-039], [ARC-040] |
+| Diagnostics, notifications, quota/cost/credential checks | [ARC-042], [ARC-043] |
+| Restricted pilot and reviewed member rollout | [ARC-044], [ARC-045] |
+| Follow-up merges and corrections | [ARC-046], [ARC-050], [ARC-047] |
+| Grounded chatbot | [ARC-021], [ARC-022] |
 
 [ARC-001]: ARC-001-local-walking-skeleton.md
 [ARC-002]: ARC-002-source-inventory.md
@@ -299,32 +293,32 @@ one of them before it can start.
 [ARC-018]: ARC-018-practice-audio.md
 [ARC-019]: ARC-019-midi-listening.md
 [ARC-020]: ARC-020-catalogue-search.md
-[ARC-021]: ARC-021-repertoire-filters.md
-[ARC-022]: ARC-022-historical-event.md
-[ARC-023]: ARC-023-event-documents.md
-[ARC-024]: ARC-024-publish-programme.md
-[ARC-025]: ARC-025-programme-revisions.md
-[ARC-026]: ARC-026-performance-evidence.md
-[ARC-027]: ARC-027-confirm-actual-programme.md
-[ARC-028]: ARC-028-concert-recording.md
-[ARC-029]: ARC-029-song-history.md
-[ARC-030]: ARC-030-recording-passages.md
-[ARC-031]: ARC-031-score-revisions.md
-[ARC-032]: ARC-032-pdf-extraction.md
-[ARC-033]: ARC-033-search-score-text.md
-[ARC-034]: ARC-034-import-preview.md
-[ARC-035]: ARC-035-copy-reviewed-folder.md
-[ARC-036]: ARC-036-import-review-publication.md
-[ARC-037]: ARC-037-catalogue-trash.md
-[ARC-038]: ARC-038-event-trash.md
-[ARC-039]: ARC-039-live-media-tiers.md
-[ARC-040]: ARC-040-failure-alerts.md
-[ARC-041]: ARC-041-cost-and-quota-alerts.md
-[ARC-042]: ARC-042-restricted-production-pilot.md
-[ARC-043]: ARC-043-member-launch.md
-[ARC-044]: ARC-044-merge-songs.md
-[ARC-045]: ARC-045-member-corrections.md
-[ARC-046]: ARC-046-chatbot-provider-decision.md
-[ARC-047]: ARC-047-grounded-history-answer.md
-[ARC-048]: ARC-048-merge-arrangements.md
-[ARC-049]: ARC-049-hosted-private-file.md
+[ARC-023]: ARC-023-repertoire-filters.md
+[ARC-024]: ARC-024-historical-event.md
+[ARC-025]: ARC-025-event-documents.md
+[ARC-026]: ARC-026-publish-programme.md
+[ARC-027]: ARC-027-programme-revisions.md
+[ARC-028]: ARC-028-performance-evidence.md
+[ARC-029]: ARC-029-confirm-actual-programme.md
+[ARC-030]: ARC-030-concert-recording.md
+[ARC-031]: ARC-031-song-history.md
+[ARC-032]: ARC-032-recording-passages.md
+[ARC-033]: ARC-033-score-revisions.md
+[ARC-034]: ARC-034-pdf-extraction.md
+[ARC-035]: ARC-035-search-score-text.md
+[ARC-036]: ARC-036-import-preview.md
+[ARC-037]: ARC-037-copy-reviewed-folder.md
+[ARC-038]: ARC-038-import-review-publication.md
+[ARC-039]: ARC-039-catalogue-trash.md
+[ARC-040]: ARC-040-event-trash.md
+[ARC-041]: ARC-041-live-media-tiers.md
+[ARC-042]: ARC-042-failure-alerts.md
+[ARC-043]: ARC-043-cost-and-quota-alerts.md
+[ARC-044]: ARC-044-restricted-production-pilot.md
+[ARC-045]: ARC-045-member-launch.md
+[ARC-046]: ARC-046-merge-songs.md
+[ARC-047]: ARC-047-member-corrections.md
+[ARC-021]: ARC-021-chatbot-provider-decision.md
+[ARC-022]: ARC-022-grounded-history-answer.md
+[ARC-050]: ARC-050-merge-arrangements.md
+[ARC-051]: ARC-051-hosted-private-file.md

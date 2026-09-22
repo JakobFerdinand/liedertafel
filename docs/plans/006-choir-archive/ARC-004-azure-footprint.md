@@ -382,7 +382,7 @@ concurrency, email volume, log GB, queue op counts, transfer geography,
 subscription/billing-account free-grant consumption by other workloads, and
 invoice tax. Cold's 90-day minimum applies per object: seven-day editor-trash
 cleanup does **not** waive it, so use stable object identities. ARC-002
-supplies sizes/ratios; ARC-042 measures the rest.
+supplies sizes/ratios; ARC-044 measures the rest.
 
 ### Review trigger
 
@@ -428,5 +428,5 @@ provisioning (owned by ARC-009), and Archive-tier support was not inferred
 from the early-deletion meter. Handoff to ARC-009 (hosting, identities,
 certificate, `infrastructure/archive/` Bicep) and ARC-010 (Europe-geography
 email resources, World4You TXT/SPF/DKIM entry, delivery evidence) is as
-recorded above. ARC-002 inventory and ARC-042 pilot measurements refine the
+recorded above. ARC-002 inventory and ARC-044 pilot measurements refine the
 worksheet without blocking this feasibility check.

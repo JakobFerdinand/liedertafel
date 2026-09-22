@@ -45,7 +45,7 @@ Search contract (authorized like every catalogue read):
   ordered by id), `matchedIn: [string]` — sorted keys among `title`,
   `alternateTitles`, `composer`, `lyricist`, `lyrics`, `arrangements`, empty
   without a query — and `lyricsSnippet` (`null` in this slice; PDF/lyrics
-  excerpt matches arrive with ARC-033 through this same contract).
+  excerpt matches arrive with ARC-035 through this same contract).
 - German text behaviour: matching folds case and umlauts on both sides —
   lowercase, `ä→ae`, `ö→oe`, `ü→ue`, `ß→ss`, then `ae→a`, `oe→o`, `ue→u`, so
   „Müller", „Mueller" and „Muller" all match each other. The query is split on
@@ -101,7 +101,7 @@ restoration; no dedicated search service is introduced.
 
 ## Handoff and parallel work
 
-ARC-021 adds filters and ARC-033 adds PDF text. Coordinate catalogue metadata and
+ARC-023 adds filters and ARC-035 adds PDF text. Coordinate catalogue metadata and
 home-screen edits with ARC-014/029; file-transfer implementation can proceed separately.
 
 ## Implementation progress — 2026-09-22 (branch `main`)

@@ -39,7 +39,7 @@ without incorrectly treating a title as a unique song identifier.
 ## Handoff and parallel work
 
 Publish stable catalogue IDs, visibility checks, detail-page extension points and
-edit attribution. ARC-014/015/020 can branch from this slice; events ARC-022 can
+edit attribution. ARC-014/015/020 can branch from this slice; events ARC-024 can
 already run beside it. Cloud deployment is not a prerequisite for this local flow.
 
 ## Frozen contract (2026-09-19)

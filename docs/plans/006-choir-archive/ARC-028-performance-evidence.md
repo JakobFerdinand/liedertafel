@@ -1,17 +1,17 @@
 ---
-id: ARC-026
+id: ARC-028
 status: planned
 phase: core
 kind: slice
-depends_on: ["ARC-013", "ARC-022"]
+depends_on: ["ARC-013", "ARC-024"]
 touches: ["performances", "events", "db-migrations"]
 external_inputs: []
 ---
 
-# ARC-026 — Record what a historical source actually establishes
+# ARC-028 — Record what a historical source actually establishes
 
 **Depends on:** [ARC-013](ARC-013-first-published-song.md),
-[ARC-022](ARC-022-historical-event.md).
+[ARC-024](ARC-024-historical-event.md).
 
 ## Outcome
 
@@ -39,6 +39,6 @@ repeat occurrence; verify identity, source context and permissions.
 
 ## Handoff and parallel work
 
-ARC-024/025 may implement future programmes concurrently. Agree only the shared
+ARC-026/025 may implement future programmes concurrently. Agree only the shared
 event/song IDs and planned-versus-actual boundary; do not combine their persistence
 into a single ambiguous 'performed' flag.

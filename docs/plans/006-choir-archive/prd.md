@@ -272,7 +272,7 @@ against a song, event, or recording, optionally with an attachment. Editors
 review and resolve submissions; submissions do not automatically alter the
 published catalogue.
 
-### Later: grounded German chatbot
+### Grounded German chatbot (next priority)
 
 - Read-only questions over the same member-authorized archive data.
 - Answers link to supporting archive records.

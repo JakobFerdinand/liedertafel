@@ -1,19 +1,19 @@
 ---
-id: ARC-035
+id: ARC-037
 status: planned
 phase: core
 kind: slice
-depends_on: ["ARC-012", "ARC-017", "ARC-034", "ARC-049"]
+depends_on: ["ARC-012", "ARC-017", "ARC-036", "ARC-051"]
 touches: ["import", "assets", "azure-jobs", "apphost", "service-defaults", "db-migrations"]
 external_inputs: ["azure-maintainer-access", "drive-sample-access"]
 ---
 
-# ARC-035 — Copy one reviewed Drive folder into the independent archive
+# ARC-037 — Copy one reviewed Drive folder into the independent archive
 
 **Depends on:** [ARC-012](ARC-012-maintenance-release.md),
 [ARC-017](ARC-017-large-upload-resume.md),
-[ARC-034](ARC-034-import-preview.md),
-[ARC-049](ARC-049-hosted-private-file.md).
+[ARC-036](ARC-036-import-preview.md),
+[ARC-051](ARC-051-hosted-private-file.md).
 
 ## Outcome
 
@@ -46,6 +46,6 @@ manually starting database, storage or telemetry services.
 
 ## Handoff and parallel work
 
-ARC-036 adds batch publication, not another copy mechanism. Coordinate asset
-finalization with ARC-017/031 and job configuration with ARC-032; the import worker
+ARC-038 adds batch publication, not another copy mechanism. Coordinate asset
+finalization with ARC-017/031 and job configuration with ARC-034; the import worker
 does not technically depend on the PDF worker being implemented.

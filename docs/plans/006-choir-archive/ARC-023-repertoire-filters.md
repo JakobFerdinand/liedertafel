@@ -1,5 +1,5 @@
 ---
-id: ARC-021
+id: ARC-023
 status: planned
 phase: core
 kind: slice
@@ -8,7 +8,7 @@ touches: ["search", "catalogue", "db-migrations"]
 external_inputs: []
 ---
 
-# ARC-021 — Filter to suitable arrangements with usable materials
+# ARC-023 — Filter to suitable arrangements with usable materials
 
 **Depends on:** [ARC-014](ARC-014-arrangements-and-keys.md),
 [ARC-015](ARC-015-private-score.md),
@@ -28,8 +28,8 @@ and sees which matching arrangement actually has the desired material.
 - [ ] Apply combined conditions to the matching arrangement/version where
   appropriate, not different siblings that collectively happen to satisfy them.
 - [ ] Material filters count authorized published/current score/audio/MIDI assets;
-  reserve a recording-availability extension point for ARC-030 and store filter
-  state in the URL. ARC-030 owns the actual performance-to-recording integration.
+  reserve a recording-availability extension point for ARC-032 and store filter
+  state in the URL. ARC-032 owns the actual performance-to-recording integration.
 - [ ] Give bounded result counts and clear/reset controls without exposing drafts.
 
 ## Verification
@@ -41,5 +41,5 @@ URL restoration on a phone.
 ## Handoff and parallel work
 
 Recording slices register their material availability through this query contract
-when integrated. Coordinate shared search SQL/UI with ARC-033; unrelated event
+when integrated. Coordinate shared search SQL/UI with ARC-035; unrelated event
 entry can progress in parallel.

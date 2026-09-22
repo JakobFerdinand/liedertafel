@@ -38,7 +38,7 @@ with the EUR 10 target without treating the assumed 20% derivative ratio as fact
 
 ## Handoff and parallel work
 
-Supply the mapping fixtures to ARC-034 and largest-file characteristics to
+Supply the mapping fixtures to ARC-036 and largest-file characteristics to
 ARC-017. This discovery can run alongside application and infrastructure work;
 missing Drive access is an external blocker, not a code dependency.
 
@@ -123,7 +123,7 @@ Displayed sizes are rounded metadata, not measured storage/derivative ratios.
 - Locate and select historical concert programmes with an editor, including
   approximate dates and uncertain evidence. Root-level event-document filenames
   were visible, but their contents and suitability have not been assessed.
-- Create synthetic/sanitized fixtures and mapping expectations for ARC-034, with
+- Create synthetic/sanitized fixtures and mapping expectations for ARC-036, with
   restricted traceability back to these real conventions and editor review.
 - Supply measured largest-file characteristics to ARC-017.
 

@@ -1,17 +1,17 @@
 ---
-id: ARC-032
+id: ARC-034
 status: planned
 phase: core
 kind: slice
-depends_on: ["ARC-012", "ARC-049"]
+depends_on: ["ARC-012", "ARC-051"]
 touches: ["document-extraction", "assets", "azure-jobs", "apphost", "service-defaults", "db-migrations"]
 external_inputs: ["azure-maintainer-access"]
 ---
 
-# ARC-032 — Upload a PDF and see durable text-extraction progress
+# ARC-034 — Upload a PDF and see durable text-extraction progress
 
 **Depends on:** [ARC-012](ARC-012-maintenance-release.md),
-[ARC-049](ARC-049-hosted-private-file.md).
+[ARC-051](ARC-051-hosted-private-file.md).
 
 ## Outcome
 
@@ -45,5 +45,5 @@ worker traces plus logs and metrics in the Aspire dashboard.
 ## Handoff and parallel work
 
 Publish revision/text/status queries and job conventions for search/import.
-ARC-035 can implement its independent manual import job concurrently; coordinate
+ARC-037 can implement its independent manual import job concurrently; coordinate
 shared Bicep job modules, maintenance checks and migration snapshots.

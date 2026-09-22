@@ -124,7 +124,8 @@ See the [archive runbook](../../../src/archive/README.md) for the implemented co
 
 Database-backed German search covers the PRD's fields, entered lyrics, and
 extracted PDF text. PostgreSQL stores the indexed text and relationships. A
-dedicated search server and the later chatbot are not launch dependencies.
+dedicated search server is not a launch dependency; the chatbot is prioritized
+as the next core work after search.
 
 The detailed schema must distinguish musical versions from file revisions,
 working from published programmes, and planned appearances from confirmed
@@ -554,7 +555,7 @@ in the operational setup, rather than introducing a dedicated monitoring server.
 ## 10. Cost model
 
 The normal-month target is **EUR 10** for the archive's ordinary operation.
-Initial migration activity and the later chatbot are reviewed separately. An Azure
+Initial migration activity and the chatbot cost are reviewed separately. An Azure
 budget alert is a notification, not automatic enforcement of a spending ceiling.
 
 ### Illustrative primary-media capacity
@@ -613,7 +614,7 @@ These are explicit implementation prerequisites, not claims of completed tests.
 | Cost and responsiveness | Measured cold starts, realistic five-user requests, media traffic, job runs, memory/CPU sizing, log volume, and projected full monthly cost |
 | Member launch | Restricted production pilot passed and PRD content launch gate met |
 
-The grounded chatbot remains a later, read-only feature over the same authorized
+The grounded chatbot is a read-only feature over the same authorized
 queries. Its provider, data handling, and spending controls require a separate
 decision before implementation. No dedicated model/search compute or additional
 worker language is required by this baseline.

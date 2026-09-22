@@ -80,7 +80,7 @@ Frontend:
   supports direct links to the intended selection:
   `/lied/?id=…&fassung={arrangementId}&version={versionId}`.
 - Reusable `FassungsWahl` arrangement/version picker component (exported for
-  ARC-024 programmes and ARC-034 import review), driven purely by the song
+  ARC-026 programmes and ARC-036 import review), driven purely by the song
   detail payload and stable IDs.
 - Editor controls to add arrangements and versions and to edit labels,
   arranger, voice configuration and optional key inline, reusing
@@ -121,7 +121,7 @@ Frontend (`27c3108`, `49dce6c`, `a001341`):
 
 - New reusable `FassungsWahl` picker (arrangements as grouped sections,
   versions as `aria-pressed` buttons driven purely by stable IDs, exported
-  for ARC-024 programmes and ARC-034 import review); `LiedDetail` groups
+  for ARC-026 programmes and ARC-036 import review); `LiedDetail` groups
   arrangements and versions distinctly, supports direct links
   `/lied/?id=…&fassung=…&version=…` (invalid params fall back to the first
   selection, URL kept in sync via `router.replace`).
