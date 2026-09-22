@@ -36,6 +36,9 @@ export function LiedFormular({
   onSuccess: (lied: Lied, meldung: string) => void;
 }) {
   const idPraefix = lied ? `lied-${lied.id}` : "lied";
+  // Nur die Detailansicht liefert den bisherigen Liedtext mit; im Katalog
+  // bleibt das Feld ohne bekannten Wert.
+  const kenntText = lied?.lyrics !== undefined;
   const [werte, setWerte] = useState<LiedFormularWerte>(
     lied
       ? {
@@ -117,18 +120,19 @@ export function LiedFormular({
     }
     setBusy(true);
     try {
+      const text = werte.lyrics.trim();
+      // Bekannter Liedtext (Detailansicht): ein geleertes Feld räumt ihn weg.
+      // Unbekannter bisheriger Text (Katalogbearbeitung): nur ein getippter
+      // Text wird geschickt, ein leeres Feld lässt den bisherigen
+      // unangetastet. Die anderen Titel werden stets als ganze Liste ersetzt.
       const kern = {
         title: titel,
         composer: werte.composer.trim() ? werte.composer.trim() : null,
         lyricist: werte.lyricist.trim() ? werte.lyricist.trim() : null,
       };
-      const body = lied
+      const body: Record<string, unknown> = lied
         ? {
             ...kern,
-            // Leerer Liedtext heißt „unverändert lassen"; zum Entfernen über
-            // die Oberfläche trägt man in der Detailansicht einen neuen Text
-            // ein. Die anderen Titel werden stets als ganze Liste ersetzt.
-            lyrics: werte.lyrics.trim() ? werte.lyrics.trim() : null,
             alternateTitles: andere.filter((eintrag) => eintrag.length > 0),
           }
         : {
@@ -140,6 +144,7 @@ export function LiedFormular({
               ? werte.versionLabel.trim()
               : null,
           };
+      if (lied && (kenntText || text)) body.lyrics = text;
       const response = lied
         ? await patchAuth(`/api/songs/${encodeURIComponent(lied.id)}`, body)
         : await postAuth("/api/songs", body);
@@ -213,6 +218,7 @@ export function LiedFormular({
           <textarea
             id={`${idPraefix}-liedtext`}
             rows={4}
+            maxLength={5000}
             value={werte.lyrics}
             onChange={(event) => setzen("lyrics", event.target.value)}
             aria-invalid={textFehler ? true : undefined}
@@ -228,7 +234,9 @@ export function LiedFormular({
             </p>
           )}
           <p id={`${idPraefix}-liedtext-hinweis`} className="feld-hinweis">
-            Anfangsworte genügen. Leer lassen ändert den bisherigen Text nicht.
+            {kenntText
+              ? "Anfangsworte genügen. Ein geleerter Text wird entfernt."
+              : "Anfangsworte genügen. Leer lassen ändert den bisherigen Text nicht."}
           </p>
           <fieldset className="lied-andere-titel">
             <legend>Andere Titel</legend>
