@@ -674,9 +674,11 @@ internal sealed class AuthApiFactory : WebApplicationFactory<Program>
 	/// <summary>ARC-015: in-memory blob storage so no real provider is touched.</summary>
 	public FakeAssetStorage Storage { get; } = new();
 
+	private readonly IAssetStorageAdapter? storageOverride;
+
 	private readonly IDictionary<string, string?>? extraSettings;
 
-	public AuthApiFactory(string environment = "Development", InMemoryDatabaseRoot? root = null, string? keysPath = null, string? databaseName = null, string? otlpEndpoint = null, TimeSpan? freshVerificationWindow = null, IDictionary<string, string?>? settings = null)
+	public AuthApiFactory(string environment = "Development", InMemoryDatabaseRoot? root = null, string? keysPath = null, string? databaseName = null, string? otlpEndpoint = null, TimeSpan? freshVerificationWindow = null, IDictionary<string, string?>? settings = null, IAssetStorageAdapter? storage = null)
 	{
 		this.environment = environment;
 		sharedRoot = root ?? new InMemoryDatabaseRoot();
@@ -685,6 +687,7 @@ internal sealed class AuthApiFactory : WebApplicationFactory<Program>
 		this.otlpEndpoint = otlpEndpoint;
 		this.freshVerificationWindow = freshVerificationWindow;
 		this.extraSettings = settings;
+		storageOverride = storage;
 		Directory.CreateDirectory(Path.Combine(this.root, "system/status"));
 		File.WriteAllText(Path.Combine(this.root, "index.html"), "<html lang=de><h1>frontend-fixture</h1></html>");
 		File.WriteAllText(Path.Combine(this.root, "system/status/index.html"), "<html lang=de><h1>frontend-fixture status</h1></html>");
@@ -731,7 +734,7 @@ internal sealed class AuthApiFactory : WebApplicationFactory<Program>
 			// the real Blob storage path (no network, no credentials).
 			services.RemoveAll<IAssetStorageAdapter>();
 			services.RemoveAll<BlobAssetStorageAdapter>();
-			services.AddSingleton<IAssetStorageAdapter>(Storage);
+			services.AddSingleton<IAssetStorageAdapter>(storageOverride ?? Storage);
 			if (freshVerificationWindow.HasValue)
 			{
 				var window = freshVerificationWindow.Value;

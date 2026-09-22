@@ -300,8 +300,19 @@ public static class AssetEndpoints
 			};
 			db.UploadSessions.Add(pending);
 			await db.SaveChangesAsync(token);
-			var uploadUrl = await storage.CreateUploadTicketAsync(
-				pending.BlobName, storageOptions.UploadSessionLifetime, token);
+			// ARC-049: storage misconfigurations and outages surface as a
+			// German 502 instead of an unhandled 500 (the hosted account is
+			// unreachable, for example, while Entra credentials are missing).
+			string uploadUrl;
+			try
+			{
+				uploadUrl = await storage.CreateUploadTicketAsync(
+					pending.BlobName, storageOptions.UploadSessionLifetime, token);
+			}
+			catch (InvalidOperationException)
+			{
+				return Results.Problem(statusCode: 502, title: StorageFailureMessage);
+			}
 			return Results.Created($"/api/assets/{asset.Id}/access", new
 			{
 				uploadSessionId = pending.Id,
@@ -344,8 +355,16 @@ public static class AssetEndpoints
 			var storageOptions = options.Value;
 			session.UploadTicketExpiresAt = time.GetUtcNow() + storageOptions.UploadSessionLifetime;
 			await db.SaveChangesAsync(token);
-			var uploadUrl = await storage.CreateUploadTicketAsync(
-				session.BlobName, storageOptions.UploadSessionLifetime, token);
+			string uploadUrl;
+			try
+			{
+				uploadUrl = await storage.CreateUploadTicketAsync(
+					session.BlobName, storageOptions.UploadSessionLifetime, token);
+			}
+			catch (InvalidOperationException)
+			{
+				return Results.Problem(statusCode: 502, title: StorageFailureMessage);
+			}
 			return Results.Ok(new
 			{
 				uploadSessionId = session.Id,
@@ -523,7 +542,7 @@ public static class AssetEndpoints
 			{
 				await storage.PromoteAsync(session.BlobName, revision.BlobName, token);
 			}
-			catch (InvalidOperationException)
+			catch (Exception exception) when (exception is InvalidOperationException or TimeoutException)
 			{
 				return Results.Problem(statusCode: 502, title: StorageFailureMessage);
 			}

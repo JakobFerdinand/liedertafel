@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Azure;
+using Azure.Identity;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using Azure.Storage.Sas;
@@ -45,6 +46,14 @@ public sealed class AssetStorageOptions
 {
 	public string ContainerName { get; set; } = "archive-assets";
 
+	/// <summary>
+	/// ARC-049: hosted storage account endpoint (Entra-only, shared-key access
+	/// disabled). When set, tickets are signed as user-delegation SAS through
+	/// the runtime managed identity; otherwise the Azurite/local connection
+	/// string is required.
+	/// </summary>
+	public string? ServiceUri { get; set; }
+
 	public long MaxUploadBytes { get; set; } = 10 * 1024L * 1024 * 1024;
 
 	/// <summary>ARC-017: recommended client block size for block uploads.</summary>
@@ -72,30 +81,48 @@ public sealed class AssetStorageOptions
 public sealed class BlobAssetStorageAdapter(
 	IConfiguration configuration, IOptions<AssetStorageOptions> options, TimeProvider time) : IAssetStorageAdapter
 {
+	private BlobServiceClient? credentialClient;
+	private UserDelegationKey? delegationKey;
+	private readonly SemaphoreSlim delegationLock = new(1, 1);
+
 	private BlobServiceClient Client()
 	{
-		var connectionString = configuration.GetConnectionString("archive-blobs")
-			?? throw new InvalidOperationException("Kein Blob-Verbindungsstring konfiguriert.");
-		return new BlobServiceClient(connectionString, new BlobClientOptions
-		{
-			Retry = { MaxRetries = 2, NetworkTimeout = TimeSpan.FromSeconds(5) },
-		});
+		var connectionString = configuration.GetConnectionString("archive-blobs");
+		if (connectionString is { Length: > 0 })
+			return new BlobServiceClient(connectionString, new BlobClientOptions
+			{
+				Retry = { MaxRetries = 2, NetworkTimeout = TimeSpan.FromSeconds(5) },
+			});
+		// ARC-049: the hosted storage account is Entra-only (shared-key access
+		// off), so tickets are signed as user-delegation SAS through the
+		// runtime managed identity. AZURE_CLIENT_ID pins DefaultAzureCredential
+		// to the user-assigned identity, the same pattern as mail and the
+		// Data Protection key ring.
+		var serviceUri = options.Value.ServiceUri;
+		if (string.IsNullOrWhiteSpace(serviceUri))
+			throw new InvalidOperationException("Kein Blob-Verbindungsstring konfiguriert.");
+		credentialClient ??= new BlobServiceClient(new Uri(serviceUri), new DefaultAzureCredential(),
+			new BlobClientOptions
+			{
+				Retry = { MaxRetries = 2, NetworkTimeout = TimeSpan.FromSeconds(5) },
+			});
+		return credentialClient;
 	}
 
 	private BlobClient Blob(string blobName) =>
 		Client().GetBlobContainerClient(options.Value.ContainerName).GetBlobClient(blobName);
 
 	public Task<string> CreateUploadTicketAsync(string blobName, TimeSpan lifetime, CancellationToken cancellationToken) =>
-		ExecuteAsync("upload_ticket", () => Task.FromResult(
-			Blob(blobName).GenerateSasUri(BuildBuilder(blobName, lifetime,
-				BlobSasPermissions.Write | BlobSasPermissions.Create | BlobSasPermissions.Read)).ToString()));
+		ExecuteAsync("upload_ticket", () => TicketUriAsync(blobName,
+			BuildBuilder(blobName, lifetime,
+				BlobSasPermissions.Write | BlobSasPermissions.Create | BlobSasPermissions.Read), cancellationToken));
 
 	public Task<string> CreateReadTicketAsync(string blobName, TimeSpan lifetime, bool asDownload, CancellationToken cancellationToken) =>
-		ExecuteAsync("read_ticket", () =>
+		ExecuteAsync("read_ticket", async () =>
 		{
 			var builder = BuildBuilder(blobName, lifetime, BlobSasPermissions.Read);
 			if (asDownload) builder.ContentDisposition = "attachment";
-			return Task.FromResult(Blob(blobName).GenerateSasUri(builder).ToString());
+			return await TicketUriAsync(blobName, builder, cancellationToken);
 		});
 
 	public Task<AssetObjectInfo?> ProbeAsync(string blobName, CancellationToken cancellationToken) =>
@@ -146,10 +173,18 @@ public sealed class BlobAssetStorageAdapter(
 			var deadline = time.GetUtcNow() + TimeSpan.FromSeconds(30);
 			while (time.GetUtcNow() < deadline)
 			{
-				var properties = await target.GetPropertiesAsync(cancellationToken: cancellationToken);
-				if (properties.Value.CopyStatus == CopyStatus.Success) return null;
-				if (properties.Value.CopyStatus is CopyStatus.Aborted or CopyStatus.Failed)
-					throw new InvalidOperationException("Speicherdienst nicht erreichbar.");
+				try
+				{
+					var properties = await target.GetPropertiesAsync(cancellationToken: cancellationToken);
+					if (properties.Value.CopyStatus == CopyStatus.Success) return null;
+					if (properties.Value.CopyStatus is CopyStatus.Aborted or CopyStatus.Failed)
+						throw new InvalidOperationException("Speicherdienst nicht erreichbar.");
+				}
+				catch (RequestFailedException exception) when (exception.Status == 404)
+				{
+					// Die Kopie ist noch nicht gelandet; innerhalb der Frist
+					// weiter warten, statt den Poll als Ausfall zu werten.
+				}
 				await Task.Delay(250, cancellationToken);
 			}
 			throw new TimeoutException("Speicherdienst-Kopie wurde nicht rechtzeitig abgeschlossen.");
@@ -159,6 +194,43 @@ public sealed class BlobAssetStorageAdapter(
 	public Task DeleteAsync(string blobName, CancellationToken cancellationToken) =>
 		ExecuteAsync("delete", async () =>
 			await Blob(blobName).DeleteIfExistsAsync(cancellationToken: cancellationToken));
+
+	/// <summary>
+	/// ARC-049: signs the ticket through user delegation in Entra mode and
+	/// through the shared connection-string key against Azurite/local. The
+	/// delegation key is cached and reused while it covers the requested
+	/// window, so ordinary ticket traffic costs no extra control-plane call.
+	/// </summary>
+	private async Task<string> TicketUriAsync(
+		string blobName, BlobSasBuilder builder, CancellationToken cancellationToken)
+	{
+		var client = Client();
+		if (credentialClient is null)
+			return Blob(blobName).GenerateSasUri(builder).ToString();
+		var delegationKey = await DelegationKeyAsync(client, builder.ExpiresOn, cancellationToken);
+		var sas = builder.ToSasQueryParameters(delegationKey, client.AccountName);
+		return new UriBuilder(Blob(blobName).Uri) { Query = sas.ToString() }.Uri.ToString();
+	}
+
+	private async Task<UserDelegationKey> DelegationKeyAsync(
+		BlobServiceClient client, DateTimeOffset expiresOn, CancellationToken cancellationToken)
+	{
+		await delegationLock.WaitAsync(cancellationToken);
+		try
+		{
+			var now = time.GetUtcNow();
+			if (delegationKey is not null
+				&& delegationKey.SignedStartsOn <= now && delegationKey.SignedExpiresOn >= expiresOn)
+				return delegationKey;
+			delegationKey = (await client.GetUserDelegationKeyAsync(
+				now - TimeSpan.FromMinutes(5), expiresOn, cancellationToken)).Value;
+			return delegationKey;
+		}
+		finally
+		{
+			delegationLock.Release();
+		}
+	}
 
 	private BlobSasBuilder BuildBuilder(string blobName, TimeSpan lifetime, BlobSasPermissions permissions) =>
 		new(permissions, time.GetUtcNow() + lifetime)
@@ -174,7 +246,8 @@ public sealed class BlobAssetStorageAdapter(
 		{
 			return await action();
 		}
-		catch (RequestFailedException exception)
+		catch (Exception exception) when (
+			exception is RequestFailedException or CredentialUnavailableException)
 		{
 			activity?.SetStatus(ActivityStatusCode.Error);
 			throw new InvalidOperationException("Speicherdienst nicht erreichbar.", exception);

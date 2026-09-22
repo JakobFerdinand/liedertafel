@@ -76,6 +76,9 @@ param keysContainerName string = 'dataprotection'
 @description('Blob object name for the Data Protection key ring inside the container.')
 param keysBlobName string = 'keys.xml'
 
+@description('Private blob container for member files (ARC-049). Default matches the backend AssetStorageOptions container name.')
+param assetsContainerName string = 'archive-assets'
+
 @description('Key Vault RSA wrapping-key name protecting the Data Protection key ring (ARC-011).')
 param keysKeyName string = 'dataprotection-wrap'
 
@@ -166,14 +169,49 @@ resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   }
 }
 
+// ARC-049 — the browser PUTs upload blocks directly to Blob, so the app
+// origins must be allowed. The backend's emulator bootstrap keeps a
+// permissive rule for local Azurite; this is the hosted counterpart.
+// Modify-only: the managed blob service always exists with a storage account.
 resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01' = {
   parent: storage
   name: 'default'
+  properties: {
+    cors: {
+      corsRules: [
+        {
+          allowedOrigins: [
+            'https://${customDomain}'
+            'https://${app.properties.configuration.ingress.fqdn}'
+          ]
+          allowedMethods: [
+            'GET'
+            'HEAD'
+            'PUT'
+          ]
+          allowedHeaders: ['*']
+          exposedHeaders: ['ETag', 'x-ms-request-id']
+          maxAgeInSeconds: 3600
+        }
+      ]
+    }
+  }
 }
 
 resource keysContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
   parent: blobService
   name: keysContainerName
+  properties: {
+    publicAccess: 'None'
+  }
+}
+
+// ARC-049 — private member-file container. The runtime identity's
+// account-scoped Storage Blob Data Contributor assignment above already
+// covers it, including user-delegation key generation for ticket signing.
+resource assetsContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
+  parent: blobService
+  name: assetsContainerName
   properties: {
     publicAccess: 'None'
   }
@@ -360,6 +398,13 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
               name: 'Authentication__KeysKeyVaultKeyUri'
               value: keysKey.properties.keyUri
             }
+            // ARC-049: Entra-only assets account endpoint. The backend signs
+            // user-delegation SAS tickets through the runtime identity (no
+            // storage key or connection string reaches the app).
+            {
+              name: 'Archive__Assets__ServiceUri'
+              value: 'https://${storage.name}.blob.${az.environment().suffixes.storage}'
+            }
             // ARC-011-1: stable WebAuthn relying-party ID and the exact
             // trusted ceremony origins. Never derived from request host
             // headers; the startup guard fails without the RP ID outside
@@ -458,4 +503,7 @@ output runtimeIdentityPrincipalId string = runtimeIdentity.properties.principalI
 output runtimeIdentityClientId string = runtimeIdentity.properties.clientId
 output keysBlobUri string = 'https://${storage.name}.blob.${az.environment().suffixes.storage}/${keysContainerName}/${keysBlobName}'
 output keysKeyVaultKeyUri string = keysKey.properties.keyUri
+// ARC-049: assets account endpoint for extraction/import jobs; they receive
+// their own role assignment separately from the key-ring identity state.
+output assetsServiceUri string = 'https://${storage.name}.blob.${az.environment().suffixes.storage}'
 output customDomainBound bool = bindCustomDomain

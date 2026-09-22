@@ -248,6 +248,22 @@ probes `/alive`-only, no `OTEL_*` env (no prod export to Aspire), image
 carries no AppHost. Inbox-dependent steps (real code, restart/replica
 persistence, revocation) run with the pilot mailbox after release.
 
+## Hosted private files (ARC-049)
+
+`main.bicep` adds to the same storage account: private container
+`archive-assets` (param `assetsContainerName`, matches the backend default)
+and blob CORS for the app origins (custom domain and the environment default
+FQDN; methods GET/HEAD/PUT) so the browser can transfer blocks directly. The
+app receives the non-secret `Archive__Assets__ServiceUri` account endpoint.
+`BlobAssetStorageAdapter` then signs user-delegation SAS tickets through the
+runtime managed identity (`AZURE_CLIENT_ID`); no storage key or connection
+string exists in the hosted app, and shared-key access stays disabled. The
+Azurite connection-string path is unchanged for local runs. Ticket and copy
+failures surface as German 502 ProblemDetails (`Speicherdienst nicht
+erreichbar.`), never as raw provider errors. Hosted verification still open:
+one real upload/finalize/read through the custom domain after the next
+release (ARC-049 acceptance).
+
 ## Controlled database releases (ARC-012)
 
 Releases carrying a schema change run inside a maintenance window owned by
