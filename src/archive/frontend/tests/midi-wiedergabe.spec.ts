@@ -23,6 +23,14 @@ function json(body: unknown, status = 200) {
   };
 }
 
+function problem(title: string, status: number) {
+  return {
+    status,
+    contentType: "application/problem+json",
+    body: JSON.stringify({ title }),
+  };
+}
+
 function fassung(assets: unknown) {
   return {
     id: versionId,
@@ -128,9 +136,10 @@ function midiSpur(ereignisse: number[]): Buffer {
 }
 
 /**
- * Erzeugt eine gültige Standard-MIDI-Datei (Format 1) mit Tempo-Spur und
- * einer Notenspur: abwechselnde Viertelnoten C5/E5 bei 120 BPM
- * (500000 µs pro Viertel, Division 480) – also genau 8 Sekunden Stücklänge.
+ * Erzeugt eine gültige mehrspurige Standard-MIDI-Datei (Format 1): Tempo-Spur,
+ * eine Notenspur mit abwechselnden Viertelnoten C5/E5 und eine Begleitungs­spur
+ * mit gleichzeitig klingenden Ganzennoten (C4/G4) – bei 120 BPM (500000 µs pro
+ * Viertel, Division 480) genau 8 Sekunden Stücklänge mit Akkordklängen.
  */
 function midiBytes(viertelNoten = 16) {
   const division = 480;
@@ -148,13 +157,25 @@ function midiBytes(viertelNoten = 16) {
   }
   ereignisse.push(0x00, 0xff, 0x2f, 0x00);
   const notenSpur = midiSpur(ereignisse);
+  // Begleitung: alle zwei Sekunden klingt ein ganztaktiger Akkord
+  // (C4 und G4 gleichzeitig), während oben die Melodie läuft.
+  const begleitung: number[] = [];
+  for (let akkord = 0; akkord < viertelNoten / 4; akkord += 1) {
+    for (const ton of [60, 67]) {
+      begleitung.push(...vlq(0), 0x90, ton, 70);
+    }
+    begleitung.push(...vlq(division * 4), 0x80, 60, 0);
+    begleitung.push(...vlq(0), 0x80, 67, 0);
+  }
+  begleitung.push(0x00, 0xff, 0x2f, 0x00);
+  const begleitungsSpur = midiSpur(begleitung);
   const kopf = Buffer.alloc(14);
   kopf.write("MThd", 0);
   kopf.writeUInt32BE(6, 4);
   kopf.writeUInt16BE(1, 8); // Format 1
-  kopf.writeUInt16BE(2, 10); // zwei Spuren
+  kopf.writeUInt16BE(3, 10); // drei Spuren
   kopf.writeUInt16BE(division, 12);
-  return Buffer.concat([kopf, tempoSpur, notenSpur]);
+  return Buffer.concat([kopf, tempoSpur, notenSpur, begleitungsSpur]);
 }
 
 const stueckBytes = midiBytes();
@@ -465,5 +486,111 @@ test("Vorübergehende Störung bietet Erneut versuchen und erholt sich", async (
   await expect
     .poll(() => lesePosition(page), { timeout: 10_000 })
     .toBeGreaterThan(0.2);
+  expect(errors).toEqual([]);
+});
+
+test("Pause und Wiederaufnahme setzen an derselben Position fort", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await mockSitzung(page, memberMe);
+  await page.route(`**/api/songs/${songId}`, (route) =>
+    route.fulfill(json(detail([midiAsset()]))),
+  );
+  const antwort = zugriff(midiAssetId);
+  const auslieferungen = new Map<string, Auslieferung>([
+    [
+      antwort.viewUrl,
+      { status: 200, body: stueckBytes, contentType: "audio/midi" },
+    ],
+  ]);
+  let zugriffe = 0;
+  await page.route(`**/api/assets/${midiAssetId}/access`, (route) => {
+    zugriffe += 1;
+    return route.fulfill(json(antwort));
+  });
+  await page.route("**/speicher.test/**", blobDienst(auslieferungen));
+
+  await page.goto(`/lied/?id=${songId}`);
+  await page.getByRole("button", { name: "Anhören" }).click();
+  const spieler = page.getByRole("region", { name: "MIDI-Spieler · Sopran" });
+  const abspielen = spieler.getByRole("button", {
+    name: "Sopran (MIDI) abspielen",
+  });
+  const pausieren = spieler.getByRole("button", {
+    name: "Sopran (MIDI) pausieren",
+  });
+  await abspielen.click();
+  await expect
+    .poll(() => lesePosition(page), { timeout: 10_000 })
+    .toBeGreaterThan(0.5);
+
+  // Pause friert die Position ein; sie wandert nicht weiter.
+  await pausieren.click();
+  await expect(abspielen).toBeVisible();
+  const pausenPosition = await lesePosition(page);
+  await page.waitForTimeout(1000);
+  expect(await lesePosition(page)).toBe(pausenPosition);
+
+  // Wiederaufnahme läuft von der eingefrorenen Position weiter.
+  await abspielen.click();
+  await expect
+    .poll(() => lesePosition(page), { timeout: 10_000 })
+    .toBeGreaterThan(pausenPosition + 0.2);
+  expect(zugriffe).toBe(1);
+  expect(errors).toEqual([]);
+});
+
+test("Verweigerter Zugriff meldet die abgelaufene Anmeldung und erhält den Download", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await mockSitzung(page, memberMe);
+  await page.route(`**/api/songs/${songId}`, (route) =>
+    route.fulfill(json(detail([midiAsset()]))),
+  );
+
+  // Die Tickets werden geliefert, der Speicher verweigert die Bytes aber.
+  const abgelaufen = zugriff(midiAssetId);
+  let zugriffe = 0;
+  await page.route(`**/api/assets/${midiAssetId}/access`, (route) => {
+    zugriffe += 1;
+    if (zugriffe === 1) return route.fulfill(json(abgelaufen));
+    return route.fulfill(
+      problem("Die Anmeldung ist abgelaufen. Bitte lade die Seite neu.", 401),
+    );
+  });
+  await page.route("**/speicher.test/**", (route) =>
+    route.fulfill({
+      status: 401,
+      contentType: "text/plain",
+      body: Buffer.from("abgelaufen"),
+    }),
+  );
+
+  await page.goto(`/lied/?id=${songId}`);
+  await page.getByRole("button", { name: "Anhören" }).click();
+  const spieler = page.getByRole("region", { name: "MIDI-Spieler · Sopran" });
+  await expect(
+    spieler.getByText(
+      "Die Anmeldung ist abgelaufen. Bitte lade die Seite neu.",
+    ),
+  ).toBeVisible({ timeout: 20_000 });
+  await expect(
+    page
+      .getByRole("article", { name: "MIDI · Sopran" })
+      .getByRole("link", { name: "Herunterladen" }),
+  ).toHaveAttribute("href", abgelaufen.downloadUrl);
+
+  // Auch der Wiederholungsversuch bleibt verweigert; die Meldung bleibt stehen.
+  await spieler.getByRole("button", { name: "Erneut versuchen" }).click();
+  await expect.poll(() => zugriffe).toBe(2);
+  await expect(
+    spieler.getByText(
+      "Die Anmeldung ist abgelaufen. Bitte lade die Seite neu.",
+    ),
+  ).toBeVisible();
   expect(errors).toEqual([]);
 });
