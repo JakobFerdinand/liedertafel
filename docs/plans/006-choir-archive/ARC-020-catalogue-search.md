@@ -17,8 +17,9 @@ external_inputs: []
 Catalogue model extension (backend `Catalogue/`, Guid v7 IDs, snake_case tables):
 
 - New `SongTitle`: `Id`, `SongId` (cascade), required `Value` (≤ 200),
-  `CreatedAt`/`CreatedByAccountId`. Table `song_titles`. Alternate titles are
-  stored in entry order (Guid v7 IDs keep insertion order stable).
+  explicit `Position` (zero-based entry order), `CreatedAt`/`CreatedByAccountId`.
+  Table `song_titles`. Entry order is stored explicitly: Guid v7 IDs can share
+  a millisecond within one save and cannot express insertion order.
 - `Song.Lyrics`: optional entered lyrics/opening words, ≤ 5000 characters,
   table column `songs.lyrics`.
 - Explicit migration `SongAlternateTitlesAndLyrics`.
@@ -184,3 +185,17 @@ Accepted judgement calls: the `matchedIn` field keys stay as contract-documented
 strings (no separate service introduced), the arrangement match hint names the
 first arrangement (the contract carries no per-arrangement hit information),
 and stale beyond-end page URLs simply show the empty state.
+
+## CI fix — 2026-09-22
+
+The first Archive CI run of the slice failed:
+`SearchApiTests.PatchLyricsAndAlternateTitlesRoundTrip` read the two alternate
+titles back in the wrong order. Cause: both rows were inserted in the same
+`SaveChanges` batch, their Guid v7 IDs share the millisecond timestamp and only
+differ in random tail bits, so `OrderBy(Id)` does not encode insertion order —
+the ordering happened to be right on the ARM64 authoring machine and wrong on
+CI. The unapplied migration was extended in place with an explicit
+`song_titles.position` (zero-based, set by the PATCH replacement, read with
+`Position` then `Id` as tiebreak in list/search/detail responses); the
+round-trip order no longer depends on ID randomness. Backend suite re-run
+twice on the fix: 218/218 green both times.

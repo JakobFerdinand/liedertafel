@@ -649,6 +649,9 @@ namespace Archive.Backend.Data.Migrations
                     b.Property<Guid>("CreatedByAccountId")
                         .HasColumnType("uuid");
 
+                    b.Property<int>("Position")
+                        .HasColumnType("integer");
+
                     b.Property<Guid>("SongId")
                         .HasColumnType("uuid");
 

@@ -23,6 +23,7 @@ namespace Archive.Backend.Data.Migrations
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    Position = table.Column<int>(type: "integer", nullable: false),
                     SongId = table.Column<Guid>(type: "uuid", nullable: false),
                     Value = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
                     CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),

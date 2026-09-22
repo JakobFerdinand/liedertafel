@@ -347,15 +347,17 @@ public static class CatalogueEndpoints
 			if (body?.AlternateTitles is not null)
 			{
 				// Full replacement: delete the existing rows and re-add them in
-				// list order with fresh attribution (Guid v7 keeps the order).
+				// list order with fresh attribution and an explicit position
+				// (Guid v7 IDs share the same millisecond within this save).
 				db.SongTitles.RemoveRange(song.AlternateTitles);
 				var now_ = time.GetUtcNow();
-				foreach (var value in body.AlternateTitles.Select(t => t!.Trim()))
+				for (var position = 0; position < body.AlternateTitles.Count; position++)
 				{
 					db.SongTitles.Add(new SongTitle
 					{
 						SongId = song.Id,
-						Value = value,
+						Value = body.AlternateTitles[position]!.Trim(),
+						Position = position,
 						CreatedAt = now_,
 						CreatedByAccountId = decision!.AccountId,
 					});
@@ -690,7 +692,9 @@ public static class CatalogueEndpoints
 			createdAt = song.CreatedAt,
 			updatedAt = song.UpdatedAt,
 			lyrics = song.Lyrics,
-			alternateTitles = song.AlternateTitles.OrderBy(t => t.Id).Select(t => t.Value),
+			alternateTitles = song.AlternateTitles
+				.OrderBy(t => t.Position).ThenBy(t => t.Id)
+				.Select(t => t.Value),
 			arrangements = song.Arrangements.OrderBy(a => a.Id).Select(a => new
 			{
 				id = a.Id,
@@ -812,8 +816,8 @@ public static class CatalogueEndpoints
 	}
 
 	/// <summary>
-	/// Loads the alternate titles (values ordered by id) for the given song ids
-	/// into a per-song map for list/search responses.
+	/// Loads the alternate titles (values in entry position, id as tiebreak)
+	/// for the given song ids into a per-song map for list/search responses.
 	/// </summary>
 	private static async Task<Dictionary<Guid, List<string>>> LoadAlternateTitlesAsync(
 		ArchiveDbContext db, List<Guid> songIds, CancellationToken token)
@@ -822,7 +826,7 @@ public static class CatalogueEndpoints
 			return [];
 		var titles = await db.SongTitles.AsNoTracking()
 			.Where(t => songIds.Contains(t.SongId))
-			.OrderBy(t => t.Id)
+			.OrderBy(t => t.SongId).ThenBy(t => t.Position).ThenBy(t => t.Id)
 			.Select(t => new { t.SongId, t.Value })
 			.ToListAsync(token);
 		return titles

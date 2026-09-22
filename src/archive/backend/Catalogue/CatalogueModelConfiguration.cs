@@ -58,8 +58,7 @@ public sealed class CatalogueModelConfiguration
 			.HasForeignKey(x => x.SongId)
 			.OnDelete(DeleteBehavior.Cascade);
 		builder.HasIndex(x => x.SongId);
-	}
-}
+	}}
 
 /// <summary>
 /// Single shared visibility decision point for the catalogue (ARC-013 and the

@@ -3,11 +3,15 @@ namespace Archive.Backend.Catalogue;
 /// <summary>
 /// An alternative title of a <see cref="Song"/> (ARC-020), for example a
 /// known first line or a former title. Alternate titles are stored in entry
-/// order: Guid v7 IDs keep the insertion order stable.
+/// order via an explicit <see cref="Position"/> (Guid v7 IDs share the same
+/// millisecond within one save and cannot express the order).
 /// </summary>
 public sealed class SongTitle
 {
 	public Guid Id { get; set; } = Guid.CreateVersion7();
+
+	/// <summary>Zero-based entry order within the song.</summary>
+	public int Position { get; set; }
 
 	public Guid SongId { get; set; }
 
