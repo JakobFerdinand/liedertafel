@@ -335,10 +335,15 @@ play time.
 
 Controls mirror the audio player: play/pause, seek slider, tabular time
 display, volume and a 50–150 % tempo slider — all labelled per voice
-(`MIDI-Spieler · Sopran`, `Sopran (MIDI) abspielen`). The AudioContext is
+(`MIDI-Spieler · Sopran`, `Sopran (MIDI) abspielen`). Player error copy and
+the tabular time formatter are shared with the audio player
+(`SpielerFehler`/`ladeFehlerAusUrsache`/`zeitText` in `lib/assets.ts`), and a
+dynamics compressor behind the master gain keeps dense chords below full
+scale. The AudioContext is
 created and resumed synchronously inside the play-button click (user-gesture
 requirement on mobile browsers); tempo/seek changes re-anchor the running
-scheduler so playback continues seamlessly at the new rate; the position
+scheduler and playback continues at the new rate from the current position
+(already-sounding notes are cut at the switch); the position
 lives on the file's own tempo timeline. Playback stops and the context is
 closed on unmount, and the materials area's single-active rule covers both
 player types. Corrupt or unsupported files report the non-playable format

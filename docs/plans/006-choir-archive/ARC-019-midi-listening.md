@@ -62,15 +62,20 @@ own, and the AC only requires "basic sound".
 
 Frontend: `lib/midi.ts` parses Standard MIDI Files (formats 0/1, running
 status, piecewise tempo map to a seconds timeline, per-(channel,pitch) note
-stacks; SMPTE timebase, format 2, desynced tracks and >4 h pieces throw
-`MidiFehler`; zero-note files are legal). `components/midi-spieler.tsx` fetches
+stacks; SMPTE timebase, format 2, desynchronised event streams and >4 h
+pieces throw `MidiFehler`; zero-note files are legal).
+`components/midi-spieler.tsx` fetches
 the bytes once through the ticketed `viewUrl` (CORS note in the README), parses
 after mount (static-export safe), and synthesizes with one triangle oscillator
-plus envelope per note into a master gain (velocity-scaled, no clipping peaks).
+plus envelope per note into a master gain (velocity-scaled, with a dynamics
+compressor keeping dense chords below full scale).
+Player error copy and time formatting are shared with the audio player
+(`SpielerFehler`, `ladeFehlerAusUrsache`, `zeitText` in `lib/assets.ts`).
 The position lives on the file's own tempo timeline; an anchor pair
 (wall time, base time) plus a 50–150 % tempo factor maps base to wall time, so
-seek and tempo changes simply re-anchor and reschedule — playback continues
-seamlessly at the new rate. The AudioContext is created and resumed
+seek and tempo changes re-anchor and reschedule — playback continues at the
+new rate from the current position, with already-sounding notes cut at the
+switch (acceptable for basic sound). The AudioContext is created and resumed
 synchronously inside the play-button click (mobile user-gesture requirement).
 Reaching the end stops and re-arms from 0; `aktiv=false` pauses (single-active
 rule shared with the audio player via `spielendesAudio`); unmount stops all
@@ -85,12 +90,13 @@ bytes are fully in memory, no mid-playback ticket renewal is needed.
 Verification: `pnpm run check` and `pnpm run build` (static export) stay
 green. The parser was additionally exercised standalone against a generated
 format-1 fixture (running status, mid-file set-tempo, SMPTE rejection,
-desync rejection) during development. The Playwright suite passes 88
-mocked-API checks (both projects), including 8 new MIDI checks: playback with
-controls and retained download, seek to a position, live tempo change to
-150 % continuing without a position jump and measurably faster progress,
-corrupt-file state leaving the audio entry untouched, and transient-failure
-recovery via "Erneut versuchen" with re-fetched access. The 6
+desync rejection) during development. The Playwright suite passes 92
+mocked-API checks (both projects), including 12 new MIDI checks: playback with
+controls and retained download, seek to a position, pause frozen at its
+position and resumption from there, live tempo change to 150 % continuing
+without a position jump and measurably faster progress, corrupt-file state
+leaving the audio entry untouched, transient-failure recovery via "Erneut
+versuchen" with re-fetched access, and a denied 401 byte fetch showing the
+expired-session copy on load and on the retry path. The 6
 `shell.spec.ts` checks per project still require a live backend and run in CI.
-Permission denial (401) is covered by the shared copy path; real long listening
-on devices remains with the hosted pilot (ARC-042).
+Real long listening on devices remains with the hosted pilot (ARC-042).
