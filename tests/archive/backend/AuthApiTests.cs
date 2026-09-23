@@ -14,8 +14,10 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -674,11 +676,18 @@ internal sealed class AuthApiFactory : WebApplicationFactory<Program>
 	/// <summary>ARC-015: in-memory blob storage so no real provider is touched.</summary>
 	public FakeAssetStorage Storage { get; } = new();
 
+	/// <summary>Captures formatted log lines for chat budget/cap assertions.</summary>
+	public CapturingLogProvider Logs { get; } = new();
+
 	private readonly IAssetStorageAdapter? storageOverride;
+
+	private readonly IChatClient? chatClientOverride;
+
+	private readonly ISaveChangesInterceptor? saveChangesInterceptor;
 
 	private readonly IDictionary<string, string?>? extraSettings;
 
-	public AuthApiFactory(string environment = "Development", InMemoryDatabaseRoot? root = null, string? keysPath = null, string? databaseName = null, string? otlpEndpoint = null, TimeSpan? freshVerificationWindow = null, IDictionary<string, string?>? settings = null, IAssetStorageAdapter? storage = null)
+	public AuthApiFactory(string environment = "Development", InMemoryDatabaseRoot? root = null, string? keysPath = null, string? databaseName = null, string? otlpEndpoint = null, TimeSpan? freshVerificationWindow = null, IDictionary<string, string?>? settings = null, IAssetStorageAdapter? storage = null, IChatClient? chatClient = null, ISaveChangesInterceptor? saveChangesInterceptor = null)
 	{
 		this.environment = environment;
 		sharedRoot = root ?? new InMemoryDatabaseRoot();
@@ -688,6 +697,8 @@ internal sealed class AuthApiFactory : WebApplicationFactory<Program>
 		this.freshVerificationWindow = freshVerificationWindow;
 		this.extraSettings = settings;
 		storageOverride = storage;
+		chatClientOverride = chatClient;
+		this.saveChangesInterceptor = saveChangesInterceptor;
 		Directory.CreateDirectory(Path.Combine(this.root, "system/status"));
 		File.WriteAllText(Path.Combine(this.root, "index.html"), "<html lang=de><h1>frontend-fixture</h1></html>");
 		File.WriteAllText(Path.Combine(this.root, "system/status/index.html"), "<html lang=de><h1>frontend-fixture status</h1></html>");
@@ -726,7 +737,14 @@ internal sealed class AuthApiFactory : WebApplicationFactory<Program>
 			services.RemoveAll<DbContextOptions<ArchiveDbContext>>();
 			services.RemoveAll<DbContextOptions>();
 			services.RemoveAll<ArchiveDbContext>();
-			services.AddDbContext<ArchiveDbContext>(options => options.UseInMemoryDatabase(database, sharedRoot));
+			services.AddDbContext<ArchiveDbContext>(options =>
+			{
+				options.UseInMemoryDatabase(database, sharedRoot);
+				// Per-test save interception (e.g. the ARC-022 chat persistence
+				// atomicity check) rides on the same in-memory database.
+				if (saveChangesInterceptor is not null)
+					options.AddInterceptors(saveChangesInterceptor);
+			});
 			services.RemoveAll<IArchiveMailSender>();
 			services.AddSingleton<IArchiveMailSender>(Mail);
 			// Program registers both the concrete adapter and a forwarding
@@ -735,6 +753,17 @@ internal sealed class AuthApiFactory : WebApplicationFactory<Program>
 			services.RemoveAll<IAssetStorageAdapter>();
 			services.RemoveAll<BlobAssetStorageAdapter>();
 			services.AddSingleton<IAssetStorageAdapter>(storageOverride ?? Storage);
+			// Program registers the deterministic ScriptedChatClient behind the
+			// IChatClient seam; a per-test override (ARC-022 bound checks) must
+			// replace that single descriptor exactly like the mail fake.
+			services.RemoveAll<IChatClient>();
+			if (chatClientOverride is not null)
+				services.AddSingleton<IChatClient>(chatClientOverride);
+			else
+				services.AddSingleton<IChatClient, Archive.Backend.Chat.ScriptedChatClient>();
+			// Capturing provider so chat tests can assert maintainer warnings
+			// without touching log content beyond the searched phrase.
+			services.AddSingleton<ILoggerProvider>(Logs);
 			if (freshVerificationWindow.HasValue)
 			{
 				var window = freshVerificationWindow.Value;
