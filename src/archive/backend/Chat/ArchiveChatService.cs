@@ -5,6 +5,7 @@ using System.Threading.Channels;
 using AGUI.Abstractions;
 using AGUI.Server;
 using Archive.Backend.Auth;
+using Archive.Backend.Catalogue;
 using Archive.Backend.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
@@ -44,6 +45,12 @@ public sealed class ArchiveChatService(
 	private const int MaxOutputTokens = 2000;
 
 	private const string RunFailureMessage = "Die Antwort konnte nicht fertig gestellt werden.";
+
+	/// <summary>AG-UI custom event name carrying the citation chips.</summary>
+	private const string CitationsEventName = "archive.citations";
+
+	/// <summary>Inline citation marker the system prompt requires in answers.</summary>
+	private const string CitationMarkerPrefix = "[Quelle: ";
 
 	/// <summary>
 	/// JSON options shared by the endpoint body deserialization and the AG-UI
@@ -91,12 +98,7 @@ public sealed class ArchiveChatService(
 		// Thread history lives in the database, not in the request: the last
 		// ≤20 persisted turns are the only grounding, so a tampered client
 		// payload can never inject content.
-		var history = await db.ChatMessages.AsNoTracking()
-			.Where(m => m.ThreadId == thread.Entity!.Id)
-			.OrderBy(m => m.CreatedAt).ThenBy(m => m.Id)
-			.ToListAsync(token);
-		if (history.Count > MessageHistoryLimit)
-			history = history[^MessageHistoryLimit..];
+		var history = await RecentMessages(db, thread.Entity!.Id, MessageHistoryLimit, token);
 		var modelMessages = BuildModelMessages(history, question);
 		var callOptions = new AiChatOptions
 		{
@@ -112,9 +114,6 @@ public sealed class ArchiveChatService(
 		// must be part of the RUN_STARTED event, so the input is rewritten
 		// before the AG-UI request context is built.
 		var resolved = thread.Entity!;
-		// The run identifier and, for fresh threads, the generated thread id
-		// must be part of the RUN_STARTED event, so the input is rewritten
-		// before the AG-UI request context is built.
 		input.ThreadId = resolved.Id.ToString();
 
 		// Per-request overall bound: every model call and tool execution shares
@@ -136,6 +135,7 @@ public sealed class ArchiveChatService(
 	{
 		var answer = new StringBuilder();
 		var usage = new UsageLedger();
+		var toolSongs = new List<ToolSong>();
 		var aborted = false;
 		try
 		{
@@ -157,14 +157,22 @@ public sealed class ArchiveChatService(
 					aborted = true;
 					break;
 				}
-				await ExecuteToolCallsAsync(modelMessages, outcome.PendingCalls, callOptions, overall.Token);
+				await ExecuteToolCallsAsync(modelMessages, outcome.PendingCalls, callOptions, overall.Token, toolSongs);
 			}
 			if (aborted)
 			{
-				await writer.WriteAsync(new ChatResponseUpdate
-				{
-					RawRepresentation = new RunErrorEvent { Message = RunFailureMessage },
-				}, CancellationToken.None);
+				await WriteRunErrorAsync(writer);
+			}
+			else
+			{
+				// The citation contract lives at this service seam, so it
+				// survives any provider behind IChatClient: citations are
+				// derived from THIS run's tool results whose title the answer
+				// cites with an inline [Quelle: …] marker — the marker itself
+				// stays a prompt requirement in the system prompt.
+				var citations = BuildCitations(toolSongs, answer.ToString());
+				if (citations.Count > 0)
+					await writer.WriteAsync(BuildCitationsEvent(citations), CancellationToken.None);
 			}
 			await PersistRunAsync(thread, question, answer, usage, options, aborted);
 		}
@@ -172,6 +180,9 @@ public sealed class ArchiveChatService(
 		{
 			// Persistence or tool failures must not crash the stream; no content in logs.
 			logger.LogError("Archiv-Chat: Lauf konnte nicht abgeschlossen werden ({ExceptionType}).", ex.GetType().Name);
+			// A persistence failure stays visible: the client never sees a fake
+			// success, so a missing usage-ledger row is observable behaviour.
+			await WriteRunErrorAsync(writer);
 		}
 		finally
 		{
@@ -179,6 +190,12 @@ public sealed class ArchiveChatService(
 			writer.TryComplete();
 		}
 	}
+
+	private static async Task WriteRunErrorAsync(ChannelWriter<ChatResponseUpdate> writer)
+		=> await writer.WriteAsync(new ChatResponseUpdate
+		{
+			RawRepresentation = new RunErrorEvent { Message = RunFailureMessage },
+		}, CancellationToken.None);
 
 	/// <summary>
 	/// Runs one model iteration with one bounded retry (ARC-021): the retry
@@ -258,7 +275,7 @@ public sealed class ArchiveChatService(
 	}
 
 	private static async Task ExecuteToolCallsAsync(List<AiChatMessage> modelMessages, List<FunctionCallContent> pendingCalls,
-		AiChatOptions callOptions, CancellationToken token)
+		AiChatOptions callOptions, CancellationToken token, List<ToolSong> toolSongs)
 	{
 		foreach (var pending in pendingCalls)
 		{
@@ -292,12 +309,74 @@ public sealed class ArchiveChatService(
 					resultJson = "{}";
 				}
 			}
+			CollectToolSongs(resultJson, toolSongs);
 			modelMessages.Add(new AiChatMessage(ChatRole.Assistant, string.Empty) { Contents = [pending] });
 			modelMessages.Add(new AiChatMessage(ChatRole.Tool, string.Empty)
 			{
 				Contents = [new FunctionResultContent(pending.CallId, resultJson)],
 			});
 		}
+	}
+
+	/// <summary>
+	/// Collects the (id, title) pairs a catalogue tool result carries; these
+	/// are the citation candidates for this run's answer.
+	/// </summary>
+	private static void CollectToolSongs(string resultJson, List<ToolSong> toolSongs)
+	{
+		try
+		{
+			using var document = JsonDocument.Parse(resultJson);
+			if (!document.RootElement.TryGetProperty("songs", out var songsElement)
+				|| songsElement.ValueKind is not JsonValueKind.Array)
+				return;
+			foreach (var element in songsElement.EnumerateArray())
+			{
+				var id = element.TryGetProperty("id", out var idElement) ? idElement.GetString() : null;
+				var title = element.TryGetProperty("title", out var titleElement) ? titleElement.GetString() : null;
+				if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(title))
+					toolSongs.Add(new ToolSong(id, title));
+			}
+		}
+		catch (JsonException)
+		{
+			// Malformed tool output contributes no citation candidates.
+		}
+	}
+
+	/// <summary>
+	/// Derives the citations for one run: every tool-result entry whose title
+	/// the answer cites with an inline [Quelle: Titel] marker. The comparison
+	/// folds both sides so umlauts/quote variants cannot break the match.
+	/// </summary>
+	private static List<ToolSong> BuildCitations(List<ToolSong> toolSongs, string answer)
+	{
+		if (toolSongs.Count == 0 || answer.Length == 0)
+			return [];
+		var foldedAnswer = CatalogueText.Fold(answer);
+		var cited = new List<ToolSong>();
+		foreach (var song in toolSongs)
+		{
+			if (cited.Any(c => c.Id == song.Id))
+				continue;
+			if (foldedAnswer.Contains(CatalogueText.Fold(CitationMarkerPrefix + song.Title + "]")))
+				cited.Add(song);
+		}
+		return cited;
+	}
+
+	/// <summary>The AG-UI custom event carrying the citation chips.</summary>
+	private static ChatResponseUpdate BuildCitationsEvent(List<ToolSong> citations)
+	{
+		var payload = JsonSerializer.Serialize(citations.Select(c => new { id = c.Id, label = c.Title }));
+		return new ChatResponseUpdate
+		{
+			RawRepresentation = new CustomEvent
+			{
+				Name = CitationsEventName,
+				Value = JsonDocument.Parse(payload).RootElement.Clone(),
+			},
+		};
 	}
 
 	private async Task<(ChatThread? Entity, IResult? Error)> ResolveThreadAsync(
@@ -365,12 +444,16 @@ public sealed class ArchiveChatService(
 			if (final.Length > options.MaxAnswerChars)
 				final = final[..options.MaxAnswerChars];
 			if (final.Length > 0)
-				db.ChatMessages.Add(new ChatMessage { ThreadId = thread.Id, Role = "assistant", Content = final, CreatedAt = now });
+				// One tick later: the ordering key is (CreatedAt, Id) and Guid v7
+				// ids are not monotonic within a millisecond, so the question and
+				// the answer must not share one timestamp — otherwise the
+				// authoritative history order would be a coin flip.
+				db.ChatMessages.Add(new ChatMessage { ThreadId = thread.Id, Role = "assistant", Content = final, CreatedAt = now.AddTicks(1) });
 		}
-		await db.SaveChangesAsync(CancellationToken.None);
-		await TrimThreadAsync(thread.Id);
-		await db.SaveChangesAsync(CancellationToken.None);
 		var month = now.ToString("yyyy-MM", CultureInfo.InvariantCulture);
+		// Question, assistant answer and the usage-ledger row commit as ONE
+		// batch: a broken database can never persist an answer while losing
+		// its cost row — a failure surfaces as a visible run error instead.
 		db.ChatUsageEntries.Add(new ChatUsageEntry
 		{
 			YearMonth = month,
@@ -380,6 +463,9 @@ public sealed class ArchiveChatService(
 			EstimatedCostEurCents = usage.EstimateEurCents(options),
 			CreatedAt = now,
 		});
+		await db.SaveChangesAsync(CancellationToken.None);
+		// The trim is its own bounded batch and runs after the turns/ledger.
+		await TrimThreadAsync(thread.Id);
 		await db.SaveChangesAsync(CancellationToken.None);
 		var monthCents = await db.ChatUsageEntries
 			.Where(e => e.YearMonth == month)
@@ -394,14 +480,34 @@ public sealed class ArchiveChatService(
 		}
 	}
 
+	/// <summary>
+	/// Loads the last ≤<paramref name="bound"/> messages of a thread ordered
+	/// ascending by (CreatedAt, Id): the shared recent-window shape used for
+	/// grounding history, thread trimming and the GET thread endpoint.
+	/// </summary>
+	internal static async Task<List<ChatMessage>> RecentMessages(
+		ArchiveDbContext db, Guid threadId, int bound, CancellationToken token)
+	{
+		var messages = await db.ChatMessages.AsNoTracking()
+			.Where(m => m.ThreadId == threadId)
+			.OrderBy(m => m.CreatedAt).ThenBy(m => m.Id)
+			.ToListAsync(token);
+		return messages.Count > bound ? messages[^bound..] : messages;
+	}
+
 	private async Task TrimThreadAsync(Guid threadId)
 	{
+		// The keep-set is the shared recent window; everything outside it is
+		// removed in the same (CreatedAt, Id) order as before.
+		var keep = await RecentMessages(db, threadId, MessageHistoryLimit, CancellationToken.None);
+		if (keep.Count < MessageHistoryLimit)
+			return;
+		var keepIds = keep.Select(m => m.Id).ToHashSet();
 		var messages = await db.ChatMessages
 			.Where(m => m.ThreadId == threadId)
 			.OrderBy(m => m.CreatedAt).ThenBy(m => m.Id)
 			.ToListAsync(CancellationToken.None);
-		if (messages.Count > MessageHistoryLimit)
-			db.ChatMessages.RemoveRange(messages.Take(messages.Count - MessageHistoryLimit));
+		db.ChatMessages.RemoveRange(messages.Where(m => !keepIds.Contains(m.Id)));
 	}
 
 	/// <summary>Mutable accumulator for one run's observed usage and cost estimate.</summary>
@@ -435,4 +541,7 @@ public sealed class ArchiveChatService(
 	}
 
 	private sealed record IterationOutcome(bool Aborted, List<FunctionCallContent> PendingCalls);
+
+	/// <summary>One citation candidate collected from this run's catalogue tool results.</summary>
+	private sealed record ToolSong(string Id, string Title);
 }

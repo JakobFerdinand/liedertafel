@@ -82,12 +82,7 @@ public static class ChatEndpoints
 				.FirstOrDefaultAsync(t => t.Id == id && t.AccountId == decision!.AccountId, token);
 			if (thread is null)
 				return Results.Problem(statusCode: 404, title: ThreadNotFoundMessage);
-			var messages = await db.ChatMessages.AsNoTracking()
-				.Where(m => m.ThreadId == id)
-				.OrderBy(m => m.CreatedAt).ThenBy(m => m.Id)
-				.ToListAsync(token);
-			if (messages.Count > ArchiveChatService.MessageHistoryLimit)
-				messages = messages[^ArchiveChatService.MessageHistoryLimit..];
+			var messages = await ArchiveChatService.RecentMessages(db, id, ArchiveChatService.MessageHistoryLimit, token);
 			return Results.Ok(new
 			{
 				threadId = id,

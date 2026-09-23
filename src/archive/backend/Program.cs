@@ -12,6 +12,9 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
+// The chat slice's configuration type shares its name with Microsoft's
+// Microsoft.Extensions.AI.ChatOptions; the alias keeps the usage sites short.
+using ChatOptions = Archive.Backend.Chat.ChatOptions;
 
 var command = args.FirstOrDefault();
 if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" or "--bootstrap-admin" or "--repair-admin" or "--seed-dev-auth" or "--send-test-mail" or "--cleanup-uploads")
@@ -74,8 +77,8 @@ builder.Services.AddSingleton<IAssetStorageAdapter>(sp => sp.GetRequiredService<
 builder.Services.AddScoped<UploadSessionCleaner>();
 builder.Services.AddHttpContextAccessor();
 // ARC-022: bounded archive chat configuration (availability gate and caps).
-builder.Services.AddOptions<Archive.Backend.Chat.ChatOptions>()
-	.BindConfiguration(Archive.Backend.Chat.ChatOptions.SectionName);
+builder.Services.AddOptions<ChatOptions>()
+	.BindConfiguration(ChatOptions.SectionName);
 // Provider seam: Development without provider configuration runs the
 // deterministic ScriptedChatClient; a real Azure OpenAI implementation
 // (managed identity, pinned model) is added with ARC-022's provider step.
