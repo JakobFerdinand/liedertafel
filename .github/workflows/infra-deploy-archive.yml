@@ -219,14 +219,8 @@ jobs:
           ARCHIVE_CONTAINER_IMAGE: ${{ steps.image.outputs.image }}
           ARCHIVE_GHCR_PASSWORD: ${{ secrets.GHCR_PULL_PAT_ARCHIVE }}
         run: |
-          # ARC-021: the Consumption budget write needs Cost Management
-          # Contributor; the deploy job resolves its own object id so the
-          # Bicep self-grant can precede the budget resource. Empty for the
-          # PR what-if job (preview identity stays Contributor-only).
-          DEPLOY_PRINCIPAL_ID=$(az ad sp show --id "$AZURE_CLIENT_ID_ARCHIVE" --query id -o tsv)
           az deployment group create \
             --resource-group "$RESOURCE_GROUP" \
             --template-file infrastructure/archive/main.bicep \
             --parameters infrastructure/archive/main.bicepparam \
-            --parameters deployPrincipalId="$DEPLOY_PRINCIPAL_ID" \
             --parameters maintenanceMode="${{ steps.maintenance.outputs.mode }}"
