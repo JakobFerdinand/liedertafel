@@ -32,8 +32,9 @@ export function MaintenanceBanner() {
 
   return (
     <output className="maintenance-banner" aria-live="polite">
-      Wartungsarbeiten: Das Archiv ist vorübergehend nicht verfügbar. Bitte
-      versuchen Sie es später erneut. <a href="/wartung/">Details</a>
+      <strong>Wartungsarbeiten:</strong> Das Archiv ist vorübergehend nicht
+      verfügbar. Bitte versuchen Sie es später erneut.{" "}
+      <a href="/wartung/">Details</a>
     </output>
   );
 }

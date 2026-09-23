@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ArchivArbeitsplatz } from "@/components/archiv-arbeitsplatz";
-import { AuthStatus } from "@/components/auth-status";
+import { HauptNavigation } from "@/components/haupt-navigation";
 import { MaintenanceBanner } from "@/components/maintenance-banner";
 import "./globals.css";
 import "./fragen/chat.css";
@@ -32,15 +32,7 @@ export default function RootLayout({
           >
             Liedertafel <span>Mining 1906</span>
           </Link>
-          <nav aria-label="Hauptnavigation">
-            <Link href="/">Archiv</Link>
-            <Link href="/archiv/">Mitgliederbereich</Link>
-            <Link href="/lieder/">Liederkatalog</Link>
-            <Link href="/fragen/">Archiv fragen</Link>
-            <Link href="/verwaltung/">Verwaltung</Link>
-            <Link href="/system/status/">Systemstatus</Link>
-            <AuthStatus />
-          </nav>
+          <HauptNavigation />
         </header>
         <MaintenanceBanner />
         <ArchivArbeitsplatz>{children}</ArchivArbeitsplatz>

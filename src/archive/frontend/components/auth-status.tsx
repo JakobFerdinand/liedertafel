@@ -39,7 +39,7 @@ export function AuthStatus() {
   if (me === null) {
     return (
       <span aria-live="polite" className="auth-hinweis">
-        Anmeldestatus wird geprüft …
+        Anmeldung wird geprüft …
       </span>
     );
   }
@@ -48,8 +48,13 @@ export function AuthStatus() {
   }
   return (
     <span className="auth-zeile">
-      <span>Angemeldet</span>{" "}
-      <button type="button" onClick={abmelden} disabled={busy}>
+      <span className="auth-status">Angemeldet</span>
+      <button
+        type="button"
+        className="knopf-leise"
+        onClick={abmelden}
+        disabled={busy}
+      >
         Abmelden
       </button>
       {hinweis && (

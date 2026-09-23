@@ -767,6 +767,8 @@ test("Großansicht und Katalog teilen Gespräch, Thread und ungesendeten Entwurf
   await expect(ersteAntwort).toBeVisible();
   await eingabe.fill("Welche Fassungen gibt es?");
 
+  if (isMobile)
+    await page.getByRole("button", { name: "Menü", exact: true }).click();
   await page
     .getByRole("navigation", { name: "Hauptnavigation" })
     .getByRole("link", { name: "Liederkatalog", exact: true })
@@ -842,6 +844,8 @@ test("Eine verzögerte Chatantwort überlebt Navigation und Minimieren", async (
     await expect(page.getByRole("button", { name: "Abbrechen" })).toBeVisible();
     await page.getByLabel("Frage stellen").fill("Mein nächster Gedanke");
 
+    if (isMobile)
+      await page.getByRole("button", { name: "Menü", exact: true }).click();
     await page
       .getByRole("navigation", { name: "Hauptnavigation" })
       .getByRole("link", { name: "Liederkatalog", exact: true })
