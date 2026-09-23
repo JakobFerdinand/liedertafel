@@ -148,6 +148,12 @@ jobs:
     name: Deploy archive infrastructure
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    # Serializes deployments: duplicate push events for the same commit would
+    # otherwise race on the same ARM deployment name ("main") and fail with
+    # DeploymentActive. Queued runs redeploy idempotently.
+    concurrency:
+      group: archive-infra
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
 
