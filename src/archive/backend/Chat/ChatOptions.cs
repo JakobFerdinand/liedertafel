@@ -47,6 +47,20 @@ public sealed class ChatOptions
 	/// <summary>Reference output price per million tokens used for the cost estimate.</summary>
 	public decimal OutputPricePerMillionEur { get; set; } = 4.95m;
 
+	/// <summary>
+	/// Model provider selection (ARC-021 seam): <c>AzureOpenAI</c> selects the
+	/// real Azure OpenAI client, but only when both <see cref="Endpoint"/> and
+	/// <see cref="DeploymentName"/> are set as well; null or any other value
+	/// keeps the deterministic <see cref="ScriptedChatClient"/>.
+	/// </summary>
+	public string? Provider { get; set; }
+
+	/// <summary>Azure OpenAI resource endpoint (https); used only with <c>Provider=AzureOpenAI</c>.</summary>
+	public string? Endpoint { get; set; }
+
+	/// <summary>Pinned deployment name under that endpoint; used only with <c>Provider=AzureOpenAI</c>.</summary>
+	public string? DeploymentName { get; set; }
+
 	/// <summary>Combined endpoint gate: available when explicitly enabled and not manually disabled.</summary>
 	public bool IsAvailable => Enabled && !Disabled;
 }

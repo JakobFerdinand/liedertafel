@@ -79,12 +79,18 @@ builder.Services.AddHttpContextAccessor();
 // ARC-022: bounded archive chat configuration (availability gate and caps).
 builder.Services.AddOptions<ChatOptions>()
 	.BindConfiguration(ChatOptions.SectionName);
-// Provider seam: Development without provider configuration runs the
-// deterministic ScriptedChatClient; a real Azure OpenAI implementation
-// (managed identity, pinned model) is added with ARC-022's provider step.
-// The Enabled gate keeps ordinary runs inert, so the scripted stand-in is
-// registered unconditionally for every environment.
-builder.Services.AddSingleton<IChatClient, ScriptedChatClient>();
+// ARC-021 provider seam, implemented: when Archive:Chat selects
+// Provider=AzureOpenAI with Endpoint and DeploymentName, the real Azure
+// OpenAI client is registered — keyless via DefaultAzureCredential, which
+// resolves the hosted container's user-assigned managed identity through
+// AZURE_CLIENT_ID (set by Bicep) and az login on a developer machine. Without
+// that configuration, Development and all tests keep the deterministic
+// ScriptedChatClient; the Enabled gate keeps ordinary runs inert.
+if (AzureOpenAIChatClient.Create(builder.Configuration
+		.GetSection(ChatOptions.SectionName).Get<ChatOptions>() ?? new ChatOptions()) is { } azureChatClient)
+	builder.Services.AddSingleton<IChatClient>(azureChatClient);
+else
+	builder.Services.AddSingleton<IChatClient, ScriptedChatClient>();
 builder.Services.AddScoped<ArchiveChatService>();
 builder.Services.AddArchiveAuth(builder.Configuration, builder.Environment);
 // ARC-011: Container Apps terminates TLS at the front proxy and forwards

@@ -8,8 +8,13 @@ using Archive.Backend.Data;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit.Abstractions;
+
+// The chat slice's configuration type shares its name with Microsoft's
+// Microsoft.Extensions.AI.ChatOptions; the alias keeps both worlds unambiguous.
+using ChatOptions = Archive.Backend.Chat.ChatOptions;
 
 namespace Archive.Backend.Tests;
 
@@ -24,8 +29,13 @@ namespace Archive.Backend.Tests;
 /// result set, zero unsupported factual claims, honest "unknown" behaviour
 /// and a recorded EUR-per-answer cost estimate. The scripted model keeps
 /// every run reproducible offline; the live-provider rerun against the
-/// pinned GPT-5.4-mini is a documented ARC-022 follow-up behind the same
-/// <c>IChatClient</c> seam. Run with
+/// pinned GPT-5.4-mini runs the same case set behind the same
+/// <c>IChatClient</c> seam (ARC-021 provider step, implemented with
+/// ARC-022) and lives behind the <c>ChatEvaluationLive</c> trait: it is
+/// invoked explicitly with
+/// <c>dotnet test tests/archive/backend --filter "Category=ChatEvaluationLive"</c>
+/// and never runs without the live configuration (environment variables, see
+/// the test). Run the scripted suite with
 /// <c>dotnet test tests/archive/backend --filter FullyQualifiedName~ChatEvaluation</c>;
 /// the per-case <c>EVAL</c> lines are visible with
 /// <c>--logger "console;verbosity=detailed"</c>.
@@ -54,6 +64,15 @@ public sealed class ChatEvaluationTests(ITestOutputHelper output)
 
 	/// <summary>Unknown song question target: deliberately not seeded into the corpus.</summary>
 	private const string UnseededSongTitle = "Hoch auf dem gelben Wagen";
+
+	/// <summary>Live rerun configuration (ARC-021 provider step): resource endpoint, https.</summary>
+	private const string LiveEndpointEnvVar = "ARCHIVE_CHAT_ENDPOINT";
+
+	/// <summary>Live rerun configuration: pinned deployment name under the endpoint.</summary>
+	private const string LiveDeploymentEnvVar = "ARCHIVE_CHAT_DEPLOYMENT_NAME";
+
+	/// <summary>Live rerun reporting extra: model/api version tag for the EVAL header line.</summary>
+	private const string LiveModelVersionEnvVar = "ARCHIVE_CHAT_MODEL_VERSION";
 
 	public static IEnumerable<object[]> Cases()
 	{
@@ -306,6 +325,116 @@ public sealed class ChatEvaluationTests(ITestOutputHelper output)
 		output.WriteLine("EVAL <überlange Frage> → 0 EUR-Cent, citations: 0, result: rejected-too-long");
 	}
 
+	/// <summary>
+	/// ARC-021 live-provider rerun (implemented with ARC-022): runs the same
+	/// evaluation case set against the pinned real Azure OpenAI deployment
+	/// behind the same <see cref="IChatClient"/> seam (built through the
+	/// shared <see cref="AzureOpenAIChatClient"/> helper, so the credential
+	/// path is exactly the backend's: az login on a developer machine, the
+	/// user-assigned managed identity in the hosted container — keyless,
+	/// disableLocalAuth). The run records the same EVAL evidence lines and one
+	/// usage-ledger row per run for the EUR-per-answer estimate, and enforces
+	/// the hard grounding invariants (citations only inside the authorized
+	/// result set; the draft record and the confidential marker never
+	/// surface). Soft model behaviour stays observable without failing the
+	/// suite: each EVAL line reports finish state and missing citation
+	/// markers for the operator. xunit v2 has no runtime skip, so this test
+	/// never runs without explicit live access: it is separated behind the
+	/// <c>ChatEvaluationLive</c> trait and returns immediately when
+	/// <c>ARCHIVE_CHAT_ENDPOINT</c> or <c>ARCHIVE_CHAT_DEPLOYMENT_NAME</c> is
+	/// unset. Invoke it explicitly with
+	/// <c>dotnet test tests/archive/backend --filter "Category=ChatEvaluationLive"</c>
+	/// (optional <c>ARCHIVE_CHAT_MODEL_VERSION</c> for reporting).
+	/// </summary>
+	[Fact]
+	[Trait("Category", "ChatEvaluationLive")]
+	public async Task LiveProviderRerunRecordsTheSameEvidence()
+	{
+		var endpoint = Environment.GetEnvironmentVariable(LiveEndpointEnvVar);
+		var deployment = Environment.GetEnvironmentVariable(LiveDeploymentEnvVar);
+		var modelVersion = Environment.GetEnvironmentVariable(LiveModelVersionEnvVar);
+		if (string.IsNullOrWhiteSpace(endpoint) || string.IsNullOrWhiteSpace(deployment))
+		{
+			output.WriteLine(
+				$"EVAL live rerun skipped: set {LiveEndpointEnvVar} and {LiveDeploymentEnvVar} (az login) to run the evaluation against the pinned Azure OpenAI deployment.");
+			return;
+		}
+
+		var liveChatClient = AzureOpenAIChatClient.Create(new ChatOptions
+			{
+				Provider = AzureOpenAIChatClient.ProviderName,
+				Endpoint = endpoint,
+				DeploymentName = deployment,
+			})
+			?? throw new InvalidOperationException("Die Live-Konfiguration wählt den AzureOpenAI-Provider nicht.");
+		await using var factory = EvaluationFactory(liveChatClient);
+		await SeedCorpusAsync(factory);
+		var session = await SignInAsync(factory, MemberA);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		// The server enforces the run bounds (overall/no-token windows); the
+		// streaming read must not be cut earlier by the HttpClient default.
+		client.Timeout = Timeout.InfiniteTimeSpan;
+
+		var versionSuffix = string.IsNullOrWhiteSpace(modelVersion) ? string.Empty : $" ({modelVersion})";
+		output.WriteLine($"EVAL live rerun start: pinned deployment {deployment}{versionSuffix}.");
+		foreach (var testCase in Cases().Select(caseRow => (EvaluationCase)caseRow[0]))
+		{
+			var events = await RunChatAsync(client, session, Guid.NewGuid().ToString(), testCase.Question);
+			var body = await events.Content.ReadAsStringAsync();
+			var parsed = ParseEvents(body);
+			var text = string.Join("", CollectTextDeltas(body));
+			var citations = CollectLiveCitations(parsed);
+			var finished = events.StatusCode == HttpStatusCode.OK
+				&& parsed.Any(e => e.GetProperty("type").GetString() == "RUN_FINISHED");
+
+			// Hard grounding invariants (security): a citation may only name
+			// an authorized record with its seeded title, and the draft
+			// record plus the confidential marker must never surface —
+			// regardless of the model behind the seam.
+			var authorized = await AuthorizedSongsAsync(factory, testCase.Question);
+			var authorizedIds = authorized.Select(s => s.Id.ToString()).ToHashSet();
+			foreach (var citation in citations)
+			{
+				Assert.Contains(citation.Id, authorizedIds);
+				Assert.Contains(authorized, s => s.Id.ToString() == citation.Id && s.Title == citation.Label);
+			}
+			Assert.DoesNotContain(DraftTitle, text);
+			Assert.DoesNotContain(ConfidentialMarker, text);
+
+			// Soft behaviour flags: a not-finished run (bound or provider
+			// failure) and a missing [Quelle: …] marker for the categories
+			// the scripted client cites deterministically. Reported, not
+			// asserted: the operator reads the EVAL lines.
+			var flags = new List<string>();
+			if (!finished)
+				flags.Add("no-finish");
+			if (finished && testCase.Category is CategoryKnownSong or CategoryYearOnly or CategoryConflicting or CategoryInstruction
+				&& testCase.ExpectedSongTitle is not null
+				&& !text.Contains($"[Quelle: {testCase.ExpectedSongTitle}]", StringComparison.Ordinal))
+				flags.Add("missing-citation-marker");
+
+			// One ledger row per run: the recorded EUR-per-answer estimate
+			// mirrors the scripted evaluation's evidence exactly.
+			using (var scope = factory.Services.CreateScope())
+			{
+				var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+				var entry = await db.ChatUsageEntries
+					.OrderByDescending(e => e.CreatedAt).ThenByDescending(e => e.Id)
+					.FirstAsync();
+				var result = flags.Count == 0 ? "live-passed" : $"live-flag:{string.Join("|", flags)}";
+				output.WriteLine(
+					$"EVAL {testCase.Question} → {entry.EstimatedCostEurCents} EUR-Cent (in {entry.InputTokens}/out {entry.OutputTokens} tokens), citations: {citations.Count}, result: {result}-{testCase.Category}");
+			}
+		}
+	}
+
+	private static List<(string Id, string Label)> CollectLiveCitations(List<JsonElement> events) => events
+		.Where(e => e.GetProperty("type").GetString() == "CUSTOM"
+			&& e.GetProperty("name").GetString() == "archive.citations")
+		.SelectMany(e => e.GetProperty("value").EnumerateArray())
+		.Select(v => (v.GetProperty("id").GetString() ?? string.Empty, v.GetProperty("label").GetString() ?? string.Empty))
+		.ToList();
+
 	/// <summary>One synthetic evaluation case: question, expected behaviour category and optional song title.</summary>
 	public sealed record EvaluationCase(string Question, string Category, string? ExpectedSongTitle = null);
 
@@ -487,10 +616,11 @@ public sealed class ChatEvaluationTests(ITestOutputHelper output)
 
 	// ---- harness (mirrors ChatApiTests) ----
 
-	private static AuthApiFactory EvaluationFactory() => new("Development", settings: new Dictionary<string, string?>
-	{
-		["Archive:Chat:Enabled"] = "true",
-	});
+	private static AuthApiFactory EvaluationFactory(IChatClient? chatClient = null) => new("Development",
+		settings: new Dictionary<string, string?>
+		{
+			["Archive:Chat:Enabled"] = "true",
+		}, chatClient: chatClient);
 
 	private static object ChatBody(string threadId, string question) => new
 	{
