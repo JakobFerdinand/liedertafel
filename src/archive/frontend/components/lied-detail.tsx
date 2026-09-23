@@ -232,7 +232,7 @@ export function LiedDetail() {
   }
 
   return (
-    <div>
+    <div className="lied-detail">
       <article className="lied-ansicht">
         {editor && (
           <p className="lieder-status lied-status-kopf">
@@ -290,6 +290,7 @@ export function LiedDetail() {
               <div className="lieder-aktionen">
                 <button
                   type="button"
+                  className="knopf-leise"
                   onClick={() => {
                     setArrangementBearbeitet(
                       arrangementBearbeitet === arrangement.id
@@ -306,6 +307,7 @@ export function LiedDetail() {
                 </button>
                 <button
                   type="button"
+                  className="knopf-leise"
                   onClick={() => {
                     setFassungHinzufuegen(
                       fassungHinzufuegen === arrangement.id
@@ -358,6 +360,7 @@ export function LiedDetail() {
                   <div className="lieder-aktionen">
                     <button
                       type="button"
+                      className="knopf-leise"
                       onClick={() => {
                         setFassungBearbeitet(
                           fassungBearbeitet === fassung.id ? null : fassung.id,

@@ -659,6 +659,7 @@ export function NotenBereich({
                         {isEditor && (
                           <button
                             type="button"
+                            className="knopf-leise"
                             onClick={() =>
                               bearbeitenId === asset.id
                                 ? bearbeitenSchliessen()
@@ -785,10 +786,21 @@ export function NotenBereich({
                     </span>
                   </div>
                   {(zeile.status === "uebertragen" ||
+                    zeile.status === "geprueft") && (
+                    <div className="material-fortschritt" aria-hidden="true">
+                      <span
+                        style={{
+                          width: `${Math.max(0, Math.min(100, zeile.fortschritt))}%`,
+                        }}
+                      />
+                    </div>
+                  )}
+                  {(zeile.status === "uebertragen" ||
                     zeile.status === "geprueft" ||
                     zeile.status === "abbruchLaeuft") && (
                     <button
                       type="button"
+                      className="knopf-leise"
                       onClick={() => abbrechen(zeile)}
                       disabled={zeile.status === "abbruchLaeuft"}
                     >

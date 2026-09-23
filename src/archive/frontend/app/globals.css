@@ -94,10 +94,12 @@ h3 {
    – .knopf-leise-rahmen: umrandete leise Variante, Hover füllt mit
      Markenfarbe. Die Grundform (transparent, 2px currentColor) teilt
      .knopf-leise-rahmen mit den Marken-Knopfzeilen (.lied-anderer-titel,
-     .noten-laden) und den Fassungs-Knöpfen (.fassungs-liste: Tinte, Hover
-     Waschgrund, gewählt solid) — diese behalten ihre eigenen Farb- und
-     Hoverregeln; die Passkey-Zeilen (.passkey-liste) tragen ihre Knöpfe
-     dagegen als leise Textknöpfe (.knopf-leise). */
+     .noten-laden) — diese behalten ihre eigenen Farb- und Hoverregeln;
+     die Passkey-Zeilen (.passkey-liste) tragen ihre Knöpfe dagegen als
+     leise Textknöpfe (.knopf-leise). Die Fassungs-Knöpfe
+     (.fassungs-liste) sind Vorschlagskacheln nach .chat-vorschlaege
+     (Haarriss-Rahmen auf Papier, gewählt solide) und steigen darum aus
+     der Rahmenfamilie aus. */
 .hinweis-block,
 .chat-zustand,
 .chat-fehler,
@@ -120,8 +122,7 @@ h3 {
 }
 .knopf-leise-rahmen,
 .lied-anderer-titel button,
-.noten-laden,
-.fassungs-liste button {
+.noten-laden {
   background: transparent;
   border: 2px solid currentColor;
   border-radius: var(--radius-knopf);
@@ -391,6 +392,10 @@ dd {
   outline: 2px solid var(--brand);
   outline-offset: 2px;
 }
+/* Kartenüberschriften in Abschnittsgröße der kleinen Textleiter. */
+.auth-karte h2 {
+  font-size: var(--titel-abschnitt);
+}
 .auth-karte label {
   display: block;
   font-weight: 600;
@@ -427,6 +432,7 @@ dd {
   border-color: var(--brand);
 }
 .feld-fehler {
+  display: block;
   color: var(--brand);
   font-weight: 600;
   margin-block: 0.4rem 0;
@@ -821,17 +827,30 @@ dd {
   border-block-end: 1px solid var(--rule);
   padding-block-end: 0.9rem;
 }
+/* ─── Lied-Detail: Lesesaal ───────────────────────────────────────────
+   Die tiefste Mitgliedsseite liest sich wie eine Chat-Antwort:
+   Serifentitel in der Seitengröße (--titel-seite), stille Urheberzeile,
+   Abschnitte hinter dem Haarriss (--rule). Die Spalte läuft im
+   Großansicht-Maß von 48rem. */
+.lied-detail {
+  max-width: 48rem;
+}
 .lied-ansicht h2 {
-  margin-block: 0.2rem 0.6rem;
+  margin-block: 0.3rem 0.25rem;
+  font-size: var(--titel-seite);
+  overflow-wrap: anywhere;
+}
+.lied-ansicht .lieder-urheber {
+  margin-block: 0.2rem 0;
 }
 .fassungs-wahl {
-  margin-block: 1.2rem 0;
+  margin-block: 1.4rem 0;
 }
 .fassungs-wahl legend {
   padding: 0;
 }
 .fassungs-gruppe {
-  border-top: 1px solid var(--wash);
+  border-top: 1px solid var(--rule);
   margin-block: 1.2rem;
   padding-block-start: 1rem;
 }
@@ -839,28 +858,54 @@ dd {
   border-top: 0;
   padding-block-start: 0;
 }
+/* Gewählt-Zeichen des Systems: der 4px-Markenlinker bleibt allein der
+   gewählten Arrangementgruppe. */
 .fassungs-gruppe[data-gewaehlt="true"] {
   border-left: 4px solid var(--brand);
   padding-left: 0.8rem;
 }
 .fassungs-gruppe h3 {
-  margin-block: 0 0.4rem;
+  margin-block: 0 0.35rem;
+  font-size: var(--titel-abschnitt);
 }
+.fassungs-gruppe .feld-hinweis {
+  color: var(--muted);
+  font-size: var(--schrift-etikett);
+  margin-block: 0.1rem 0;
+}
+/* Fassungsknöpfe als Vorschlagskacheln nach .chat-vorschlaege:
+   Haarriss-Rahmen auf Papier, Marken-Text linksbündig, Hover wäscht und
+   rahmt in Markenfarbe; die gewählte Fassung bleibt solide Marke. */
 .fassungs-liste {
   list-style: none;
-  margin: 0;
+  margin: 0.7rem 0 0;
   padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+  gap: 0.65rem;
+}
+.fassungs-liste li {
+  display: grid;
+  min-width: 0;
 }
 .fassungs-liste button {
-  color: var(--ink);
-  padding: 0.5rem 0.8rem;
+  min-width: 0;
+  min-height: 2.75rem;
+  padding: 0.9rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-knopf);
+  background: var(--paper);
+  color: var(--brand);
   font: inherit;
+  font-weight: 600;
+  font-size: var(--schrift-neben);
+  line-height: 1.5;
+  text-align: left;
+  overflow-wrap: anywhere;
 }
-.fassungs-liste button:hover:not(:disabled) {
+.fassungs-liste button:hover:not([aria-pressed="true"]) {
   background: var(--wash);
+  border-color: var(--brand);
 }
 .fassungs-liste button[aria-pressed="true"] {
   background: var(--brand);
@@ -874,7 +919,7 @@ dd {
   margin-block: 1.4rem 0;
 }
 .lied-fassung-block {
-  border-top: 1px solid var(--wash);
+  border-top: 1px solid var(--rule);
   padding-block: 0.8rem;
 }
 .lied-fassung-block:first-of-type {
@@ -887,19 +932,22 @@ dd {
 }
 .lied-fassung-version {
   margin-block: 0.4rem 0;
-  border-top: 1px dashed var(--wash);
+  border-top: 1px dashed var(--rule);
   padding-block: 0.4rem;
 }
 .noten-bereich {
-  margin-block: 1.2rem 0;
-  border-top: 1px solid var(--wash);
-  padding-block-start: 1rem;
+  margin-block: 1.4rem 0;
+  border-top: 1px solid var(--rule);
+  padding-block-start: 1.1rem;
 }
 .noten-bereich h3 {
-  margin-block: 0 0.4rem;
+  margin-block: 0 0.35rem;
+  font-size: var(--titel-abschnitt);
 }
+/* Meta-Zeilen nach den Chat-Quellen: stille kleine Leiter. */
 .noten-info {
-  font-size: 0.95rem;
+  color: var(--muted);
+  font-size: var(--schrift-neben);
   margin-block: 0.2rem 0;
 }
 .noten-aktionen {
@@ -909,8 +957,15 @@ dd {
   align-items: center;
   margin-block: 0.6rem;
 }
+.noten-aktionen button {
+  min-height: 2.75rem;
+  padding: 0.45rem 0.95rem;
+  font-size: var(--schrift-neben);
+}
 .noten-laden {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
   font-weight: 600;
 }
 .noten-ansicht {
@@ -918,37 +973,45 @@ dd {
   width: 100%;
   min-height: 70vh;
   box-sizing: border-box;
-  border: 2px solid var(--wash);
-  border-radius: 0.4rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-knopf-gross);
   margin-block: 0.6rem;
   background: var(--paper);
 }
 .material-liste {
   display: grid;
-  gap: 1rem;
-  margin-block: 1rem;
+  gap: 1.2rem;
+  margin-block: 1rem 0;
 }
 .material-gruppe {
-  border-left: 4px solid var(--wash);
-  padding-left: 0.8rem;
+  min-width: 0;
+}
+.material-gruppe + .material-gruppe {
+  border-top: 1px solid var(--rule);
+  padding-top: 1.1rem;
 }
 .material-gruppe h4 {
-  margin-block: 0 0.4rem;
-  font-size: 1.05rem;
+  margin-block: 0 0.5rem;
+  font-family: var(--font-heading);
+  font-size: 1.1rem;
 }
 .material-eintrag {
-  border-top: 1px dashed var(--wash);
-  padding-block: 0.4rem;
+  min-width: 0;
+  border-top: 1px dashed var(--rule);
+  padding-block: 0.5rem;
 }
 .material-eintrag:first-of-type {
   border-top: 0;
 }
+/* Spieler: umrandete Karte, Markenlinie während der Wiedergabe,
+   tabellarische Zeit; die Regler tragen native Markenfarbe und
+   Berührziele ab 2.75rem Höhe. */
 .audio-spieler {
   display: grid;
   gap: 0.4rem;
-  border: 1px solid var(--wash);
-  border-radius: 0.3rem;
-  padding: 0.6rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-knopf);
+  padding: 0.6rem 0.85rem;
   margin-block: 0.4rem;
 }
 .audio-spieler.audio-laeuft {
@@ -960,34 +1023,73 @@ dd {
   gap: 0.6rem;
   flex-wrap: wrap;
 }
+.audio-steuerung button {
+  min-height: 2.75rem;
+}
 .audio-zeit {
   font-variant-numeric: tabular-nums;
-  font-size: 0.9rem;
+  font-size: var(--schrift-neben);
 }
 .audio-bereiche {
   display: flex;
   align-items: center;
-  gap: 0.8rem;
+  gap: 0.5rem 0.8rem;
+  flex-wrap: wrap;
 }
 .audio-bereiche input[type="range"] {
   flex: 1;
   min-width: 6rem;
+  min-height: 2.75rem;
+  margin: 0;
+  accent-color: var(--brand);
 }
 .audio-lautstaerke {
   max-width: 7rem;
 }
+/* Stimme als Sprecher-Etikett nach .chat-sprecher, Beschreibung als
+   ruhiger Nebentext. */
 .material-stimme {
-  font-weight: 600;
-  margin-block: 0.4rem 0;
+  font-weight: 700;
+  color: var(--brand);
+  font-size: var(--schrift-etikett);
+  margin-block: 0.55rem 0.15rem;
 }
 .material-beschreibung {
-  font-size: 0.9rem;
-  margin-block: 0.2rem;
+  font-size: var(--schrift-neben);
+  margin-block: 0.15rem;
 }
+/* ─── Redaktions-Werkbank: Zeilen wie Nachrichten ────────────────────
+   Kopfzeile (Name, Größe, Zustand) trägt die Zeile, die Felder laufen im
+   Raster. Der dünne Marken-Fortschritt ist der einzige Schmuck, weil er
+   einen echten Zustand beantwortet. */
 .material-verwaltung {
   border: 0;
-  padding: 0;
-  margin-block: 1rem 0;
+  border-top: 1px solid var(--rule);
+  padding: 1.2rem 0 0;
+  margin-block: 1.4rem 0;
+}
+.material-fortsetzungen {
+  display: grid;
+  gap: 0.5rem;
+  margin-block: 0 1rem;
+}
+.material-fortsetzungen > p {
+  margin: 0;
+  font-weight: 600;
+  font-size: var(--schrift-neben);
+}
+.material-fortsetzung {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  border: 1px dashed var(--rule);
+  border-radius: var(--radius-knopf);
+  padding: 0.4rem 0.85rem;
+}
+.material-fortsetzung .material-datei-name {
+  flex: 1 1 10rem;
+  min-width: 0;
 }
 .material-dateien {
   list-style: none;
@@ -997,16 +1099,17 @@ dd {
   gap: 0.8rem;
 }
 .material-datei {
-  border: 1px solid var(--wash);
-  border-radius: 0.3rem;
-  padding: 0.6rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-knopf);
+  background: var(--paper);
+  padding: 0.65rem 0.85rem;
   display: grid;
   gap: 0.4rem;
 }
 .material-datei-kopf {
   display: flex;
   align-items: baseline;
-  gap: 0.6rem;
+  gap: 0.4rem 0.6rem;
   flex-wrap: wrap;
 }
 .material-datei-name {
@@ -1014,10 +1117,35 @@ dd {
   overflow-wrap: anywhere;
 }
 .material-datei-groesse {
-  font-size: 0.85rem;
+  color: var(--muted);
+  font-size: var(--schrift-etikett);
 }
 .material-datei-status {
-  font-size: 0.9rem;
+  margin-left: auto;
+  color: var(--muted);
+  font-size: var(--schrift-etikett);
+}
+/* Gescheiterte Zeilen färben ihr Zustandswort in Markenfarbe. */
+.material-datei[data-status="gescheitert"] .material-datei-status {
+  color: var(--brand);
+}
+.material-fortschritt {
+  height: 0.3rem;
+  border-radius: var(--radius-fein);
+  background: var(--wash);
+  overflow: hidden;
+}
+.material-fortschritt > span {
+  display: block;
+  height: 100%;
+  background: var(--brand);
+}
+.material-datei button,
+.material-fortsetzung button {
+  justify-self: start;
+  min-height: 2.75rem;
+  padding: 0.4rem 0.85rem;
+  font-size: var(--schrift-neben);
 }
 .material-felder {
   display: grid;
@@ -1025,7 +1153,7 @@ dd {
   gap: 0.2rem 1rem;
 }
 .material-felder label {
-  font-size: 0.85rem;
+  font-size: var(--schrift-neben);
   font-weight: 600;
   margin-block: 0.3rem 0.15rem;
 }
@@ -1033,9 +1161,9 @@ dd {
 .material-felder select {
   width: 100%;
   box-sizing: border-box;
-  padding: 0.5rem;
+  padding: 0.55rem 0.7rem;
   border: 2px solid var(--ink);
-  border-radius: 0.3rem;
+  border-radius: var(--radius-knopf);
   font: inherit;
   background: var(--paper);
   color: var(--ink);
@@ -1045,16 +1173,16 @@ dd {
 }
 .material-bearbeiten label {
   display: block;
-  font-size: 0.85rem;
+  font-size: var(--schrift-neben);
   font-weight: 600;
   margin-block: 0.4rem 0.15rem;
 }
 .material-bearbeiten input {
   width: 100%;
   box-sizing: border-box;
-  padding: 0.5rem;
+  padding: 0.55rem 0.7rem;
   border: 2px solid var(--ink);
-  border-radius: 0.3rem;
+  border-radius: var(--radius-knopf);
   font: inherit;
   background: var(--paper);
   color: var(--ink);
@@ -1264,6 +1392,15 @@ footer {
   }
   .lieder-liste-einträge {
     gap: 1.5rem;
+  }
+  /* Werkbank-Zeilen stapeln im Handymaß: Feldraster einspaltig, der
+     Zustand bekommt eine eigene Zeile unter Name und Größe. */
+  .material-felder {
+    grid-template-columns: 1fr;
+  }
+  .material-datei-status {
+    margin-left: 0;
+    flex-basis: 100%;
   }
   .introduction {
     padding-top: 2.5rem;
