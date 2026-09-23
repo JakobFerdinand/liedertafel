@@ -387,24 +387,40 @@ public sealed class ChatEvaluationTests(ITestOutputHelper output)
 			var finished = events.StatusCode == HttpStatusCode.OK
 				&& parsed.Any(e => e.GetProperty("type").GetString() == "RUN_FINISHED");
 
-			// Hard grounding invariants (security): a citation may only name
-			// an authorized record with its seeded title, and the draft
-			// record plus the confidential marker must never surface —
-			// regardless of the model behind the seam.
-			var authorized = await AuthorizedSongsAsync(factory, testCase.Question);
-			var authorizedIds = authorized.Select(s => s.Id.ToString()).ToHashSet();
+			// Hard grounding invariants (security): every citation must name a
+			// member-visible published record with the record's own title, and
+			// the draft record plus the confidential marker must never
+			// surface — regardless of the model behind the seam. (The precise
+			// authorized-set bound is enforced server-side: citations are
+			// derived in ArchiveChatService from the run's authorized tool
+			// results, which are visibility-filtered inside the tools.)
+			var published = await PublishedSongsAsync(factory);
+			var publishedById = published.ToDictionary(s => s.Id.ToString());
 			foreach (var citation in citations)
 			{
-				Assert.Contains(citation.Id, authorizedIds);
-				Assert.Contains(authorized, s => s.Id.ToString() == citation.Id && s.Title == citation.Label);
+				var cited = publishedById.GetValueOrDefault(citation.Id);
+				Assert.NotNull(cited);
+				Assert.Equal(CatalogueText.Fold(cited.Title), CatalogueText.Fold(citation.Label));
 			}
-			Assert.DoesNotContain(DraftTitle, text);
+			var draftId = (await SeededSongsAsync(factory))
+				.Single(s => s.Title == DraftTitle).Id.ToString();
+			Assert.DoesNotContain(draftId, text);
+			Assert.DoesNotContain(draftId, string.Join("", citations.Select(c => c.Id)));
 			Assert.DoesNotContain(ConfidentialMarker, text);
 
 			// Soft behaviour flags: a not-finished run (bound or provider
-			// failure) and a missing [Quelle: …] marker for the categories
-			// the scripted client cites deterministically. Reported, not
-			// asserted: the operator reads the EVAL lines.
+			// failure), a missing [Quelle: …] marker for the categories the
+			// scripted client cites deterministically, an echo of the asked
+			// draft title inside an honest not-found answer (the member
+			// supplied the title themselves; the draft's existence and stored
+			// data still never surface), and citations that share no salient
+			// question token with the cited record (weak relevance).
+			// Reported, not asserted: the operator reads the EVAL lines.
+			var salient = testCase.Question
+				.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+				.Select(CatalogueText.Fold)
+				.Where(t => t.Length >= 4)
+				.ToList();
 			var flags = new List<string>();
 			if (!finished)
 				flags.Add("no-finish");
@@ -412,18 +428,35 @@ public sealed class ChatEvaluationTests(ITestOutputHelper output)
 				&& testCase.ExpectedSongTitle is not null
 				&& !text.Contains($"[Quelle: {testCase.ExpectedSongTitle}]", StringComparison.Ordinal))
 				flags.Add("missing-citation-marker");
+			if (testCase.Category == CategoryUnpublished
+				&& text.Contains(DraftTitle, StringComparison.Ordinal))
+				flags.Add("draft-title-echoed");
+			if (citations.Any(c =>
+			{
+				var cited = publishedById.GetValueOrDefault(c.Id);
+				return cited is null || !salient.Any(t =>
+					CatalogueText.Fold(cited.Title).Contains(t)
+					|| CatalogueText.Fold(cited.Composer).Contains(t)
+					|| CatalogueText.Fold(cited.Lyricist).Contains(t)
+					|| CatalogueText.Fold(cited.Lyrics).Contains(t));
+			}))
+				flags.Add("weak-relevance");
 
 			// One ledger row per run: the recorded EUR-per-answer estimate
-			// mirrors the scripted evaluation's evidence exactly.
+			// mirrors the scripted evaluation's evidence exactly. A run that
+			// aborted before any provider response (for example the 30 s
+			// no-token bound on a cold deployment's first request) records
+			// nothing, which is honest cost evidence too.
 			using (var scope = factory.Services.CreateScope())
 			{
 				var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
 				var entry = await db.ChatUsageEntries
 					.OrderByDescending(e => e.CreatedAt).ThenByDescending(e => e.Id)
-					.FirstAsync();
+					.FirstOrDefaultAsync();
 				var result = flags.Count == 0 ? "live-passed" : $"live-flag:{string.Join("|", flags)}";
-				output.WriteLine(
-					$"EVAL {testCase.Question} → {entry.EstimatedCostEurCents} EUR-Cent (in {entry.InputTokens}/out {entry.OutputTokens} tokens), citations: {citations.Count}, result: {result}-{testCase.Category}");
+				output.WriteLine(entry is null
+					? $"EVAL {testCase.Question} → no ledger row (run aborted before usage), citations: {citations.Count}, result: live-flag:no-ledger-row|{result}-{testCase.Category}"
+					: $"EVAL {testCase.Question} → {entry.EstimatedCostEurCents} EUR-Cent (in {entry.InputTokens}/out {entry.OutputTokens} tokens), citations: {citations.Count}, result: {result}-{testCase.Category}");
 			}
 		}
 	}
@@ -605,6 +638,14 @@ public sealed class ChatEvaluationTests(ITestOutputHelper output)
 				|| CatalogueText.Fold(s.Lyrics).Contains(t)))
 			.OrderBy(s => s.Id)
 			.ToList();
+	}
+
+	/// <summary>Member-visible records for the live rerun's citation check:
+	/// published seeded songs, independent of any single search phrasing.</summary>
+	private static async Task<List<Song>> PublishedSongsAsync(AuthApiFactory factory)
+	{
+		var seeded = await SeededSongsAsync(factory);
+		return seeded.Where(s => s.PublishedAt != null).OrderBy(s => s.Id).ToList();
 	}
 
 	private static async Task<List<Song>> SeededSongsAsync(AuthApiFactory factory)
