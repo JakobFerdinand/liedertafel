@@ -97,6 +97,9 @@ param aiChatDeploymentName string = 'gpt-5-4-mini'
 @description('Group budget anchor: first day of the current month. utcNow may only appear as a parameter default, so the resource derives the budget window from this value.')
 param budgetMonthAnchor string = utcNow('yyyy-MM-01')
 
+@description('Object id of the deploying release identity (resolved by the workflow). Empty in PR what-if; when set, the identity receives Cost Management Contributor so the group budget write is authorized.')
+param deployPrincipalId string = ''
+
 resource workspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   name: workspaceName
   location: location
@@ -266,6 +269,7 @@ resource aoaiAccount 'Microsoft.CognitiveServices/accounts@2026-07-01' = {
 resource aoaiProject 'Microsoft.CognitiveServices/accounts/projects@2026-07-01' = {
   parent: aoaiAccount
   name: aiProjectName
+  location: aiLocation
   properties: {
     displayName: 'Liedertafel-Archiv'
     description: 'Foundry-Projekt für den Chat-Assistenten des Archivs.'
@@ -325,8 +329,25 @@ resource aoaiOpenAIUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = i
 // consecutive runs inside a month stay idempotent; the window rolls forward
 // with the first deploy of each new month (a redeployed budget resets its
 // period, matching the alert-only intent).
+// The budget write needs Cost Management Contributor, which the release
+// identity holds only after the assignment below (UAA lets the deploying
+// OIDC app self-grant). dependsOn keeps the order; RBAC propagation can
+// still lag, so a failed budget PUT on the first run is retried by a rerun.
+resource cmContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(deployPrincipalId)) {
+  name: guid(resourceGroup().id, 'cm-contributor', deployPrincipalId)
+  properties: {
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      '434105ed-43f6-45c7-a02f-909b2ba83430'
+    )
+    principalId: deployPrincipalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
 resource budget 'Microsoft.Consumption/budgets@2019-10-01' = {
   name: 'budget-liedertafel-archive'
+  dependsOn: [cmContributor]
   properties: {
     category: 'Cost'
     amount: 10
