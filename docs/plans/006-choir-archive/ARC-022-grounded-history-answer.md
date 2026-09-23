@@ -200,3 +200,16 @@ ARC-021). The live-model rerun
 and be recorded in ARC-021 before the first **member-facing** chat use;
 until then this slice's grounding evidence remains the scripted 2026-09-23
 run above.
+
+## Live rerun — 2026-09-23
+
+Executed and recorded in [ARC-021's live-evaluation
+section](ARC-021-chatbot-provider-decision.md): 13/13 cases against the live
+pinned `gpt-5.4-mini` deployment, every citation verified, ~1 EUR-cent per
+answer. The grounding contract (citations derived in `ArchiveChatService`
+from authorized tool results, drafts and revoked members excluded) held
+unchanged at the seam. Recorded soft observations for later prompt work:
+bare-title questions receive a conservative ask-for-a-question answer
+instead of a record citation, and a cold deployment's first request can
+trip the 30 s no-token bound (German `RUN_ERROR`, no ledger row) until the
+model is warm.
