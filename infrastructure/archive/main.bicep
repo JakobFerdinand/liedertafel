@@ -275,9 +275,15 @@ resource aoaiProject 'Microsoft.CognitiveServices/accounts/projects@2026-07-01' 
 // ARC-021 pinning rule: the deployment pins a dated model version; a change
 // needs a re-run of the chat evaluation and a pricing re-check before the
 // function name and version advance. 'OnceCurrentVersionExpired' keeps the
-// pin in place until the provider expires that version, so silent upgrades
-// are impossible. DataZoneStandard at 30k TPM is far above the ≤5-member
-// app's needs and stays regional within the EU Data Zone.
+// pin in place until the provider expires that version — no silent upgrade
+// while the pin is live, but the expiry transition itself is automatic and
+// still needs that re-run (version expiry is an ARC-043 maintenance check).
+// DataZoneStandard at 30k TPM is far above the ≤5-member app's needs and
+// stays regional within the EU Data Zone.
+// Inference endpoint: derived once from the unique custom subdomain and
+// shared by the Container App env entry and the `aiEndpoint` output.
+var aiEndpointUri = 'https://${aoaiAccount.properties.customSubDomainName}.openai.azure.com/'
+
 resource aoaiChatDeployment 'Microsoft.CognitiveServices/accounts/deployments@2026-07-01' = {
   parent: aoaiAccount
   name: aiChatDeploymentName
@@ -598,7 +604,7 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
             }
             {
               name: 'Archive__Chat__Endpoint'
-              value: 'https://${aoaiAccount.properties.customSubDomainName}.openai.azure.com/'
+              value: aiEndpointUri
             }
             {
               name: 'Archive__Chat__DeploymentName'
@@ -690,5 +696,5 @@ output keysKeyVaultKeyUri string = keysKey.properties.keyUri
 output assetsServiceUri string = 'https://${storage.name}.blob.${az.environment().suffixes.storage}'
 // ARC-021: Azure OpenAI inference endpoint (custom subdomain of the AI
 // account), same value the app receives as `Archive__Chat__Endpoint`.
-output aiEndpoint string = 'https://${aoaiAccount.properties.customSubDomainName}.openai.azure.com/'
+output aiEndpoint string = aiEndpointUri
 output customDomainBound bool = bindCustomDomain

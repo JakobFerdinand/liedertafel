@@ -301,8 +301,10 @@ assignment below, and the evaluation can run against the pinned deployment.
   `2026-03-17`, SKU `DataZoneStandard` capacity 30 (30k TPM; quota admission
   verified in germanywestcentral: `OpenAI.DataZoneStandard.gpt-5.4-mini`
   limit 200, 0 used). `versionUpgradeOption: 'OnceCurrentVersionExpired'`
-  enforces the pinning rule above (evaluation rerun + pricing re-check
-  before any upgrade).
+  holds the pin until the provider expires that version — no silent upgrade
+  while pinned, but the expiry transition itself is automatic, so the
+  evaluation rerun and pricing re-check remain manual duties on expiry
+  (tracked with the ARC-043 maintenance checks).
 - Role assignment `Cognitive Services OpenAI User`
   (5e0bd9bd-7b93-4f28-af87-19fc36ad61bd) on the account for the runtime
   identity `id-archive-app` — the keyless Entra path; no API key exists

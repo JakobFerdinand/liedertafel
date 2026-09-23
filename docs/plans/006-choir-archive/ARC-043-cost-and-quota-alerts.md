@@ -48,6 +48,13 @@ Owner, documented as an alert rather than a hard spending cap per ARC-021's
 alert-plus-manual-disable semantics. Acceptance criterion 1 is therefore
 satisfied by infrastructure; the remaining criteria above stay open.
 
+Maintenance limitation to carry into the monthly check: the budget window is
+anchored at the first of the deploy month (`budgetMonthAnchor`) with a fixed
+twelve-month end date. A calendar month whose archive infrastructure is never
+redeployed does not roll the window forward, and after the end date passes the
+notifications lapse silently until the next infrastructure deploy — the
+monthly check must confirm the budget window is current.
+
 ## Handoff and parallel work
 
 ARC-044 adds actual pilot measurements. This slice can proceed beside failure
