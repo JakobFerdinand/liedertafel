@@ -29,7 +29,9 @@ export default function Wartung() {
           Verfügung. Den aktuellen Zustand sehen Sie auf der{" "}
           <Link href="/system/status/">Systemstatus-Seite</Link>.
         </p>
-        <Link href="/">Zur Startseite</Link>
+        <Link href="/" className="knopf-leise-rahmen">
+          Zur Startseite
+        </Link>
       </section>
     </>
   );

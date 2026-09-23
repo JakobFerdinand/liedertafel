@@ -84,8 +84,8 @@ h3 {
    – .hinweis-block: Zustandsblock, Markenlinker auf Waschgrund
      (3px, Innenabstand 1rem 1.2rem). .chat-zustand/.chat-fehler,
      .archive-note (Startseite, Wartung), .auth-erfolg und .auth-fehler
-     (Anmelden, Mitgliederbereich, Verwaltung, Katalog) teilen dieselbe
-     Rezeptur.
+     (Anmelden, Mitgliederbereich, Verwaltung, Katalog) und
+     .verbindungs-fehler (Systemstatus) teilen dieselbe Rezeptur.
    – .auth-statuszeile: Statuszeile des Anmeldeablaufs nach .chat-status
      (Stilltext in --muted, ‚…'-Führung, Höhe reserviert, kollabiert leer).
    – .lieder-suche: Suchkomponist — die Composer-Karte des Chats als
@@ -103,7 +103,8 @@ h3 {
 .chat-fehler,
 .archive-note,
 .auth-erfolg,
-.auth-fehler {
+.auth-fehler,
+.verbindungs-fehler {
   border-left: 3px solid var(--brand);
   background: var(--wash);
   padding: 1rem 1.2rem;
@@ -128,6 +129,7 @@ h3 {
 .knopf-leise-rahmen,
 .lied-anderer-titel button,
 .noten-laden {
+  display: inline-block;
   color: var(--brand);
   padding: 0.45rem 0.85rem;
   font-size: 0.9rem;
@@ -304,10 +306,19 @@ main {
 .maintenance-banner a {
   color: inherit;
 }
+/* Statuskarte (Systemstatus, auch Startseiten-Einbettung): Waschgrund-
+   karte im Kartenmaß (Radius --radius-karte); das Schlüssel-Wert-
+   Verzeichnis liest sich wie die Meta-Liste des Chats — stilles kleines
+   Etikett, fetter Wert, weiche Umbrüche bei langen Versionszeichen.
+   Der einzige Schmuck ist der Markenpunkt an der lebenden Zeile
+   (API: Verbunden), wie der Suchpunkt des Chats. */
 .system-status {
   background: var(--wash);
   padding: clamp(1.2rem, 4vw, 2.5rem);
-  border-radius: 0.4rem;
+  border-radius: var(--radius-karte);
+}
+.system-status h2 {
+  font-size: var(--titel-abschnitt);
 }
 dl {
   display: grid;
@@ -315,7 +326,9 @@ dl {
   gap: 1.5rem 2rem;
 }
 dt {
-  font-size: 0.9rem;
+  color: var(--muted);
+  font-size: var(--schrift-etikett);
+  font-weight: 600;
   margin-bottom: 0.35rem;
 }
 dd {
@@ -323,8 +336,43 @@ dd {
   font-weight: 600;
   overflow-wrap: anywhere;
 }
+.status-verbunden {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+.status-punkt {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--brand);
+}
 .local-check {
   margin-top: 2.5rem;
+  border-top: 1px solid var(--rule);
+  padding-top: 2rem;
+}
+.local-check p {
+  font-size: var(--schrift-neben);
+}
+/* Prüfergebnis als Aufrufblock der Rezeptur .hinweis-block; <output>
+   ist von Haus aus inline — als Block liest sich der Zustand im
+   Kartenfluss, leer kollabiert er ohne Rand. */
+.check-result {
+  display: block;
+  margin: 1rem 0 0;
+}
+.check-result:empty {
+  margin: 0;
+}
+.check-result:not(:empty) {
+  border-left: 3px solid var(--brand);
+  background: var(--wash);
+  padding: 1rem 1.2rem;
+}
+/* Fehlgeschlagene Prüfung: derselbe Block, nur kräftiger geführt. */
+.check-result.check-fehl {
+  font-weight: 600;
 }
 /* Anmelde-/Formularkarte: die Form-Karte des Systems (Anmelden,
    Mitgliederbereich, Verwaltung, Katalog-Editor). Sie spricht die

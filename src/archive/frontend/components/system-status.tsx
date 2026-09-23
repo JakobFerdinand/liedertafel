@@ -12,6 +12,7 @@ export function SystemStatus({
   const [build, setBuild] = useState<Build>();
   const [error, setError] = useState("");
   const [result, setResult] = useState("");
+  const [fehlschlag, setFehlschlag] = useState(false);
   const [busy, setBusy] = useState(false);
   const [attempt, setAttempt] = useState(0);
 
@@ -40,6 +41,7 @@ export function SystemStatus({
   async function exercise() {
     setBusy(true);
     setResult("");
+    setFehlschlag(false);
     try {
       const database = await fetch("/api/dev/database");
       if (!database.ok)
@@ -70,6 +72,7 @@ export function SystemStatus({
         `PostgreSQL verbunden. ${message}${data.pendingMigrations.length ? " Schema noch ausstehend: archive-migrate in Aspire starten." : " Schema ist aktuell."}`,
       );
     } catch (failure) {
+      setFehlschlag(true);
       setResult(
         failure instanceof Error
           ? failure.message
@@ -85,7 +88,7 @@ export function SystemStatus({
       <h2 id="connection-title">Verbindung zum Archiv</h2>
       <div aria-live="polite">
         {error ? (
-          <p>{error}</p>
+          <p className="verbindungs-fehler">{error}</p>
         ) : build ? (
           <dl>
             <div>
@@ -94,7 +97,10 @@ export function SystemStatus({
             </div>
             <div>
               <dt>API</dt>
-              <dd>Verbunden</dd>
+              <dd className="status-verbunden">
+                <span className="status-punkt" aria-hidden="true" />
+                Verbunden
+              </dd>
             </div>
             <div>
               <dt>Version</dt>
@@ -125,7 +131,10 @@ export function SystemStatus({
           <button type="button" onClick={exercise} disabled={busy}>
             {busy ? "Prüfung läuft …" : "Lokale Dienste prüfen"}
           </button>
-          <output className="check-result" aria-live="polite">
+          <output
+            className={fehlschlag ? "check-result check-fehl" : "check-result"}
+            aria-live="polite"
+          >
             {result}
           </output>
         </div>
