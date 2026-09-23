@@ -88,8 +88,6 @@ param aiLocation string = 'germanywestcentral'
 @description('Azure OpenAI (Microsoft Foundry) account name. Lowercase alphanumeric and hyphens, globally unique; also the custom subdomain.')
 param aiAccountName string = 'aoai-liedertafel-archive'
 
-@description('Foundry project name under the AI account.')
-param aiProjectName string = 'liedertafel-archive'
 
 @description('Azure OpenAI chat deployment name. The host app configuration references the model by this name.')
 param aiChatDeploymentName string = 'gpt-5-4-mini'
@@ -261,23 +259,6 @@ resource aoaiAccount 'Microsoft.CognitiveServices/accounts@2026-07-01' = {
     disableLocalAuth: true
     publicNetworkAccess: 'Enabled'
     allowProjectManagement: true
-  }
-}
-
-// Minimal Foundry project child (ARC-021). Inference happens at the
-// account-level deployments; the project exists for future Foundry tooling
-// only and introduces no separate endpoint or credentials. The explicit
-// dependency serializes the account's children: the CognitiveServices RP
-// runs one account operation at a time, so a parallel deployment PUT
-// collides with the project PUT (RequestConflict).
-resource aoaiProject 'Microsoft.CognitiveServices/accounts/projects@2026-07-01' = {
-  parent: aoaiAccount
-  dependsOn: [aoaiChatDeployment]
-  name: aiProjectName
-  location: aiLocation
-  properties: {
-    displayName: 'Liedertafel-Archiv'
-    description: 'Foundry-Projekt für den Chat-Assistenten des Archivs.'
   }
 }
 

@@ -224,3 +224,29 @@ jobs:
             --template-file infrastructure/archive/main.bicep \
             --parameters infrastructure/archive/main.bicepparam \
             --parameters maintenanceMode="${{ steps.maintenance.outputs.mode }}"
+
+      - name: Create Foundry project (CLI path)
+        run: |
+          # ARC-021: the Foundry project cannot be created through the ARM
+          # child-resource path from IaC — the RP rejects it with "you must
+          # enable a managed identity on your resource" even with a
+          # system-assigned identity on the account (documented IaC
+          # limitation, microsoft-foundry discussion #313). The CLI
+          # project-create path is the documented workaround; account and
+          # everything else stay in Bicep. Idempotent: skipped when present.
+          ACCOUNT_LOCATION=$(az cognitiveservices account show \
+            --name aoai-liedertafel-archive \
+            --resource-group "$RESOURCE_GROUP" \
+            --query location -o tsv)
+          if ! az cognitiveservices account project show \
+            --name aoai-liedertafel-archive \
+            --resource-group "$RESOURCE_GROUP" \
+            --project-name liedertafel-archive >/dev/null 2>&1; then
+            az cognitiveservices account project create \
+              --name aoai-liedertafel-archive \
+              --resource-group "$RESOURCE_GROUP" \
+              --project-name liedertafel-archive \
+              --location "$ACCOUNT_LOCATION"
+          else
+            echo "Foundry project already exists"
+          fi
