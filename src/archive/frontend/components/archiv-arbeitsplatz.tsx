@@ -86,15 +86,16 @@ export function ArchivArbeitsplatz({
             }
           }}
           onClickCapture={(event) => {
-            // Auch ein Quellenwechsel zwischen zwei Lied-IDs soll mobil das
-            // Lied zeigen. Modifizierte Klicks öffnen nur einen anderen Tab.
+            // Auch Links zur aktuellen Seite (andere Lied-ID oder Anmeldung)
+            // müssen mobil den Seiteninhalt zeigen. Modifizierte Klicks nicht.
             if (
               !breit &&
               !event.ctrlKey &&
               !event.metaKey &&
               !event.shiftKey &&
+              !event.altKey &&
               event.target instanceof Element &&
-              event.target.closest('a[href^="/lied/"]')
+              event.target.closest('a[href^="/"]')
             )
               setOffen(false);
           }}

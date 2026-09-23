@@ -646,6 +646,54 @@ test("Ein fremder Chatverlauf wird verworfen und der Chat startet frisch", async
   expect(errors).toEqual([]);
 });
 
+test("Der Chat führt auch auf der Anmeldeseite zurück zum Anmeldeformular", async ({
+  page,
+  isMobile,
+}) => {
+  await page.route("**/api/auth/me", (route) =>
+    route.fulfill(json({ authenticated: false })),
+  );
+  await page.goto("/anmelden/");
+  if (isMobile)
+    await page
+      .getByRole("button", { name: "Archiv fragen", exact: true })
+      .click();
+  await page.getByRole("link", { name: "Zur Anmeldung für den Chat" }).click();
+  await expect(page.getByLabel("E-Mail-Adresse")).toBeVisible();
+  await expect(page).toHaveURL(/\/anmelden\/$/);
+});
+
+test("Ein kleines Desktopfenster behält lesbaren Verlauf und erreichbaren Composer", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 600 });
+  await mockArchiv(page);
+  await page.route(/\/api\/chat$/, (route) =>
+    route.fulfill({
+      contentType: "text/event-stream",
+      body: erfolgreicheAntwort("Kleines Fenster"),
+    }),
+  );
+  await page.goto("/lieder/");
+  await page.getByLabel("Frage stellen").fill("Wer komponierte das Lied?");
+  await page.getByRole("button", { name: "Absenden" }).click();
+  await expect(page.getByRole("log")).toContainText("Kleines Fenster");
+  // Entspricht dem Vergrößern über den nativen Resize-Griff des Textfelds.
+  await page.getByLabel("Frage stellen").evaluate((feld) => {
+    feld.style.height = "240px";
+  });
+  expect(
+    await page.getByRole("log").evaluate((verlauf) => verlauf.clientHeight),
+  ).toBeGreaterThanOrEqual(128);
+  const absenden = page.getByRole("button", { name: "Absenden" });
+  await absenden.scrollIntoViewIfNeeded();
+  await expect(absenden).toBeInViewport();
+  await page.getByLabel("Frage stellen").press("Escape");
+  await expect(
+    page.getByRole("button", { name: "Archiv fragen", exact: true }),
+  ).toBeFocused();
+});
+
 test("Der Katalog bietet Chat direkt an; Minimieren erhält Entwurf und Fokus", async ({
   page,
   isMobile,
