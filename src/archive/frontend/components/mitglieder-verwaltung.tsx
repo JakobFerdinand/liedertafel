@@ -49,6 +49,14 @@ function rollenText(rollen: string[]): string {
     .join(", ");
 }
 
+/* Zustandsmarken in der Geometrie von .lieder-status: lebende Konten
+   tragen die Markenlinie, Einladung und Ruhestand die stille Linie. */
+function statusMarke(status: Mitglied["status"]): string {
+  return status === "active"
+    ? "mitglieder-marke"
+    : "mitglieder-marke mitglieder-marke-leise";
+}
+
 export function MitgliederVerwaltung() {
   const [me, setMe] = useState<MeResponse | null>(null);
   const [mitglieder, setMitglieder] = useState<Mitglied[] | null>(null);
@@ -411,14 +419,14 @@ export function MitgliederVerwaltung() {
   if (fehler) {
     return (
       <div aria-live="polite">
-        <p>{fehler}</p>
+        <p className="hinweis-block">{fehler}</p>
       </div>
     );
   }
   if (me === null) {
     return (
       <div aria-live="polite">
-        <p>Mitgliedschaft wird geprüft …</p>
+        <p className="auth-statuszeile">Mitgliedschaft wird geprüft …</p>
       </div>
     );
   }
@@ -426,7 +434,10 @@ export function MitgliederVerwaltung() {
     return (
       <div>
         <p>Bitte anmelden, um die Mitgliederverwaltung zu sehen.</p>
-        <Link href="/anmelden/">Anmelden</Link>
+        <Link href="/anmelden/" className="verweis-kachel">
+          <span>Anmelden</span>
+          <span aria-hidden="true">↗</span>
+        </Link>
       </div>
     );
   }
@@ -434,7 +445,10 @@ export function MitgliederVerwaltung() {
     return (
       <div aria-live="polite">
         <p>Keine Berechtigung für die Mitgliederverwaltung.</p>
-        <Link href="/archiv/">Zum Mitgliederbereich</Link>
+        <Link href="/archiv/" className="verweis-kachel">
+          <span>Zum Mitgliederbereich</span>
+          <span aria-hidden="true">↗</span>
+        </Link>
       </div>
     );
   }
@@ -500,7 +514,7 @@ export function MitgliederVerwaltung() {
         </output>
       )}
       {hinweis && (
-        <output aria-live="polite" className="feld-fehler">
+        <output aria-live="polite" className="auth-fehler">
           {hinweis}{" "}
           {hinweis.includes("erneut anmelden") && (
             <Link href="/anmelden/">Anmelden</Link>
@@ -513,12 +527,12 @@ export function MitgliederVerwaltung() {
         <p className="feld-hinweis">
           Deaktivierte behalten Kennung und Verlauf; ihre Sitzungen werden
           abgemeldet und eine erneute Anmeldung ist nach Reaktivierung nötig.
-          Rollen gelten ab der nächsten Anfrage. Eine Adressänderung behält
-          Kennung und Verlauf, meldet offene Sitzungen des Kontos ab und wird
-          erst mit dem Code an die neue Adresse wirksam.
+          Rollen gelten ab der nächsten Anfrage.
         </p>
         {mitglieder === null ? (
-          <p aria-live="polite">Mitglieder werden geladen …</p>
+          <p aria-live="polite" className="auth-statuszeile">
+            Mitglieder werden geladen …
+          </p>
         ) : mitglieder.length === 0 ? (
           <p>Noch keine Mitglieder vorhanden.</p>
         ) : (
@@ -540,13 +554,30 @@ export function MitgliederVerwaltung() {
                   mitglied.roles[0] ??
                   "Member";
                 const beschaeftigt = resendBusy !== "" || aktionBusy !== "";
+                const einladung = mailText(mitglied.invitationMailStatus);
                 return (
                   <tr key={mitglied.accountId}>
-                    <td>{mitglied.email}</td>
-                    <td>{mitglied.displayName ?? "–"}</td>
-                    <td>{rollenText(mitglied.roles)}</td>
-                    <td>{statusText(mitglied.status)}</td>
-                    <td>{mailText(mitglied.invitationMailStatus)}</td>
+                    <td className="mitglieder-email">{mitglied.email}</td>
+                    <td className="mitglieder-name">
+                      {mitglied.displayName ?? "–"}
+                    </td>
+                    <td className="mitglieder-rollen">
+                      {rollenText(mitglied.roles)}
+                    </td>
+                    <td className="mitglieder-zustand">
+                      <span className={statusMarke(mitglied.status)}>
+                        {statusText(mitglied.status)}
+                      </span>
+                    </td>
+                    <td className="mitglieder-zustand">
+                      {einladung === "–" ? (
+                        "–"
+                      ) : (
+                        <span className="mitglieder-marke mitglieder-marke-leise">
+                          {einladung}
+                        </span>
+                      )}
+                    </td>
                     <td>
                       <div className="mitglied-aktionen">
                         {mitglied.status === "invited" && (
@@ -600,6 +631,7 @@ export function MitgliederVerwaltung() {
                         ) : (
                           <button
                             type="button"
+                            className="knopf-leise"
                             disabled={beschaeftigt}
                             onClick={() => deaktivieren(mitglied)}
                           >
@@ -611,6 +643,13 @@ export function MitgliederVerwaltung() {
                         <details className="adress-wechsel">
                           <summary>Adresse ändern</summary>
                           <div className="adress-wechsel-formular">
+                            <p className="feld-hinweis">
+                              Eine Adressänderung behält Kennung und Verlauf,
+                              meldet offene Sitzungen des Kontos ab und wird
+                              erst mit dem Code an die neue Adresse wirksam.
+                              Kollisionen mit bestehenden Konten werden
+                              abgewiesen.
+                            </p>
                             <label
                               className="visually-hidden"
                               htmlFor={`neu-${mitglied.accountId}`}

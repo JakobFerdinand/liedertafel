@@ -621,64 +621,197 @@ dd {
   border-radius: var(--radius-knopf-gross);
   font-size: var(--schrift-neben);
 }
+/* ─── Verwaltung: Einladungskarte und Mitgliedregister ────────────────
+   Einladen sitzt in der Formkarte (.auth-karte); das Register liest
+   sich wie die Zeilen des Chats: Spaltenköpfe als stille Etiketten
+   (--schrift-etikett, 600, --muted), Zeilen hinter dem Haarriss
+   (--rule), Zustände als Markenlinien in der Geometrie von
+   .lieder-status. In schmaler Spalte wird jede Zeile zur eigenen
+   Karte — dieselbe Auszeichnung, nur mit CSS neu gesetzt, damit die
+   Zeilen- und Zellenrollen der Prüfung unangetastet bleiben. */
 .mitglieder-liste {
   margin-top: 2.5rem;
+  /* Die Karte misst ihre eigene Spalte: Im Arbeitsplatz schrumpft der
+     Seiteninhalt hinter dem offenen Chat, darum schaltet hier nicht die
+     Fensterbreite, sondern die wahre Spaltenbreite um. Für zu breite
+     Tabellen bleibt der Querscroll als Fallback. */
+  container: mitglieder / inline-size;
   overflow-x: auto;
+}
+.mitglieder-liste h2 {
+  font-size: var(--titel-abschnitt);
 }
 .mitglieder-liste table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.95rem;
+  font-size: var(--schrift-neben);
 }
 .mitglieder-liste th,
 .mitglieder-liste td {
   text-align: left;
-  padding: 0.6rem 0.8rem;
-  border-bottom: 1px solid var(--wash);
   vertical-align: top;
+  min-width: 0;
+  padding: 0.6rem 0.5rem 0.6rem 0;
 }
 .mitglieder-liste th {
-  font-size: 0.85rem;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: var(--schrift-etikett);
 }
+.mitglieder-liste td {
+  padding: 0.9rem 0.5rem 0.9rem 0;
+  border-bottom: 1px solid var(--rule);
+}
+/* Kennung und E-Mail-Umbruch: die Adresse ist der Schlüssel der Zeile. */
+.mitglieder-email {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+/* Zustandsmarken nach der Redaktions-Marke (.lieder-status): Markenlinie
+   für lebende Konten, stille Linie für Einladung und Ruhestand — zwei
+   Töne, beide aus der Palette. */
+.mitglieder-marke {
+  display: inline-block;
+  font-size: var(--schrift-etikett);
+  font-weight: 600;
+  color: var(--brand);
+  border: 2px solid var(--brand);
+  border-radius: var(--radius-fein);
+  padding: 0.1rem 0.5rem;
+}
+.mitglieder-marke-leise {
+  color: var(--muted);
+  border-color: var(--muted);
+}
+/* Zeilensteuerung: zustandsändernde Knöpfe bleiben volle Knöpfe, das
+   Deaktivieren trägt den leisen Marken-Textknopf (.knopf-leise).
+   Berührziele bleiben ≥ 2.75rem. */
 .mitglied-aktionen {
   display: flex;
   gap: 0.6rem;
   flex-wrap: wrap;
   align-items: center;
 }
+.mitglied-aktionen button {
+  min-height: 2.75rem;
+  padding: 0.45rem 0.9rem;
+  font-size: var(--schrift-neben);
+  border-radius: var(--radius-knopf);
+}
 .mitglied-aktionen select {
   font: inherit;
-  padding: 0.5rem;
+  min-height: 2.75rem;
+  box-sizing: border-box;
+  padding: 0.55rem 0.8rem;
   border: 2px solid var(--ink);
-  border-radius: 0.3rem;
+  border-radius: var(--radius-knopf);
   background: var(--paper);
   color: var(--ink);
 }
+/* Adresswechsel als Aufklapper: der Kopfruh ist der leise Marken-
+   Textknopf, der aufgeklappte Fluss trägt seinen Hinweis und die
+   Standard-Feldwortschatz-Zeile hinter dem gepunkteten Haarriss. */
 .adress-wechsel {
   flex-basis: 100%;
 }
 .adress-wechsel summary {
   cursor: pointer;
-  font-weight: 600;
   width: fit-content;
+  min-height: 2.75rem;
+  display: flex;
+  align-items: center;
+  color: var(--brand);
+  font-weight: 600;
+  list-style: none;
+}
+.adress-wechsel summary::-webkit-details-marker {
+  display: none;
+}
+.adress-wechsel summary:hover {
+  text-decoration: underline;
+  text-underline-offset: 0.25em;
+}
+.adress-wechsel summary:focus-visible {
+  outline: 3px solid currentColor;
+  outline-offset: 5px;
 }
 .adress-wechsel-formular {
   display: flex;
   gap: 0.6rem;
   flex-wrap: wrap;
   align-items: center;
-  margin-top: 0.6rem;
+  margin-top: 0.3rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed var(--rule);
+}
+.adress-wechsel-formular > .feld-hinweis {
+  flex-basis: 100%;
+  margin-block: 0 0.5rem;
 }
 .adress-wechsel-formular input {
   font: inherit;
-  padding: 0.5rem;
+  min-height: 2.75rem;
+  box-sizing: border-box;
+  padding: 0.55rem 0.8rem;
   border: 2px solid var(--ink);
-  border-radius: 0.3rem;
+  border-radius: var(--radius-knopf);
   background: var(--paper);
   color: var(--ink);
   flex: 1 1 12rem;
   min-width: 0;
   max-width: 16rem;
+  overflow-wrap: anywhere;
+}
+/* Register unter ~46rem Spaltenbreite: Karte je Mitglied statt
+   Querscroll. Nur CSS — die Tabelle bleibt im DOM (Zeilen- und
+   Zellenrollen bleiben), die Spaltenköpfe treten ab, die Zustände
+   lesen sich als Markenzeilen. */
+@container mitglieder (max-width: 46rem) {
+  .mitglieder-liste thead {
+    display: none;
+  }
+  .mitglieder-liste table {
+    display: block;
+  }
+  .mitglieder-liste tbody {
+    display: grid;
+    gap: 1rem;
+  }
+  .mitglieder-liste tr {
+    display: block;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-karte);
+    padding: 1rem 1.1rem;
+  }
+  .mitglieder-liste td {
+    display: block;
+    padding: 0.15rem 0;
+    border-bottom: 0;
+  }
+  .mitglieder-liste td.mitglieder-email {
+    font-size: 1rem;
+    margin-block: 0 0.25rem;
+  }
+  .mitglieder-liste td.mitglieder-name {
+    color: var(--muted);
+    margin-block: 0 0.7rem;
+  }
+  .mitglieder-liste td.mitglieder-rollen {
+    color: var(--muted);
+  }
+  .mitglieder-liste td.mitglieder-rollen::before {
+    content: "Rollen: ";
+    font-weight: 600;
+  }
+  .mitglieder-liste td.mitglieder-zustand {
+    margin-block: 0.45rem 0;
+  }
+  .mitglieder-liste td:last-child {
+    margin-top: 0.7rem;
+    padding-top: 0.8rem;
+    border-top: 1px solid var(--rule);
+  }
 }
 .visually-hidden {
   position: absolute;
