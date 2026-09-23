@@ -126,11 +126,50 @@ Frontend (`c4b3680`):
   streamed answer with citation chips, history restore, 503 and RUN_ERROR
   states.
 
+## Review — 2026-09-23
+
+Two-axis review (standards + spec) against the fixed point `fab36d7` produced
+follow-ups in three commits:
+
+- Spec-critical (`6e9664a`): the `archive.citations` CUSTOM event is now
+  derived in `ArchiveChatService` from the run's authorized tool results and
+  the answer's inline `[Quelle: …]` markers (folded comparison) instead of
+  living only in the scripted stand-in — the citation contract survives any
+  provider at the seam. Persisting messages and the usage ledger row is one
+  `SaveChangesAsync` batch; a persistence failure now surfaces as the German
+  `RUN_ERROR` instead of a silent fake success.
+- Test coverage (`568f4be`): the verification list's remaining items are now
+  exercised — exhausted budget still runs, writes a ledger row and logs the
+  maintainer warning (never auto-disable), the tool cap, overall bound and
+  no-token bound each end deterministically in a German `RUN_ERROR`, and a
+  persistence failure stays visible with no ledger row. A capturing
+  `ILoggerProvider` in the test factory enables the budget-warning
+  assertion (message content only, no member data). A determinism fix rode
+  along: the persisted history order is now explicit (assistant stamped one
+  tick later) because consecutive Guid v7 ids could invert `(CreatedAt, Id)`
+  ordering — `ThreadIsPersistedAndRestorableByOwner` was reproducibly flaky
+  on unmodified code.
+- Standards (`af349e1`): the chat section carried a dangling
+  `aria-labelledby` reference (now an `aria-label`), and the chat CSS block
+  now matches the file's blank-line spacing.
+
+Accepted judgement calls: the thread-restore endpoint and
+`arc-chat-thread` localStorage exceed the written spec (AG-UI threads are
+client-chosen and persisted owner-side; restore makes that visible), control
+flow keys on the German ProblemDetails titles (a machine error code would
+decouple behaviour from copy — revisit if titles ever get reworded), the
+catalogue search core is duplicated between ARC-020's endpoint and the chat
+tools (extracting it into `CatalogueText` is deliberately left to a follow-up
+so the stable ARC-020 contract is not churned in the same slice), and the 30 s
+no-token bound applies to the first update of each iteration with the 120 s
+overall cap covering mid-iteration stalls (per ARC-021's "30 seconds without
+tokens" reading).
+
 ## Verification — 2026-09-23
 
 - `dotnet build src/archive/Archive.slnx` 0 errors; `dotnet test
-  tests/archive/backend` **246/246 green** (230 prior + 16 evaluation/chat
-  tests), stable across repeated runs.
+  tests/archive/backend` **251/251 green** (230 prior + 16 evaluation/chat
+  + 5 review tests), stable across repeated runs.
 - `dotnet test tests/archive/apphost` **4/4 green** (fresh containers; the
   new `ArchiveChat` migration applied cleanly on real PostgreSQL and the
   walking-skeleton assertions still hold).
