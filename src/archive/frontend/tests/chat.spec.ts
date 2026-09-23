@@ -42,6 +42,38 @@ async function mockSitzung(page: Page) {
   );
 }
 
+async function mockArchiv(page: Page) {
+  await mockSitzung(page);
+  const lied = {
+    id: wandernId,
+    title: "Das Wandern ist des Müllers Lust",
+    composer: "Carl Friedrich Zöllner",
+    lyricist: "Wilhelm Müller",
+    published: true,
+    publishedAt: "2026-09-01T10:00:00.000Z",
+  };
+  await page.route("**/api/songs", (route) =>
+    route.fulfill(json({ songs: [lied] })),
+  );
+  await page.route(`**/api/songs/${wandernId}`, (route) =>
+    route.fulfill(
+      json({
+        song: {
+          ...lied,
+          createdAt: "2026-08-20T08:00:00.000Z",
+          updatedAt: "2026-09-01T10:00:00.000Z",
+          arrangements: [],
+        },
+      }),
+    ),
+  );
+  // Ein versehentlicher Remount darf den lokalen Verlauf nicht durch einen
+  // erneuten Abruf ersetzen; der Mock macht diesen Verlust sichtbar.
+  await page.route(/\/api\/chat\/thread\/[0-9a-f-]+$/, (route) =>
+    route.fulfill(json({ threadId, messages: [] })),
+  );
+}
+
 type ChatAnfrage = {
   threadId: string;
   runId: string;
@@ -613,3 +645,282 @@ test("Ein fremder Chatverlauf wird verworfen und der Chat startet frisch", async
 
   expect(errors).toEqual([]);
 });
+
+test("Der Katalog bietet Chat direkt an; Minimieren erhält Entwurf und Fokus", async ({
+  page,
+  isMobile,
+}) => {
+  await mockArchiv(page);
+  await page.goto("/lieder/");
+  const katalog = page.getByRole("heading", {
+    name: "Liederkatalog",
+    level: 1,
+  });
+  const eingabe = page.getByLabel("Frage stellen");
+  const oeffnen = page.getByRole("button", {
+    name: "Archiv fragen",
+    exact: true,
+  });
+  await expect(katalog).toBeVisible();
+  if (isMobile) {
+    await expect(eingabe).toBeHidden();
+    await expect(oeffnen).toBeInViewport();
+    await oeffnen.click();
+    await expect(katalog).toBeHidden();
+  }
+  await expect(eingabe).toBeVisible();
+  await expect(eingabe).toHaveCount(1);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page).toHaveURL(/\/lieder\/$/);
+  if (!isMobile) await expect(katalog).toBeVisible();
+
+  await eingabe.fill(
+    "Welche Lieder eignen sich für unseren nächsten Auftritt?",
+  );
+  await page.getByRole("button", { name: "Chat minimieren" }).click();
+  await expect(eingabe).toBeHidden();
+  await expect(katalog).toBeVisible();
+  await expect(oeffnen).toBeFocused();
+  await oeffnen.click();
+  await expect(eingabe).toHaveValue(
+    "Welche Lieder eignen sich für unseren nächsten Auftritt?",
+  );
+  await expect(eingabe).toBeVisible();
+  await expect(page).toHaveURL(/\/lieder\/$/);
+});
+
+test("Großansicht und Katalog teilen Gespräch, Thread und ungesendeten Entwurf", async ({
+  page,
+  isMobile,
+}) => {
+  await mockArchiv(page);
+  const anfragen: ChatAnfrage[] = [];
+  const dokumente: string[] = [];
+  page.on("request", (request) => {
+    if (request.isNavigationRequest() && request.resourceType() === "document")
+      dokumente.push(request.url());
+  });
+  await page.route(/\/api\/chat$/, (route) => {
+    anfragen.push(route.request().postDataJSON() as ChatAnfrage);
+    return route.fulfill({
+      status: 200,
+      contentType: "text/event-stream",
+      body: erfolgreicheAntwort(`Navigation ${anfragen.length}`),
+    });
+  });
+  await page.goto("/fragen/");
+  const eingabe = page.getByLabel("Frage stellen");
+  await eingabe.fill("Wer komponierte das Wandernlied?");
+  await page.getByRole("button", { name: "Absenden" }).click();
+  const ersteAntwort = page.getByText(
+    "Das Lied stammt von Carl Friedrich Zöllner. (Navigation 1)",
+    { exact: true },
+  );
+  await expect(ersteAntwort).toBeVisible();
+  await eingabe.fill("Welche Fassungen gibt es?");
+
+  await page
+    .getByRole("navigation", { name: "Hauptnavigation" })
+    .getByRole("link", { name: "Liederkatalog", exact: true })
+    .click();
+  await expect(page).toHaveURL(/\/lieder\/$/);
+  if (isMobile && !(await eingabe.isVisible()))
+    await page
+      .getByRole("button", { name: "Archiv fragen", exact: true })
+      .click();
+  await expect(ersteAntwort).toBeVisible();
+  await expect(eingabe).toHaveValue("Welche Fassungen gibt es?");
+  await expect(eingabe).toHaveCount(1);
+
+  await page.getByRole("link", { name: "Großansicht", exact: true }).click();
+  await expect(page).toHaveURL(/\/fragen\/$/);
+  await expect(ersteAntwort).toBeVisible();
+  await expect(eingabe).toHaveValue("Welche Fassungen gibt es?");
+  await expect(eingabe).toHaveCount(1);
+  await page.getByRole("button", { name: "Absenden" }).click();
+  await expect(
+    page.getByText(
+      "Das Lied stammt von Carl Friedrich Zöllner. (Navigation 2)",
+      {
+        exact: true,
+      },
+    ),
+  ).toBeVisible();
+  await expect(ersteAntwort).toBeVisible();
+  await expect(
+    page.getByRole("log").getByText("Wer komponierte das Wandernlied?", {
+      exact: true,
+    }),
+  ).toHaveCount(1);
+  expect(anfragen).toHaveLength(2);
+  expect(anfragen[1].threadId).toBe(threadId);
+  expect(anfragen[1].messages).toEqual([
+    expect.objectContaining({
+      role: "user",
+      content: "Welche Fassungen gibt es?",
+    }),
+  ]);
+  // Links müssen clientseitig navigieren, damit auch flüchtiger Zustand bleibt.
+  expect(dokumente).toHaveLength(1);
+});
+
+test("Eine verzögerte Chatantwort überlebt Navigation und Minimieren", async ({
+  page,
+  isMobile,
+}) => {
+  await mockArchiv(page);
+  let freigeben = () => {};
+  const warte = new Promise<void>((resolve) => {
+    freigeben = resolve;
+  });
+  const anfragen: ChatAnfrage[] = [];
+  await page.route(/\/api\/chat$/, async (route) => {
+    anfragen.push(route.request().postDataJSON() as ChatAnfrage);
+    await warte;
+    await route.fulfill({
+      status: 200,
+      contentType: "text/event-stream",
+      body: erfolgreicheAntwort("Nach Navigation"),
+    });
+  });
+
+  try {
+    await page.goto("/fragen/");
+    await page
+      .getByLabel("Frage stellen")
+      .fill("Wer komponierte das Wandernlied?");
+    await page.getByRole("button", { name: "Absenden" }).click();
+    await expect.poll(() => anfragen.length).toBe(1);
+    await expect(page.getByRole("button", { name: "Abbrechen" })).toBeVisible();
+    await page.getByLabel("Frage stellen").fill("Mein nächster Gedanke");
+
+    await page
+      .getByRole("navigation", { name: "Hauptnavigation" })
+      .getByRole("link", { name: "Liederkatalog", exact: true })
+      .click();
+    await expect(page).toHaveURL(/\/lieder\/$/);
+    if (isMobile && !(await page.getByLabel("Frage stellen").isVisible()))
+      await page
+        .getByRole("button", { name: "Archiv fragen", exact: true })
+        .click();
+    await expect(page.getByRole("button", { name: "Abbrechen" })).toBeVisible();
+    await page.getByRole("button", { name: "Chat minimieren" }).click();
+    await page
+      .getByRole("button", { name: "Archiv fragen", exact: true })
+      .click();
+    await expect(page.getByLabel("Frage stellen")).toHaveValue(
+      "Mein nächster Gedanke",
+    );
+    await expect(page.getByRole("button", { name: "Abbrechen" })).toBeVisible();
+    await page.getByRole("link", { name: "Großansicht", exact: true }).click();
+    await expect(page).toHaveURL(/\/fragen\/$/);
+    await expect(page.getByRole("button", { name: "Abbrechen" })).toBeVisible();
+    freigeben();
+
+    await expect(
+      page.getByText(
+        "Das Lied stammt von Carl Friedrich Zöllner. (Nach Navigation)",
+        {
+          exact: true,
+        },
+      ),
+    ).toBeVisible();
+    await expect(page.getByLabel("Frage stellen")).toHaveValue(
+      "Mein nächster Gedanke",
+    );
+    await expect(page.getByRole("button", { name: "Abbrechen" })).toHaveCount(
+      0,
+    );
+    await expect(page.getByRole("button", { name: "Absenden" })).toBeEnabled();
+    await expect(
+      page.getByRole("log").getByText("Wer komponierte das Wandernlied?", {
+        exact: true,
+      }),
+    ).toHaveCount(1);
+    expect(anfragen).toHaveLength(1);
+    expect(
+      await page.evaluate(() => localStorage.getItem("arc-chat-thread")),
+    ).toBe(threadId);
+  } finally {
+    freigeben();
+  }
+});
+
+for (const quellenLink of ["Quelle", "Quelle öffnen"]) {
+  test(`${quellenLink} öffnet das Lied und erhält den Chat`, async ({
+    page,
+    isMobile,
+  }) => {
+    await mockArchiv(page);
+    const anfragen: ChatAnfrage[] = [];
+    await page.route(/\/api\/chat$/, (route) => {
+      anfragen.push(route.request().postDataJSON() as ChatAnfrage);
+      return route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        body: sse([
+          { type: "RUN_STARTED", threadId },
+          {
+            type: "TEXT_MESSAGE_CONTENT",
+            delta:
+              "Das Lied stammt von Carl Friedrich Zöllner. [Quelle: Das Wandern ist des Müllers Lust]",
+          },
+          {
+            type: "CUSTOM",
+            name: "archive.citations",
+            value: [
+              { id: wandernId, label: "Das Wandern ist des Müllers Lust" },
+            ],
+          },
+          { type: "RUN_FINISHED", threadId },
+        ]),
+      });
+    });
+    await page.goto("/lieder/");
+    if (isMobile)
+      await page
+        .getByRole("button", { name: "Archiv fragen", exact: true })
+        .click();
+    await page
+      .getByLabel("Frage stellen")
+      .fill("Wer komponierte das Wandernlied?");
+    await page.getByRole("button", { name: "Absenden" }).click();
+    const quelle = page.getByRole("link", {
+      name: `${quellenLink}: Das Wandern ist des Müllers Lust`,
+      exact: true,
+    });
+    await expect(quelle).toBeVisible();
+    await page.getByLabel("Frage stellen").fill("Welche Fassungen gibt es?");
+    await quelle.click();
+    await expect(page).toHaveURL(new RegExp(`/lied/\\?id=${wandernId}$`));
+    await expect(
+      page.getByRole("heading", {
+        name: "Das Wandern ist des Müllers Lust",
+        exact: true,
+      }),
+    ).toBeVisible();
+    if (isMobile) {
+      await expect(page.getByLabel("Frage stellen")).toBeHidden();
+      await page
+        .getByRole("button", { name: "Archiv fragen", exact: true })
+        .click();
+    }
+    await expect(page.getByLabel("Frage stellen")).toBeVisible();
+    await expect(page.getByLabel("Frage stellen")).toHaveValue(
+      "Welche Fassungen gibt es?",
+    );
+    await expect(page.getByRole("log")).toContainText(
+      "Das Lied stammt von Carl Friedrich Zöllner.",
+    );
+    await expect(quelle).toHaveCount(1);
+    await page.getByRole("button", { name: "Absenden" }).click();
+    await expect.poll(() => anfragen.length).toBe(2);
+    expect(anfragen[1].threadId).toBe(threadId);
+    expect(anfragen[1].messages).toEqual([
+      expect.objectContaining({
+        role: "user",
+        content: "Welche Fassungen gibt es?",
+      }),
+    ]);
+  });
+}
