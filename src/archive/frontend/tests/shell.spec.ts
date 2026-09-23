@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 test("German deep link renders the actual API version and survives refresh", async ({
   page,
   request,
+  isMobile,
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -15,10 +16,14 @@ test("German deep link renders the actual API version and survives refresh", asy
   await expect(page.locator("html")).toHaveAttribute("lang", "de-AT");
   await page.reload();
   await expect(page.getByTestId("build-version")).toHaveText(build.version);
+  if (isMobile)
+    await page.getByRole("button", { name: "Menü", exact: true }).click();
   await page.getByRole("link", { name: "Archiv", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Was wir singen, bleibt bei uns." }),
   ).toBeVisible();
+  if (isMobile)
+    await page.getByRole("button", { name: "Menü", exact: true }).click();
   await page.getByRole("link", { name: "Systemstatus", exact: true }).click();
   await expect(page.getByTestId("build-version")).toHaveText(build.version);
   expect(
