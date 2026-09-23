@@ -278,3 +278,109 @@ package facts (1.22.0, net10.0) were revalidated 2026-09-22/23. The
 frontend consumes the AG-UI SSE stream directly with a custom German UI;
 the CopilotKit runtime step moves with the provider step.
 
+## Provider step — 2026-09-23
+
+Implemented on branch `feat/archive-ai-provider` (commits `a51bc90`
+infrastructure, `b564f8a` backend seam). With the resource provisioned, both
+`ai-evaluation-access` and `ai-runtime-credentials` are now satisfied: the
+maintainer owns the account, the keyless runtime credential path is the role
+assignment below, and the evaluation can run against the pinned deployment.
+
+### Infrastructure (commit `a51bc90`, `infrastructure/archive/main.bicep`)
+
+- Foundry account `aoai-liedertafel-archive` (`Microsoft.CognitiveServices/
+  accounts@2026-07-01`, kind AIServices, S0, `customSubDomainName` = account
+  name, `disableLocalAuth: true`, `allowProjectManagement: true`) in
+  `germanywestcentral` via a new `aiLocation` parameter: austriaeast is not an
+  EU Data Zone region for Azure OpenAI (EU DZ region list excludes it), while
+  germanywestcentral serves gpt-5.4-mini under DataZoneStandard. Everything
+  else in the group stays austriaeast.
+- Foundry project child `liedertafel-archive` for future tooling only;
+  inference is account-level.
+- Chat deployment `gpt-5-4-mini`: model `gpt-5.4-mini`, pinned dated version
+  `2026-03-17`, SKU `DataZoneStandard` capacity 30 (30k TPM; quota admission
+  verified in germanywestcentral: `OpenAI.DataZoneStandard.gpt-5.4-mini`
+  limit 200, 0 used). `versionUpgradeOption: 'OnceCurrentVersionExpired'`
+  enforces the pinning rule above (evaluation rerun + pricing re-check
+  before any upgrade).
+- Role assignment `Cognitive Services OpenAI User`
+  (5e0bd9bd-7b93-4f28-af87-19fc36ad61bd) on the account for the runtime
+  identity `id-archive-app` — the keyless Entra path; no API key exists
+  (`disableLocalAuth`).
+- Group budget `budget-liedertafel-archive` (`Microsoft.Consumption/budgets@
+  2019-10-01`): EUR 10/month over the whole resource group, notifications at
+  Actual 80/100% and Forecast 100% to j.wegenschimmel@gmail.com plus
+  contactRoles Owner. Alert-only backstop per ARC-004's EUR 10 operating
+  target and this ticket's alert-plus-manual-disable semantics (never an
+  automatic cap); it covers the budget-notification part of ARC-043 (see the
+  dated note there).
+- Embeddings/text-embedding-3-small deliberately not deployed: this step is
+  chat-only; embeddings/pgvector are the follow-up slice
+  [ARC-052](ARC-052-chat-embeddings-pgvector.md).
+- Container App environment: `Archive__Chat__Provider='AzureOpenAI'`,
+  `Archive__Chat__Endpoint` (custom-subdomain endpoint),
+  `Archive__Chat__DeploymentName='gpt-5-4-mini'`,
+  `Archive__Chat__Enabled='true'` — chat enabled from the first deploy per
+  the enablement decision below.
+- Validated with `az bicep build` (clean) and `az deployment group what-if`
+  (5 to create: account, deployment, project, account role assignment,
+  budget; 10 modifies, all representation noise; no Delete/Replace — passes
+  the destructive guard).
+
+### Enablement decision — 2026-09-23
+
+The maintainer decided on 2026-09-23 to deploy the chat enabled
+(`Archive__Chat__Enabled='true'`) from the first release: pre-release the
+maintainer is the sole production user, so the live-eval-before-enable gate
+recorded in the acceptance criteria above is consciously replaced by
+enable-immediately, with the live evaluation rerun still executed and
+recorded afterwards. The live rerun therefore remains the gate before the
+first **member-facing** chat use, not before chat exists at all.
+
+### Backend seam (commit `b564f8a`)
+
+- Packages pinned exactly: `Azure.AI.OpenAI` 2.1.0 and
+  `Microsoft.Extensions.AI.OpenAI` 10.10.0 (matching the existing
+  `Microsoft.Extensions.AI` 10.10.0 pin; transitive OpenAI 2.13.0 and
+  System.ClientModel 1.14.0 resolved cleanly, build 0 warnings).
+- New `Chat/AzureOpenAIChatClient.cs`: config-selected provider at the
+  existing seam — `Provider=AzureOpenAI` plus the new `Endpoint` and
+  `DeploymentName` chat options produce `AzureOpenAIClient` +
+  `GetChatClient(deployment).AsIChatClient()`, with the credential built like
+  the existing `DataProtectionConfiguration.CreateCredential()` precedent
+  (`AZURE_CLIENT_ID` → user-assigned managed identity in production; az
+  login locally). Otherwise `ScriptedChatClient` stays; tests and local
+  development are unchanged.
+- No frontend changes: the AG-UI direct SSE consumer stands, and the
+  CopilotKit runtime step from the stack amendment above is superseded by
+  that direct consumer (same reasoning as the hosting-adapter supersession;
+  no frontend AI dependency).
+- `tests/archive/backend/ChatEvaluationTests.cs` gained the live rerun
+  `LiveProviderRerunRecordsTheSameEvidence` behind trait
+  `Category=ChatEvaluationLive`: the same 13-case evaluation set through the
+  same seam/factory, keyless via az login, recording the same `EVAL` evidence
+  lines plus one `chat_usage_entries` ledger row per run (EUR-per-answer),
+  enforcing the hard grounding invariants (citations only inside the
+  authorized visibility-filtered set; draft title and confidential marker
+  never surface) and reporting soft model behaviour (missing `[Quelle: …]`
+  marker, no-finish) as `live-flag:` lines without failing. Environment
+  variables `ARCHIVE_CHAT_ENDPOINT`, `ARCHIVE_CHAT_DEPLOYMENT_NAME`
+  (optional `ARCHIVE_CHAT_MODEL_VERSION`); the test returns immediately with
+  an EVAL skip line when unconfigured (xunit 2.9.3 has no runtime skip).
+  Invocation: `dotnet test tests/archive/backend --filter
+  "Category=ChatEvaluationLive" --logger "console;verbosity=detailed"`.
+
+### Verification and pending live rerun
+
+- `dotnet build` 0 errors/0 warnings; `dotnet test tests/archive/backend`
+  252/252 (251 + the gated live test returning early); the `az what-if`
+  above.
+- The live rerun has **not** executed yet: the resource does not exist until
+  the archive infra workflow deploys this Bicep. It must run against the
+  pinned deployment and its results be recorded in this ticket before first
+  member-facing chat use — enablement already happened per the decision
+  above.
+
+**Live evaluation results: recorded here once run** (placeholder — no
+results exist yet; they must not be filled in from memory).
+

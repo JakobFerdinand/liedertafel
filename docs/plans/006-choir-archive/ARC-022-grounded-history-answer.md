@@ -183,3 +183,20 @@ tokens" reading).
   recorded. The live-model rerun against the pinned GPT-5.4-mini is the
   gate before production chat is enabled (provider step with
   `ai-runtime-credentials`).
+
+## Provider step addendum — 2026-09-23
+
+The real Azure OpenAI provider is now implemented at this slice's seam
+(`Chat/AzureOpenAIChatClient.cs`, commits `a51bc90`/`b564f8a`; see
+[ARC-021](ARC-021-chatbot-provider-decision.md), section "Provider step —
+2026-09-23"): `Provider=AzureOpenAI` with the provisioned endpoint and the
+`gpt-5-4-mini` deployment binds the managed-identity credential path, while
+`ScriptedChatClient` remains the Development/test default. The chat ships
+enabled from the first deploy by the maintainer's 2026-09-23 decision
+(pre-release the maintainer is the sole production user; rationale in
+ARC-021). The live-model rerun
+(`LiveProviderRerunRecordsTheSameEvidence`, trait
+`Category=ChatEvaluationLive`) still must run against the pinned deployment
+and be recorded in ARC-021 before the first **member-facing** chat use;
+until then this slice's grounding evidence remains the scripted 2026-09-23
+run above.

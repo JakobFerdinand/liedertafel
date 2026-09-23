@@ -20,8 +20,9 @@ credential renewal, and receives a useful notification near agreed thresholds.
 
 ## Acceptance criteria
 
-- [ ] Configure an archive-scoped Azure budget notification and document its
-  limitations as an alert rather than a hard spending cap.
+- [x] Configure an archive-scoped Azure budget notification and document its
+  limitations as an alert rather than a hard spending cap (configured
+  2026-09-23 via `infrastructure/archive/main.bicep`, see the note below).
 - [ ] Observe Neon Free storage/compute/transfer through supported management
   metrics/API or a documented bounded check; do not poll the sleeping database.
 - [ ] Record expiry/ownership and renewal reminders for the private GHCR pull
@@ -36,6 +37,16 @@ credential renewal, and receives a useful notification near agreed thresholds.
 Exercise threshold/reminder evaluation with synthetic usage and a harmless
 near-expiry record; verify destination delivery and current actual Neon readings.
 Confirm monitoring stays finite and alert wording does not promise a spending cap.
+
+## Cost note — 2026-09-23
+
+The archive-scoped budget notification is now configured through
+`infrastructure/archive/main.bicep`: group budget `budget-liedertafel-archive`
+(EUR 10/month over the whole resource group), notifications at Actual
+80/100% and Forecast 100% to j.wegenschimmel@gmail.com plus contactRoles
+Owner, documented as an alert rather than a hard spending cap per ARC-021's
+alert-plus-manual-disable semantics. Acceptance criterion 1 is therefore
+satisfied by infrastructure; the remaining criteria above stay open.
 
 ## Handoff and parallel work
 

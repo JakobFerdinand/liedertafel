@@ -36,6 +36,7 @@ Use this guide when editing or extending the codebase.
 - Archive build: `dotnet build src/archive/Archive.slnx`
 - Archive backend tests: `dotnet test tests/archive/backend`
 - Archive focused xUnit test: `dotnet test tests/archive/backend --filter FullyQualifiedName~TelemetryTests`
+- Archive live chat evaluation (keyless via az login; skips when unconfigured): `dotnet test tests/archive/backend --filter "Category=ChatEvaluationLive" --logger "console;verbosity=detailed"` with `ARCHIVE_CHAT_ENDPOINT`, `ARCHIVE_CHAT_DEPLOYMENT_NAME` and optional `ARCHIVE_CHAT_MODEL_VERSION` set
 - Archive integration test: `dotnet test tests/archive/apphost` (fresh containers; stop a running archive AppHost first).
 - Archive frontend deps/check/build: from `src/archive/frontend`, `pnpm install --frozen-lockfile`, `pnpm run check`, `pnpm run build`.
 - Archive browsers: from `src/archive/frontend`, `pnpm exec playwright install chromium`, then `ARCHIVE_BASE_URL=http://localhost:<frontend-port> pnpm run test:browser`. Single test: `pnpm run test:browser -- --grep "German deep link"`.

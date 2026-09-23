@@ -15,7 +15,7 @@ orchestration and development OpenTelemetry export to the Aspire dashboard**;
 Completed [ARC-004] provides the **Austria East footprint, identity/OIDC contract,
 and cost worksheet** consumed by [ARC-009] and [ARC-010].
 
-There are **49 file-based issues** in this directory: 44 core issues, two launch
+There are **50 file-based issues** in this directory: 45 core issues, two launch
 gates and three follow-up slices. IDs are stable identifiers, not priority
 numbers or a mandatory execution order. For example, ARC-050 is a follow-up
 arrangement merge, while ARC-051 is an early core live-storage slice.
@@ -110,7 +110,7 @@ issues in an earlier row. External inputs and shared edits still apply.
 | 6 | [ARC-030], [ARC-035], [ARC-038], [ARC-042] |
 | 7 | [ARC-032], [ARC-040], [ARC-041] |
 | 8 | [ARC-022] |
-| 9 | [ARC-044] |
+| 9 | [ARC-044], [ARC-052] |
 | 10 | [ARC-045] |
 
 ### Coordination that is not a dependency
@@ -185,6 +185,7 @@ product slices each own their UI/API/data/authorization work as required.
 | [ARC-041] | Keep playback Hot and separate originals Cold | [ARC-017], [ARC-030], [ARC-051] | Storage tiers, recordings |
 | [ARC-042] | Receive actionable failed-job/release alerts | [ARC-034], [ARC-037] | Observability, alerts, jobs |
 | [ARC-043] | Notice cost/quota/credential limits | [ARC-002], [ARC-011] | Observability, alerts, operator checks |
+| [ARC-052] | Search the catalogue semantically for the chat with pgvector | [ARC-021], [ARC-022] | Chatbot, search |
 
 ## Launch gates
 
@@ -271,7 +272,7 @@ one of them before it can start.
 | Diagnostics, notifications, quota/cost/credential checks | [ARC-042], [ARC-043] |
 | Restricted pilot and reviewed member rollout | [ARC-044], [ARC-045] |
 | Follow-up merges and corrections | [ARC-046], [ARC-050], [ARC-047] |
-| Grounded chatbot | [ARC-021], [ARC-022] |
+| Grounded chatbot | [ARC-021], [ARC-022], [ARC-052] |
 
 [ARC-001]: ARC-001-local-walking-skeleton.md
 [ARC-002]: ARC-002-source-inventory.md
@@ -322,3 +323,4 @@ one of them before it can start.
 [ARC-022]: ARC-022-grounded-history-answer.md
 [ARC-050]: ARC-050-merge-arrangements.md
 [ARC-051]: ARC-051-hosted-private-file.md
+[ARC-052]: ARC-052-chat-embeddings-pgvector.md
