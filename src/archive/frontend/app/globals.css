@@ -82,9 +82,11 @@ h3 {
 
    Klassen:
    – .hinweis-block: Zustandsblock, Markenlinker auf Waschgrund
-     (3px, Innenabstand 1rem 1.2rem). .chat-zustand/.chat-fehler teilen
-     dieselbe Rezeptur; .archive-note/.auth-erfolg schließen in ihren
-     Bereichen an.
+     (3px, Innenabstand 1rem 1.2rem). .chat-zustand/.chat-fehler und
+     .archive-note (Startseite, Wartung) teilen dieselbe Rezeptur;
+     .auth-erfolg schließt in ihrem Bereich an.
+   – .lieder-suche: Suchkomponist — die Composer-Karte des Chats als
+     gemeinsames Suchfeld von Startseite und Katalog.
    – .knopf-leise: leiser Marken-Textknopf, Hover unterstreicht.
    – .knopf-leise-rahmen: umrandete leise Variante, Hover füllt mit
      Markenfarbe. Die Grundform (transparent, 2px currentColor) teilt
@@ -95,7 +97,8 @@ h3 {
      Hoverregeln. */
 .hinweis-block,
 .chat-zustand,
-.chat-fehler {
+.chat-fehler,
+.archive-note {
   border-left: 3px solid var(--brand);
   background: var(--wash);
   padding: 1rem 1.2rem;
@@ -242,6 +245,22 @@ main {
 .introduction {
   padding-block: 4rem 2rem;
 }
+/* Intro-Maß des Chats: Leitsätze laufen im 57ch-Maß. */
+.introduction > p {
+  max-width: 57ch;
+}
+/* Startseiten-Held (die einzige .introduction ohne .compact): knapper
+   Titelabstand und fließender Leitsatz im Intro-Rhythmus des Chats,
+   danach die Suchkomponisten-Karte. */
+.introduction:not(.compact) h1 {
+  margin-block: 1rem 0.8rem;
+}
+.introduction:not(.compact) > p:not(.section-label) {
+  margin-block: 0 1.8rem;
+}
+.introduction:not(.compact) {
+  padding-block-end: 0;
+}
 .introduction > p:last-child {
   font-size: 1.15rem;
 }
@@ -254,10 +273,15 @@ main {
 .section-label {
   color: var(--brand);
 }
+/* Aufruf-Block der Startseite und der Wartung: Rezeptur .hinweis-block
+   (Markenlinker auf Waschgrund), kompakte Serifen-Überschrift, Verweise
+   in Markenfarbe. */
 .archive-note {
-  border-left: 4px solid var(--brand);
-  padding: 0.2rem 1.5rem;
+  max-width: 32rem;
   margin-block: 1rem 3rem;
+}
+.archive-note h2 {
+  font-size: var(--titel-abschnitt);
 }
 /* Statuszeile, keine Karte: voller Markenbalken, ruhige Textführung
    nach der Aufruf-Rezeptur (fettes Stichwort, ruhiger Satz). */
@@ -806,28 +830,61 @@ footer {
   flex: 1 1 10rem;
   min-width: 0;
 }
+/* Suchkomponist: die Composer-Karte des Chats als gemeinsames Suchfeld
+   von Startseite und Katalog — eine Klasse, zwei Platzierungen. Der
+   Behälter trägt Rahmen (1px --muted, der stärkste des Systems,
+   Radius --radius-karte) und den Fokusring (:focus-within); das Feld
+   darin bleibt rahmenlos wie die Chat-Eingabe. Auf dem Katalog
+   überstimmen diese Regeln die waschfarbenen .auth-karte-Eigenschaften
+   (gleiche Spezifität, spätere Zeile im Blatt). */
 .lieder-suche {
+  max-width: 32rem;
+  border: 1px solid var(--muted);
+  border-radius: var(--radius-karte);
+  background: var(--paper);
+  padding: 0.9rem;
   margin-block: 0 2.5rem;
 }
+.lieder-suche:focus-within {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
 .lieder-suche h2 {
-  margin-block: 0 0.2rem;
+  font-size: var(--titel-abschnitt);
+  margin-block: 0 0.8rem;
 }
 .lieder-suche label {
   display: block;
   font-weight: 600;
-  margin-block: 1rem 0.4rem;
+  font-size: var(--schrift-neben);
+  margin-block: 0 0.6rem;
 }
 .lieder-suche input {
   flex: 1 1 14rem;
   min-width: 0;
+  padding: 0.1rem 0.2rem;
+  border: 0;
+  outline: 0;
+  font: inherit;
+  appearance: none;
+  background: transparent;
+  color: var(--ink);
+}
+.lieder-suche input::placeholder {
+  color: var(--muted);
+  opacity: 1;
 }
 .lieder-suche-felder {
   display: flex;
   gap: 0.6rem;
-  align-items: stretch;
+  align-items: center;
 }
 .lieder-suche-felder button {
   flex: 0 0 auto;
+  min-height: 2.75rem;
+  padding: 0.65rem 1rem;
+  border-radius: var(--radius-knopf-gross);
+  font-size: var(--schrift-neben);
 }
 .lieder-andere-titel,
 .lieder-fundstelle {
@@ -859,11 +916,16 @@ footer {
     max-width: none;
     width: 100%;
   }
+  .lieder-suche {
+    padding: 0.75rem;
+  }
   .lieder-suche-felder {
     flex-direction: column;
     align-items: stretch;
   }
   .lieder-suche-felder input {
+    /* In der Spalte wäre die Flex-Basis die Höhe: Feld auf Autoinhalt. */
+    flex: 0 0 auto;
     width: 100%;
   }
   .introduction {
