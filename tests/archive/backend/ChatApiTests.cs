@@ -94,6 +94,196 @@ public sealed class ChatApiTests
 		Assert.Equal(ChatEndpoints.UnavailableMessage, problem.GetProperty("title").GetString());
 	}
 
+	[Theory]
+	[InlineData(false)]
+	[InlineData(true)]
+	public async Task GenericCatalogueQuestionListsPublishedSongsFromEmptyProviderSearch(bool scripted)
+	{
+		// Replay the provider's empty search for the exact reported question.
+		// The endpoint, bounded tool loop, database and citation derivation are real.
+		await using var factory = ChatFactory(chatClient: scripted ? new ScriptedChatClient() : new CatalogueBrowseChatClient());
+		var ownerId = await SeedMemberAsync(factory, MemberA);
+		var (publishedId, draftId, instructionId) = await SeedSongsAsync(factory, ownerId);
+		var session = await SignInAsync(factory, MemberA);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+
+		using var response = await RunChatAsync(client, session, Guid.NewGuid().ToString(), "welche lieder gibt es?");
+		var body = await response.Content.ReadAsStringAsync();
+		var text = string.Concat(CollectTextDeltas(body));
+		Assert.Contains("RUN_FINISHED", body);
+		Assert.Contains("Die Waldfahrt", text);
+		Assert.Contains("Notizenprobe", text);
+		Assert.DoesNotContain("Geheime Probe", text);
+		Assert.DoesNotContain(draftId.ToString(), body);
+		Assert.Equal(new[] { publishedId.ToString(), instructionId.ToString() }.Order(), CollectCitationIds(body).Order());
+	}
+
+	[Fact]
+	public async Task RunErrorKeepsRequestScopeAliveUntilUsagePersistenceFinishes()
+	{
+		var save = new PausedChatSaveInterceptor();
+		await using var factory = ChatFactory(settings: new Dictionary<string, string?>
+		{
+			["Archive:Chat:MaxToolCalls"] = "1",
+		}, chatClient: new LoopingChatClient { IterationDelayMs = 20 }, saveChanges: save);
+		await SeedMemberAsync(factory, MemberA);
+		var session = await SignInAsync(factory, MemberA);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var responseTask = RunChatAsync(client, session, Guid.NewGuid().ToString(), "welche lieder gibt es?");
+		try
+		{
+			await save.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+			await Task.WhenAny(responseTask, Task.Delay(200));
+			Assert.False(responseTask.IsCompleted, "The SSE request must join its producer before disposing its scoped database.");
+		}
+		finally
+		{
+			save.Release.TrySetResult();
+		}
+		using var response = await responseTask;
+		Assert.Contains("RUN_ERROR", await response.Content.ReadAsStringAsync());
+		using var scope = factory.Services.CreateScope();
+		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+		Assert.Single(await db.ChatUsageEntries.ToListAsync());
+		Assert.DoesNotContain(factory.Logs.Entries, e => e.Message.Contains("ObjectDisposedException"));
+	}
+
+	[Fact]
+	public async Task ProviderIterationCompletionKeepsRequestAliveUntilToolsAndPersistenceFinish()
+	{
+		await using var factory = ChatFactory(chatClient: new CatalogueBrowseChatClient { ProviderMetadata = true });
+		var ownerId = await SeedMemberAsync(factory, MemberA);
+		var (publishedId, _, _) = await SeedSongsAsync(factory, ownerId);
+		var session = await SignInAsync(factory, MemberA);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var threadId = Guid.NewGuid();
+		using var response = await RunChatAsync(client, session, threadId.ToString(), "welche lieder gibt es?");
+		var body = await response.Content.ReadAsStringAsync();
+		Assert.DoesNotContain("RUN_ERROR", body);
+		Assert.Contains(publishedId.ToString(), CollectCitationIds(body));
+		using var scope = factory.Services.CreateScope();
+		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+		Assert.Equal(2, await db.ChatMessages.CountAsync(m => m.ThreadId == threadId));
+		Assert.Single(await db.ChatUsageEntries.ToListAsync());
+	}
+
+	[Fact]
+	public async Task CatalogueBrowseOffersAndRestoresTheNextPageWithoutDrafts()
+	{
+		await using var factory = ChatFactory();
+		var ownerId = await SeedMemberAsync(factory, MemberA);
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			for (var index = 0; index < 13; index++)
+				db.Songs.Add(new Song { Title = $"Lied {index:00}", PublishedAt = index == 0 ? null : DateTimeOffset.UtcNow,
+					CreatedByAccountId = ownerId, UpdatedByAccountId = ownerId });
+			await db.SaveChangesAsync();
+		}
+		var session = await SignInAsync(factory, MemberA);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var threadId = Guid.NewGuid().ToString();
+		using var first = await RunChatAsync(client, session, threadId, "Welche Lieder gibt es?");
+		var firstBody = await first.Content.ReadAsStringAsync();
+		var firstText = string.Concat(CollectTextDeltas(firstBody));
+		Assert.Equal(10, CollectCitationIds(firstBody).Count);
+		Assert.Contains("insgesamt 12", firstText);
+		Assert.Contains("Soll ich Seite 2 zeigen?", firstText);
+		Assert.DoesNotContain("Lied 00", firstText);
+
+		using var second = await RunChatAsync(client, session, threadId, "Zeige weitere Lieder");
+		var secondBody = await second.Content.ReadAsStringAsync();
+		var secondText = string.Concat(CollectTextDeltas(secondBody));
+		Assert.Equal(2, CollectCitationIds(secondBody).Count);
+		Assert.Contains("Lied 11", secondText);
+		Assert.Contains("Lied 12", secondText);
+		Assert.DoesNotContain("Lied 00", secondText);
+		Assert.DoesNotContain("Soll ich Seite", secondText);
+		Assert.Empty(CollectCitationIds(firstBody).Intersect(CollectCitationIds(secondBody)));
+	}
+
+	[Fact]
+	public async Task FilteredCatalogueContinuationKeepsItsOriginalQueryAcrossTurns()
+	{
+		await using var factory = ChatFactory();
+		var ownerId = await SeedMemberAsync(factory, MemberA);
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			for (var index = 0; index < 23; index++)
+				db.Songs.Add(new Song { Title = $"Lied {index:00}", Composer = "Silcher", PublishedAt = DateTimeOffset.UtcNow,
+					CreatedByAccountId = ownerId, UpdatedByAccountId = ownerId });
+			for (var index = 0; index < 20; index++)
+				db.Songs.Add(new Song { Title = $"Fremd {index:00}", Composer = "Schubert", PublishedAt = DateTimeOffset.UtcNow,
+					CreatedByAccountId = ownerId, UpdatedByAccountId = ownerId });
+			await db.SaveChangesAsync();
+		}
+		var session = await SignInAsync(factory, MemberA);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var threadId = Guid.NewGuid().ToString();
+		var seen = new HashSet<string>();
+		foreach (var (question, expectedCount) in new[] { ("Silcher", 10), ("weitere Lieder", 10), ("nächste Seite", 3) })
+		{
+			using var response = await RunChatAsync(client, session, threadId, question);
+			var body = await response.Content.ReadAsStringAsync();
+			var text = string.Concat(CollectTextDeltas(body));
+			Assert.Contains("insgesamt 23", text);
+			Assert.DoesNotContain("Fremd", text);
+			var ids = CollectCitationIds(body);
+			Assert.Equal(expectedCount, ids.Count);
+			Assert.All(ids, id => Assert.True(seen.Add(id), "Continuation must not repeat a song."));
+		}
+	}
+
+	[Fact]
+	public async Task BracketedSongTitlesRemainCitedAcrossProviderChunks()
+	{
+		const string title = "Abendlied [SATB]";
+		await using var factory = ChatFactory(chatClient: new CatalogueBrowseChatClient
+		{
+			AnswerChunks = ["Lied [Que", "lle: Abendlied [SA", "TB]", "] Ende. [Quelle: Erfunden [SATB]]"],
+		});
+		var ownerId = await SeedMemberAsync(factory, MemberA);
+		Guid songId;
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			var song = new Song { Title = title, PublishedAt = DateTimeOffset.UtcNow,
+				CreatedByAccountId = ownerId, UpdatedByAccountId = ownerId };
+			db.Songs.Add(song);
+			await db.SaveChangesAsync();
+			songId = song.Id;
+		}
+		var session = await SignInAsync(factory, MemberA);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		using var response = await RunChatAsync(client, session, Guid.NewGuid().ToString(), "welche lieder gibt es?");
+		var body = await response.Content.ReadAsStringAsync();
+		Assert.Equal("Lied [Quelle: Abendlied [SATB]] Ende. ", string.Concat(CollectTextDeltas(body)));
+		Assert.Equal([songId.ToString()], CollectCitationIds(body));
+	}
+
+	[Fact]
+	public async Task UngroundedInlineCitationsNeverReachStreamOrHistoryEvenAcrossChunks()
+	{
+		await using var factory = ChatFactory(chatClient: new CatalogueBrowseChatClient
+		{
+			AnswerChunks = ["Lieder: [Que", "lle: Die Waldfahrt] [Quelle: Liedverzeichnis] ", "[Quelle: Geheime Probe] [Quel", "le: erfunden] Ende."],
+		});
+		var ownerId = await SeedMemberAsync(factory, MemberA);
+		var (publishedId, _, _) = await SeedSongsAsync(factory, ownerId);
+		var session = await SignInAsync(factory, MemberA);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var threadId = Guid.NewGuid();
+		using var response = await RunChatAsync(client, session, threadId.ToString(), "welche lieder gibt es?");
+		var body = await response.Content.ReadAsStringAsync();
+		var text = string.Concat(CollectTextDeltas(body));
+		Assert.Equal("Lieder: [Quelle: Die Waldfahrt]    Ende.", text);
+		Assert.Equal([publishedId.ToString()], CollectCitationIds(body));
+		using var scope = factory.Services.CreateScope();
+		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+		Assert.Equal(text, (await db.ChatMessages.SingleAsync(m => m.ThreadId == threadId && m.Role == "assistant")).Content);
+	}
+
 	[Fact]
 	public async Task HappyPathStreamsAgUiRunWithToolCallAndCitations()
 	{
@@ -628,6 +818,59 @@ public sealed class ChatApiTests
 }
 
 /// <summary>
+/// Replays the reported provider's empty catalogue search, then answers from
+/// real tool results or emits deliberately ungrounded streaming markers.
+/// </summary>
+internal sealed class CatalogueBrowseChatClient : IChatClient
+{
+	private readonly ScriptedChatClient answerClient = new();
+	public string[]? AnswerChunks { get; init; }
+	public bool ProviderMetadata { get; init; }
+
+	public Task<ChatResponse> GetResponseAsync(IEnumerable<AiChatMessage> messages, AiChatOptions? options = null,
+		CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+	public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+		IEnumerable<AiChatMessage> messages, AiChatOptions? options = null,
+		[System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+	{
+		var conversation = messages.ToList();
+		if (ProviderMetadata)
+			await Task.Delay(20, cancellationToken);
+		if (conversation.Last().Contents.OfType<FunctionResultContent>().Any())
+		{
+			if (AnswerChunks is not null)
+			{
+				foreach (var chunk in AnswerChunks)
+					yield return new ChatResponseUpdate(ChatRole.Assistant, chunk);
+				yield break;
+			}
+			await foreach (var update in answerClient.GetStreamingResponseAsync(conversation, options, cancellationToken))
+				yield return update;
+			if (ProviderMetadata)
+			{
+				yield return new ChatResponseUpdate { FinishReason = ChatFinishReason.Stop };
+				await Task.Delay(20, cancellationToken);
+			}
+			yield break;
+		}
+		yield return new ChatResponseUpdate
+		{
+			Contents = [new FunctionCallContent("browse_1", CatalogueTools.SearchToolName,
+				new Dictionary<string, object?> { ["query"] = "", ["page"] = 1 })],
+		};
+		if (ProviderMetadata)
+		{
+			yield return new ChatResponseUpdate { FinishReason = ChatFinishReason.ToolCalls };
+			await Task.Delay(20, cancellationToken);
+		}
+	}
+
+	public object? GetService(Type serviceType, object? serviceKey = null) => null;
+	public void Dispose() => answerClient.Dispose();
+}
+
+/// <summary>
 /// Test-local fake provider for the ARC-022 bound machinery: yields one
 /// <c>catalogue_search</c> function call per iteration forever (optionally
 /// delayed), or never yields anything at all, so the tool cap and the two
@@ -712,6 +955,27 @@ internal sealed class CapturingLogProvider : ILoggerProvider
 		public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
 			Func<TState, Exception?, string> formatter)
 			=> provider.Add(logLevel, formatter(state, exception));
+	}
+}
+
+/// <summary>
+/// Holds a chat save open so the HTTP/producer lifetime can be checked without
+/// relying on a fast in-memory save to win the race against scope disposal.
+/// </summary>
+internal sealed class PausedChatSaveInterceptor : SaveChangesInterceptor
+{
+	public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+	public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+	public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(
+		DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
+	{
+		if (eventData.Context!.ChangeTracker.Entries<ChatUsageEntry>().Any(e => e.State == EntityState.Added))
+		{
+			Entered.TrySetResult();
+			await Release.Task.WaitAsync(cancellationToken);
+		}
+		return result;
 	}
 }
 

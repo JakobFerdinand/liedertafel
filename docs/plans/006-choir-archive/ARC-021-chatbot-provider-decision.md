@@ -472,3 +472,37 @@ Cost basis over the whole rerun campaign (≈8 full/partial runs during
 harness bring-up): roughly EUR 0.05–0.10 actual provider spend, consistent
 with the recorded EUR 5/month budget semantics.
 
+## Catalogue-browsing regression rerun — 2026-09-23
+
+Following the real-use ARC-022 failure on „welche lieder gibt es?“, the live
+evaluation now includes that exact question with hard completion, citation,
+visibility and persistence assertions. Empty catalogue searches now return a
+bounded page of published songs instead of an unconditional empty result.
+
+The first follow-up run exposed two additional issues: local
+`DefaultAzureCredential` discovery took 42.5 seconds and exceeded the 30-second
+no-token deadline, and the resulting `RUN_ERROR` could end the HTTP scope
+before its background producer finished saving usage. Local chat now chooses
+`AzureCliCredential` directly (measured token acquisition: 1.5 seconds);
+production continues to use the `AZURE_CLIENT_ID` user-assigned managed
+identity. The stream owns and awaits its producer through cleanup. No timeout
+increase or deployment warm-up was used for the successful rerun.
+
+Final live run against the same endpoint, deployment and pinned model version:
+
+- **14/14 cases completed in 23 seconds**, test exit 0; no
+  `ObjectDisposedException`.
+- „welche lieder gibt es?“ returned **10 authorized song citations**, with
+  matching persisted content and no draft or invented `[Quelle: Liedverzeichnis]`
+  source. Usage: 1,570 input / 256 output tokens, 1 EUR-cent in the rounded
+  per-answer ledger.
+- Each of the other 13 cases also recorded one rounded EUR-cent. Known-song,
+  composer, date, conflicting-evidence, performance, off-topic and unknown-song
+  checks completed with the expected authorized citations or honest refusal.
+- Existing soft observations remain: the supplied draft title is echoed in a
+  not-found answer without disclosing its existence or data, and bare
+  „Notizenprobe“ receives a clarification request without a source. The
+  document's embedded instruction is not followed.
+
+The offline backend suite passed **262 tests**, including regressions for the
+request-lifetime race, streamed bracketed source titles and filtered pagination.

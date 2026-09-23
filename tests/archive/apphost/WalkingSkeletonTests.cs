@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
+using Aspire.Hosting;
 using Microsoft.Extensions.Configuration;
 using Xunit.Abstractions;
 
@@ -687,6 +688,12 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         var builder = await DistributedApplicationTestingBuilder.CreateAsync<Projects.Archive_AppHost>(
             ["--Archive:PersistLocalData=false", "DcpPublisher:RandomizePorts=false"],
             (options, _) => options.DisableDashboard = false, token);
+        // AppHost does not forward chat configuration. Enable the offline
+        // provider explicitly on the API so local Azure settings cannot leak in.
+        builder.CreateResourceBuilder<ProjectResource>("archive-api")
+            .WithEnvironment("Archive__Chat__Enabled", "true")
+            .WithEnvironment("Archive__Chat__Disabled", "false")
+            .WithEnvironment("Archive__Chat__Provider", "Scripted");
         await using var app = await builder.BuildAsync(token);
         await app.StartAsync(token);
         try
@@ -836,6 +843,18 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         using var publish = await PostJsonAsync(api, $"/api/songs/{songId}/publish",
             new { }, editorSession, token);
         Assert.Equal(HttpStatusCode.OK, publish.StatusCode);
+
+        // Regression: an ordinary member's generic question must discover the
+        // published catalogue through PostgreSQL and the real frontend proxy.
+        // Keep a second song as a draft to exercise visibility in the same run.
+        const string draftTitle = "Geheimes Probenlied";
+        using var draftResponse = await PostJsonAsync(api, "/api/songs",
+            new { title = draftTitle }, editorSession, token);
+        Assert.Equal(HttpStatusCode.Created, draftResponse.StatusCode);
+        var draftBody = await draftResponse.Content.ReadFromJsonAsync<JsonElement>(token);
+        var draftId = Guid.Parse(draftBody.GetProperty("song").GetProperty("id").GetString()!);
+        await AssertMemberChatListsPublishedSongAsync(api, memberSession,
+            songId, "ARC-016 Stimmenpaket", draftId, draftTitle, token);
 
         var memberViews = new (Guid Asset, byte[] Content, string ContentType)[]
         {
@@ -1110,6 +1129,65 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         Assert.Equal(HttpStatusCode.RequestEntityTooLarge, overLimit.StatusCode);
         var overLimitBody = await overLimit.Content.ReadFromJsonAsync<JsonElement>(token);
         Assert.Equal("Die Datei ist zu groß.", overLimitBody.GetProperty("title").GetString());
+    }
+
+    private static async Task AssertMemberChatListsPublishedSongAsync(
+        HttpClient api, string memberSession, Guid songId, string songTitle,
+        Guid draftId, string draftTitle, CancellationToken token)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+        timeout.CancelAfter(TimeSpan.FromSeconds(45));
+        var chatToken = timeout.Token;
+        var (cookie, csrfToken) = await GetCsrfAsync(api, memberSession, chatToken);
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/chat");
+        request.Headers.Add("Cookie", $"{cookie}; {memberSession}");
+        request.Headers.Add("X-CSRF-TOKEN", csrfToken);
+        request.Headers.Accept.ParseAdd("text/event-stream");
+        request.Content = JsonContent.Create(new
+        {
+            threadId = Guid.NewGuid().ToString(),
+            runId = "catalogue-listing-regression",
+            messages = new[] { new { id = "question-1", role = "user", content = "Welche Lieder gibt es?" } },
+        });
+        using var response = await api.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, chatToken);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("text/event-stream", response.Content.Headers.ContentType?.MediaType);
+
+        await using var stream = await response.Content.ReadAsStreamAsync(chatToken);
+        using var reader = new StreamReader(stream);
+        var events = new List<JsonElement>();
+        while (await reader.ReadLineAsync(chatToken) is { } line)
+        {
+            if (!line.StartsWith("data: ", StringComparison.Ordinal))
+                continue;
+            using var document = JsonDocument.Parse(line["data: ".Length..]);
+            var item = document.RootElement.Clone();
+            Assert.NotEqual("RUN_ERROR", item.GetProperty("type").GetString());
+            Assert.DoesNotContain(draftId.ToString(), item.GetRawText());
+            Assert.DoesNotContain(draftTitle, item.GetRawText());
+            events.Add(item);
+            Assert.True(events.Count <= 100, "The scripted catalogue chat exceeded its bounded event count.");
+        }
+
+        Assert.NotEmpty(events);
+        Assert.Equal("RUN_STARTED", events[0].GetProperty("type").GetString());
+        Assert.Equal("RUN_FINISHED", events[^1].GetProperty("type").GetString());
+        var answer = string.Concat(events
+            .Where(e => e.GetProperty("type").GetString() == "TEXT_MESSAGE_CONTENT")
+            .Select(e => e.GetProperty("delta").GetString()));
+        Assert.Contains(songTitle, answer);
+        Assert.Contains($"[Quelle: {songTitle}]", answer);
+        Assert.DoesNotContain(draftTitle, answer);
+        Assert.DoesNotContain("nicht bekannt", answer, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("nicht verzeichnet", answer, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("keine Lieder", answer, StringComparison.OrdinalIgnoreCase);
+
+        var citationEvent = Assert.Single(events, e =>
+            e.GetProperty("type").GetString() == "CUSTOM"
+            && e.GetProperty("name").GetString() == "archive.citations");
+        var citation = Assert.Single(citationEvent.GetProperty("value").EnumerateArray());
+        Assert.Equal(songId.ToString(), citation.GetProperty("id").GetString());
+        Assert.Equal(songTitle, citation.GetProperty("label").GetString());
     }
 
     private static byte[] ValidPdf(int size)

@@ -101,13 +101,27 @@ public sealed class ScriptedChatClient : IChatClient
 			yield break;
 		}
 
+		var query = CatalogueQuery(question);
+		var page = 1;
+		if (IsNextPageRequest(question)
+			&& conversation.LastOrDefault(m => m.Role == ChatRole.Assistant)?.Text is { } previous)
+		{
+			const string nextPagePrefix = "Soll ich Seite ";
+			var start = previous.IndexOf(nextPagePrefix, StringComparison.Ordinal);
+			if (start >= 0 && int.TryParse(previous[(start + nextPagePrefix.Length)..].Split(' ')[0], out var nextPage))
+			{
+				var originalQuestion = conversation.LastOrDefault(m => m.Role == ChatRole.User && !IsNextPageRequest(m.Text))?.Text;
+				query = CatalogueQuery(originalQuestion ?? question);
+				page = nextPage;
+			}
+		}
 		// Otherwise route the question through the authorized retrieval tool;
 		// the loop runs it and calls this client again with the results.
 		yield return new ChatResponseUpdate
 		{
 			MessageId = MessageId,
 			Contents = [new FunctionCallContent($"call_{conversation.Count(HasFunctionCall) + 1}", SearchToolName,
-				new Dictionary<string, object?> { ["query"] = question.Length > 200 ? question[..200] : question })],
+				new Dictionary<string, object?> { ["query"] = query.Length > 200 ? query[..200] : query, ["page"] = page })],
 		};
 	}
 
@@ -137,6 +151,17 @@ public sealed class ScriptedChatClient : IChatClient
 				embeddedInstruction = true;
 		}
 		var answer = builder.ToString().TrimEnd();
+		if (result.Result is string json)
+		{
+			using var document = JsonDocument.Parse(json);
+			var root = document.RootElement;
+			if (root.TryGetProperty("page", out var page) && root.TryGetProperty("totalCount", out var total))
+				answer += $" Seite {page.GetInt32()} von insgesamt {total.GetInt32()} veröffentlichten Treffern.";
+			if (root.TryGetProperty("nextPage", out var next) && next.ValueKind == JsonValueKind.Number)
+				answer += $" Es gibt weitere Lieder. Soll ich Seite {next.GetInt32()} zeigen?";
+			if (root.TryGetProperty("limitReached", out var limit) && limit.GetBoolean())
+				answer += " Die Seitengrenze ist erreicht. Bitte grenze die Suche ein.";
+		}
 		if (embeddedInstruction)
 			answer += Environment.NewLine + DataNotInstructionSentence;
 		updates.Add(Text(answer));
@@ -199,6 +224,12 @@ public sealed class ScriptedChatClient : IChatClient
 		}
 		return false;
 	}
+
+	private static bool IsNextPageRequest(string question) => ContainsAny(question, "weitere lieder", "nächste seite");
+
+	private static string CatalogueQuery(string question) =>
+		ContainsAny(question, "welche lieder gibt es", "welche lieder sind", "liste alle lieder", "zeige alle lieder")
+			? string.Empty : question;
 
 	private static bool HasFunctionCall(AiChatMessage message)
 		=> message.Contents.OfType<FunctionCallContent>().Any();

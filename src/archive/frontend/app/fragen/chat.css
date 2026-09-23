@@ -1,0 +1,377 @@
+.chat-seite {
+  --chat-muted: #735e60;
+  --chat-rule: #ded0d1;
+  max-width: 48rem;
+  margin-inline: auto;
+}
+
+.chat-einleitung {
+  padding-block: 2.8rem 1.8rem;
+}
+
+.chat-einleitung h1 {
+  font-size: clamp(2rem, 4vw, 2.8rem);
+  margin: 0 0 0.8rem;
+}
+
+.chat-einleitung p {
+  color: var(--chat-muted);
+  margin: 0;
+  max-width: 57ch;
+}
+
+.chat-werkzeuge {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 3.5rem;
+  border-block: 1px solid var(--chat-rule);
+  color: var(--chat-muted);
+  font-size: 0.875rem;
+}
+
+.chat-neustart {
+  background: transparent;
+  color: var(--brand);
+  padding: 0.6rem 0.3rem;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.chat-neustart:hover:not(:disabled) {
+  text-decoration: underline;
+  text-underline-offset: 0.25em;
+}
+
+.chat-verlauf {
+  display: grid;
+  gap: 1.8rem;
+  max-height: min(55dvh, 42rem);
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--chat-rule) transparent;
+  padding: 1.8rem 0.6rem 1.2rem 0;
+  overflow-wrap: anywhere;
+}
+
+.chat-verlauf:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 4px;
+}
+
+.chat-leer {
+  padding-block: 0.3rem;
+}
+
+.chat-leer-kopf {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.chat-archivzeichen {
+  width: 2rem;
+  height: 2rem;
+  flex-shrink: 0;
+  color: var(--brand);
+}
+
+.chat-leer h2 {
+  font-size: clamp(1.3rem, 3vw, 1.6rem);
+  margin: 0;
+}
+
+.chat-vorschlaege {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.chat-vorschlaege button {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.9rem;
+  border: 1px solid var(--chat-rule);
+  background: var(--paper);
+  color: var(--brand);
+  text-align: left;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.chat-vorschlaege button:hover {
+  background: var(--wash);
+  border-color: var(--brand);
+}
+
+.chat-nachricht {
+  min-width: 0;
+}
+
+.chat-nachricht p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.chat-sprecher {
+  font-weight: 700;
+  color: var(--brand);
+  font-size: 0.8rem;
+  margin-bottom: 0.45rem;
+}
+
+.chat-frage {
+  background: var(--wash);
+  justify-self: end;
+  max-width: 85%;
+  border-radius: 0.85rem 0.85rem 0.2rem 0.85rem;
+  padding: 0.9rem 1.15rem;
+}
+
+.chat-antwort {
+  padding: 0.1rem 0;
+  width: 100%;
+}
+
+.chat-antwort-text {
+  max-width: 66ch;
+  line-height: 1.75;
+}
+
+.chat-nachricht .chat-antwort-text > * + * {
+  margin-top: 0.85rem;
+}
+
+.chat-antwort-text ul,
+.chat-antwort-text ol {
+  padding-left: 1.4rem;
+  margin-bottom: 0;
+}
+
+.chat-antwort-text ul {
+  list-style: disc;
+}
+
+.chat-antwort-text ol {
+  list-style: decimal;
+}
+
+.chat-antwort-text li + li {
+  margin-top: 0.5rem;
+}
+
+.chat-quellen-verweis {
+  font-size: 0.8em;
+  font-weight: 700;
+  white-space: nowrap;
+  text-decoration: none;
+  padding: 0.1em 0.2em;
+  border-radius: 0.2rem;
+  background: var(--wash);
+}
+
+.chat-quellen-bereich {
+  margin-top: 1.1rem;
+  border-top: 1px solid var(--chat-rule);
+  padding-top: 0.85rem;
+}
+
+.chat-quellen-titel {
+  font-size: 0.8rem;
+  color: var(--chat-muted);
+}
+
+.chat-quellen {
+  list-style: none;
+  padding: 0;
+  margin: 0.3rem 0 0;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.chat-quellen a {
+  display: flex;
+  align-items: baseline;
+  gap: 0.65rem;
+  width: fit-content;
+  padding-block: 0.45rem;
+  font-size: 0.9rem;
+  text-decoration: none;
+}
+
+.chat-quellen a:hover {
+  text-decoration: underline;
+}
+
+.chat-quellen-nummer {
+  color: var(--chat-muted);
+  font-size: 0.75rem;
+  flex: 0 0 1.1rem;
+  text-align: center;
+}
+
+.chat-status {
+  display: block;
+  min-height: 1.6em;
+  color: var(--chat-muted);
+  font-size: 0.8rem;
+  margin: 0.5rem 0 0.8rem;
+}
+
+.chat-status:empty {
+  min-height: 0;
+  margin: 0 0 0.5rem;
+}
+
+.chat-sucht {
+  color: var(--chat-muted);
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.chat-sucht > span {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--brand);
+}
+
+.chat-formular label {
+  display: block;
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin-bottom: 0.6rem;
+}
+
+.chat-komponist {
+  border: 1px solid var(--chat-muted);
+  border-radius: 0.75rem;
+  padding: 0.9rem;
+  background: var(--paper);
+}
+
+.chat-komponist:focus-within {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.chat-formular textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 5.25rem;
+  max-height: 15rem;
+  resize: vertical;
+  border: 0;
+  outline: 0;
+  padding: 0.1rem 0.2rem;
+  font: inherit;
+  line-height: 1.6;
+  color: var(--ink);
+  background: var(--paper);
+}
+
+.chat-formular textarea::placeholder {
+  color: var(--chat-muted);
+  opacity: 1;
+}
+
+.chat-aktionen {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 0.6rem;
+}
+
+.chat-aktionen > span {
+  color: var(--chat-muted);
+  font-size: 0.75rem;
+}
+
+.chat-aktionen button {
+  display: flex;
+  gap: 0.8rem;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: 0.65rem 1rem;
+  border-radius: 0.45rem;
+  font-size: 0.9rem;
+}
+
+.chat-bereich button:disabled {
+  cursor: default;
+}
+
+.chat-speicher-hinweis {
+  color: var(--chat-muted);
+  font-size: 0.75rem;
+  margin: 0.75rem 0 0;
+  max-width: none;
+}
+
+.chat-zustand,
+.chat-fehler {
+  border-left: 3px solid var(--brand);
+  background: var(--wash);
+  padding: 1rem 1.2rem;
+  margin-bottom: 1.25rem;
+}
+
+.chat-zustand p,
+.chat-fehler p {
+  margin: 0 0 0.7rem;
+}
+
+.chat-fehler button {
+  font-size: 0.9rem;
+  padding: 0.6rem 0.9rem;
+}
+
+@media (max-width: 540px) {
+  .chat-einleitung {
+    padding-block: 1.5rem 0.5rem;
+  }
+
+  .chat-einleitung p {
+    font-size: 0.9rem;
+  }
+
+  .chat-werkzeuge {
+    font-size: 0.8rem;
+  }
+
+  .chat-verlauf {
+    max-height: 52dvh;
+    padding-top: 1.3rem;
+    gap: 1.5rem;
+  }
+
+  .chat-vorschlaege {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+
+  .chat-vorschlaege button {
+    padding: 0.7rem 0.85rem;
+  }
+
+  .chat-frage {
+    max-width: 92%;
+  }
+
+  .chat-komponist {
+    padding: 0.75rem;
+  }
+
+  .chat-aktionen > span {
+    max-width: 9rem;
+    line-height: 1.5;
+  }
+}

@@ -31,13 +31,16 @@ public static class CatalogueTools
 	private const int ExcerptChars = 300;
 
 	private const string SearchToolDescription =
-		"Sucht im veröffentlichten Liedverzeichnis des Vereins nach Titeln, Komponisten, Textdichtern und Liedtexten.";
+		"Sucht im veröffentlichten Liedverzeichnis nach Titeln, Komponisten, Textdichtern und Liedtexten. "
+		+ "Ein leerer Suchtext listet vorhandene Lieder auf. Liefert höchstens 10 Lieder pro Seite, "
+		+ "totalCount, nextPage und limitReached; höchstens 5 Seiten. Nur zurückgegebene Lieder zitieren.";
 
 	/// <summary>Creates the bounded catalogue search tool for one chat run.</summary>
 	public static AITool CreateCatalogueSearchTool(ArchiveDbContext db) =>
 		AIFunctionFactory.Create(
-			async ([Description("Suchtext; alle Begriffe müssen im Titel, in einem anderen Titel, beim Komponisten, Textdichter oder im Liedtext vorkommen.")] string query,
-				[Description("Seitennummer ab 1, höchstens 5.")] int page = 1) => await SearchAsync(db, query, page),
+			async ([Description("Suchtext; leer (\"\") für eine Übersicht aller Lieder. Sonst müssen alle Begriffe im Titel, in einem anderen Titel, beim Komponisten, Textdichter oder im Liedtext vorkommen.")] string query,
+				[Description("Seitennummer ab 1, höchstens 5; für weitere Treffer nextPage aus dem Ergebnis verwenden.")] int page = 1,
+				CancellationToken cancellationToken = default) => await SearchAsync(db, query, page, cancellationToken),
 			name: SearchToolName,
 			description: SearchToolDescription);
 
@@ -48,7 +51,7 @@ public static class CatalogueTools
 			name: DetailsToolName,
 			description: "Liest ein einzelnes veröffentlichtes Lied aus dem Verzeichnis.");
 
-	private static async Task<string> SearchAsync(ArchiveDbContext db, string query, int page)
+	private static async Task<string> SearchAsync(ArchiveDbContext db, string query, int page, CancellationToken token)
 	{
 		// Same folding and tokenized AND semantics as the member catalogue
 		// search; bounds are enforced inside the tool so the model cannot
@@ -56,26 +59,38 @@ public static class CatalogueTools
 		var queryText = (query ?? string.Empty).Trim();
 		if (queryText.Length > MaxQueryChars)
 			queryText = queryText[..MaxQueryChars];
-		var requestedPage = page < 1 ? 1 : Math.Min(page, MaxPage);
+		var requestedPage = Math.Max(1, page);
+		if (requestedPage > MaxPage)
+			return JsonSerializer.Serialize(new { songs = Array.Empty<object>(), error = "Höchstens 5 Seiten abrufbar. Bitte die Suche eingrenzen.", limitReached = true });
 		var tokens = queryText
 			.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
 			.Select(CatalogueText.Fold)
 			.Where(t => t.Length > 0)
 			.ToList();
 		if (tokens.Count == 0)
-			return SerializeSongs([]);
+		{
+			// Browsing is a bounded database page, not an empty search result.
+			// Count and page both apply the member-visible predicate before reading data.
+			var catalogue = db.Songs.AsNoTracking().Where(s => s.PublishedAt != null);
+			var total = await catalogue.CountAsync(token);
+			var songs = await catalogue.OrderBy(s => s.Title).ThenBy(s => s.Id)
+				.Skip((requestedPage - 1) * PageSize).Take(PageSize)
+				.Select(s => new SearchRow(s.Id, s.Title, s.Composer, s.Lyricist, s.PublishedAt, s.Lyrics))
+				.ToListAsync(token);
+			return SerializeSearch(songs, requestedPage, total);
+		}
 
 		var visible = await db.Songs.AsNoTracking()
 			.Where(s => s.PublishedAt != null)
 			.OrderBy(s => s.Id)
 			.Select(s => new SearchRow(s.Id, s.Title, s.Composer, s.Lyricist, s.PublishedAt, s.Lyrics))
-			.ToListAsync();
+			.ToListAsync(token);
 		var visibleIds = visible.Select(s => s.Id).ToList();
 		var alternateTitles = await db.SongTitles.AsNoTracking()
 			.Where(t => visibleIds.Contains(t.SongId))
 			.OrderBy(t => t.SongId).ThenBy(t => t.Position).ThenBy(t => t.Id)
 			.Select(t => new { t.SongId, t.Value })
-			.ToListAsync();
+			.ToListAsync(token);
 		var titlesBySong = alternateTitles
 			.GroupBy(t => t.SongId)
 			.ToDictionary(g => g.Key, g => g.Select(t => t.Value).ToList());
@@ -103,7 +118,7 @@ public static class CatalogueTools
 			.Skip((requestedPage - 1) * PageSize)
 			.Take(PageSize)
 			.ToList();
-		return SerializeSongs(ordered.Select(m => m.Song));
+		return SerializeSearch(ordered.Select(m => m.Song), requestedPage, matches.Count);
 	}
 
 	private static async Task<string> DetailsAsync(ArchiveDbContext db, string songId)
@@ -121,9 +136,20 @@ public static class CatalogueTools
 		return SerializeSongs([song]);
 	}
 
-	private static string SerializeSongs(IEnumerable<SearchRow> songs) => JsonSerializer.Serialize(new
+	private static string SerializeSearch(IEnumerable<SearchRow> songs, int page, int totalCount) => JsonSerializer.Serialize(new
 	{
-		songs = songs.Select(s => new
+		songs = SongPayload(songs),
+		page,
+		pageSize = PageSize,
+		totalCount,
+		hasMore = page * PageSize < totalCount,
+		nextPage = page < MaxPage && page * PageSize < totalCount ? (int?)(page + 1) : null,
+		limitReached = page == MaxPage && page * PageSize < totalCount,
+	});
+
+	private static string SerializeSongs(IEnumerable<SearchRow> songs) => JsonSerializer.Serialize(new { songs = SongPayload(songs) });
+
+	private static IEnumerable<object> SongPayload(IEnumerable<SearchRow> songs) => songs.Select(s => new
 		{
 			id = s.Id,
 			title = s.Title,
@@ -133,8 +159,7 @@ public static class CatalogueTools
 			lyricsExcerpt = s.Lyrics is { Length: > 0 }
 				? (s.Lyrics.Length > ExcerptChars ? s.Lyrics[..ExcerptChars] : s.Lyrics)
 				: null,
-		}),
-	});
+		});
 
 	private sealed record SearchRow(Guid Id, string Title, string? Composer, string? Lyricist,
 		DateTimeOffset? PublishedAt, string? Lyrics);

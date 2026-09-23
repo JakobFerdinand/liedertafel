@@ -2,6 +2,23 @@ import { postAuth } from "@/lib/auth";
 
 export type ChatQuelle = { id: string; label: string };
 
+// Nur vom Server gelieferte Quellen werden verlinkt. Weder Modelltext noch
+// Quellenbezeichnungen dürfen eine URL vorgeben.
+function leseQuellen(wert: unknown): ChatQuelle[] {
+  if (!Array.isArray(wert)) return [];
+  return wert.filter(
+    (quelle): quelle is ChatQuelle =>
+      quelle !== null &&
+      typeof quelle === "object" &&
+      typeof quelle.id === "string" &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        quelle.id,
+      ) &&
+      typeof quelle.label === "string" &&
+      quelle.label.trim().length > 0,
+  );
+}
+
 export type ChatNachricht = {
   id: string;
   role: "user" | "assistant";
@@ -171,7 +188,7 @@ export async function streamChatAntwort(
           ereignis.name === "archive.citations" &&
           Array.isArray(ereignis.value)
         ) {
-          rueckrufe.onCitations?.(ereignis.value as ChatQuelle[]);
+          rueckrufe.onCitations?.(leseQuellen(ereignis.value));
         }
         return;
       case "RUN_ERROR":

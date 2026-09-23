@@ -1,20 +1,20 @@
 import { Suspense } from "react";
 import { ChatBereich } from "@/components/chat-bereich";
+import "./chat.css";
 
 export default function FragenSeite() {
   return (
-    <>
-      <section className="introduction compact" aria-labelledby="fragen-titel">
-        <p className="section-label">Nur für Mitglieder</p>
+    <div className="chat-seite">
+      <section className="chat-einleitung" aria-labelledby="fragen-titel">
         <h1 id="fragen-titel">Fragen zum Archiv</h1>
         <p>
-          Frage das Archiv zu Liedern, Urhebern und Fassungen. Die Antworten
-          entstehen aus dem gesammelten Bestand und nennen ihre Quellen.
+          Entdecke unsere Lieder und ihre Urheber – mit Antworten aus dem
+          Archiv.
         </p>
       </section>
       <Suspense fallback={<p aria-live="polite">Fragen werden geladen …</p>}>
         <ChatBereich />
       </Suspense>
-    </>
+    </div>
   );
 }

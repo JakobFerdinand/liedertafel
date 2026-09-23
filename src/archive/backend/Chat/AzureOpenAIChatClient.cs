@@ -1,5 +1,6 @@
 using Azure.AI.OpenAI;
-using Archive.Backend.Auth;
+using Azure.Core;
+using Azure.Identity;
 using Microsoft.Extensions.AI;
 
 namespace Archive.Backend.Chat;
@@ -10,11 +11,11 @@ namespace Archive.Backend.Chat;
 /// endpoint and a pinned deployment name, the real Azure OpenAI client is
 /// built behind the same <see cref="IChatClient"/> seam
 /// (<c>AzureOpenAIClient</c> + Entra credential). Authentication is keyless
-/// (the resource runs with disableLocalAuth): the credential comes from
-/// <see cref="DataProtectionConfiguration.CreateCredential"/>, so the hosted
-/// container resolves its user-assigned managed identity via
-/// <c>AZURE_CLIENT_ID</c> and a developer machine falls back to
-/// <c>az login</c> through DefaultAzureCredential. Client construction is
+/// (the resource runs with disableLocalAuth): the hosted container resolves
+/// its user-assigned managed identity via <c>AZURE_CLIENT_ID</c>; a developer
+/// machine uses <c>az login</c> directly through AzureCliCredential. Avoiding
+/// unrelated credential discovery keeps startup inside the no-token budget.
+/// Client construction is
 /// lazy — no Azure traffic happens here. Without the provider configuration
 /// the deterministic <see cref="ScriptedChatClient"/> stays. Program.cs
 /// registration and the ARC-021 live evaluation rerun share this one code
@@ -45,7 +46,11 @@ public static class AzureOpenAIChatClient
 	{
 		if (!IsConfigured(options))
 			return null;
-		return new AzureOpenAIClient(new Uri(options.Endpoint!.Trim()), DataProtectionConfiguration.CreateCredential())
+		var clientId = Environment.GetEnvironmentVariable("AZURE_CLIENT_ID");
+		TokenCredential credential = string.IsNullOrWhiteSpace(clientId)
+			? new AzureCliCredential()
+			: new ManagedIdentityCredential(ManagedIdentityId.FromUserAssignedClientId(clientId.Trim()));
+		return new AzureOpenAIClient(new Uri(options.Endpoint!.Trim()), credential)
 			.GetChatClient(options.DeploymentName!.Trim())
 			.AsIChatClient();
 	}

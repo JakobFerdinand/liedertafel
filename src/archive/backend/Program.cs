@@ -81,9 +81,9 @@ builder.Services.AddOptions<ChatOptions>()
 	.BindConfiguration(ChatOptions.SectionName);
 // ARC-021 provider seam, implemented: when Archive:Chat selects
 // Provider=AzureOpenAI with Endpoint and DeploymentName, the real Azure
-// OpenAI client is registered — keyless via DefaultAzureCredential, which
-// resolves the hosted container's user-assigned managed identity through
-// AZURE_CLIENT_ID (set by Bicep) and az login on a developer machine. Without
+// OpenAI client is registered — keyless via the hosted container's
+// user-assigned managed identity through AZURE_CLIENT_ID (set by Bicep),
+// or AzureCliCredential with az login on a developer machine. Without
 // that configuration, Development and all tests keep the deterministic
 // ScriptedChatClient; the Enabled gate keeps ordinary runs inert.
 if (AzureOpenAIChatClient.Create(builder.Configuration

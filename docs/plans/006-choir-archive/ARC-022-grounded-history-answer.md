@@ -213,3 +213,66 @@ bare-title questions receive a conservative ask-for-a-question answer
 instead of a record citation, and a cold deployment's first request can
 trip the 30 s no-token bound (German `RUN_ERROR`, no ledger row) until the
 model is warm.
+
+## Catalogue browsing and chat usability correction — 2026-09-23
+
+The reported real-use question, „Welche Lieder gibt es?“, exposed a retrieval
+regression: the model correctly called `catalogue_search` with an empty query,
+but the tool returned an empty result without querying the catalogue. The
+earlier live evaluation covered named searches, not this ordinary opening
+question.
+
+- Empty queries now browse published songs in stable title/id order, ten per
+  page and at most five pages. Result metadata reports the total, whether more
+  songs exist, the next permitted page, and when a narrower search is needed.
+  The prompt and offline provider use this browsing contract for general
+  catalogue questions and follow-ups.
+- Inline `[Quelle: …]` markers are validated against the current run's
+  authorized tool results before streaming and persistence, including markers
+  split across provider chunks and bracketed titles such as `Abendlied [SATB]`.
+  Invented collection-level sources such as `[Quelle: Liedverzeichnis]` are
+  removed. Filtered catalogue pagination retains its original search query.
+- A deterministic provider-seam HTTP regression reproduced the false empty
+  answer before the fix. Backend coverage now exercises browsing, pagination,
+  draft exclusion and streamed citation validation. The real PostgreSQL/AppHost
+  check also asks the opening question with one published song and one draft.
+- The live evaluation includes the exact opening question with hard assertions
+  for a completed answer, actual song citations, draft exclusion and matching
+  persisted content.
+- The chat page now uses a compact conversation layout, clearly identified
+  speakers, suggested opening questions, readable lists and emphasis, and a
+  full-width composer. Validated sources are numbered inline and linked below
+  each answer. Streaming, cancellation, retry, keyboard submission and a new
+  conversation have explicit states; mobile and desktop browser regressions
+  cover the interaction. Cancelling or retrying an answer preserves a draft of
+  the next question. Restored legacy messages without source metadata keep
+  their textual source markers rather than inventing record links.
+
+Verification of the interface and real database path:
+
+- Frontend `pnpm run check` and static `pnpm run build`: clean.
+- Full production-mode browser suite: **138 passed, 6 development-only checks
+  skipped**. After the final mobile/citation polish, the focused desktop/mobile
+  chat suite passed **24/24**.
+- Clean Podman/AppHost integration suite: **4/4 passed**, including the new
+  member catalogue-browsing regression on PostgreSQL through the frontend proxy.
+- Desktop and mobile empty/conversation screenshots reviewed; the composer and
+  send button fit in the initial 390×844 mobile viewport.
+
+The first live rerun also exposed a request-lifetime race: AG-UI ends its
+consumer on `RUN_ERROR`, while the fire-and-forget producer could still be
+saving usage through a request-scoped `ArchiveDbContext`. The response stream
+now owns, cancels and awaits the producer before the scope is disposed. A
+paused-save HTTP regression reproduced the premature request completion before
+the fix. Local credential discovery was independently measured at 42.5 seconds
+with `DefaultAzureCredential`, versus 1.5 seconds through Azure CLI. Chat now
+uses `AzureCliCredential` directly for local `az login`; `AZURE_CLIENT_ID`
+continues to select the hosted user-assigned managed identity. The configured
+no-token and overall deadlines are unchanged.
+
+Final backend verification: **262 offline tests passed**. The live pinned
+`gpt-5-4-mini` evaluation completed **14/14 cases in 23 seconds**; the reported
+opening question produced **10 authorized citations**, matching persisted
+content, with no draft disclosure, fabricated catalogue citation or disposed
+context error. The earlier draft-title-echo and bare-title-clarification soft
+observations remain; see the follow-up evidence in ARC-021.
