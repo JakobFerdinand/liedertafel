@@ -1,0 +1,157 @@
+.archiv-chat-leiste {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 1.2rem;
+  padding: 0.65rem 4vw;
+  background: var(--paper);
+  border-bottom: 1px solid #ded0d1;
+}
+
+.archiv-chat-leiste button {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.7rem 1rem;
+  font-weight: 600;
+}
+
+.archiv-chat-leiste > span {
+  color: #735e60;
+  font-size: 0.85rem;
+}
+
+.archiv-arbeitsplatz {
+  max-width: 100rem;
+  padding-inline: 4vw;
+}
+
+.archiv-seiteninhalt {
+  min-width: 0;
+  max-width: 68rem;
+  margin-inline: auto;
+}
+
+.archiv-chat-panel {
+  min-width: 0;
+  width: 100%;
+  scroll-margin-top: 5rem;
+}
+
+/* hidden muss auch bei den Grid-/Flex-Layouts tatsächlich ausblenden. */
+.archiv-arbeitsplatz [hidden] {
+  display: none;
+}
+
+.archiv-chat-kopf {
+  flex: none;
+}
+
+.archiv-chat-ansicht {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 0.8rem;
+  font-size: 0.8rem;
+  border-bottom: 1px solid var(--chat-rule);
+}
+
+.archiv-chat-ansicht button {
+  background: transparent;
+  color: var(--brand);
+  padding: 0.65rem 0.2rem;
+}
+
+.archiv-chat-panel .chat-einleitung h2 {
+  margin-bottom: 0.6rem;
+}
+
+.archiv-grossansicht {
+  max-width: 56rem;
+}
+
+@media (min-width: 1100px) {
+  .archiv-arbeitsplatz:not(.archiv-grossansicht).archiv-chat-offen {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(23rem, 0.7fr);
+    gap: clamp(2rem, 4vw, 4rem);
+  }
+
+  .archiv-arbeitsplatz:not(.archiv-grossansicht)
+    .archiv-chat-panel:not([hidden]) {
+    position: sticky;
+    top: 5rem;
+    align-self: start;
+    display: flex;
+    flex-direction: column;
+    height: calc(100dvh - 13rem);
+    min-height: 30rem;
+    border-left: 1px solid var(--chat-rule);
+    padding-left: clamp(1.2rem, 2vw, 2rem);
+  }
+
+  .archiv-arbeitsplatz:not(.archiv-grossansicht) .chat-einleitung {
+    padding-block: 1.5rem 0.5rem;
+  }
+
+  .archiv-arbeitsplatz:not(.archiv-grossansicht) .chat-einleitung p {
+    font-size: 0.85rem;
+  }
+
+  .archiv-arbeitsplatz:not(.archiv-grossansicht) .chat-bereich {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .archiv-arbeitsplatz:not(.archiv-grossansicht) .chat-verlauf {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+    align-content: start;
+    padding-block: 1rem;
+  }
+
+  .archiv-arbeitsplatz:not(.archiv-grossansicht) .chat-vorschlaege {
+    grid-template-columns: 1fr;
+  }
+
+  .archiv-arbeitsplatz:not(.archiv-grossansicht) .chat-vorschlaege button {
+    padding: 0.6rem 0.8rem;
+  }
+
+  .archiv-chat-panel .chat-formular,
+  .archiv-chat-panel .chat-werkzeuge,
+  .archiv-chat-panel .chat-status,
+  .archiv-chat-panel .chat-fehler {
+    flex: none;
+  }
+}
+
+@media (max-width: 1099px) {
+  .archiv-chat-offen:not(.archiv-grossansicht) .archiv-seiteninhalt {
+    display: none;
+  }
+
+  .archiv-chat-panel .chat-einleitung {
+    padding-block: 1.5rem 0.5rem;
+  }
+}
+
+@media (max-width: 540px) {
+  .archiv-chat-leiste > span {
+    display: none;
+  }
+
+  .archiv-chat-leiste button {
+    width: 100%;
+  }
+
+  .archiv-chat-leiste button > span:last-child {
+    margin-left: auto;
+  }
+}

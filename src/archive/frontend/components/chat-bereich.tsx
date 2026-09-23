@@ -270,7 +270,7 @@ export function ChatBereich() {
     return (
       <div className="chat-zustand">
         <p>Bitte anmelden, um das Archiv zu fragen.</p>
-        <Link href="/anmelden/">Anmelden</Link>
+        <Link href="/anmelden/">Zur Anmeldung für den Chat</Link>
       </div>
     );
   }

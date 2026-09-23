@@ -1,8 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { ArchivArbeitsplatz } from "@/components/archiv-arbeitsplatz";
 import { AuthStatus } from "@/components/auth-status";
 import { MaintenanceBanner } from "@/components/maintenance-banner";
 import "./globals.css";
+import "./fragen/chat.css";
+import "./arbeitsplatz.css";
 
 export const metadata: Metadata = {
   title: "Liedertafel Archiv",
@@ -33,14 +36,14 @@ export default function RootLayout({
             <Link href="/">Archiv</Link>
             <Link href="/archiv/">Mitgliederbereich</Link>
             <Link href="/lieder/">Liederkatalog</Link>
-            <Link href="/fragen/">Fragen</Link>
+            <Link href="/fragen/">Archiv fragen</Link>
             <Link href="/verwaltung/">Verwaltung</Link>
             <Link href="/system/status/">Systemstatus</Link>
             <AuthStatus />
           </nav>
         </header>
         <MaintenanceBanner />
-        <main id="inhalt">{children}</main>
+        <ArchivArbeitsplatz>{children}</ArchivArbeitsplatz>
         <footer>Gemeinsam singen. Gemeinsam bewahren.</footer>
       </body>
     </html>
