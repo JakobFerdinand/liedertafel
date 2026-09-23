@@ -248,6 +248,12 @@ resource aoaiAccount 'Microsoft.CognitiveServices/accounts@2026-07-01' = {
     name: 'S0'
   }
   kind: 'AIServices'
+  // System-assigned identity is a Foundry requirement for the project child
+  // ("To create projects, you must enable a managed identity on your
+  // resource"); the runtime identity keeps its explicit role assignment.
+  identity: {
+    type: 'SystemAssigned'
+  }
   properties: {
     // Hostname anchor for the inference endpoint env value below; also
     // requires unique DNS.
