@@ -93,11 +93,11 @@ h3 {
    – .knopf-leise: leiser Marken-Textknopf, Hover unterstreicht.
    – .knopf-leise-rahmen: umrandete leise Variante, Hover füllt mit
      Markenfarbe. Die Grundform (transparent, 2px currentColor) teilt
-     .knopf-leise-rahmen auch mit den Marken-Knopfzeilen
-     (.passkey-liste, .lied-anderer-titel, .noten-laden) und den
-     Fassungs-Knöpfen (.fassungs-liste: Tinte, Hover Waschgrund,
-     gewählt solid) — diese behalten ihre eigenen Farb- und
-     Hoverregeln. */
+     .knopf-leise-rahmen mit den Marken-Knopfzeilen (.lied-anderer-titel,
+     .noten-laden) und den Fassungs-Knöpfen (.fassungs-liste: Tinte, Hover
+     Waschgrund, gewählt solid) — diese behalten ihre eigenen Farb- und
+     Hoverregeln; die Passkey-Zeilen (.passkey-liste) tragen ihre Knöpfe
+     dagegen als leise Textknöpfe (.knopf-leise). */
 .hinweis-block,
 .chat-zustand,
 .chat-fehler,
@@ -118,7 +118,6 @@ h3 {
   text-underline-offset: 0.25em;
 }
 .knopf-leise-rahmen,
-.passkey-liste button,
 .lied-anderer-titel button,
 .noten-laden,
 .fassungs-liste button {
@@ -127,7 +126,6 @@ h3 {
   border-radius: var(--radius-knopf);
 }
 .knopf-leise-rahmen,
-.passkey-liste button,
 .lied-anderer-titel button,
 .noten-laden {
   color: var(--brand);
@@ -136,7 +134,6 @@ h3 {
   text-decoration: none;
 }
 .knopf-leise-rahmen:hover:not(:disabled),
-.passkey-liste button:hover:not(:disabled),
 .lied-anderer-titel button:hover:not(:disabled),
 .noten-laden:hover {
   background: var(--brand);
@@ -424,14 +421,99 @@ dd {
   min-width: 0;
   padding: 0.7rem 0.8rem;
 }
+/* ─── Mitgliederbereich: Komposition auf Papier ───────────────────────
+   Die Waschkarte zerlegt sich in Werkzeugzeile (Titel links, stiller
+   Sitzungstext und Abmelden rechts, Haarriss oben und unten nach
+   .chat-werkzeuge), Begrüßung als Fließtext und den Katalogverweis als
+   Vorschlagskachel. Alles läuft im Kartenmaß 32rem. */
+.mitglieder-bereich {
+  max-width: 32rem;
+}
+.mitglieder-kopf {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
+  min-height: 3.5rem;
+  padding-block: 0.5rem;
+  border-block: 1px solid var(--rule);
+}
+.mitglieder-kopf h2 {
+  margin-block: 0;
+  font-size: var(--titel-abschnitt);
+}
+.mitglieder-sitzung {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.8rem;
+}
+.mitglieder-rolle {
+  margin-block: 0;
+  color: var(--muted);
+  font-size: var(--schrift-meta);
+}
+.mitglieder-sitzung .knopf-leise {
+  min-height: 2.75rem;
+  padding: 0.4rem 0.9rem;
+  font-size: var(--schrift-neben);
+}
+/* Vorschlagskachel nach .chat-vorschlaege: Haarriss-Rahmen auf Papier,
+   Marken-Text links, Hover wäscht und rahmt in Markenfarbe. */
+.verweis-kachel {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.6rem;
+  max-width: 32rem;
+  padding: 0.9rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-knopf);
+  background: var(--paper);
+  color: var(--brand);
+  font-size: var(--schrift-neben);
+  line-height: 1.5;
+  text-align: left;
+  text-decoration: none;
+}
+.verweis-kachel:hover {
+  background: var(--wash);
+  border-color: var(--brand);
+}
+.verweis-kachel strong {
+  display: block;
+  font-weight: 600;
+}
+.verweis-kachel-neben {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--muted);
+}
+/* ─── Passkeys: eigener Abschnitt hinter dem Haarriss; die Felder ─────
+   tragen den Standard-Feldwortschatz (2px Tintenrahmen, Knopfradius,
+   Schrift Erbe, Papiergrund), der vorher .auth-karte gab. */
 .passkey-verwaltung {
   margin-top: 2.25rem;
   padding-top: 1.4rem;
-  border-top: 1px solid rgba(64, 35, 38, 0.2);
+  border-top: 1px solid var(--rule);
 }
 .passkey-verwaltung h3 {
   font-size: 1.25rem;
   margin-block: 0 0.9rem;
+}
+.passkey-verwaltung input {
+  box-sizing: border-box;
+  padding: 0.7rem 0.8rem;
+  border: 2px solid var(--ink);
+  border-radius: var(--radius-knopf);
+  font: inherit;
+  background: var(--paper);
+  color: var(--ink);
+}
+.passkey-verwaltung input:focus-visible {
+  border-color: var(--brand);
+  outline: none;
 }
 .passkey-liste {
   list-style: none;
@@ -456,7 +538,34 @@ dd {
   width: auto;
   flex: 1 1 10rem;
   min-width: 0;
-  padding: 0.5rem;
+}
+/* Zeilenknöpfe: Umbenennen/Entfernen/Abbrechen als leise Textknöpfe,
+   Speichern als voller Knopf; Berührziele bleiben ≥ 2.75rem. */
+.passkey-liste button {
+  min-height: 2.75rem;
+  padding: 0.55rem 0.8rem;
+  border-radius: var(--radius-knopf);
+  font-size: var(--schrift-neben);
+}
+/* Hinzufügen-Zeile in der Geometrie der Suchkomponisten-Zeile
+   (.lieder-suche-felder): Feld wächst, Knopf steht rechts. */
+.passkey-neu {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+.passkey-neu input {
+  width: auto;
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+.passkey-neu button {
+  flex: 0 0 auto;
+  min-height: 2.75rem;
+  padding: 0.65rem 1rem;
+  border-radius: var(--radius-knopf-gross);
+  font-size: var(--schrift-neben);
 }
 .mitglieder-liste {
   margin-top: 2.5rem;
@@ -955,6 +1064,15 @@ footer {
     gap: 0.6rem;
   }
   .auth-aktionen input {
+    flex: 0 0 auto;
+    width: 100%;
+  }
+  .passkey-neu {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .passkey-neu input {
+    /* In der Spalte wäre die Flex-Basis die Höhe: Feld auf Autoinhalt. */
     flex: 0 0 auto;
     width: 100%;
   }

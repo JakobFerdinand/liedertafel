@@ -99,7 +99,14 @@ export function PasskeyVerwaltung() {
   }
 
   if (passkeys === null) {
-    return <p aria-live="polite">Passkeys werden geladen …</p>;
+    return (
+      <div className="passkey-verwaltung">
+        <h3>Passkeys dieses Kontos</h3>
+        <p aria-live="polite" className="auth-statuszeile">
+          Passkeys werden geladen …
+        </p>
+      </div>
+    );
   }
   return (
     <div className="passkey-verwaltung">
@@ -127,6 +134,7 @@ export function PasskeyVerwaltung() {
                   </button>
                   <button
                     type="button"
+                    className="knopf-leise"
                     disabled={busy}
                     onClick={() => setBearbeitet(null)}
                   >
@@ -138,6 +146,7 @@ export function PasskeyVerwaltung() {
                   <span>{passkey.name ?? "Passkey"}</span>
                   <button
                     type="button"
+                    className="knopf-leise"
                     disabled={busy}
                     onClick={() => {
                       setBearbeitet(passkey.credentialId);
@@ -148,6 +157,7 @@ export function PasskeyVerwaltung() {
                   </button>
                   <button
                     type="button"
+                    className="knopf-leise"
                     disabled={busy}
                     onClick={() => entfernen(passkey.credentialId)}
                   >
@@ -160,7 +170,7 @@ export function PasskeyVerwaltung() {
         </ul>
       )}
       {unterstuetzt === null ? null : unterstuetzt ? (
-        <div className="auth-aktionen">
+        <div className="passkey-neu">
           <input
             aria-label="Name für den neuen Passkey"
             placeholder="z. B. Laptop"

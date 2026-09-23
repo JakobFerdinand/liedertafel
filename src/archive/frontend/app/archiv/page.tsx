@@ -7,8 +7,7 @@ export default function ArchivSeite() {
         <p className="section-label">Nur für Mitglieder</p>
         <h1 id="archiv-titel">Mitgliederbereich</h1>
       </section>
-      <section className="auth-karte" aria-labelledby="bereich-titel">
-        <h2 id="bereich-titel">Unser Archiv</h2>
+      <section className="mitglieder-bereich" aria-labelledby="bereich-titel">
         <ArchivBereich />
       </section>
     </>

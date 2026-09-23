@@ -35,43 +35,80 @@ export function ArchivBereich() {
     }
   }
 
+  // Werkzeugzeile des Mitgliedsbereichs: Titel links, Sitzung rechts; die
+  // Rollenzeile erscheint erst, wenn die Prüfung sie belegt.
+  const sitzung = me?.authenticated ? me : null;
+  const rolle = sitzung
+    ? `Angemeldet als ${sitzung.displayName ?? sitzung.email} (${sitzung.roles.join(", ")})`
+    : "";
+  const kopf = (
+    <div className="mitglieder-kopf">
+      <h2 id="bereich-titel">Unser Archiv</h2>
+      {sitzung && (
+        <div className="mitglieder-sitzung">
+          <p className="mitglieder-rolle">{rolle}</p>
+          <button
+            type="button"
+            className="knopf-leise"
+            disabled={busy}
+            onClick={abmelden}
+          >
+            Abmelden
+          </button>
+        </div>
+      )}
+    </div>
+  );
+
   if (fehler) {
     return (
-      <div aria-live="polite">
-        <p>{fehler}</p>
-      </div>
+      <>
+        {kopf}
+        <div aria-live="polite">
+          <p className="hinweis-block">{fehler}</p>
+        </div>
+      </>
     );
   }
   if (me === null) {
     return (
-      <div aria-live="polite">
-        <p>Mitgliedschaft wird geprüft …</p>
-      </div>
+      <>
+        {kopf}
+        <div aria-live="polite">
+          <p className="auth-statuszeile">Mitgliedschaft wird geprüft …</p>
+        </div>
+      </>
     );
   }
   if (!me.authenticated) {
     return (
-      <div>
-        <p>Bitte anmelden, um den Mitgliederbereich zu sehen.</p>
-        <Link href="/anmelden/">Anmelden</Link>
-      </div>
+      <>
+        {kopf}
+        <div>
+          <p>Bitte anmelden, um den Mitgliederbereich zu sehen.</p>
+          <Link href="/anmelden/" className="verweis-kachel">
+            <span>Anmelden</span>
+            <span aria-hidden="true">↗</span>
+          </Link>
+        </div>
+      </>
     );
   }
   return (
-    <div>
+    <>
+      {kopf}
       <p>Willkommen im Archiv. Hier entsteht die Sammlung unseres Chores.</p>
-      <p>
-        Der <Link href="/lieder/">Liederkatalog</Link> ist jetzt geöffnet:
-        Veröffentlichte Lieder mit Fassungen und Bearbeitungen sind dort
-        sichtbar.
-      </p>
-      <p>
-        Angemeldet als {me.displayName ?? me.email} ({me.roles.join(", ")})
-      </p>
-      <button type="button" onClick={abmelden} disabled={busy}>
-        Abmelden
-      </button>
+      <Link href="/lieder/" className="verweis-kachel">
+        <span>
+          <strong>Der Liederkatalog ist jetzt geöffnet</strong>
+          <span className="verweis-kachel-neben">
+            Veröffentlichte Lieder mit Fassungen und Bearbeitungen sind dort
+            sichtbar.
+          </span>
+        </span>
+        <span aria-hidden="true">↗</span>
+      </Link>
       <PasskeyVerwaltung />
-    </div>
+    </>
   );
 }
