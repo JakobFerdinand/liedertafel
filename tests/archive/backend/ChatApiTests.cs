@@ -8,8 +8,13 @@ using Archive.Backend.Data;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using AiChatMessage = Microsoft.Extensions.AI.ChatMessage;
+using AiChatOptions = Microsoft.Extensions.AI.ChatOptions;
 
 namespace Archive.Backend.Tests;
 
@@ -194,7 +199,7 @@ public sealed class ChatApiTests
 			var base_ = DateTimeOffset.UtcNow.AddHours(-1);
 			for (var i = 0; i < 20; i++)
 			{
-				db.ChatMessages.Add(new ChatMessage
+				db.ChatMessages.Add(new Archive.Backend.Chat.ChatMessage
 				{
 					ThreadId = threadId,
 					Role = i % 2 == 0 ? "user" : "assistant",
@@ -296,12 +301,174 @@ public sealed class ChatApiTests
 		Assert.Equal(ChatEndpoints.QuestionTooLongMessage, problem.GetProperty("title").GetString());
 	}
 
+	[Fact]
+	public async Task ExhaustedBudgetStillRunsWritesLedgerRowAndWarnsMaintainer()
+	{
+		// ARC-021 budget semantics: exceeding the reviewed amount only raises
+		// the maintainer warning — the run still succeeds, the chat is never
+		// auto-disabled, and this run writes its own ledger row.
+		await using var factory = ChatFactory(settings: new Dictionary<string, string?>
+		{
+			["Archive:Chat:MonthlyBudgetEur"] = "0.01",
+		});
+		var ownerId = await SeedMemberAsync(factory, MemberA);
+		await SeedSongsAsync(factory, ownerId);
+		var month = DateTimeOffset.UtcNow.ToString("yyyy-MM", System.Globalization.CultureInfo.InvariantCulture);
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			// Seeded prior usage pushes this month beyond the tiny budget.
+			db.ChatUsageEntries.Add(new ChatUsageEntry
+			{
+				YearMonth = month,
+				AccountId = ownerId,
+				EstimatedCostEurCents = 100,
+				CreatedAt = DateTimeOffset.UtcNow,
+			});
+			await db.SaveChangesAsync();
+		}
+		var session = await SignInAsync(factory, MemberA);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+
+		var events = await RunChatAsync(client, session, Guid.NewGuid().ToString(), "Die Waldfahrt");
+		var body = await events.Content.ReadAsStringAsync();
+
+		// (a) The run still succeeds normally: never auto-disabled.
+		Assert.Equal(HttpStatusCode.OK, events.StatusCode);
+		Assert.Contains("RUN_STARTED", body);
+		Assert.Contains("RUN_FINISHED", body);
+		Assert.DoesNotContain("RUN_ERROR", body);
+		Assert.Contains("ist im Archiv verzeichnet", body);
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			// (b) The run wrote its own usage row next to the seeded prior one.
+			var entries = await db.ChatUsageEntries.ToListAsync();
+			Assert.Equal(2, entries.Count);
+			Assert.Contains(entries, e => e.AccountId == ownerId && e.InputTokens > 0 && e.EstimatedCostEurCents > 0);
+		}
+		// (c) The maintainer warning was logged (cost figures only, never
+		// question/answer content or member data).
+		Assert.Contains(factory.Logs.Entries,
+			e => e.Level == LogLevel.Warning && e.Message.Contains("übersteigen das Budget"));
+	}
+
+	[Fact]
+	public async Task ToolCapExceededEndsWithRunErrorAndNoAssistantMessage()
+	{
+		await using var factory = ChatFactory(settings: new Dictionary<string, string?>
+		{
+			["Archive:Chat:MaxToolCalls"] = "2",
+		}, chatClient: new LoopingChatClient());
+		await SeedMemberAsync(factory, MemberA);
+		var session = await SignInAsync(factory, MemberA);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+
+		var threadId = Guid.NewGuid();
+		var events = await RunChatAsync(client, session, threadId.ToString(), "Die Waldfahrt");
+		var parsed = ParseEvents(await events.Content.ReadAsStringAsync());
+
+		Assert.Equal(HttpStatusCode.OK, events.StatusCode);
+		Assert.Contains(parsed, IsRunErrorWithGermanFailureMessage);
+		Assert.DoesNotContain(parsed, e => e.GetProperty("type").GetString() == "RUN_FINISHED");
+		using var scope = factory.Services.CreateScope();
+		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+		var messages = await db.ChatMessages.Where(m => m.ThreadId == threadId).ToListAsync();
+		// The user turn persists; the aborted run never produces an answer.
+		Assert.Equal(1, messages.Count);
+		Assert.All(messages, m => Assert.Equal("user", m.Role));
+	}
+
+	[Fact]
+	public async Task OverallBoundExceededEndsWithRunError()
+	{
+		// The looping client delays each iteration, so the overall bound fires
+		// deterministically before the tool cap is reached.
+		await using var factory = ChatFactory(settings: new Dictionary<string, string?>
+		{
+			["Archive:Chat:OverallSeconds"] = "1",
+		}, chatClient: new LoopingChatClient { IterationDelayMs = 300 });
+		await SeedMemberAsync(factory, MemberA);
+		var session = await SignInAsync(factory, MemberA);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+
+		var events = await RunChatAsync(client, session, Guid.NewGuid().ToString(), "Die Waldfahrt");
+		var parsed = ParseEvents(await events.Content.ReadAsStringAsync());
+
+		Assert.Equal(HttpStatusCode.OK, events.StatusCode);
+		Assert.Contains(parsed, IsRunErrorWithGermanFailureMessage);
+		Assert.DoesNotContain(parsed, e => e.GetProperty("type").GetString() == "RUN_FINISHED");
+	}
+
+	[Fact]
+	public async Task NoTokenBoundEndsWithRunError()
+	{
+		await using var factory = ChatFactory(settings: new Dictionary<string, string?>
+		{
+			["Archive:Chat:NoTokenSeconds"] = "1",
+		}, chatClient: new LoopingChatClient { NeverYields = true });
+		await SeedMemberAsync(factory, MemberA);
+		var session = await SignInAsync(factory, MemberA);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+
+		var events = await RunChatAsync(client, session, Guid.NewGuid().ToString(), "Die Waldfahrt");
+		var parsed = ParseEvents(await events.Content.ReadAsStringAsync());
+
+		Assert.Equal(HttpStatusCode.OK, events.StatusCode);
+		Assert.Contains(parsed, IsRunErrorWithGermanFailureMessage);
+		Assert.DoesNotContain(parsed, e => e.GetProperty("type").GetString() == "RUN_FINISHED");
+	}
+
+	[Fact]
+	public async Task PersistenceFailureStaysVisibleAsRunErrorWithoutLedgerRow()
+	{
+		// A broken database must never end as a fake success: the run emits the
+		// German failure state and nothing (turns, ledger) gets persisted.
+		var gate = new[] { false };
+		await using var factory = ChatFactory(saveChanges: new GatedFailSaveInterceptor(gate));
+		await SeedMemberAsync(factory, MemberA);
+		await SeedSongsAsync(factory, Guid.NewGuid());
+		var session = await SignInAsync(factory, MemberA);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+
+		gate[0] = true;
+		var events = await RunChatAsync(client, session, Guid.NewGuid().ToString(), "Die Waldfahrt");
+		gate[0] = false;
+		var parsed = ParseEvents(await events.Content.ReadAsStringAsync());
+
+		Assert.Equal(HttpStatusCode.OK, events.StatusCode);
+		Assert.Contains(parsed, IsRunErrorWithGermanFailureMessage);
+		Assert.DoesNotContain(parsed, e => e.GetProperty("type").GetString() == "RUN_FINISHED");
+		using var scope = factory.Services.CreateScope();
+		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+		Assert.Empty(await db.ChatMessages.ToListAsync());
+		Assert.Empty(await db.ChatUsageEntries.ToListAsync());
+		Assert.Empty(await db.ChatThreads.ToListAsync());
+	}
+
+	private static bool IsRunErrorWithGermanFailureMessage(JsonElement @event)
+		=> @event.GetProperty("type").GetString() == "RUN_ERROR"
+			&& @event.TryGetProperty("message", out var message)
+			&& message.GetString() == "Die Antwort konnte nicht fertig gestellt werden.";
+
 	// ---- harness ----
 
-	private static AuthApiFactory ChatFactory() => new("Development", settings: new Dictionary<string, string?>
+	private static AuthApiFactory ChatFactory(IDictionary<string, string?>? settings = null, IChatClient? chatClient = null, ISaveChangesInterceptor? saveChanges = null) =>
+		new("Development", settings: MergeSettings(settings), chatClient: chatClient, saveChangesInterceptor: saveChanges);
+
+	private static IDictionary<string, string?> MergeSettings(IDictionary<string, string?>? settings)
 	{
-		["Archive:Chat:Enabled"] = "true",
-	});
+		var all = new Dictionary<string, string?>
+		{
+			["Archive:Chat:Enabled"] = "true",
+		};
+		if (settings is not null)
+		{
+			foreach (var (key, value) in settings)
+				all[key] = value;
+		}
+		return all;
+	}
 
 	private static object ChatBody(string threadId, string question) => new
 	{
@@ -457,5 +624,119 @@ public sealed class ChatApiTests
 		request.Headers.Add("X-CSRF-TOKEN", token);
 		request.Content = JsonContent.Create(body);
 		return request;
+	}
+}
+
+/// <summary>
+/// Test-local fake provider for the ARC-022 bound machinery: yields one
+/// <c>catalogue_search</c> function call per iteration forever (optionally
+/// delayed), or never yields anything at all, so the tool cap and the two
+/// time bounds terminate deterministically.
+/// </summary>
+internal sealed class LoopingChatClient : IChatClient
+{
+	/// <summary>When set, the client streams nothing and awaits cancellation.</summary>
+	public bool NeverYields { get; init; }
+
+	/// <summary>Artificial per-iteration delay in milliseconds, applied before the first token.</summary>
+	public int IterationDelayMs { get; init; }
+
+	private int calls;
+
+	public async Task<ChatResponse> GetResponseAsync(
+		IEnumerable<AiChatMessage> messages, AiChatOptions? options = null, CancellationToken cancellationToken = default)
+	{
+		var updates = new List<ChatResponseUpdate>();
+		await foreach (var update in GetStreamingResponseAsync(messages, options, cancellationToken))
+			updates.Add(update);
+		return updates.ToChatResponse();
+	}
+
+	public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+		IEnumerable<AiChatMessage> messages, AiChatOptions? options = null,
+		[System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+	{
+		if (IterationDelayMs > 0)
+			await Task.Delay(IterationDelayMs, cancellationToken);
+		if (NeverYields)
+		{
+			// The bound machinery (no-token or overall) must abort this run.
+			await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+			yield break;
+		}
+		yield return new ChatResponseUpdate
+		{
+			Contents = [new FunctionCallContent($"call_{Interlocked.Increment(ref calls)}", CatalogueTools.SearchToolName,
+				new Dictionary<string, object?> { ["query"] = "Die Waldfahrt" })],
+		};
+	}
+
+	public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+	public void Dispose()
+	{
+	}
+}
+
+/// <summary>
+/// Minimal capturing ILoggerProvider: chat tests assert maintainer warnings
+/// (level plus searched phrase) without exposing member or question content.
+/// </summary>
+internal sealed class CapturingLogProvider : ILoggerProvider
+{
+	private readonly List<(LogLevel Level, string Message)> entries = [];
+	private readonly object gate = new();
+
+	public IReadOnlyList<(LogLevel Level, string Message)> Entries
+	{
+		get { lock (gate) return [.. entries]; }
+	}
+
+	public ILogger CreateLogger(string categoryName) => new CapturingLogger(this);
+
+	public void Dispose()
+	{
+	}
+
+	private void Add(LogLevel level, string message)
+	{
+		lock (gate) entries.Add((level, message));
+	}
+
+	private sealed class CapturingLogger(CapturingLogProvider provider) : ILogger
+	{
+		public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+		public bool IsEnabled(LogLevel logLevel) => true;
+
+		public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+			Func<TState, Exception?, string> formatter)
+			=> provider.Add(logLevel, formatter(state, exception));
+	}
+}
+
+/// <summary>
+/// Test-local EF interceptor: throws on every save while gated, simulating a
+/// broken database for the chat persistence-atomicity check.
+/// </summary>
+internal sealed class GatedFailSaveInterceptor(bool[] gate) : ISaveChangesInterceptor
+{
+	public InterceptionResult<int> SavingChanges(DbContextEventData eventData, InterceptionResult<int> result)
+	{
+		ThrowIfGated();
+		return result;
+	}
+
+	public ValueTask<InterceptionResult<int>> SavingChangesAsync(
+		DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
+	{
+		ThrowIfGated();
+		return ValueTask.FromResult(result);
+	}
+
+	private void ThrowIfGated()
+	{
+		if (gate[0])
+			throw new InvalidOperationException("Test: Datenbankspeicherung fehlgeschlagen.");
 	}
 }
