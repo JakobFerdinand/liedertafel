@@ -20,6 +20,9 @@ export function AnmeldeFormular() {
   // branch on `typeof window` would break server/client hydration.
   const [passkeyUnterstuetzt, setPasskeyUnterstuetzt] = useState(false);
   const [cooldown, setCooldown] = useState(0);
+  // Zustand des zweiten Schritts: „Code gesendet" ist der Stilltext
+  // zwischen Anforderung und Prüfung, kein Erfolg am Seitenende.
+  const [codeGesendet, setCodeGesendet] = useState(false);
 
   useEffect(() => {
     setPasskeyUnterstuetzt(webAuthnSupported());
@@ -109,7 +112,7 @@ export function AnmeldeFormular() {
         return;
       }
       setStep("code");
-      setErfolg("Code gesendet. Bitte Postfach prüfen und Code hier eingeben.");
+      setCodeGesendet(true);
       setCooldown(60);
       const timer = window.setInterval(() => {
         setCooldown((rest) => {
@@ -204,6 +207,7 @@ export function AnmeldeFormular() {
             <div className="auth-aktionen">
               <button
                 type="button"
+                className="knopf-leise"
                 disabled={passkeyBusy}
                 onClick={mitPasskeyAnmelden}
               >
@@ -239,23 +243,24 @@ export function AnmeldeFormular() {
             </button>
             <button
               type="button"
+              className="knopf-leise"
               disabled={busy || cooldown > 0}
               onClick={(event) =>
                 codeAnfordern(event as unknown as React.FormEvent<Element>)
               }
             >
-              {cooldown > 0
-                ? `Neuer Code in ${cooldown} Sekunden möglich.`
-                : "Code erneut senden"}
+              Code erneut senden
             </button>
             <button
               type="button"
+              className="knopf-leise"
               disabled={busy}
               onClick={() => {
                 setStep("email");
                 setCode("");
                 setCodeFehler("");
                 setErfolg("");
+                setCodeGesendet(false);
               }}
             >
               Andere E-Mail-Adresse verwenden
@@ -263,13 +268,23 @@ export function AnmeldeFormular() {
           </div>
         </form>
       )}
+      <output aria-live="polite" className="auth-statuszeile">
+        {step === "code" && codeGesendet
+          ? "Code gesendet. Bitte Postfach prüfen und Code hier eingeben …"
+          : ""}
+      </output>
+      <output aria-live="polite" className="auth-statuszeile">
+        {step === "code" && cooldown > 0
+          ? `Neuer Code in ${cooldown} Sekunden möglich.`
+          : ""}
+      </output>
       {erfolg && (
         <output aria-live="polite" className="auth-erfolg">
           {erfolg}
         </output>
       )}
       {hinweis && (
-        <output aria-live="polite" className="feld-fehler">
+        <output aria-live="polite" className="auth-fehler">
           {hinweis}
         </output>
       )}

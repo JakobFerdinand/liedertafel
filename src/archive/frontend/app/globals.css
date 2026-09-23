@@ -82,9 +82,12 @@ h3 {
 
    Klassen:
    – .hinweis-block: Zustandsblock, Markenlinker auf Waschgrund
-     (3px, Innenabstand 1rem 1.2rem). .chat-zustand/.chat-fehler und
-     .archive-note (Startseite, Wartung) teilen dieselbe Rezeptur;
-     .auth-erfolg schließt in ihrem Bereich an.
+     (3px, Innenabstand 1rem 1.2rem). .chat-zustand/.chat-fehler,
+     .archive-note (Startseite, Wartung), .auth-erfolg und .auth-fehler
+     (Anmelden, Mitgliederbereich, Verwaltung, Katalog) teilen dieselbe
+     Rezeptur.
+   – .auth-statuszeile: Statuszeile des Anmeldeablaufs nach .chat-status
+     (Stilltext in --muted, ‚…'-Führung, Höhe reserviert, kollabiert leer).
    – .lieder-suche: Suchkomponist — die Composer-Karte des Chats als
      gemeinsames Suchfeld von Startseite und Katalog.
    – .knopf-leise: leiser Marken-Textknopf, Hover unterstreicht.
@@ -98,7 +101,9 @@ h3 {
 .hinweis-block,
 .chat-zustand,
 .chat-fehler,
-.archive-note {
+.archive-note,
+.auth-erfolg,
+.auth-fehler {
   border-left: 3px solid var(--brand);
   background: var(--wash);
   padding: 1rem 1.2rem;
@@ -324,15 +329,27 @@ dd {
 .local-check {
   margin-top: 2.5rem;
 }
+/* Anmelde-/Formularkarte: die Form-Karte des Systems (Anmelden,
+   Mitgliederbereich, Verwaltung, Katalog-Editor). Sie spricht die
+   Composer-Kartensprache des Chats: Radius --radius-karte, Fokusring
+   auf der Karte (:focus-within, 2px Markenfarbe). Die Felder behalten
+   ihre 2px-Tintenrahmen als Eingabe-Affordanz — nur die Chat-Eingabe
+   ist rahmenlos; der fokussierte Rahmen färbt sich zusätzlich in
+   Markenfarbe, damit mehrfeldrige Karten das Feld benennen. */
 .auth-karte {
   background: var(--wash);
   padding: clamp(1.2rem, 4vw, 2.5rem);
-  border-radius: 0.4rem;
+  border-radius: var(--radius-karte);
   max-width: 32rem;
+}
+.auth-karte:focus-within {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
 }
 .auth-karte label {
   display: block;
   font-weight: 600;
+  font-size: var(--schrift-neben);
   margin-block: 1rem 0.4rem;
 }
 .auth-karte input {
@@ -340,7 +357,7 @@ dd {
   box-sizing: border-box;
   padding: 0.8rem;
   border: 2px solid var(--ink);
-  border-radius: 0.3rem;
+  border-radius: var(--radius-knopf);
   font: inherit;
   background: var(--paper);
   color: var(--ink);
@@ -350,10 +367,16 @@ dd {
   box-sizing: border-box;
   padding: 0.8rem;
   border: 2px solid var(--ink);
-  border-radius: 0.3rem;
+  border-radius: var(--radius-knopf);
   font: inherit;
   background: var(--paper);
   color: var(--ink);
+}
+.auth-karte input:focus-visible,
+.auth-karte select:focus-visible,
+.auth-karte textarea:focus-visible {
+  border-color: var(--brand);
+  outline: none;
 }
 .auth-karte input[aria-invalid="true"] {
   border-color: var(--brand);
@@ -365,13 +388,29 @@ dd {
 }
 .feld-hinweis {
   display: block;
-  font-size: 0.9rem;
+  font-size: var(--schrift-neben);
   margin-block: 0.4rem 0;
 }
-.auth-erfolg {
-  border-left: 4px solid var(--brand);
-  padding: 0.2rem 1rem;
+/* Erfolg und Fehler als Aufrufblock der Rezeptur .hinweis-block;
+   <output> ist von Haus aus inline — als Block liest sich der Zustand
+   im Kartenfluss. */
+.auth-erfolg,
+.auth-fehler {
+  display: block;
   margin-top: 1rem;
+}
+/* Statuszeile des Anmeldeablaufs nach .chat-status: Stilltext mit
+   reservierter Höhe, leer kollabiert sie. */
+.auth-statuszeile {
+  display: block;
+  min-height: 1.6em;
+  margin: 0.8rem 0 0;
+  color: var(--muted);
+  font-size: var(--schrift-etikett);
+}
+.auth-statuszeile:empty {
+  min-height: 0;
+  margin: 0;
 }
 .auth-aktionen {
   display: flex;
@@ -803,7 +842,7 @@ footer {
   box-sizing: border-box;
   padding: 0.8rem;
   border: 2px solid var(--ink);
-  border-radius: 0.3rem;
+  border-radius: var(--radius-knopf);
   font: inherit;
   background: var(--paper);
   color: var(--ink);
@@ -906,6 +945,18 @@ footer {
 @media (max-width: 540px) {
   .passkey-liste li > span {
     flex-basis: 100%;
+  }
+  /* Aktionen stapeln im Handymaß: Primärknopf voll breit, die leisen
+     Marken-Textknöpfe als eigene Zeilen; Eingaben bekommen Autoinhalt,
+     weil die Flex-Basis in der Spalte die Höhe wäre. */
+  .auth-aktionen {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.6rem;
+  }
+  .auth-aktionen input {
+    flex: 0 0 auto;
+    width: 100%;
   }
   .adress-wechsel-formular {
     flex-direction: column;
