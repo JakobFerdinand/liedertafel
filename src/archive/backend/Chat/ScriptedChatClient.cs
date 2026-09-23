@@ -14,11 +14,13 @@ using AiChatOptions = Microsoft.Extensions.AI.ChatOptions;
 /// IChatClient that demonstrates the full contract — German archive-scope
 /// answers, bounded authorized tool-calling, honest unknown answers,
 /// instruction-in-data resistance (tool results are data, never instructions),
-/// citations as a CUSTOM event and usage reporting. Keyword heuristics are
-/// deliberate: this is a scripted evaluation client, not an intelligence.
-/// Development runs without provider configuration and all tests use it; the
-/// real Azure OpenAI client replaces it behind the same IChatClient seam
-/// (ARC-022 provider step).
+/// inline [Quelle: …] citation markers in the answer text and usage
+/// reporting. Keyword heuristics are deliberate: this is a scripted
+/// evaluation client, not an intelligence. Development runs without provider
+/// configuration and all tests use it; the real Azure OpenAI client replaces
+/// it behind the same IChatClient seam (ARC-022 provider step). Citation
+/// chips are NOT emitted here: the service derives them from the inline
+/// markers at the provider seam, so the contract survives any provider.
 /// </summary>
 public sealed class ScriptedChatClient : IChatClient
 {
@@ -37,8 +39,6 @@ public sealed class ScriptedChatClient : IChatClient
 	/// <summary>Polite refusal for non-archive questions.</summary>
 	public const string OffTopicRefusal =
 		"Dazu kann ich nur Fragen zum Vereinsarchiv beantworten.";
-
-	private const string CitationsEventName = "archive.citations";
 
 	private const string SearchToolName = "catalogue_search";
 
@@ -140,27 +140,12 @@ public sealed class ScriptedChatClient : IChatClient
 		if (embeddedInstruction)
 			answer += Environment.NewLine + DataNotInstructionSentence;
 		updates.Add(Text(answer));
-		updates.Add(BuildCitationsEvent(songs));
 		updates.Add(Usage(result.Result?.ToString() ?? string.Empty, answer));
 		return updates;
 	}
 
 	private static ChatResponseUpdate Text(string content)
 		=> new(ChatRole.Assistant, content) { ResponseId = ResponseId, MessageId = MessageId };
-
-	private static ChatResponseUpdate BuildCitationsEvent(List<ScriptedSong> songs)
-	{
-		var payload = JsonSerializer.Serialize(songs.Select(s => new { id = s.Id, label = s.Title }));
-		return new ChatResponseUpdate
-		{
-			MessageId = MessageId,
-			RawRepresentation = new AGUI.Abstractions.CustomEvent
-			{
-				Name = CitationsEventName,
-				Value = JsonDocument.Parse(payload).RootElement.Clone(),
-			},
-		};
-	}
 
 	private static ChatResponseUpdate Usage(string input, string output)
 		=> new()
