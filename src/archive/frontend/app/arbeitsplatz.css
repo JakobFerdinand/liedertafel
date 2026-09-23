@@ -7,7 +7,7 @@
   gap: 1.2rem;
   padding: 0.65rem 4vw;
   background: var(--paper);
-  border-bottom: 1px solid #ded0d1;
+  border-bottom: 1px solid var(--rule);
 }
 
 .archiv-chat-leiste button {
@@ -19,7 +19,7 @@
 }
 
 .archiv-chat-leiste > span {
-  color: #735e60;
+  color: var(--muted);
   font-size: 0.85rem;
 }
 
@@ -56,7 +56,7 @@
   gap: 1rem;
   padding-bottom: 0.8rem;
   font-size: 0.8rem;
-  border-bottom: 1px solid var(--chat-rule);
+  border-bottom: 1px solid var(--rule);
 }
 
 .archiv-chat-ansicht button {
@@ -91,7 +91,7 @@
     min-height: 30rem;
     overflow-y: auto;
     scrollbar-width: thin;
-    border-left: 1px solid var(--chat-rule);
+    border-left: 1px solid var(--rule);
     padding-left: clamp(1.2rem, 2vw, 2rem);
   }
 

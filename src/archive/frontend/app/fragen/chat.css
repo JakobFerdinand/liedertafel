@@ -1,6 +1,6 @@
 .chat-seite {
-  --chat-muted: #735e60;
-  --chat-rule: #ded0d1;
+  --chat-muted: var(--muted);
+  --chat-rule: var(--rule);
   max-width: 48rem;
   margin-inline: auto;
 }
@@ -10,7 +10,7 @@
 }
 
 .chat-einleitung h1 {
-  font-size: clamp(2rem, 4vw, 2.8rem);
+  font-size: var(--titel-seite);
   margin: 0 0 0.8rem;
 }
 
@@ -28,7 +28,7 @@
   min-height: 3.5rem;
   border-block: 1px solid var(--chat-rule);
   color: var(--chat-muted);
-  font-size: 0.875rem;
+  font-size: var(--schrift-meta);
 }
 
 .chat-neustart {
@@ -80,7 +80,7 @@
 }
 
 .chat-leer h2 {
-  font-size: clamp(1.3rem, 3vw, 1.6rem);
+  font-size: var(--titel-abschnitt);
   margin: 0;
 }
 
@@ -100,7 +100,7 @@
   background: var(--paper);
   color: var(--brand);
   text-align: left;
-  font-size: 0.9rem;
+  font-size: var(--schrift-neben);
   line-height: 1.5;
 }
 
@@ -121,7 +121,7 @@
 .chat-sprecher {
   font-weight: 700;
   color: var(--brand);
-  font-size: 0.8rem;
+  font-size: var(--schrift-etikett);
   margin-bottom: 0.45rem;
 }
 
@@ -129,7 +129,8 @@
   background: var(--wash);
   justify-self: end;
   max-width: 85%;
-  border-radius: 0.85rem 0.85rem 0.2rem 0.85rem;
+  border-radius: var(--radius-blase) var(--radius-blase) var(--radius-fein)
+    var(--radius-blase);
   padding: 0.9rem 1.15rem;
 }
 
@@ -171,7 +172,7 @@
   white-space: nowrap;
   text-decoration: none;
   padding: 0.1em 0.2em;
-  border-radius: 0.2rem;
+  border-radius: var(--radius-fein);
   background: var(--wash);
 }
 
@@ -182,7 +183,7 @@
 }
 
 .chat-quellen-titel {
-  font-size: 0.8rem;
+  font-size: var(--schrift-etikett);
   color: var(--chat-muted);
 }
 
@@ -200,7 +201,7 @@
   gap: 0.65rem;
   width: fit-content;
   padding-block: 0.45rem;
-  font-size: 0.9rem;
+  font-size: var(--schrift-neben);
   text-decoration: none;
 }
 
@@ -210,7 +211,7 @@
 
 .chat-quellen-nummer {
   color: var(--chat-muted);
-  font-size: 0.75rem;
+  font-size: var(--schrift-fein);
   flex: 0 0 1.1rem;
   text-align: center;
 }
@@ -219,7 +220,7 @@
   display: block;
   min-height: 1.6em;
   color: var(--chat-muted);
-  font-size: 0.8rem;
+  font-size: var(--schrift-etikett);
   margin: 0.5rem 0 0.8rem;
 }
 
@@ -245,13 +246,13 @@
 .chat-formular label {
   display: block;
   font-weight: 600;
-  font-size: 0.9rem;
+  font-size: var(--schrift-neben);
   margin-bottom: 0.6rem;
 }
 
 .chat-komponist {
   border: 1px solid var(--chat-muted);
-  border-radius: 0.75rem;
+  border-radius: var(--radius-karte);
   padding: 0.9rem;
   background: var(--paper);
 }
@@ -292,7 +293,7 @@
 
 .chat-aktionen > span {
   color: var(--chat-muted);
-  font-size: 0.75rem;
+  font-size: var(--schrift-fein);
 }
 
 .chat-aktionen button {
@@ -301,8 +302,8 @@
   align-items: center;
   min-height: 2.75rem;
   padding: 0.65rem 1rem;
-  border-radius: 0.45rem;
-  font-size: 0.9rem;
+  border-radius: var(--radius-knopf-gross);
+  font-size: var(--schrift-neben);
 }
 
 .chat-bereich button:disabled {
@@ -311,16 +312,15 @@
 
 .chat-speicher-hinweis {
   color: var(--chat-muted);
-  font-size: 0.75rem;
+  font-size: var(--schrift-fein);
   margin: 0.75rem 0 0;
   max-width: none;
 }
 
+/* Rezeptur (Markenlinker auf Waschgrund) stammt aus .hinweis-block in
+   globals.css; hier bleibt nur der Abstand im Chat-Ablauf. */
 .chat-zustand,
 .chat-fehler {
-  border-left: 3px solid var(--brand);
-  background: var(--wash);
-  padding: 1rem 1.2rem;
   margin-bottom: 1.25rem;
 }
 
@@ -330,7 +330,7 @@
 }
 
 .chat-fehler button {
-  font-size: 0.9rem;
+  font-size: var(--schrift-neben);
   padding: 0.6rem 0.9rem;
 }
 
@@ -340,11 +340,11 @@
   }
 
   .chat-einleitung p {
-    font-size: 0.9rem;
+    font-size: var(--schrift-neben);
   }
 
   .chat-werkzeuge {
-    font-size: 0.8rem;
+    font-size: var(--schrift-etikett);
   }
 
   .chat-verlauf {

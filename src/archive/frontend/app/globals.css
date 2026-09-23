@@ -5,7 +5,23 @@
   --ink: #402326;
   --paper: #ffffff;
   --wash: #f3ecec;
+  --muted: #735e60;
+  --rule: #ded0d1;
   --font-heading: Georgia, "Times New Roman", serif;
+
+  /* Schriften- und Formenskala des Chat-Entwurfs; nur Werte, keine neuen Farben. */
+  --titel-seite: clamp(2rem, 4vw, 2.8rem);
+  --titel-abschnitt: clamp(1.3rem, 3vw, 1.6rem);
+  --schrift-fein: 0.75rem;
+  --schrift-etikett: 0.8rem;
+  --schrift-meta: 0.875rem;
+  --schrift-neben: 0.9rem;
+  --radius-fein: 0.2rem;
+  --radius-knopf: 0.3rem;
+  --radius-knopf-gross: 0.45rem;
+  --radius-karte: 0.75rem;
+  --radius-blase: 0.85rem;
+
   background: var(--paper);
   color: var(--ink);
   font-family: Arial, Helvetica, sans-serif;
@@ -49,6 +65,74 @@ h2 {
 }
 h3 {
   font-size: 1.3rem;
+}
+
+/* ─── Geteilte Bausteine des Chat-Entwurfs (ARC-022) ─────────────────
+   Künftige Bereiche setzen diese Klassen direkt; bestehende Namen
+   bleiben daneben gültig (Tests wählen z. B. .material-datei,
+   .lieder-eintrag, .chat-antwort-text, data-testid="build-version").
+
+   Token: --muted/--rule (stilles Warmgrau, Haarriss; im Chat als
+   --chat-muted/--chat-rule aliasiert), --titel-seite/--titel-abschnitt
+   (Überschriften in schmalen Spalten), --schrift-fein/--schrift-etikett/
+   --schrift-meta/--schrift-neben (kleine Textleiter
+   0.75/0.8/0.875/0.9rem), --radius-fein/--radius-knopf/
+   --radius-knopf-gross (Steuerelemente), --radius-karte
+   (Komponisten-/Suchkarte), --radius-blase (Nutzerblase).
+
+   Klassen:
+   – .hinweis-block: Zustandsblock, Markenlinker auf Waschgrund
+     (3px, Innenabstand 1rem 1.2rem). .chat-zustand/.chat-fehler teilen
+     dieselbe Rezeptur; .archive-note/.auth-erfolg schließen in ihren
+     Bereichen an.
+   – .knopf-leise: leiser Marken-Textknopf, Hover unterstreicht.
+   – .knopf-leise-rahmen: umrandete leise Variante, Hover füllt mit
+     Markenfarbe. Die Grundform (transparent, 2px currentColor) teilt
+     .knopf-leise-rahmen auch mit den Marken-Knopfzeilen
+     (.passkey-liste, .lied-anderer-titel, .noten-laden) und den
+     Fassungs-Knöpfen (.fassungs-liste: Tinte, Hover Waschgrund,
+     gewählt solid) — diese behalten ihre eigenen Farb- und
+     Hoverregeln. */
+.hinweis-block,
+.chat-zustand,
+.chat-fehler {
+  border-left: 3px solid var(--brand);
+  background: var(--wash);
+  padding: 1rem 1.2rem;
+}
+.knopf-leise {
+  background: transparent;
+  color: var(--brand);
+  font-weight: 600;
+}
+.knopf-leise:hover:not(:disabled) {
+  text-decoration: underline;
+  text-underline-offset: 0.25em;
+}
+.knopf-leise-rahmen,
+.passkey-liste button,
+.lied-anderer-titel button,
+.noten-laden,
+.fassungs-liste button {
+  background: transparent;
+  border: 2px solid currentColor;
+  border-radius: var(--radius-knopf);
+}
+.knopf-leise-rahmen,
+.passkey-liste button,
+.lied-anderer-titel button,
+.noten-laden {
+  color: var(--brand);
+  padding: 0.45rem 0.85rem;
+  font-size: 0.9rem;
+  text-decoration: none;
+}
+.knopf-leise-rahmen:hover:not(:disabled),
+.passkey-liste button:hover:not(:disabled),
+.lied-anderer-titel button:hover:not(:disabled),
+.noten-laden:hover {
+  background: var(--brand);
+  color: var(--paper);
 }
 .site-header {
   background: var(--brand);
@@ -239,17 +323,6 @@ dd {
   min-width: 0;
   padding: 0.5rem;
 }
-.passkey-liste button {
-  padding: 0.45rem 0.85rem;
-  font-size: 0.9rem;
-  background: transparent;
-  color: var(--brand);
-  border: 2px solid var(--brand);
-}
-.passkey-liste button:hover:not(:disabled) {
-  background: var(--brand);
-  color: var(--paper);
-}
 .auth-hinweis {
   font-size: 0.9rem;
 }
@@ -393,10 +466,7 @@ dd {
   gap: 0.6rem;
 }
 .fassungs-liste button {
-  background: transparent;
   color: var(--ink);
-  border: 2px solid var(--ink);
-  border-radius: 0.3rem;
   padding: 0.5rem 0.8rem;
   font: inherit;
 }
@@ -452,17 +522,7 @@ dd {
 }
 .noten-laden {
   display: inline-block;
-  color: var(--brand);
-  border: 2px solid var(--brand);
-  border-radius: 0.3rem;
-  padding: 0.45rem 0.85rem;
-  font-size: 0.9rem;
   font-weight: 600;
-  text-decoration: none;
-}
-.noten-laden:hover {
-  background: var(--brand);
-  color: var(--paper);
 }
 .noten-ansicht {
   display: block;
@@ -679,17 +739,6 @@ footer {
   width: auto;
   flex: 1 1 10rem;
   min-width: 0;
-}
-.lied-anderer-titel button {
-  padding: 0.45rem 0.85rem;
-  font-size: 0.9rem;
-  background: transparent;
-  color: var(--brand);
-  border: 2px solid var(--brand);
-}
-.lied-anderer-titel button:hover:not(:disabled) {
-  background: var(--brand);
-  color: var(--paper);
 }
 .lieder-suche {
   margin-block: 0 2.5rem;
