@@ -12,7 +12,13 @@ export default function LiederSeite() {
           musikalischen Fassungen.
         </p>
       </section>
-      <Suspense fallback={<p aria-live="polite">Lieder werden geladen …</p>}>
+      <Suspense
+        fallback={
+          <p aria-live="polite" className="auth-statuszeile">
+            Lieder werden geladen …
+          </p>
+        }
+      >
         <LiederKatalog />
       </Suspense>
     </>

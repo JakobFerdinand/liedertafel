@@ -682,44 +682,144 @@ dd {
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+/* ─── Liederkatalog: Zeilen im Gesprächsrhythmus ──────────────────────
+   Die Einträge laufen wie die Chat-Nachrichten in einem großzügigen
+   Raster (1.8rem Abstand, keine Trennstriche); der Titel trägt die
+   Serifensprache in Abschnittsgröße, das Drumherum liest sich still in
+   der Meta-Leiter. Die Fundstellen einer Suche stehen wie die Chat-
+   quellen hinter dem Haarriss, jede Zeile mit ihrem Markenpunkt. */
 .lieder-liste {
   margin-top: 2.5rem;
+}
+.lieder-liste h2 {
+  font-size: var(--titel-abschnitt);
 }
 .lieder-liste ul {
   list-style: none;
   margin: 0;
   padding: 0;
 }
+.lieder-liste-einträge {
+  display: grid;
+  gap: 1.8rem;
+}
 .lieder-eintrag {
-  border-bottom: 1px solid var(--wash);
-  padding: 1rem 0;
+  min-width: 0;
 }
 .lieder-eintrag h3 {
   margin-block: 0;
+  font-size: var(--titel-abschnitt);
+  overflow-wrap: anywhere;
+}
+.lieder-andere-titel {
+  color: var(--muted);
+  font-size: var(--schrift-neben);
+  margin-block: 0.5rem 0;
 }
 .lieder-urheber {
-  font-size: 0.9rem;
-  margin-block: 0.4rem;
+  color: var(--muted);
+  font-size: var(--schrift-neben);
+  margin-block: 0.35rem 0;
 }
+.lieder-fundstellen {
+  display: grid;
+  gap: 0.3rem;
+  max-width: 65ch;
+  margin-block: 0.7rem 0;
+  padding-block-start: 0.6rem;
+  border-block-start: 1px solid var(--rule);
+}
+.lieder-fundstelle {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  color: var(--muted);
+  font-size: var(--schrift-etikett);
+  margin: 0;
+}
+.lieder-fundstelle::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: var(--brand);
+}
+/* Redaktions-Marke: Markenlinie im Etikettmaß der kleinen Textleiter. */
 .lieder-status {
   display: inline-block;
-  font-size: 0.85rem;
+  font-size: var(--schrift-etikett);
   font-weight: 600;
   color: var(--brand);
   border: 2px solid var(--brand);
-  border-radius: 0.3rem;
+  border-radius: var(--radius-fein);
   padding: 0.1rem 0.5rem;
-  margin-block: 0.4rem 0;
+  margin-block: 0.7rem 0;
 }
+/* Zeilensteuerung: Veröffentlichen/Zurückziehen bleiben volle Knöpfe
+   (zustandsändernd), Bearbeiten trägt den leisen Marken-Textknopf.
+   Berührziele bleiben ≥ 2.75rem. */
 .lieder-aktionen {
   display: flex;
   gap: 0.6rem;
   flex-wrap: wrap;
   align-items: center;
-  margin-top: 0.6rem;
+  margin-top: 0.7rem;
+}
+.lieder-aktionen button {
+  min-height: 2.75rem;
+  padding: 0.5rem 0.9rem;
+  font-size: var(--schrift-neben);
+  border-radius: var(--radius-knopf);
 }
 .lied-anlegen {
   margin-block: 0 2.5rem;
+}
+/* Aufklapper des Anlageformulars (details/summary): die Kopfruh ist der
+   Umschalter; das Zustandswort wechselt wie der Bearbeiten-Knopf
+   („Ausklappen/Einklappen“), der Haarriss erscheint erst aufgeklappt.
+   Anfangs aufgeklappt, damit der Zugang zum Anlegen sichtbar bleibt. */
+.lied-anlegen summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 2.75rem;
+  cursor: pointer;
+  list-style: none;
+}
+.lied-anlegen summary::-webkit-details-marker {
+  display: none;
+}
+.lied-anlegen summary:focus-visible {
+  outline: 3px solid currentColor;
+  outline-offset: 5px;
+}
+.lied-anlegen summary h2 {
+  margin-block: 0;
+  font-size: var(--titel-abschnitt);
+}
+.lied-anlegen-umschalter {
+  color: var(--brand);
+  font-size: var(--schrift-neben);
+  font-weight: 600;
+}
+.lied-anlegen summary:hover .lied-anlegen-umschalter {
+  text-decoration: underline;
+  text-underline-offset: 0.25em;
+}
+.lied-anlegen .lied-anlegen-zu {
+  display: none;
+}
+.lied-anlegen[open] .lied-anlegen-auf {
+  display: none;
+}
+.lied-anlegen[open] .lied-anlegen-zu {
+  display: inline;
+}
+.lied-anlegen[open] summary {
+  border-block-end: 1px solid var(--rule);
+  padding-block-end: 0.9rem;
 }
 .lied-ansicht h2 {
   margin-block: 0.2rem 0.6rem;
@@ -1027,12 +1127,11 @@ footer {
   min-width: 0;
 }
 /* Suchkomponist: die Composer-Karte des Chats als gemeinsames Suchfeld
-   von Startseite und Katalog — eine Klasse, zwei Platzierungen. Der
+   von Startseite und Katalog — eine Klasse, ein Aussehen, zwei
+   Platzierungen (beide Platzierungen tragen nur .lieder-suche). Der
    Behälter trägt Rahmen (1px --muted, der stärkste des Systems,
    Radius --radius-karte) und den Fokusring (:focus-within); das Feld
-   darin bleibt rahmenlos wie die Chat-Eingabe. Auf dem Katalog
-   überstimmen diese Regeln die waschfarbenen .auth-karte-Eigenschaften
-   (gleiche Spezifität, spätere Zeile im Blatt). */
+   darin bleibt rahmenlos wie die Chat-Eingabe. */
 .lieder-suche {
   max-width: 32rem;
   border: 1px solid var(--muted);
@@ -1082,21 +1181,39 @@ footer {
   border-radius: var(--radius-knopf-gross);
   font-size: var(--schrift-neben);
 }
-.lieder-andere-titel,
-.lieder-fundstelle {
-  font-size: 0.9rem;
-  margin-block: 0.4rem;
-}
+/* Katalogseiten nach .chat-werkzeuge: Haarriss oben und unten, Blättern
+   als leise Marken-Textknöpfe, der Stand still dazwischen; die Zeile
+   trägt ihre Schriftgröße selbst (kein Erbe von nav). */
 .lieder-seiten {
   display: flex;
   align-items: center;
-  gap: 0.8rem;
-  flex-wrap: wrap;
-  margin-block: 1rem 0;
-  font-size: 0.95rem;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 3.5rem;
+  border-block: 1px solid var(--rule);
+  margin-block: 2rem 0;
+  font-size: var(--schrift-meta);
+}
+.lieder-seiten button {
+  background: transparent;
+  color: var(--brand);
+  border: 0;
+  padding: 0.4rem 0.6rem;
+  min-height: 2.75rem;
+  font-weight: 600;
+  font-size: var(--schrift-meta);
+  border-radius: var(--radius-knopf);
+  cursor: pointer;
+}
+.lieder-seiten button:hover:not(:disabled) {
+  text-decoration: underline;
+  text-underline-offset: 0.25em;
+}
+.lieder-seiten button:disabled {
+  cursor: default;
 }
 .lieder-seiten-stand {
-  font-size: 0.9rem;
+  color: var(--muted);
 }
 
 @media (max-width: 540px) {
@@ -1144,6 +1261,9 @@ footer {
     /* In der Spalte wäre die Flex-Basis die Höhe: Feld auf Autoinhalt. */
     flex: 0 0 auto;
     width: 100%;
+  }
+  .lieder-liste-einträge {
+    gap: 1.5rem;
   }
   .introduction {
     padding-top: 2.5rem;

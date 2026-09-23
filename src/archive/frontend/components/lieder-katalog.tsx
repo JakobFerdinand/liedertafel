@@ -145,7 +145,7 @@ export function LiederKatalog() {
   if (fehler) {
     return (
       <div aria-live="polite">
-        <p>{fehler}</p>
+        <p className="verbindungs-fehler">{fehler}</p>
         <button type="button" onClick={() => setVersuch(versuch + 1)}>
           Erneut versuchen
         </button>
@@ -155,7 +155,7 @@ export function LiederKatalog() {
   if (me === null) {
     return (
       <div aria-live="polite">
-        <p>Mitgliedschaft wird geprüft …</p>
+        <p className="auth-statuszeile">Mitgliedschaft wird geprüft …</p>
       </div>
     );
   }
@@ -175,10 +175,7 @@ export function LiederKatalog() {
 
   return (
     <div>
-      <section
-        className="lieder-suche auth-karte"
-        aria-labelledby="lieder-suche-titel"
-      >
+      <section className="lieder-suche" aria-labelledby="lieder-suche-titel">
         <h2 id="lieder-suche-titel">Suche im Katalog</h2>
         <form onSubmit={suchen}>
           <label htmlFor="lieder-suche-begriff">Lieder suchen</label>
@@ -198,11 +195,18 @@ export function LiederKatalog() {
       </section>
 
       {editor && (
-        <section
+        <details
           className="auth-karte lied-anlegen"
+          open
           aria-labelledby="lied-anlegen-titel"
         >
-          <h2 id="lied-anlegen-titel">Neues Lied</h2>
+          <summary>
+            <h2 id="lied-anlegen-titel">Neues Lied</h2>
+            <span className="lied-anlegen-umschalter" aria-hidden="true">
+              <span className="lied-anlegen-auf">Ausklappen</span>
+              <span className="lied-anlegen-zu">Einklappen</span>
+            </span>
+          </summary>
           <LiedFormular
             absendenText="Lied anlegen"
             onSuccess={(gespeichert) => {
@@ -219,7 +223,7 @@ export function LiederKatalog() {
               setHinweis("");
             }}
           />
-        </section>
+        </details>
       )}
 
       {erfolg && (
@@ -228,7 +232,7 @@ export function LiederKatalog() {
         </output>
       )}
       {hinweis && (
-        <output aria-live="polite" className="feld-fehler">
+        <output aria-live="polite" className="auth-fehler">
           {hinweis}{" "}
           {hinweis.includes("erneute Anmeldung") && (
             <Link href="/anmelden/">Anmelden</Link>
@@ -239,7 +243,9 @@ export function LiederKatalog() {
       <section aria-labelledby="lieder-titel" className="lieder-liste">
         <h2 id="lieder-titel">Liederkatalog</h2>
         {lieder === null ? (
-          <p aria-live="polite">Lieder werden geladen …</p>
+          <p aria-live="polite" className="auth-statuszeile">
+            Lieder werden geladen …
+          </p>
         ) : lieder.length === 0 ? (
           abfrage ? (
             <p>
@@ -283,11 +289,15 @@ export function LiederKatalog() {
                             .join(" · ")
                         : null}
                     </p>
-                    {stellen.map((stelle) => (
-                      <p key={stelle} className="lieder-fundstelle">
-                        {stelle}
-                      </p>
-                    ))}
+                    {stellen.length > 0 && (
+                      <div className="lieder-fundstellen">
+                        {stellen.map((stelle) => (
+                          <p key={stelle} className="lieder-fundstelle">
+                            {stelle}
+                          </p>
+                        ))}
+                      </div>
+                    )}
                     {editor && (
                       <p className="lieder-status">
                         {lied.published ? "Veröffentlicht" : "Entwurf"}
@@ -297,6 +307,9 @@ export function LiederKatalog() {
                       <div className="lieder-aktionen">
                         <button
                           type="button"
+                          className="knopf-leise"
+                          aria-expanded={bearbeitet === lied.id}
+                          aria-controls={`lied-bearbeiten-${lied.id}`}
                           disabled={aktionBusy !== ""}
                           onClick={() =>
                             setBearbeitet(
@@ -343,29 +356,35 @@ export function LiederKatalog() {
                         )}
                       </div>
                     )}
-                    {editor && bearbeitet === lied.id && (
-                      <div className="lied-bearbeiten auth-karte">
-                        <LiedFormular
-                          lied={lied}
-                          absendenText="Änderungen speichern"
-                          onSuccess={(gespeichert) => {
-                            setErgebnis((bisher) =>
-                              bisher
-                                ? {
-                                    ...bisher,
-                                    songs: bisher.songs.map((eintrag) =>
-                                      eintrag.id === gespeichert.id
-                                        ? gespeichert
-                                        : eintrag,
-                                    ),
-                                  }
-                                : bisher,
-                            );
-                            setErfolg("Änderungen gespeichert.");
-                            setHinweis("");
-                            setBearbeitet(null);
-                          }}
-                        />
+                    {editor && (
+                      <div
+                        id={`lied-bearbeiten-${lied.id}`}
+                        className="lied-bearbeiten auth-karte"
+                        hidden={bearbeitet !== lied.id}
+                      >
+                        {bearbeitet === lied.id && (
+                          <LiedFormular
+                            lied={lied}
+                            absendenText="Änderungen speichern"
+                            onSuccess={(gespeichert) => {
+                              setErgebnis((bisher) =>
+                                bisher
+                                  ? {
+                                      ...bisher,
+                                      songs: bisher.songs.map((eintrag) =>
+                                        eintrag.id === gespeichert.id
+                                          ? gespeichert
+                                          : eintrag,
+                                      ),
+                                    }
+                                  : bisher,
+                              );
+                              setErfolg("Änderungen gespeichert.");
+                              setHinweis("");
+                              setBearbeitet(null);
+                            }}
+                          />
+                        )}
                       </div>
                     )}
                   </li>
