@@ -295,8 +295,11 @@ assignment below, and the evaluation can run against the pinned deployment.
   EU Data Zone region for Azure OpenAI (EU DZ region list excludes it), while
   germanywestcentral serves gpt-5.4-mini under DataZoneStandard. Everything
   else in the group stays austriaeast.
-- Foundry project child `liedertafel-archive` for future tooling only;
-  inference is account-level.
+- Foundry project `liedertafel-archive` for future tooling only; inference is
+  account-level. Created by the deploy workflow's idempotent CLI step
+  (documented IaC limitation: the ARM `accounts/projects` child path rejects
+  creation with "you must enable a managed identity on your resource" even
+  with a system-assigned account identity — see the bring-up notes below).
 - Chat deployment `gpt-5-4-mini`: model `gpt-5.4-mini`, pinned dated version
   `2026-03-17`, SKU `DataZoneStandard` capacity 30 (30k TPM; quota admission
   verified in germanywestcentral: `OpenAI.DataZoneStandard.gpt-5.4-mini`
@@ -328,6 +331,34 @@ assignment below, and the evaluation can run against the pinned deployment.
   the enablement decision below.
 - Validated with `az bicep build` (clean) and `az deployment group what-if`
   (no Delete/Replace across every iteration — passes the destructive guard).
+
+### Infrastructure bring-up notes — 2026-09-23
+
+The first deploy created the account, deployment and role assignment cleanly;
+bringing up the project took three documented findings, all recorded upstream
+or in this repo:
+
+- The CognitiveServices RP runs one account operation at a time: parallel
+  child PUTs (deployment + project) collide with `RequestConflict`. Fixed by
+  serializing the account's children with an explicit `dependsOn` before the
+  project child was moved out of Bicep.
+- The project then failed with "Unsupported configuration. To create
+  projects, you must enable a managed identity on your resource" — satisfied
+  by a system-assigned account identity in Bicep, but the ARM child path
+  kept rejecting creation even with the identity in place. This is a
+  documented IaC limitation (microsoft-foundry discussion #313; confirmed for
+  Terraform/AzAPI), not a configuration error. Resolution: the deploy
+  workflow creates the project with an idempotent
+  `az cognitiveservices account project create` step after the Bicep deploy;
+  everything else stays in Bicep.
+- The group budget alert was abandoned in Bicep: the Consumption budgets API
+  returned 401 in four CI runs AND for an identical PUT as the subscription
+  Owner (reads on the same RP succeed) — an RP-level restriction on
+  programmatic budget creation for this identity class. Finding and the
+  portal path recorded in [ARC-043](ARC-043-cost-and-quota-alerts.md); the
+  one-time `Cost Management Contributor` grant on the release identity was
+  made portal-managed and kept (harmless, likely useful for ARC-043).
+- Final infra run: green in both steps (Bicep deploy + CLI project step).
 
 ### Enablement decision — 2026-09-23
 

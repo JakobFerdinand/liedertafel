@@ -267,13 +267,18 @@ release (ARC-049 acceptance).
 ## Archive chat path (ARC-021, Azure OpenAI / Microsoft Foundry)
 
 `main.bicep` additionally owns Azure OpenAI account `aoai-liedertafel-archive`
-(kind `AIServices`, custom subdomain = account name, `disableLocalAuth` so no
-API key exists) with Foundry project `liedertafel-archive` (future tooling
-only; inference happens at the account-level deployments) and chat deployment
-`gpt-5-4-mini` (`gpt-5.4-mini`, version `2026-03-17`, `DataZoneStandard`,
-30k TPM). The account sits in `germanywestcentral` (param `aiLocation`), not
-the group's `austriaeast`: Austria East is not an EU Data Zone region for
-Azure OpenAI, and the default chat model must stay inside the EU Data Zone.
+(kind `AIServices`, custom subdomain = account name, system-assigned identity,
+`disableLocalAuth` so no API key exists) and chat deployment `gpt-5-4-mini`
+(`gpt-5.4-mini`, version `2026-03-17`, `DataZoneStandard`, 30k TPM). The
+Foundry project `liedertafel-archive` (future tooling only; inference happens
+at the account-level deployments) is created by the deploy workflow's
+"Create Foundry project (CLI path)" step — the ARM child-resource path from
+IaC is blocked by the RP ("you must enable a managed identity on your
+resource", documented IaC limitation in microsoft-foundry discussion #313),
+so the idempotent CLI step runs after the Bicep deploy. The account sits in
+`germanywestcentral` (param `aiLocation`), not the group's `austriaeast`:
+Austria East is not an EU Data Zone region for Azure OpenAI, and the default
+chat model must stay inside the EU Data Zone.
 The model version is pinned; changing it requires a re-run of the chat
 evaluation and a pricing re-check first (`OnceCurrentVersionExpired` keeps
 the pin until the provider expires the version). `id-archive-app` receives
