@@ -221,7 +221,7 @@ export function ChatBereich() {
   const zaehlerSichtbar = eingabe.length > maximaleFrageLänge - 100;
 
   return (
-    <section className="chat-bereich" aria-labelledby="chat-titel">
+    <section className="chat-bereich" aria-label="Fragen zum Archiv">
       <div className="chat-verlauf" role="log" aria-label="Chatverlauf">
         {nachrichten.length === 0 ? (
           <p className="chat-leer">
