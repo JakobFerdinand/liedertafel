@@ -84,7 +84,7 @@ preview, destructive-change guard, image pass-through).
 
 - Bicep outputs: `environmentDefaultDomain`, `appFqdn`, `vaultUri`,
   `runtimeIdentityPrincipalId`, `runtimeIdentityClientId`, `keysBlobUri`,
-  `keysKeyVaultKeyUri`, `customDomainBound`.
+  `keysKeyVaultKeyUri`, `aiEndpoint`, `customDomainBound`.
 - Release inputs: image digest (`ghcr.io/jakobferdinand/liedertafel-archive@sha256:…`).
 - Deliberately absent here (later slices): member-file storage/queues
   (ARC-049). Hosted sign-in (ARC-011) is wired: Blob key ring, Key Vault
@@ -263,6 +263,29 @@ failures surface as German 502 ProblemDetails (`Speicherdienst nicht
 erreichbar.`), never as raw provider errors. Hosted verification still open:
 one real upload/finalize/read through the custom domain after the next
 release (ARC-049 acceptance).
+
+## Archive chat path (ARC-021, Azure OpenAI / Microsoft Foundry)
+
+`main.bicep` additionally owns Azure OpenAI account `aoai-liedertafel-archive`
+(kind `AIServices`, custom subdomain = account name, `disableLocalAuth` so no
+API key exists) with Foundry project `liedertafel-archive` (future tooling
+only; inference happens at the account-level deployments) and chat deployment
+`gpt-5-4-mini` (`gpt-5.4-mini`, version `2026-03-17`, `DataZoneStandard`,
+30k TPM). The account sits in `germanywestcentral` (param `aiLocation`), not
+the group's `austriaeast`: Austria East is not an EU Data Zone region for
+Azure OpenAI, and the default chat model must stay inside the EU Data Zone.
+The model version is pinned; changing it requires a re-run of the chat
+evaluation and a pricing re-check first (`OnceCurrentVersionExpired` keeps
+the pin until the provider expires the version). `id-archive-app` receives
+`Cognitive Services OpenAI User` on the account (`deployRoleAssignments`
+guarded), so the app talks to the endpoint keylessly via
+`Archive__Chat__*` env entries — chat enabled from first deploy (maintainer
+decision 2026-09-23; sole production user pre-release, EUR 5 alert +
+manual-disable semantics unchanged). The group budget
+`budget-liedertafel-archive` (EUR 10/month, monthly, alert-only at 80/100
+actual and 100 forecast to the maintainer) is the ARC-004 review-trigger
+backstop for the whole group, never an automatic spending cap; its window
+starts at the first of the deploy month and rolls forward on redeploys.
 
 ## Controlled database releases (ARC-012)
 

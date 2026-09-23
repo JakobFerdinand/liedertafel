@@ -82,6 +82,21 @@ param assetsContainerName string = 'archive-assets'
 @description('Key Vault RSA wrapping-key name protecting the Data Protection key ring (ARC-011).')
 param keysKeyName string = 'dataprotection-wrap'
 
+@description('Azure region for the Azure OpenAI account and its children. ARC-021: Austria East is not an EU Data Zone region for Azure OpenAI, so chat resources live in Germany West Central while everything else stays in `location` (EU Data Zone gate).')
+param aiLocation string = 'germanywestcentral'
+
+@description('Azure OpenAI (Microsoft Foundry) account name. Lowercase alphanumeric and hyphens, globally unique; also the custom subdomain.')
+param aiAccountName string = 'aoai-liedertafel-archive'
+
+@description('Foundry project name under the AI account.')
+param aiProjectName string = 'liedertafel-archive'
+
+@description('Azure OpenAI chat deployment name. The host app configuration references the model by this name.')
+param aiChatDeploymentName string = 'gpt-5-4-mini'
+
+@description('Group budget anchor: first day of the current month. utcNow may only appear as a parameter default, so the resource derives the budget window from this value.')
+param budgetMonthAnchor string = utcNow('yyyy-MM-01')
+
 resource workspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   name: workspaceName
   location: location
@@ -214,6 +229,149 @@ resource assetsContainer 'Microsoft.Storage/storageAccounts/blobServices/contain
   name: assetsContainerName
   properties: {
     publicAccess: 'None'
+  }
+}
+
+// ARC-021 — Azure OpenAI (Microsoft Foundry) chat path. The account carries
+// the stateless keyless inference surface: deployments live at account level,
+// the model name never appears in a hostname, and `disableLocalAuth` forces
+// the Entra path for the runtime identity, so no API key exists anywhere.
+// The account lives in `aiLocation`, not the group's `location`: Austria East
+// is not an EU Data Zone region for Azure OpenAI (ARC-021 gate), and the
+// default chat model stays inside the EU Data Zone.
+// Create/Modify only: the account, project and deployment are always-add,
+// never destructive.
+resource aoaiAccount 'Microsoft.CognitiveServices/accounts@2026-07-01' = {
+  name: aiAccountName
+  location: aiLocation
+  sku: {
+    name: 'S0'
+  }
+  kind: 'AIServices'
+  properties: {
+    // Hostname anchor for the inference endpoint env value below; also
+    // requires unique DNS.
+    customSubDomainName: aiAccountName
+    // Keyless Entra-only: the runtime identity holds Cognitive Services
+    // OpenAI User; no key material is issued to anyone.
+    disableLocalAuth: true
+    publicNetworkAccess: 'Enabled'
+    allowProjectManagement: true
+  }
+}
+
+// Minimal Foundry project child (ARC-021). Inference happens at the
+// account-level deployments; the project exists for future Foundry tooling
+// only and introduces no separate endpoint or credentials.
+resource aoaiProject 'Microsoft.CognitiveServices/accounts/projects@2026-07-01' = {
+  parent: aoaiAccount
+  name: aiProjectName
+  properties: {
+    displayName: 'Liedertafel-Archiv'
+    description: 'Foundry-Projekt für den Chat-Assistenten des Archivs.'
+  }
+}
+
+// ARC-021 pinning rule: the deployment pins a dated model version; a change
+// needs a re-run of the chat evaluation and a pricing re-check before the
+// function name and version advance. 'OnceCurrentVersionExpired' keeps the
+// pin in place until the provider expires that version, so silent upgrades
+// are impossible. DataZoneStandard at 30k TPM is far above the ≤5-member
+// app's needs and stays regional within the EU Data Zone.
+resource aoaiChatDeployment 'Microsoft.CognitiveServices/accounts/deployments@2026-07-01' = {
+  parent: aoaiAccount
+  name: aiChatDeploymentName
+  sku: {
+    name: 'DataZoneStandard'
+    capacity: 30
+  }
+  properties: {
+    model: {
+      format: 'OpenAI'
+      name: 'gpt-5.4-mini'
+      version: '2026-03-17'
+    }
+    versionUpgradeOption: 'OnceCurrentVersionExpired'
+  }
+}
+
+// Keyless chat data-plane access (ARC-021): `disableLocalAuth` means the
+// identity assignment is the only path in. Skipped in PR what-if like the
+// other RBAC assignments; the deployment name travels via the app env below.
+resource aoaiOpenAIUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployRoleAssignments) {
+  name: guid(aoaiAccount.id, runtimeIdentity.id, 'AoaiOpenAIUser')
+  scope: aoaiAccount
+  properties: {
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd'
+    )
+    principalId: runtimeIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// ARC-004 review trigger — group operating budget. The archive group target
+// is EUR 10 per month. This budget is alert-only and never an automatic
+// spending cap: the app-side ARC-021 semantics (EUR 5 alert plus manual
+// disable) remain the primary circuit breaker, this group-wide budget is the
+// backstop. The anchor parameter keeps `utcNow` in its allowed position so
+// consecutive runs inside a month stay idempotent; the window rolls forward
+// with the first deploy of each new month (a redeployed budget resets its
+// period, matching the alert-only intent).
+resource budget 'Microsoft.Consumption/budgets@2019-10-01' = {
+  name: 'budget-liedertafel-archive'
+  properties: {
+    category: 'Cost'
+    amount: 10
+    timeGrain: 'Monthly'
+    timePeriod: {
+      startDate: budgetMonthAnchor
+      endDate: dateTimeAdd(budgetMonthAnchor, 'P12M')
+    }
+    // No filter: the budget watches the whole resource group on purpose
+    // (group backstop, not an app-scoped counter).
+    notifications: {
+      Actual_80: {
+        enabled: true
+        operator: 'GreaterThan'
+        threshold: 80
+        thresholdType: 'Actual'
+        contactEmails: [
+          'j.wegenschimmel@gmail.com'
+        ]
+        contactRoles: [
+          'Owner'
+        ]
+        locale: 'en-us'
+      }
+      Actual_100: {
+        enabled: true
+        operator: 'GreaterThan'
+        threshold: 100
+        thresholdType: 'Actual'
+        contactEmails: [
+          'j.wegenschimmel@gmail.com'
+        ]
+        contactRoles: [
+          'Owner'
+        ]
+        locale: 'en-us'
+      }
+      Forecast_100: {
+        enabled: true
+        operator: 'GreaterThan'
+        threshold: 100
+        thresholdType: 'Forecast'
+        contactEmails: [
+          'j.wegenschimmel@gmail.com'
+        ]
+        contactRoles: [
+          'Owner'
+        ]
+        locale: 'en-us'
+      }
+    }
   }
 }
 
@@ -426,6 +584,30 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
               name: 'Archive__MaintenanceMode'
               value: maintenanceMode ? 'true' : 'false'
             }
+            // ARC-021: maintained chat path, keyless via the runtime identity
+            // (Cognitive Services OpenAI User on the account; no API key).
+            // Chat is enabled from the first deploy by maintainer decision
+            // 2026-09-23 (sole production user pre-release); the ARC-021
+            // EUR 5 alert + manual-disable semantics stay unchanged. The
+            // model is pinned to the dated deployment below the account, so
+            // upgrades require the evaluation/pricing re-check, and the
+            // endpoint builds from the account's unique custom subdomain.
+            {
+              name: 'Archive__Chat__Provider'
+              value: 'AzureOpenAI'
+            }
+            {
+              name: 'Archive__Chat__Endpoint'
+              value: 'https://${aoaiAccount.properties.customSubDomainName}.openai.azure.com/'
+            }
+            {
+              name: 'Archive__Chat__DeploymentName'
+              value: aiChatDeploymentName
+            }
+            {
+              name: 'Archive__Chat__Enabled'
+              value: 'true'
+            }
           ]
           probes: [
             {
@@ -506,4 +688,7 @@ output keysKeyVaultKeyUri string = keysKey.properties.keyUri
 // ARC-049: assets account endpoint for extraction/import jobs; they receive
 // their own role assignment separately from the key-ring identity state.
 output assetsServiceUri string = 'https://${storage.name}.blob.${az.environment().suffixes.storage}'
+// ARC-021: Azure OpenAI inference endpoint (custom subdomain of the AI
+// account), same value the app receives as `Archive__Chat__Endpoint`.
+output aiEndpoint string = 'https://${aoaiAccount.properties.customSubDomainName}.openai.azure.com/'
 output customDomainBound bool = bindCustomDomain
