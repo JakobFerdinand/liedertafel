@@ -281,11 +281,11 @@ the pin until the provider expires the version). `id-archive-app` receives
 guarded), so the app talks to the endpoint keylessly via
 `Archive__Chat__*` env entries — chat enabled from first deploy (maintainer
 decision 2026-09-23; sole production user pre-release, EUR 5 alert +
-manual-disable semantics unchanged). The group budget
-`budget-liedertafel-archive` (EUR 10/month, monthly, alert-only at 80/100
-actual and 100 forecast to the maintainer) is the ARC-004 review-trigger
-backstop for the whole group, never an automatic spending cap; its window
-starts at the first of the deploy month and rolls forward on redeploys.
+manual-disable semantics unchanged). A group budget backstop (EUR 10/month,
+alert-only, ARC-004 review trigger) is intentionally NOT in Bicep: the
+Consumption budgets API rejects programmatic creation on this subscription
+with 401 even for the subscription Owner (finding recorded in ARC-043,
+2026-09-23), so the alert is portal-managed via Cost Management budgets.
 
 ## Controlled database releases (ARC-012)
 

@@ -20,9 +20,10 @@ credential renewal, and receives a useful notification near agreed thresholds.
 
 ## Acceptance criteria
 
-- [x] Configure an archive-scoped Azure budget notification and document its
-  limitations as an alert rather than a hard spending cap (configured
-  2026-09-23 via `infrastructure/archive/main.bicep`, see the note below).
+- [ ] Configure an archive-scoped Azure budget notification and document its
+  limitations as an alert rather than a hard spending cap (attempted
+  2026-09-23 via Bicep; blocked by an RP-level 401 on programmatic budget
+  creation — see the note below for the finding and the portal path).
 - [ ] Observe Neon Free storage/compute/transfer through supported management
   metrics/API or a documented bounded check; do not poll the sleeping database.
 - [ ] Record expiry/ownership and renewal reminders for the private GHCR pull
@@ -38,22 +39,23 @@ Exercise threshold/reminder evaluation with synthetic usage and a harmless
 near-expiry record; verify destination delivery and current actual Neon readings.
 Confirm monitoring stays finite and alert wording does not promise a spending cap.
 
-## Cost note — 2026-09-23
+## Cost note — 2026-09-23 (updated same day)
 
-The archive-scoped budget notification is now configured through
-`infrastructure/archive/main.bicep`: group budget `budget-liedertafel-archive`
-(EUR 10/month over the whole resource group), notifications at Actual
-80/100% and Forecast 100% to j.wegenschimmel@gmail.com plus contactRoles
-Owner, documented as an alert rather than a hard spending cap per ARC-021's
-alert-plus-manual-disable semantics. Acceptance criterion 1 is therefore
-satisfied by infrastructure; the remaining criteria above stay open.
-
-Maintenance limitation to carry into the monthly check: the budget window is
-anchored at the first of the deploy month (`budgetMonthAnchor`) with a fixed
-twelve-month end date. A calendar month whose archive infrastructure is never
-redeployed does not roll the window forward, and after the end date passes the
-notifications lapse silently until the next infrastructure deploy — the
-monthly check must confirm the budget window is current.
+The budget alert is NOT provisioned through Bicep. Attempts during the ARC-021
+provider step (EUR 10/month group budget `budget-liedertafel-archive`,
+notifications at Actual 80/100% and Forecast 100% to j.wegenschimmel@gmail.com
+plus contactRoles Owner) were rejected by the Consumption budgets API with
+`401 Unauthorized` in four CI runs — and an identical PUT as the subscription
+Owner (same api-version, same shape) also returned 401 while reads on the same
+RP succeeded, so this is an RP-level restriction on programmatic budget
+creation for this identity class, not a permissions gap (the release identity
+held `Cost Management Contributor` at group scope, propagated and verified).
+Acceptance criterion 1 therefore stays open: the alert is to be created
+portal-managed (Cost Management → Budgets — the portal flow is the documented
+working path) or by a later ARC-043 slice; the Bicep budget resource was
+removed 2026-09-23. The app-side ARC-021 counter (EUR 5, alert plus manual
+disable) remains the active enforcement until then. The remaining criteria
+above stay open.
 
 ## Handoff and parallel work
 

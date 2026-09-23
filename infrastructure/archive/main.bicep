@@ -94,8 +94,6 @@ param aiProjectName string = 'liedertafel-archive'
 @description('Azure OpenAI chat deployment name. The host app configuration references the model by this name.')
 param aiChatDeploymentName string = 'gpt-5-4-mini'
 
-@description('Group budget anchor: first day of the current month. utcNow may only appear as a parameter default, so the resource derives the budget window from this value.')
-param budgetMonthAnchor string = utcNow('yyyy-MM-01')
 
 resource workspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   name: workspaceName
@@ -325,75 +323,6 @@ resource aoaiOpenAIUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = i
     )
     principalId: runtimeIdentity.properties.principalId
     principalType: 'ServicePrincipal'
-  }
-}
-
-// ARC-004 review trigger — group operating budget. The archive group target
-// is EUR 10 per month. This budget is alert-only and never an automatic
-// spending cap: the app-side ARC-021 semantics (EUR 5 alert plus manual
-// disable) remain the primary circuit breaker, this group-wide budget is the
-// backstop. The anchor parameter keeps `utcNow` in its allowed position so
-// consecutive runs inside a month stay idempotent; the window rolls forward
-// with the first deploy of each new month (a redeployed budget resets its
-// period, matching the alert-only intent).
-// The budget write needs Cost Management Contributor on the deploying
-// release identity, which Bicep cannot self-grant reliably (an OIDC app
-// cannot resolve its own principal id through Graph from the workflow), so
-// the assignment is portal-managed like the ARC-004 identity enablement:
-// granted once 2026-09-23 to sp-liedertafel-archive-iac at group scope.
-resource budget 'Microsoft.Consumption/budgets@2019-10-01' = {
-  name: 'budget-liedertafel-archive'
-  properties: {
-    category: 'Cost'
-    amount: 10
-    timeGrain: 'Monthly'
-    timePeriod: {
-      startDate: budgetMonthAnchor
-      endDate: dateTimeAdd(budgetMonthAnchor, 'P12M')
-    }
-    // No filter: the budget watches the whole resource group on purpose
-    // (group backstop, not an app-scoped counter).
-    notifications: {
-      Actual_80: {
-        enabled: true
-        operator: 'GreaterThan'
-        threshold: 80
-        thresholdType: 'Actual'
-        contactEmails: [
-          'j.wegenschimmel@gmail.com'
-        ]
-        contactRoles: [
-          'Owner'
-        ]
-        locale: 'en-us'
-      }
-      Actual_100: {
-        enabled: true
-        operator: 'GreaterThan'
-        threshold: 100
-        thresholdType: 'Actual'
-        contactEmails: [
-          'j.wegenschimmel@gmail.com'
-        ]
-        contactRoles: [
-          'Owner'
-        ]
-        locale: 'en-us'
-      }
-      Forecast_100: {
-        enabled: true
-        operator: 'GreaterThan'
-        threshold: 100
-        thresholdType: 'Forecast'
-        contactEmails: [
-          'j.wegenschimmel@gmail.com'
-        ]
-        contactRoles: [
-          'Owner'
-        ]
-        locale: 'en-us'
-      }
-    }
   }
 }
 

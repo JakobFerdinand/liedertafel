@@ -309,13 +309,15 @@ assignment below, and the evaluation can run against the pinned deployment.
   (5e0bd9bd-7b93-4f28-af87-19fc36ad61bd) on the account for the runtime
   identity `id-archive-app` — the keyless Entra path; no API key exists
   (`disableLocalAuth`).
-- Group budget `budget-liedertafel-archive` (`Microsoft.Consumption/budgets@
-  2019-10-01`): EUR 10/month over the whole resource group, notifications at
-  Actual 80/100% and Forecast 100% to j.wegenschimmel@gmail.com plus
-  contactRoles Owner. Alert-only backstop per ARC-004's EUR 10 operating
-  target and this ticket's alert-plus-manual-disable semantics (never an
-  automatic cap); it covers the budget-notification part of ARC-043 (see the
-  dated note there).
+- Group budget: NOT deployed. The Consumption budgets API rejected the
+  `Microsoft.Consumption/budgets` PUT with 401 in four CI runs and for an
+  identical PUT as the subscription Owner (reads on the same RP succeed), so
+  programmatic budget creation is an RP-level restriction on this
+  subscription; the Bicep resource was removed and the alert is handed to
+  [ARC-043](ARC-043-cost-and-quota-alerts.md) (portal-managed creation, the
+  documented working path; the intended shape was EUR 10/month group budget,
+  Actual 80/100% + Forecast 100%, j.wegenschimmel@gmail.com + contactRoles
+  Owner). The app-side EUR 5 counter remains the active enforcement.
 - Embeddings/text-embedding-3-small deliberately not deployed: this step is
   chat-only; embeddings/pgvector are the follow-up slice
   [ARC-052](ARC-052-chat-embeddings-pgvector.md).
@@ -325,9 +327,7 @@ assignment below, and the evaluation can run against the pinned deployment.
   `Archive__Chat__Enabled='true'` — chat enabled from the first deploy per
   the enablement decision below.
 - Validated with `az bicep build` (clean) and `az deployment group what-if`
-  (5 to create: account, deployment, project, account role assignment,
-  budget; 10 modifies, all representation noise; no Delete/Replace — passes
-  the destructive guard).
+  (no Delete/Replace across every iteration — passes the destructive guard).
 
 ### Enablement decision — 2026-09-23
 
