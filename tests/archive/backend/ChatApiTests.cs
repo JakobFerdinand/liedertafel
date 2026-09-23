@@ -375,8 +375,8 @@ public sealed class ChatApiTests
 		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
 		var messages = await db.ChatMessages.Where(m => m.ThreadId == threadId).ToListAsync();
 		// The user turn persists; the aborted run never produces an answer.
-		Assert.Equal(1, messages.Count);
-		Assert.All(messages, m => Assert.Equal("user", m.Role));
+		var message = Assert.Single(messages);
+		Assert.Equal("user", message.Role);
 	}
 
 	[Fact]

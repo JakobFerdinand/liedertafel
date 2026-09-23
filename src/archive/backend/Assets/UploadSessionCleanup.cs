@@ -31,7 +31,7 @@ public sealed class UploadSessionCleaner(
 			{
 				await storage.DeleteAsync(session.BlobName, cancellationToken);
 			}
-			catch (InvalidOperationException exception)
+			catch (InvalidOperationException)
 			{
 				// Best-effort: the pending blob may already be gone or the
 				// provider briefly unavailable; the state transition stands.
