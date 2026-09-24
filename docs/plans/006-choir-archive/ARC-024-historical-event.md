@@ -1,6 +1,6 @@
 ---
 id: ARC-024
-status: planned
+status: done
 phase: core
 kind: slice
 depends_on: ["ARC-005"]
@@ -19,13 +19,13 @@ as approximately 1950, and a member browses it in the event history.
 
 ## Acceptance criteria
 
-- [ ] Create/edit/publish events with kind, title, venue, optional time, member
+- [x] Create/edit/publish events with kind, title, venue, optional time, member
   notes and source context; support concerts, services and other appearances.
-- [ ] Model exact/partial/approximate dates explicitly rather than inventing a
+- [x] Model exact/partial/approximate dates explicitly rather than inventing a
   January 1 date; define sorting/display for partial and unknown information.
-- [ ] Offer a browsable historical event list and detail page with year/period
+- [x] Offer a browsable historical event list and detail page with year/period
   navigation, clear uncertainty, and useful empty sections.
-- [ ] Apply editor-only mutation, shared visibility/deletion contracts and
+- [x] Apply editor-only mutation, shared visibility/deletion contracts and
   contributor attribution. Event publication is distinct from future setlists.
 
 ## Verification
@@ -103,3 +103,98 @@ Frontend (static export, client-side fetch, query-parameter detail route):
   useful empty sections for the later programme, documents and recordings
   slices. `/auftritt/` stays outside the nav section like `/lied/`.
 - Nav gains "Auftritte" pointing at `/auftritte/`.
+
+## Implementation and verification (2026-09-24)
+
+Backend (`afe6306`):
+
+- `ChoirEvent` with `EventModelConfiguration` (snake_case table `events`,
+  field maximums per the schema, application-bumped `RowVersion` concurrency
+  token, `DateYear` index), the `Events` DbSet and `Program.cs`
+  `MapEventEndpoints()` wiring; the closed `EventKinds` set and the shared
+  `EventVisibility` decision live beside the entity. `EventDate.cs` renders
+  the culture-invariant German `dateDisplay` with hardcoded month names so
+  server output is identical across hosts ("12. Mai 1950", "um Mai 1950",
+  "um 1950", "ca. 12. Mai 1950", "Datum unbekannt").
+- Endpoints: `GET /api/events` materializes one visible set and filters and
+  sorts in C# (unpaginated, precision-aware newest-first — day precision
+  before month-only before year-only within a year, unknown years last) so
+  InMemory tests and PostgreSQL agree; the `years` navigation summary
+  ignores the filters and ends with the `year: null` group.
+  `GET /api/events/{id}`, editor-only `POST`/`PATCH` (present-empty strings
+  clear, the nested `date` is an explicit full replacement, 409 on
+  concurrent edits) and idempotent `publish`/`unpublish` follow the
+  catalogue pattern; members get 403/401, drafts an indistinguishable 404.
+- Tool-generated additive migration `20260924100654_HistoricalEvents`
+  (earlier migrations untouched, snapshot extended); the apphost
+  walking-skeleton pending-migrations assertion lists `_HistoricalEvents`.
+- `tests/archive/backend/EventsApiTests.cs`: 8 tests —
+  `MemberAndAnonymousCannotCreateEvents`,
+  `DraftStaysHiddenFromMembersAndVisibleToEditors`,
+  `PublishStampsAttributionAndUnpublishClearsIt`,
+  `SecondEditorPatchAttributesAndKeepsPublicationStamps`,
+  `ListSortsNewestFirstWithYearsSummaryAndFilters`,
+  `ValidationErrorsReturnGermanProblems`,
+  `PatchClearsOptionalsAndReplacesDateBlock`,
+  `EventDateDisplayCoversAllPrecisions`.
+
+Frontend (`058a4ad`):
+
+- `app/auftritte/page.tsx` and `app/auftritt/page.tsx` (compact intros,
+  Suspense shells, query-parameter detail route outside the nav like
+  `/lied/`); `components/haupt-navigation.tsx` gains "Auftritte".
+- `components/auftritte-bereich.tsx`: the year rail is the section's
+  navigation (real URL selection via `?jahr=`, "Alle", year tiles with
+  counts, "Ohne Jahr" picks the API's `year: null` group client-side),
+  member list with kind labels and honest date column
+  (`data-unbestimmt`), editor draft badges, inline Bearbeiten and
+  Veröffentlichen/Zurückziehen; creating refetches the whole list so sort
+  and the years summary stay true.
+- `components/auftritt-detail.tsx`: uncertainty marked honestly (`Datum
+  unsicher` badge whenever `dateApproximate` or the precision is not
+  `day`), Hinweise/Quelle from the detail shape, and the always-present
+  empty Programm/Dokumente/Aufnahmen sections reserved for ARC-025
+  documents, ARC-026 programmes and ARC-032 recordings.
+- `components/auftritt-formular.tsx`: the date precision emerges from the
+  filled year/month/day fields (empty = unknown date, no invented calendar
+  date; client validation mirrors the server: 1800–2100, day in month,
+  HH:MM); the editor PATCH always carries the full `date` block and its
+  month labels match the server's hardcoded month names.
+- `lib/events.ts` types the item/detail/years shapes and provides
+  `fetchEvents`/`fetchEvent` on the established German-error pattern.
+- `app/globals.css`: the Auftritte block (year rail tiles in the
+  `.fassungs-liste` recipe, tabular counts, stacked entries below 700 px)
+  with existing tokens only.
+- `tests/auftritte.spec.ts`: 8 mocked tests × desktop/mobile — year rail
+  selection and "Ohne Jahr" honesty, deep-linked detail with indistinguishable
+  drafts, uncertainty badges, editor publish/unpublish round-trip, create
+  with partial and unknown dates, PATCH date-block replacement and the
+  outage retry.
+
+Verification evidence:
+
+- `dotnet build src/archive/Archive.slnx` clean;
+  `dotnet test tests/archive/backend` **308 passed** including the 8 new
+  `EventsApiTests` listed above.
+- `dotnet test tests/archive/apphost` (fresh containers) **4/4 green** —
+  the `HistoricalEvents` migration is applied by `archive-migrate` and
+  zero migrations stay pending afterwards.
+- Frontend `pnpm run check` clean (Biome + route types + tsc); `pnpm run
+  build` statically exports the new routes; the mocked Playwright suite
+  against the dev server passed with the auftritte spec **16/16**
+  (8 tests × desktop + mobile) and the full suite green apart from the
+  environmental `shell.spec.ts` cases, which need the real backend as at
+  every slice authoring.
+
+Two-axis committee review after the slice; findings fixed in place:
+
+- Major blocker (fixed): the editor form rejected an empty year outright, so
+  an unknown date could never be saved and an existing "Datum unbekannt"
+  entry could not even be edited without inventing a year. The form now
+  accepts empty fields as the unknown date, always carries the full `date`
+  replacement block (`null` year = unknown date) and the mocked test asserts
+  the round-trip both ways.
+- Minors (fixed): the month select labels follow the server's hardcoded
+  culture-invariant month names, creating an entry refetches the list so
+  the years summary stays true, and the detail-shape assertions cover the
+  Hinweise/Quelle rendering from the detail response.

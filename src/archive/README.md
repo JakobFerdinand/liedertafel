@@ -366,6 +366,52 @@ Members chat with the archive at `/fragen` („Fragen zum Archiv"): `POST /api/c
 - Per-request bounds are app-enforced: question ≤ 2000 chars, ≤ 5 tool iterations, 30 s no-token abort, 120 s overall cap, client-disconnect cancellation, one pre-first-token retry, German `RUN_ERROR` failure state. Aggregate cost: each run appends a `chat_usage_entries` row (tokens + rounded EUR-cent estimate from `Archive:Chat` reference prices); when the monthly sum exceeds `MonthlyBudgetEur` (5) the backend logs the maintainer warning — the chat is never auto-disabled; exceeding triggers review and manual `Archive:Chat:Disabled`.
 - The chat answers 503 „Der Archiv-Chat ist derzeit nicht verfügbar." unless `Archive:Chat:Enabled=true` and `Disabled=false`, so production stays inert until the provider step. Performance/evidence questions answer honestly that no Aufführungsdaten exist yet (ARC-024/026/028/031 provide them); the synthetic evaluation (`tests/archive/backend/ChatEvaluationTests.cs`, `--filter FullyQualifiedName~ChatEvaluation`) verifies the grounding bar — every citation verifiable against the authorized result set, zero unsupported claims, honest unknown behaviour, recorded EUR-per-answer cost — and must be rerun against the pinned live model before first production chat use.
 
+## ARC-024 historical events
+
+The choir's "Auftritte" record lives in the `events` table (`backend/Events/`,
+additive migration `20260924100654_HistoricalEvents`). `ChoirEvent` keeps the
+date honest as components: `DateYear` (1800–2100), `DateMonth` (1–12),
+`DateDay` (must exist in its month) and an independent `DateApproximate`
+flag; the derived `datePrecision` (`day|month|year|unknown`) follows from the
+set parts and only (year), (year, month), (year, month, day) and none are
+valid — nothing invents a calendar date. `EventDate.cs` renders the
+culture-invariant German `dateDisplay` ("12. Mai 1950", "um 1950", "ca.
+12. Mai 1950", "Datum unbekannt"). Kinds are the closed set `concert`,
+`service`, `wedding`, `funeral`, `festival`, `other`.
+
+API (ProblemDetails German, `no-store`, CSRF on mutations, fresh access
+decision per request; drafts answer an indistinguishable 404 for members):
+
+- `GET /api/events` is unpaginated (archive scale) and filters/sorts in C#
+  so InMemory tests and PostgreSQL agree: known years descending, within a
+  year day-precision first (month/day descending), then month-only, then
+  year-only, unknown years last; `?year=`/`?kind=` narrow the list while the
+  `years` navigation summary ignores the filters and ends with the
+  `year: null` "Ohne Jahr" group.
+- `GET /api/events/{id}` adds `notes`, `sourceNote`, `createdAt`,
+  `updatedAt`, `publishedAt`.
+- Editor-only `POST /api/events` creates a draft; `PATCH /api/events/{id}`
+  leaves absent fields unchanged, clears present-empty strings and treats
+  the nested `date` as an explicit full replacement (`null` year = unknown
+  date; 409 on concurrent edits). `POST .../publish` and `/unpublish` are
+  idempotent; the first publication stamp survives republish.
+- Visibility is the shared `EventVisibility` decision: member-visible
+  exactly when published; deletion stays with ARC-040 trash.
+
+The UI rides the redesigned system: `/auftritte/` is navigated through a
+year rail ("Alle", year tiles with counts, "Ohne Jahr" last) beside the
+newest-first list with kind labels, editor draft badges and
+Veröffentlichen/Zurückziehen; `/auftritt/?id=` keeps uncertainty honest
+(`Datum unsicher` badge on approximate/partial dates) and always shows the
+empty Programm, Dokumente and Aufnahmen sections reserved for ARC-025
+documents, ARC-026 programmes and ARC-032 recordings. The editor form
+derives the date from the filled year/month/day fields — empty means an
+unknown date, nothing invented.
+
+Handoff: the stable event IDs are the anchor points the later slices attach
+to; no programme/setlist tables exist yet, and publishing an event is
+independent of ARC-026's programme publication.
+
 ## Focused verification
 
 From the repository root:
