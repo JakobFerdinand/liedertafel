@@ -1728,3 +1728,297 @@ footer {
     gap: 0.9rem;
   }
 }
+
+/* ─── Auftritte (ARC-024): Jahresleiste und Eintragszeilen ───────────
+   Die Jahresleiste ist die eine eigenständige Struktur des Abschnitts:
+   ruhige Kacheln nach .fassungs-liste (Haarriss-Rahmen auf Papier,
+   gewählt solide in Markenfarbe) neben dem Verzeichnis. Die Einträge
+   laufen in demselben Gesprächsrhythmus wie der Liederkatalog; das
+   Datum steht als eigene Spalte in Serifenschrift, Redaktionsmarken
+   und Aktionen erben die Rezepturen (.lieder-status, leise Knöpfe).
+   Unsicherheit bleibt leise: kleines Etikett in --muted, kein Alarm.
+   Unter 700 px wird die Leiste zur querlaufenden Reihe und der Eintrag
+   stapelt unter sein Datum. */
+.auftritte-bereich {
+  display: grid;
+  grid-template-columns: 11rem minmax(0, 1fr);
+  gap: 1rem 2.5rem;
+  align-items: start;
+  margin-top: 2.5rem;
+}
+.auftritte-jahre {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+.auftritte-jahre button {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-knopf);
+  background: var(--paper);
+  color: var(--brand);
+  font: inherit;
+  font-weight: 600;
+  font-size: var(--schrift-neben);
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+}
+.auftritte-jahre button:hover:not(:disabled):not([aria-pressed="true"]) {
+  background: var(--wash);
+  border-color: var(--brand);
+}
+.auftritte-jahre button[aria-pressed="true"] {
+  background: var(--brand);
+  color: var(--paper);
+  border-color: var(--brand);
+}
+.auftritte-jahr-anzahl {
+  font-weight: 400;
+  font-size: var(--schrift-etikett);
+  opacity: 0.85;
+}
+.auftritte-liste h2 {
+  font-size: var(--titel-abschnitt);
+}
+.auftritte-einträge {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 1.8rem;
+}
+.auftritte-eintrag {
+  display: grid;
+  grid-template-columns: 10rem minmax(0, 1fr);
+  gap: 0.2rem 1.4rem;
+  min-width: 0;
+}
+.auftritte-inhalt {
+  min-width: 0;
+}
+.auftritte-eintrag h3 {
+  margin-block: 0;
+  font-size: var(--titel-abschnitt);
+  overflow-wrap: anywhere;
+}
+.auftritte-art {
+  color: var(--muted);
+  font-size: var(--schrift-etikett);
+  font-weight: 600;
+  margin-block: 0 0.15rem;
+}
+.auftritt-datum {
+  font-family: var(--font-heading);
+  font-size: 1.1rem;
+  font-variant-numeric: tabular-nums;
+  margin-block: 0;
+}
+/* Auftritte ohne jedes Datum lesen sich still; die Anzeige „Datum
+   unbekannt" kommt vom Server, nichts wird erfunden. */
+.auftritt-datum[data-unbestimmt] {
+  color: var(--muted);
+  font-size: var(--schrift-neben);
+  font-weight: 600;
+}
+/* Unsicherheits-Marke im Lesesaal: stilles Etikett unter dem Datum,
+   keine Markenlinie, kein Alarmton. */
+.datum-unsicher {
+  display: block;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: var(--schrift-etikett);
+  color: var(--muted);
+  margin-block-start: 0.2rem;
+}
+.auftritt-ort,
+.auftritt-zeit {
+  color: var(--muted);
+  font-size: var(--schrift-neben);
+  margin-block: 0.35rem 0;
+}
+/* Verzeichnis ohne Bestand: der Einladungsblock nach .hinweis-block. */
+.auftritte-liste .hinweis-block {
+  max-width: 32rem;
+}
+/* Zeilensteuerung nach .lieder-aktionen: zustandsändernde Knöpfe bleiben
+   volle Knöpfe, Bearbeiten trägt den leisen Marken-Textknopf.
+   Berührziele bleiben ≥ 2.75rem. */
+.auftritte-aktionen {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 0.7rem;
+}
+.auftritte-aktionen button {
+  min-height: 2.75rem;
+  padding: 0.5rem 0.9rem;
+  font-size: var(--schrift-neben);
+  border-radius: var(--radius-knopf);
+}
+/* Anlageformular als Aufklapper nach .lied-anlegen — dieselbe Rezeptur,
+   eigener Name, damit die Katalogregeln unangetastet bleiben. */
+.auftritt-anlegen {
+  margin-block: 0 2.5rem;
+}
+.auftritt-anlegen summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 2.75rem;
+  cursor: pointer;
+  list-style: none;
+}
+.auftritt-anlegen summary::-webkit-details-marker {
+  display: none;
+}
+.auftritt-anlegen summary:focus-visible {
+  outline: 3px solid currentColor;
+  outline-offset: 5px;
+}
+.auftritt-anlegen summary h2 {
+  margin-block: 0;
+  font-size: var(--titel-abschnitt);
+}
+.auftritt-anlegen-umschalter {
+  color: var(--brand);
+  font-size: var(--schrift-neben);
+  font-weight: 600;
+}
+.auftritt-anlegen summary:hover .auftritt-anlegen-umschalter {
+  text-decoration: underline;
+  text-underline-offset: 0.25em;
+}
+.auftritt-anlegen .auftritt-anlegen-zu {
+  display: none;
+}
+.auftritt-anlegen[open] .auftritt-anlegen-auf {
+  display: none;
+}
+.auftritt-anlegen[open] .auftritt-anlegen-zu {
+  display: inline;
+}
+.auftritt-anlegen[open] summary {
+  border-block-end: 1px solid var(--rule);
+  padding-block-end: 0.9rem;
+}
+/* Bearbeiten-Karten (Zeile im Verzeichnis, Karte im Lesesaal). */
+.auftritt-bearbeiten {
+  margin-block: 0.6rem 0;
+}
+/* Lesesaal des Auftritts nach .lied-detail: Serifentitel in der
+   Seitengröße, stille Meta-Zeilen, Abschnitte hinter dem Haarriss. */
+.auftritt-detail {
+  max-width: 48rem;
+}
+.auftritt-ansicht h2 {
+  margin-block: 0.3rem 0.25rem;
+  font-size: var(--titel-seite);
+  overflow-wrap: anywhere;
+}
+.auftritt-ansicht .auftritt-datum {
+  margin-block: 0.4rem 0;
+}
+.auftritt-abschnitt {
+  border-top: 1px solid var(--rule);
+  padding-block: 0.9rem;
+}
+.auftritt-abschnitt h3 {
+  margin-block: 0 0.35rem;
+  font-size: 1.1rem;
+}
+.auftritt-text {
+  white-space: pre-line;
+  margin-block: 0;
+}
+/* Nützliche leere Abschnitte: stille Zeile, später befüllt. */
+.auftritt-leer {
+  color: var(--muted);
+  font-size: var(--schrift-neben);
+  margin-block: 0;
+}
+/* Datumsblock des Formulars: die drei Angaben rasten nebeneinander,
+   die Unsicherheitswahl behält das Berührziel der Auswahlfelder. */
+.auftritt-datum-felder {
+  border: 0;
+  padding: 0;
+  margin-block: 0 0.4rem;
+}
+.auftritt-datum-felder legend {
+  font-weight: 600;
+  padding: 0;
+  margin-block: 0.6rem 0.2rem;
+}
+.auftritt-datum-eingaben {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0 1rem;
+}
+.auftritt-datum-eingaben label {
+  display: block;
+  font-weight: 600;
+  font-size: var(--schrift-neben);
+  margin-block: 0.6rem 0.3rem;
+}
+.auftritt-datum-eingaben input,
+.auftritt-datum-eingaben select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.8rem;
+  border: 2px solid var(--ink);
+  border-radius: var(--radius-knopf);
+  font: inherit;
+  background: var(--paper);
+  color: var(--ink);
+}
+.auftritt-datum-eingaben input:focus-visible,
+.auftritt-datum-eingaben select:focus-visible {
+  border-color: var(--brand);
+  outline: none;
+}
+.auftritt-unsicher-wahl {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 2.75rem;
+  margin-block: 0.4rem 0;
+}
+.auftritt-unsicher-wahl input {
+  width: 1.1rem;
+  height: 1.1rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  accent-color: var(--brand);
+}
+
+@media (max-width: 700px) {
+  .auftritte-bereich {
+    grid-template-columns: 1fr;
+  }
+  /* Die Jahresleiste läuft als querlaufende Reihe; die Knöpfe bleiben
+     ungebogen, die Reihe wischt statt umzubrechen. */
+  .auftritte-jahre {
+    display: flex;
+    overflow-x: auto;
+    padding-block-end: 0.4rem;
+  }
+  .auftritte-jahre li {
+    flex: 0 0 auto;
+  }
+  .auftritte-jahre button {
+    width: auto;
+    white-space: nowrap;
+  }
+  .auftritte-eintrag {
+    grid-template-columns: 1fr;
+    gap: 0.1rem;
+  }
+}

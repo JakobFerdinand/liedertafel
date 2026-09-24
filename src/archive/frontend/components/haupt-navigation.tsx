@@ -11,6 +11,7 @@ const eintraege: Array<{ href: string; text: string }> = [
   { href: "/", text: "Archiv" },
   { href: "/archiv/", text: "Mitgliederbereich" },
   { href: "/lieder/", text: "Liederkatalog" },
+  { href: "/auftritte/", text: "Auftritte" },
   { href: "/fragen/", text: "Archiv fragen" },
   { href: "/verwaltung/", text: "Verwaltung" },
   { href: "/system/status/", text: "Systemstatus" },
