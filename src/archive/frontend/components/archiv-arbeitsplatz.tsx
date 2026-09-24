@@ -30,16 +30,27 @@ export function ArchivArbeitsplatz({
   }, []);
 
   useEffect(() => {
-    // Jede Navigation stellt die Voreinstellung wieder her: breit zeigt die
-    // Chatseite neben dem Inhalt, schmal den Seiteninhalt. Der gemountete
-    // Chat behält dabei Entwurf und laufende Antwort.
-    void pathname;
+    // Minimiert bleibt der Chat zu, bis eine Chatansicht (/ oder /fragen/)
+    // ihn wieder hervorholt; erst sie stellt die Voreinstellung für
+    // folgende Inhaltsseiten wieder her. Auch ein Wechsel des Breitpunkts
+    // stellt die Voreinstellung wieder her. Der gemountete Chat behält
+    // dabei Entwurf und laufende Antwort.
+    if (grossansicht) setOffen(null);
+  }, [grossansicht]);
+
+  useEffect(() => {
     void breit;
     setOffen(null);
-  }, [pathname, breit]);
+  }, [breit]);
 
   function minimieren() {
     setOffen(false);
+    // Minimieren darf den Fokus nicht ins Leere fallen lassen: der
+    // Navigationslink zum Chat ist der Weg zurück.
+    if (breit)
+      document
+        .querySelector<HTMLAnchorElement>('#haupt-nav a[href="/fragen/"]')
+        ?.focus();
   }
 
   return (

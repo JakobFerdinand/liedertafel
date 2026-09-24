@@ -734,7 +734,31 @@ test("Der Chat bleibt über die Navigation erreichbar; Minimieren erhält den En
     await page.getByRole("button", { name: "Chat minimieren" }).click();
     await expect(eingabe).toBeHidden();
     await expect(katalog).toBeVisible();
+    // Minimiert bleibt der Chat zu: weitere Inhaltsseiten holen ihn
+    // nicht hervor.
+    await page
+      .getByRole("navigation", { name: "Hauptnavigation" })
+      .getByRole("link", { name: "Auftritte" })
+      .click();
+    await expect(page).toHaveURL(/\/auftritte\/$/);
+    await expect(eingabe).toBeHidden();
     // Erneut über die Navigation geöffnet: der Entwurf bleibt stehen.
+    await fragen.click();
+    await expect(page).toHaveURL(/\/fragen\/$/);
+    await expect(eingabe).toBeVisible();
+    // Von dort stellt die Chatansicht die Voreinstellung wieder her:
+    // der Katalog zeigt den Chat wieder neben dem Inhalt.
+    await page
+      .getByRole("navigation", { name: "Hauptnavigation" })
+      .getByRole("link", { name: "Liederkatalog", exact: true })
+      .click();
+    await expect(page).toHaveURL(/\/lieder\/$/);
+    await expect(eingabe).toBeVisible();
+    // Escape minimiert ebenfalls und lässt den Fokus beim Weg zurück:
+    // dem Navigationslink zum Chat.
+    await eingabe.press("Escape");
+    await expect(eingabe).toBeHidden();
+    await expect(fragen).toBeFocused();
     await fragen.click();
     await expect(page).toHaveURL(/\/fragen\/$/);
   }
