@@ -16,9 +16,12 @@ test("German deep link renders the actual API version and survives refresh", asy
   await expect(page.locator("html")).toHaveAttribute("lang", "de-AT");
   await page.reload();
   await expect(page.getByTestId("build-version")).toHaveText(build.version);
-  if (isMobile)
-    await page.getByRole("button", { name: "Menü", exact: true }).click();
-  await page.getByRole("link", { name: "Archiv", exact: true }).click();
+  // Die Wortmarke bleibt die einzige Verknüpfung zur Startseite; das
+  // aufgeklappte Menü führt erst zu den Inhaltseiten, dann zur Verwaltung.
+  await expect(page.locator(".nav-trenner")).toHaveCount(1);
+  await page
+    .getByRole("link", { name: "Liedertafel Archiv, Startseite" })
+    .click();
   await expect(
     page.getByRole("heading", { name: "Was wir singen, bleibt bei uns." }),
   ).toBeVisible();

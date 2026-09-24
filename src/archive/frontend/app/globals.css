@@ -146,6 +146,9 @@ h3 {
    Der Markenbalken mit der Serifen-Wortmarke bleibt das Zeichen der
     Chorgemeinschaft; die Navigation bleibt daneben ruhig (0.95rem,
     Berührziele ≥ 2.75rem, aktuelle Seite mit dickerer Unterstreichung).
+    Die Reihe gliedert sich ohne Überschriften: Inhaltseiten vorne,
+    Mitglieder- und Verwaltungsaufgaben danach, ein stiller Haarriss
+    (.nav-trenner) zwischen den Gruppen.
    Unter 1100 px klappt das Menü als echte Offenbarung auf
    (Knopf + aria-expanded/aria-controls, siehe haupt-navigation.tsx). */
 .site-header {
@@ -176,11 +179,20 @@ h3 {
   font-size: 0.95rem;
   display: none;
 }
-.nav-inhalt {
+.nav-inhalt,
+.nav-gruppe {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 0.7rem 1.4rem;
+}
+/* Stilles Zeichen der Gruppengliederung: im Wurzelbereich ein
+   senkrechter Haarriss, im aufgeklappten Menü eine durchlaufende
+   Trennlinie (siehe Medienabfrage unten). */
+.nav-trenner {
+  align-self: stretch;
+  width: 1px;
+  background: var(--rule);
 }
 .haupt-nav a {
   display: inline-flex;
@@ -1704,11 +1716,17 @@ footer {
     gap: 0.15rem;
     font-size: 1rem;
   }
-  .haupt-nav.nav-offen .nav-inhalt {
+  .haupt-nav.nav-offen .nav-inhalt,
+  .haupt-nav.nav-offen .nav-gruppe {
     display: flex;
     flex-direction: column;
     align-items: stretch;
     gap: 0.15rem;
+  }
+  .haupt-nav.nav-offen .nav-trenner {
+    width: auto;
+    height: 1px;
+    margin-block: 0.35rem;
   }
   .haupt-nav.nav-offen .auth-zeile {
     gap: 0.9rem;

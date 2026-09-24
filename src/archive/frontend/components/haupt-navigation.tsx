@@ -6,29 +6,35 @@ import { useEffect, useRef, useState } from "react";
 import { AuthStatus } from "@/components/auth-status";
 
 // Die Zugänglichen Namen der Links wählt die Browser-Prüfung aus
-// (shell.spec.ts, chat.spec.ts) und bleiben deshalb unverändert.
-const eintraege: Array<{ href: string; text: string }> = [
-  { href: "/", text: "Archiv" },
-  { href: "/archiv/", text: "Mitgliederbereich" },
+// (shell.spec.ts, chat.spec.ts) und bleiben deshalb unverändert. Die
+// Wortmarke in der Kopfleiste bleibt die einzige Verknüpfung zur
+// Startseite; im Menü laufen die Inhaltseiten vor dem Konto mit
+// Mitglieder- und Verwaltungsaufgaben, getrennt durch einen stillen
+// Haarriss (.nav-trenner).
+const inhaltsseiten: Array<{ href: string; text: string }> = [
   { href: "/lieder/", text: "Liederkatalog" },
   { href: "/auftritte/", text: "Auftritte" },
   { href: "/fragen/", text: "Archiv fragen" },
+];
+const verwaltungsaufgaben: Array<{ href: string; text: string }> = [
+  { href: "/archiv/", text: "Mitgliederbereich" },
   { href: "/verwaltung/", text: "Verwaltung" },
   { href: "/system/status/", text: "Systemstatus" },
 ];
 
-// "/" zählt nur auf der Startseite als aktuell, Abschnitte mit ihren
-// Unterseiten (z. B. /lied/ gehört nicht dazu — eigene Route).
+// Abschnitte mit ihren Unterseiten gelten als aktuell; /lied/ gehört
+// nicht dazu — eigene Route.
 function istAktiv(pfad: string, ziel: string): boolean {
   const hier = pfad.replace(/\/+$/, "");
   const dort = ziel.replace(/\/+$/, "");
-  if (dort === "") return hier === "";
   return hier === dort || hier.startsWith(`${dort}/`);
 }
 
 // Kleine Client-Insel: Aufgeklapptes Menü unter 1100 px, herausgeputzte
 // Reihe darüber; die aktuelle Seite erhält aria-current="page" (statisch
-// je Route vorgerendert, wie beim Arbeitsplatz-Panel).
+// je Route vorgerendert, wie beim Arbeitsplatz-Panel). Zwei Gruppen
+// ohne Überschriften — Inhalt vor Verwaltung — und die Anmeldung ganz
+// zum Schluss; der Tastatur-Fokus läuft in genau dieser Reihenfolge.
 export function HauptNavigation() {
   const pathname = usePathname();
   const [offen, setOffen] = useState(false);
@@ -72,17 +78,33 @@ export function HauptNavigation() {
         onKeyDown={beiTaste}
       >
         <div className="nav-inhalt">
-          {eintraege.map((eintrag) => (
-            <Link
-              key={eintrag.href}
-              href={eintrag.href}
-              aria-current={
-                istAktiv(pathname, eintrag.href) ? "page" : undefined
-              }
-            >
-              {eintrag.text}
-            </Link>
-          ))}
+          <div className="nav-gruppe">
+            {inhaltsseiten.map((eintrag) => (
+              <Link
+                key={eintrag.href}
+                href={eintrag.href}
+                aria-current={
+                  istAktiv(pathname, eintrag.href) ? "page" : undefined
+                }
+              >
+                {eintrag.text}
+              </Link>
+            ))}
+          </div>
+          <div className="nav-trenner" aria-hidden="true" />
+          <div className="nav-gruppe">
+            {verwaltungsaufgaben.map((eintrag) => (
+              <Link
+                key={eintrag.href}
+                href={eintrag.href}
+                aria-current={
+                  istAktiv(pathname, eintrag.href) ? "page" : undefined
+                }
+              >
+                {eintrag.text}
+              </Link>
+            ))}
+          </div>
           <AuthStatus />
         </div>
       </nav>
