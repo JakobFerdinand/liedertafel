@@ -538,7 +538,7 @@ public sealed class FilterApiTests
 		// Plain list: filters echo all null and both arrangements are hints.
 		var (plain, plainResponse) = await ListAsync(client, memberSession);
 		Assert.Equal(HttpStatusCode.OK, plainResponse.StatusCode);
-		Assert.True(plainResponse.Headers.CacheControl.NoStore);
+		Assert.True(plainResponse.Headers.CacheControl?.NoStore);
 		AssertFiltersAbsent(plain);
 		var plainSong = FirstSong(plain);
 		Assert.Equal(2, plainSong.GetProperty("matchedArrangements").EnumerateArray().Count());
@@ -862,7 +862,7 @@ public sealed class FilterApiTests
 		return body.GetProperty("song");
 	}
 
-	private static async Task<Guid> CreatePublishedSongAsync(AuthApiFactory factory, HttpClient client,
+	private static async Task<Guid> CreatePublishedSongAsync(AuthApiFactory factory, HttpClient? client,
 		string editorSession, string title, string? language = null, string? occasion = null, string[]? tags = null)
 	{
 		var songId = await CreateSongAsync(factory, client, editorSession, title,
