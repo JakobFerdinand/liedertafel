@@ -232,11 +232,14 @@ stays bounded to one block. Upload tickets now grant `Write|Create|Read` (Read
 powers the committed-block listing used for resume).
 
 Session contract on top of ARC-015/ARC-016:
-- Initiation declares a file identity (`sizeBytes`, `fileName`); per-file and
-  per-musical-version collection limits (`MaxCollectionBytes`, 40 GiB default)
-  are enforced at initiation (declared) and finalization (actual), 413. In the
-  pending budget a declared session reserves its declared size, an undeclared
-  session its per-file cap.
+- Initiation declares a file identity (`sizeBytes`, `fileName`) and is
+  restricted to the asset's creator (ARC-025 generalized that owner check to
+  version assets too — pending objects are never reassigned to someone
+  else); per-file and per-owner collection limits (`MaxCollectionBytes`,
+  40 GiB default; the owner is the musical version or, since ARC-025, the
+  event) are enforced at initiation (declared) and finalization (actual),
+  413. In the pending budget a declared session reserves its declared size,
+  an undeclared session its per-file cap.
 - A new session supersedes the editor's earlier pending sessions on the same
   asset (terminal `Cancelled` state, pending blobs deleted best-effort), so
   failed transfers cannot starve the version budget until the grace-window
@@ -411,6 +414,63 @@ unknown date, nothing invented.
 Handoff: the stable event IDs are the anchor points the later slices attach
 to; no programme/setlist tables exist yet, and publishing an event is
 independent of ARC-026's programme publication.
+
+## ARC-025 event documents and photos
+
+Documents and photographs attach to events through the ARC-015 asset
+contract, generalized to a shared owner registry: `ArchiveAsset` keeps
+`MusicalVersionId` nullable beside the new `EventId`, and the check
+constraint `CK_assets_owner` enforces in the database that exactly one owner
+is set (application code keeps the same invariant). Event-owned assets
+accept only the new types `document` (PDF) and `photo` (JPEG/PNG/WEBP) with
+the ARC-016-style per-type content-type whitelists, and finalize validates
+honest magic bytes: documents keep the `%PDF-` prefix gate, photographs must
+present the honest signature of their effective image type (JPEG `FF D8 FF`,
+the PNG signature, WEBP `RIFF`+`WEBP`) while audio/MIDI keep skipping the
+gate.
+
+`POST /api/events/{id}/assets` (editor-only, CSRF, German ProblemDetails)
+creates the logical asset with only an optional description (≤ 500 chars,
+no voice label); the event row itself is never touched, so attaching a
+scanned programme creates no programme or performance record (ARC-026 does
+that explicitly). Event detail responses embed the resulting `documents`
+list after `sourceNote`, sorted by createdAt then id; members see only
+finalized material, pending items stay editor-only and expose no tickets.
+Upload sessions are now initiated creator-only for every asset — event and
+version alike — because a pending object must not be reassigned to another
+editor (403). Collection budgets scope per owner: version-owned assets
+share their musical version's budget, event-owned the event's, enforced at
+initiation (declared) and finalization (actual) with 413.
+
+`GET /api/assets/{id}/access` keeps the unchanged ticket shape (blob-scoped
+15-minute view/download ticket URLs, never logged) but gates on the shared
+event visibility decision: members only see published events, so a draft
+event's documents answer the same indistinguishable 404 as the event detail,
+and material without a current revision reports the neutral pending message.
+One photo-specific finalize rule closes the ARC-017 gap: a block-list commit
+carries no blob content type, and the missing/default fallback to the
+session's declared type would always say `image/jpeg` for photos, so on that
+path the effective type is derived from the header magic bytes and rejected
+when no whitelisted image signature matches (pinned fallback test).
+
+The frontend (`components/auftritt-dokumente.tsx` on `/auftritt/?id=`)
+serves both audiences from the embedded `documents` list: members get
+photographs with the description as caption and alt text (per-asset ticket
+fetch, silently renewed before expiry like the audio player) and documents
+with Öffnen/Herunterladen beside the size/type line. The editor workbench
+follows the noten-bereich recipe and reuses the ARC-017 upload engine
+unchanged (create asset, upload session, block transfer to the ticket,
+finalize, per-row progress, retry over the same asset, resume from the local
+`arc-upload-<assetId>` state after reload); the file chooser pre-selects
+document vs photo from the MIME type, description/type edits ride
+`PATCH /api/assets/{id}` with the type locked after the first upload, and
+photographs render as an auto-fill grid that stacks on phones with the large
+view as a real dialog.
+
+Handoff: event-asset ownership and the `documents` view slot in the event
+detail are published for ARC-030 (concert recordings attach through the same
+registry); the per-owner budget and the shared owner registry are the
+coordination point with catalogue/import work.
 
 ## Focused verification
 
