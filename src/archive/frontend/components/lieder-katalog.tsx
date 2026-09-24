@@ -391,7 +391,6 @@ export function LiederKatalog() {
       {editor && (
         <details
           className="auth-karte lied-anlegen"
-          open
           aria-labelledby="lied-anlegen-titel"
         >
           <summary>

@@ -103,6 +103,15 @@ async function mockSitzung(page: Page, me: unknown) {
   );
 }
 
+// Öffnet den Werkbank-Aufklapper (er ist zu, bis die Redaktion ihn braucht).
+async function materialVerwaltungAufklappen(page: Page) {
+  await page.locator("details.material-verwaltung > summary").click();
+  await expect(page.locator("details.material-verwaltung")).toHaveAttribute(
+    "open",
+    "",
+  );
+}
+
 const viewUrl = "https://speicher.test/ansicht?sig=ansicht-1";
 const downloadUrl = "https://speicher.test/laden?sig=laden-1";
 const uploadUrl = "https://speicher.test/ubertragung?sig=upload-1";
@@ -268,6 +277,7 @@ test("Redaktion lädt Noten hoch; Reihenfolge und Übertragung stimmen", async (
   });
 
   await page.goto(`/lied/?id=${songId}`);
+  await materialVerwaltungAufklappen(page);
   await expect(
     page.getByRole("button", { name: "Material hochladen" }),
   ).toBeVisible();
@@ -379,6 +389,7 @@ test("Noten werden blockweise mit Fortschritt übertragen", async ({ page }) => 
   });
 
   await page.goto(`/lied/?id=${songId}`);
+  await materialVerwaltungAufklappen(page);
   const wahl = page.waitForEvent("filechooser");
   await page.getByRole("button", { name: "Material hochladen" }).click();
   const chooser = await wahl;
@@ -441,6 +452,7 @@ test("Zu große Dateien werden nicht übertragen", async ({ page }) => {
   });
 
   await page.goto(`/lied/?id=${songId}`);
+  await materialVerwaltungAufklappen(page);
   await page.locator("input[type='file']").setInputFiles({
     name: "noten.pdf",
     mimeType: "application/pdf",
@@ -486,6 +498,7 @@ test("Fehlgeschlagener Abschluss zeigt eine verständliche Meldung", async ({
   );
 
   await page.goto(`/lied/?id=${songId}`);
+  await materialVerwaltungAufklappen(page);
   await page.locator("input[type='file']").setInputFiles({
     name: "noten.pdf",
     mimeType: "application/pdf",
@@ -586,6 +599,7 @@ test("Unterbrochener Upload wird nach dem Neuladen fortgesetzt", async ({
   });
 
   await page.goto(`/lied/?id=${songId}`);
+  await materialVerwaltungAufklappen(page);
   const wahl = page.waitForEvent("filechooser");
   await page.getByRole("button", { name: "Material hochladen" }).click();
   const chooser = await wahl;
@@ -625,6 +639,7 @@ test("Unterbrochener Upload wird nach dem Neuladen fortgesetzt", async ({
   phase = 2;
   erlaubt = true;
   await page.reload();
+  await materialVerwaltungAufklappen(page);
   await expect(page.getByRole("button", { name: "Fortsetzen" })).toBeVisible();
   await page.getByRole("button", { name: "Fortsetzen" }).click();
   await page.evaluate(
@@ -740,6 +755,7 @@ test("Abweichende Datei beim Fortsetzen startet eine frische Übertragung", asyn
   );
 
   await page.goto(`/lied/?id=${songId}`);
+  await materialVerwaltungAufklappen(page);
   const wahl = page.waitForEvent("filechooser");
   await page.getByRole("button", { name: "Material hochladen" }).click();
   const chooser = await wahl;
@@ -759,6 +775,7 @@ test("Abweichende Datei beim Fortsetzen startet eine frische Übertragung", asyn
 
   erlaubt = true;
   await page.reload();
+  await materialVerwaltungAufklappen(page);
   await expect(page.getByRole("button", { name: "Fortsetzen" })).toBeVisible();
   await page.getByRole("button", { name: "Fortsetzen" }).click();
   await page.evaluate(
@@ -855,6 +872,7 @@ test("Abbrechen meldet die Uploadsitzung ab und bereinigt den Eintrag", async ({
   });
 
   await page.goto(`/lied/?id=${songId}`);
+  await materialVerwaltungAufklappen(page);
   const wahl = page.waitForEvent("filechooser");
   await page.getByRole("button", { name: "Material hochladen" }).click();
   const chooser = await wahl;
@@ -942,6 +960,7 @@ test("Parallele Uploads teilen sich ein Sicherheitstoken-Paar", async ({
   );
 
   await page.goto(`/lied/?id=${songId}`);
+  await materialVerwaltungAufklappen(page);
   const wahl = page.waitForEvent("filechooser");
   await page.getByRole("button", { name: "Material hochladen" }).click();
   await (await wahl).setFiles([
@@ -1026,6 +1045,7 @@ test("Abgelehnter Sicherheitstoken wird ersetzt und die Anfrage wiederholt", asy
   });
 
   await page.goto(`/lied/?id=${songId}`);
+  await materialVerwaltungAufklappen(page);
   const wahl = page.waitForEvent("filechooser");
   await page.getByRole("button", { name: "Material hochladen" }).click();
   await (await wahl).setFiles({

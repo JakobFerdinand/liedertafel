@@ -93,6 +93,15 @@ async function mockSitzung(page: Page, me: unknown) {
   );
 }
 
+// Öffnet den Werkbank-Aufklapper (er ist zu, bis die Redaktion ihn braucht).
+async function materialVerwaltungAufklappen(page: Page) {
+  await page.locator("details.material-verwaltung > summary").click();
+  await expect(page.locator("details.material-verwaltung")).toHaveAttribute(
+    "open",
+    "",
+  );
+}
+
 function pfadTeil(url: string, index: number): string {
   return new URL(url).pathname.split("/")[index] ?? "";
 }
@@ -222,6 +231,7 @@ test("Mehrere Dateien werden nacheinander mit Status und ohne Duplikate hochgela
   });
 
   await page.goto(`/lied/?id=${songId}`);
+  await materialVerwaltungAufklappen(page);
   await expect(
     page.getByRole("button", { name: "Material hochladen" }),
   ).toBeVisible();
@@ -359,6 +369,7 @@ test("Stimmenlabels können vor der Übertragung gesetzt werden", async ({
   );
 
   await page.goto(`/lied/?id=${songId}`);
+  await materialVerwaltungAufklappen(page);
   await expect(
     page.getByRole("button", { name: "Material hochladen" }),
   ).toBeVisible();

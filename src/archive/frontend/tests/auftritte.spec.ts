@@ -174,6 +174,15 @@ async function mockSitzung(page: Page, me: unknown) {
   );
 }
 
+// Öffnet den Anlage-Aufklapper (er ist zu, bis die Redaktion anlegt).
+async function auftrittAnlegenAufklappen(page: Page) {
+  await page.locator("details.auftritt-anlegen > summary").click();
+  await expect(page.locator("details.auftritt-anlegen")).toHaveAttribute(
+    "open",
+    "",
+  );
+}
+
 test("Mitglied sieht Auftritte mit Jahresleiste und ehrlichen Daten", async ({
   page,
 }) => {
@@ -513,6 +522,7 @@ test("Redaktion legt einen Auftritt mit ehrlichem Datum an", async ({
   });
 
   await page.goto("/auftritte/");
+  await auftrittAnlegenAufklappen(page);
   const anlegen = page.locator(".auftritt-anlegen");
   await anlegen
     .getByLabel("Titel", { exact: true })
@@ -595,6 +605,7 @@ test("Redaktion speichert einen Auftritt mit unbekanntem Datum", async ({
   });
 
   await page.goto("/auftritte/");
+  await auftrittAnlegenAufklappen(page);
   const anlegen = page.locator(".auftritt-anlegen");
   await anlegen.getByLabel("Titel", { exact: true }).fill("Gedenkandacht");
   // Jahr, Monat und Tag bleiben leer: nichts ist überliefert, und das

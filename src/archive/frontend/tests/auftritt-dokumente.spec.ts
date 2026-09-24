@@ -123,6 +123,15 @@ async function mockSitzung(page: Page, me: unknown) {
   );
 }
 
+// Öffnet den Werkbank-Aufklapper (er ist zu, bis die Redaktion ihn braucht).
+async function dokumenteVerwaltungAufklappen(page: Page) {
+  await page.locator("details.material-verwaltung > summary").click();
+  await expect(page.locator("details.material-verwaltung")).toHaveAttribute(
+    "open",
+    "",
+  );
+}
+
 function pfadTeil(url: string, index: number): string {
   return new URL(url).pathname.split("/")[index] ?? "";
 }
@@ -485,6 +494,7 @@ test("Redaktion hängt Dokument und Fotografie an, überträgt sie und sieht das
   });
 
   await page.goto(`/auftritt/?id=${eventId}`);
+  await dokumenteVerwaltungAufklappen(page);
   await expect(
     page.getByRole("button", { name: "Dokument/Fotografie hinzufügen" }),
   ).toBeVisible();
@@ -610,6 +620,7 @@ test("Redaktion bessert Beschreibung und Materialart nach; abgelehnte Änderunge
   });
 
   await page.goto(`/auftritt/?id=${eventId}`);
+  await dokumenteVerwaltungAufklappen(page);
   await expect(page.getByText("Noch nicht hochgeladen")).toBeVisible();
 
   // Unausgelieferter Eintrag: Beschreibung und Materialart gehen als
@@ -698,6 +709,7 @@ test("Zweitredaktion scheitert am fremden Material und liest die Ablehnung in de
   });
 
   await page.goto(`/auftritt/?id=${eventId}`);
+  await dokumenteVerwaltungAufklappen(page);
   await expect(page.getByText("Noch nicht hochgeladen")).toBeVisible();
 
   const wahl = page.waitForEvent("filechooser");

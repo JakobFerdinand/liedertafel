@@ -203,7 +203,6 @@ export function AuftritteBereich() {
       {editor && (
         <details
           className="auth-karte auftritt-anlegen"
-          open
           aria-labelledby="auftritt-anlegen-titel"
         >
           <summary>

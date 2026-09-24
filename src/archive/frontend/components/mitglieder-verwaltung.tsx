@@ -455,8 +455,17 @@ export function MitgliederVerwaltung() {
 
   return (
     <div>
-      <section className="auth-karte" aria-labelledby="einladen-titel">
-        <h2 id="einladen-titel">Mitglied einladen</h2>
+      <details
+        className="auth-karte mitglied-einladen"
+        aria-labelledby="einladen-titel"
+      >
+        <summary>
+          <h2 id="einladen-titel">Mitglied einladen</h2>
+          <span className="mitglied-einladen-umschalter" aria-hidden="true">
+            <span className="mitglied-einladen-auf">Ausklappen</span>
+            <span className="mitglied-einladen-zu">Einklappen</span>
+          </span>
+        </summary>
         <form onSubmit={einladen} noValidate>
           <label htmlFor="einladung-email">E-Mail-Adresse</label>
           <input
@@ -506,7 +515,7 @@ export function MitgliederVerwaltung() {
             </button>
           </div>
         </form>
-      </section>
+      </details>
 
       {erfolg && (
         <output aria-live="polite" className="auth-erfolg">

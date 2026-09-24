@@ -139,6 +139,15 @@ async function mockSitzung(page: Page, me: unknown) {
   );
 }
 
+// Öffnet den Anlage-Aufklapper (er ist zu, bis die Redaktion anlegt).
+async function liedAnlegenAufklappen(page: Page) {
+  await page.locator("details.lied-anlegen > summary").click();
+  await expect(page.locator("details.lied-anlegen")).toHaveAttribute(
+    "open",
+    "",
+  );
+}
+
 test("Mitglied sieht veröffentlichte Lieder ohne Redaktionswerkzeuge", async ({
   page,
 }) => {
@@ -273,6 +282,7 @@ test("Redaktion sieht Entwürfe, legt ein Lied an und veröffentlicht es", async
   await page.goto("/lieder/");
   await expect(page.getByRole("heading", { name: "Neues Lied" })).toBeVisible();
   await expect(page.getByText("Entwurf")).toBeVisible();
+  await liedAnlegenAufklappen(page);
 
   await page.getByLabel("Titel", { exact: true }).fill("Aurora");
   await page.getByRole("button", { name: "Lied anlegen" }).click();
@@ -321,6 +331,7 @@ test("Fehlermeldungen aus ProblemDetails werden angezeigt", async ({
   });
 
   await page.goto("/lieder/");
+  await liedAnlegenAufklappen(page);
 
   await page.getByRole("button", { name: "Lied anlegen" }).click();
   await expect(page.getByText("Bitte einen Titel eingeben.")).toBeVisible();

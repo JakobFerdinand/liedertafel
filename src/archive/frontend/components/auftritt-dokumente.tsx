@@ -999,199 +999,218 @@ export function AuftrittDokumente({
       )}
 
       {isEditor && (
-        <fieldset
+        <details
           className="material-verwaltung"
-          aria-label="Dokumente und Fotografien verwalten"
-          onDrop={ablegen}
-          onDragOver={ziehStart}
+          aria-labelledby="dokument-verwaltung-titel"
         >
-          {batchMeldung && (
-            <output aria-live="polite" className="auth-erfolg">
-              {batchMeldung}
-            </output>
-          )}
-          {fortsetzbar.length > 0 && (
-            <div className="material-fortsetzungen">
-              <p>Unterbrochene Übertragungen</p>
-              {fortsetzbar.map((wunsch) => (
-                <div className="material-fortsetzung" key={wunsch.assetId}>
-                  <span className="material-datei-name">
-                    {wunsch.eintrag.fileName}
-                  </span>
-                  <span className="material-datei-groesse">
-                    {groesseText(wunsch.eintrag.sizeBytes)}
-                  </span>
-                  <button
-                    type="button"
-                    disabled={uebertragLaeuft}
-                    onClick={() => {
-                      // Nur ein Wunsch je Mausklick: ein noch bewaffneter
-                      // Hochlade-Wunsch aus der anderen Zeile würde die
-                      // gewählte Datei an das falsche Material binden.
-                      wunschRef.current = wunsch;
-                      verbindungsRef.current = null;
-                      eingabeRef.current?.click();
-                    }}
-                  >
-                    Fortsetzen
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          {unausgeliefert.length > 0 && (
-            <div className="material-fortsetzungen">
-              <p>Noch nicht hochgeladen</p>
-              {unausgeliefert.map((dokument) => (
-                <UnausgeliefertZeile
-                  dokument={dokument}
-                  busy={uebertragLaeuft}
-                  onHochladen={(gewaehlt) => {
-                    // Nur ein Wunsch je Mausklick: ein noch bewaffneter
-                    // Fortsetzungs-Wunsch würde die gewählte Datei auf die
-                    // unterbrochene Übertragung umlenken.
-                    wunschRef.current = null;
-                    verbindungsRef.current = {
-                      assetId: gewaehlt.id,
-                      assetTyp: gewaehlt.assetType,
-                      beschreibung: gewaehlt.description ?? "",
-                    };
-                    eingabeRef.current?.click();
-                  }}
-                  onBearbeitet={() => setErfolg("Änderungen gespeichert.")}
-                  aktualisieren={aktualisieren}
-                  key={dokument.id}
-                />
-              ))}
-            </div>
-          )}
-          {zeilen.length > 0 && (
-            <ul className="material-dateien">
-              {zeilen.map((zeile) => (
-                <li
-                  className="material-datei"
-                  key={zeile.id}
-                  data-status={zeile.status}
-                >
-                  <div className="material-datei-kopf">
+          <summary>
+            <h2 id="dokument-verwaltung-titel">
+              Dokumente und Fotografien verwalten
+            </h2>
+            <span className="material-verwaltung-umschalter" aria-hidden="true">
+              <span className="material-verwaltung-auf">Ausklappen</span>
+              <span className="material-verwaltung-zu">Einklappen</span>
+            </span>
+          </summary>
+          <fieldset
+            className="material-verwaltung"
+            aria-label="Dokumente und Fotografien verwalten"
+            onDrop={ablegen}
+            onDragOver={ziehStart}
+          >
+            {batchMeldung && (
+              <output aria-live="polite" className="auth-erfolg">
+                {batchMeldung}
+              </output>
+            )}
+            {fortsetzbar.length > 0 && (
+              <div className="material-fortsetzungen">
+                <p>Unterbrochene Übertragungen</p>
+                {fortsetzbar.map((wunsch) => (
+                  <div className="material-fortsetzung" key={wunsch.assetId}>
                     <span className="material-datei-name">
-                      {zeile.datei.name}
+                      {wunsch.eintrag.fileName}
                     </span>
                     <span className="material-datei-groesse">
-                      {groesseText(zeile.datei.size)}
+                      {groesseText(wunsch.eintrag.sizeBytes)}
                     </span>
-                    <span className="material-datei-status" aria-live="polite">
-                      {statusTextFuer(zeile.status, zeile.fortschritt)}
-                    </span>
-                  </div>
-                  {(zeile.status === "uebertragen" ||
-                    zeile.status === "geprueft") && (
-                    <div className="material-fortschritt" aria-hidden="true">
-                      <span
-                        style={{
-                          width: `${Math.max(0, Math.min(100, zeile.fortschritt))}%`,
-                        }}
-                      />
-                    </div>
-                  )}
-                  {(zeile.status === "uebertragen" ||
-                    zeile.status === "geprueft" ||
-                    zeile.status === "abbruchLaeuft") && (
                     <button
                       type="button"
-                      className="knopf-leise"
-                      onClick={() => abbrechen(zeile)}
-                      disabled={zeile.status === "abbruchLaeuft"}
+                      disabled={uebertragLaeuft}
+                      onClick={() => {
+                        // Nur ein Wunsch je Mausklick: ein noch bewaffneter
+                        // Hochlade-Wunsch aus der anderen Zeile würde die
+                        // gewählte Datei an das falsche Material binden.
+                        wunschRef.current = wunsch;
+                        verbindungsRef.current = null;
+                        eingabeRef.current?.click();
+                      }}
                     >
-                      {zeile.status === "abbruchLaeuft"
-                        ? "Wird abgebrochen …"
-                        : "Abbrechen"}
+                      Fortsetzen
                     </button>
-                  )}
-                  {(zeile.status === "gescheitert" ||
-                    zeile.status === "abgebrochen") && (
-                    <>
-                      <output aria-live="polite" className="feld-fehler">
-                        {zeile.fehler}
-                      </output>
+                  </div>
+                ))}
+              </div>
+            )}
+            {unausgeliefert.length > 0 && (
+              <div className="material-fortsetzungen">
+                <p>Noch nicht hochgeladen</p>
+                {unausgeliefert.map((dokument) => (
+                  <UnausgeliefertZeile
+                    dokument={dokument}
+                    busy={uebertragLaeuft}
+                    onHochladen={(gewaehlt) => {
+                      // Nur ein Wunsch je Mausklick: ein noch bewaffneter
+                      // Fortsetzungs-Wunsch würde die gewählte Datei auf die
+                      // unterbrochene Übertragung umlenken.
+                      wunschRef.current = null;
+                      verbindungsRef.current = {
+                        assetId: gewaehlt.id,
+                        assetTyp: gewaehlt.assetType,
+                        beschreibung: gewaehlt.description ?? "",
+                      };
+                      eingabeRef.current?.click();
+                    }}
+                    onBearbeitet={() => setErfolg("Änderungen gespeichert.")}
+                    aktualisieren={aktualisieren}
+                    key={dokument.id}
+                  />
+                ))}
+              </div>
+            )}
+            {zeilen.length > 0 && (
+              <ul className="material-dateien">
+                {zeilen.map((zeile) => (
+                  <li
+                    className="material-datei"
+                    key={zeile.id}
+                    data-status={zeile.status}
+                  >
+                    <div className="material-datei-kopf">
+                      <span className="material-datei-name">
+                        {zeile.datei.name}
+                      </span>
+                      <span className="material-datei-groesse">
+                        {groesseText(zeile.datei.size)}
+                      </span>
+                      <span
+                        className="material-datei-status"
+                        aria-live="polite"
+                      >
+                        {statusTextFuer(zeile.status, zeile.fortschritt)}
+                      </span>
+                    </div>
+                    {(zeile.status === "uebertragen" ||
+                      zeile.status === "geprueft") && (
+                      <div className="material-fortschritt" aria-hidden="true">
+                        <span
+                          style={{
+                            width: `${Math.max(0, Math.min(100, zeile.fortschritt))}%`,
+                          }}
+                        />
+                      </div>
+                    )}
+                    {(zeile.status === "uebertragen" ||
+                      zeile.status === "geprueft" ||
+                      zeile.status === "abbruchLaeuft") && (
                       <button
                         type="button"
-                        onClick={() => void erneutVersuchen(zeile.id)}
-                        disabled={uebertragLaeuft}
+                        className="knopf-leise"
+                        onClick={() => abbrechen(zeile)}
+                        disabled={zeile.status === "abbruchLaeuft"}
                       >
-                        Erneut versuchen
+                        {zeile.status === "abbruchLaeuft"
+                          ? "Wird abgebrochen …"
+                          : "Abbrechen"}
                       </button>
-                    </>
-                  )}
-                  <div className="material-felder">
-                    <label htmlFor={`dokument-zeile-${zeile.id}-typ`}>
-                      Materialtyp
-                    </label>
-                    <select
-                      id={`dokument-zeile-${zeile.id}-typ`}
-                      value={zeile.assetTyp}
-                      disabled={zeile.status !== "warten"}
-                      onChange={(event) =>
-                        zeileAendern(zeile.id, {
-                          assetTyp: event.target.value as DokumentTyp,
-                        })
-                      }
-                    >
-                      <option value="document">Dokument (PDF)</option>
-                      <option value="photo">Fotografie</option>
-                    </select>
-                    <label htmlFor={`dokument-zeile-${zeile.id}-beschreibung`}>
-                      Beschreibung (wird als Text zum Bild vorgelesen)
-                    </label>
-                    <input
-                      id={`dokument-zeile-${zeile.id}-beschreibung`}
-                      type="text"
-                      maxLength={500}
-                      value={zeile.beschreibung}
-                      disabled={zeile.status !== "warten"}
-                      onChange={(event) =>
-                        zeileAendern(zeile.id, {
-                          beschreibung: event.target.value,
-                        })
-                      }
-                    />
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-          <div className="noten-aktionen">
-            <button
-              type="button"
-              onClick={() => {
-                wunschRef.current = null;
-                verbindungsRef.current = null;
-                eingabeRef.current?.click();
-              }}
-              disabled={uebertragLaeuft}
-            >
-              Dokument/Fotografie hinzufügen
-            </button>
-            <button
-              type="button"
-              onClick={() => void uebertragen()}
-              disabled={uebertragLaeuft || gesichert === gesamt}
-            >
-              Material übertragen
-            </button>
-            <input
-              ref={eingabeRef}
-              className="visually-hidden"
-              type="file"
-              multiple
-              accept=".pdf,image/jpeg,image/png,image/webp"
-              onChange={eingabeWaehlen}
-              disabled={uebertragLaeuft}
-              tabIndex={-1}
-              aria-hidden="true"
-            />
-          </div>
-        </fieldset>
+                    )}
+                    {(zeile.status === "gescheitert" ||
+                      zeile.status === "abgebrochen") && (
+                      <>
+                        <output aria-live="polite" className="feld-fehler">
+                          {zeile.fehler}
+                        </output>
+                        <button
+                          type="button"
+                          onClick={() => void erneutVersuchen(zeile.id)}
+                          disabled={uebertragLaeuft}
+                        >
+                          Erneut versuchen
+                        </button>
+                      </>
+                    )}
+                    <div className="material-felder">
+                      <label htmlFor={`dokument-zeile-${zeile.id}-typ`}>
+                        Materialtyp
+                      </label>
+                      <select
+                        id={`dokument-zeile-${zeile.id}-typ`}
+                        value={zeile.assetTyp}
+                        disabled={zeile.status !== "warten"}
+                        onChange={(event) =>
+                          zeileAendern(zeile.id, {
+                            assetTyp: event.target.value as DokumentTyp,
+                          })
+                        }
+                      >
+                        <option value="document">Dokument (PDF)</option>
+                        <option value="photo">Fotografie</option>
+                      </select>
+                      <label
+                        htmlFor={`dokument-zeile-${zeile.id}-beschreibung`}
+                      >
+                        Beschreibung (wird als Text zum Bild vorgelesen)
+                      </label>
+                      <input
+                        id={`dokument-zeile-${zeile.id}-beschreibung`}
+                        type="text"
+                        maxLength={500}
+                        value={zeile.beschreibung}
+                        disabled={zeile.status !== "warten"}
+                        onChange={(event) =>
+                          zeileAendern(zeile.id, {
+                            beschreibung: event.target.value,
+                          })
+                        }
+                      />
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="noten-aktionen">
+              <button
+                type="button"
+                onClick={() => {
+                  wunschRef.current = null;
+                  verbindungsRef.current = null;
+                  eingabeRef.current?.click();
+                }}
+                disabled={uebertragLaeuft}
+              >
+                Dokument/Fotografie hinzufügen
+              </button>
+              <button
+                type="button"
+                onClick={() => void uebertragen()}
+                disabled={uebertragLaeuft || gesichert === gesamt}
+              >
+                Material übertragen
+              </button>
+              <input
+                ref={eingabeRef}
+                className="visually-hidden"
+                type="file"
+                multiple
+                accept=".pdf,image/jpeg,image/png,image/webp"
+                onChange={eingabeWaehlen}
+                disabled={uebertragLaeuft}
+                tabIndex={-1}
+                aria-hidden="true"
+              />
+            </div>
+          </fieldset>
+        </details>
       )}
 
       {gross && (

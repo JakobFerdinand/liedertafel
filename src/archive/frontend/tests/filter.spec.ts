@@ -148,6 +148,15 @@ async function filterAufklappen(page: Page) {
   );
 }
 
+// Öffnet den Anlage-Aufklapper (er ist zu, bis die Redaktion anlegt).
+async function liedAnlegenAufklappen(page: Page) {
+  await page.locator("details.lied-anlegen > summary").click();
+  await expect(page.locator("details.lied-anlegen")).toHaveAttribute(
+    "open",
+    "",
+  );
+}
+
 test("Filter schicken die erwarteten Abfrageparameter an den Katalog", async ({
   page,
 }) => {
@@ -616,6 +625,7 @@ test("Neues Lied übernimmt Sprache, Anlass und Schlagwörter", async ({
   });
 
   await page.goto("/lieder/");
+  await liedAnlegenAufklappen(page);
   await page.getByLabel("Titel", { exact: true }).fill("Aurora");
   await page.getByLabel("Sprache (optional)").fill("Deutsch");
   await page.getByLabel("Anlass (optional)").fill("Sommerfest");

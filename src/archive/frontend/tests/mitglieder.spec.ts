@@ -98,6 +98,15 @@ async function mockAdminSeite(page: Page) {
   );
 }
 
+// Öffnet den Einladungs-Aufklapper (er ist zu, bis die Verwaltung einlädt).
+async function einladenAufklappen(page: Page) {
+  await page.locator("details.mitglied-einladen > summary").click();
+  await expect(page.locator("details.mitglied-einladen")).toHaveAttribute(
+    "open",
+    "",
+  );
+}
+
 test("Verwaltung validates the invitation email without a backend", async ({
   page,
 }) => {
@@ -109,6 +118,7 @@ test("Verwaltung validates the invitation email without a backend", async ({
   await expect(
     page.getByRole("heading", { name: "Mitgliederverwaltung" }),
   ).toBeVisible();
+  await einladenAufklappen(page);
 
   await page.getByRole("button", { name: "Einladung senden" }).click();
   await expect(page.locator("#einladung-email-fehler")).toHaveText(
@@ -171,6 +181,7 @@ test("Verwaltung invites and resends with a mocked API", async ({ page }) => {
   );
 
   await page.goto("/verwaltung/");
+  await einladenAufklappen(page);
   await expect(
     page.getByRole("row", { name: /mitglied@liedertafel\.test/ }).first(),
   ).toBeVisible();
@@ -210,6 +221,7 @@ test("Verwaltung prompts re-login when verification is stale", async ({
   );
 
   await page.goto("/verwaltung/");
+  await einladenAufklappen(page);
   await page
     .getByLabel("E-Mail-Adresse", { exact: true })
     .fill("chor@beispiel.at");
@@ -508,6 +520,7 @@ test("Vollständiger Einladungsfluss mit E-Mail-Code", async ({
   await expect(
     page.getByRole("heading", { name: "Mitgliederverwaltung" }),
   ).toBeVisible();
+  await einladenAufklappen(page);
   await page.getByLabel("E-Mail-Adresse", { exact: true }).fill(neueAdresse);
   await page.getByLabel("Name (optional)").fill("Neue Stimme");
   await page.getByLabel("Rolle", { exact: true }).selectOption("Member");
