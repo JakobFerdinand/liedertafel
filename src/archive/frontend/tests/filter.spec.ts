@@ -157,6 +157,26 @@ async function liedAnlegenAufklappen(page: Page) {
   );
 }
 
+// Öffnet den Fassungs-Aufklapper des Lieds (er ist zu, bis die Redaktion
+// an Arrangements arbeitet).
+async function fassungenAufklappen(page: Page) {
+  await page.locator("details.lied-fassungen > summary").click();
+  await expect(page.locator("details.lied-fassungen")).toHaveAttribute(
+    "open",
+    "",
+  );
+}
+
+// Öffnet den Bearbeiten-Aufklapper des Lieds (er ist zu, bis die Redaktion
+// das Lied ändert).
+async function liedBearbeitenAufklappen(page: Page) {
+  await page.locator("details.lied-bearbeiten > summary").click();
+  await expect(page.locator("details.lied-bearbeiten")).toHaveAttribute(
+    "open",
+    "",
+  );
+}
+
 test("Filter schicken die erwarteten Abfrageparameter an den Katalog", async ({
   page,
 }) => {
@@ -706,6 +726,7 @@ test("Fassungsformular schickt die Begleitung beim Arrangement mit", async ({
   });
 
   await page.goto(`/lied/?id=${wandernId}`);
+  await fassungenAufklappen(page);
 
   // Die Bearbeitung zeigt die bisherige Begleitung und schickt die neue.
   await page.getByRole("button", { name: "Arrangement bearbeiten" }).click();
@@ -777,6 +798,7 @@ test("Lied bearbeiten zeigt Sprache, Anlass und Schlagwörter und räumt auf", a
   });
 
   await page.goto(`/lied/?id=${wandernId}`);
+  await liedBearbeitenAufklappen(page);
   await expect(page.getByLabel("Sprache (optional)")).toHaveValue("Deutsch");
   await expect(page.getByLabel("Anlass (optional)")).toHaveValue("Sommerfest");
   await expect(page.getByLabel("Schlagwort 1", { exact: true })).toHaveValue(

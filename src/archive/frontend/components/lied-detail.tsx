@@ -279,11 +279,17 @@ export function LiedDetail() {
       </article>
 
       {editor && (
-        <section
+        <details
           className="auth-karte lied-fassungen"
           aria-labelledby="lied-fassungen-titel"
         >
-          <h2 id="lied-fassungen-titel">Fassungen pflegen</h2>
+          <summary>
+            <h2 id="lied-fassungen-titel">Fassungen pflegen</h2>
+            <span className="lied-fassungen-umschalter" aria-hidden="true">
+              <span className="lied-fassungen-auf">Ausklappen</span>
+              <span className="lied-fassungen-zu">Einklappen</span>
+            </span>
+          </summary>
           {lied.arrangements.map((arrangement) => (
             <div key={arrangement.id} className="lied-fassung-block">
               <p className="lied-fassung-titel">{arrangement.label}</p>
@@ -406,12 +412,21 @@ export function LiedDetail() {
             absendenText="Arrangement anlegen"
             onSuccess={gesichertSpeichern}
           />
-        </section>
+        </details>
       )}
 
       {editor && (
-        <section className="auth-karte" aria-labelledby="lied-bearbeiten-titel">
-          <h2 id="lied-bearbeiten-titel">Lied bearbeiten</h2>
+        <details
+          className="auth-karte lied-bearbeiten"
+          aria-labelledby="lied-bearbeiten-titel"
+        >
+          <summary>
+            <h2 id="lied-bearbeiten-titel">Lied bearbeiten</h2>
+            <span className="lied-bearbeiten-umschalter" aria-hidden="true">
+              <span className="lied-bearbeiten-auf">Ausklappen</span>
+              <span className="lied-bearbeiten-zu">Einklappen</span>
+            </span>
+          </summary>
           <LiedFormular
             lied={lied}
             absendenText="Änderungen speichern"
@@ -454,7 +469,7 @@ export function LiedDetail() {
               </button>
             )}
           </div>
-        </section>
+        </details>
       )}
 
       {erfolg && (

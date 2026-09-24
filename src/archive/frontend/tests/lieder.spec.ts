@@ -148,6 +148,26 @@ async function liedAnlegenAufklappen(page: Page) {
   );
 }
 
+// Öffnet den Fassungs-Aufklapper des Lieds (er ist zu, bis die Redaktion
+// an Arrangements arbeitet).
+async function fassungenAufklappen(page: Page) {
+  await page.locator("details.lied-fassungen > summary").click();
+  await expect(page.locator("details.lied-fassungen")).toHaveAttribute(
+    "open",
+    "",
+  );
+}
+
+// Öffnet den Bearbeiten-Aufklapper des Lieds (er ist zu, bis die Redaktion
+// das Lied ändert).
+async function liedBearbeitenAufklappen(page: Page) {
+  await page.locator("details.lied-bearbeiten > summary").click();
+  await expect(page.locator("details.lied-bearbeiten")).toHaveAttribute(
+    "open",
+    "",
+  );
+}
+
 test("Mitglied sieht veröffentlichte Lieder ohne Redaktionswerkzeuge", async ({
   page,
 }) => {
@@ -378,6 +398,7 @@ test("Redaktion sieht Veröffentlicht-Marke und Steuerungen am Lied", async ({
   );
 
   await page.goto(`/lied/?id=${publishedId}`);
+  await liedBearbeitenAufklappen(page);
   await expect(page.getByText("Veröffentlicht")).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Veröffentlichung zurückziehen" }),
@@ -387,6 +408,7 @@ test("Redaktion sieht Veröffentlicht-Marke und Steuerungen am Lied", async ({
   ).toBeVisible();
 
   await page.goto(`/lied/?id=${draftId}`);
+  await liedBearbeitenAufklappen(page);
   await expect(page.getByText("Entwurf")).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Veröffentlichen" }),
@@ -584,6 +606,7 @@ test("Redaktion legt Arrangement und Fassung an und sieht Tonarten", async ({
   );
 
   await page.goto(`/lied/?id=${publishedId}`);
+  await fassungenAufklappen(page);
 
   await page
     .getByLabel("Bezeichnung", { exact: true })
@@ -669,6 +692,7 @@ test("Redaktion bearbeitet eine Fassung und ändert die Tonart", async ({
   );
 
   await page.goto(`/lied/?id=${publishedId}`);
+  await fassungenAufklappen(page);
 
   const maennerBlock = page
     .locator(".lied-fassung-block")

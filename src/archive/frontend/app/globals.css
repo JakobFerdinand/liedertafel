@@ -1105,6 +1105,51 @@ dd {
 .lied-fassungen h3 {
   margin-block: 1.4rem 0;
 }
+/* Aufklapper der Fassungspflege (details/summary) nach .lied-anlegen —
+   dieselbe Rezeptur, eigener Name, damit die Katalogregeln unangetastet
+   bleiben. Zugeklappt gehört die Ruh der Fassungswahl im Lesesaal. */
+.lied-fassungen summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 2.75rem;
+  cursor: pointer;
+  list-style: none;
+}
+.lied-fassungen summary::-webkit-details-marker {
+  display: none;
+}
+.lied-fassungen summary:focus-visible {
+  outline: 3px solid currentColor;
+  outline-offset: 5px;
+}
+.lied-fassungen summary h2 {
+  margin-block: 0;
+  font-size: var(--titel-abschnitt);
+}
+.lied-fassungen-umschalter {
+  color: var(--brand);
+  font-size: var(--schrift-neben);
+  font-weight: 600;
+}
+.lied-fassungen summary:hover .lied-fassungen-umschalter {
+  text-decoration: underline;
+  text-underline-offset: 0.25em;
+}
+.lied-fassungen .lied-fassungen-zu {
+  display: none;
+}
+.lied-fassungen[open] .lied-fassungen-auf {
+  display: none;
+}
+.lied-fassungen[open] .lied-fassungen-zu {
+  display: inline;
+}
+.lied-fassungen[open] summary {
+  border-block-end: 1px solid var(--rule);
+  padding-block-end: 0.9rem;
+}
 .lied-fassung-block {
   border-top: 1px solid var(--rule);
   padding-block: 0.8rem;
@@ -1453,6 +1498,52 @@ footer {
 }
 .lied-bearbeiten {
   margin-block: 0.6rem 0;
+}
+/* Aufklapper des Lied-Formulars (details/summary) nach .lied-anlegen —
+   dieselbe Rezeptur. Der Klassenname teilt sich mit der Zeilenkarte des
+   Katalogs; nur der Aufklapper trägt summary-Kinder, darum berühren sich
+   die Regeln nicht. */
+.lied-bearbeiten summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 2.75rem;
+  cursor: pointer;
+  list-style: none;
+}
+.lied-bearbeiten summary::-webkit-details-marker {
+  display: none;
+}
+.lied-bearbeiten summary:focus-visible {
+  outline: 3px solid currentColor;
+  outline-offset: 5px;
+}
+.lied-bearbeiten summary h2 {
+  margin-block: 0;
+  font-size: var(--titel-abschnitt);
+}
+.lied-bearbeiten-umschalter {
+  color: var(--brand);
+  font-size: var(--schrift-neben);
+  font-weight: 600;
+}
+.lied-bearbeiten summary:hover .lied-bearbeiten-umschalter {
+  text-decoration: underline;
+  text-underline-offset: 0.25em;
+}
+.lied-bearbeiten .lied-bearbeiten-zu {
+  display: none;
+}
+.lied-bearbeiten[open] .lied-bearbeiten-auf {
+  display: none;
+}
+.lied-bearbeiten[open] .lied-bearbeiten-zu {
+  display: inline;
+}
+.lied-bearbeiten[open] summary {
+  border-block-end: 1px solid var(--rule);
+  padding-block-end: 0.9rem;
 }
 .auth-karte textarea {
   width: 100%;
