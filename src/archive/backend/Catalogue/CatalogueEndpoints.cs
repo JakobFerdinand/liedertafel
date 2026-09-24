@@ -97,7 +97,8 @@ public static class CatalogueEndpoints
 				// order) with the search response fields added around it.
 				var allSongs = await QueryVisible(db.Songs, isEditor)
 					.OrderBy(s => s.Id)
-					.Select(s => new SongSummary(s.Id, s.Title, s.Composer, s.Lyricist, s.PublishedAt))
+					.Select(s => new SongSummary(s.Id, s.Title, s.Composer, s.Lyricist, s.PublishedAt,
+						s.Language, s.Occasion))
 					.ToListAsync(token);
 				var totalAll = allSongs.Count;
 				var plainPage = allSongs
@@ -107,6 +108,7 @@ public static class CatalogueEndpoints
 				var plainIds = plainPage.Select(s => s.Id).ToList();
 				var plainArrangements = await LoadArrangementSummariesAsync(db, plainIds, token);
 				var plainAlternateTitles = await LoadAlternateTitlesAsync(db, plainIds, token);
+				var plainTags = await LoadSongTagsAsync(db, plainIds, token);
 				return Results.Ok(new
 				{
 					query = (string?)null,
@@ -120,7 +122,9 @@ public static class CatalogueEndpoints
 						plainArrangements.GetValueOrDefault(s.Id, []),
 						[],
 						// No arrangement-level filter: every arrangement is a match hint.
-						plainArrangements.GetValueOrDefault(s.Id, []))),
+						plainArrangements.GetValueOrDefault(s.Id, []),
+						s.Language, s.Occasion,
+						plainTags.GetValueOrDefault(s.Id, []))),
 				});
 			}
 			if (filter is null)
@@ -140,7 +144,9 @@ public static class CatalogueEndpoints
 						searchResult.Arrangements.GetValueOrDefault(m.Song.Id, []),
 						m.MatchedIn.ToArray(),
 						// No arrangement-level filter: every arrangement is a match hint.
-						searchResult.Arrangements.GetValueOrDefault(m.Song.Id, []))),
+						searchResult.Arrangements.GetValueOrDefault(m.Song.Id, []),
+						m.Song.Language, m.Song.Occasion,
+						searchResult.Tags.GetValueOrDefault(m.Song.Id, []))),
 				});
 			}
 			// ARC-023 filter evaluation over one database-projected visible
@@ -316,6 +322,7 @@ public static class CatalogueEndpoints
 				.ToList();
 			var pageIds = pageItems.Select(m => m.Song.Id).ToList();
 			var pageAlternateTitles = await LoadAlternateTitlesAsync(db, pageIds, token);
+			var pageTags = await LoadSongTagsAsync(db, pageIds, token);
 			var pageArrangements = pageIds.ToDictionary(
 				id => id,
 				id => (arrangementMap.TryGetValue(id, out var allArrangements)
@@ -335,7 +342,9 @@ public static class CatalogueEndpoints
 					pageAlternateTitles.GetValueOrDefault(m.Song.Id, []),
 					pageArrangements.GetValueOrDefault(m.Song.Id, []),
 					m.MatchedIn.ToArray(),
-					m.MatchedArrangements)),
+					m.MatchedArrangements,
+					m.Song.Language, m.Song.Occasion,
+					pageTags.GetValueOrDefault(m.Song.Id, []))),
 			});
 		});
 
@@ -1075,7 +1084,8 @@ public static class CatalogueEndpoints
 		List<(SearchRow Song, int Rank, SortedSet<string> MatchedIn)> PageItems,
 		string Query,
 		Dictionary<Guid, List<string>> AlternateTitles,
-		Dictionary<Guid, List<ArrangementSummary>> Arrangements);
+		Dictionary<Guid, List<ArrangementSummary>> Arrangements,
+		Dictionary<Guid, List<string>> Tags);
 
 	private static async Task<SearchResult> SearchSongsAsync(
 		ArchiveDbContext db, bool isEditor, string query, int requestedPage, int pageSize, CancellationToken token)
@@ -1088,10 +1098,11 @@ public static class CatalogueEndpoints
 			.Where(t => t.Length > 0)
 			.ToList();
 		if (tokens.Count == 0)
-			return new(0, [], query, [], []);
+			return new(0, [], query, [], [], []);
 		var visible = await QueryVisible(db.Songs, isEditor)
 			.OrderBy(s => s.Id)
-			.Select(s => new SearchRow(s.Id, s.Title, s.Composer, s.Lyricist, s.PublishedAt, s.Lyrics))
+			.Select(s => new SearchRow(s.Id, s.Title, s.Composer, s.Lyricist, s.PublishedAt, s.Lyrics,
+				s.Language, s.Occasion))
 			.ToListAsync(token);
 		var visibleIds = visible.Select(s => s.Id).ToList();
 		var alternateTitleMap = await LoadAlternateTitlesAsync(db, visibleIds, token);
@@ -1178,7 +1189,8 @@ public static class CatalogueEndpoints
 		var pageIds = pageItems.Select(m => m.Song.Id).ToList();
 		var pageArrangements = await LoadArrangementSummariesAsync(db, pageIds, token);
 		var pageAlternateTitles = await LoadAlternateTitlesAsync(db, pageIds, token);
-		return new(ordered.Count, pageItems, query, pageAlternateTitles, pageArrangements);
+		var pageTags = await LoadSongTagsAsync(db, pageIds, token);
+		return new(ordered.Count, pageItems, query, pageAlternateTitles, pageArrangements, pageTags);
 	}
 
 	/// <summary>
@@ -1265,14 +1277,15 @@ public static class CatalogueEndpoints
 		return (decision, null);
 	}
 
-	private sealed record SongSummary(Guid Id, string Title, string? Composer, string? Lyricist, DateTimeOffset? PublishedAt);
+	private sealed record SongSummary(Guid Id, string Title, string? Composer, string? Lyricist, DateTimeOffset? PublishedAt,
+		string? Language, string? Occasion);
 
 	/// <summary>Arrangement context attached to list/search song items (ARC-020).</summary>
 	private sealed record ArrangementSummary(Guid Id, string Label, string? Arranger);
 
 	/// <summary>Database-projected row for C#-side catalogue search (ARC-020).</summary>
 	private sealed record SearchRow(Guid Id, string Title, string? Composer, string? Lyricist,
-		DateTimeOffset? PublishedAt, string? Lyrics);
+		DateTimeOffset? PublishedAt, string? Lyrics, string? Language, string? Occasion);
 
 	/// <summary>Database-projected row for C#-side repertoire filtering (ARC-023).</summary>
 	private sealed record FilterRow(Guid Id, string Title, string? Composer, string? Lyricist,
@@ -1281,12 +1294,15 @@ public static class CatalogueEndpoints
 	/// <summary>
 	/// Shared list/search song item shape: the ARC-013 summary fields plus the
 	/// ARC-020 search fields (matched-in keys empty without a query, lyric
-	/// snippet reserved for ARC-033) and the ARC-023 matched-arrangement hints.
+	/// snippet reserved for ARC-033) and the ARC-023 matched-arrangement hints
+	/// plus the new song metadata so catalogue-row editing edits values the
+	/// editor can actually see.
 	/// </summary>
 	private static object SongItem(Guid id, string title, string? composer, string? lyricist,
 		DateTimeOffset? publishedAt, List<string> alternateTitles,
 		List<ArrangementSummary> arrangements, string[] matchedIn,
-		List<ArrangementSummary> matchedArrangements) => new
+		List<ArrangementSummary> matchedArrangements,
+		string? language, string? occasion, List<string> tags) => new
 	{
 		id,
 		title,
@@ -1299,5 +1315,8 @@ public static class CatalogueEndpoints
 		matchedIn,
 		matchedArrangements,
 		lyricsSnippet = (string?)null,
+		language,
+		occasion,
+		tags,
 	};
 }

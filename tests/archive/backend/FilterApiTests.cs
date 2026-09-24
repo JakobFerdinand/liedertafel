@@ -798,6 +798,41 @@ public sealed class FilterApiTests
 		}
 	}
 
+	[Fact]
+	public async Task CatalogueItemsCarryTheNewSongMetadataForVisibleEditing()
+	{
+		await using var factory = new AuthApiFactory();
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		var editorSession = await SignInAsync(factory, Editor);
+		var songId = await CreatePublishedSongAsync(factory, client: null, editorSession, "Sichtbarkeit",
+			language: "Deutsch", occasion: "Jahreskonzert", tags: ["Choral", "A cappella"]);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+
+		// List, search and filtered items carry the metadata so catalogue-row
+		// editing never replaces values the editor cannot see.
+		foreach (var url in new[] { "/api/songs", "/api/songs?q=Sichtbarkeit", "/api/songs?tag=choral" })
+		{
+			var (body, response) = await ListAsyncWithUrl(client, editorSession, url);
+			Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+			var song = FirstSong(body);
+			Assert.Equal(songId.ToString(), song.GetProperty("id").GetString());
+			Assert.Equal("Deutsch", song.GetProperty("language").GetString());
+			Assert.Equal("Jahreskonzert", song.GetProperty("occasion").GetString());
+			Assert.Equal(["Choral", "A cappella"],
+				song.GetProperty("tags").EnumerateArray().Select(t => t.GetString()).ToList());
+		}
+	}
+
+	private static async Task<(JsonElement Body, HttpResponseMessage Response)> ListAsyncWithUrl(
+		HttpClient client, string session, string url)
+	{
+		using var request = new HttpRequestMessage(HttpMethod.Get, url);
+		request.Headers.Add("Cookie", session);
+		var response = await client.SendAsync(request);
+		var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+		return (body, response);
+	}
+
 	private static async Task<(JsonElement Body, HttpResponseMessage Response)> ListAsync(
 		HttpClient client, string session, params (string Key, string Value)[] filters)
 	{
