@@ -45,6 +45,10 @@ namespace Archive.Backend.Data.Migrations
         }
 
         /// <inheritdoc />
+        // Down() re-adds NOT NULL on MusicalVersionId (with an empty-GUID
+        // default) and therefore only works while no event-owned asset rows
+        // exist; it is a dev-only path, never for databases holding event
+        // assets.
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropForeignKey(

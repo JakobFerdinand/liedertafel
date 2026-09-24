@@ -228,6 +228,89 @@ public sealed class EventAssetApiTests
 	}
 
 	[Fact]
+	public async Task PhotoFinalizeDerivesTypeFromMagicBytesWithoutStoredContentType()
+	{
+		// ARC-017 block-list commits carry no blob content type; the session
+		// always declares the first whitelisted type (image/jpeg), so the
+		// finalize fallback must derive the effective type from the header
+		// magic bytes instead of failing every non-JPEG photograph.
+		await using var factory = new AuthApiFactory();
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		var editorSession = await SignInAsync(factory, Editor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var eventId = await CreateEventAsync(client, editorSession, new { kind = "concert", title = "Fotofallback" });
+		var pngId = await CreateEventAssetAsync(client, editorSession, eventId, "photo");
+		var webpId = await CreateEventAssetAsync(client, editorSession, eventId, "photo");
+		var garbageId = await CreateEventAssetAsync(client, editorSession, eventId, "photo");
+		var mismatchId = await CreateEventAssetAsync(client, editorSession, eventId, "photo");
+
+		// PNG without a stored content type finalizes as image/png.
+		var (pngSessionId, pngUrl, _) = await CreateUploadSessionAsync(client, editorSession, pngId);
+		factory.Storage.Store(factory.Storage.Find(pngUrl)!.BlobName, ValidPng(512));
+		using (var pngFinalize = await FinalizeAsync(client, editorSession, pngSessionId))
+		{
+			Assert.Equal(HttpStatusCode.OK, pngFinalize.StatusCode);
+			var revision = await pngFinalize.Content.ReadFromJsonAsync<JsonElement>();
+			Assert.Equal(AssetEndpoints.PngContentType, revision.GetProperty("contentType").GetString());
+			Assert.Equal(512, revision.GetProperty("sizeBytes").GetInt64());
+		}
+
+		// WEBP without a stored content type finalizes as image/webp.
+		var (webpSessionId, webpUrl, _) = await CreateUploadSessionAsync(client, editorSession, webpId);
+		factory.Storage.Store(factory.Storage.Find(webpUrl)!.BlobName, ValidWebp(640));
+		using (var webpFinalize = await FinalizeAsync(client, editorSession, webpSessionId))
+		{
+			Assert.Equal(HttpStatusCode.OK, webpFinalize.StatusCode);
+			var revision = await webpFinalize.Content.ReadFromJsonAsync<JsonElement>();
+			Assert.Equal(AssetEndpoints.WebpContentType, revision.GetProperty("contentType").GetString());
+		}
+
+		// A garbage header matches no image signature and is rejected with
+		// the German photo message; the blob is deleted and the session
+		// abandoned.
+		var (garbageSessionId, garbageUrl, _) = await CreateUploadSessionAsync(client, editorSession, garbageId);
+		factory.Storage.Store(factory.Storage.Find(garbageUrl)!.BlobName, "Kein Bild, nur Text."u8.ToArray());
+		using (var garbageFinalize = await FinalizeAsync(client, editorSession, garbageSessionId))
+		{
+			Assert.Equal(HttpStatusCode.UnprocessableEntity, garbageFinalize.StatusCode);
+			var problem = await garbageFinalize.Content.ReadFromJsonAsync<JsonElement>();
+			Assert.Equal(AssetEndpoints.InvalidPhotoMessage, problem.GetProperty("title").GetString());
+		}
+		Assert.False(factory.Storage.Has(factory.Storage.Find(garbageUrl)!.BlobName));
+
+		// An explicitly stored type keeps the correlated rule: PNG bytes
+		// presented as image/webp fail the honest header gate.
+		var (mismatchSessionId, mismatchUrl, _) = await CreateUploadSessionAsync(client, editorSession, mismatchId);
+		factory.Storage.Store(factory.Storage.Find(mismatchUrl)!.BlobName,
+			ValidPng(512), AssetEndpoints.WebpContentType);
+		using (var mismatchFinalize = await FinalizeAsync(client, editorSession, mismatchSessionId))
+		{
+			Assert.Equal(HttpStatusCode.UnprocessableEntity, mismatchFinalize.StatusCode);
+			var problem = await mismatchFinalize.Content.ReadFromJsonAsync<JsonElement>();
+			Assert.Equal(AssetEndpoints.InvalidPhotoMessage, problem.GetProperty("title").GetString());
+		}
+
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			Assert.Equal(2, await db.FileRevisions.CountAsync());
+			var pngRevision = await db.FileRevisions.SingleAsync(r => r.AssetId == pngId);
+			var webpRevision = await db.FileRevisions.SingleAsync(r => r.AssetId == webpId);
+			Assert.Equal(AssetEndpoints.PngContentType, pngRevision.ContentType);
+			Assert.Equal(AssetEndpoints.WebpContentType, webpRevision.ContentType);
+			Assert.Null((await db.Assets.SingleAsync(a => a.Id == garbageId)).CurrentRevisionId);
+			Assert.Null((await db.Assets.SingleAsync(a => a.Id == mismatchId)).CurrentRevisionId);
+			Assert.Equal(PendingUploadState.Abandoned,
+				(await db.UploadSessions.SingleAsync(s => s.Id == garbageSessionId)).State);
+			Assert.Equal(PendingUploadState.Abandoned,
+				(await db.UploadSessions.SingleAsync(s => s.Id == mismatchSessionId)).State);
+			// The garbage and mismatched pending objects are gone, the two
+			// promoted photo revisions remain.
+			Assert.Equal(2, factory.Storage.ObjectCount);
+		}
+	}
+
+	[Fact]
 	public async Task EventAssetFinalizeIsIdempotent()
 	{
 		await using var factory = new AuthApiFactory();

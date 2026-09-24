@@ -194,6 +194,27 @@ public static class AssetEndpoints
 		return false;
 	}
 
+	/// <summary>
+	/// Derives the effective image content type from the header magic bytes:
+	/// JPEG FF D8 FF, PNG signature, WEBP "RIFF" + bytes 8..11 "WEBP". Returns
+	/// null when no whitelisted image signature matches.
+	/// </summary>
+	private static string? DetectImageContentType(byte[]? header)
+	{
+		if (header is null)
+			return null;
+		var span = header.AsSpan();
+		if (span.Length >= 3 && span[0] == 0xFF && span[1] == 0xD8 && span[2] == 0xFF)
+			return JpegContentType;
+		if (span.Length >= PngMagic.Length && span.StartsWith(PngMagic))
+			return PngContentType;
+		if (span.Length >= 12
+			&& span.StartsWith("RIFF"u8)
+			&& span.Slice(8, 4).SequenceEqual("WEBP"u8))
+			return WebpContentType;
+		return null;
+	}
+
 	public static void MapAssetEndpoints(this IEndpointRouteBuilder app)
 	{
 		app.MapPost("/api/musical-versions/{id}/assets", async (
@@ -665,10 +686,25 @@ public static class AssetEndpoints
 			// storage reports its default application/octet-stream), so a
 			// missing/default stored type falls back to the session's declared
 			// whitelisted type — the same fallback the revision payload uses.
-			var effectiveContentType = probe.ContentType is { Length: > 0 } storedType
+			// ARC-025: photos cannot rely on that fallback (the session always
+			// declares the first whitelisted type, image/jpeg), so for a
+			// missing/default stored type the effective type is derived from
+			// the header magic bytes and rejected when no image signature
+			// matches.
+			var storedContentType = probe.ContentType is { Length: > 0 } storedType
 				&& !string.Equals(storedType, StorageDefaultContentType, StringComparison.OrdinalIgnoreCase)
 					? storedType
-					: session.ContentType;
+					: null;
+			var isPhoto = session.Asset.AssetType == PhotoAssetType;
+			string effectiveContentType;
+			if (storedContentType is null && isPhoto)
+			{
+				effectiveContentType = DetectImageContentType(header) ?? string.Empty;
+			}
+			else
+			{
+				effectiveContentType = storedContentType ?? session.ContentType;
+			}
 			// Score/document keep the ARC-015 behavior: the effective type is
 			// checked against the whitelist and the %PDF- magic-bytes gate;
 			// photos must present an effective whitelisted image type with
