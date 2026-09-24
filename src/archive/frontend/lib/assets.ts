@@ -388,6 +388,16 @@ export function zeitText(sekunden: number) {
   return stunden > 0 ? `${stunden}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
+/** Menschliche Dateigröße in de-AT-Format (B, kB, MB). */
+export function groesseText(sizeBytes: number): string {
+  const format = new Intl.NumberFormat("de-AT", {
+    maximumFractionDigits: 1,
+  });
+  if (sizeBytes >= 102400) return `${format.format(sizeBytes / 1048576)} MB`;
+  if (sizeBytes >= 1024) return `${format.format(sizeBytes / 1024)} kB`;
+  return `${format.format(sizeBytes)} B`;
+}
+
 async function abschlussFehler(ursache: unknown): Promise<string> {
   if (ursache instanceof Response) {
     const inhalt = (await ursache.json().catch(() => null)) as {

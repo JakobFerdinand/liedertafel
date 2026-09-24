@@ -14,6 +14,7 @@ import {
   entferneUploadSitzung,
   fetchAssetAccess,
   type GespeicherteUploadSitzung,
+  groesseText,
   liesUploadSitzung,
   MaterialFehler,
   type MaterialSchritt,
@@ -70,15 +71,6 @@ const materialgruppen: [AssetType, string][] = [
   ["audio", "Audio"],
   ["midi", "MIDI"],
 ];
-
-function groesseText(sizeBytes: number): string {
-  const format = new Intl.NumberFormat("de-AT", {
-    maximumFractionDigits: 1,
-  });
-  if (sizeBytes >= 102400) return `${format.format(sizeBytes / 1048576)} MB`;
-  if (sizeBytes >= 1024) return `${format.format(sizeBytes / 1024)} kB`;
-  return `${format.format(sizeBytes)} B`;
-}
 
 function typText(contentType: string): string {
   return contentType.includes("pdf") ? "PDF" : contentType;

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { AuftrittDokumente } from "@/components/auftritt-dokumente";
 import { AuftrittFormular } from "@/components/auftritt-formular";
 import { fetchMe, type MeResponse, postAuth } from "@/lib/auth";
 import {
@@ -98,6 +99,26 @@ export function AuftrittDetail() {
     }
   }
 
+  // Nach Material-Änderungen kommt der Auftritt frisch; dieselben Zustände
+  // wie beim ersten Laden (nicht gefunden / abgemeldet / Störung).
+  function aktualisieren() {
+    const abbruch = new AbortController();
+    void laden(abbruch.signal).catch((ursache) => {
+      if (abbruch.signal.aborted) return;
+      if (ursache instanceof Response) {
+        if (ursache.status === 404) {
+          setNichtGefunden(true);
+          return;
+        }
+        if (ursache.status === 401) {
+          setMe({ authenticated: false });
+          return;
+        }
+      }
+      setFehler("Das Archiv antwortet nicht. Bitte erneut versuchen.");
+    });
+  }
+
   if (fehler) {
     return (
       <div aria-live="polite">
@@ -189,8 +210,8 @@ export function AuftrittDetail() {
         </section>
       )}
 
-      {/* Nützliche leere Abschnitte: Programm, Dokumente und Aufnahmen
-          folgen in eigenen Abschnitten (ARC-025/026/032). */}
+      {/* Nützliche leere Abschnitte: Programm und Aufnahmen
+          folgen in eigenen Abschnitten (ARC-026/032). */}
       <section
         className="auftritt-abschnitt"
         aria-labelledby="auftritt-programm-titel"
@@ -198,15 +219,11 @@ export function AuftrittDetail() {
         <h3 id="auftritt-programm-titel">Programm</h3>
         <p className="auftritt-leer">Das Programm wurde noch nicht erfasst.</p>
       </section>
-      <section
-        className="auftritt-abschnitt"
-        aria-labelledby="auftritt-dokumente-titel"
-      >
-        <h3 id="auftritt-dokumente-titel">Dokumente</h3>
-        <p className="auftritt-leer">
-          Zu diesem Auftritt sind noch keine Dokumente hinterlegt.
-        </p>
-      </section>
+      <AuftrittDokumente
+        auftritt={auftritt}
+        isEditor={editor === true}
+        aktualisieren={aktualisieren}
+      />
       <section
         className="auftritt-abschnitt"
         aria-labelledby="auftritt-aufnahmen-titel"

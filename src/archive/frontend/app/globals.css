@@ -1999,6 +1999,80 @@ footer {
   accent-color: var(--brand);
 }
 
+/* ─── Auftritts-Dokumente (ARC-025) ──────────────────────────────────
+   Der Lesesaal der Auftrittsmaterialien: Fotografien rasten als kleine
+   Andachtsbilder (Haarriss-Rahmen auf Papier, Raster nach .fassungs-liste),
+   ihre Beschriftung liest sich in der Meta-Leiter; Dokumente laufen als
+   Einträge im Materialrhythmus (.material-eintrag/.noten-laden). Die
+   Großansicht öffnet als echtes Dialogfenster. Keine neuen Farben —
+   Paletten, Leitern und Radien kommen aus den gemeinsamen Variablen. */
+.dokumente-fotos {
+  list-style: none;
+  margin: 0.9rem 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr));
+  gap: 0.9rem;
+}
+.dokument-foto {
+  min-width: 0;
+  margin: 0;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-knopf);
+  background: var(--paper);
+  padding: 0.5rem 0.55rem 0.7rem;
+  display: grid;
+  gap: 0.4rem;
+}
+.dokument-foto-oeffnen {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+}
+.dokument-foto-bild {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-fein);
+  background: var(--wash);
+}
+.dokument-bildunterschrift {
+  font-size: var(--schrift-neben);
+  margin-block: 0;
+  overflow-wrap: anywhere;
+}
+.dokumente-liste {
+  margin-block-start: 1.1rem;
+}
+.dokument-titel {
+  margin-block: 0.55rem 0.15rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.auftritt-grossansicht {
+  border: 0;
+  border-radius: var(--radius-karte);
+  background: var(--paper);
+  color: var(--ink);
+  padding: 1rem 1.1rem;
+  width: min(92vw, 60rem);
+}
+.auftritt-grossansicht img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-fein);
+  background: var(--wash);
+}
+.auftritt-grossansicht::backdrop {
+  background: color-mix(in srgb, var(--ink) 72%, transparent);
+}
+
 @media (max-width: 700px) {
   .auftritte-bereich {
     grid-template-columns: 1fr;
