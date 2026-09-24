@@ -188,9 +188,10 @@ public static class CatalogueEndpoints
 				// Material availability counts only current revisions; assets
 				// without a current revision never reach the projection.
 				var assetRows = await db.Assets.AsNoTracking()
-					.Where(asset => versionIds.Contains(asset.MusicalVersionId)
+					.Where(asset => asset.MusicalVersionId != null
+						&& versionIds.Contains(asset.MusicalVersionId.Value)
 						&& asset.CurrentRevisionId != null)
-					.Select(asset => new { asset.MusicalVersionId, asset.AssetType })
+					.Select(asset => new { MusicalVersionId = asset.MusicalVersionId!.Value, asset.AssetType })
 					.ToListAsync(token);
 				var assetTypesByVersion = assetRows
 					.GroupBy(asset => asset.MusicalVersionId)
@@ -861,11 +862,11 @@ public static class CatalogueEndpoints
 			return [];
 		var assets = await db.Assets.AsNoTracking()
 			.Include(a => a.CurrentRevision)
-			.Where(a => versionIds.Contains(a.MusicalVersionId))
+			.Where(a => a.MusicalVersionId != null && versionIds.Contains(a.MusicalVersionId.Value))
 			.OrderBy(a => a.Id)
 			.ToListAsync(token);
 		return assets
-			.GroupBy(a => a.MusicalVersionId)
+			.GroupBy(a => a.MusicalVersionId!.Value)
 			.Select(group => (group.Key, group
 				.Select(a => (object)new
 				{

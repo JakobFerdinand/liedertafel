@@ -1,21 +1,30 @@
 using Archive.Backend.Catalogue;
+using Archive.Backend.Events;
 
 namespace Archive.Backend.Assets;
 
 /// <summary>
-/// A file asset attached to a musical version (ARC-015). Assets start empty
-/// (<see cref="CurrentRevisionId"/> null) and gain immutable
-/// <see cref="FileRevision"/> rows as uploads finalize; <see cref="AssetType"/>
-/// is an open contract (ARC-016 audio/MIDI, ARC-023 event documents), as is
-/// <see cref="VoiceLabel"/>.
+/// A file asset with exactly one owner (ARC-015): either a musical version
+/// (scores, audio, MIDI) or, since ARC-025, a historical event (documents,
+/// photographs). Assets start empty (<see cref="CurrentRevisionId"/> null) and
+/// gain immutable <see cref="FileRevision"/> rows as uploads finalize;
+/// <see cref="AssetType"/> is an open contract, as is
+/// <see cref="VoiceLabel"/>. The database check constraint enforces that
+/// exactly one owner is set; application code keeps the same invariant.
 /// </summary>
 public sealed class ArchiveAsset
 {
 	public Guid Id { get; set; } = Guid.CreateVersion7();
 
-	public Guid MusicalVersionId { get; set; }
+	/// <summary>Owning musical version; null for event-owned assets (ARC-025).</summary>
+	public Guid? MusicalVersionId { get; set; }
 
-	public MusicalVersion MusicalVersion { get; set; } = null!;
+	public MusicalVersion? MusicalVersion { get; set; }
+
+	/// <summary>Owning historical event (ARC-025); null for version-owned assets.</summary>
+	public Guid? EventId { get; set; }
+
+	public ChoirEvent? Event { get; set; }
 
 	/// <summary>Required asset discriminator, default "score"; open for later slices.</summary>
 	public required string AssetType { get; set; }

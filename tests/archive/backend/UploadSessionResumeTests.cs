@@ -322,21 +322,40 @@ public sealed class UploadSessionResumeTests
 	{
 		await using var factory = new AuthApiFactory();
 		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
-		await SeedAsync(factory, SecondEditor, ArchiveRoles.Editor);
+		var secondEditorId = await SeedAsync(factory, SecondEditor, ArchiveRoles.Editor);
 		var editorSession = await SignInAsync(factory, Editor);
-		var secondSession = await SignInAsync(factory, SecondEditor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
 		var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
 		var otherAssetId = await CreateAssetAsync(client, editorSession, versionId, "score");
 
 		// The editor's earlier attempt left a pending session behind, as did
-		// a second editor and an upload to another asset of the version.
+		// a foreign user and an upload to another asset of the version.
+		// ARC-025: a second editor can no longer initiate a session on
+		// someone else's asset at all, so the foreign row is seeded directly;
+		// the supersede pass must still leave other owners untouched.
 		var (staleId, staleUrl, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
 		var staleBlob = factory.Storage.Find(staleUrl)!.BlobName;
 		factory.Storage.Store(staleBlob, ValidPdf(128));
-		var (foreignId, foreignUrl, _) = await CreateUploadSessionAsync(client, secondSession, assetId);
-		var foreignBlob = factory.Storage.Find(foreignUrl)!.BlobName;
+		string foreignBlob;
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			var foreign = new PendingUpload
+			{
+				AssetId = assetId,
+				BlobName = $"pending/{Guid.CreateVersion7()}",
+				ContentType = AssetEndpoints.PdfContentType,
+				MaxSizeBytes = 10 * 1024L * 1024 * 1024,
+				UploadTicketExpiresAt = DateTimeOffset.UtcNow.AddMinutes(30),
+				State = PendingUploadState.Pending,
+				CreatedByAccountId = secondEditorId,
+				CreatedAt = DateTimeOffset.UtcNow,
+			};
+			db.UploadSessions.Add(foreign);
+			await db.SaveChangesAsync();
+			foreignBlob = foreign.BlobName;
+		}
 		factory.Storage.Store(foreignBlob, ValidPdf(128));
 		var (otherAssetSessionId, _, _) = await CreateUploadSessionAsync(client, editorSession, otherAssetId);
 
@@ -348,7 +367,8 @@ public sealed class UploadSessionResumeTests
 			Assert.Equal(PendingUploadState.Cancelled,
 				(await db.UploadSessions.SingleAsync(s => s.Id == staleId)).State);
 			Assert.Equal(PendingUploadState.Pending,
-				(await db.UploadSessions.SingleAsync(s => s.Id == foreignId)).State);
+				(await db.UploadSessions.SingleAsync(s => s.AssetId == assetId
+					&& s.CreatedByAccountId == secondEditorId)).State);
 			Assert.Equal(PendingUploadState.Pending,
 				(await db.UploadSessions.SingleAsync(s => s.Id == otherAssetSessionId)).State);
 			Assert.Equal(PendingUploadState.Pending,

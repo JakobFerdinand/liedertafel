@@ -127,7 +127,11 @@ public static class EventEndpoints
 				.FirstOrDefaultAsync(e => e.Id == id, token);
 			if (choirEvent is null || (!isEditor && !EventVisibility.IsMemberVisible(choirEvent)))
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
-			return Results.Ok(new { @event = EventDetail(choirEvent) });
+			// ARC-025: documents/photos ride the detail payload after
+			// sourceNote; members only see finalized material, pending items
+			// expose no tickets and stay editor-only.
+			var documents = await LoadEventDocumentsAsync(db, isEditor, id, token);
+			return Results.Ok(new { @event = EventDetail(choirEvent, documents) });
 		});
 
 		app.MapPost("/api/events", async (
@@ -182,7 +186,7 @@ public static class EventEndpoints
 			};
 			db.Events.Add(choirEvent);
 			await db.SaveChangesAsync(token);
-			return Results.Created($"/api/events/{choirEvent.Id}", new { @event = EventDetail(choirEvent) });
+			return Results.Created($"/api/events/{choirEvent.Id}", new { @event = EventDetail(choirEvent, []) });
 		}).DisableAntiforgery();
 
 		app.MapPatch("/api/events/{id}", async (
@@ -262,7 +266,8 @@ public static class EventEndpoints
 			{
 				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
 			}
-			return Results.Ok(new { @event = EventDetail(choirEvent) });
+			var documents = await LoadEventDocumentsAsync(db, IsEditor(decision), id, token);
+			return Results.Ok(new { @event = EventDetail(choirEvent, documents) });
 		}).DisableAntiforgery();
 
 		app.MapPost("/api/events/{id}/publish", async (
@@ -288,7 +293,8 @@ public static class EventEndpoints
 				choirEvent.RowVersion++;
 				await db.SaveChangesAsync(token);
 			}
-			return Results.Ok(new { @event = EventDetail(choirEvent) });
+			var publishDocuments = await LoadEventDocumentsAsync(db, IsEditor(decision!), id, token);
+			return Results.Ok(new { @event = EventDetail(choirEvent, publishDocuments) });
 		}).DisableAntiforgery();
 
 		app.MapPost("/api/events/{id}/unpublish", async (
@@ -314,7 +320,8 @@ public static class EventEndpoints
 				choirEvent.RowVersion++;
 				await db.SaveChangesAsync(token);
 			}
-			return Results.Ok(new { @event = EventDetail(choirEvent) });
+			var unpublishDocuments = await LoadEventDocumentsAsync(db, IsEditor(decision!), id, token);
+			return Results.Ok(new { @event = EventDetail(choirEvent, unpublishDocuments) });
 		}).DisableAntiforgery();
 	}
 
@@ -376,7 +383,7 @@ public static class EventEndpoints
 		published = e.PublishedAt is not null,
 	};
 
-	private static object EventDetail(ChoirEvent e) => new
+	private static object EventDetail(ChoirEvent e, IReadOnlyList<object>? documents = null) => new
 	{
 		id = e.Id,
 		kind = e.Kind,
@@ -392,10 +399,47 @@ public static class EventEndpoints
 		published = e.PublishedAt is not null,
 		notes = e.Notes,
 		sourceNote = e.SourceNote,
+		documents = documents ?? [],
 		createdAt = e.CreatedAt,
 		updatedAt = e.UpdatedAt,
 		publishedAt = e.PublishedAt,
 	};
+
+	/// <summary>
+	/// ARC-025: documents/photos attached to the event, sorted by createdAt
+	/// then id. Members only see assets that already carry a current revision
+	/// (the same rule as the song detail); pending items expose no tickets and
+	/// stay editor-only, and draft events never reach members at all.
+	/// </summary>
+	private static async Task<List<object>> LoadEventDocumentsAsync(
+		ArchiveDbContext db, bool isEditor, Guid eventId, CancellationToken token)
+	{
+		var assets = await db.Assets.AsNoTracking()
+			.Include(a => a.CurrentRevision)
+			.Where(a => a.EventId == eventId)
+			.OrderBy(a => a.CreatedAt).ThenBy(a => a.Id)
+			.ToListAsync(token);
+		return assets
+			.Where(a => isEditor || a.CurrentRevisionId is not null)
+			.Select(a => (object)new
+			{
+				id = a.Id,
+				assetType = a.AssetType,
+				description = a.Description,
+				createdAt = a.CreatedAt,
+				currentRevision = a.CurrentRevision is null
+					? null
+					: (object)new
+					{
+						revisionId = a.CurrentRevision.Id,
+						revisionNumber = a.CurrentRevision.RevisionNumber,
+						contentType = a.CurrentRevision.ContentType,
+						sizeBytes = a.CurrentRevision.SizeBytes,
+						createdAt = a.CurrentRevision.CreatedAt,
+					},
+			})
+			.ToList();
+	}
 
 	private static bool TryValidateTitle(string? raw, out string title, out IResult? error)
 	{
