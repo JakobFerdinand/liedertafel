@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AbbruchFehler,
   type AssetAccessResponse,
+  cancelUploadSession,
   entferneUploadSitzung,
   fetchAssetAccess,
   type GespeicherteUploadSitzung,
@@ -188,64 +189,69 @@ function BildEintrag({
     );
   }
 
+  // Bildunterschrift als letztes fig-Kind; Meta-Zeile und Redaktions-
+  // werkzeug laufen außerhalb der Figur (figcaption muss erstes oder
+  // letztes Kind der figure sein).
   return (
-    <figure className="dokument-foto">
-      {bildFehler ? (
-        <>
-          <p role="alert" className="feld-fehler">
-            {bildFehler}
-          </p>
-          <div className="noten-aktionen">
-            <button
-              type="button"
-              onClick={() => {
+    <>
+      <figure className="dokument-foto">
+        {bildFehler ? (
+          <>
+            <p role="alert" className="feld-fehler">
+              {bildFehler}
+            </p>
+            <div className="noten-aktionen">
+              <button
+                type="button"
+                onClick={() => {
+                  stillerVersuch.current = false;
+                  setBildFehler("");
+                  erneutVersuchen();
+                }}
+              >
+                Erneut versuchen
+              </button>
+            </div>
+          </>
+        ) : zugriff ? (
+          <button
+            type="button"
+            className="dokument-foto-oeffnen"
+            onClick={() => onVergroessern({ zugriff, dokument })}
+            aria-label={`${beschriftung} vergrößern`}
+          >
+            {/* biome-ignore lint/performance/noImgElement: Signierte Ticket-URLs privater
+                Aufnahmen dürfen nicht durch den Bildoptimierer laufen (Zwischenspeicherung). */}
+            <img
+              className="dokument-foto-bild"
+              src={zugriff.viewUrl}
+              alt={altText}
+              loading="lazy"
+              decoding="async"
+              onLoad={() => {
                 stillerVersuch.current = false;
-                setBildFehler("");
-                erneutVersuchen();
               }}
-            >
-              Erneut versuchen
-            </button>
-          </div>
-        </>
-      ) : zugriff ? (
-        <button
-          type="button"
-          className="dokument-foto-oeffnen"
-          onClick={() => onVergroessern({ zugriff, dokument })}
-          aria-label={`${beschriftung} vergrößern`}
-        >
-          {/* biome-ignore lint/performance/noImgElement: Signierte Ticket-URLs privater
-              Aufnahmen dürfen nicht durch den Bildoptimierer laufen (Zwischenspeicherung). */}
-          <img
-            className="dokument-foto-bild"
-            src={zugriff.viewUrl}
-            alt={altText}
-            loading="lazy"
-            decoding="async"
-            onLoad={() => {
-              stillerVersuch.current = false;
-            }}
-            onError={() => void beiBildFehler()}
-          />
-        </button>
-      ) : fehler ? (
-        <>
-          <p role="alert" className="feld-fehler">
-            {fehler}
-          </p>
-          <div className="noten-aktionen">
-            <button type="button" onClick={erneutVersuchen} disabled={busy}>
-              Erneut versuchen
-            </button>
-          </div>
-        </>
-      ) : (
-        <p className="auftritt-leer">Bild wird vorbereitet …</p>
-      )}
-      <figcaption className="dokument-bildunterschrift">
-        {beschriftung}
-      </figcaption>
+              onError={() => void beiBildFehler()}
+            />
+          </button>
+        ) : fehler ? (
+          <>
+            <p role="alert" className="feld-fehler">
+              {fehler}
+            </p>
+            <div className="noten-aktionen">
+              <button type="button" onClick={erneutVersuchen} disabled={busy}>
+                Erneut versuchen
+              </button>
+            </div>
+          </>
+        ) : (
+          <p className="auftritt-leer">Bild wird vorbereitet …</p>
+        )}
+        <figcaption className="dokument-bildunterschrift">
+          {beschriftung}
+        </figcaption>
+      </figure>
       <p className="noten-info">
         {typText(dokument.currentRevision.contentType)} ·{" "}
         {groesseText(dokument.currentRevision.sizeBytes)}
@@ -274,7 +280,7 @@ function BildEintrag({
           )}
         </>
       )}
-    </figure>
+    </>
   );
 }
 
@@ -792,6 +798,10 @@ export function AuftrittDokumente({
       // Eine andere Datei als die gemerkte: die alte Sitzung wird
       // abgebrochen, der Upload startet mit einer frischen Zeile.
       entferneUploadSitzung(wunsch.assetId);
+      // Die ferne Sitzung wird daneben still abgemeldet, damit das
+      // gemerkte Größenbudget sofort wieder frei wird (Rezeptur
+      // noten-bereich.tsx).
+      void cancelUploadSession(wunsch.eintrag.uploadSessionId).catch(() => {});
       const neue: DateiZeile = {
         id: naechsteZeileId.current++,
         datei,
@@ -1015,7 +1025,11 @@ export function AuftrittDokumente({
                     type="button"
                     disabled={uebertragLaeuft}
                     onClick={() => {
+                      // Nur ein Wunsch je Mausklick: ein noch bewaffneter
+                      // Hochlade-Wunsch aus der anderen Zeile würde die
+                      // gewählte Datei an das falsche Material binden.
                       wunschRef.current = wunsch;
+                      verbindungsRef.current = null;
                       eingabeRef.current?.click();
                     }}
                   >
@@ -1033,6 +1047,10 @@ export function AuftrittDokumente({
                   dokument={dokument}
                   busy={uebertragLaeuft}
                   onHochladen={(gewaehlt) => {
+                    // Nur ein Wunsch je Mausklick: ein noch bewaffneter
+                    // Fortsetzungs-Wunsch würde die gewählte Datei auf die
+                    // unterbrochene Übertragung umlenken.
+                    wunschRef.current = null;
                     verbindungsRef.current = {
                       assetId: gewaehlt.id,
                       assetTyp: gewaehlt.assetType,
@@ -1180,13 +1198,16 @@ export function AuftrittDokumente({
         <dialog
           ref={dialogRef}
           className="auftritt-grossansicht"
-          aria-label="Bildansicht"
+          aria-labelledby="auftritt-grossansicht-beschriftung"
           onClose={() => setGross(null)}
         >
           {/* biome-ignore lint/performance/noImgElement: Signierte Ticket-URLs privater
               Aufnahmen dürfen nicht durch den Bildoptimierer laufen (Zwischenspeicherung). */}
           <img src={gross.zugriff.viewUrl} alt={altTextVon(gross.dokument)} />
-          <p className="dokument-bildunterschrift">
+          <p
+            id="auftritt-grossansicht-beschriftung"
+            className="dokument-bildunterschrift"
+          >
             {beschriftungVon(gross.dokument)}
           </p>
           <p className="noten-info">

@@ -18,12 +18,21 @@ const memberMe = {
   verifiedAt: new Date().toISOString(),
 };
 
+const editorTwo = {
+  authenticated: true,
+  accountId: "00000000-0000-0000-0000-000000000003",
+  email: "zweitredaktion@liedertafel.test",
+  displayName: "Zweitredaktion",
+  roles: ["Editor"],
+  verifiedAt: new Date().toISOString(),
+};
+
 const eventId = "00000000-0000-0000-0000-00000000e010";
 const fotoId = "00000000-0000-0000-0000-00000000e011";
 const dokumentAssetId = "00000000-0000-0000-0000-00000000e012";
 const fotoAssetId = "00000000-0000-0000-0000-00000000e017";
 const unausgeliefertId = "00000000-0000-0000-0000-00000000e013";
-const zugesperrtId = "00000000-0000-0000-0000-00000000e014";
+const konfliktId = "00000000-0000-0000-0000-00000000e014";
 
 function json(body: unknown, status = 200) {
   return {
@@ -182,7 +191,9 @@ test("Mitglied liest Fotografien und Dokumente mit Textbeschriftung", async ({
   await expect(
     page.getByText("Chor auf der Bühne des Stadtsaals, Mai 1950"),
   ).toBeVisible();
-  const ohneBeschreibung = page.locator("figure").filter({ hasText: "PNG" });
+  const ohneBeschreibung = page
+    .locator("figure")
+    .filter({ has: page.locator('img[alt="Fotografie zum Auftritt"]') });
   await expect(ohneBeschreibung.locator("img")).toHaveAttribute(
     "alt",
     "Fotografie zum Auftritt",
@@ -543,7 +554,7 @@ test("Redaktion hängt Dokument und Fotografie an, überträgt sie und sieht das
   expect(errors).toEqual([]);
 });
 
-test("Redaktion bessert Beschreibung und Materialart nach; gesperrte Typen erklären sich", async ({
+test("Redaktion bessert Beschreibung und Materialart nach; abgelehnte Änderungen erklären sich", async ({
   page,
 }) => {
   const errors: string[] = [];
@@ -556,7 +567,7 @@ test("Redaktion bessert Beschreibung und Materialart nach; gesperrte Typen erkl�
           materialEintrag(fotoId, "photo", "Chor am Stadtsaal", revision()),
           materialEintrag(unausgeliefertId, "document", null, null),
           materialEintrag(
-            zugesperrtId,
+            konfliktId,
             "photo",
             "Gruppenbild auf dem Festplatz",
             null,
@@ -570,12 +581,11 @@ test("Redaktion bessert Beschreibung und Materialart nach; gesperrte Typen erkl�
     const assetId = pfadTeil(route.request().url(), 3);
     const anfrage = route.request().postDataJSON() as Record<string, unknown>;
     patchAntraege.push({ assetId, ...anfrage });
-    if (assetId === zugesperrtId) {
+    if (assetId === konfliktId) {
+      // Ein anderer Beitrag hat das Material zwischenzeitlich geändert:
+      // der Server lehnt den veralteten Stand mit 409 ab.
       return route.fulfill(
-        problem(
-          "Der Materialtyp kann nach dem ersten Hochladen nicht geändert werden.",
-          409,
-        ),
+        problem("Der Eintrag wurde zwischenzeitlich geändert.", 409),
       );
     }
     const antwort: Record<string, unknown> = {
@@ -623,8 +633,9 @@ test("Redaktion bessert Beschreibung und Materialart nach; gesperrte Typen erkl�
   });
 
   // Fertige Fotografie: Beschreibung korrigierbar, Typ bleibt gesperrt.
+  // Die Redaktionswerkzeuge laufen neben der Figur, daher zählt die Zeile.
   const fotoEintrag = page
-    .locator("figure")
+    .locator(".dokumente-fotos li")
     .filter({ hasText: "Chor am Stadtsaal" });
   await fotoEintrag
     .getByRole("button", { name: "Beschreibung bearbeiten" })
@@ -642,7 +653,7 @@ test("Redaktion bessert Beschreibung und Materialart nach; gesperrte Typen erkl�
     description: "Chor auf der Bühne des Stadtsaals, Mai 1950",
   });
 
-  // Der gesperrte Typ erklärt sich mit der Vertragssprache.
+  // Die abgelehnte Änderung erklärt sich mit der Vertragssprache.
   const zeileGesamt = page
     .locator(".material-fortsetzung")
     .filter({ hasText: "Gruppenbild auf dem Festplatz" });
@@ -652,10 +663,62 @@ test("Redaktion bessert Beschreibung und Materialart nach; gesperrte Typen erkl�
     .getByRole("button", { name: "Änderungen speichern" })
     .click();
   await expect(
-    page.getByText(
-      "Der Materialtyp kann nach dem ersten Hochladen nicht geändert werden.",
-    ),
+    page.getByText("Der Eintrag wurde zwischenzeitlich geändert."),
   ).toBeVisible();
+
+  expect(errors).toEqual([]);
+});
+
+test("Zweitredaktion scheitert am fremden Material und liest die Ablehnung in der Zeile", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  // Der unausgelieferte Eintrag wurde von der ersten Redaktion angelegt
+  // (accountId …0001); die angemeldete Zweitredaktion (…0003) darf das
+  // fremde Material weder ändern noch hochladen — der Server lehnt den
+  // PATCH mit 403 ab (Vertrag: AssetOwnerMessage).
+  await mockSitzung(page, editorTwo);
+  await page.route(`**/api/events/${eventId}`, (route) =>
+    route.fulfill(
+      json(detail([materialEintrag(unausgeliefertId, "document", null, null)])),
+    ),
+  );
+  const antraege: Record<string, unknown>[] = [];
+  await page.route(`**/api/events/${eventId}/assets`, (route) => {
+    antraege.push(route.request().postDataJSON() as Record<string, unknown>);
+    return route.fulfill(json({}, 500));
+  });
+  await page.route(/\/api\/assets\/[^/]+$/, (route) => {
+    expect(route.request().method()).toBe("PATCH");
+    expect(route.request().headers()["x-csrf-token"]).toBe("test");
+    return route.fulfill(
+      problem("Nur die anlegendende Person kann das Material bearbeiten.", 403),
+    );
+  });
+
+  await page.goto(`/auftritt/?id=${eventId}`);
+  await expect(page.getByText("Noch nicht hochgeladen")).toBeVisible();
+
+  const wahl = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Hochladen" }).click();
+  await (await wahl).setFiles([
+    dateiPfad("programm.pdf", "application/pdf", "%PDF-1.4 programm"),
+  ]);
+
+  // Die Ablehnung erklärt sich in der gescheiterten Zeile; aus dem
+  // Fehlschlag entsteht kein zweiter wartender Eintrag und keine
+  // Ersatzanfrage an die Materialanlage.
+  const zeileFremd = page
+    .locator(".material-datei")
+    .filter({ hasText: "programm.pdf" });
+  await expect(zeileFremd).toHaveCount(1);
+  await expect(zeileFremd).toHaveAttribute("data-status", "gescheitert");
+  await expect(zeileFremd.locator("output.feld-fehler")).toHaveText(
+    "Nur die anlegendende Person kann das Material bearbeiten.",
+  );
+  expect(antraege).toHaveLength(0);
+  await expect(page.locator(".material-fortsetzung")).toHaveCount(0);
 
   expect(errors).toEqual([]);
 });
