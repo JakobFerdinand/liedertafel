@@ -1,6 +1,7 @@
 using Archive.Backend.Assets;
 using Archive.Backend.Auth;
 using Archive.Backend.Catalogue;
+using Archive.Backend.Events;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
@@ -41,6 +42,8 @@ public sealed class ArchiveDbContext(DbContextOptions<ArchiveDbContext> options)
 	public DbSet<SongTitle> SongTitles => Set<SongTitle>();
 
 	public DbSet<SongTag> SongTags => Set<SongTag>();
+
+	public DbSet<ChoirEvent> Events => Set<ChoirEvent>();
 
 	public DbSet<ArchiveAsset> Assets => Set<ArchiveAsset>();
 
