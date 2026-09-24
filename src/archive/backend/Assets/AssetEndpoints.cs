@@ -800,8 +800,10 @@ public static class AssetEndpoints
 			string downloadUrl;
 			try
 			{
-				viewUrl = await storage.CreateReadTicketAsync(revision.BlobName, lifetime, asDownload: false, token);
-				downloadUrl = await storage.CreateReadTicketAsync(revision.BlobName, lifetime, asDownload: true, token);
+				viewUrl = await storage.CreateReadTicketAsync(
+					revision.BlobName, lifetime, asDownload: false, contentType: revision.ContentType, token);
+				downloadUrl = await storage.CreateReadTicketAsync(
+					revision.BlobName, lifetime, asDownload: true, contentType: revision.ContentType, token);
 			}
 			catch (InvalidOperationException)
 			{

@@ -879,6 +879,10 @@ public sealed class AssetApiTests
 		Assert.Equal(revisionBlobName, download.BlobName);
 		Assert.False(view.Download);
 		Assert.True(download.Download);
+		// The tickets carry the overrides browsers need to render inline:
+		// the revision content type on both tickets, inline vs attachment.
+		Assert.Equal(AssetEndpoints.PdfContentType, view.ContentType);
+		Assert.Equal(AssetEndpoints.PdfContentType, download.ContentType);
 		Assert.Equal(TimeSpan.FromMinutes(15), view.Lifetime);
 	}
 
@@ -1252,7 +1256,7 @@ public sealed class AssetApiTests
 /// </summary>
 internal sealed class FakeAssetStorage : IAssetStorageAdapter
 {
-	public sealed record IssuedTicket(string Url, string BlobName, TimeSpan Lifetime, bool Download);
+	public sealed record IssuedTicket(string Url, string BlobName, TimeSpan Lifetime, bool Download, string? ContentType = null);
 
 	private readonly ConcurrentDictionary<string, (byte[] Bytes, string? ContentType)> objects = new(StringComparer.Ordinal);
 	private readonly List<IssuedTicket> tickets = [];
@@ -1291,10 +1295,10 @@ internal sealed class FakeAssetStorage : IAssetStorageAdapter
 		return Task.FromResult(url);
 	}
 
-	public Task<string> CreateReadTicketAsync(string blobName, TimeSpan lifetime, bool asDownload, CancellationToken cancellationToken)
+	public Task<string> CreateReadTicketAsync(string blobName, TimeSpan lifetime, bool asDownload, string? contentType = null, CancellationToken cancellationToken = default)
 	{
 		var url = NextUrl(blobName, asDownload ? "download" : "view");
-		lock (gate) tickets.Add(new IssuedTicket(url, blobName, lifetime, asDownload));
+		lock (gate) tickets.Add(new IssuedTicket(url, blobName, lifetime, asDownload, contentType));
 		return Task.FromResult(url);
 	}
 

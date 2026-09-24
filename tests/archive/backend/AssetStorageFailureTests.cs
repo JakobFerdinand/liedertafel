@@ -115,12 +115,40 @@ public sealed class AssetStorageFailureTests
 		Assert.Contains("sig=", url);
 	}
 
+	[Fact]
+	public async Task ReadTicketOverridesServeTypeInlineAndDownloadAttachment()
+	{
+		// Azurite's well-known dev account key; SAS signing is purely local.
+		var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+		{
+			["ConnectionStrings:archive-blobs"] =
+				"DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;" +
+				"AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;" +
+				"BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;",
+		}).Build();
+		var adapter = new BlobAssetStorageAdapter(
+			configuration, Options.Create(new AssetStorageOptions()), TimeProvider.System);
+
+		var view = await adapter.CreateReadTicketAsync(
+			"revisions/x", TimeSpan.FromMinutes(15), asDownload: false,
+			contentType: AssetEndpoints.PdfContentType, CancellationToken.None);
+		var download = await adapter.CreateReadTicketAsync(
+			"revisions/x", TimeSpan.FromMinutes(15), asDownload: true,
+			contentType: AssetEndpoints.PdfContentType, CancellationToken.None);
+		// Response-header overrides ride the signed query string and beat the
+		// blob's stored properties at serve time.
+		Assert.Contains("rsct=application%2Fpdf", view);
+		Assert.Contains("rscd=inline", view);
+		Assert.Contains("rsct=application%2Fpdf", download);
+		Assert.Contains("rscd=attachment", download);
+	}
+
 	private sealed class FailingStorage : IAssetStorageAdapter
 	{
 		public Task<string> CreateUploadTicketAsync(string blobName, TimeSpan lifetime, CancellationToken cancellationToken) =>
 			throw new InvalidOperationException("Speicherdienst nicht erreichbar.");
 
-		public Task<string> CreateReadTicketAsync(string blobName, TimeSpan lifetime, bool asDownload, CancellationToken cancellationToken) =>
+		public Task<string> CreateReadTicketAsync(string blobName, TimeSpan lifetime, bool asDownload, string? contentType = null, CancellationToken cancellationToken = default) =>
 			throw new InvalidOperationException("Speicherdienst nicht erreichbar.");
 
 		public Task<AssetObjectInfo?> ProbeAsync(string blobName, CancellationToken cancellationToken) =>

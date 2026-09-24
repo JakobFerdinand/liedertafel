@@ -161,6 +161,11 @@ test("Mitglied sieht Noten und kann sie anzeigen und herunterladen", async ({
   const laden = page.getByRole("link", { name: "Herunterladen" });
   await expect(laden).toBeVisible();
   await expect(laden).toHaveAttribute("href", downloadUrl);
+  const vollbild = page.getByRole("button", { name: "Vollbild" });
+  await expect(vollbild).toBeVisible();
+  // Kein echter Vollbildwechsel im Test; der Klick darf nur ohne
+  // Seitenfehler durchlaufen.
+  await vollbild.click();
   expect(zugriffe).toBe(1);
 
   expect(errors).toEqual([]);

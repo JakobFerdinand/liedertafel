@@ -27,8 +27,16 @@ public interface IAssetStorageAdapter
 	/// </summary>
 	Task<string> CreateUploadTicketAsync(string blobName, TimeSpan lifetime, CancellationToken cancellationToken);
 
-	/// <summary>Creates a time-bounded read SAS ticket; <paramref name="asDownload"/> forces a download disposition.</summary>
-	Task<string> CreateReadTicketAsync(string blobName, TimeSpan lifetime, bool asDownload, CancellationToken cancellationToken);
+	/// <summary>
+	/// Creates a time-bounded read SAS ticket; <paramref name="asDownload"/>
+	/// forces a download disposition. When <paramref name="contentType"/> is
+	/// set, the ticket signs response-header overrides (content type plus
+	/// inline/attachment disposition) that take precedence over the blob's
+	/// stored properties: a block-list commit stores the transfer's
+	/// application/xml default instead of the real file type, so without the
+	/// override browsers cannot render the served file inline.
+	/// </summary>
+	Task<string> CreateReadTicketAsync(string blobName, TimeSpan lifetime, bool asDownload, string? contentType = null, CancellationToken cancellationToken = default);
 
 	/// <summary>Returns null when the object does not exist.</summary>
 	Task<AssetObjectInfo?> ProbeAsync(string blobName, CancellationToken cancellationToken);
@@ -117,11 +125,18 @@ public sealed class BlobAssetStorageAdapter(
 			BuildBuilder(blobName, lifetime,
 				BlobSasPermissions.Write | BlobSasPermissions.Create | BlobSasPermissions.Read), cancellationToken));
 
-	public Task<string> CreateReadTicketAsync(string blobName, TimeSpan lifetime, bool asDownload, CancellationToken cancellationToken) =>
+	public Task<string> CreateReadTicketAsync(string blobName, TimeSpan lifetime, bool asDownload, string? contentType = null, CancellationToken cancellationToken = default) =>
 		ExecuteAsync("read_ticket", async () =>
 		{
 			var builder = BuildBuilder(blobName, lifetime, BlobSasPermissions.Read);
-			if (asDownload) builder.ContentDisposition = "attachment";
+			// Nur mit explizitem Typ signiert: dann besiegt der Ticket-Header
+			// den gespeicherten (beim Block-Commit fälschlich application/xml)
+			// Blobinhaltstyp — inline zum Ansehen, attachment zum Laden.
+			if (contentType is { Length: > 0 })
+			{
+				builder.ContentType = contentType;
+				builder.ContentDisposition = asDownload ? "attachment" : "inline";
+			}
 			return await TicketUriAsync(blobName, builder, cancellationToken);
 		});
 
@@ -168,7 +183,7 @@ public sealed class BlobAssetStorageAdapter(
 		{
 			var target = Blob(targetBlobName);
 			var sourceTicket = await CreateReadTicketAsync(
-				sourceBlobName, TimeSpan.FromSeconds(60), asDownload: false, cancellationToken);
+				sourceBlobName, TimeSpan.FromSeconds(60), asDownload: false, cancellationToken: cancellationToken);
 			await target.StartCopyFromUriAsync(new Uri(sourceTicket), cancellationToken: cancellationToken);
 			var deadline = time.GetUtcNow() + TimeSpan.FromSeconds(30);
 			while (time.GetUtcNow() < deadline)

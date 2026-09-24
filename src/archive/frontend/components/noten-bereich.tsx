@@ -138,6 +138,13 @@ export function NotenBereich({
   // Nur ein Audio-Spieler läuft gleichzeitig; über die Id merkt sich der
   // Bereich, welcher Eintrag gerade die aktive Datei spielt.
   const [spielendesAudio, setSpielendesAudio] = useState<string | null>(null);
+  // Vollbild nur anbieten, wenn der Browser das Dokument dafür freigibt;
+  // beim statischen Rendern unbekannt, darum erst im Effekt ermitteln.
+  const [vollbildMoeglich, setVollbildMoeglich] = useState(false);
+
+  useEffect(() => {
+    setVollbildMoeglich(document.fullscreenEnabled === true);
+  }, []);
 
   useEffect(() => {
     if (!isEditor) return;
@@ -469,6 +476,15 @@ export function NotenBereich({
     }
   }
 
+  function oeffneVollbild(knopf: HTMLButtonElement) {
+    const rahmen = knopf
+      .closest(".noten-aktionen")
+      ?.querySelector<HTMLIFrameElement>("iframe.noten-ansicht");
+    if (!rahmen) return;
+    // Ablehnung (etwa abgebrochene Geste) bleibt still — der Rahmen bleibt.
+    void rahmen.requestFullscreen().catch(() => {});
+  }
+
   function bearbeitenSchliessen() {
     setBearbeitenId(null);
     setBearbeitenFehler("");
@@ -552,11 +568,25 @@ export function NotenBereich({
                       <div className="noten-aktionen">
                         {typ === "score" ? (
                           zugriff ? (
-                            <iframe
-                              className="noten-ansicht"
-                              src={zugriff.viewUrl}
-                              title={`Noten (PDF) · ${stimme}`}
-                            />
+                            <>
+                              <iframe
+                                className="noten-ansicht"
+                                src={zugriff.viewUrl}
+                                title={`Noten (PDF) · ${stimme}`}
+                                allow="fullscreen"
+                              />
+                              {vollbildMoeglich && (
+                                <button
+                                  type="button"
+                                  className="knopf-leise"
+                                  onClick={(ereignis) =>
+                                    oeffneVollbild(ereignis.currentTarget)
+                                  }
+                                >
+                                  Vollbild
+                                </button>
+                              )}
+                            </>
                           ) : (
                             <button
                               type="button"

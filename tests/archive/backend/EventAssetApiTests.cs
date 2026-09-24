@@ -493,6 +493,8 @@ public sealed class EventAssetApiTests
 		var download = factory.Storage.Find(downloadUrl)!;
 		Assert.False(view.Download);
 		Assert.True(download.Download);
+		Assert.Equal(AssetEndpoints.PdfContentType, view.ContentType);
+		Assert.Equal(AssetEndpoints.PdfContentType, download.ContentType);
 		Assert.Equal(TimeSpan.FromMinutes(15), view.Lifetime);
 
 		// A member who knows the id of a pending asset still gets the neutral
