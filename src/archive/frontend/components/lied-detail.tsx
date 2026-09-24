@@ -334,6 +334,7 @@ export function LiedDetail() {
                     label: arrangement.label,
                     person: arrangement.arranger ?? "",
                     zusatz: arrangement.voiceConfiguration ?? "",
+                    begleitung: arrangement.accompaniment ?? "",
                   }}
                   onSuccess={(gespeichert, meldung) => {
                     gesichertSpeichern(gespeichert, meldung);

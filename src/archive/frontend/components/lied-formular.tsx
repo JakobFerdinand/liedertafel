@@ -4,26 +4,32 @@ import { useState } from "react";
 import { patchAuth, postAuth } from "@/lib/auth";
 import type { Lied } from "@/lib/songs";
 
-type AndererTitelZeile = { schluessel: number; wert: string };
+type ListenZeile = { schluessel: number; wert: string };
 
 type LiedFormularWerte = {
   title: string;
   composer: string;
   lyricist: string;
+  sprache: string;
+  anlass: string;
   arrangementLabel: string;
   versionLabel: string;
   lyrics: string;
-  andereTitel: AndererTitelZeile[];
+  andereTitel: ListenZeile[];
+  schlagwoerter: ListenZeile[];
 };
 
 const LEER: LiedFormularWerte = {
   title: "",
   composer: "",
   lyricist: "",
+  sprache: "",
+  anlass: "",
   arrangementLabel: "",
   versionLabel: "",
   lyrics: "",
   andereTitel: [],
+  schlagwoerter: [],
 };
 
 export function LiedFormular({
@@ -31,7 +37,14 @@ export function LiedFormular({
   absendenText,
   onSuccess,
 }: {
-  lied?: (Lied & { lyrics?: string | null }) | null;
+  lied?:
+    | (Lied & {
+        lyrics?: string | null;
+        language?: string | null;
+        occasion?: string | null;
+        tags?: string[];
+      })
+    | null;
   absendenText: string;
   onSuccess: (lied: Lied, meldung: string) => void;
 }) {
@@ -39,12 +52,19 @@ export function LiedFormular({
   // Nur die Detailansicht liefert den bisherigen Liedtext mit; im Katalog
   // bleibt das Feld ohne bekannten Wert.
   const kenntText = lied?.lyrics !== undefined;
+  // Gleiches Muster für Sprache, Anlass und Schlagwörter (ARC-023): die
+  // Detailansicht kennt die bisherigen Werte, der Katalog nicht.
+  const kenntSprache = lied?.language !== undefined;
+  const kenntAnlass = lied?.occasion !== undefined;
+  const kenntSchlagwoerter = lied?.tags !== undefined;
   const [werte, setWerte] = useState<LiedFormularWerte>(
     lied
       ? {
           title: lied.title,
           composer: lied.composer ?? "",
           lyricist: lied.lyricist ?? "",
+          sprache: lied.language ?? "",
+          anlass: lied.occasion ?? "",
           arrangementLabel: "",
           versionLabel: "",
           // Nur die Detailansicht kennt den bisherigen Liedtext; im Katalog
@@ -54,12 +74,19 @@ export function LiedFormular({
             schluessel: index,
             wert,
           })),
+          schlagwoerter: (lied.tags ?? []).map((wert, index) => ({
+            schluessel: index,
+            wert,
+          })),
         }
       : LEER,
   );
   const [titelFehler, setTitelFehler] = useState("");
   const [textFehler, setTextFehler] = useState("");
   const [andereFehler, setAndereFehler] = useState("");
+  const [spracheFehler, setSpracheFehler] = useState("");
+  const [anlassFehler, setAnlassFehler] = useState("");
+  const [schlagwortFehler, setSchlagwortFehler] = useState("");
   const [hinweis, setHinweis] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -67,34 +94,34 @@ export function LiedFormular({
     setWerte((bisher) => ({ ...bisher, [feld]: wert }));
   }
 
-  function anderenTitelÄndern(index: number, wert: string) {
+  type ListenFeld = "andereTitel" | "schlagwoerter";
+
+  function zeileÄndern(feld: ListenFeld, index: number, wert: string) {
     setWerte((bisher) => ({
       ...bisher,
-      andereTitel: bisher.andereTitel.map((zeile, stelle) =>
+      [feld]: bisher[feld].map((zeile, stelle) =>
         stelle === index ? { ...zeile, wert } : zeile,
       ),
     }));
   }
 
-  function anderenTitelHinzufügen() {
+  function zeileHinzufügen(feld: ListenFeld) {
     setWerte((bisher) => {
-      if (bisher.andereTitel.length >= 10) return bisher;
+      const zeilen = bisher[feld];
+      if (zeilen.length >= 10) return bisher;
       const schluessel =
-        bisher.andereTitel.reduce(
-          (max, zeile) => Math.max(max, zeile.schluessel),
-          -1,
-        ) + 1;
+        zeilen.reduce((max, zeile) => Math.max(max, zeile.schluessel), -1) + 1;
       return {
         ...bisher,
-        andereTitel: [...bisher.andereTitel, { schluessel, wert: "" }],
+        [feld]: [...zeilen, { schluessel, wert: "" }],
       };
     });
   }
 
-  function anderenTitelEntfernen(index: number) {
+  function zeileEntfernen(feld: ListenFeld, index: number) {
     setWerte((bisher) => ({
       ...bisher,
-      andereTitel: bisher.andereTitel.filter((_, stelle) => stelle !== index),
+      [feld]: bisher[feld].filter((_, stelle) => stelle !== index),
     }));
   }
 
@@ -103,6 +130,9 @@ export function LiedFormular({
     setTitelFehler("");
     setTextFehler("");
     setAndereFehler("");
+    setSpracheFehler("");
+    setAnlassFehler("");
+    setSchlagwortFehler("");
     setHinweis("");
     const titel = werte.title.trim();
     if (!titel) {
@@ -116,6 +146,24 @@ export function LiedFormular({
     const andere = werte.andereTitel.map((zeile) => zeile.wert.trim());
     if (andere.some((eintrag) => eintrag.length > 200)) {
       setAndereFehler("Ein anderer Titel ist zu lang.");
+      return;
+    }
+    const sprache = werte.sprache.trim();
+    if (sprache.length > 200) {
+      setSpracheFehler("Die Sprache ist zu lang.");
+      return;
+    }
+    const anlass = werte.anlass.trim();
+    if (anlass.length > 200) {
+      setAnlassFehler("Der Anlass ist zu lang.");
+      return;
+    }
+    // Leere Zeilen fallen still weg, wie bei den anderen Titeln.
+    const schlagwoerter = werte.schlagwoerter
+      .map((zeile) => zeile.wert.trim())
+      .filter(Boolean);
+    if (werte.schlagwoerter.some((zeile) => zeile.wert.trim().length > 60)) {
+      setSchlagwortFehler("Das Schlagwort ist zu lang.");
       return;
     }
     setBusy(true);
@@ -137,6 +185,9 @@ export function LiedFormular({
           }
         : {
             ...kern,
+            language: sprache ? sprache : null,
+            occasion: anlass ? anlass : null,
+            tags: schlagwoerter,
             arrangementLabel: werte.arrangementLabel.trim()
               ? werte.arrangementLabel.trim()
               : null,
@@ -145,6 +196,12 @@ export function LiedFormular({
               : null,
           };
       if (lied && (kenntText || text)) body.lyrics = text;
+      // Bekannte Werte (Detailansicht) gehen stets mit, ein geleertes Feld
+      // räumt sie weg; im Katalog bleibt ein leeres Feld wirkungslos.
+      if (lied && (kenntSprache || sprache)) body.language = sprache;
+      if (lied && (kenntAnlass || anlass)) body.occasion = anlass;
+      if (lied && (kenntSchlagwoerter || schlagwoerter.length > 0))
+        body.tags = schlagwoerter;
       const response = lied
         ? await patchAuth(`/api/songs/${encodeURIComponent(lied.id)}`, body)
         : await postAuth("/api/songs", body);
@@ -212,6 +269,44 @@ export function LiedFormular({
         value={werte.lyricist}
         onChange={(event) => setzen("lyricist", event.target.value)}
       />
+      <label htmlFor={`${idPraefix}-sprache`}>Sprache (optional)</label>
+      <input
+        id={`${idPraefix}-sprache`}
+        type="text"
+        maxLength={200}
+        value={werte.sprache}
+        onChange={(event) => setzen("sprache", event.target.value)}
+        aria-invalid={spracheFehler ? true : undefined}
+        aria-describedby={`${idPraefix}-sprache-fehler`}
+      />
+      {spracheFehler && (
+        <p
+          id={`${idPraefix}-sprache-fehler`}
+          role="alert"
+          className="feld-fehler"
+        >
+          {spracheFehler}
+        </p>
+      )}
+      <label htmlFor={`${idPraefix}-anlass`}>Anlass (optional)</label>
+      <input
+        id={`${idPraefix}-anlass`}
+        type="text"
+        maxLength={200}
+        value={werte.anlass}
+        onChange={(event) => setzen("anlass", event.target.value)}
+        aria-invalid={anlassFehler ? true : undefined}
+        aria-describedby={`${idPraefix}-anlass-fehler`}
+      />
+      {anlassFehler && (
+        <p
+          id={`${idPraefix}-anlass-fehler`}
+          role="alert"
+          className="feld-fehler"
+        >
+          {anlassFehler}
+        </p>
+      )}
       {lied ? (
         <>
           <label htmlFor={`${idPraefix}-liedtext`}>Liedtext (optional)</label>
@@ -252,13 +347,13 @@ export function LiedFormular({
                   maxLength={200}
                   value={zeile.wert}
                   onChange={(event) =>
-                    anderenTitelÄndern(index, event.target.value)
+                    zeileÄndern("andereTitel", index, event.target.value)
                   }
                   aria-label={`Anderer Titel ${index + 1}`}
                 />
                 <button
                   type="button"
-                  onClick={() => anderenTitelEntfernen(index)}
+                  onClick={() => zeileEntfernen("andereTitel", index)}
                   aria-label={`Anderen Titel ${index + 1} entfernen`}
                 >
                   Entfernen
@@ -273,7 +368,7 @@ export function LiedFormular({
             <button
               type="button"
               disabled={werte.andereTitel.length >= 10}
-              onClick={anderenTitelHinzufügen}
+              onClick={() => zeileHinzufügen("andereTitel")}
             >
               Anderen Titel hinzufügen
             </button>
@@ -309,6 +404,46 @@ export function LiedFormular({
           </p>
         </>
       )}
+      <fieldset className="lied-listen">
+        <legend>Schlagwörter</legend>
+        <p className="feld-hinweis">
+          Freie Merkworte, unter denen sich das Lied im Katalog wiederfinden
+          lässt.
+        </p>
+        {werte.schlagwoerter.map((zeile, index) => (
+          <div key={zeile.schluessel} className="lied-anderer-titel">
+            <input
+              id={`${idPraefix}-schlagwort-${index}`}
+              type="text"
+              maxLength={60}
+              value={zeile.wert}
+              onChange={(event) =>
+                zeileÄndern("schlagwoerter", index, event.target.value)
+              }
+              aria-label={`Schlagwort ${index + 1}`}
+            />
+            <button
+              type="button"
+              onClick={() => zeileEntfernen("schlagwoerter", index)}
+              aria-label={`Schlagwort ${index + 1} entfernen`}
+            >
+              Entfernen
+            </button>
+          </div>
+        ))}
+        {schlagwortFehler && (
+          <p role="alert" className="feld-fehler">
+            {schlagwortFehler}
+          </p>
+        )}
+        <button
+          type="button"
+          disabled={werte.schlagwoerter.length >= 10}
+          onClick={() => zeileHinzufügen("schlagwoerter")}
+        >
+          Schlagwort hinzufügen
+        </button>
+      </fieldset>
       {hinweis && (
         <output aria-live="polite" className="feld-fehler">
           {hinweis}

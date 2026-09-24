@@ -833,6 +833,12 @@ dd {
 .lieder-liste h2 {
   font-size: var(--titel-abschnitt);
 }
+/* Trefferzahl: stille Zeile im Nebenmaß, nur bei Suche oder Filter. */
+.lieder-anzahl {
+  color: var(--muted);
+  font-size: var(--schrift-neben);
+  margin-block: 0.2rem 0.6rem;
+}
 .lieder-liste ul {
   list-style: none;
   margin: 0;
@@ -1366,12 +1372,14 @@ footer {
   color: var(--ink);
   resize: vertical;
 }
-.lied-andere-titel {
+.lied-andere-titel,
+.lied-listen {
   border: 0;
   padding: 0;
   margin-block: 0 0.4rem;
 }
-.lied-andere-titel legend {
+.lied-andere-titel legend,
+.lied-listen legend {
   font-weight: 600;
   padding: 0;
   margin-block: 0.6rem 0.2rem;
@@ -1437,6 +1445,139 @@ footer {
 }
 .lieder-suche-felder button {
   flex: 0 0 auto;
+  min-height: 2.75rem;
+  padding: 0.65rem 1rem;
+  border-radius: var(--radius-knopf-gross);
+  font-size: var(--schrift-neben);
+}
+/* Filterpanele des Katalogs (ARC-023): die Composer-Karte der Suche als
+   Aufklapper nach .lied-anlegen — die Kopfruh ist der Umschalter, der
+   Haarriss erscheint erst aufgeklappt; aufgeklappt, wenn Filterparameter
+   in der Adresse stehen. */
+.lieder-filter {
+  max-width: 32rem;
+  border: 1px solid var(--muted);
+  border-radius: var(--radius-karte);
+  background: var(--paper);
+  padding: 0.9rem;
+  margin-block: 0 2.5rem;
+}
+.lieder-filter:focus-within {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+.lieder-filter summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 2.75rem;
+  cursor: pointer;
+  list-style: none;
+}
+.lieder-filter summary::-webkit-details-marker {
+  display: none;
+}
+.lieder-filter summary:focus-visible {
+  outline: 3px solid currentColor;
+  outline-offset: 5px;
+}
+.lieder-filter summary h2 {
+  margin-block: 0;
+  font-size: var(--titel-abschnitt);
+}
+.lieder-filter-umschalter {
+  color: var(--brand);
+  font-size: var(--schrift-neben);
+  font-weight: 600;
+}
+.lieder-filter summary:hover .lieder-filter-umschalter {
+  text-decoration: underline;
+  text-underline-offset: 0.25em;
+}
+.lieder-filter .lieder-filter-zu {
+  display: none;
+}
+.lieder-filter[open] .lieder-filter-auf {
+  display: none;
+}
+.lieder-filter[open] .lieder-filter-zu {
+  display: inline;
+}
+.lieder-filter[open] summary {
+  border-block-end: 1px solid var(--rule);
+  padding-block-end: 0.9rem;
+}
+/* Freitextfilter still beschriftet im Nebenmaß, die Felder mit dem
+   2px-Tintenrahmen der Formkarten; im Handymaß rast das Raster ein. */
+.lieder-filter label {
+  display: block;
+  font-weight: 600;
+  font-size: var(--schrift-neben);
+  margin-block: 0.6rem 0.3rem;
+}
+.lieder-filter-felder {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 1rem;
+}
+.lieder-filter-felder input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.8rem;
+  border: 2px solid var(--ink);
+  border-radius: var(--radius-knopf);
+  font: inherit;
+  background: var(--paper);
+  color: var(--ink);
+}
+.lieder-filter-felder input:focus-visible {
+  border-color: var(--brand);
+  outline: none;
+}
+/* Leerer Bestand mit Filtern: der Zurücksetzen-Ruf steht versetzt unter dem
+   Zustandstext als leiser Marken-Textknopf. */
+.lieder-filter-leer {
+  margin-block: 0.8rem 0;
+}
+/* Materialwahl als ruhige Auswahlfelder mit Berührzielen ≥ 2.75rem. */
+.lieder-filter-material {
+  border: 0;
+  padding: 0;
+  margin-block: 0.4rem 0;
+}
+.lieder-filter-material legend {
+  font-weight: 600;
+  font-size: var(--schrift-neben);
+  padding: 0;
+  margin-block: 0.4rem 0.2rem;
+}
+.lieder-filter-auswahl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 1.2rem;
+}
+.lieder-filter-auswahl label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 2.75rem;
+  margin-block: 0;
+}
+.lieder-filter-auswahl input {
+  width: 1.1rem;
+  height: 1.1rem;
+  margin: 0;
+  accent-color: var(--brand);
+}
+.lieder-filter-aktionen {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-block: 0.6rem 0;
+}
+.lieder-filter-aktionen button {
   min-height: 2.75rem;
   padding: 0.65rem 1rem;
   border-radius: var(--radius-knopf-gross);
@@ -1522,6 +1663,13 @@ footer {
     /* In der Spalte wäre die Flex-Basis die Höhe: Feld auf Autoinhalt. */
     flex: 0 0 auto;
     width: 100%;
+  }
+  /* Filterpanele rasten ein: Feldraster einspaltig, Karte enger gefasst. */
+  .lieder-filter {
+    padding: 0.75rem;
+  }
+  .lieder-filter-felder {
+    grid-template-columns: 1fr;
   }
   .lieder-liste-einträge {
     gap: 1.5rem;

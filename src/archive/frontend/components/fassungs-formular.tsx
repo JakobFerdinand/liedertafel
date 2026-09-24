@@ -8,6 +8,7 @@ type FassungsFormularAnfang = {
   label: string;
   person: string;
   zusatz: string;
+  begleitung?: string;
 };
 
 type FassungsFormularProps = {
@@ -32,6 +33,7 @@ export function FassungsFormular({
   const [label, setLabel] = useState(anfang?.label ?? "");
   const [person, setPerson] = useState(anfang?.person ?? "");
   const [zusatz, setZusatz] = useState(anfang?.zusatz ?? "");
+  const [begleitung, setBegleitung] = useState(anfang?.begleitung ?? "");
   const [labelFehler, setLabelFehler] = useState("");
   const [hinweis, setHinweis] = useState("");
   const [busy, setBusy] = useState(false);
@@ -57,11 +59,14 @@ export function FassungsFormular({
     }
     setBusy(true);
     try {
-      const body = {
+      const body: Record<string, unknown> = {
         label: bezeichnung,
         [personFeld]: person.trim() ? person.trim() : null,
         [zusatzFeld]: zusatz.trim() ? zusatz.trim() : null,
       };
+      // Begleitung gibt es nur am Arrangement (ARC-023).
+      if (variante === "arrangement")
+        body.accompaniment = begleitung.trim() ? begleitung.trim() : null;
       const response =
         methode === "patch"
           ? await patchAuth(pfad, body)
@@ -135,6 +140,20 @@ export function FassungsFormular({
         value={zusatz}
         onChange={(event) => setZusatz(event.target.value)}
       />
+      {variante === "arrangement" && (
+        <>
+          <label htmlFor={`${idPraefix}-begleitung`}>
+            Begleitung (optional)
+          </label>
+          <input
+            id={`${idPraefix}-begleitung`}
+            type="text"
+            maxLength={200}
+            value={begleitung}
+            onChange={(event) => setBegleitung(event.target.value)}
+          />
+        </>
+      )}
       {hinweis && (
         <output aria-live="polite" className="feld-fehler">
           {hinweis}
