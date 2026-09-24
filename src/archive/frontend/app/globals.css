@@ -83,13 +83,13 @@ h3 {
    Klassen:
    – .hinweis-block: Zustandsblock, Markenlinker auf Waschgrund
      (3px, Innenabstand 1rem 1.2rem). .chat-zustand/.chat-fehler,
-     .archive-note (Startseite, Wartung), .auth-erfolg und .auth-fehler
+     .archive-note (Wartung), .auth-erfolg und .auth-fehler
      (Anmelden, Mitgliederbereich, Verwaltung, Katalog) und
      .verbindungs-fehler (Systemstatus) teilen dieselbe Rezeptur.
    – .auth-statuszeile: Statuszeile des Anmeldeablaufs nach .chat-status
      (Stilltext in --muted, ‚…'-Führung, Höhe reserviert, kollabiert leer).
    – .lieder-suche: Suchkomponist — die Composer-Karte des Chats als
-     gemeinsames Suchfeld von Startseite und Katalog.
+     Suchfeld des Katalogs.
    – .knopf-leise: leiser Marken-Textknopf, Hover unterstreicht.
    – .knopf-leise-rahmen: umrandete leise Variante, Hover füllt mit
      Markenfarbe. Die Grundform (transparent, 2px currentColor) teilt
@@ -254,18 +254,6 @@ main {
 .introduction > p {
   max-width: 57ch;
 }
-/* Startseiten-Held (die einzige .introduction ohne .compact): knapper
-   Titelabstand und fließender Leitsatz im Intro-Rhythmus des Chats,
-   danach die Suchkomponisten-Karte. */
-.introduction:not(.compact) h1 {
-  margin-block: 1rem 0.8rem;
-}
-.introduction:not(.compact) > p:not(.section-label) {
-  margin-block: 0 1.8rem;
-}
-.introduction:not(.compact) {
-  padding-block-end: 0;
-}
 .introduction > p:last-child {
   font-size: 1.15rem;
 }
@@ -278,9 +266,8 @@ main {
 .section-label {
   color: var(--brand);
 }
-/* Aufruf-Block der Startseite und der Wartung: Rezeptur .hinweis-block
-   (Markenlinker auf Waschgrund), kompakte Serifen-Überschrift, Verweise
-   in Markenfarbe. */
+/* Aufruf-Block der Wartung: Rezeptur .hinweis-block (Markenlinker auf
+   Waschgrund), kompakte Serifen-Überschrift, Verweise in Markenfarbe. */
 .archive-note {
   max-width: 32rem;
   margin-block: 1rem 3rem;
@@ -307,12 +294,12 @@ main {
 .maintenance-banner a {
   color: inherit;
 }
-/* Statuskarte (Systemstatus, auch Startseiten-Einbettung): Waschgrund-
-   karte im Kartenmaß (Radius --radius-karte); das Schlüssel-Wert-
-   Verzeichnis liest sich wie die Meta-Liste des Chats — stilles kleines
-   Etikett, fetter Wert, weiche Umbrüche bei langen Versionszeichen.
-   Der einzige Schmuck ist der Markenpunkt an der lebenden Zeile
-   (API: Verbunden), wie der Suchpunkt des Chats. */
+/* Statuskarte (Systemstatus): Waschgrund-karte im Kartenmaß (Radius
+   --radius-karte); das Schlüssel-Wert-Verzeichnis liest sich wie die
+   Meta-Liste des Chats — stilles kleines Etikett, fetter Wert, weiche
+   Umbrüche bei langen Versionszeichen. Der einzige Schmuck ist der
+   Markenpunkt an der lebenden Zeile (API: Verbunden), wie der Suchpunkt
+   des Chats. */
 .system-status {
   background: var(--wash);
   padding: clamp(1.2rem, 4vw, 2.5rem);
@@ -1395,12 +1382,11 @@ footer {
   flex: 1 1 10rem;
   min-width: 0;
 }
-/* Suchkomponist: die Composer-Karte des Chats als gemeinsames Suchfeld
-   von Startseite und Katalog — eine Klasse, ein Aussehen, zwei
-   Platzierungen (beide Platzierungen tragen nur .lieder-suche). Der
-   Behälter trägt Rahmen (1px --muted, der stärkste des Systems,
-   Radius --radius-karte) und den Fokusring (:focus-within); das Feld
-   darin bleibt rahmenlos wie die Chat-Eingabe. */
+/* Suchkomponist: die Composer-Karte des Chats als Suchfeld des Katalogs
+   (das Feld trägt nur .lieder-suche). Der Behälter trägt Rahmen (1px
+   --muted, der stärkste des Systems, Radius --radius-karte) und den
+   Fokusring (:focus-within); das Feld darin bleibt rahmenlos wie die
+   Chat-Eingabe. */
 .lieder-suche {
   max-width: 32rem;
   border: 1px solid var(--muted);

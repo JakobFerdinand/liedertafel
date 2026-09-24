@@ -1,33 +1,6 @@
-import Link from "next/link";
-import { SucheFormular } from "@/components/suche-formular";
-import { SystemStatus } from "@/components/system-status";
-
 export default function Home() {
-  return (
-    <>
-      <section className="introduction" aria-labelledby="archive-title">
-        <p className="section-label">Unser Chorarchiv</p>
-        <h1 id="archive-title">
-          Was wir singen,
-          <br />
-          bleibt bei uns.
-        </h1>
-        <p>
-          Hier entsteht das gemeinsame Archiv der Liedertafel Mining: für unsere
-          Noten, Aufnahmen und die Erinnerung an unsere Auftritte.
-        </p>
-        <SucheFormular feldId="suche-start" />
-      </section>
-      <section className="archive-note" aria-labelledby="setup-title">
-        <h2 id="setup-title">Der Anfang ist gemacht.</h2>
-        <p>
-          Das Archiv befindet sich im Aufbau. Die technische Grundlage steht;
-          eingeladene Mitglieder melden sich mit einem Code aus ihrer E-Mail an.
-        </p>
-        <Link href="/anmelden/">Anmelden</Link> ·{" "}
-        <Link href="/system/status/">Systemstatus öffnen</Link>
-      </section>
-      <SystemStatus />
-    </>
-  );
+  // Der Einstieg ist der Chat: dasselbe dauerhaft eingebundene Panel trägt
+  // die Startseite wie die Großansicht; ein zweiter Chat würde Entwurf und
+  // Antwort unterbrechen. Systemstatus steht unter /system/status/.
+  return null;
 }

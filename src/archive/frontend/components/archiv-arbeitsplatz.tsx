@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { ChatBereich } from "@/components/chat-bereich";
 
 // Ein einziger Chat im dauerhaften Layout: auch Entwurf und laufende Antwort
@@ -13,11 +13,12 @@ export function ArchivArbeitsplatz({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const grossansicht = pathname.replace(/\/$/, "") === "/fragen";
+  // Die Startseite und /fragen/ zeigen denselben Chat in der Großansicht.
+  const pfad = pathname.replace(/\/$/, "");
+  const grossansicht = pfad === "" || pfad === "/fragen";
+  const startseite = pfad === "";
   const [breit, setBreit] = useState(false);
   const [offen, setOffen] = useState<boolean | null>(null);
-  const oeffner = useRef<HTMLButtonElement>(null);
-  const panel = useRef<HTMLElement>(null);
   const sichtbar = grossansicht || (offen ?? breit);
 
   useEffect(() => {
@@ -29,101 +30,80 @@ export function ArchivArbeitsplatz({
   }, []);
 
   useEffect(() => {
-    // Auf kleinen Bildschirmen führt Navigation zurück zum Seiteninhalt.
+    // Jede Navigation stellt die Voreinstellung wieder her: breit zeigt die
+    // Chatseite neben dem Inhalt, schmal den Seiteninhalt. Der gemountete
+    // Chat behält dabei Entwurf und laufende Antwort.
     void pathname;
-    if (!breit) setOffen(null);
+    void breit;
+    setOffen(null);
   }, [pathname, breit]);
 
   function minimieren() {
     setOffen(false);
-    oeffner.current?.focus();
   }
 
   return (
-    <>
-      {!grossansicht && (
-        <div className="archiv-chat-leiste">
-          <button
-            ref={oeffner}
-            type="button"
-            aria-expanded={sichtbar}
-            aria-controls="archiv-chat"
-            onClick={() => {
-              if (sichtbar) minimieren();
-              else {
-                setOffen(true);
-                requestAnimationFrame(() => {
-                  panel.current?.focus();
-                  panel.current?.scrollIntoView({ block: "start" });
-                });
-              }
-            }}
-          >
-            <span aria-hidden="true">✧</span> Archiv fragen
-            <span aria-hidden="true">{sichtbar ? "−" : "+"}</span>
-          </button>
-          <span>Lieder finden. Zusammenhänge entdecken.</span>
-        </div>
-      )}
-      <main
-        id="inhalt"
-        className={`archiv-arbeitsplatz${grossansicht ? " archiv-grossansicht" : ""}${sichtbar ? " archiv-chat-offen" : ""}`}
+    <main
+      id="inhalt"
+      className={`archiv-arbeitsplatz${grossansicht ? " archiv-grossansicht" : ""}${sichtbar ? " archiv-chat-offen" : ""}`}
+    >
+      <div className="archiv-seiteninhalt" hidden={grossansicht}>
+        {children}
+      </div>
+      <section
+        id="archiv-chat"
+        className="chat-seite archiv-chat-panel"
+        aria-labelledby="fragen-titel"
+        hidden={!sichtbar}
+        tabIndex={-1}
+        onKeyDown={(event) => {
+          if (event.key === "Escape" && !grossansicht) {
+            event.preventDefault();
+            minimieren();
+          }
+        }}
+        onClickCapture={(event) => {
+          // Auch Links zur aktuellen Seite (andere Lied-ID oder Anmeldung)
+          // müssen mobil den Seiteninhalt zeigen. Modifizierte Klicks nicht.
+          if (
+            !breit &&
+            !event.ctrlKey &&
+            !event.metaKey &&
+            !event.shiftKey &&
+            !event.altKey &&
+            event.target instanceof Element &&
+            event.target.closest('a[href^="/"]')
+          )
+            setOffen(false);
+        }}
       >
-        <div className="archiv-seiteninhalt" hidden={grossansicht}>
-          {children}
-        </div>
-        <section
-          ref={panel}
-          id="archiv-chat"
-          className="chat-seite archiv-chat-panel"
-          aria-labelledby="fragen-titel"
-          hidden={!sichtbar}
-          tabIndex={-1}
-          onKeyDown={(event) => {
-            if (event.key === "Escape" && !grossansicht) {
-              event.preventDefault();
-              minimieren();
-            }
-          }}
-          onClickCapture={(event) => {
-            // Auch Links zur aktuellen Seite (andere Lied-ID oder Anmeldung)
-            // müssen mobil den Seiteninhalt zeigen. Modifizierte Klicks nicht.
-            if (
-              !breit &&
-              !event.ctrlKey &&
-              !event.metaKey &&
-              !event.shiftKey &&
-              !event.altKey &&
-              event.target instanceof Element &&
-              event.target.closest('a[href^="/"]')
-            )
-              setOffen(false);
-          }}
-        >
-          <div className="archiv-chat-kopf">
-            <div className="chat-einleitung">
-              {grossansicht ? (
-                <h1 id="fragen-titel">Fragen zum Archiv</h1>
-              ) : (
-                <h2 id="fragen-titel">Fragen zum Archiv</h2>
-              )}
-              <p>
-                Entdecke unsere Lieder und ihre Urheber – mit Antworten aus dem
-                Archiv.
-              </p>
-            </div>
-            {!grossansicht && (
-              <div className="archiv-chat-ansicht">
-                <Link href="/fragen/">Großansicht</Link>
-                <button type="button" onClick={minimieren}>
-                  Chat minimieren <span aria-hidden="true">−</span>
-                </button>
-              </div>
+        <div className="archiv-chat-kopf">
+          <div className="chat-einleitung">
+            {grossansicht ? (
+              <h1 id="fragen-titel">
+                {startseite
+                  ? "Was wir singen, bleibt bei uns."
+                  : "Fragen zum Archiv"}
+              </h1>
+            ) : (
+              <h2 id="fragen-titel">Fragen zum Archiv</h2>
             )}
+            <p>
+              Entdecke unsere Lieder und ihre Urheber – mit Antworten aus dem
+              Archiv.
+            </p>
           </div>
-          <ChatBereich />
-        </section>
-      </main>
-    </>
+          {!grossansicht && (
+            <div className="archiv-chat-ansicht">
+              <Link href="/fragen/">Großansicht</Link>
+              <button type="button" onClick={minimieren}>
+                Chat minimieren <span aria-hidden="true">−</span>
+              </button>
+            </div>
+          )}
+        </div>
+        <ChatBereich />
+      </section>
+    </main>
   );
 }

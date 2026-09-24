@@ -125,32 +125,26 @@ function suchErgebnis(
 const suchRoute = /\/api\/songs(\?.*)?$/;
 const liedRoute = /\/api\/songs\/[0-9a-f-]+$/;
 
-test("Startseite-Suche öffnet den Katalog mit der gesuchten Seite", async ({
-  page,
-}) => {
+test("Katalogsuche startet vorne und öffnet die Treffer", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await mockSitzung(page, memberMe);
-  await page.route("**/api/build", (route) =>
-    route.fulfill(
-      json({ application: "archive", version: "test", development: true }),
-    ),
-  );
   const anfragen: string[] = [];
   await page.route(suchRoute, (route) => {
     anfragen.push(route.request().url());
     return route.fulfill(json(suchErgebnis("Wandern", 1, 1, [wandernLied])));
   });
 
-  await page.goto("/");
+  await page.goto("/lieder/");
   await page.getByLabel("Lieder suchen").fill("Wandern");
   await page.getByRole("button", { name: "Suchen" }).click();
   await expect(page).toHaveURL(/\/lieder\/\?suche=Wandern&seite=1$/);
+  // Der erste Abruf gehört zum Aufruf selbst; der zweite kommt von der Suche.
   await expect
     .poll(() => anfragen.length, { message: "Katalogsuche abgeschickt" })
-    .toBe(1);
-  expect(anfragen[0]).toContain("/api/songs?q=Wandern");
-  expect(anfragen[0]).not.toContain("page=");
+    .toBe(2);
+  expect(anfragen[1]).toContain("/api/songs?q=Wandern");
+  expect(anfragen[1]).not.toContain("page=");
   await expect(
     page.getByRole("link", { name: "Das Wandern ist des Müllers Lust" }),
   ).toBeVisible();

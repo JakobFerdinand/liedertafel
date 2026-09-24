@@ -1,28 +1,3 @@
-.archiv-chat-leiste {
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  display: flex;
-  align-items: center;
-  gap: 1.2rem;
-  padding: 0.65rem 4vw;
-  background: var(--paper);
-  border-bottom: 1px solid var(--rule);
-}
-
-.archiv-chat-leiste button {
-  display: flex;
-  align-items: center;
-  gap: 0.8rem;
-  padding: 0.7rem 1rem;
-  font-weight: 600;
-}
-
-.archiv-chat-leiste > span {
-  color: var(--muted);
-  font-size: 0.85rem;
-}
-
 .archiv-arbeitsplatz {
   max-width: 100rem;
   padding-inline: 4vw;
@@ -141,19 +116,5 @@
 
   .archiv-chat-panel .chat-einleitung {
     padding-block: 1.5rem 0.5rem;
-  }
-}
-
-@media (max-width: 540px) {
-  .archiv-chat-leiste > span {
-    display: none;
-  }
-
-  .archiv-chat-leiste button {
-    width: 100%;
-  }
-
-  .archiv-chat-leiste button > span:last-child {
-    margin-left: auto;
   }
 }

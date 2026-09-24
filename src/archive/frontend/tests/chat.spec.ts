@@ -654,10 +654,14 @@ test("Der Chat führt auch auf der Anmeldeseite zurück zum Anmeldeformular", as
     route.fulfill(json({ authenticated: false })),
   );
   await page.goto("/anmelden/");
-  if (isMobile)
+  if (isMobile) {
+    // Ohne Leiste führt die Hauptnavigation zum Chat.
+    await page.getByRole("button", { name: "Menü", exact: true }).click();
     await page
-      .getByRole("button", { name: "Archiv fragen", exact: true })
+      .getByRole("navigation", { name: "Hauptnavigation" })
+      .getByRole("link", { name: "Archiv fragen" })
       .click();
+  }
   await page.getByRole("link", { name: "Zur Anmeldung für den Chat" }).click();
   await expect(page.getByLabel("E-Mail-Adresse")).toBeVisible();
   await expect(page).toHaveURL(/\/anmelden\/$/);
@@ -689,12 +693,11 @@ test("Ein kleines Desktopfenster behält lesbaren Verlauf und erreichbaren Compo
   await absenden.scrollIntoViewIfNeeded();
   await expect(absenden).toBeInViewport();
   await page.getByLabel("Frage stellen").press("Escape");
-  await expect(
-    page.getByRole("button", { name: "Archiv fragen", exact: true }),
-  ).toBeFocused();
+  // Escape stellt den Chat zurück; die Navigation holt ihn wieder hervor.
+  await expect(page.getByLabel("Frage stellen")).toBeHidden();
 });
 
-test("Der Katalog bietet Chat direkt an; Minimieren erhält Entwurf und Fokus", async ({
+test("Der Chat bleibt über die Navigation erreichbar; Minimieren erhält den Entwurf", async ({
   page,
   isMobile,
 }) => {
@@ -705,36 +708,40 @@ test("Der Katalog bietet Chat direkt an; Minimieren erhält Entwurf und Fokus", 
     level: 1,
   });
   const eingabe = page.getByLabel("Frage stellen");
-  const oeffnen = page.getByRole("button", {
-    name: "Archiv fragen",
-    exact: true,
-  });
+  const fragen = page
+    .getByRole("navigation", { name: "Hauptnavigation" })
+    .getByRole("link", { name: "Archiv fragen" });
   await expect(katalog).toBeVisible();
   if (isMobile) {
+    // Ohne Leiste bleibt der Chat auf Inhaltsseiten zu; die Navigation führt hin.
     await expect(eingabe).toBeHidden();
-    await expect(oeffnen).toBeInViewport();
-    await oeffnen.click();
+    await page.getByRole("button", { name: "Menü", exact: true }).click();
+    await fragen.click();
+    await expect(page).toHaveURL(/\/fragen\/$/);
     await expect(katalog).toBeHidden();
+  } else {
+    // Auf breiten Fenstern steht der Chat neben dem Seiteninhalt.
+    await expect(eingabe).toBeVisible();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page).toHaveURL(/\/lieder\/$/);
   }
-  await expect(eingabe).toBeVisible();
   await expect(eingabe).toHaveCount(1);
-  await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(page).toHaveURL(/\/lieder\/$/);
-  if (!isMobile) await expect(katalog).toBeVisible();
 
   await eingabe.fill(
     "Welche Lieder eignen sich für unseren nächsten Auftritt?",
   );
-  await page.getByRole("button", { name: "Chat minimieren" }).click();
-  await expect(eingabe).toBeHidden();
-  await expect(katalog).toBeVisible();
-  await expect(oeffnen).toBeFocused();
-  await oeffnen.click();
+  if (!isMobile) {
+    await page.getByRole("button", { name: "Chat minimieren" }).click();
+    await expect(eingabe).toBeHidden();
+    await expect(katalog).toBeVisible();
+    // Erneut über die Navigation geöffnet: der Entwurf bleibt stehen.
+    await fragen.click();
+    await expect(page).toHaveURL(/\/fragen\/$/);
+  }
   await expect(eingabe).toHaveValue(
     "Welche Lieder eignen sich für unseren nächsten Auftritt?",
   );
   await expect(eingabe).toBeVisible();
-  await expect(page).toHaveURL(/\/lieder\/$/);
 });
 
 test("Großansicht und Katalog teilen Gespräch, Thread und ungesendeten Entwurf", async ({
@@ -774,15 +781,20 @@ test("Großansicht und Katalog teilen Gespräch, Thread und ungesendeten Entwurf
     .getByRole("link", { name: "Liederkatalog", exact: true })
     .click();
   await expect(page).toHaveURL(/\/lieder\/$/);
-  if (isMobile && !(await eingabe.isVisible()))
+  if (isMobile && !(await eingabe.isVisible())) {
+    // Ohne Leiste führt die Hauptnavigation zum Chat zurück.
+    await page.getByRole("button", { name: "Menü", exact: true }).click();
     await page
-      .getByRole("button", { name: "Archiv fragen", exact: true })
+      .getByRole("navigation", { name: "Hauptnavigation" })
+      .getByRole("link", { name: "Archiv fragen" })
       .click();
+  }
   await expect(ersteAntwort).toBeVisible();
   await expect(eingabe).toHaveValue("Welche Fassungen gibt es?");
   await expect(eingabe).toHaveCount(1);
 
-  await page.getByRole("link", { name: "Großansicht", exact: true }).click();
+  if (!isMobile)
+    await page.getByRole("link", { name: "Großansicht", exact: true }).click();
   await expect(page).toHaveURL(/\/fragen\/$/);
   await expect(ersteAntwort).toBeVisible();
   await expect(eingabe).toHaveValue("Welche Fassungen gibt es?");
@@ -812,6 +824,32 @@ test("Großansicht und Katalog teilen Gespräch, Thread und ungesendeten Entwurf
   ]);
   // Links müssen clientseitig navigieren, damit auch flüchtiger Zustand bleibt.
   expect(dokumente).toHaveLength(1);
+});
+
+test("Der Einstieg öffnet den Chat; beide Chat-Ansichten teilen den Entwurf", async ({
+  page,
+  isMobile,
+}) => {
+  await mockArchiv(page);
+  await page.goto("/");
+  await expect(
+    page.getByRole("heading", { name: "Was wir singen, bleibt bei uns." }),
+  ).toBeVisible();
+  const eingabe = page.getByLabel("Frage stellen");
+  await expect(eingabe).toBeVisible();
+  await eingabe.fill("Mein Entwurf bleibt stehen");
+
+  if (isMobile)
+    await page.getByRole("button", { name: "Menü", exact: true }).click();
+  await page
+    .getByRole("navigation", { name: "Hauptnavigation" })
+    .getByRole("link", { name: "Archiv fragen" })
+    .click();
+  await expect(page).toHaveURL(/\/fragen\/$/);
+  await expect(
+    page.getByRole("heading", { name: "Fragen zum Archiv" }),
+  ).toBeVisible();
+  await expect(eingabe).toHaveValue("Mein Entwurf bleibt stehen");
 });
 
 test("Eine verzögerte Chatantwort überlebt Navigation und Minimieren", async ({
@@ -851,21 +889,27 @@ test("Eine verzögerte Chatantwort überlebt Navigation und Minimieren", async (
       .getByRole("link", { name: "Liederkatalog", exact: true })
       .click();
     await expect(page).toHaveURL(/\/lieder\/$/);
-    if (isMobile && !(await page.getByLabel("Frage stellen").isVisible()))
+    if (isMobile && !(await page.getByLabel("Frage stellen").isVisible())) {
+      // Ohne Leiste führt die Hauptnavigation zum Chat.
+      await page.getByRole("button", { name: "Menü", exact: true }).click();
       await page
-        .getByRole("button", { name: "Archiv fragen", exact: true })
+        .getByRole("navigation", { name: "Hauptnavigation" })
+        .getByRole("link", { name: "Archiv fragen" })
         .click();
+    }
     await expect(page.getByRole("button", { name: "Abbrechen" })).toBeVisible();
-    await page.getByRole("button", { name: "Chat minimieren" }).click();
-    await page
-      .getByRole("button", { name: "Archiv fragen", exact: true })
-      .click();
+    if (!isMobile) {
+      // Minimieren hält den Entwurf; die Navigation holt den Chat zurück.
+      await page.getByRole("button", { name: "Chat minimieren" }).click();
+      await page
+        .getByRole("navigation", { name: "Hauptnavigation" })
+        .getByRole("link", { name: "Archiv fragen" })
+        .click();
+    }
+    await expect(page).toHaveURL(/\/fragen\/$/);
     await expect(page.getByLabel("Frage stellen")).toHaveValue(
       "Mein nächster Gedanke",
     );
-    await expect(page.getByRole("button", { name: "Abbrechen" })).toBeVisible();
-    await page.getByRole("link", { name: "Großansicht", exact: true }).click();
-    await expect(page).toHaveURL(/\/fragen\/$/);
     await expect(page.getByRole("button", { name: "Abbrechen" })).toBeVisible();
     freigeben();
 
@@ -929,10 +973,14 @@ for (const quellenLink of ["Quelle", "Quelle öffnen"]) {
       });
     });
     await page.goto("/lieder/");
-    if (isMobile)
+    if (isMobile) {
+      // Ohne Leiste führt die Hauptnavigation zum Chat.
+      await page.getByRole("button", { name: "Menü", exact: true }).click();
       await page
-        .getByRole("button", { name: "Archiv fragen", exact: true })
+        .getByRole("navigation", { name: "Hauptnavigation" })
+        .getByRole("link", { name: "Archiv fragen" })
         .click();
+    }
     await page
       .getByLabel("Frage stellen")
       .fill("Wer komponierte das Wandernlied?");
@@ -953,8 +1001,10 @@ for (const quellenLink of ["Quelle", "Quelle öffnen"]) {
     ).toBeVisible();
     if (isMobile) {
       await expect(page.getByLabel("Frage stellen")).toBeHidden();
+      await page.getByRole("button", { name: "Menü", exact: true }).click();
       await page
-        .getByRole("button", { name: "Archiv fragen", exact: true })
+        .getByRole("navigation", { name: "Hauptnavigation" })
+        .getByRole("link", { name: "Archiv fragen" })
         .click();
     }
     await expect(page.getByLabel("Frage stellen")).toBeVisible();
