@@ -707,53 +707,11 @@ dd {
   background: var(--paper);
   color: var(--ink);
 }
-/* Einladungskarte als Aufklapper nach .lied-anlegen — dieselbe Rezeptur,
-   eigener Name, damit die Verwaltungsregeln unangetastet bleiben.
-   Zugeklappt: die Tabelle ist der Alltag, das Einladen der seltene Fall. */
+/* Einladungskarte als Aufklapper nach der geteilten Aufklapper-Rezeptur
+   (siehe .lied-anlegen). Zugeklappt: die Tabelle ist der Alltag, das
+   Einladen der seltene Fall. */
 .mitglied-einladen {
   margin-block: 0 2.5rem;
-}
-.mitglied-einladen summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  min-height: 2.75rem;
-  cursor: pointer;
-  list-style: none;
-}
-.mitglied-einladen summary::-webkit-details-marker {
-  display: none;
-}
-.mitglied-einladen summary:focus-visible {
-  outline: 3px solid currentColor;
-  outline-offset: 5px;
-}
-.mitglied-einladen summary h2 {
-  margin-block: 0;
-  font-size: var(--titel-abschnitt);
-}
-.mitglied-einladen-umschalter {
-  color: var(--brand);
-  font-size: var(--schrift-neben);
-  font-weight: 600;
-}
-.mitglied-einladen summary:hover .mitglied-einladen-umschalter {
-  text-decoration: underline;
-  text-underline-offset: 0.25em;
-}
-.mitglied-einladen .mitglied-einladen-zu {
-  display: none;
-}
-.mitglied-einladen[open] .mitglied-einladen-auf {
-  display: none;
-}
-.mitglied-einladen[open] .mitglied-einladen-zu {
-  display: inline;
-}
-.mitglied-einladen[open] summary {
-  border-block-end: 1px solid var(--rule);
-  padding-block-end: 0.9rem;
 }
 /* Adresswechsel als Aufklapper: der Kopfruh ist der leise Marken-
    Textknopf, der aufgeklappte Fluss trägt seinen Hinweis und die
@@ -967,12 +925,23 @@ dd {
 .lied-anlegen {
   margin-block: 0 2.5rem;
 }
-/* Aufklapper des Anlageformulars (details/summary): die Kopfruh ist der
+/* ─── Geteilte Aufklapper-Rezeptur (details/summary) ─────────────────
+   Alle Aufklapper teilen dieselbe Kopfruh: die summary-Zeile ist der
    Umschalter; das Zustandswort wechselt wie der Bearbeiten-Knopf
    („Ausklappen/Einklappen“), der Haarriss erscheint erst aufgeklappt.
-   Anfangs zugeklappt — Anlegen ist der seltene Auftrag, der Katalog die
-   Regel. */
-.lied-anlegen summary {
+   Jeder Bereich behält seinen eigenen Klassennamen (Tests wählen
+   details.X > summary) und seinen eigenen Rand; wo ein Bereich
+   abweicht, steht die Abweichung bei ihm (.material-verwaltung kennt
+   keinen [open]-Haarriss an der summary — der Rahmen oben am fieldset
+   trennt). Anfangs zugeklappt — das Formular ist der seltene Auftrag,
+   der Bestand die Regel. */
+.lied-anlegen summary,
+.mitglied-einladen summary,
+.material-verwaltung summary,
+.lieder-filter summary,
+.auftritt-anlegen summary,
+.lied-fassungen summary,
+.lied-bearbeiten summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -981,36 +950,90 @@ dd {
   cursor: pointer;
   list-style: none;
 }
-.lied-anlegen summary::-webkit-details-marker {
+.lied-anlegen summary::-webkit-details-marker,
+.mitglied-einladen summary::-webkit-details-marker,
+.material-verwaltung summary::-webkit-details-marker,
+.lieder-filter summary::-webkit-details-marker,
+.auftritt-anlegen summary::-webkit-details-marker,
+.lied-fassungen summary::-webkit-details-marker,
+.lied-bearbeiten summary::-webkit-details-marker {
   display: none;
 }
-.lied-anlegen summary:focus-visible {
+.lied-anlegen summary:focus-visible,
+.mitglied-einladen summary:focus-visible,
+.material-verwaltung summary:focus-visible,
+.lieder-filter summary:focus-visible,
+.auftritt-anlegen summary:focus-visible,
+.lied-fassungen summary:focus-visible,
+.lied-bearbeiten summary:focus-visible {
   outline: 3px solid currentColor;
   outline-offset: 5px;
 }
-.lied-anlegen summary h2 {
+.lied-anlegen summary h2,
+.mitglied-einladen summary h2,
+.material-verwaltung summary h2,
+.lieder-filter summary h2,
+.auftritt-anlegen summary h2,
+.lied-fassungen summary h2,
+.lied-bearbeiten summary h2 {
   margin-block: 0;
   font-size: var(--titel-abschnitt);
 }
-.lied-anlegen-umschalter {
+.lied-anlegen-umschalter,
+.mitglied-einladen-umschalter,
+.material-verwaltung-umschalter,
+.lieder-filter-umschalter,
+.auftritt-anlegen-umschalter,
+.lied-fassungen-umschalter,
+.lied-bearbeiten-umschalter {
   color: var(--brand);
   font-size: var(--schrift-neben);
   font-weight: 600;
 }
-.lied-anlegen summary:hover .lied-anlegen-umschalter {
+.lied-anlegen summary:hover .lied-anlegen-umschalter,
+.mitglied-einladen summary:hover .mitglied-einladen-umschalter,
+.material-verwaltung summary:hover .material-verwaltung-umschalter,
+.lieder-filter summary:hover .lieder-filter-umschalter,
+.auftritt-anlegen summary:hover .auftritt-anlegen-umschalter,
+.lied-fassungen summary:hover .lied-fassungen-umschalter,
+.lied-bearbeiten summary:hover .lied-bearbeiten-umschalter {
   text-decoration: underline;
   text-underline-offset: 0.25em;
 }
-.lied-anlegen .lied-anlegen-zu {
+.lied-anlegen .lied-anlegen-zu,
+.mitglied-einladen .mitglied-einladen-zu,
+.material-verwaltung .material-verwaltung-zu,
+.lieder-filter .lieder-filter-zu,
+.auftritt-anlegen .auftritt-anlegen-zu,
+.lied-fassungen .lied-fassungen-zu,
+.lied-bearbeiten .lied-bearbeiten-zu {
   display: none;
 }
-.lied-anlegen[open] .lied-anlegen-auf {
+.lied-anlegen[open] .lied-anlegen-auf,
+.mitglied-einladen[open] .mitglied-einladen-auf,
+.material-verwaltung[open] .material-verwaltung-auf,
+.lieder-filter[open] .lieder-filter-auf,
+.auftritt-anlegen[open] .auftritt-anlegen-auf,
+.lied-fassungen[open] .lied-fassungen-auf,
+.lied-bearbeiten[open] .lied-bearbeiten-auf {
   display: none;
 }
-.lied-anlegen[open] .lied-anlegen-zu {
+.lied-anlegen[open] .lied-anlegen-zu,
+.mitglied-einladen[open] .mitglied-einladen-zu,
+.material-verwaltung[open] .material-verwaltung-zu,
+.lieder-filter[open] .lieder-filter-zu,
+.auftritt-anlegen[open] .auftritt-anlegen-zu,
+.lied-fassungen[open] .lied-fassungen-zu,
+.lied-bearbeiten[open] .lied-bearbeiten-zu {
   display: inline;
 }
-.lied-anlegen[open] summary {
+/* Ohne .material-verwaltung: dort trennt der Rahmen oben am fieldset. */
+.lied-anlegen[open] summary,
+.mitglied-einladen[open] summary,
+.lieder-filter[open] summary,
+.auftritt-anlegen[open] summary,
+.lied-fassungen[open] summary,
+.lied-bearbeiten[open] summary {
   border-block-end: 1px solid var(--rule);
   padding-block-end: 0.9rem;
 }
@@ -1105,51 +1128,9 @@ dd {
 .lied-fassungen h3 {
   margin-block: 1.4rem 0;
 }
-/* Aufklapper der Fassungspflege (details/summary) nach .lied-anlegen —
-   dieselbe Rezeptur, eigener Name, damit die Katalogregeln unangetastet
-   bleiben. Zugeklappt gehört die Ruh der Fassungswahl im Lesesaal. */
-.lied-fassungen summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  min-height: 2.75rem;
-  cursor: pointer;
-  list-style: none;
-}
-.lied-fassungen summary::-webkit-details-marker {
-  display: none;
-}
-.lied-fassungen summary:focus-visible {
-  outline: 3px solid currentColor;
-  outline-offset: 5px;
-}
-.lied-fassungen summary h2 {
-  margin-block: 0;
-  font-size: var(--titel-abschnitt);
-}
-.lied-fassungen-umschalter {
-  color: var(--brand);
-  font-size: var(--schrift-neben);
-  font-weight: 600;
-}
-.lied-fassungen summary:hover .lied-fassungen-umschalter {
-  text-decoration: underline;
-  text-underline-offset: 0.25em;
-}
-.lied-fassungen .lied-fassungen-zu {
-  display: none;
-}
-.lied-fassungen[open] .lied-fassungen-auf {
-  display: none;
-}
-.lied-fassungen[open] .lied-fassungen-zu {
-  display: inline;
-}
-.lied-fassungen[open] summary {
-  border-block-end: 1px solid var(--rule);
-  padding-block-end: 0.9rem;
-}
+/* Aufklapper der Fassungspflege nach der geteilten Aufklapper-Rezeptur
+   (siehe .lied-anlegen). Zugeklappt gehört die Ruh der Fassungswahl im
+   Lesesaal. */
 .lied-fassung-block {
   border-top: 1px solid var(--rule);
   padding-block: 0.8rem;
@@ -1305,46 +1286,9 @@ fieldset.material-verwaltung {
   padding: 1.2rem 0 0;
   margin-block: 1.4rem 0;
 }
-/* Werkbank-Kopfruh nach der .lied-anlegen-Rezeptur (eigener Name, damit
-   die Katalogregeln unangetastet bleiben). */
-.material-verwaltung summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  min-height: 2.75rem;
-  cursor: pointer;
-  list-style: none;
-}
-.material-verwaltung summary::-webkit-details-marker {
-  display: none;
-}
-.material-verwaltung summary:focus-visible {
-  outline: 3px solid currentColor;
-  outline-offset: 5px;
-}
-.material-verwaltung summary h2 {
-  margin-block: 0;
-  font-size: var(--titel-abschnitt);
-}
-.material-verwaltung-umschalter {
-  color: var(--brand);
-  font-size: var(--schrift-neben);
-  font-weight: 600;
-}
-.material-verwaltung summary:hover .material-verwaltung-umschalter {
-  text-decoration: underline;
-  text-underline-offset: 0.25em;
-}
-.material-verwaltung .material-verwaltung-zu {
-  display: none;
-}
-.material-verwaltung[open] .material-verwaltung-auf {
-  display: none;
-}
-.material-verwaltung[open] .material-verwaltung-zu {
-  display: inline;
-}
+/* Werkbank-Kopfruh nach der geteilten Aufklapper-Rezeptur (siehe
+   .lied-anlegen). Abweichung bewusst: keine [open]-Haarriss-Regel an
+   der summary — der Rahmen oben am fieldset übernimmt die Trennung. */
 .material-fortsetzungen {
   display: grid;
   gap: 0.5rem;
@@ -1499,52 +1443,10 @@ footer {
 .lied-bearbeiten {
   margin-block: 0.6rem 0;
 }
-/* Aufklapper des Lied-Formulars (details/summary) nach .lied-anlegen —
-   dieselbe Rezeptur. Der Klassenname teilt sich mit der Zeilenkarte des
-   Katalogs; nur der Aufklapper trägt summary-Kinder, darum berühren sich
-   die Regeln nicht. */
-.lied-bearbeiten summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  min-height: 2.75rem;
-  cursor: pointer;
-  list-style: none;
-}
-.lied-bearbeiten summary::-webkit-details-marker {
-  display: none;
-}
-.lied-bearbeiten summary:focus-visible {
-  outline: 3px solid currentColor;
-  outline-offset: 5px;
-}
-.lied-bearbeiten summary h2 {
-  margin-block: 0;
-  font-size: var(--titel-abschnitt);
-}
-.lied-bearbeiten-umschalter {
-  color: var(--brand);
-  font-size: var(--schrift-neben);
-  font-weight: 600;
-}
-.lied-bearbeiten summary:hover .lied-bearbeiten-umschalter {
-  text-decoration: underline;
-  text-underline-offset: 0.25em;
-}
-.lied-bearbeiten .lied-bearbeiten-zu {
-  display: none;
-}
-.lied-bearbeiten[open] .lied-bearbeiten-auf {
-  display: none;
-}
-.lied-bearbeiten[open] .lied-bearbeiten-zu {
-  display: inline;
-}
-.lied-bearbeiten[open] summary {
-  border-block-end: 1px solid var(--rule);
-  padding-block-end: 0.9rem;
-}
+/* Aufklapper des Lied-Formulars nach der geteilten Aufklapper-Rezeptur
+   (siehe .lied-anlegen). Der Klassenname teilt sich mit der Zeilenkarte
+   des Katalogs; nur der Aufklapper trägt summary-Kinder, darum berühren
+   sich die Regeln nicht. */
 .auth-karte textarea {
   width: 100%;
   box-sizing: border-box;
@@ -1634,9 +1536,9 @@ footer {
   font-size: var(--schrift-neben);
 }
 /* Filterpanele des Katalogs (ARC-023): die Composer-Karte der Suche als
-   Aufklapper nach .lied-anlegen — die Kopfruh ist der Umschalter, der
-   Haarriss erscheint erst aufgeklappt; aufgeklappt, wenn Filterparameter
-   in der Adresse stehen. */
+   Aufklapper nach der geteilten Aufklapper-Rezeptur (siehe
+   .lied-anlegen); aufgeklappt, wenn Filterparameter in der Adresse
+   stehen. */
 .lieder-filter {
   max-width: 32rem;
   border: 1px solid var(--muted);
@@ -1648,48 +1550,6 @@ footer {
 .lieder-filter:focus-within {
   outline: 2px solid var(--brand);
   outline-offset: 2px;
-}
-.lieder-filter summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  min-height: 2.75rem;
-  cursor: pointer;
-  list-style: none;
-}
-.lieder-filter summary::-webkit-details-marker {
-  display: none;
-}
-.lieder-filter summary:focus-visible {
-  outline: 3px solid currentColor;
-  outline-offset: 5px;
-}
-.lieder-filter summary h2 {
-  margin-block: 0;
-  font-size: var(--titel-abschnitt);
-}
-.lieder-filter-umschalter {
-  color: var(--brand);
-  font-size: var(--schrift-neben);
-  font-weight: 600;
-}
-.lieder-filter summary:hover .lieder-filter-umschalter {
-  text-decoration: underline;
-  text-underline-offset: 0.25em;
-}
-.lieder-filter .lieder-filter-zu {
-  display: none;
-}
-.lieder-filter[open] .lieder-filter-auf {
-  display: none;
-}
-.lieder-filter[open] .lieder-filter-zu {
-  display: inline;
-}
-.lieder-filter[open] summary {
-  border-block-end: 1px solid var(--rule);
-  padding-block-end: 0.9rem;
 }
 /* Freitextfilter still beschriftet im Nebenmaß, die Felder mit dem
    2px-Tintenrahmen der Formkarten; im Handymaß rast das Raster ein. */
@@ -2051,52 +1911,10 @@ footer {
   font-size: var(--schrift-neben);
   border-radius: var(--radius-knopf);
 }
-/* Anlageformular als Aufklapper nach .lied-anlegen — dieselbe Rezeptur,
-   eigener Name, damit die Katalogregeln unangetastet bleiben. */
+/* Anlageformular als Aufklapper nach der geteilten Aufklapper-Rezeptur
+   (siehe .lied-anlegen). */
 .auftritt-anlegen {
   margin-block: 0 2.5rem;
-}
-.auftritt-anlegen summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  min-height: 2.75rem;
-  cursor: pointer;
-  list-style: none;
-}
-.auftritt-anlegen summary::-webkit-details-marker {
-  display: none;
-}
-.auftritt-anlegen summary:focus-visible {
-  outline: 3px solid currentColor;
-  outline-offset: 5px;
-}
-.auftritt-anlegen summary h2 {
-  margin-block: 0;
-  font-size: var(--titel-abschnitt);
-}
-.auftritt-anlegen-umschalter {
-  color: var(--brand);
-  font-size: var(--schrift-neben);
-  font-weight: 600;
-}
-.auftritt-anlegen summary:hover .auftritt-anlegen-umschalter {
-  text-decoration: underline;
-  text-underline-offset: 0.25em;
-}
-.auftritt-anlegen .auftritt-anlegen-zu {
-  display: none;
-}
-.auftritt-anlegen[open] .auftritt-anlegen-auf {
-  display: none;
-}
-.auftritt-anlegen[open] .auftritt-anlegen-zu {
-  display: inline;
-}
-.auftritt-anlegen[open] summary {
-  border-block-end: 1px solid var(--rule);
-  padding-block-end: 0.9rem;
 }
 /* Bearbeiten-Karten (Zeile im Verzeichnis, Karte im Lesesaal). */
 .auftritt-bearbeiten {
