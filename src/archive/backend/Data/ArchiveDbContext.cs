@@ -40,6 +40,8 @@ public sealed class ArchiveDbContext(DbContextOptions<ArchiveDbContext> options)
 
 	public DbSet<SongTitle> SongTitles => Set<SongTitle>();
 
+	public DbSet<SongTag> SongTags => Set<SongTag>();
+
 	public DbSet<ArchiveAsset> Assets => Set<ArchiveAsset>();
 
 	public DbSet<FileRevision> FileRevisions => Set<FileRevision>();

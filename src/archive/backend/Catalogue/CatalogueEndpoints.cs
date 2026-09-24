@@ -5,13 +5,13 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Archive.Backend.Catalogue;
 
-public sealed record CreateSongRequest(string? Title, string? Composer, string? Lyricist, string? ArrangementLabel, string? VersionLabel);
+public sealed record CreateSongRequest(string? Title, string? Composer, string? Lyricist, string? ArrangementLabel, string? VersionLabel, string? Language, string? Occasion, List<string?>? Tags);
 
-public sealed record PatchSongRequest(string? Title, string? Composer, string? Lyricist, string? Lyrics, List<string?>? AlternateTitles);
+public sealed record PatchSongRequest(string? Title, string? Composer, string? Lyricist, string? Lyrics, List<string?>? AlternateTitles, string? Language, string? Occasion, List<string?>? Tags);
 
-public sealed record CreateArrangementRequest(string? Label, string? Arranger, string? VoiceConfiguration);
+public sealed record CreateArrangementRequest(string? Label, string? Arranger, string? VoiceConfiguration, string? Accompaniment);
 
-public sealed record PatchArrangementRequest(string? Label, string? Arranger, string? VoiceConfiguration);
+public sealed record PatchArrangementRequest(string? Label, string? Arranger, string? VoiceConfiguration, string? Accompaniment);
 
 public sealed record CreateMusicalVersionRequest(string? Label, string? Creator, string? MusicalKey);
 
@@ -48,11 +48,34 @@ public static class CatalogueEndpoints
 
 	public const string AlternateTitleTooManyMessage = "Es sind höchstens 10 andere Titel möglich.";
 
+	public const string LanguageTooLongMessage = "Die Sprache ist zu lang.";
+
+	public const string OccasionTooLongMessage = "Der Anlass ist zu lang.";
+
+	public const string TagEmptyMessage = "Ein Schlagwort darf nicht leer sein.";
+
+	public const string TagTooLongMessage = "Das Schlagwort ist zu lang.";
+
+	public const string TagTooManyMessage = "Es sind höchstens 10 Schlagwörter möglich.";
+
+	public const string AccompanimentTooLongMessage = "Die Begleitung ist zu lang.";
+
+	public const string FilterTooLongMessage = "Der Filter ist zu lang.";
+
+	public const string UnknownMaterialFilterMessage = "Unbekannter Materialfilter.";
+
+	/// <summary>Entry maximum per tag (alternate titles keep the 200 field limit).</summary>
+	public const int TagMaxLength = 60;
+
+	/// <summary>Entry maximum per alternate title.</summary>
+	public const int MaxTitleListEntryLength = 200;
+
 	public static void MapCatalogueEndpoints(this WebApplication app)
 	{
 		app.MapGet("/api/songs", async (HttpContext context, CurrentUserAccessor accessor,
 			ArchiveAccessService access, ArchiveDbContext db, CancellationToken token,
-			string? q, int? page) =>
+			string? q, int? page, string? voiceConfiguration, string? accompaniment,
+			string? musicalKey, string? language, string? occasion, string? tag, string? material) =>
 		{
 			context.Response.Headers.CacheControl = "no-store";
 			var (decision, error) = await RequireMemberAsync(context, accessor, access);
@@ -64,10 +87,14 @@ public static class CatalogueEndpoints
 			var query = (q ?? string.Empty).Trim();
 			if (query.Length > 200)
 				return Results.Problem(statusCode: 400, title: SearchTooLongMessage);
-			if (query.Length == 0)
+			var (filter, filterError) = ParseRepertoireFilter(
+				voiceConfiguration, accompaniment, musicalKey, language, occasion, tag, material);
+			if (filterError is not null)
+				return filterError;
+			if (query.Length == 0 && filter is null)
 			{
-				// No query: existing list behaviour (plain Id order) with the
-				// search response fields added around it.
+				// No query and no filter: existing list behaviour (plain Id
+				// order) with the search response fields added around it.
 				var allSongs = await QueryVisible(db.Songs, isEditor)
 					.OrderBy(s => s.Id)
 					.Select(s => new SongSummary(s.Id, s.Title, s.Composer, s.Lyricist, s.PublishedAt))
@@ -86,46 +113,96 @@ public static class CatalogueEndpoints
 					page = requestedPage,
 					pageSize = pageSize,
 					total = totalAll,
+					filters = FilterEcho(null),
 					songs = plainPage.Select(s => SongItem(s.Id, s.Title, s.Composer, s.Lyricist,
 						s.PublishedAt,
 						plainAlternateTitles.GetValueOrDefault(s.Id, []),
 						plainArrangements.GetValueOrDefault(s.Id, []),
-						[])),
+						[],
+						// No arrangement-level filter: every arrangement is a match hint.
+						plainArrangements.GetValueOrDefault(s.Id, []))),
 				});
 			}
-			// Tokenized AND search over one database-projected visible set;
-			// matching runs in C# so InMemory tests and PostgreSQL agree.
+			if (filter is null)
+			{
+				// Pure search (ARC-020): unchanged matching, fields and paging.
+				var searchResult = await SearchSongsAsync(db, isEditor, query, requestedPage, pageSize, token);
+				return Results.Ok(new
+				{
+					query = searchResult.Query,
+					page = requestedPage,
+					pageSize = pageSize,
+					total = searchResult.Total,
+					filters = FilterEcho(null),
+					songs = searchResult.PageItems.Select(m => SongItem(m.Song.Id, m.Song.Title, m.Song.Composer,
+						m.Song.Lyricist, m.Song.PublishedAt,
+						searchResult.AlternateTitles.GetValueOrDefault(m.Song.Id, []),
+						searchResult.Arrangements.GetValueOrDefault(m.Song.Id, []),
+						m.MatchedIn.ToArray(),
+						// No arrangement-level filter: every arrangement is a match hint.
+						searchResult.Arrangements.GetValueOrDefault(m.Song.Id, []))),
+				});
+			}
+			// ARC-023 filter evaluation over one database-projected visible
+			// set; matching runs in C# so InMemory tests and PostgreSQL agree.
+			var hasQuery = query.Length > 0;
 			var queryFold = CatalogueText.Fold(query);
 			var tokens = query.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
 				.Select(CatalogueText.Fold)
 				.Where(t => t.Length > 0)
 				.ToList();
-			if (tokens.Count == 0)
-			{
-				return Results.Ok(new
-				{
-					query,
-					page = requestedPage,
-					pageSize = pageSize,
-					total = 0,
-					songs = Array.Empty<object>(),
-				});
-			}
 			var visible = await QueryVisible(db.Songs, isEditor)
 				.OrderBy(s => s.Id)
-				.Select(s => new SearchRow(s.Id, s.Title, s.Composer, s.Lyricist, s.PublishedAt, s.Lyrics))
+				.Select(s => new FilterRow(s.Id, s.Title, s.Composer, s.Lyricist, s.PublishedAt,
+					s.Lyrics, s.Language, s.Occasion))
 				.ToListAsync(token);
 			var visibleIds = visible.Select(s => s.Id).ToList();
 			var alternateTitleMap = await LoadAlternateTitlesAsync(db, visibleIds, token);
+			var tagMap = filter.Tag is not null
+				? await LoadSongTagsAsync(db, visibleIds, token)
+				: [];
 			var arrangementRows = await db.Arrangements.AsNoTracking()
 				.Where(a => visibleIds.Contains(a.SongId))
 				.OrderBy(a => a.Id)
-				.Select(a => new { a.Id, a.SongId, a.Label, a.Arranger })
+				.Select(a => new { a.Id, a.SongId, a.Label, a.Arranger, a.VoiceConfiguration, a.Accompaniment })
 				.ToListAsync(token);
 			var arrangementMap = arrangementRows
 				.GroupBy(a => a.SongId)
 				.ToDictionary(g => g.Key, g => g.ToList());
-			var matches = new List<(SearchRow Song, int Rank, SortedSet<string> MatchedIn)>();
+			Dictionary<Guid, List<RepertoireVersionRow>> versionsByArrangement = [];
+			if (filter.HasVersionConditions)
+			{
+				var arrangementIds = arrangementRows.Select(a => a.Id).ToList();
+				var versionRows = await db.MusicalVersions.AsNoTracking()
+					.Where(v => arrangementIds.Contains(v.ArrangementId))
+					.OrderBy(v => v.Id)
+					.Select(v => new { v.Id, v.ArrangementId, v.MusicalKey })
+					.ToListAsync(token);
+				var versionIds = versionRows.Select(v => v.Id).ToList();
+				// Material availability counts only current revisions; assets
+				// without a current revision never reach the projection.
+				var assetRows = await db.Assets.AsNoTracking()
+					.Where(asset => versionIds.Contains(asset.MusicalVersionId)
+						&& asset.CurrentRevisionId != null)
+					.Select(asset => new { asset.MusicalVersionId, asset.AssetType })
+					.ToListAsync(token);
+				var assetTypesByVersion = assetRows
+					.GroupBy(asset => asset.MusicalVersionId)
+					.ToDictionary(
+						g => g.Key,
+						g => g.Select(asset => asset.AssetType).Distinct().ToList());
+				versionsByArrangement = versionRows
+					.GroupBy(v => v.ArrangementId)
+					.ToDictionary(
+						g => g.Key,
+						g => g.Select(v => new RepertoireVersionRow(v.MusicalKey,
+								assetTypesByVersion.TryGetValue(v.Id, out var assetTypes)
+									? assetTypes
+									: []))
+							.ToList());
+			}
+			var matches = new List<(FilterRow Song, int Rank, SortedSet<string> MatchedIn,
+				List<ArrangementSummary> MatchedArrangements)>();
 			foreach (var song in visible)
 			{
 				var matchedIn = new SortedSet<string>();
@@ -139,55 +216,94 @@ public static class CatalogueEndpoints
 				var arrangementTexts = arrangementMap.TryGetValue(song.Id, out var arrangements_)
 					? arrangements_.SelectMany(a => new[] { CatalogueText.Fold(a.Label), CatalogueText.Fold(a.Arranger) }).ToList()
 					: [];
-				// AND semantics: every token must occur (substring) in at least
-				// one of the searchable fields; matchedIn lists every field a
-				// token hit, sorted alphabetically.
 				var allFound = true;
-				foreach (var current in tokens)
+				if (hasQuery)
 				{
-					var found = false;
-					if (titleFold.Contains(current))
+					// AND semantics: every token must occur (substring) in at
+					// least one of the searchable fields; matchedIn lists every
+					// field a token hit, sorted alphabetically.
+					foreach (var current in tokens)
 					{
-						found = true;
-						matchedIn.Add("title");
+						var found = false;
+						if (titleFold.Contains(current))
+						{
+							found = true;
+							matchedIn.Add("title");
+						}
+						if (titles.Any(t => t.Contains(current)))
+						{
+							found = true;
+							matchedIn.Add("alternateTitles");
+						}
+						if (composerFold.Contains(current))
+						{
+							found = true;
+							matchedIn.Add("composer");
+						}
+						if (lyricistFold.Contains(current))
+						{
+							found = true;
+							matchedIn.Add("lyricist");
+						}
+						if (lyricsFold.Contains(current))
+						{
+							found = true;
+							matchedIn.Add("lyrics");
+						}
+						if (arrangementTexts.Any(t => t.Contains(current)))
+						{
+							found = true;
+							matchedIn.Add("arrangements");
+						}
+						if (!found)
+						{
+							allFound = false;
+							break;
+						}
 					}
-					if (titles.Any(t => t.Contains(current)))
-					{
-						found = true;
-						matchedIn.Add("alternateTitles");
-					}
-					if (composerFold.Contains(current))
-					{
-						found = true;
-						matchedIn.Add("composer");
-					}
-					if (lyricistFold.Contains(current))
-					{
-						found = true;
-						matchedIn.Add("lyricist");
-					}
-					if (lyricsFold.Contains(current))
-					{
-						found = true;
-						matchedIn.Add("lyrics");
-					}
-					if (arrangementTexts.Any(t => t.Contains(current)))
-					{
-						found = true;
-						matchedIn.Add("arrangements");
-					}
-					if (!found)
-					{
+				}
+				// Song-level conditions hold on the song itself.
+				if (allFound && !filter.MatchesSong(song.Language, song.Occasion,
+						tagMap.TryGetValue(song.Id, out var songTags) ? songTags : []))
+				{
+					allFound = false;
+				}
+				// Arrangement-level conditions hold on one qualifying
+				// arrangement; siblings never combine into a match.
+				List<ArrangementSummary> matchedArrangements;
+				if (allFound && filter.HasArrangementConditions)
+				{
+					matchedArrangements = (arrangementMap.TryGetValue(song.Id, out var arrangements2)
+							? arrangements2
+							: [])
+						.Where(a => filter.MatchesArrangement(a.VoiceConfiguration, a.Accompaniment,
+							versionsByArrangement.TryGetValue(a.Id, out var versions_)
+								? versions_
+								: []))
+						.Select(a => new ArrangementSummary(a.Id, a.Label, a.Arranger))
+						.ToList();
+					if (matchedArrangements.Count == 0)
 						allFound = false;
-						break;
-					}
+				}
+				else
+				{
+					// No arrangement-level conditions: the hint mirrors all
+					// arrangements; songs failing earlier conditions are skipped.
+					matchedArrangements = allFound
+						? (arrangementMap.TryGetValue(song.Id, out var arrangements3)
+								? arrangements3
+								: [])
+							.Select(a => new ArrangementSummary(a.Id, a.Label, a.Arranger))
+							.ToList()
+						: [];
 				}
 				if (!allFound)
 					continue;
-				var rank = titleFold == queryFold ? 0
+				var rank = !hasQuery ? 0
+					: titleFold == queryFold ? 0
 					: tokens.All(t => titleFold.Contains(t)) ? 1
 					: 2;
-				matches.Add((song, rank, matchedIn));
+				matches.Add((song, rank, matchedIn, matchedArrangements));
 			}
 			var ordered = matches
 				.OrderBy(m => m.Rank)
@@ -199,19 +315,27 @@ public static class CatalogueEndpoints
 				.Take(pageSize)
 				.ToList();
 			var pageIds = pageItems.Select(m => m.Song.Id).ToList();
-			var pageArrangements = await LoadArrangementSummariesAsync(db, pageIds, token);
 			var pageAlternateTitles = await LoadAlternateTitlesAsync(db, pageIds, token);
+			var pageArrangements = pageIds.ToDictionary(
+				id => id,
+				id => (arrangementMap.TryGetValue(id, out var allArrangements)
+						? allArrangements
+						: [])
+					.Select(a => new ArrangementSummary(a.Id, a.Label, a.Arranger))
+					.ToList());
 			return Results.Ok(new
 			{
-				query,
+				query = hasQuery ? query : (string?)null,
 				page = requestedPage,
 				pageSize = pageSize,
 				total,
+				filters = FilterEcho(filter),
 				songs = pageItems.Select(m => SongItem(m.Song.Id, m.Song.Title, m.Song.Composer,
 					m.Song.Lyricist, m.Song.PublishedAt,
 					pageAlternateTitles.GetValueOrDefault(m.Song.Id, []),
 					pageArrangements.GetValueOrDefault(m.Song.Id, []),
-					m.MatchedIn.ToArray())),
+					m.MatchedIn.ToArray(),
+					m.MatchedArrangements)),
 			});
 		});
 
@@ -226,6 +350,7 @@ public static class CatalogueEndpoints
 			var song = await db.Songs.AsNoTracking()
 				.Include(s => s.Arrangements).ThenInclude(a => a.MusicalVersions)
 				.Include(s => s.AlternateTitles)
+				.Include(s => s.Tags)
 				.FirstOrDefaultAsync(s => s.Id == id, token);
 			if (song is null || (!isEditor && !CatalogueVisibility.IsMemberVisible(song)))
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
@@ -265,17 +390,45 @@ public static class CatalogueEndpoints
 			var versionLabel = CleanOptional(body?.VersionLabel, "Die Bezeichnung ist zu lang.", out var versionError);
 			if (versionError is not null)
 				return versionError;
+			var language = CleanOptional(body?.Language, LanguageTooLongMessage, out var languageError);
+			if (languageError is not null)
+				return languageError;
+			var occasion = CleanOptional(body?.Occasion, OccasionTooLongMessage, out var occasionError);
+			if (occasionError is not null)
+				return occasionError;
+			if (body?.Tags is not null)
+			{
+				var tagValidationError = ValidateEntryList(body.Tags, TagTooManyMessage, TagEmptyMessage, TagTooLongMessage, TagMaxLength);
+				if (tagValidationError is not null)
+					return tagValidationError;
+			}
 			var now = time.GetUtcNow();
 			var song = new Song
 			{
 				Title = title,
 				Composer = composer,
 				Lyricist = lyricist,
+				Language = language,
+				Occasion = occasion,
 				CreatedAt = now,
 				CreatedByAccountId = decision!.AccountId,
 				UpdatedAt = now,
 				UpdatedByAccountId = decision.AccountId,
 			};
+			if (body?.Tags is not null)
+			{
+				for (var position = 0; position < body.Tags.Count; position++)
+				{
+					song.Tags.Add(new SongTag
+					{
+						Song = song,
+						Value = body.Tags[position]!.Trim(),
+						Position = position,
+						CreatedAt = now,
+						CreatedByAccountId = decision.AccountId,
+					});
+				}
+			}
 			song.Arrangements.Add(new Arrangement
 			{
 				Song = song,
@@ -319,6 +472,12 @@ public static class CatalogueEndpoints
 			var lyricist = PatchOptional(body?.Lyricist, "Der Textdichter ist zu lang.", out var lyricistError);
 			if (lyricistError is not null)
 				return lyricistError;
+			var language = PatchOptional(body?.Language, LanguageTooLongMessage, out var languageError);
+			if (languageError is not null)
+				return languageError;
+			var occasion = PatchOptional(body?.Occasion, OccasionTooLongMessage, out var occasionError);
+			if (occasionError is not null)
+				return occasionError;
 			string? lyrics = null;
 			if (body?.Lyrics is not null)
 			{
@@ -329,11 +488,20 @@ public static class CatalogueEndpoints
 			}
 			if (body?.AlternateTitles is not null)
 			{
-				var alternateError = ValidateAlternateTitles(body.AlternateTitles);
+				var alternateError = ValidateEntryList(body.AlternateTitles, AlternateTitleTooManyMessage, AlternateTitleEmptyMessage, AlternateTitleTooLongMessage, MaxTitleListEntryLength);
 				if (alternateError is not null)
 					return alternateError;
 			}
-			var song = await db.Songs.Include(s => s.AlternateTitles).FirstOrDefaultAsync(s => s.Id == id, token);
+			if (body?.Tags is not null)
+			{
+				var tagValidationError = ValidateEntryList(body.Tags, TagTooManyMessage, TagEmptyMessage, TagTooLongMessage, TagMaxLength);
+				if (tagValidationError is not null)
+					return tagValidationError;
+			}
+			var song = await db.Songs
+				.Include(s => s.AlternateTitles)
+				.Include(s => s.Tags)
+				.FirstOrDefaultAsync(s => s.Id == id, token);
 			if (song is null)
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
 			if (body?.Title is not null)
@@ -344,6 +512,10 @@ public static class CatalogueEndpoints
 				song.Lyricist = lyricist;
 			if (body?.Lyrics is not null)
 				song.Lyrics = lyrics;
+			if (body?.Language is not null)
+				song.Language = language;
+			if (body?.Occasion is not null)
+				song.Occasion = occasion;
 			if (body?.AlternateTitles is not null)
 			{
 				// Full replacement: delete the existing rows and re-add them in
@@ -357,6 +529,25 @@ public static class CatalogueEndpoints
 					{
 						SongId = song.Id,
 						Value = body.AlternateTitles[position]!.Trim(),
+						Position = position,
+						CreatedAt = now_,
+						CreatedByAccountId = decision!.AccountId,
+					});
+				}
+			}
+			if (body?.Tags is not null)
+			{
+				// Full replacement: delete the existing rows and re-add them in
+				// list order with fresh attribution and an explicit position
+				// (Guid v7 IDs share the same millisecond within this save).
+				db.SongTags.RemoveRange(song.Tags);
+				var now_ = time.GetUtcNow();
+				for (var position = 0; position < body.Tags.Count; position++)
+				{
+					db.SongTags.Add(new SongTag
+					{
+						SongId = song.Id,
+						Value = body.Tags[position]!.Trim(),
 						Position = position,
 						CreatedAt = now_,
 						CreatedByAccountId = decision!.AccountId,
@@ -452,6 +643,9 @@ public static class CatalogueEndpoints
 			var voiceConfiguration = CleanOptional(body?.VoiceConfiguration, "Die Stimmverteilung ist zu lang.", out var voiceError);
 			if (voiceError is not null)
 				return voiceError;
+			var accompaniment = CleanOptional(body?.Accompaniment, AccompanimentTooLongMessage, out var accompanimentError);
+			if (accompanimentError is not null)
+				return accompanimentError;
 			var song = await db.Songs.FirstOrDefaultAsync(s => s.Id == id, token);
 			if (song is null)
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
@@ -462,6 +656,7 @@ public static class CatalogueEndpoints
 			Label = label,
 			Arranger = arranger,
 			VoiceConfiguration = voiceConfiguration,
+			Accompaniment = accompaniment,
 			CreatedAt = now,
 			CreatedByAccountId = decision!.AccountId,
 		};
@@ -502,6 +697,9 @@ public static class CatalogueEndpoints
 			var voiceConfiguration = PatchOptional(body?.VoiceConfiguration, "Die Stimmverteilung ist zu lang.", out var voiceError);
 			if (voiceError is not null)
 				return voiceError;
+			var accompaniment = PatchOptional(body?.Accompaniment, AccompanimentTooLongMessage, out var accompanimentError);
+			if (accompanimentError is not null)
+				return accompanimentError;
 			var arrangement = await db.Arrangements.Include(a => a.Song)
 				.FirstOrDefaultAsync(a => a.Id == id, token);
 			if (arrangement is null || arrangement.Song is null)
@@ -512,6 +710,8 @@ public static class CatalogueEndpoints
 				arrangement.Arranger = arranger;
 			if (body?.VoiceConfiguration is not null)
 				arrangement.VoiceConfiguration = voiceConfiguration;
+			if (body?.Accompaniment is not null)
+				arrangement.Accompaniment = accompaniment;
 			var now = time.GetUtcNow();
 			arrangement.Song.UpdatedAt = now;
 			arrangement.Song.UpdatedByAccountId = decision!.AccountId;
@@ -637,6 +837,7 @@ public static class CatalogueEndpoints
 		=> await db.Songs.AsNoTracking()
 			.Include(s => s.Arrangements).ThenInclude(a => a.MusicalVersions)
 			.Include(s => s.AlternateTitles)
+			.Include(s => s.Tags)
 			.FirstOrDefaultAsync(s => s.Id == id, token);
 
 	/// <summary>
@@ -692,6 +893,11 @@ public static class CatalogueEndpoints
 			createdAt = song.CreatedAt,
 			updatedAt = song.UpdatedAt,
 			lyrics = song.Lyrics,
+			language = song.Language,
+			occasion = song.Occasion,
+			tags = song.Tags
+				.OrderBy(t => t.Position).ThenBy(t => t.Id)
+				.Select(t => t.Value),
 			alternateTitles = song.AlternateTitles
 				.OrderBy(t => t.Position).ThenBy(t => t.Id)
 				.Select(t => t.Value),
@@ -701,6 +907,7 @@ public static class CatalogueEndpoints
 				label = a.Label,
 				arranger = a.Arranger,
 				voiceConfiguration = a.VoiceConfiguration,
+				accompaniment = a.Accompaniment,
 				musicalVersions = a.MusicalVersions.OrderBy(v => v.Id).Select(v => new
 				{
 					id = v.Id,
@@ -771,23 +978,25 @@ public static class CatalogueEndpoints
 		=> CleanOptional(raw, tooLongTitle, out error);
 
 	/// <summary>
-	/// Validates an alternate-title replacement list (ARC-020): entries are
-	/// trimmed, must be non-empty and ≤ 200 characters, at most 10 entries.
-	/// Returns the German ProblemDetails error or null when valid.
+	/// Validates a string list replacement (ARC-020 alternate titles,
+	/// ARC-023 tags): entries are trimmed, must be non-empty and within the
+	/// per-entry maximum, at most 10 entries. Returns the German
+	/// ProblemDetails error or null when valid.
 	/// </summary>
-	private static IResult? ValidateAlternateTitles(List<string?>? entries)
+	private static IResult? ValidateEntryList(List<string?>? entries,
+		string tooManyTitle, string emptyTitle, string tooLongTitle, int maxLength)
 	{
 		if (entries is null)
 			return null;
 		if (entries.Count > 10)
-			return Results.Problem(statusCode: 400, title: AlternateTitleTooManyMessage);
+			return Results.Problem(statusCode: 400, title: tooManyTitle);
 		foreach (var entry in entries)
 		{
 			var trimmed = entry?.Trim();
 			if (string.IsNullOrEmpty(trimmed))
-				return Results.Problem(statusCode: 400, title: AlternateTitleEmptyMessage);
-			if (trimmed.Length > 200)
-				return Results.Problem(statusCode: 400, title: AlternateTitleTooLongMessage);
+				return Results.Problem(statusCode: 400, title: emptyTitle);
+			if (trimmed.Length > maxLength)
+				return Results.Problem(statusCode: 400, title: tooLongTitle);
 		}
 		return null;
 	}
@@ -836,6 +1045,200 @@ public static class CatalogueEndpoints
 				g => g.Select(t => t.Value).ToList());
 	}
 
+	/// <summary>
+	/// Loads the tags (values in entry position, id as tiebreak) for the given
+	/// song ids into a per-song map for the repertoire filter evaluation.
+	/// </summary>
+	private static async Task<Dictionary<Guid, List<string>>> LoadSongTagsAsync(
+		ArchiveDbContext db, List<Guid> songIds, CancellationToken token)
+	{
+		if (songIds.Count == 0)
+			return [];
+		var tags = await db.SongTags.AsNoTracking()
+			.Where(t => songIds.Contains(t.SongId))
+			.OrderBy(t => t.SongId).ThenBy(t => t.Position).ThenBy(t => t.Id)
+			.Select(t => new { t.SongId, t.Value })
+			.ToListAsync(token);
+		return tags
+			.GroupBy(t => t.SongId)
+			.ToDictionary(
+				g => g.Key,
+				g => g.Select(t => t.Value).ToList());
+	}
+
+	/// <summary>
+	/// Pure ARC-020 tokenized AND search over the member-visible set: rank
+	/// then Id order, the paged matches plus the page's response maps.
+	/// </summary>
+	private sealed record SearchResult(
+		int Total,
+		List<(SearchRow Song, int Rank, SortedSet<string> MatchedIn)> PageItems,
+		string Query,
+		Dictionary<Guid, List<string>> AlternateTitles,
+		Dictionary<Guid, List<ArrangementSummary>> Arrangements);
+
+	private static async Task<SearchResult> SearchSongsAsync(
+		ArchiveDbContext db, bool isEditor, string query, int requestedPage, int pageSize, CancellationToken token)
+	{
+		// Tokenized AND search over one database-projected visible set;
+		// matching runs in C# so InMemory tests and PostgreSQL agree.
+		var queryFold = CatalogueText.Fold(query);
+		var tokens = query.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+			.Select(CatalogueText.Fold)
+			.Where(t => t.Length > 0)
+			.ToList();
+		if (tokens.Count == 0)
+			return new(0, [], query, [], []);
+		var visible = await QueryVisible(db.Songs, isEditor)
+			.OrderBy(s => s.Id)
+			.Select(s => new SearchRow(s.Id, s.Title, s.Composer, s.Lyricist, s.PublishedAt, s.Lyrics))
+			.ToListAsync(token);
+		var visibleIds = visible.Select(s => s.Id).ToList();
+		var alternateTitleMap = await LoadAlternateTitlesAsync(db, visibleIds, token);
+		var arrangementRows = await db.Arrangements.AsNoTracking()
+			.Where(a => visibleIds.Contains(a.SongId))
+			.OrderBy(a => a.Id)
+			.Select(a => new { a.Id, a.SongId, a.Label, a.Arranger })
+			.ToListAsync(token);
+		var arrangementMap = arrangementRows
+			.GroupBy(a => a.SongId)
+			.ToDictionary(g => g.Key, g => g.ToList());
+		var matches = new List<(SearchRow Song, int Rank, SortedSet<string> MatchedIn)>();
+		foreach (var song in visible)
+		{
+			var matchedIn = new SortedSet<string>();
+			var titleFold = CatalogueText.Fold(song.Title);
+			var titles = alternateTitleMap.TryGetValue(song.Id, out var titles_)
+				? titles_.Select(CatalogueText.Fold).ToList()
+				: [];
+			var composerFold = CatalogueText.Fold(song.Composer);
+			var lyricistFold = CatalogueText.Fold(song.Lyricist);
+			var lyricsFold = CatalogueText.Fold(song.Lyrics);
+			var arrangementTexts = arrangementMap.TryGetValue(song.Id, out var arrangements_)
+				? arrangements_.SelectMany(a => new[] { CatalogueText.Fold(a.Label), CatalogueText.Fold(a.Arranger) }).ToList()
+				: [];
+			// AND semantics: every token must occur (substring) in at least
+			// one of the searchable fields; matchedIn lists every field a
+			// token hit, sorted alphabetically.
+			var allFound = true;
+			foreach (var current in tokens)
+			{
+				var found = false;
+				if (titleFold.Contains(current))
+				{
+					found = true;
+					matchedIn.Add("title");
+				}
+				if (titles.Any(t => t.Contains(current)))
+				{
+					found = true;
+					matchedIn.Add("alternateTitles");
+				}
+				if (composerFold.Contains(current))
+				{
+					found = true;
+					matchedIn.Add("composer");
+				}
+				if (lyricistFold.Contains(current))
+				{
+					found = true;
+					matchedIn.Add("lyricist");
+				}
+				if (lyricsFold.Contains(current))
+				{
+					found = true;
+					matchedIn.Add("lyrics");
+				}
+				if (arrangementTexts.Any(t => t.Contains(current)))
+				{
+					found = true;
+					matchedIn.Add("arrangements");
+				}
+				if (!found)
+				{
+					allFound = false;
+					break;
+				}
+			}
+			if (!allFound)
+				continue;
+			var rank = titleFold == queryFold ? 0
+				: tokens.All(t => titleFold.Contains(t)) ? 1
+				: 2;
+			matches.Add((song, rank, matchedIn));
+		}
+		var ordered = matches
+			.OrderBy(m => m.Rank)
+			.ThenBy(m => m.Song.Id)
+			.ToList();
+		var pageItems = ordered
+			.Skip((requestedPage - 1) * pageSize)
+			.Take(pageSize)
+			.ToList();
+		var pageIds = pageItems.Select(m => m.Song.Id).ToList();
+		var pageArrangements = await LoadArrangementSummariesAsync(db, pageIds, token);
+		var pageAlternateTitles = await LoadAlternateTitlesAsync(db, pageIds, token);
+		return new(ordered.Count, pageItems, query, pageAlternateTitles, pageArrangements);
+	}
+
+	/// <summary>
+	/// Parses and validates the ARC-023 filter query parameters: text filters
+	/// are trimmed (empty = absent) and fold at match time; the material list
+	/// is comma-separated, trimmed, lowercased, deduplicated and restricted to
+	/// the recognized material types. Returns null with an error result for
+	/// invalid input.
+	/// </summary>
+	private static (RepertoireFilter? Filter, IResult? Error) ParseRepertoireFilter(
+		string? voiceConfiguration, string? accompaniment, string? musicalKey,
+		string? language, string? occasion, string? tag, string? material)
+	{
+		string? ParseText(string? raw)
+		{
+			var trimmed = raw?.Trim();
+			return string.IsNullOrEmpty(trimmed) ? null : trimmed;
+		}
+		var voice = ParseText(voiceConfiguration);
+		var arrangement = ParseText(accompaniment);
+		var key = ParseText(musicalKey);
+		var songLanguage = ParseText(language);
+		var songOccasion = ParseText(occasion);
+		var songTag = ParseText(tag);
+		if (voice is { Length: > 200 } || arrangement is { Length: > 200 } || key is { Length: > 200 }
+			|| songLanguage is { Length: > 200 } || songOccasion is { Length: > 200 } || songTag is { Length: > 200 })
+			return (null, Results.Problem(statusCode: 400, title: FilterTooLongMessage));
+		var materials = new List<string>();
+		var materialParam = ParseText(material);
+		if (materialParam is not null)
+		{
+			if (materialParam.Length > 200)
+				return (null, Results.Problem(statusCode: 400, title: FilterTooLongMessage));
+			var entries = materialParam.Split(',').Select(entry => entry.Trim()).ToList();
+			if (entries.Any(entry => entry.Length == 0))
+				return (null, Results.Problem(statusCode: 400, title: UnknownMaterialFilterMessage));
+			materials = entries
+				.Select(entry => entry.ToLowerInvariant())
+				.Distinct()
+				.OrderBy(entry => entry, StringComparer.Ordinal)
+				.ToList();
+			if (materials.Any(entry => !RepertoireFilter.KnownMaterials.Contains(entry)))
+				return (null, Results.Problem(statusCode: 400, title: UnknownMaterialFilterMessage));
+		}
+		var filter = new RepertoireFilter(voice, arrangement, key, songLanguage, songOccasion, songTag, materials);
+		return (filter.HasConditions ? filter : null, null);
+	}
+
+	/// <summary>Top-level filters echo (absent conditions are null; materials sorted unique, empty without a material filter).</summary>
+	private static object FilterEcho(RepertoireFilter? filter) => new
+	{
+		voiceConfiguration = filter?.VoiceConfiguration,
+		accompaniment = filter?.Accompaniment,
+		musicalKey = filter?.MusicalKey,
+		language = filter?.Language,
+		occasion = filter?.Occasion,
+		tag = filter?.Tag,
+		materials = filter?.Materials ?? (IReadOnlyList<string>)[],
+	};
+
 	private static async Task<(ArchiveAccessDecision? Decision, IResult? Error)> RequireMemberAsync(
 		HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access)
 	{
@@ -871,14 +1274,19 @@ public static class CatalogueEndpoints
 	private sealed record SearchRow(Guid Id, string Title, string? Composer, string? Lyricist,
 		DateTimeOffset? PublishedAt, string? Lyrics);
 
+	/// <summary>Database-projected row for C#-side repertoire filtering (ARC-023).</summary>
+	private sealed record FilterRow(Guid Id, string Title, string? Composer, string? Lyricist,
+		DateTimeOffset? PublishedAt, string? Lyrics, string? Language, string? Occasion);
+
 	/// <summary>
 	/// Shared list/search song item shape: the ARC-013 summary fields plus the
 	/// ARC-020 search fields (matched-in keys empty without a query, lyric
-	/// snippet reserved for ARC-033).
+	/// snippet reserved for ARC-033) and the ARC-023 matched-arrangement hints.
 	/// </summary>
 	private static object SongItem(Guid id, string title, string? composer, string? lyricist,
 		DateTimeOffset? publishedAt, List<string> alternateTitles,
-		List<ArrangementSummary> arrangements, string[] matchedIn) => new
+		List<ArrangementSummary> arrangements, string[] matchedIn,
+		List<ArrangementSummary> matchedArrangements) => new
 	{
 		id,
 		title,
@@ -889,6 +1297,7 @@ public static class CatalogueEndpoints
 		alternateTitles,
 		arrangements,
 		matchedIn,
+		matchedArrangements,
 		lyricsSnippet = (string?)null,
 	};
 }

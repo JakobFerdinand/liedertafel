@@ -38,7 +38,15 @@ public sealed class Song
 	/// <summary>Optional entered lyrics or opening words (ARC-020).</summary>
 	public string? Lyrics { get; set; }
 
+	/// <summary>Optional language (ARC-023); null = unknown.</summary>
+	public string? Language { get; set; }
+
+	/// <summary>Optional occasion (ARC-023); null = unknown.</summary>
+	public string? Occasion { get; set; }
+
 	public List<Arrangement> Arrangements { get; set; } = [];
 
 	public List<SongTitle> AlternateTitles { get; set; } = [];
+
+	public List<SongTag> Tags { get; set; } = [];
 }

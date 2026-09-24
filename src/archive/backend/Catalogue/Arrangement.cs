@@ -18,6 +18,9 @@ public sealed class Arrangement
 
 	public string? VoiceConfiguration { get; set; }
 
+	/// <summary>Optional accompaniment/instrumentation (ARC-023); null = unknown.</summary>
+	public string? Accompaniment { get; set; }
+
 	public DateTimeOffset CreatedAt { get; set; }
 
 	public Guid CreatedByAccountId { get; set; }
