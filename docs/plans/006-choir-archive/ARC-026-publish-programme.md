@@ -1,6 +1,6 @@
 ---
 id: ARC-026
-status: planned
+status: done
 phase: core
 kind: slice
 depends_on: ["ARC-014", "ARC-024"]
@@ -99,7 +99,12 @@ Editor-only writes via the shared decision, member 403/anonymous 401):
   Liedfassung."), note ≤ 500 (400). Draft selections are allowed while
   drafting; member-visibility is enforced at publish. Response: the programme
   embed with the fresh working revision (items carry IDs, positions, computed
-  display fields) and the new `rowVersion`.
+  display fields) and the new `rowVersion`. Amendment (review of 2026-09-25):
+  the renumber commits in two explicit saves inside one transaction — the
+  unique `(RevisionId, Position)` index makes an in-place renumber of swapped
+  surviving entries a dependency cycle for the relational command batch, so
+  phase 1 parks every entry above the current rows and phase 2 lands the
+  final order; publish keeps its single atomic save.
 - `POST /api/events/{eventId}/programme/publish` (Editor): body
   `{ rowVersion }`. Publishes atomically in one save: stale `rowVersion` → 409
   (as above); no working revision → 409 "Das Programm wurde bereits
@@ -161,3 +166,114 @@ Verification: three-song programme including a transposed version and a
 repeated song; member views, stable ordering/IDs across saves, rejected stale
 changes (PUT and publish), absence of draft exposure before the first
 publication, and no performed markers from passing event dates.
+
+## Implementation and verification (2026-09-25)
+
+Backend (`0174a5e`):
+
+- New entities `EventProgramme` (table `programmes`, unique `EventId`,
+  attribution + application-bumped `RowVersion`), `ProgrammeRevision` (table
+  `programme_revisions`, `Number` unique per programme, `PublishedAt`/
+  `PublishedByAccountId` null = working draft) and `ProgrammeItem` (table
+  `programme_items`, `Position` 1..n, `SongId`/`ArrangementId`/
+  `MusicalVersionId`, note ≤ 500) with `EventProgrammeModelConfiguration`
+  (cascade event→programme→revision→item, Restrict into the catalogue, unique
+  indexes including the partial draft index on `PublishedAt IS NULL`) and the
+  `ProgrammeVisibility` decision beside the entity; the DbSets are registered
+  in `ArchiveDbContext`.
+- `ProgrammeEndpoints.cs`: `PUT /api/events/{eventId}/programme/items` (full
+  ordered replacement with stable item IDs, implicit programme + revision 1
+  creation, post-publication fresh drafts seeded empty with fresh IDs,
+  all-before-write validation, German 409/400 titles),
+  `POST /api/events/{eventId}/programme/publish` (single atomic save: stale
+  rowVersion 409, already-published 409, empty 400, member-visibility
+  availability check 409 with a distinct title, stamp + `RowVersion` bump in
+  one save; nothing else written — the event row and its stamps stay
+  untouched, no performed markers), `GET /api/programmes` (Member+,
+  precision-aware upcoming filter; soonest first, unknown last; Vienna
+  calendar day) and the shared `LoadDetailEmbedAsync` embed wired into all
+  four event detail responses after `documents` (members: newest published
+  revision only, programme null before first publication; editors: the
+  working draft too). `EventDate.Precision` deduplicated as the shared single
+  source of truth.
+- Tool-generated additive migration `20260925072429_EventProgrammes`; the
+  walking-skeleton pending-migrations assertion lists `_EventProgrammes`.
+- `tests/archive/backend/ProgrammeApiTests.cs`: 8 tests —
+  `EditorSavesProgrammeItemsWithStableIdsAndReorder`,
+  `DraftProgrammeStaysHiddenFromMembers`,
+  `PublishStampsRevisionAndMembersSeeOrderedProgramme`,
+  `SecondPublishCreatesFreshDraftAndSupersedesFirstRevision`,
+  `StaleRowVersionConflictsReturn409OnSaveAndPublish`,
+  `PublishRejectsUnavailableAndPrivateSelections`,
+  `ValidationErrorsReturnGermanProblems`,
+  `PublishingProgrammeLeavesEventRowAndSongsUnmarked`; one outdated ARC-025
+  assertion in `EventAssetApiTests` honestly reworded ("no entity named
+  Programme exists" → "nothing tracks performed or confirmed songs").
+
+Frontend (`48cb8da`):
+
+- `lib/events.ts`: `ProgrammPunkt`/`ProgrammRevision`/
+  `ProgrammRevisionVeroeffentlicht`/`ProgrammEmbed`/`AuftrittDetailsMitProgramm`/
+  `ProgrammListeZeile` types; `putProgrammItems` (optional rowVersion for
+  implicit creation), `publishProgramm`, `fetchProgramme`,
+  `programmPunktUrl` deep links (`/lied/?id=…&fassung=…&version=…`) and
+  `publishedAtText`; `putAuth` added to `lib/auth.ts` on the `patchAuth`
+  pattern.
+- `components/auftritt-programm.tsx`: member Lesesaal (ordered
+  Programmpunkte, deep-linked song titles, arrangement/version line with
+  Tonart/Stimmkonfiguration only when non-null, per-entry note,
+  "Veröffentlicht am …"), honest empty state; editor workbench (collapsed by
+  default, per-entry `FassungsWahl`, catalogue song search, ↑/↓ reorder with
+  aria-labels, remove, note ≤ 500, save with the programme rowVersion,
+  publish), 409 → German copy + fresh state.
+- `components/programm-liste.tsx` + `app/programm/page.tsx`: member
+  directory of upcoming published programmes (server-sorted, `dateDisplay`
+  with honest "Datum unsicher" marking, kind, venue/time, item count with
+  plural, link to `/auftritt/?id=…`); the nav gains "Programme" →
+  `/programm/`.
+- `tests/programm.spec.ts`: initially 6 mocked tests × desktop + mobile.
+
+Review findings and fixes (`349ed7c`, `d1fc955`):
+
+- Backend review: Blocker — in-place renumbering of swapped surviving
+  entries is a dependency cycle for the unique `(RevisionId, Position)` index
+  on any relational provider (EF throws before SQL; InMemory tests cannot see
+  it; the frontend's ↑/↓ swap produces exactly that shape) → fixed with a
+  two-phase renumber in one explicit transaction (phase 1 parks every entry
+  above the current rows, phase 2 lands 1..n; the InMemory test factory
+  ignores the transaction warning so it works under tests). Should-fix: the
+  working embed's `updatedAt` followed the frozen revision `CreatedAt` → now
+  the programme aggregate's. Should-fix: new regression
+  `PublishedProgrammeOnDraftEventStaysHiddenUntilEventPublish` (draft-event
+  programme publication stays hidden until the event publishes); malformed
+  entries (duplicated item ids, null entries) answer 400 "Ein Programmpunkt
+  ist ungültig." before any write, `Assert.Single` silences xUnit2013.
+- Frontend review: Blocker — the post-publication workbench started empty
+  instead of seeding from the published list → now derives rows from the
+  published items with `serverId` null (fresh IDs on save). Should-fix:
+  sibling-triggered refetches wiped unsaved workbench rows → rows anchor to
+  the programme rowVersion (resync only when it changes); failed song fetches
+  are cached as a per-song "fehler" state with Erneut versuchen (no infinite
+  refetch loop); Veröffentlichen refuses while unsaved edits exist; the
+  post-publish class-name collision with `auftritt-dokumente.spec.ts` is
+  fixed (`programm-verwaltung` only, styles in the shared recipe);
+  `publishedAtText` formats in Europe/Vienna (timezoneId pinned in
+  `playwright.config.ts`); the PUT/publish response embed is used directly;
+  `LiedWahl` search aborts stale responses; `e13f17b` pins the Identity
+  schema version in `MemberEmailChangeTests.RepairServices` so the repair
+  tests no longer depend on EF's process-wide model-cache order (a
+  pre-existing flake, not ARC-026 damage).
+
+Verification evidence:
+
+- `dotnet build src/archive/Archive.slnx` clean; `dotnet test
+  tests/archive/backend` **332 passed** (322 prior + the new ProgrammeApiTests
+  listed above).
+- `dotnet test tests/archive/apphost` (fresh containers) **4/4 green** —
+  the `EventProgrammes` migration is applied by `archive-migrate` and
+  zero migrations stay pending afterwards.
+- Frontend `pnpm run check` clean (Biome + route types + tsc) and
+  `pnpm run build` exports `/programm`; the route-mocked Playwright spec
+  passed **22/22** (11 tests × desktop + mobile), and the adjacent
+  `auftritt-dokumente`/`auftritte` specs added another **28** green (50 in
+  one run together).
