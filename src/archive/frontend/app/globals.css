@@ -2171,11 +2171,6 @@ fieldset.programm-verwaltung {
   gap: 0.4rem 0.6rem;
   flex-wrap: wrap;
 }
-.programm-zeile-nummer {
-  font-family: var(--font-heading);
-  font-variant-numeric: tabular-nums;
-  color: var(--muted);
-}
 .programm-zeile-titel {
   font-weight: 600;
   overflow-wrap: anywhere;
@@ -2269,18 +2264,8 @@ fieldset.programm-verwaltung {
     grid-template-columns: 1fr;
     gap: 0.1rem;
   }
-  /* Die Werkzeile stapelt im Handymaß: Kopf, Umordnen-Reihe, Fassungs-
-     wahl und Notiz laufen untereinander, die Pfeilknöpfe behalten ihre
-     Berührziele. */
-  .programm-zeile-werkzeuge {
-    flex-wrap: wrap;
-  }
-}
-
-@media (max-width: 700px) {
-  .auftritte-bereich {
-    grid-template-columns: 1fr;
-  }
+  /* Die Werkzeile stapelt im Handymaß (das Umbrechen der Werkzeugreihe
+     leistet die Basisregel); die Pfeilknöpfe behalten ihre Berührziele. */
   /* Die Jahresleiste läuft als querlaufende Reihe; die Knöpfe bleiben
      ungebogen, die Reihe wischt statt umzubrechen. */
   .auftritte-jahre {

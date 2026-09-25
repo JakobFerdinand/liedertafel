@@ -7,12 +7,21 @@
 // ganzer geordneter Ersatz) und Veröffentlichen trennen Entwurf und
 // Mitgliedssicht. Veraltete Stände laden den frischen Stand und bitten
 // um Nacharbeit.
+//
+// Die Werkzeilen folgen der Programm-rowVersion: eigenes Speichern und
+// Veröffentlichen übernehmen die frische Einbettung der Antwort sofort,
+// Geschwister-Nachladen mit unveränderter Version lässt ungespeicherte
+// Arbeit unberührt. Nach einer Veröffentlichung startet der Entwurf als
+// Kopie der veröffentlichten Liste — der nächste PUT legt jeden
+// Eintrag neu an (Vertragssprache).
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FassungsWahl } from "@/components/fassungs-wahl";
+import { problemTitel } from "@/lib/assets";
 import {
   type AuftrittDetailsMitProgramm,
+  type ProgrammRevision,
   type ProgrammRevisionVeroeffentlicht,
   programmPunktUrl,
   publishedAtText,
@@ -33,6 +42,9 @@ const liedLadeFehler =
 
 const katalogFehler = "Der Katalog antwortet nicht. Bitte erneut versuchen.";
 
+const ungespeicherteAenderungen =
+  "Es gibt nicht gespeicherte Änderungen. Speichere den Entwurf erst, um sie zu veröffentlichen.";
+
 // Ein Werkzeile der Workbench: serverseitige Programmpunkt-Id (stabil
 // über Speicherungen) oder lokale Entwurfskennung für neue Einträge.
 type WerkZeile = {
@@ -44,20 +56,83 @@ type WerkZeile = {
   notiz: string;
 };
 
-/** Deutscher ProblemDetails-Titel aus einer geworfenen Antwort oder Ersatz. */
-async function problemTitel(
-  ursache: unknown,
-  fallback: string,
-): Promise<string> {
-  if (ursache instanceof Response) {
-    const inhalt = (await ursache.json().catch(() => null)) as {
-      title?: unknown;
-    } | null;
-    if (inhalt && typeof inhalt.title === "string" && inhalt.title) {
-      return inhalt.title;
-    }
+// Zuletzt synchronisierter Server-Stand als Zeilenprojektion; Grundlage
+// der Prüfung, ob ungespeicherte Arbeit vorliegt.
+type SynchronZeile = {
+  serverId: string | null;
+  songId: string;
+  musicalVersionId: string;
+  notiz: string;
+};
+
+/**
+ * Zeilen der Werkbank aus dem Server-Stand: mit Arbeitsrevision tragen
+ * sie die stabilen Programmpunkt-Ids; ohne Arbeitsrevision (nach einer
+ * Veröffentlichung) startet der Entwurf als Kopie der veröffentlichten
+ * Liste — die Zeilen tragen keine Server-Ids, der nächste PUT legt
+ * jeden Eintrag neu an (Vertragssprache).
+ */
+function zeilenAusRevisionen(
+  working: ProgrammRevision | null,
+  published: ProgrammRevisionVeroeffentlicht | null,
+): { zeilen: WerkZeile[]; kopie: boolean } {
+  if (working !== null) {
+    return {
+      kopie: false,
+      zeilen: working.items.map((punkt) => ({
+        schluessel: punkt.id,
+        serverId: punkt.id,
+        songId: punkt.songId,
+        arrangementId: punkt.arrangementId,
+        musicalVersionId: punkt.musicalVersionId,
+        notiz: punkt.note ?? "",
+      })),
+    };
   }
-  return fallback;
+  // Ohne Arbeitsrevision (nach einer Veröffentlichung) startet der
+  // Entwurf als Kopie der veröffentlichten Liste: die Zeilen tragen
+  // keine Server-Ids, der nächste PUT legt jeden Eintrag neu an.
+  return {
+    kopie: published !== null,
+    zeilen: (published?.items ?? []).map((punkt) => ({
+      schluessel: punkt.id,
+      serverId: null,
+      songId: punkt.songId,
+      arrangementId: punkt.arrangementId,
+      musicalVersionId: punkt.musicalVersionId,
+      notiz: punkt.note ?? "",
+    })),
+  };
+}
+
+/** Zeilenprojektion eines Standes für den Vergleich mit der Arbeit. */
+function synchronstandAusZeilen(zeilen: WerkZeile[]): SynchronZeile[] {
+  return zeilen.map((zeile) => ({
+    serverId: zeile.serverId,
+    songId: zeile.songId ?? "",
+    musicalVersionId: zeile.musicalVersionId ?? "",
+    notiz: zeile.notiz,
+  }));
+}
+
+/**
+ * Ungespeicherte Arbeit: die Zeilen weichen vom zuletzt synchronisierten
+ * Server-Stand ab (Id-Vorhandensein, Reihenfolge, Liedfassung, Notiz).
+ */
+function ungespeichert(
+  aktuelleZeilen: WerkZeile[],
+  bekannterStand: SynchronZeile[],
+): boolean {
+  if (aktuelleZeilen.length !== bekannterStand.length) return true;
+  return aktuelleZeilen.some((zeile, index) => {
+    const bekannt = bekannterStand[index];
+    return (
+      (zeile.serverId !== null) !== (bekannt.serverId !== null) ||
+      zeile.songId !== bekannt.songId ||
+      zeile.musicalVersionId !== bekannt.musicalVersionId ||
+      zeile.notiz.trim() !== bekannt.notiz.trim()
+    );
+  });
 }
 
 // ─── Lesesaal: die veröffentlichte Revision ──────────────────────────
@@ -114,6 +189,7 @@ function ProgrammZeile({
   onHoch,
   onRunter,
   onEntfernen,
+  onErneutVersuchen,
 }: {
   zeile: WerkZeile;
   stelle: number;
@@ -127,6 +203,7 @@ function ProgrammZeile({
   onHoch: () => void;
   onRunter: () => void;
   onEntfernen: () => void;
+  onErneutVersuchen: () => void;
 }) {
   const idPraefix = `programm-zeile-${zeile.schluessel}`;
   const titel = lied?.title ?? "Lied wird geladen …";
@@ -137,6 +214,8 @@ function ProgrammZeile({
           {stelle}.
         </span>
         <span className="programm-zeile-titel">{titel}</span>
+        {/* Eine ankündigende Stelle je Zeile: der Fehler läuft hier mit
+            und wiederholt sich nicht über den ganzen Bereich. */}
         <span className="material-datei-status" aria-live="polite">
           {liedFehler || (lied ? "" : liedLaeuft ? "wird geladen …" : "")}
         </span>
@@ -177,9 +256,20 @@ function ProgrammZeile({
           onSelect={onFassungGewaehlt}
         />
       ) : (
-        <p className="feld-hinweis">
-          {liedLaeuft ? "Lied wird geladen …" : liedFehler}
-        </p>
+        <div>
+          <p className="feld-hinweis">
+            {liedLaeuft ? "Lied wird geladen …" : liedFehler}
+          </p>
+          {!liedLaeuft && liedFehler && (
+            <button
+              type="button"
+              className="knopf-leise"
+              onClick={onErneutVersuchen}
+            >
+              Erneut versuchen
+            </button>
+          )}
+        </div>
       )}
       <div className="programm-zeile-notiz">
         <label htmlFor={`${idPraefix}-notiz`}>Notiz (optional)</label>
@@ -204,13 +294,38 @@ function LiedWahl({ onGewaehlt }: { onGewaehlt: (songId: string) => void }) {
   >([]);
   const [fehler, setFehler] = useState("");
   const [busy, setBusy] = useState(false);
+  // Suche in fester Reihenfolge: jede neue Suche bricht die vorige ab
+  // und zählt weiter; ältere Antworten dürfen jüngere Ergebnisse nicht
+  // überschreiben, und nach dem Einklappen wird kein Zustand mehr
+  // gesetzt.
+  const laufNummer = useRef(0);
+  const laufendeAbbruch = useRef<AbortController | null>(null);
+  const lebt = useRef(true);
+
+  useEffect(() => {
+    lebt.current = true;
+    return () => {
+      lebt.current = false;
+      laufendeAbbruch.current?.abort();
+    };
+  }, []);
 
   async function suchen(event: React.FormEvent) {
     event.preventDefault();
+    const nummer = laufNummer.current + 1;
+    laufNummer.current = nummer;
+    laufendeAbbruch.current?.abort();
+    const abbruch = new AbortController();
+    laufendeAbbruch.current = abbruch;
     setBusy(true);
     setFehler("");
     try {
-      const antwort = await fetchSongSearch(suche.trim() || null, 1);
+      const antwort = await fetchSongSearch(
+        suche.trim() || null,
+        1,
+        abbruch.signal,
+      );
+      if (!lebt.current || nummer !== laufNummer.current) return;
       setErgebnisse(
         antwort.songs.map((eintrag) => ({
           id: eintrag.id,
@@ -219,9 +334,11 @@ function LiedWahl({ onGewaehlt }: { onGewaehlt: (songId: string) => void }) {
       );
       if (antwort.songs.length === 0) setFehler("Kein Lied gefunden.");
     } catch {
+      // Abgebrochene oder überholte Antworten ändern nichts mehr.
+      if (!lebt.current || nummer !== laufNummer.current) return;
       setFehler(katalogFehler);
     } finally {
-      setBusy(false);
+      if (lebt.current && nummer === laufNummer.current) setBusy(false);
     }
   }
 
@@ -286,33 +403,52 @@ export function AuftrittProgramm({
 
   const [ausgeklappt, setAusgeklappt] = useState(false);
   const [zeilen, setZeilen] = useState<WerkZeile[]>([]);
-  const [lieder, setLieder] = useState<Record<string, LiedDetails | null>>({});
-  const [liedFehler, setLiedFehler] = useState("");
+  const [synchronstand, setSynchronstand] = useState<SynchronZeile[]>([]);
+  // true, wenn die Zeilen als Kopie der veröffentlichten Liste starten
+  // (nach einer Veröffentlichung, noch ohne eigenen Entwurf).
+  const [entwurfKopie, setEntwurfKopie] = useState(false);
+  // rowVersion des Programmstands, aus dem die Zeilen zuletzt abgeleitet
+  // wurden; Anker für Concurrency und Resync (null = ohne Programm).
+  const [letzteGeladeneVersion, setLetzteGeladeneVersion] = useState<
+    number | null
+  >(null);
+  const [lieder, setLieder] = useState<Record<string, LiedDetails | "fehler">>(
+    {},
+  );
+  const [liedFehler, setLiedFehler] = useState<Record<string, string>>({});
   const [hinweis, setHinweis] = useState("");
   const [erfolg, setErfolg] = useState("");
   const [speichernBusy, setSpeichernBusy] = useState(false);
   const [veröffentlichenBusy, setVeröffentlichenBusy] = useState(false);
 
-  // Beim Aufklappen übersetzt der Entwurf sich in die Werkzeilen; nach
-  // jedem frischen Programmstand (Speichern, 409-Nachladen, Veröffent-
-  // lichen) folgt der Bestand neu — so überleben stabile Ids und die
-  // Redaktion sieht den Stand, den der Server wirklich kennt.
+  // Die Werkzeilen folgen dem Server-Stand: beim Aufklappen und bei jedem
+  // echten Versionswechsel (Speichern, 409-Nachladen, Veröffentlichen,
+  // Erscheinen des Programms). Ein Geschwister-Nachladen mit unveränderter
+  // rowVersion lässt die Zeilen unberührt, damit ungespeicherte Arbeit
+  // nicht verloren geht; der ältere Stand des Elternteils überschreibt
+  // keine schon übernommene frischere Version (eigenes Speichern ist
+  // der Auftrittsabfrage voraus).
   useEffect(() => {
     if (!ausgeklappt) return;
-    setZeilen(
-      (entwurf?.items ?? []).map((punkt) => ({
-        schluessel: punkt.id,
-        serverId: punkt.id,
-        songId: punkt.songId,
-        arrangementId: punkt.arrangementId,
-        musicalVersionId: punkt.musicalVersionId,
-        notiz: punkt.note ?? "",
-      })),
-    );
-  }, [ausgeklappt, entwurf]);
+    const version = programm?.rowVersion ?? null;
+    if (version === letzteGeladeneVersion) return;
+    if (
+      letzteGeladeneVersion !== null &&
+      (version === null || version < letzteGeladeneVersion)
+    ) {
+      return;
+    }
+    const folge = zeilenAusRevisionen(entwurf, veroeffentlicht);
+    setZeilen(folge.zeilen);
+    setSynchronstand(synchronstandAusZeilen(folge.zeilen));
+    setEntwurfKopie(folge.kopie);
+    setLetzteGeladeneVersion(version);
+  }, [ausgeklappt, programm, entwurf, veroeffentlicht, letzteGeladeneVersion]);
 
   // Lieddetails je betroffenem Eintrag laden (FassungsWahl braucht sie);
   // schon geladene Lieder bleiben im Bestand, nur neue Ids werden geholt.
+  // Eine fehlgeschlagene Abfrage merkt sich ihr Lied als "fehler" und
+  // wartet auf Erneut versuchen, statt sich endlos zu wiederholen.
   useEffect(() => {
     if (!ausgeklappt) return;
     const fehlende = [
@@ -329,24 +465,28 @@ export function AuftrittProgramm({
         try {
           return [id, await fetchSong(id, abbruch.signal)] as const;
         } catch {
-          return [id, null] as const;
+          return [id, "fehler"] as const;
         }
       }),
     ).then((paare) => {
       if (abbruch.signal.aborted) return;
-      setLieder((bisher) => {
+      setLieder((bisher) => ({
+        ...bisher,
+        ...Object.fromEntries(paare),
+      }));
+      setLiedFehler((bisher) => {
         const stand = { ...bisher };
-        for (const [id, lied] of paare) stand[id] = lied;
+        for (const [id, ergebnis] of paare) {
+          if (ergebnis === "fehler") stand[id] = liedLadeFehler;
+          else delete stand[id];
+        }
         return stand;
       });
-      if (paare.some(([, lied]) => lied === null))
-        setLiedFehler(liedLadeFehler);
     });
     return () => abbruch.abort();
   }, [ausgeklappt, zeilen, lieder]);
 
   function neuerEintrag(songId: string) {
-    setLiedFehler("");
     setZeilen((bisher) => [
       ...bisher,
       {
@@ -358,6 +498,21 @@ export function AuftrittProgramm({
         notiz: "",
       },
     ]);
+  }
+
+  // Neuer Versuch für ein fehlgeschlagenes Lied: der Fehler-Marker und
+  // die Meldung fallen weg, die Wirkung lädt das Lied erneut.
+  function liedErneutVersuchen(songId: string) {
+    setLieder((bisher) => {
+      const stand = { ...bisher };
+      delete stand[songId];
+      return stand;
+    });
+    setLiedFehler((bisher) => {
+      const stand = { ...bisher };
+      delete stand[songId];
+      return stand;
+    });
   }
 
   function umordnen(index: number, richtung: -1 | 1) {
@@ -402,20 +557,34 @@ export function AuftrittProgramm({
     setHinweis("");
     try {
       // Ohne Programm legt der erste PUT es still an (rowVersion
-      // entfällt); mit Programm zählt sie als Concurrency-Anker. Die
-      // frische Einbettung (mit den neuen Ids) kommt über aktualisieren().
-      await putProgrammItems(auftritt.id, {
+      // entfällt); mit Programm zählt die zuletzt geladene Version als
+      // Concurrency-Anker — auch dann, wenn die Auftrittsabfrage nach
+      // einem eigenen Speichern noch unterwegs ist.
+      const einbettung = await putProgrammItems(auftritt.id, {
         items: zeilen.map((zeile) => ({
           ...(zeile.serverId ? { id: zeile.serverId } : {}),
           songId: zeile.songId ?? "",
           musicalVersionId: zeile.musicalVersionId ?? "",
           note: zeile.notiz.trim(),
         })),
-        ...(programm ? { rowVersion: programm.rowVersion } : {}),
+        ...(letzteGeladeneVersion !== null
+          ? { rowVersion: letzteGeladeneVersion }
+          : {}),
       });
+      // Die frische Einbettung (neue Ids, neue rowVersion) kommt aus der
+      // Antwort; die Zeilen folgen ihr sofort, damit ein zügiges zweites
+      // Speichern den neuen Anker trägt. Das Nachladen des Elternteils
+      // bringt dieselbe Version und löst keinen zweiten Resync aus.
+      const folge = zeilenAusRevisionen(
+        einbettung.working,
+        einbettung.published,
+      );
+      setLetzteGeladeneVersion(einbettung.rowVersion);
+      setZeilen(folge.zeilen);
+      setSynchronstand(synchronstandAusZeilen(folge.zeilen));
+      setEntwurfKopie(folge.kopie);
       setErfolg("Programmentwurf gespeichert.");
       setHinweis("");
-      // Der frische Stand (mit neuen Ids) kommt über aktualisieren().
       aktualisieren();
     } catch (ursache) {
       if (ursache instanceof Response && ursache.status === 409) {
@@ -432,14 +601,34 @@ export function AuftrittProgramm({
   }
 
   async function veroeffentlichen() {
-    if (programm === null) {
+    if (letzteGeladeneVersion === null) {
       setHinweis("Es liegt noch kein Programmentwurf vor.");
+      return;
+    }
+    // Nichts wird stillschweigend verworfen: ungespeicherte Arbeit
+    // bremst die Veröffentlichung, bis der Entwurf gespeichert ist.
+    if (ungespeichert(zeilen, synchronstand)) {
+      setHinweis(ungespeicherteAenderungen);
       return;
     }
     setVeröffentlichenBusy(true);
     setHinweis("");
     try {
-      await publishProgramm(auftritt.id, programm.rowVersion);
+      const einbettung = await publishProgramm(
+        auftritt.id,
+        letzteGeladeneVersion,
+      );
+      // Nach der Veröffentlichung ist der Entwurf weg: die Zeilen starten
+      // als Kopie der veröffentlichten Liste (ohne Server-Ids), der
+      // nächste PUT legt jeden Eintrag neu an.
+      const folge = zeilenAusRevisionen(
+        einbettung.working,
+        einbettung.published,
+      );
+      setLetzteGeladeneVersion(einbettung.rowVersion);
+      setZeilen(folge.zeilen);
+      setSynchronstand(synchronstandAusZeilen(folge.zeilen));
+      setEntwurfKopie(folge.kopie);
       setErfolg("Programm veröffentlicht. Mitglieder sehen es ab sofort.");
       setHinweis("");
       aktualisieren();
@@ -455,8 +644,6 @@ export function AuftrittProgramm({
       setVeröffentlichenBusy(false);
     }
   }
-
-  const hatVeroeffentlicht = veroeffentlicht !== null;
 
   return (
     <section
@@ -483,6 +670,11 @@ export function AuftrittProgramm({
             Veröffentlicht am {publishedAtText(veroeffentlicht.publishedAt)}
           </p>
         </>
+      ) : isEditor && programm !== null ? (
+        // Ehrlich zur Redaktion: ein Entwurf existiert, es ist nur noch
+        // nichts veröffentlicht; Mitglieder lesen dieselbe Situation als
+        // „noch nicht erfasst", weil sie den Entwurf nicht sehen.
+        <p className="auftritt-leer">Noch nichts veröffentlicht.</p>
       ) : (
         <p className="auftritt-leer">Das Programm wurde noch nicht erfasst.</p>
       )}
@@ -507,11 +699,11 @@ export function AuftrittProgramm({
           >
             {ausgeklappt && (
               <>
-                {hatVeroeffentlicht && entwurf === null && (
+                {entwurfKopie && (
                   <p className="noten-info">
-                    Es liegt kein offener Entwurf vor. Das nächste Speichern
-                    beginnt einen frischen Entwurf; die veröffentlichte Fassung
-                    bleibt unverändert stehen.
+                    Der neue Entwurf beginnt als Kopie der veröffentlichten
+                    Liste; die veröffentlichte Fassung bleibt unverändert
+                    stehen.
                   </p>
                 )}
                 {zeilen.length === 0 ? (
@@ -521,41 +713,53 @@ export function AuftrittProgramm({
                   </p>
                 ) : (
                   <ul className="programm-zeilen">
-                    {zeilen.map((zeile, index) => (
-                      <ProgrammZeile
-                        key={zeile.schluessel}
-                        zeile={zeile}
-                        stelle={index + 1}
-                        erste={index === 0}
-                        letzte={index === zeilen.length - 1}
-                        lied={
-                          zeile.songId ? (lieder[zeile.songId] ?? null) : null
-                        }
-                        liedFehler={liedFehler}
-                        liedLaeuft={
-                          zeile.songId !== null && !(zeile.songId in lieder)
-                        }
-                        onFassungGewaehlt={(arrangementId, versionId) =>
-                          fassungGewaehlt(
-                            zeile.schluessel,
-                            arrangementId,
-                            versionId,
-                          )
-                        }
-                        onNotiz={(wert) =>
-                          setZeilen((bisher) =>
-                            bisher.map((eintrag) =>
-                              eintrag.schluessel === zeile.schluessel
-                                ? { ...eintrag, notiz: wert }
-                                : eintrag,
-                            ),
-                          )
-                        }
-                        onHoch={() => umordnen(index, -1)}
-                        onRunter={() => umordnen(index, 1)}
-                        onEntfernen={() => entfernen(zeile.schluessel)}
-                      />
-                    ))}
+                    {zeilen.map((zeile, index) => {
+                      const liedStand = zeile.songId
+                        ? lieder[zeile.songId]
+                        : undefined;
+                      return (
+                        <ProgrammZeile
+                          key={zeile.schluessel}
+                          zeile={zeile}
+                          stelle={index + 1}
+                          erste={index === 0}
+                          letzte={index === zeilen.length - 1}
+                          lied={
+                            liedStand && liedStand !== "fehler"
+                              ? liedStand
+                              : null
+                          }
+                          liedFehler={
+                            (zeile.songId && liedFehler[zeile.songId]) || ""
+                          }
+                          liedLaeuft={
+                            zeile.songId !== null && !(zeile.songId in lieder)
+                          }
+                          onFassungGewaehlt={(arrangementId, versionId) =>
+                            fassungGewaehlt(
+                              zeile.schluessel,
+                              arrangementId,
+                              versionId,
+                            )
+                          }
+                          onNotiz={(wert) =>
+                            setZeilen((bisher) =>
+                              bisher.map((eintrag) =>
+                                eintrag.schluessel === zeile.schluessel
+                                  ? { ...eintrag, notiz: wert }
+                                  : eintrag,
+                              ),
+                            )
+                          }
+                          onHoch={() => umordnen(index, -1)}
+                          onRunter={() => umordnen(index, 1)}
+                          onEntfernen={() => entfernen(zeile.schluessel)}
+                          onErneutVersuchen={() => {
+                            if (zeile.songId) liedErneutVersuchen(zeile.songId);
+                          }}
+                        />
+                      );
+                    })}
                   </ul>
                 )}
                 <LiedWahl onGewaehlt={neuerEintrag} />

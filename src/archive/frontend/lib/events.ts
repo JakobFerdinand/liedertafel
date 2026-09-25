@@ -361,8 +361,9 @@ export async function fetchProgramme(
 }
 
 /**
- * Deutsche Uhrzeit der Veröffentlichung in Wien; ohne geladene Zeitzone
- * zählt UTC — die Anzeige bleibt ehrlich, es wird nichts gerundet.
+ * Deutsche Uhrzeit der Veröffentlichung in Wien (wie das backendgeformte
+ * dateDisplay); ohne explizite Zeitzone liest der Browser sie nach der
+ * örtlichen Zone — die Anzeige bleibt ehrlich, es wird nichts gerundet.
  */
 export function publishedAtText(zeitstempel: string): string {
   const zeit = new Date(zeitstempel);
@@ -373,6 +374,7 @@ export function publishedAtText(zeitstempel: string): string {
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: "Europe/Vienna",
   });
 }
 

@@ -536,9 +536,10 @@ test("Redaktion baut ein dreiliediges Programm auf und speichert zweimal mit sta
   });
 
   await page.goto(`/auftritt/?id=${eventId}`);
-  await expect(
-    page.getByText("Das Programm wurde noch nicht erfasst."),
-  ).toBeVisible();
+  // Ehrlich zur Redaktion: der Entwurf existiert (leerer Arbeitsstand),
+  // nur ist noch nichts veröffentlicht — Mitglieder lesen dieselbe
+  // Situation als „noch nicht erfasst".
+  await expect(page.getByText("Noch nichts veröffentlicht.")).toBeVisible();
   await programmVerwaltungAufklappen(page);
 
   // Erstes Lied über die Katalogsuche; die Fassung kommt aus dem
@@ -856,6 +857,343 @@ test("Veröffentlichen sendet die rowVersion und meldet den Erfolg; das Verzeich
       .getByRole("navigation", { name: "Hauptnavigation" })
       .getByRole("link", { name: "Programme" }),
   ).toHaveAttribute("href", "/programm/");
+
+  expect(errors).toEqual([]);
+});
+
+test("Umordnen und Entfernen wandern in der PUT-Reihenfolge mit stabilen Ids", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await mockSitzung(page, editorMe);
+  await mockKatalog(page);
+  // Start: der Dreilieder-Entwurf (rowVersion 4); der Server stampft die
+  // rowVersion je PUT hoch und spiegelt die gesendeten Einträge.
+  let stand: unknown = entwurfStandMitDrei();
+  await page.route(`**/api/events/${eventId}`, (route) =>
+    route.fulfill(json(detail(stand))),
+  );
+  const puts: Record<string, unknown>[] = [];
+  await page.route(`**/api/events/${eventId}/programme/items`, (route) => {
+    const anfrage = route.request().postDataJSON() as {
+      items: Array<{
+        id?: string;
+        songId: string;
+        musicalVersionId: string;
+        note?: string;
+      }>;
+      rowVersion?: number;
+    };
+    puts.push(anfrage);
+    stand = {
+      id: programmId,
+      rowVersion: 5,
+      working: {
+        id: revisionEntwurfId,
+        number: 1,
+        updatedAt: "2026-09-23T12:00:00.000Z",
+        items: antwortItems(anfrage.items),
+      },
+      published: null,
+    };
+    return route.fulfill(json({ programme: stand }));
+  });
+
+  await page.goto(`/auftritt/?id=${eventId}`);
+  await programmVerwaltungAufklappen(page);
+  await expect(page.locator(".programm-zeile")).toHaveCount(3);
+
+  // ↑ schiebt den dritten Eintrag (Lied 1 in der Transposition) um einen
+  // Platz nach vorn, zwischen Wiederholungsquelle und zweiten Lied.
+  await page
+    .locator(".programm-zeile")
+    .nth(2)
+    .getByRole("button", { name: "Eintrag 3 nach oben schieben" })
+    .click();
+  await page.getByRole("button", { name: "Entwurf speichern" }).click();
+  await expect(page.getByText("Programmentwurf gespeichert.")).toBeVisible();
+  expect(puts).toHaveLength(1);
+  // Die Reihenfolge der Zeilen definiert die Positionen; die stabilen Ids
+  // reisen unverändert mit, nichts wird neu angelegt.
+  expect(puts[0].items).toEqual([
+    {
+      id: punktA,
+      songId: lied1Id,
+      musicalVersionId: standardId,
+      note: "Erste Strophe im Stehchoral.",
+    },
+    {
+      id: punktC,
+      songId: lied1Id,
+      musicalVersionId: transponiertId,
+      note: "",
+    },
+    {
+      id: punktB,
+      songId: lied2Id,
+      musicalVersionId: lied2FassungId,
+      note: "",
+    },
+  ]);
+  expect(puts[0].rowVersion).toBe(4);
+
+  // Entfernen nimmt die erste Zeile ersatzlos heraus: der zweite PUT
+  // überträgt nur die verbleibenden zwei Einträge mit ihren Ids.
+  await page
+    .locator(".programm-zeile")
+    .nth(0)
+    .getByRole("button", { name: "Eintrag 1 entfernen" })
+    .click();
+  await page.getByRole("button", { name: "Entwurf speichern" }).click();
+  await expect(page.getByText("Programmentwurf gespeichert.")).toBeVisible();
+  expect(puts).toHaveLength(2);
+  expect(puts[1].items).toEqual([
+    {
+      id: punktC,
+      songId: lied1Id,
+      musicalVersionId: transponiertId,
+      note: "",
+    },
+    {
+      id: punktB,
+      songId: lied2Id,
+      musicalVersionId: lied2FassungId,
+      note: "",
+    },
+  ]);
+  expect(puts[1].rowVersion).toBe(5);
+
+  expect(errors).toEqual([]);
+});
+
+test("Nach der Veröffentlichung startet der Entwurf als Kopie ohne Ids", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await mockSitzung(page, editorMe);
+  await mockKatalog(page);
+  let stand: unknown = veroeffentlicht;
+  await page.route(`**/api/events/${eventId}`, (route) => {
+    // Die Erstabfrage liest das veröffentlichte Programm ohne Entwurf;
+    // der PUT-Antwortstand bleibt für den nächsten PUT derselbe.
+    return route.fulfill(json(detail(stand)));
+  });
+  const puts: Record<string, unknown>[] = [];
+  await page.route(`**/api/events/${eventId}/programme/items`, (route) => {
+    const anfrage = route.request().postDataJSON() as {
+      items: Array<{
+        id?: string;
+        songId: string;
+        musicalVersionId: string;
+        note?: string;
+      }>;
+      rowVersion?: number;
+    };
+    puts.push(anfrage);
+    stand = {
+      id: programmId,
+      rowVersion: 6,
+      working: {
+        id: revisionEntwurfId,
+        number: 2,
+        updatedAt: "2026-09-25T10:00:00.000Z",
+        items: antwortItems(anfrage.items),
+      },
+      published: veroeffentlicht.published,
+    };
+    return route.fulfill(json({ programme: stand }));
+  });
+
+  await page.goto(`/auftritt/?id=${eventId}`);
+  await programmVerwaltungAufklappen(page);
+  // Der kopierte Entwurf startet mit drei Zeilen; der Hinweis bleibt der
+  // Vermerk der Kopie (Vertragssprache).
+  await expect(
+    page.getByText(
+      "Der neue Entwurf beginnt als Kopie der veröffentlichten Liste; die veröffentlichte Fassung bleibt unverändert stehen.",
+    ),
+  ).toBeVisible();
+  await expect(page.locator(".programm-zeile")).toHaveCount(3);
+
+  // Sofortiges Speichern legt jeden Eintrag neu an: dieselben Liedfassun-
+  // gen, aber ohne Programmpunkt-Ids (frische Ids erzeugt der Vertrag).
+  await page.getByRole("button", { name: "Entwurf speichern" }).click();
+  await expect(page.getByText("Programmentwurf gespeichert.")).toBeVisible();
+  expect(puts).toHaveLength(1);
+  expect(puts[0].items).toEqual([
+    {
+      songId: lied1Id,
+      musicalVersionId: standardId,
+      note: "Erste Strophe im Stehchoral.",
+    },
+    {
+      songId: lied2Id,
+      musicalVersionId: lied2FassungId,
+      note: "",
+    },
+    {
+      songId: lied1Id,
+      musicalVersionId: transponiertId,
+      note: "",
+    },
+  ]);
+  // Concurrency-Anker: die rowVersion des veröffentlichten Standes.
+  expect(puts[0].rowVersion).toBe(5);
+  // Die Antwort hat den Kopierhinweis entleert — der Entwurf existiert.
+  await expect(
+    page.getByText(
+      "Der neue Entwurf beginnt als Kopie der veröffentlichten Liste",
+    ),
+  ).toHaveCount(0);
+
+  expect(errors).toEqual([]);
+});
+
+test("Veröffentlichen mit veraltetem Stand erklärt sich und lädt den frischen Stand", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await mockSitzung(page, editorMe);
+  await mockKatalog(page);
+  let abfragen = 0;
+  await page.route(`**/api/events/${eventId}`, (route) => {
+    abfragen += 1;
+    // Nach der Ablehnung (Abfrage 2) liest die Sicht den frischen Stand:
+    // bereits veröffentlicht, damit der Lesesaal die Revision listet.
+    return route.fulfill(
+      json(detail(abfragen === 1 ? entwurfStandMitDrei() : veroeffentlicht)),
+    );
+  });
+  const veroeffentlichungen: Record<string, unknown>[] = [];
+  await page.route(`**/api/events/${eventId}/programme/publish`, (route) => {
+    expect(route.request().method()).toBe("POST");
+    veroeffentlichungen.push(
+      route.request().postDataJSON() as Record<string, unknown>,
+    );
+    // Veraltet: der Stand wurde zwischenzeitlich geändert (z. B. von
+    // einem zweiten Beitrag gespeichert worden).
+    return route.fulfill(
+      problem("Das Programm wurde bereits veröffentlicht.", 409),
+    );
+  });
+
+  await page.goto(`/auftritt/?id=${eventId}`);
+  await programmVerwaltungAufklappen(page);
+  await expect(page.locator(".programm-zeile")).toHaveCount(3);
+  await page.getByRole("button", { name: "Veröffentlichen" }).click();
+  await expect(
+    page.getByText("Das Programm wurde bereits veröffentlicht."),
+  ).toBeVisible();
+  expect(veroeffentlichungen).toEqual([{ rowVersion: 4 }]);
+  // Die Ablehnung lädt den frischen Stand nach; die Lesesaal-Liste folgt.
+  expect(abfragen).toBe(2);
+  await expect(page.locator(".programm-liste .programm-eintrag")).toHaveCount(
+    3,
+  );
+
+  expect(errors).toEqual([]);
+});
+
+test("Ungespeicherte Änderungen bremsen Veröffentlichen: kein POST, erst Hinweis", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await mockSitzung(page, editorMe);
+  await mockKatalog(page);
+  let abfragen = 0;
+  await page.route(`**/api/events/${eventId}`, (route) => {
+    abfragen += 1;
+    return route.fulfill(json(detail(entwurfStandMitDrei())));
+  });
+  const veroeffentlichungen: Record<string, unknown>[] = [];
+  await page.route(`**/api/events/${eventId}/programme/publish`, (route) => {
+    veroeffentlichungen.push(
+      route.request().postDataJSON() as Record<string, unknown>,
+    );
+    return route.fulfill(json({ programme: veroeffentlicht }));
+  });
+
+  await page.goto(`/auftritt/?id=${eventId}`);
+  await programmVerwaltungAufklappen(page);
+  await expect(page.locator(".programm-zeile")).toHaveCount(3);
+
+  // Ungespeicherte Arbeit: die Notiz der zweiten Zeile wandert.
+  await page
+    .locator(".programm-zeile")
+    .nth(1)
+    .getByLabel("Notiz (optional)")
+    .fill("Aus dem Stehchoral in den Sitzchoral.");
+
+  await page.getByRole("button", { name: "Veröffentlichen" }).click();
+  await expect(
+    page.getByText(
+      "Es gibt nicht gespeicherte Änderungen. Speichere den Entwurf erst, um sie zu veröffentlichen.",
+    ),
+  ).toBeVisible();
+  // Kein POST: die Veröffentlichung bleibt zurück, bis gespeichert ist.
+  expect(veroeffentlichungen).toEqual([]);
+  expect(abfragen).toBe(1);
+
+  expect(errors).toEqual([]);
+});
+
+test("Unsichere Daten bleiben auch im Programmverzeichnis gekennzeichnet", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await mockSitzung(page, memberMe);
+  await page.route("**/api/programmes", (route) =>
+    route.fulfill(
+      json({
+        programmes: [
+          {
+            eventId,
+            eventTitle: "Frühlingskonzert",
+            kind: "concert",
+            dateDisplay: "12. Mai 2027",
+            datePrecision: "day",
+            dateApproximate: false,
+            venue: "Stadtsaal Mining",
+            startTime: "19:30",
+            publishedAt: "2026-09-20T10:00:00.000Z",
+            itemCount: 3,
+          },
+          {
+            eventId: "00000000-0000-0000-0000-00000000e030",
+            eventTitle: "Sängerfest (um 1950)",
+            kind: "singing",
+            dateDisplay: "um 1950",
+            datePrecision: "year",
+            dateApproximate: true,
+            venue: null,
+            startTime: null,
+            publishedAt: "2026-09-20T10:00:00.000Z",
+            itemCount: 1,
+          },
+        ],
+      }),
+    ),
+  );
+
+  await page.goto("/programm/");
+  const zeilen = page.locator(".programme-eintrag");
+  await expect(zeilen).toHaveCount(2);
+  // Das Tagesdatum liest sicher, die Jahresangabe trägt die Marke.
+  await expect(zeilen.nth(0).locator(".datum-unsicher")).toHaveCount(0);
+  await expect(zeilen.nth(1).locator(".datum-unsicher")).toHaveText(
+    "Datum unsicher",
+  );
+  // Auch im Handymaß bleibt das Verzeichnis ohne Seitenüberlauf.
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
 
   expect(errors).toEqual([]);
 });
