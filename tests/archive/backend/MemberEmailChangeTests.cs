@@ -12,6 +12,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Archive.Backend.Tests;
 
@@ -451,13 +452,27 @@ public sealed class MemberEmailChangeTests
 		services.AddSingleton<IHostEnvironment>(new RepairHostEnvironment(environment));
 		services.AddSingleton(TimeProvider.System);
 		services.AddSingleton<IConfiguration>(new ConfigurationBuilder().AddInMemoryCollection(settings).Build());
+		// The Identity schema version rides IdentityOptions through the EF
+		// application service provider. Without one the model silently falls
+		// back to Version 1 (no passkey tables) and passkey operations in the
+		// repair flow throw — EF also caches the first built model process-wide,
+		// so this must not depend on test order. Mirrors the design-time
+		// factory in ArchiveDbContext (ARC-011-1).
+		var identityOptions = new OptionsWrapper<IdentityOptions>(new IdentityOptions
+		{
+			Stores = { SchemaVersion = IdentitySchemaVersions.Version3 },
+		});
+		var applicationServices = new ServiceCollection()
+			.AddSingleton<IOptions<IdentityOptions>>(identityOptions)
+			.BuildServiceProvider();
 		services.AddIdentity<ArchiveUser, ArchiveRole>()
 			.AddEntityFrameworkStores<ArchiveDbContext>()
 			.AddDefaultTokenProviders()
 			.AddTokenProvider<EmailCodeTokenProvider>(EmailCodeTokenProvider.ProviderName);
 		var root = new InMemoryDatabaseRoot();
 		services.AddDbContext<ArchiveDbContext>(options =>
-			options.UseInMemoryDatabase($"repair-{Guid.NewGuid():N}", root));
+			options.UseInMemoryDatabase($"repair-{Guid.NewGuid():N}", root)
+				.UseApplicationServiceProvider(applicationServices));
 		return services;
 	}
 
