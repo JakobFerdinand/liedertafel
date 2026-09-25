@@ -2236,6 +2236,39 @@ fieldset.programm-verwaltung {
   margin-block: 0.4rem 0.2rem;
 }
 
+/* ─── Werkbank-Stand (ARC-027) ────────────────────────────────────────
+   Die Standzeilen lesen sich als stille Meta-Leiter (nach .noten-info):
+   was der Entwurf ist und was die Mitglieder sehen, in jeder Lage
+   ehrlich benannt. Die früheren Fassungen hängen unter einer
+   gestrichelten Marke nach der Rhythmik der .programm-eintrag-Zeilen.
+   Der unerledigte Hinweis führt die Fehlerschrift der .feld-fehler —
+   als eigene Klasse, damit die Werkbank ihn gezielt setzt und wieder
+   fallen lässt. Keine neuen Farben. */
+.programm-stand {
+  color: var(--muted);
+  font-size: var(--schrift-neben);
+  margin-block: 0.2rem 0;
+}
+.programm-fruehere {
+  border-top: 1px dashed var(--rule);
+  margin-block: 0.6rem 0;
+  padding-block: 0.35rem 0;
+}
+.programm-fruehere-einleitung,
+.programm-fruehere-zeile {
+  color: var(--muted);
+  font-size: var(--schrift-neben);
+  margin-block: 0.15rem 0;
+}
+.programm-fruehere-einleitung {
+  font-weight: 600;
+}
+.programm-unerledigt {
+  color: var(--brand);
+  font-weight: 600;
+  margin-block: 0.2rem 0;
+}
+
 /* ─── Programmverzeichnis (ARC-026) ───────────────────────────────────
    Die Zeilen erben die Geometrie des Auftrittsverzeichnisses (Datum in
    der schmalen Spalte, Inhalt daneben); die Liederzahl liest sich in

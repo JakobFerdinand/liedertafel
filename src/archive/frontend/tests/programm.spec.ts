@@ -5,7 +5,9 @@ import { expect, type Page, test } from "@playwright/test";
 // Rezepturen folgen tests/auftritt-dokumente.spec.ts und
 // tests/auftritte.spec.ts: feste Fixture-Ids, geroutete Antworten mit
 // veränderbarem Stand (die zuletzt angemeldete Route gewinnt), Anspruch
-// an die Vertragssprache, Handymaß im zweiten Projekt.
+// an die Vertragssprache, Handymaß im zweiten Projekt. ARC-027 liest
+// zusätzlich die Standzeilen, die frühere Fassungen und den
+// unerledigten Hinweis an der Werkbank.
 
 const editorMe = {
   authenticated: true,
@@ -403,6 +405,62 @@ function entwurfStandMitEinem() {
   };
 }
 
+// ARC-027 Werkbank-Stand: die Mitglieder lesen die veröffentlichte
+// Revision 2, der Entwurf ist die noch leere Revision 3, und die
+// frühere Veröffentlichung (Revision 1) bleibt als einzige Fassung in
+// der Geschichte gelistet — die neueste Veröffentlichung erscheint dort
+// selbst nicht (geroutetes Stub — die Werkbank liest allein die
+// Einbettung).
+const veroeffentlichtMitGeschichte = {
+  id: programmId,
+  rowVersion: 5,
+  working: {
+    id: revisionEntwurfId,
+    number: 3,
+    updatedAt: "2026-09-24T09:00:00.000Z",
+    items: [],
+  },
+  published: {
+    id: "00000000-0000-0000-0000-00000000e024",
+    number: 2,
+    publishedAt: "2026-09-22T10:00:00.000Z",
+    items: veroeffentlichteItems,
+  },
+  history: [
+    {
+      id: revisionVeroeffentlichtId,
+      number: 1,
+      publishedAt: "2026-09-20T12:00:00.000Z",
+      items: [
+        punkt(
+          "00000000-0000-0000-0000-00000000b0b1",
+          1,
+          lied1Id,
+          "Das Wandern ist des Müllers Lust",
+          arrangement1Id,
+          "Satz für gemischten Chor",
+          standardId,
+          "Standardfassung",
+          "G-Dur",
+          null,
+        ),
+        punkt(
+          "00000000-0000-0000-0000-00000000b0b2",
+          2,
+          lied2Id,
+          "Aurora",
+          lied2ArrangementId,
+          "Satz für gemischten Chor",
+          lied2FassungId,
+          "Standardfassung",
+          null,
+          null,
+        ),
+      ],
+    },
+  ],
+};
+
 // Öffnet den Werkbank-Aufklapper (er ist zu, bis die Redaktion ihn braucht).
 async function programmVerwaltungAufklappen(page: Page) {
   await page.locator("details.programm-verwaltung > summary").click();
@@ -765,6 +823,237 @@ test("Veralteter Stand erklärt sich mit der Vertragssprache und lädt den frisc
   expect(errors).toEqual([]);
 });
 
+test("Redaktion sieht Revisionsstand und frühere Fassungen an der Werkbank", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await mockSitzung(page, editorMe);
+  await mockKatalog(page);
+  await page.route(`**/api/events/${eventId}`, (route) =>
+    route.fulfill(json(detail(veroeffentlichtMitGeschichte))),
+  );
+
+  await page.goto(`/auftritt/?id=${eventId}`);
+  await programmVerwaltungAufklappen(page);
+  await expect(page.locator(".programm-stand")).toHaveCount(2);
+
+  // Standzeilen: ehrlich in beiden Richtungen — der Entwurf ist die
+  // Revision 3, die Mitglieder lesen die veröffentlichte Revision 2.
+  await expect(
+    page.getByText(
+      /Entwurf: Revision 3 · Letzte Änderung: 24\. September 2026/,
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      /Mitgliedersicht: Revision 2 · veröffentlicht am 22\. September 2026/,
+    ),
+  ).toBeVisible();
+
+  // Frühere Fassungen: die eingefrorene Fassung liest sich mit dem
+  // Veröffentlichungszeitpunkt in Wien.
+  const fruehere = page.locator(".programm-fruehere");
+  await expect(fruehere).toHaveCount(1);
+  await expect(fruehere.locator(".programm-fruehere-einleitung")).toHaveText(
+    "Frühere Fassungen",
+  );
+  // Genau eine frühere Fassung — die Revision 1 mit ihrem eigenen
+  // Veröffentlichungszeitpunkt; die neueste Veröffentlichung (Revision 2)
+  // taucht in der Geschichte nicht auf.
+  await expect(fruehere.locator(".programm-fruehere-zeile")).toHaveText([
+    /Revision 1 · veröffentlicht am 20\. September 2026/,
+  ]);
+  await expect(fruehere.getByText(/Revision 2/)).toHaveCount(0);
+
+  // Auch im Handymaß bleibt die Werkbank ohne Seitenüberlauf.
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+
+  expect(errors).toEqual([]);
+});
+
+test("Ungespeicherte Arbeit meldet sich und legt sich nach dem Speichern still", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await mockSitzung(page, editorMe);
+  await mockKatalog(page);
+  let stand: unknown = entwurfStandMitDrei();
+  await page.route(`**/api/events/${eventId}`, (route) =>
+    route.fulfill(json(detail(stand))),
+  );
+  const puts: Record<string, unknown>[] = [];
+  await page.route(`**/api/events/${eventId}/programme/items`, (route) => {
+    expect(route.request().method()).toBe("PUT");
+    expect(route.request().headers()["x-csrf-token"]).toBe("test");
+    const anfrage = route.request().postDataJSON() as {
+      items: Array<{
+        id?: string;
+        songId: string;
+        musicalVersionId: string;
+        note?: string;
+      }>;
+      rowVersion?: number;
+    };
+    const bisher = stand as { rowVersion: number };
+    expect(anfrage.rowVersion).toBe(bisher.rowVersion);
+    puts.push(anfrage);
+    // Der Server stampft den Stand: die gesendete Notiz liest sich
+    // zurück, rowVersion und Zeitpunkt wandern.
+    stand = {
+      id: programmId,
+      rowVersion: bisher.rowVersion + 1,
+      working: {
+        id: revisionEntwurfId,
+        number: 1,
+        updatedAt: "2026-09-25T10:00:00.000Z",
+        items: antwortItems(anfrage.items),
+      },
+      published: null,
+    };
+    return route.fulfill(json({ programme: stand }));
+  });
+
+  await page.goto(`/auftritt/?id=${eventId}`);
+  await programmVerwaltungAufklappen(page);
+  await expect(page.locator(".programm-zeile")).toHaveCount(3);
+
+  // Standzeilen ehrlich: Revision 1 gezogen, noch nichts veröffentlicht.
+  await expect(
+    page.getByText(
+      /Entwurf: Revision 1 · Letzte Änderung: 23\. September 2026/,
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Mitgliedersicht: noch nichts veröffentlicht."),
+  ).toBeVisible();
+
+  // Ungespeicherte Arbeit: die Notiz der ersten Zeile wandert.
+  await page
+    .locator(".programm-zeile-notiz input")
+    .first()
+    .fill("Erste Strophe langsam ansetzen.");
+  await expect(page.locator(".programm-unerledigt")).toHaveText(
+    "Nicht gespeicherte Änderungen.",
+  );
+
+  await page.getByRole("button", { name: "Entwurf speichern" }).click();
+  await expect(page.getByText("Programmentwurf gespeichert.")).toBeVisible();
+  // Der Hinweis legt sich still, und der Stand folgt der Antwort.
+  await expect(page.locator(".programm-unerledigt")).toHaveCount(0);
+  await expect(
+    page.getByText(
+      /Entwurf: Revision 1 · Letzte Änderung: 25\. September 2026/,
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      /Entwurf: Revision 1 · Letzte Änderung: 23\. September 2026/,
+    ),
+  ).toHaveCount(0);
+
+  expect(puts).toHaveLength(1);
+  expect(puts[0].rowVersion).toBe(4);
+  expect(puts[0].items).toEqual([
+    {
+      id: punktA,
+      songId: lied1Id,
+      musicalVersionId: standardId,
+      note: "Erste Strophe langsam ansetzen.",
+    },
+    { id: punktB, songId: lied2Id, musicalVersionId: lied2FassungId, note: "" },
+    { id: punktC, songId: lied1Id, musicalVersionId: transponiertId, note: "" },
+  ]);
+
+  expect(errors).toEqual([]);
+});
+
+test("Frischer Stand ersetzt unerledigte Arbeit und erklärt es", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await mockSitzung(page, editorMe);
+  await mockKatalog(page);
+  // Kommt der Stand nach dem verlorenen Rennen hoch, trägt er die fremde
+  // Notiz; die eigene, ungespeicherte Arbeit ist dabei ersetzt.
+  const frischerStand = {
+    id: programmId,
+    rowVersion: 9,
+    working: {
+      id: revisionEntwurfId,
+      number: 1,
+      updatedAt: "2026-09-24T10:00:00.000Z",
+      items: [
+        veroeffentlichteItems[0],
+        {
+          ...veroeffentlichteItems[1],
+          note: "Vom anderen Beitrag ergänzt.",
+        },
+      ],
+    },
+    published: null,
+  };
+  let abfragen = 0;
+  await page.route(`**/api/events/${eventId}`, (route) => {
+    abfragen += 1;
+    return route.fulfill(
+      json(detail(abfragen === 1 ? entwurfStandMitDrei() : frischerStand)),
+    );
+  });
+  const puts: Record<string, unknown>[] = [];
+  await page.route(`**/api/events/${eventId}/programme/items`, (route) => {
+    puts.push(route.request().postDataJSON() as Record<string, unknown>);
+    return route.fulfill(
+      problem("Der Programmentwurf wurde zwischenzeitlich geändert.", 409),
+    );
+  });
+
+  await page.goto(`/auftritt/?id=${eventId}`);
+  await programmVerwaltungAufklappen(page);
+  await expect(page.locator(".programm-zeile")).toHaveCount(3);
+
+  // Ungespeicherte Arbeit: die Notiz der ersten Zeile wandert.
+  await page
+    .locator(".programm-zeile-notiz input")
+    .first()
+    .fill("Meine neue Notiz.");
+  await expect(page.locator(".programm-unerledigt")).toHaveText(
+    "Nicht gespeicherte Änderungen.",
+  );
+
+  await page.getByRole("button", { name: "Entwurf speichern" }).click();
+  await expect(
+    page.getByText(
+      "Der Programmentwurf wurde zwischenzeitlich geändert. Bitte prüfe den aktuellen Stand und wiederhole deine Änderung.",
+    ),
+  ).toBeVisible();
+  // Der frische Stand folgt in den Zeilen: die eigene Notiz ist weg, die
+  // fremde liest sich, und der unerledigte Hinweis legt sich still.
+  await expect(
+    page.locator(".programm-zeile").nth(0).getByLabel("Notiz (optional)"),
+  ).toHaveValue("Erste Strophe im Stehchoral.");
+  await expect(
+    page.locator(".programm-zeile").nth(1).getByLabel("Notiz (optional)"),
+  ).toHaveValue("Vom anderen Beitrag ergänzt.");
+  await expect(page.locator(".programm-unerledigt")).toHaveCount(0);
+  // Auch die Standzeile liest den frischen Stand.
+  await expect(
+    page.getByText(
+      /Entwurf: Revision 1 · Letzte Änderung: 24\. September 2026/,
+    ),
+  ).toBeVisible();
+  expect(abfragen).toBe(2);
+  expect(puts).toHaveLength(1);
+
+  expect(errors).toEqual([]);
+});
+
 test("Veröffentlichen sendet die rowVersion und meldet den Erfolg; das Verzeichnis listet das Programm", async ({
   page,
 }) => {
@@ -1008,6 +1297,16 @@ test("Nach der Veröffentlichung startet der Entwurf als Kopie ohne Ids", async 
 
   await page.goto(`/auftritt/?id=${eventId}`);
   await programmVerwaltungAufklappen(page);
+  // ARC-027 Standzeilen: ohne Arbeitsrevision liest sich der Stand
+  // ehrlich — noch kein eigener Entwurf, die Mitglieder lesen Revision 1.
+  await expect(
+    page.getByText("Entwurf: noch keiner gespeichert."),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      /Mitgliedersicht: Revision 1 · veröffentlicht am 20\. September 2026/,
+    ),
+  ).toBeVisible();
   // Der kopierte Entwurf startet mit drei Zeilen; der Hinweis bleibt der
   // Vermerk der Kopie (Vertragssprache).
   await expect(

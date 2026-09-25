@@ -14,6 +14,12 @@
 // Arbeit unberührt. Nach einer Veröffentlichung startet der Entwurf als
 // Kopie der veröffentlichten Liste — der nächste PUT legt jeden
 // Eintrag neu an (Vertragssprache).
+//
+// ARC-027: die Werkbank zeigt ehrliche Stände — Entwurf und
+// Mitgliedersicht mit Revision und Zeitpunkt, darunter die eingefrorenen
+// früheren Fassungen. Ersetzt ein frischer Server-Stand unerledigte
+// Arbeit, erklärt die Werkbank die Ersetzung statt sie stillschweigend
+// zu schlucken.
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
@@ -421,13 +427,19 @@ export function AuftrittProgramm({
   const [speichernBusy, setSpeichernBusy] = useState(false);
   const [veröffentlichenBusy, setVeröffentlichenBusy] = useState(false);
 
+  // ARC-027: ungespeicherte Arbeit meldet sich an der Werkbank, sobald
+  // die Zeilen vom synchronisierten Stand abweichen — sie legt sich nach
+  // dem Speichern wieder still.
+  const ungespeicherteArbeit = ungespeichert(zeilen, synchronstand);
+
   // Die Werkzeilen folgen dem Server-Stand: beim Aufklappen und bei jedem
   // echten Versionswechsel (Speichern, 409-Nachladen, Veröffentlichen,
   // Erscheinen des Programms). Ein Geschwister-Nachladen mit unveränderter
   // rowVersion lässt die Zeilen unberührt, damit ungespeicherte Arbeit
   // nicht verloren geht; der ältere Stand des Elternteils überschreibt
   // keine schon übernommene frischere Version (eigenes Speichern ist
-  // der Auftrittsabfrage voraus).
+  // der Auftrittsabfrage voraus). Ersetzt ein frischerer Stand unerledigte
+  // Arbeit, meldet sich die Werkbank: die Änderung kam von außen.
   useEffect(() => {
     if (!ausgeklappt) return;
     const version = programm?.rowVersion ?? null;
@@ -438,12 +450,31 @@ export function AuftrittProgramm({
     ) {
       return;
     }
+    // ARC-027: liegt ungespeicherte Arbeit vor, stammt die Ablösung von
+    // außen — eigenes Speichern übernimmt die frische Einbettung direkt,
+    // ohne diesen Weg. Der Hinweis erklärt die Ersetzung, bevor die
+    // Zeilen dem frischen Stand folgen.
+    if (ungespeichert(zeilen, synchronstand)) {
+      setHinweis(veralteteAenderung);
+    }
     const folge = zeilenAusRevisionen(entwurf, veroeffentlicht);
     setZeilen(folge.zeilen);
     setSynchronstand(synchronstandAusZeilen(folge.zeilen));
     setEntwurfKopie(folge.kopie);
     setLetzteGeladeneVersion(version);
-  }, [ausgeklappt, programm, entwurf, veroeffentlicht, letzteGeladeneVersion]);
+    // Zeilen und Synchronstand in den Abhängigkeiten: der Abgleich liest
+    // den aktuellen Arbeitsstand, der Versionswechsel entscheidet weiter.
+    // Passt die Version, kehrt der Effekt früh zurück — Tastenschläge
+    // kosten nichts als den Vergleich.
+  }, [
+    ausgeklappt,
+    programm,
+    entwurf,
+    veroeffentlicht,
+    letzteGeladeneVersion,
+    zeilen,
+    synchronstand,
+  ]);
 
   // Lieddetails je betroffenem Eintrag laden (FassungsWahl braucht sie);
   // schon geladene Lieder bleiben im Bestand, nur neue Ids werden geholt.
@@ -699,6 +730,33 @@ export function AuftrittProgramm({
           >
             {ausgeklappt && (
               <>
+                {/* ARC-027 Standzeilen: ehrlich in jedem Zustand — was der
+                    Entwurf ist und was die Mitglieder lesen. */}
+                <p className="programm-stand">
+                  {entwurf
+                    ? `Entwurf: Revision ${entwurf.number} · Letzte Änderung: ${publishedAtText(entwurf.updatedAt)}`
+                    : "Entwurf: noch keiner gespeichert."}
+                </p>
+                <p className="programm-stand">
+                  {veroeffentlicht
+                    ? `Mitgliedersicht: Revision ${veroeffentlicht.number} · veröffentlicht am ${publishedAtText(veroeffentlicht.publishedAt)}`
+                    : "Mitgliedersicht: noch nichts veröffentlicht."}
+                </p>
+                {/* Frühere Fassungen: die eingefrorenen Veröffentlichungen
+                    vor der neuesten (Verlaufsrevisionen der Werkbank). */}
+                {programm?.history && programm.history.length > 0 && (
+                  <div className="programm-fruehere">
+                    <p className="programm-fruehere-einleitung">
+                      Frühere Fassungen
+                    </p>
+                    {programm.history.map((fassung) => (
+                      <p className="programm-fruehere-zeile" key={fassung.id}>
+                        Revision {fassung.number} · veröffentlicht am{" "}
+                        {publishedAtText(fassung.publishedAt)}
+                      </p>
+                    ))}
+                  </div>
+                )}
                 {entwurfKopie && (
                   <p className="noten-info">
                     Der neue Entwurf beginnt als Kopie der veröffentlichten
@@ -763,6 +821,11 @@ export function AuftrittProgramm({
                   </ul>
                 )}
                 <LiedWahl onGewaehlt={neuerEintrag} />
+                {ungespeicherteArbeit && (
+                  <p className="programm-unerledigt">
+                    Nicht gespeicherte Änderungen.
+                  </p>
+                )}
                 <div className="noten-aktionen">
                   <button
                     type="button"

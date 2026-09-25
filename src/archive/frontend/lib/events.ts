@@ -271,13 +271,17 @@ export type ProgrammRevisionVeroeffentlicht = {
 
 // Eingebettetes Programm der Auftrittsdetails. Mitglieder erhalten nur
 // die neueste veröffentlichte Revision (working null), die Redaktion
-// zusätzlich den Entwurf; vor der ersten Veröffentlichung bleibt member-
-// sichtbar alles null.
+// zusätzlich den Entwurf und die eingefrorenen früheren Fassungen
+// (history, älteste zuerst, ohne die neueste); vor der ersten
+// Veröffentlichung bleibt membersichtbar alles null. Ältere Antworten
+// ohne das Feld bleiben zulässig.
 export type ProgrammEmbed = {
   id: string;
   rowVersion: number;
   working: ProgrammRevision | null;
   published: ProgrammRevisionVeroeffentlicht | null;
+  // ARC-027: Verlaufsrevisionen für die Werkbank; Mitglieder erhalten null.
+  history?: ProgrammRevisionVeroeffentlicht[] | null;
 };
 
 /** Übersetzt die Auftrittsdetails auf den Programm-Einbettungstyp;
