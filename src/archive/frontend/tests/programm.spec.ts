@@ -1089,10 +1089,13 @@ test("Veröffentlichen mit veraltetem Stand erklärt sich und lädt den frischen
   ).toBeVisible();
   expect(veroeffentlichungen).toEqual([{ rowVersion: 4 }]);
   // Die Ablehnung lädt den frischen Stand nach; die Lesesaal-Liste folgt.
-  expect(abfragen).toBe(2);
+  // Die wiederholte Behauptung auf die frische Liste beweist die zweite
+  // Abfrage; erst danach liest sich der Zähler ohne Wettkampf um die
+  // Nachladung.
   await expect(page.locator(".programm-liste .programm-eintrag")).toHaveCount(
     3,
   );
+  expect(abfragen).toBe(2);
 
   expect(errors).toEqual([]);
 });
