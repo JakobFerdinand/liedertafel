@@ -90,6 +90,14 @@ export async function patchAuth(
   });
 }
 
+export async function putAuth(path: string, body: unknown): Promise<Response> {
+  return authedFetch(path, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
 export async function deleteAuth(path: string): Promise<Response> {
   return authedFetch(path, { method: "DELETE" });
 }

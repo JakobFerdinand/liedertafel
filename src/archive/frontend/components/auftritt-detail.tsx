@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { AuftrittDokumente } from "@/components/auftritt-dokumente";
 import { AuftrittFormular } from "@/components/auftritt-formular";
+import { AuftrittProgramm } from "@/components/auftritt-programm";
 import { fetchMe, type MeResponse, postAuth } from "@/lib/auth";
 import {
   type AuftrittDetails,
@@ -210,15 +211,14 @@ export function AuftrittDetail() {
         </section>
       )}
 
-      {/* Nützliche leere Abschnitte: Programm und Aufnahmen
-          folgen in eigenen Abschnitten (ARC-026/032). */}
-      <section
-        className="auftritt-abschnitt"
-        aria-labelledby="auftritt-programm-titel"
-      >
-        <h3 id="auftritt-programm-titel">Programm</h3>
-        <p className="auftritt-leer">Das Programm wurde noch nicht erfasst.</p>
-      </section>
+      {/* Nützliche leere Abschnitte: Aufnahmen folgen in einem eigenen
+          Abschnitt (ARC-032); das Programm liest sich über
+          AuftrittProgramm (ARC-026). */}
+      <AuftrittProgramm
+        auftritt={auftritt}
+        isEditor={editor === true}
+        aktualisieren={aktualisieren}
+      />
       <AuftrittDokumente
         auftritt={auftritt}
         isEditor={editor === true}

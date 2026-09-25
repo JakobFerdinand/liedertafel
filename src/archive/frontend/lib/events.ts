@@ -6,7 +6,7 @@
 // Ticket, Abschluss); die Helfer hier formen nur die Ereignis-spezifische
 // Vertragssprache (Arten, Beschreibung statt Stimme).
 
-import { patchAuth, postAuth } from "@/lib/auth";
+import { patchAuth, postAuth, putAuth } from "@/lib/auth";
 
 // Geschlossene Artenmenge des Vertrags; die deutschen Namen liest die
 // Oberfläche daraus.
@@ -228,4 +228,162 @@ export async function patchEventAsset(
   );
   if (!response.ok) throw response;
   return (await response.json()) as EventAssetAntwort;
+}
+
+// ─── ARC-026: Programm des Auftritts ─────────────────────────────────
+// Ein Programm gehört zu genau einem Auftritt; ein Programmpunkt verweist
+// auf eine Liedfassung (Arrangement + musikalische Version). Dasselbe
+// Lied darf doppelt stehen — zwei eigene Einträge mit eigener stabiler
+// Programmpunkt-Id. Vor der ersten Veröffentlichung sehen Mitglieder
+// nichts (das eingebettete Programm bleibt null).
+
+export type ProgrammPunkt = {
+  // Stabile Id innerhalb eines Arbeitsstandes: unveränderte Einträge
+  // behalten sie über ein Speichern hinweg (ganzer geordneter Ersatz).
+  id: string;
+  position: number;
+  songId: string;
+  arrangementId: string;
+  musicalVersionId: string;
+  // Anzeigefelder aus der Kette; Unbekanntes bleibt null (keine
+  // erfundenen Plätze).
+  songTitle: string | null;
+  arrangementLabel: string | null;
+  voiceConfiguration: string | null;
+  musicalVersionLabel: string | null;
+  musicalKey: string | null;
+  note: string | null;
+};
+
+export type ProgrammRevision = {
+  id: string;
+  number: number;
+  updatedAt: string;
+  items: ProgrammPunkt[];
+};
+
+export type ProgrammRevisionVeroeffentlicht = {
+  id: string;
+  number: number;
+  publishedAt: string;
+  items: ProgrammPunkt[];
+};
+
+// Eingebettetes Programm der Auftrittsdetails. Mitglieder erhalten nur
+// die neueste veröffentlichte Revision (working null), die Redaktion
+// zusätzlich den Entwurf; vor der ersten Veröffentlichung bleibt member-
+// sichtbar alles null.
+export type ProgrammEmbed = {
+  id: string;
+  rowVersion: number;
+  working: ProgrammRevision | null;
+  published: ProgrammRevisionVeroeffentlicht | null;
+};
+
+/** Übersetzt die Auftrittsdetails auf den Programm-Einbettungstyp;
+    ältere Antworten bleiben zulässig (Toleranz wie bei documents). */
+export type AuftrittDetailsMitProgramm = AuftrittDetails & {
+  programme?: ProgrammEmbed | null;
+};
+
+export type ProgrammListeZeile = {
+  eventId: string;
+  eventTitle: string;
+  kind: string;
+  dateDisplay: string;
+  datePrecision: "day" | "month" | "year" | "unknown";
+  dateApproximate: boolean;
+  venue: string | null;
+  startTime: string | null;
+  publishedAt: string;
+  itemCount: number;
+};
+
+export type ProgrammListe = {
+  programmes: ProgrammListeZeile[];
+};
+
+/**
+ * Ganzer geordneter Ersatz des Entwurfs: die Reihenfolge der Liste setzt
+ * die Positionen 1..n, Einträge mit bekannter Programmpunkt-Id bleiben
+ * im Wesen erhalten (stabile Ids), fehlende Ids fallen weg. Ohne Programm
+ * legt der erste PUT es still an (rowVersion entfällt); bei vorhanden
+ * Programm zählt sie als Concurrency-Anker. Der Server antwortet mit der
+ * frischen Programmeinbettung (neue rowVersion).
+ */
+export async function putProgrammItems(
+  eventId: string,
+  body: {
+    items: Array<{
+      id?: string;
+      songId: string;
+      musicalVersionId: string;
+      note?: string;
+    }>;
+    rowVersion?: number;
+  },
+): Promise<ProgrammEmbed> {
+  const response = await putAuth(
+    `/api/events/${encodeURIComponent(eventId)}/programme/items`,
+    body,
+  );
+  if (!response.ok) throw response;
+  const data = (await response.json()) as { programme: ProgrammEmbed };
+  return data.programme;
+}
+
+/** Veröffentlicht den aktuellen Entwurf als Mitgliedssichtbare Revision. */
+export async function publishProgramm(
+  eventId: string,
+  rowVersion: number,
+): Promise<ProgrammEmbed> {
+  const response = await postAuth(
+    `/api/events/${encodeURIComponent(eventId)}/programme/publish`,
+    { rowVersion },
+  );
+  if (!response.ok) throw response;
+  const data = (await response.json()) as { programme: ProgrammEmbed };
+  return data.programme;
+}
+
+/** Kommende veröffentlichte Programme (serverseitig sortiert). */
+export async function fetchProgramme(
+  signal?: AbortSignal,
+): Promise<ProgrammListeZeile[]> {
+  const response = await fetch("/api/programmes", {
+    credentials: "same-origin",
+    cache: "no-store",
+    signal,
+  });
+  if (!response.ok) throw response;
+  const data = (await response.json()) as ProgrammListe;
+  return data.programmes ?? [];
+}
+
+/**
+ * Deutsche Uhrzeit der Veröffentlichung in Wien; ohne geladene Zeitzone
+ * zählt UTC — die Anzeige bleibt ehrlich, es wird nichts gerundet.
+ */
+export function publishedAtText(zeitstempel: string): string {
+  const zeit = new Date(zeitstempel);
+  if (Number.isNaN(zeit.getTime())) return "—";
+  return zeit.toLocaleString("de-AT", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/**
+ * Tief verlinkte Liedseite des Programmpunkts: das Mitglied landet direkt
+ * bei der Liedfassung und musikalischen Version des Eintrags.
+ */
+export function programmPunktUrl(punkt: ProgrammPunkt): string {
+  const parameter = new URLSearchParams();
+  parameter.set("id", punkt.songId);
+  parameter.set("fassung", punkt.arrangementId);
+  parameter.set("version", punkt.musicalVersionId);
+  return `/lied/?${parameter.toString()}`;
 }

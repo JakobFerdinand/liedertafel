@@ -14,6 +14,7 @@ import { AuthStatus } from "@/components/auth-status";
 const inhaltsseiten: Array<{ href: string; text: string }> = [
   { href: "/lieder/", text: "Liederkatalog" },
   { href: "/auftritte/", text: "Auftritte" },
+  { href: "/programm/", text: "Programme" },
   { href: "/fragen/", text: "Archiv fragen" },
 ];
 const verwaltungsaufgaben: Array<{ href: string; text: string }> = [

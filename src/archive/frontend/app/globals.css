@@ -941,7 +941,8 @@ dd {
 .lieder-filter summary,
 .auftritt-anlegen summary,
 .lied-fassungen summary,
-.lied-bearbeiten summary {
+.lied-bearbeiten summary,
+.programm-verwaltung summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -956,7 +957,8 @@ dd {
 .lieder-filter summary::-webkit-details-marker,
 .auftritt-anlegen summary::-webkit-details-marker,
 .lied-fassungen summary::-webkit-details-marker,
-.lied-bearbeiten summary::-webkit-details-marker {
+.lied-bearbeiten summary::-webkit-details-marker,
+.programm-verwaltung summary::-webkit-details-marker {
   display: none;
 }
 .lied-anlegen summary:focus-visible,
@@ -965,7 +967,8 @@ dd {
 .lieder-filter summary:focus-visible,
 .auftritt-anlegen summary:focus-visible,
 .lied-fassungen summary:focus-visible,
-.lied-bearbeiten summary:focus-visible {
+.lied-bearbeiten summary:focus-visible,
+.programm-verwaltung summary:focus-visible {
   outline: 3px solid currentColor;
   outline-offset: 5px;
 }
@@ -985,7 +988,8 @@ dd {
 .lieder-filter-umschalter,
 .auftritt-anlegen-umschalter,
 .lied-fassungen-umschalter,
-.lied-bearbeiten-umschalter {
+.lied-bearbeiten-umschalter,
+.programm-verwaltung-umschalter {
   color: var(--brand);
   font-size: var(--schrift-neben);
   font-weight: 600;
@@ -996,7 +1000,8 @@ dd {
 .lieder-filter summary:hover .lieder-filter-umschalter,
 .auftritt-anlegen summary:hover .auftritt-anlegen-umschalter,
 .lied-fassungen summary:hover .lied-fassungen-umschalter,
-.lied-bearbeiten summary:hover .lied-bearbeiten-umschalter {
+.lied-bearbeiten summary:hover .lied-bearbeiten-umschalter,
+.programm-verwaltung summary:hover .programm-verwaltung-umschalter {
   text-decoration: underline;
   text-underline-offset: 0.25em;
 }
@@ -1006,7 +1011,8 @@ dd {
 .lieder-filter .lieder-filter-zu,
 .auftritt-anlegen .auftritt-anlegen-zu,
 .lied-fassungen .lied-fassungen-zu,
-.lied-bearbeiten .lied-bearbeiten-zu {
+.lied-bearbeiten .lied-bearbeiten-zu,
+.programm-verwaltung .programm-verwaltung-zu {
   display: none;
 }
 .lied-anlegen[open] .lied-anlegen-auf,
@@ -1015,7 +1021,8 @@ dd {
 .lieder-filter[open] .lieder-filter-auf,
 .auftritt-anlegen[open] .auftritt-anlegen-auf,
 .lied-fassungen[open] .lied-fassungen-auf,
-.lied-bearbeiten[open] .lied-bearbeiten-auf {
+.lied-bearbeiten[open] .lied-bearbeiten-auf,
+.programm-verwaltung[open] .programm-verwaltung-auf {
   display: none;
 }
 .lied-anlegen[open] .lied-anlegen-zu,
@@ -1024,10 +1031,12 @@ dd {
 .lieder-filter[open] .lieder-filter-zu,
 .auftritt-anlegen[open] .auftritt-anlegen-zu,
 .lied-fassungen[open] .lied-fassungen-zu,
-.lied-bearbeiten[open] .lied-bearbeiten-zu {
+.lied-bearbeiten[open] .lied-bearbeiten-zu,
+.programm-verwaltung[open] .programm-verwaltung-zu {
   display: inline;
 }
-/* Ohne .material-verwaltung: dort trennt der Rahmen oben am fieldset. */
+/* Ohne .material-verwaltung und .programm-verwaltung: dort trennt der
+   Rahmen oben am fieldset. */
 .lied-anlegen[open] summary,
 .mitglied-einladen[open] summary,
 .lieder-filter[open] summary,
@@ -2078,6 +2087,194 @@ footer {
 }
 .auftritt-grossansicht::backdrop {
   background: color-mix(in srgb, var(--ink) 72%, transparent);
+}
+
+/* ─── Programm (ARC-026) ──────────────────────────────────────────────
+   Der Lesesaal des Programms liest sich als geordnete Reihe: die
+   Position steht als eigene stiller Zähler vor dem Serifenliedtitel,
+   Fassungsangaben laufen in der Meta-Leiter, Notizen als eigene Zeile.
+   Die Werkbank-Zeilen erben den Werkstatt-Rhythmus (.material-datei);
+   die Umordnen-Knöpfe bleiben leise Marken-Textknöpfe mit druckbarer
+   Pfeilgeste. Keine neuen Farben — Paletten, Leitern und Radien kommen
+   aus den gemeinsamen Variablen. Unter 700 px rückt der Titel unter
+   die Nummer und die Aktionen steigen in einer Reihe. */
+.programm-liste {
+  list-style: none;
+  margin: 0.9rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 1.1rem;
+  max-width: 40rem;
+}
+.programm-eintrag {
+  min-width: 0;
+  border-top: 1px dashed var(--rule);
+  padding-block: 0.4rem;
+}
+.programm-eintrag:first-child {
+  border-top: 0;
+}
+.programm-nummer,
+.programm-zeile-nummer {
+  font-family: var(--font-heading);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.programm-titel {
+  margin-block: 0;
+  font-size: var(--titel-abschnitt);
+  overflow-wrap: anywhere;
+}
+.programm-titel a {
+  text-decoration: none;
+}
+.programm-titel a:hover {
+  text-decoration: underline;
+}
+.programm-notiz {
+  font-size: var(--schrift-neben);
+  margin-block: 0.2rem 0;
+}
+details.programm-verwaltung {
+  margin-block: 1.2rem 0;
+}
+fieldset.programm-verwaltung {
+  border: 0;
+  border-top: 1px solid var(--rule);
+  padding: 1.2rem 0 0;
+  margin-block: 1.2rem 0;
+}
+.programm-verwaltung summary h4 {
+  margin-block: 0;
+  font-family: var(--font-heading);
+  font-size: var(--titel-abschnitt);
+  font-weight: 400;
+}
+.programm-zeilen {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.9rem;
+}
+.programm-zeile {
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-knopf);
+  background: var(--paper);
+  padding: 0.65rem 0.85rem;
+  display: grid;
+  gap: 0.35rem;
+}
+.programm-zeile-kopf {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem 0.6rem;
+  flex-wrap: wrap;
+}
+.programm-zeile-nummer {
+  font-family: var(--font-heading);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.programm-zeile-titel {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.programm-zeile-werkzeuge {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.programm-umordnen {
+  min-height: 2.75rem;
+  min-width: 2.75rem;
+  padding: 0.4rem 0;
+  font-size: var(--schrift-neben);
+  font-variant-numeric: tabular-nums;
+}
+.programm-zeile-notiz label {
+  display: block;
+  font-size: var(--schrift-neben);
+  font-weight: 600;
+  margin-block: 0.3rem 0.15rem;
+}
+.programm-zeile-notiz input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.55rem 0.7rem;
+  border: 2px solid var(--ink);
+  border-radius: var(--radius-knopf);
+  font: inherit;
+  background: var(--paper);
+  color: var(--ink);
+}
+.programm-lied-wahl {
+  margin-block: 0.6rem 0;
+}
+.programm-lied-wahl label {
+  display: block;
+  font-weight: 600;
+  font-size: var(--schrift-neben);
+  margin-block: 0.4rem 0.3rem;
+}
+.programm-lied-suche-reihe {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.programm-lied-suche-reihe input {
+  flex: 1 1 12rem;
+  min-width: 0;
+  padding: 0.55rem 0.7rem;
+  border: 2px solid var(--ink);
+  border-radius: var(--radius-knopf);
+  font: inherit;
+  background: var(--paper);
+  color: var(--ink);
+}
+.programm-lied-treffer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-block: 0.4rem 0.2rem;
+}
+
+/* ─── Programmverzeichnis (ARC-026) ───────────────────────────────────
+   Die Zeilen erben die Geometrie des Auftrittsverzeichnisses (Datum in
+   der schmalen Spalte, Inhalt daneben); die Liederzahl liest sich in
+   der Meta-Leiter. Unter 700 px stapelt der Eintrag unter sein Datum. */
+.programme-einträge {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 1.8rem;
+}
+.programme-eintrag {
+  display: grid;
+  grid-template-columns: 10rem minmax(0, 1fr);
+  gap: 0.2rem 1.4rem;
+  min-width: 0;
+}
+.programme-eintrag h3 {
+  margin-block: 0;
+  font-size: var(--titel-abschnitt);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 700px) {
+  .programme-eintrag {
+    grid-template-columns: 1fr;
+    gap: 0.1rem;
+  }
+  /* Die Werkzeile stapelt im Handymaß: Kopf, Umordnen-Reihe, Fassungs-
+     wahl und Notiz laufen untereinander, die Pfeilknöpfe behalten ihre
+     Berührziele. */
+  .programm-zeile-werkzeuge {
+    flex-wrap: wrap;
+  }
 }
 
 @media (max-width: 700px) {
