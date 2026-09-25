@@ -740,6 +740,11 @@ internal sealed class AuthApiFactory : WebApplicationFactory<Program>
 			services.AddDbContext<ArchiveDbContext>(options =>
 			{
 				options.UseInMemoryDatabase(database, sharedRoot);
+				// ARC-026 programme saves wrap their two-phase renumber in an
+				// explicit transaction; the InMemory provider only logs that
+				// it ignores transactions, so silence the throw-on-warning.
+				options.ConfigureWarnings(w =>
+					w.Ignore(InMemoryEventId.TransactionIgnoredWarning));
 				// Per-test save interception (e.g. the ARC-022 chat persistence
 				// atomicity check) rides on the same in-memory database.
 				if (saveChangesInterceptor is not null)

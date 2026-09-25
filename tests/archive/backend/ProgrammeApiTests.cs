@@ -105,6 +105,70 @@ public sealed class ProgrammeApiTests
 			Assert.Equal(new[] { 1, 2, 3 }, items.Select(i => i.Position).ToList());
 			Assert.Equal("Geänderte Notiz", items[1].Note);
 			Assert.Null(items[2].Note);
+			// The working embed's updatedAt tracks the programme aggregate,
+			// not the revision's frozen creation instant.
+			var programme = await db.Programmes.SingleAsync(p => p.EventId == eventId);
+			Assert.Equal(programme.UpdatedAt,
+				DateTimeOffset.Parse(second.GetProperty("working")
+					.GetProperty("updatedAt").GetString()!));
+		}
+	}
+
+	[Fact]
+	public async Task AdjacentSwapOfSurvivingEntriesPersistsFinalOrder()
+	{
+		await using var factory = new AuthApiFactory();
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		var editorSession = await SignInAsync(factory, Editor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var songA = await CreateSongAsync(client, editorSession, "Erstes Lied");
+		var songB = await CreateSongAsync(client, editorSession, "Zweites Lied");
+		var eventId = await CreateEventAsync(client, editorSession,
+			new { kind = "concert", title = "Nachbartausch" });
+
+		// Two entries, then the frontend's ↑/↓ shape: a pure adjacent swap of
+		// the two surviving rows. On PostgreSQL this reorder is a dependency
+		// cycle for the unique (RevisionId, Position) index when renumbered
+		// in place; the two-phase save must answer 200 with the final order.
+		var firstItems = new object[]
+		{
+			new { songId = songA.SongId, musicalVersionId = songA.VersionId },
+			new { songId = songB.SongId, musicalVersionId = songB.VersionId },
+		};
+		using var firstSave = await PutJsonAsync(client, $"/api/events/{eventId}/programme/items",
+			new { items = firstItems }, editorSession);
+		Assert.Equal(HttpStatusCode.OK, firstSave.StatusCode);
+		var first = await ProgrammeOfAsync(firstSave);
+		var firstEntries = first.GetProperty("working").GetProperty("items").EnumerateArray().ToList();
+		var idA = firstEntries[0].GetProperty("id").GetString()!;
+		var idB = firstEntries[1].GetProperty("id").GetString()!;
+		var rowVersion = first.GetProperty("rowVersion").GetUInt32();
+
+		var swapItems = new object[]
+		{
+			new { id = idB, songId = songB.SongId, musicalVersionId = songB.VersionId },
+			new { id = idA, songId = songA.SongId, musicalVersionId = songA.VersionId },
+		};
+		using var swapSave = await PutJsonAsync(client, $"/api/events/{eventId}/programme/items",
+			new { items = swapItems, rowVersion }, editorSession);
+		Assert.Equal(HttpStatusCode.OK, swapSave.StatusCode);
+		var swapped = await ProgrammeOfAsync(swapSave);
+		Assert.Equal(rowVersion + 1, swapped.GetProperty("rowVersion").GetUInt32());
+		var swapEntries = swapped.GetProperty("working").GetProperty("items").EnumerateArray().ToList();
+		Assert.Equal(2, swapEntries.Count);
+		Assert.Equal(new[] { 1, 2 }, swapEntries.Select(i => i.GetProperty("position").GetInt32()).ToList());
+		Assert.Equal(new[] { idB, idA }, swapEntries.Select(i => i.GetProperty("id").GetString()!).ToList());
+
+		// The final contiguous order persists with the stable ids intact.
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			var items = await db.ProgrammeItems
+				.Where(i => i.Revision!.Programme!.EventId == eventId)
+				.OrderBy(i => i.Position).ToListAsync();
+			Assert.Equal(2, items.Count);
+			Assert.Equal(new[] { idB, idA }, items.Select(i => i.Id.ToString()).ToList());
+			Assert.Equal(new[] { 1, 2 }, items.Select(i => i.Position).ToList());
 		}
 	}
 
@@ -295,7 +359,7 @@ public sealed class ProgrammeApiTests
 		Assert.Equal(HttpStatusCode.OK, draftSaveResponse.StatusCode);
 		var draft = await ProgrammeOfAsync(draftSaveResponse);
 		Assert.Equal(2, draft.GetProperty("working").GetProperty("number").GetInt32());
-		Assert.Equal(1, draft.GetProperty("working").GetProperty("items").EnumerateArray().ToList().Count);
+		Assert.Single(draft.GetProperty("working").GetProperty("items").EnumerateArray());
 
 		var memberDetailAfter = await GetEventDetailAsync(client, memberSession, eventId);
 		var memberProgrammeAfter = memberDetailAfter.GetProperty("programme");
@@ -415,6 +479,55 @@ public sealed class ProgrammeApiTests
 			Assert.NotNull(secondRevision.PublishedAt);
 			Assert.True(secondRevision.PublishedAt!.Value >= firstPublishedAt);
 		}
+	}
+
+	[Fact]
+	public async Task PublishedProgrammeOnDraftEventStaysHiddenUntilEventPublish()
+	{
+		await using var factory = new AuthApiFactory();
+		await SeedAsync(factory, Member, ArchiveRoles.Member);
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		var memberSession = await SignInAsync(factory, Member);
+		var editorSession = await SignInAsync(factory, Editor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var songA = await CreateSongAsync(client, editorSession, "Entwurfsauftrittslied");
+		// Event publication is independent (ARC-024): the programme is
+		// published while the event itself is still a draft.
+		var eventId = await CreateEventAsync(client, editorSession,
+			new { kind = "concert", title = "Noch unveröffentlichter Auftritt" });
+		var items = new object[]
+		{
+			new { songId = songA.SongId, musicalVersionId = songA.VersionId },
+		};
+		using var saveResponse = await PutJsonAsync(client, $"/api/events/{eventId}/programme/items",
+			new { items }, editorSession);
+		Assert.Equal(HttpStatusCode.OK, saveResponse.StatusCode);
+		using var publishResponse = await PostJsonAsync(client,
+			$"/api/events/{eventId}/programme/publish",
+			new { rowVersion = (await ProgrammeOfAsync(saveResponse))
+				.GetProperty("rowVersion").GetUInt32() }, editorSession);
+		Assert.Equal(HttpStatusCode.OK, publishResponse.StatusCode);
+
+		// Members stay blind: no programme list entry, and the draft event
+		// detail answers its indistinguishable 404.
+		Assert.Empty((await GetProgrammeListAsync(client, memberSession)).EnumerateArray());
+		using var memberDetail = new HttpRequestMessage(HttpMethod.Get, $"/api/events/{eventId}");
+		memberDetail.Headers.Add("Cookie", memberSession);
+		using var memberDetailResponse = await client.SendAsync(memberDetail);
+		Assert.Equal(HttpStatusCode.NotFound, memberDetailResponse.StatusCode);
+		var memberProblem = await memberDetailResponse.Content.ReadFromJsonAsync<JsonElement>();
+		Assert.Equal(EventEndpoints.NotFoundMessage, memberProblem.GetProperty("title").GetString());
+
+		// Publishing the event lifts the veil: the programme appears in the
+		// member list and rides the member event detail embed.
+		await PublishEventAsync(client, editorSession, eventId);
+		var programmes = (await GetProgrammeListAsync(client, memberSession)).EnumerateArray().ToList();
+		Assert.Single(programmes);
+		Assert.Equal(eventId, Guid.Parse(programmes[0].GetProperty("eventId").GetString()!));
+		Assert.Equal(1, programmes[0].GetProperty("itemCount").GetInt32());
+		var detail = await GetEventDetailAsync(client, memberSession, eventId);
+		Assert.Equal(1, detail.GetProperty("programme").GetProperty("published")
+			.GetProperty("number").GetInt32());
 	}
 
 	[Fact]
@@ -598,11 +711,59 @@ public sealed class ProgrammeApiTests
 		{
 			items = new object[] { new { songId = songB.SongId, musicalVersionId = songA.VersionId } },
 		}, ProgrammeEndpoints.MissingVersionMessage);
+		// A null entry in the items array is malformed input, not a song.
+		await AssertRejected(new
+		{
+			items = new object?[]
+			{
+				null,
+				new { songId = songA.SongId, musicalVersionId = songA.VersionId },
+			},
+		}, ProgrammeEndpoints.InvalidItemMessage);
 
 		// Nothing was written: failing entries among valid ones leave no
 		// programme behind (all-or-nothing validation before any write).
 		var detail = await GetEventDetailAsync(client, editorSession, eventId);
 		Assert.True(detail.GetProperty("programme").ValueKind is JsonValueKind.Null);
+
+		// A duplicated item id is rejected before any write: two entries
+		// referencing the SAME id would silently route both into one row —
+		// the later entry overwrites its twin's song and the full replacement
+		// drops every other entry. The meaningful case repeats a KNOWN id, so
+		// first save two real entries (no programme yet, rowVersion ignored).
+		var seedItems = new object[]
+		{
+			new { songId = songA.SongId, musicalVersionId = songA.VersionId },
+			new { songId = songB.SongId, musicalVersionId = songB.VersionId },
+		};
+		using var seedSave = await PutJsonAsync(client, $"/api/events/{eventId}/programme/items",
+			new { items = seedItems }, editorSession);
+		Assert.Equal(HttpStatusCode.OK, seedSave.StatusCode);
+		var seed = await ProgrammeOfAsync(seedSave);
+		var seedEntries = seed.GetProperty("working").GetProperty("items").EnumerateArray().ToList();
+		var twinId = seedEntries[0].GetProperty("id").GetString()!;
+		await AssertRejected(new
+		{
+			items = new object[]
+			{
+				new { id = twinId, songId = songA.SongId, musicalVersionId = songA.VersionId },
+				new { id = twinId, songId = songB.SongId, musicalVersionId = songB.VersionId },
+			},
+			rowVersion = seed.GetProperty("rowVersion").GetUInt32(),
+		}, ProgrammeEndpoints.InvalidItemMessage);
+
+		// The guard is broad (it fires on any duplicated id, existing or not)
+		// and the rejection touched nothing: both entries keep their ids,
+		// positions and song assignment from the last successful save.
+		var detailAfter = await GetEventDetailAsync(client, editorSession, eventId);
+		var itemsAfter = detailAfter.GetProperty("programme").GetProperty("working")
+			.GetProperty("items").EnumerateArray().ToList();
+		Assert.Equal(2, itemsAfter.Count);
+		Assert.Equal(new[] { 1, 2 }, itemsAfter.Select(i => i.GetProperty("position").GetInt32()).ToList());
+		Assert.Equal(twinId, itemsAfter[0].GetProperty("id").GetString());
+		Assert.Equal(seedEntries[1].GetProperty("id").GetString(), itemsAfter[1].GetProperty("id").GetString());
+		Assert.Equal(songA.SongId, Guid.Parse(itemsAfter[0].GetProperty("songId").GetString()!));
+		Assert.Equal(songB.SongId, Guid.Parse(itemsAfter[1].GetProperty("songId").GetString()!));
 	}
 
 	[Fact]

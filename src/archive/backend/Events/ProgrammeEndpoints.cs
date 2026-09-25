@@ -37,6 +37,8 @@ public static class ProgrammeEndpoints
 
 	public const string NoteTooLongMessage = "Die Notiz ist zu lang.";
 
+	public const string InvalidItemMessage = "Ein Programmpunkt ist ungültig.";
+
 	/// <summary>Field maximum for the per-entry note (ARC-026 schema).</summary>
 	public const int NoteMaxLength = 500;
 
@@ -109,7 +111,24 @@ public static class ProgrammeEndpoints
 			// of the removal pass below.
 			var existingItems = working.Items.ToList();
 			var matchById = existingItems.ToDictionary(i => i.Id);
-			var position = 1;
+			// Entries absent from the request are removed (full replacement).
+			var requestedIds = resolved
+				.Where(i => i.RequestedId is not null)
+				.Select(i => i.RequestedId!.Value)
+				.ToHashSet();
+			foreach (var orphan in existingItems.Where(i => !requestedIds.Contains(i.Id)))
+				db.ProgrammeItems.Remove(orphan);
+			// Two-phase renumber: landing the final 1..n positions in one
+			// pass is a dependency cycle for the relational command batch —
+			// two swapped surviving rows each wait for the other's unique
+			// (RevisionId, Position) slot, so EF throws before any SQL runs.
+			// Phase 1 parks every entry strictly above all current positions,
+			// phase 2 lands the final order. The parking base is also raised
+			// to the requested count when it grows: otherwise phase 2's
+			// targets (1..n) would overlap phase 1's parked rows and the
+			// provider's statement order could still trip the unique index.
+			var touched = new List<ProgrammeItem>(resolved.Count);
+			var parkedPosition = Math.Max(existingItems.Count, resolved.Count);
 			foreach (var entry in resolved)
 			{
 				ProgrammeItem? item = entry.RequestedId is { } id
@@ -133,23 +152,28 @@ public static class ProgrammeEndpoints
 					item.MusicalVersionId = entry.MusicalVersionId;
 					item.Note = entry.Note;
 				}
-				item.Position = position++;
+				item.Position = ++parkedPosition;
+				touched.Add(item);
 			}
-			// Entries absent from the request are removed (full replacement).
-			var requestedIds = resolved
-				.Where(i => i.RequestedId is not null)
-				.Select(i => i.RequestedId!.Value)
-				.ToHashSet();
-			foreach (var orphan in existingItems.Where(i => !requestedIds.Contains(i.Id)))
-				db.ProgrammeItems.Remove(orphan);
 			// Programme attribution and the concurrency bump commit with the
 			// revision/item changes in one save; the event row stays untouched.
 			programme.UpdatedAt = now;
 			programme.UpdatedByAccountId = decision!.AccountId;
 			programme.RowVersion++;
+			// One explicit transaction keeps the transient non-contiguous
+			// positions unobservable on PostgreSQL; only phase 1 can hit the
+			// concurrency conflict (the token bump happens there) — a failure
+			// rolls the whole renumber back.
+			await using var transaction = await db.Database.BeginTransactionAsync(token);
 			try
 			{
 				await db.SaveChangesAsync(token);
+				// Phase 2: the final contiguous positions 1..n in request order.
+				var finalPosition = 1;
+				foreach (var item in touched)
+					item.Position = finalPosition++;
+				await db.SaveChangesAsync(token);
+				await transaction.CommitAsync(token);
 			}
 			catch (DbUpdateConcurrencyException)
 			{
@@ -286,15 +310,18 @@ public static class ProgrammeEndpoints
 	{
 		id = programme.Id,
 		rowVersion = programme.RowVersion,
-		working = working is null ? null : WorkingEmbed(working),
+		working = working is null ? null : WorkingEmbed(programme, working),
 		published = published is null ? null : PublishedEmbed(published),
 	};
 
-	private static object WorkingEmbed(ProgrammeRevision revision) => new
+	private static object WorkingEmbed(EventProgramme programme, ProgrammeRevision revision) => new
 	{
 		id = revision.Id,
 		number = revision.Number,
-		updatedAt = revision.CreatedAt,
+		// The working embed's updatedAt tracks the programme aggregate (it
+		// bumps on every programme edit next to rowVersion), not the frozen
+		// revision creation instant.
+		updatedAt = programme.UpdatedAt,
 		items = OrderedItems(revision),
 	};
 
@@ -336,6 +363,13 @@ public static class ProgrammeEndpoints
 	private static async Task<(List<ResolvedItem> Items, IResult? Error)> ResolveItemsAsync(
 		ArchiveDbContext db, List<ProgrammeItemRequest> requested, CancellationToken token)
 	{
+		// A null entry or a duplicated item id would silently overwrite an
+		// entry and break the 1..n contiguity — rejected before any write.
+		if (requested.Any(entry => entry is null))
+			return ([], Results.Problem(statusCode: 400, title: InvalidItemMessage));
+		if (requested.Where(i => i.Id is not null)
+			.GroupBy(i => i.Id!.Value).Any(group => group.Count() > 1))
+			return ([], Results.Problem(statusCode: 400, title: InvalidItemMessage));
 		var versionIds = requested
 			.Where(i => i.MusicalVersionId is not null)
 			.Select(i => i.MusicalVersionId!.Value)
