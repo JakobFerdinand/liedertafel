@@ -131,7 +131,11 @@ public static class EventEndpoints
 			// sourceNote; members only see finalized material, pending items
 			// expose no tickets and stay editor-only.
 			var documents = await LoadEventDocumentsAsync(db, isEditor, id, token);
-			return Results.Ok(new { @event = EventDetail(choirEvent, documents) });
+			// ARC-026: the programme embed rides the detail payload after
+			// documents, role-filtered (members: newest published revision
+			// only; editors: working draft too).
+			var programme = await ProgrammeEndpoints.LoadDetailEmbedAsync(db, isEditor, id, token);
+			return Results.Ok(new { @event = EventDetail(choirEvent, documents, programme) });
 		});
 
 		app.MapPost("/api/events", async (
@@ -267,7 +271,8 @@ public static class EventEndpoints
 				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
 			}
 			var documents = await LoadEventDocumentsAsync(db, IsEditor(decision), id, token);
-			return Results.Ok(new { @event = EventDetail(choirEvent, documents) });
+			var programme = await ProgrammeEndpoints.LoadDetailEmbedAsync(db, IsEditor(decision), id, token);
+			return Results.Ok(new { @event = EventDetail(choirEvent, documents, programme) });
 		}).DisableAntiforgery();
 
 		app.MapPost("/api/events/{id}/publish", async (
@@ -294,7 +299,8 @@ public static class EventEndpoints
 				await db.SaveChangesAsync(token);
 			}
 			var publishDocuments = await LoadEventDocumentsAsync(db, IsEditor(decision!), id, token);
-			return Results.Ok(new { @event = EventDetail(choirEvent, publishDocuments) });
+			var publishProgramme = await ProgrammeEndpoints.LoadDetailEmbedAsync(db, IsEditor(decision!), id, token);
+			return Results.Ok(new { @event = EventDetail(choirEvent, publishDocuments, publishProgramme) });
 		}).DisableAntiforgery();
 
 		app.MapPost("/api/events/{id}/unpublish", async (
@@ -321,7 +327,8 @@ public static class EventEndpoints
 				await db.SaveChangesAsync(token);
 			}
 			var unpublishDocuments = await LoadEventDocumentsAsync(db, IsEditor(decision!), id, token);
-			return Results.Ok(new { @event = EventDetail(choirEvent, unpublishDocuments) });
+			var unpublishProgramme = await ProgrammeEndpoints.LoadDetailEmbedAsync(db, IsEditor(decision!), id, token);
+			return Results.Ok(new { @event = EventDetail(choirEvent, unpublishDocuments, unpublishProgramme) });
 		}).DisableAntiforgery();
 	}
 
@@ -360,12 +367,9 @@ public static class EventEndpoints
 	private static int PrecisionRank(int? month, int? day)
 		=> month is null ? 2 : day is null ? 1 : 0;
 
-	/// <summary>Derived date precision from the set components (ARC-024).</summary>
+	/// <summary>Derived date precision from the set components (ARC-024); shared with the programme endpoints.</summary>
 	private static string DatePrecision(int? year, int? month, int? day)
-		=> day is not null && month is not null ? "day"
-			: month is not null ? "month"
-			: year is not null ? "year"
-			: "unknown";
+		=> EventDate.Precision(year, month, day);
 
 	private static object EventItem(EventRow e) => new
 	{
@@ -383,7 +387,7 @@ public static class EventEndpoints
 		published = e.PublishedAt is not null,
 	};
 
-	private static object EventDetail(ChoirEvent e, IReadOnlyList<object>? documents = null) => new
+	private static object EventDetail(ChoirEvent e, IReadOnlyList<object>? documents = null, object? programme = null) => new
 	{
 		id = e.Id,
 		kind = e.Kind,
@@ -400,6 +404,7 @@ public static class EventEndpoints
 		notes = e.Notes,
 		sourceNote = e.SourceNote,
 		documents = documents ?? [],
+		programme,
 		createdAt = e.CreatedAt,
 		updatedAt = e.UpdatedAt,
 		publishedAt = e.PublishedAt,

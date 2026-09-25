@@ -185,6 +185,7 @@ app.MapPasskeyEndpoints();
 app.MapMemberAdminEndpoints();
 app.MapCatalogueEndpoints();
 app.MapEventEndpoints();
+app.MapProgrammeEndpoints();
 app.MapChatEndpoints();
 app.MapAssetEndpoints();
 app.MapDevelopmentDiagnostics();

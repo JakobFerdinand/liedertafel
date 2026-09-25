@@ -45,6 +45,12 @@ public sealed class ArchiveDbContext(DbContextOptions<ArchiveDbContext> options)
 
 	public DbSet<ChoirEvent> Events => Set<ChoirEvent>();
 
+	public DbSet<EventProgramme> Programmes => Set<EventProgramme>();
+
+	public DbSet<ProgrammeRevision> ProgrammeRevisions => Set<ProgrammeRevision>();
+
+	public DbSet<ProgrammeItem> ProgrammeItems => Set<ProgrammeItem>();
+
 	public DbSet<ArchiveAsset> Assets => Set<ArchiveAsset>();
 
 	public DbSet<FileRevision> FileRevisions => Set<FileRevision>();

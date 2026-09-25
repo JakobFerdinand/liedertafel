@@ -613,11 +613,13 @@ public sealed class EventAssetApiTests
 			Assert.Null(persisted.PublishedAt);
 			Assert.Equal(1, await db.Events.CountAsync());
 			// ARC-025 acceptance: attaching a scanned programme creates no
-			// confirmed performance records — no such entities exist at all.
+			// confirmed performance records. ARC-026 introduces the ordered
+			// programme aggregate beside the event; what must not exist at
+			// all is anything that tracks performed or confirmed songs.
 			Assert.DoesNotContain(db.Model.GetEntityTypes(), t =>
 				t.ClrType.Name.Contains("Performance", StringComparison.OrdinalIgnoreCase)
-				|| t.ClrType.Name.Contains("Programme", StringComparison.OrdinalIgnoreCase)
-				|| t.ClrType.Name.Contains("Setlist", StringComparison.OrdinalIgnoreCase));
+				|| t.ClrType.Name.Contains("Performed", StringComparison.OrdinalIgnoreCase)
+				|| t.ClrType.Name.Contains("Confirmed", StringComparison.OrdinalIgnoreCase));
 		}
 	}
 

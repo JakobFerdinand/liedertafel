@@ -20,6 +20,13 @@ public static class EventDate
 		"Juli", "August", "September", "Oktober", "November", "Dezember",
 	];
 
+	/// <summary>Derived date precision from the set components (ARC-024).</summary>
+	public static string Precision(int? year, int? month, int? day)
+		=> day is not null && month is not null ? "day"
+			: month is not null ? "month"
+			: year is not null ? "year"
+			: "unknown";
+
 	public static string Display(int? year, int? month, int? day, bool approximate)
 	{
 		if (year is null)
