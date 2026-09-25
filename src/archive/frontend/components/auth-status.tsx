@@ -46,9 +46,12 @@ export function AuthStatus() {
   if (!me.authenticated) {
     return <Link href="/anmelden/">Anmelden</Link>;
   }
+  // Statt des Statusworts steht der Name der angemeldeten Person in der
+  // Leiste; ohne Anzeigenamen zählt die E-Mail-Adresse.
+  const name = me.displayName ?? me.email;
   return (
     <span className="auth-zeile">
-      <span className="auth-status">Angemeldet</span>
+      <span className="auth-status">{name}</span>
       <button
         type="button"
         className="knopf-leise"
