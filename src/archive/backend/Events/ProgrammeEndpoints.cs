@@ -14,8 +14,10 @@ public sealed record ProgrammeItemRequest(Guid? Id, Guid? SongId, Guid? MusicalV
 public sealed record PublishProgrammeRequest(uint RowVersion);
 
 /// <summary>
-/// Programme API (ARC-026): editors order songs for an event's appearance
-/// and explicitly publish the revision members should follow. Reads use the
+/// Programme API (ARC-026/027): editors order songs for an event's
+/// appearance and explicitly publish the revision members should follow.
+/// ARC-027 surfaces the frozen published-revision history to editors and
+/// guards publishing against an outdated base revision. Reads use the
 /// shared database decision: members see only the newest published revision
 /// of a member-visible event (see <see cref="ProgrammeVisibility"/> and
 /// <see cref="EventVisibility"/>), editors/administrators also the working
@@ -94,12 +96,18 @@ public static class ProgrammeEndpoints
 			{
 				// Post-publication editing: a fresh draft revision (next
 				// number) seeded empty, so published revisions stay frozen.
+				// CreatedAt (= earliest accepted publish moment) and the
+				// creator attribute here so the ARC-027 publisher can guard
+				// the base revision; the clamp keeps a backwards clock step
+				// from freezing a stale base into the draft.
+				var baseAt = ProgrammeVisibility.NewestPublished(programme)?.PublishedAt;
 				working = new ProgrammeRevision
 				{
 					ProgrammeId = programme.Id,
 					Number = programme.Revisions.Count == 0
 						? 1 : programme.Revisions.Max(r => r.Number) + 1,
-					CreatedAt = now,
+					CreatedAt = baseAt is { } publishedAt && publishedAt > now
+						? publishedAt : now,
 					CreatedByAccountId = decision!.AccountId,
 				};
 				db.ProgrammeRevisions.Add(working);
@@ -214,6 +222,14 @@ public static class ProgrammeEndpoints
 				return Results.Problem(statusCode: 409, title: AlreadyPublishedMessage);
 			if (body?.RowVersion != programme.RowVersion)
 				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
+			// ARC-027 stale-base guard: a working draft written before the
+			// newest publication would publish against an outdated base
+			// revision. Structurally a draft is always created after the
+			// last publication, so this is defence in depth for future
+			// paths; the client reloads and redoes the edit (same contract
+			// language as the rowVersion conflict above).
+			if (working.CreatedAt < ProgrammeRevisions.EarliestAcceptedDraftMoment(programme))
+				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
 			if (working.Items.Count == 0)
 				return Results.Problem(statusCode: 400, title: EmptyProgrammeMessage);
 			// Draft selections were allowed while drafting; only member-
@@ -284,11 +300,12 @@ public static class ProgrammeEndpoints
 	}
 
 	/// <summary>
-	/// Role-filtered programme embed for the event detail (ARC-026): members
-	/// receive only the newest published revision, editors additionally the
-	/// working draft. Before the first publication members (and editors)
-	/// receive null — an absent programme is indistinguishable from no
-	/// programme, so the frontend shows the "anlegen" affordance.
+	/// Role-filtered programme embed for the event detail (ARC-026/027):
+	/// members receive only the newest published revision, editors
+	/// additionally the working draft and the frozen published-revision
+	/// history. When no programme exists yet, the embed is null — an
+	/// absent programme is indistinguishable from no programme, so the
+	/// frontend shows the "anlegen" affordance.
 	/// </summary>
 	public static async Task<object?> LoadDetailEmbedAsync(
 		ArchiveDbContext db, bool isEditor, Guid eventId, CancellationToken token)
@@ -303,15 +320,28 @@ public static class ProgrammeEndpoints
 		var working = isEditor ? ProgrammeVisibility.WorkingDraft(programme) : null;
 		if (!isEditor && published is null)
 			return null;
-		return Embed(programme, working, published);
+		return Embed(programme, working, published, isEditor);
 	}
 
-	private static object Embed(EventProgramme programme, ProgrammeRevision? working, ProgrammeRevision? published) => new
+	private static object Embed(
+		EventProgramme programme, ProgrammeRevision? working, ProgrammeRevision? published,
+		bool isEditor) => new
 	{
 		id = programme.Id,
 		rowVersion = programme.RowVersion,
 		working = working is null ? null : WorkingEmbed(programme, working),
 		published = published is null ? null : PublishedEmbed(published),
+		// ARC-027 revision history: every frozen published revision, oldest
+		// first; the newest one rides in `published`, the working draft is
+		// excluded. Members read only the newest publication and receive
+		// null.
+		history = isEditor
+			? programme.Revisions
+				.Where(r => r.PublishedAt is not null && (published is null || r.Id != published.Id))
+				.OrderBy(r => r.Number)
+				.Select(PublishedEmbed)
+				.ToList()
+			: null,
 	};
 
 	private static object WorkingEmbed(EventProgramme programme, ProgrammeRevision revision) => new
