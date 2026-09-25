@@ -1,7 +1,7 @@
 # Choir Archive — Implementation Issue Index
 
-Status: ARC-001, ARC-003, ARC-004, ARC-005, ARC-006, ARC-007, ARC-008, ARC-009, ARC-011, ARC-011-1, ARC-013, ARC-014, ARC-015, ARC-016, ARC-017, ARC-018, ARC-019, ARC-020, ARC-023 and ARC-024 completed; ARC-010, ARC-012 and ARC-051 are in progress; remaining implementation issues are planned.
-Date: 2026-09-24
+Status: ARC-001, ARC-003, ARC-004, ARC-005, ARC-006, ARC-007, ARC-008, ARC-009, ARC-011, ARC-011-1, ARC-013, ARC-014, ARC-015, ARC-016, ARC-017, ARC-018, ARC-019, ARC-020, ARC-021, ARC-022, ARC-023, ARC-024, ARC-025, ARC-026 and ARC-027 completed; ARC-010, ARC-012 and ARC-051 are in progress; remaining implementation issues are planned.
+Date: 2026-09-25
 Sources: [PRD](prd.md) · [Architecture](architecture.md)
 
 **Start here to pick work:** [ARC-021] is the next priority — choose the AI

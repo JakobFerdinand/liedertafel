@@ -18,13 +18,17 @@ namespace Archive.Backend.Tests;
 /// stale rowVersion conflicts, unavailable/private selections rejected at
 /// the publish boundary, German validation problems and the untouched event
 /// row (merely passing the event date never marks songs performed). The
-/// ARC-027 region additionally covers the frozen revision history embed and
-/// the stale-base publish guard.
+/// ARC-027 region additionally covers the frozen revision history embed,
+/// the stale-base publish guard, the two-editor rowVersion contract over
+/// the shared working draft, the member view staying on the last
+/// published revision while a draft evolves and the read-time
+/// musical-version labels behind published deep links.
 /// </summary>
 public sealed class ProgrammeApiTests
 {
 	private const string Member = "mitglied@liedertafel.test";
 	private const string Editor = "redaktion@liedertafel.test";
+	private const string Zweitredaktion = "zweitredaktion@liedertafel.test";
 
 	[Fact]
 	public async Task EditorSavesProgrammeItemsWithStableIdsAndReorder()
@@ -1075,6 +1079,586 @@ public sealed class ProgrammeApiTests
 		var memberDetail = await GetEventDetailAsync(client, memberSession, eventId);
 		Assert.Equal(2, memberDetail.GetProperty("programme").GetProperty("published")
 			.GetProperty("number").GetInt32());
+	}
+
+	/// <summary>
+	/// ARC-027 two-editor journey: the shared working draft is edited in
+	/// place and the rowVersion on the programme aggregate guards every
+	/// PUT — the second editor's stale anchor answers the German
+	/// concurrency title while the other editor's accepted items (stable
+	/// ids, positions, notes) stay intact; the refused editor reloads the
+	/// fresh state and redoes a smaller edit on top of the accepted one.
+	/// Item identity is stable across editors within the working revision.
+	/// </summary>
+	[Fact]
+	public async Task TwoEditorsCannotSilentlyOverwriteEachOthersAcceptedEdit()
+	{
+		await using var factory = new AuthApiFactory();
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		await SeedAsync(factory, Zweitredaktion, ArchiveRoles.Editor);
+		var editorSession = await SignInAsync(factory, Editor);
+		var secondSession = await SignInAsync(factory, Zweitredaktion);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var songA = await CreateSongAsync(client, editorSession, "Erstes Lied");
+		var songB = await CreateSongAsync(client, editorSession, "Zweites Lied");
+		var songC = await CreateSongAsync(client, editorSession, "Drittes Lied");
+		var eventId = await CreateEventAsync(client, editorSession,
+			new { kind = "concert", title = "Zwei Redaktionen" });
+		await PublishEventAsync(client, editorSession, eventId);
+
+		// Editor A builds the three-item draft and publishes revision 1.
+		var firstItems = new object[]
+		{
+			new { songId = songA.SongId, musicalVersionId = songA.VersionId, note = "Eröffnung" },
+			new { songId = songB.SongId, musicalVersionId = songB.VersionId },
+			new { songId = songC.SongId, musicalVersionId = songC.VersionId },
+		};
+		using var firstSave = await PutJsonAsync(client, $"/api/events/{eventId}/programme/items",
+			new { items = firstItems }, editorSession);
+		Assert.Equal(HttpStatusCode.OK, firstSave.StatusCode);
+		using var firstPublishResponse = await PostJsonAsync(client,
+			$"/api/events/{eventId}/programme/publish",
+			new { rowVersion = (await ProgrammeOfAsync(firstSave)).GetProperty("rowVersion").GetUInt32() },
+			editorSession);
+		Assert.Equal(HttpStatusCode.OK, firstPublishResponse.StatusCode);
+
+		// Editor B loads the editor detail and anchors on the current
+		// rowVersion before editor A touches the shared draft.
+		var staleRowVersion = await EditorProgrammeRowVersionAsync(client, secondSession, eventId);
+
+		// Editor A saves a draft edit: the fresh post-publication draft
+		// revision reorders the entries and edits a note (every requested
+		// item is a new entry — the frozen revision keeps its own rows).
+		var editorRowVersion = await EditorProgrammeRowVersionAsync(client, editorSession, eventId);
+		var editorItems = new object[]
+		{
+			new { songId = songC.SongId, musicalVersionId = songC.VersionId },
+			new { songId = songA.SongId, musicalVersionId = songA.VersionId, note = "Geänderte Notiz" },
+			new { songId = songB.SongId, musicalVersionId = songB.VersionId },
+		};
+		using var editorSave = await PutJsonAsync(client, $"/api/events/{eventId}/programme/items",
+			new { items = editorItems, rowVersion = editorRowVersion }, editorSession);
+		Assert.Equal(HttpStatusCode.OK, editorSave.StatusCode);
+		var accepted = await ProgrammeOfAsync(editorSave);
+		Assert.Equal(2, accepted.GetProperty("working").GetProperty("number").GetInt32());
+		var acceptedEntries = accepted.GetProperty("working").GetProperty("items").EnumerateArray().ToList();
+		var acceptedIds = acceptedEntries.Select(i => i.GetProperty("id").GetString()!).ToList();
+		var acceptedRowVersion = accepted.GetProperty("rowVersion").GetUInt32();
+		Assert.Equal(editorRowVersion + 1, acceptedRowVersion);
+
+		// Editor B attempts its own reshuffle of the same entries with the
+		// stale anchor: the conflict answers before any validation or
+		// write — B's note never reaches the shared draft.
+		var secondItems = new object[]
+		{
+			new { songId = songB.SongId, musicalVersionId = songB.VersionId },
+			new { songId = songC.SongId, musicalVersionId = songC.VersionId, note = "Übernommen" },
+			new { songId = songA.SongId, musicalVersionId = songA.VersionId },
+		};
+		using var staleSave = await PutJsonAsync(client, $"/api/events/{eventId}/programme/items",
+			new { items = secondItems, rowVersion = staleRowVersion }, secondSession);
+		Assert.Equal(HttpStatusCode.Conflict, staleSave.StatusCode);
+		var staleProblem = await staleSave.Content.ReadFromJsonAsync<JsonElement>();
+		Assert.Equal(ProgrammeEndpoints.ConcurrencyMessage, staleProblem.GetProperty("title").GetString());
+
+		// A's accepted draft items are intact: ids, positions, notes.
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			var draft = await db.ProgrammeRevisions
+				.Include(r => r.Items)
+				.SingleAsync(r => r.Programme!.EventId == eventId && r.PublishedAt == null);
+			var items = draft.Items.OrderBy(i => i.Position).ToList();
+			Assert.Equal(2, draft.Number);
+			Assert.Equal(acceptedIds, items.Select(i => i.Id.ToString()).ToList());
+			Assert.Equal(new[] { 1, 2, 3 }, items.Select(i => i.Position).ToList());
+			Assert.Null(items[0].Note);
+			Assert.Equal("Geänderte Notiz", items[1].Note);
+			Assert.Null(items[2].Note);
+			var programme = await db.Programmes.SingleAsync(p => p.EventId == eventId);
+			Assert.Equal(acceptedRowVersion, programme.RowVersion);
+		}
+
+		// B reloads the fresh state and redoes a smaller edit on top: two
+		// of A's item ids ride the PUT body — stable identity across
+		// editors — plus one new entry; A's third entry gives way.
+		var freshDetail = await GetEventDetailAsync(client, secondSession, eventId);
+		var freshRowVersion = freshDetail.GetProperty("programme").GetProperty("rowVersion").GetUInt32();
+		Assert.Equal(acceptedRowVersion, freshRowVersion);
+		var redoItems = new object[]
+		{
+			new { id = acceptedIds[2], songId = songB.SongId, musicalVersionId = songB.VersionId },
+			new { id = acceptedIds[1], songId = songA.SongId, musicalVersionId = songA.VersionId, note = "Geänderte Notiz" },
+			new { songId = songC.SongId, musicalVersionId = songC.VersionId, note = "Notiz von B" },
+		};
+		using var redoSave = await PutJsonAsync(client, $"/api/events/{eventId}/programme/items",
+			new { items = redoItems, rowVersion = freshRowVersion }, secondSession);
+		Assert.Equal(HttpStatusCode.OK, redoSave.StatusCode);
+		var redone = await ProgrammeOfAsync(redoSave);
+		var redoEntries = redone.GetProperty("working").GetProperty("items").EnumerateArray().ToList();
+		var redoIds = redoEntries.Select(i => i.GetProperty("id").GetString()!).ToList();
+		Assert.Equal(new[] { 1, 2, 3 }, redoEntries.Select(i => i.GetProperty("position").GetInt32()).ToList());
+		// Both of A's kept item ids survive with their content; B's entry
+		// exists with a fresh id; A's dropped entry is gone.
+		Assert.Equal(acceptedIds[2], redoIds[0]);
+		Assert.Equal(acceptedIds[1], redoIds[1]);
+		Assert.DoesNotContain(acceptedIds[0], redoIds);
+		Assert.Equal(songB.SongId, Guid.Parse(redoEntries[0].GetProperty("songId").GetString()!));
+		Assert.True(redoEntries[0].GetProperty("note").ValueKind is JsonValueKind.Null);
+		Assert.Equal(songA.SongId, Guid.Parse(redoEntries[1].GetProperty("songId").GetString()!));
+		Assert.Equal("Geänderte Notiz", redoEntries[1].GetProperty("note").GetString());
+		Assert.Equal(songC.SongId, Guid.Parse(redoEntries[2].GetProperty("songId").GetString()!));
+		Assert.Equal("Notiz von B", redoEntries[2].GetProperty("note").GetString());
+		Assert.Equal(acceptedRowVersion + 1, redone.GetProperty("rowVersion").GetUInt32());
+	}
+
+	/// <summary>
+	/// ARC-027 two-editor publish journey: the shared working draft is
+	/// edited in place under the rowVersion guard — an editor whose
+	/// pre-publish anchor has gone stale is refused (409, the German
+	/// concurrency title) instead of publishing against an outdated base,
+	/// and the refusal stamps nothing. The winner's publication is exactly
+	/// the one new revision; the refused editor reloads the fresh state,
+	/// seeds a draft from the published items WITHOUT ids (the ARC-026
+	/// copy contract) and publishes the next revision, while the
+	/// superseded rows stay byte-identical in the database.
+	/// </summary>
+	[Fact]
+	public async Task SecondEditorPublishingStaleBaseIsRefused()
+	{
+		await using var factory = new AuthApiFactory();
+		await SeedAsync(factory, Member, ArchiveRoles.Member);
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		await SeedAsync(factory, Zweitredaktion, ArchiveRoles.Editor);
+		var memberSession = await SignInAsync(factory, Member);
+		var editorSession = await SignInAsync(factory, Editor);
+		var secondSession = await SignInAsync(factory, Zweitredaktion);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var songA = await CreateSongAsync(client, editorSession, "Erstes Lied");
+		var songB = await CreateSongAsync(client, editorSession, "Zweites Lied");
+		var eventId = await CreateEventAsync(client, editorSession,
+			new { kind = "concert", title = "Veraltete Veröffentlichung", dateYear = 2099, dateMonth = 9 });
+		await PublishEventAsync(client, editorSession, eventId);
+		var firstItems = new object[]
+		{
+			new { songId = songA.SongId, musicalVersionId = songA.VersionId, note = "Erste Fassung" },
+			new { songId = songB.SongId, musicalVersionId = songB.VersionId },
+		};
+		using var firstSave = await PutJsonAsync(client, $"/api/events/{eventId}/programme/items",
+			new { items = firstItems }, editorSession);
+		Assert.Equal(HttpStatusCode.OK, firstSave.StatusCode);
+		using var firstPublishResponse = await PostJsonAsync(client,
+			$"/api/events/{eventId}/programme/publish",
+			new { rowVersion = (await ProgrammeOfAsync(firstSave)).GetProperty("rowVersion").GetUInt32() },
+			editorSession);
+		Assert.Equal(HttpStatusCode.OK, firstPublishResponse.StatusCode);
+		var firstPublished = await ProgrammeOfAsync(firstPublishResponse);
+		var firstItemIds = firstPublished.GetProperty("published").GetProperty("items")
+			.EnumerateArray().Select(i => i.GetProperty("id").GetString()!).ToList();
+		DateTimeOffset firstStamp;
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			firstStamp = (await db.ProgrammeRevisions
+				.SingleAsync(r => r.Programme!.EventId == eventId && r.Number == 1)).PublishedAt!.Value;
+		}
+
+		// The shared working draft (revision 2) is saved after revision 1
+		// was published; both editors have loaded the state. Editor B's
+		// anchor predates editor A's next move on the shared draft.
+		var sharedItems = new object[]
+		{
+			new { songId = songB.SongId, musicalVersionId = songB.VersionId, note = "Neu gesetzt" },
+			new { songId = songA.SongId, musicalVersionId = songA.VersionId },
+		};
+		using var sharedSave = await PutJsonAsync(client, $"/api/events/{eventId}/programme/items",
+			new { items = sharedItems, rowVersion = await EditorProgrammeRowVersionAsync(client, editorSession, eventId) },
+			editorSession);
+		Assert.Equal(HttpStatusCode.OK, sharedSave.StatusCode);
+		var shared = await ProgrammeOfAsync(sharedSave);
+		Assert.Equal(2, shared.GetProperty("working").GetProperty("number").GetInt32());
+		var sharedIds = shared.GetProperty("working").GetProperty("items").EnumerateArray()
+			.Select(i => i.GetProperty("id").GetString()!).ToList();
+		var sharedRowVersion = shared.GetProperty("rowVersion").GetUInt32();
+		var secondAnchor = await EditorProgrammeRowVersionAsync(client, secondSession, eventId);
+		Assert.Equal(sharedRowVersion, secondAnchor);
+
+		// Editor A moves the shared draft forward once more (a note edit
+		// riding the same shared item ids), so B's pre-publish anchor is
+		// stale: B's publication would stamp an outdated base. The
+		// refusal fires with the German concurrency title and writes
+		// nothing; the publication itself lands right after.
+		var aNoteEdit = new object[]
+		{
+			new { id = sharedIds[0], songId = songB.SongId, musicalVersionId = songB.VersionId, note = "Von A geändert" },
+			new { id = sharedIds[1], songId = songA.SongId, musicalVersionId = songA.VersionId },
+		};
+		using var aSave = await PutJsonAsync(client, $"/api/events/{eventId}/programme/items",
+			new { items = aNoteEdit, rowVersion = sharedRowVersion }, editorSession);
+		Assert.Equal(HttpStatusCode.OK, aSave.StatusCode);
+		var editorDraft = await ProgrammeOfAsync(aSave);
+		var editorRowVersion = editorDraft.GetProperty("rowVersion").GetUInt32();
+		Assert.Equal(sharedRowVersion + 1, editorRowVersion);
+
+		using var stalePublishResponse = await PostJsonAsync(client,
+			$"/api/events/{eventId}/programme/publish", new { rowVersion = secondAnchor }, secondSession);
+		Assert.Equal(HttpStatusCode.Conflict, stalePublishResponse.StatusCode);
+		var staleProblem = await stalePublishResponse.Content.ReadFromJsonAsync<JsonElement>();
+		Assert.Equal(ProgrammeEndpoints.ConcurrencyMessage, staleProblem.GetProperty("title").GetString());
+
+		// Editor A publishes the shared draft: exactly one new published
+		// revision exists, members read A's complete revision 2, revision 1
+		// stays frozen and B's refused attempt left no stamp behind.
+		using var aPublishResponse = await PostJsonAsync(client,
+			$"/api/events/{eventId}/programme/publish", new { rowVersion = editorRowVersion }, editorSession);
+		Assert.Equal(HttpStatusCode.OK, aPublishResponse.StatusCode);
+		var editorPublished = await ProgrammeOfAsync(aPublishResponse);
+		Assert.True(editorPublished.GetProperty("working").ValueKind is JsonValueKind.Null);
+		Assert.Equal(2, editorPublished.GetProperty("published").GetProperty("number").GetInt32());
+		var editorId = await UserIdAsync(factory, Editor);
+		List<(Guid Id, int Position, Guid SongId, Guid ArrangementId, Guid MusicalVersionId, string? Note)> frozenItems;
+		DateTimeOffset frozenStamp;
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			var revisions = await db.ProgrammeRevisions
+				.Include(r => r.Items)
+				.Where(r => r.Programme!.EventId == eventId)
+				.OrderBy(r => r.Number).ToListAsync();
+			Assert.Equal(2, revisions.Count);
+			Assert.All(revisions, r => Assert.True(r.PublishedAt is not null));
+			// No double stamp: revision 2 is stamped once, by editor A.
+			Assert.Equal(1, revisions.Count(r => r.Number == 2));
+			var published = revisions.Single(r => r.Number == 2);
+			Assert.Equal(editorId, published.PublishedByAccountId);
+			frozenStamp = published.PublishedAt!.Value;
+			frozenItems = published.Items.OrderBy(i => i.Position)
+				.Select(i => (i.Id, i.Position, i.SongId, i.ArrangementId, i.MusicalVersionId, i.Note)).ToList();
+			Assert.Equal(new[] { "Von A geändert", (string?)null }, frozenItems.Select(i => i.Note).ToList());
+		}
+		var memberDetail = await GetEventDetailAsync(client, memberSession, eventId);
+		var memberPublished = memberDetail.GetProperty("programme").GetProperty("published");
+		Assert.Equal(2, memberPublished.GetProperty("number").GetInt32());
+		var memberItems = memberPublished.GetProperty("items").EnumerateArray().ToList();
+		Assert.Equal("Zweites Lied", memberItems[0].GetProperty("songTitle").GetString());
+		Assert.Equal("Von A geändert", memberItems[0].GetProperty("note").GetString());
+		Assert.Equal("Erstes Lied", memberItems[1].GetProperty("songTitle").GetString());
+
+		// B reloads: the working draft is gone now, everything is published.
+		var reloadDetail = await GetEventDetailAsync(client, secondSession, eventId);
+		var reloadProgramme = reloadDetail.GetProperty("programme");
+		Assert.True(reloadProgramme.GetProperty("working").ValueKind is JsonValueKind.Null);
+		Assert.Equal(2, reloadProgramme.GetProperty("published").GetProperty("number").GetInt32());
+		// The copy contract: the fresh draft is seeded from the published
+		// items client-side, WITHOUT ids — crossing the publication
+		// boundary mints fresh item ids.
+		var publishedItems = reloadProgramme.GetProperty("published").GetProperty("items").EnumerateArray().ToList();
+		var copyItems = publishedItems
+			.Select(i => (object)new
+			{
+				songId = Guid.Parse(i.GetProperty("songId").GetString()!),
+				musicalVersionId = Guid.Parse(i.GetProperty("musicalVersionId").GetString()!),
+				note = i.GetProperty("note").ValueKind is JsonValueKind.Null
+					? null : (string?)i.GetProperty("note").GetString(),
+			})
+			.ToArray();
+		using var copySave = await PutJsonAsync(client, $"/api/events/{eventId}/programme/items",
+			new { items = copyItems, rowVersion = reloadProgramme.GetProperty("rowVersion").GetUInt32() },
+			secondSession);
+		Assert.Equal(HttpStatusCode.OK, copySave.StatusCode);
+		var copyDraft = await ProgrammeOfAsync(copySave);
+		Assert.Equal(3, copyDraft.GetProperty("working").GetProperty("number").GetInt32());
+		var copyIds = copyDraft.GetProperty("working").GetProperty("items").EnumerateArray()
+			.Select(i => i.GetProperty("id").GetString()!).ToList();
+		Assert.Equal(2, copyIds.Count);
+		Assert.DoesNotContain(copyIds[0], sharedIds);
+		Assert.DoesNotContain(copyIds[1], sharedIds);
+
+		// B publishes the copy as revision 3; members read it completely.
+		using var bPublishResponse = await PostJsonAsync(client,
+			$"/api/events/{eventId}/programme/publish",
+			new { rowVersion = copyDraft.GetProperty("rowVersion").GetUInt32() }, secondSession);
+		Assert.Equal(HttpStatusCode.OK, bPublishResponse.StatusCode);
+		var memberDetailAfter = await GetEventDetailAsync(client, memberSession, eventId);
+		var memberPublishedAfter = memberDetailAfter.GetProperty("programme").GetProperty("published");
+		Assert.Equal(3, memberPublishedAfter.GetProperty("number").GetInt32());
+		var memberItemsAfter = memberPublishedAfter.GetProperty("items").EnumerateArray().ToList();
+		Assert.Equal(2, memberItemsAfter.Count);
+		Assert.Equal(copyIds, memberItemsAfter.Select(i => i.GetProperty("id").GetString()!).ToList());
+		Assert.Equal("Zweites Lied", memberItemsAfter[0].GetProperty("songTitle").GetString());
+		Assert.Equal("Von A geändert", memberItemsAfter[0].GetProperty("note").GetString());
+		Assert.Equal("Erstes Lied", memberItemsAfter[1].GetProperty("songTitle").GetString());
+
+		// The superseded revisions stay frozen in the database: revision 2
+		// byte-identical rows and stamps, revision 1 untouched as well.
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			var frozen = await db.ProgrammeRevisions
+				.Include(r => r.Items)
+				.SingleAsync(r => r.Programme!.EventId == eventId && r.Number == 2);
+			Assert.Equal(frozenStamp, frozen.PublishedAt);
+			Assert.Equal(editorId, frozen.PublishedByAccountId);
+			var rows = frozen.Items.OrderBy(i => i.Position)
+				.Select(i => (i.Id, i.Position, i.SongId, i.ArrangementId, i.MusicalVersionId, i.Note)).ToList();
+			Assert.Equal(frozenItems, rows);
+			var frozenFirst = await db.ProgrammeRevisions
+				.Include(r => r.Items)
+				.SingleAsync(r => r.Programme!.EventId == eventId && r.Number == 1);
+			Assert.Equal(firstStamp, frozenFirst.PublishedAt);
+			Assert.Equal(firstItemIds, frozenFirst.Items.OrderBy(i => i.Position)
+				.Select(i => i.Id.ToString()).ToList());
+		}
+	}
+
+	/// <summary>
+	/// ARC-027 member guarantee: while the editor evolves the working draft
+	/// across several saves, the member detail and the member programme
+	/// list keep describing the last published revision byte-identically;
+	/// only the explicit publication switches the member view atomically —
+	/// and the event row keeps its own stamps across both programme
+	/// publishes (the ARC-026 distinction from performance records).
+	/// </summary>
+	[Fact]
+	public async Task MemberViewStaysOnLastPublishedRevisionWhileDraftEvolves()
+	{
+		await using var factory = new AuthApiFactory();
+		await SeedAsync(factory, Member, ArchiveRoles.Member);
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		var memberSession = await SignInAsync(factory, Member);
+		var editorSession = await SignInAsync(factory, Editor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var songA = await CreateSongAsync(client, editorSession, "Erstes Lied");
+		var songB = await CreateSongAsync(client, editorSession, "Zweites Lied");
+		var songC = await CreateSongAsync(client, editorSession, "Drittes Lied");
+		var songD = await CreateSongAsync(client, editorSession, "Viertes Lied");
+		var eventId = await CreateEventAsync(client, editorSession, new
+		{
+			kind = "concert",
+			title = "Jahreskonzert 2099",
+			dateYear = 2099,
+			dateMonth = 6,
+		});
+		await PublishEventAsync(client, editorSession, eventId);
+		DateTimeOffset eventPublishedAtBefore;
+		DateTimeOffset eventUpdatedAtBefore;
+		uint eventRowVersionBefore;
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			var persisted = await db.Events.SingleAsync(e => e.Id == eventId);
+			eventPublishedAtBefore = persisted.PublishedAt!.Value;
+			eventUpdatedAtBefore = persisted.UpdatedAt;
+			eventRowVersionBefore = persisted.RowVersion;
+		}
+
+		// Revision 1: three entries with notes, published.
+		var firstItems = new object[]
+		{
+			new { songId = songA.SongId, musicalVersionId = songA.VersionId, note = "Eröffnung" },
+			new { songId = songB.SongId, musicalVersionId = songB.VersionId, note = "Mittelpart" },
+			new { songId = songC.SongId, musicalVersionId = songC.VersionId, note = "Zugabe" },
+		};
+		using var firstSave = await PutJsonAsync(client, $"/api/events/{eventId}/programme/items",
+			new { items = firstItems }, editorSession);
+		Assert.Equal(HttpStatusCode.OK, firstSave.StatusCode);
+		using var firstPublishResponse = await PostJsonAsync(client,
+			$"/api/events/{eventId}/programme/publish",
+			new { rowVersion = (await ProgrammeOfAsync(firstSave)).GetProperty("rowVersion").GetUInt32() },
+			editorSession);
+		Assert.Equal(HttpStatusCode.OK, firstPublishResponse.StatusCode);
+		var firstPublished = await ProgrammeOfAsync(firstPublishResponse);
+		var revisionOne = firstPublished.GetProperty("published");
+		Assert.Equal(1, revisionOne.GetProperty("number").GetInt32());
+		var firstPublishedAt = revisionOne.GetProperty("publishedAt").GetString()!;
+		var firstItemsJson = revisionOne.GetProperty("items").EnumerateArray()
+			.Select(i => i.GetRawText()).ToList();
+
+		// After every draft save the member view must still be revision 1:
+		// same number, same publishedAt, byte-identical items, and the
+		// member programme list still counts revision 1's items.
+		async Task AssertMemberStaysOnRevisionOneAsync()
+		{
+			var memberDetail = await GetEventDetailAsync(client, memberSession, eventId);
+			var published = memberDetail.GetProperty("programme").GetProperty("published");
+			Assert.Equal(1, published.GetProperty("number").GetInt32());
+			Assert.Equal(firstPublishedAt, published.GetProperty("publishedAt").GetString());
+			Assert.Equal(firstItemsJson, published.GetProperty("items").EnumerateArray()
+				.Select(i => i.GetRawText()).ToList());
+			var listRow = (await GetProgrammeListAsync(client, memberSession)).EnumerateArray()
+				.Single(row => Guid.Parse(row.GetProperty("eventId").GetString()!) == eventId);
+			Assert.Equal(3, listRow.GetProperty("itemCount").GetInt32());
+		}
+
+		// Draft save 1: reorder + note edit on the fresh draft revision.
+		var saveOneItems = new object[]
+		{
+			new { songId = songC.SongId, musicalVersionId = songC.VersionId },
+			new { songId = songA.SongId, musicalVersionId = songA.VersionId, note = "Geänderte Notiz" },
+			new { songId = songB.SongId, musicalVersionId = songB.VersionId, note = "Mittelpart" },
+		};
+		using var saveOneResponse = await PutJsonAsync(client,
+			$"/api/events/{eventId}/programme/items",
+			new { items = saveOneItems, rowVersion = await EditorProgrammeRowVersionAsync(client, editorSession, eventId) },
+			editorSession);
+		Assert.Equal(HttpStatusCode.OK, saveOneResponse.StatusCode);
+		await AssertMemberStaysOnRevisionOneAsync();
+
+		// Draft save 2: remove one entry + add another — still no change
+		// for the member.
+		var draftOne = await ProgrammeOfAsync(saveOneResponse);
+		var keptIds = draftOne.GetProperty("working").GetProperty("items").EnumerateArray()
+			.Select(i => i.GetProperty("id").GetString()!).ToList();
+		var saveTwoItems = new object[]
+		{
+			new { id = keptIds[1], songId = songA.SongId, musicalVersionId = songA.VersionId, note = "Geänderte Notiz" },
+			new { id = keptIds[2], songId = songB.SongId, musicalVersionId = songB.VersionId, note = "Mittelpart" },
+			new { songId = songD.SongId, musicalVersionId = songD.VersionId, note = "Neu gesetzt" },
+		};
+		using var saveTwo = await PutJsonAsync(client, $"/api/events/{eventId}/programme/items",
+			new
+			{
+				items = saveTwoItems,
+				rowVersion = draftOne.GetProperty("rowVersion").GetUInt32(),
+			}, editorSession);
+		Assert.Equal(HttpStatusCode.OK, saveTwo.StatusCode);
+		await AssertMemberStaysOnRevisionOneAsync();
+
+		// Publishing revision 2 switches the member view atomically: the
+		// complete new programme, the removed revision-1 entry gone, the
+		// publication stamp advanced.
+		using var secondPublishResponse = await PostJsonAsync(client,
+			$"/api/events/{eventId}/programme/publish",
+			new { rowVersion = await EditorProgrammeRowVersionAsync(client, editorSession, eventId) },
+			editorSession);
+		Assert.Equal(HttpStatusCode.OK, secondPublishResponse.StatusCode);
+		var memberDetail = await GetEventDetailAsync(client, memberSession, eventId);
+		var memberProgramme = memberDetail.GetProperty("programme");
+		Assert.True(memberProgramme.GetProperty("working").ValueKind is JsonValueKind.Null);
+		var memberPublished = memberProgramme.GetProperty("published");
+		Assert.Equal(2, memberPublished.GetProperty("number").GetInt32());
+		var memberItems = memberPublished.GetProperty("items").EnumerateArray().ToList();
+		Assert.Equal(3, memberItems.Count);
+		Assert.Equal("Erstes Lied", memberItems[0].GetProperty("songTitle").GetString());
+		Assert.Equal("Geänderte Notiz", memberItems[0].GetProperty("note").GetString());
+		Assert.Equal("Zweites Lied", memberItems[1].GetProperty("songTitle").GetString());
+		Assert.Equal("Viertes Lied", memberItems[2].GetProperty("songTitle").GetString());
+		Assert.Equal("Neu gesetzt", memberItems[2].GetProperty("note").GetString());
+		Assert.DoesNotContain(memberItems, i => i.GetProperty("songTitle").GetString() == "Drittes Lied");
+		Assert.True(DateTimeOffset.Parse(memberPublished.GetProperty("publishedAt").GetString()!)
+			> DateTimeOffset.Parse(firstPublishedAt));
+		Assert.True(memberProgramme.GetProperty("history").ValueKind is JsonValueKind.Null);
+		AssertNoPerformedFields(memberProgramme);
+
+		// The event row keeps its own stamps across the whole cycle: both
+		// programme publishes wrote nothing there.
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			var persisted = await db.Events.SingleAsync(e => e.Id == eventId);
+			Assert.Equal(eventPublishedAtBefore, persisted.PublishedAt);
+			Assert.Equal(eventUpdatedAtBefore, persisted.UpdatedAt);
+			Assert.Equal(eventRowVersionBefore, persisted.RowVersion);
+		}
+	}
+
+	/// <summary>
+	/// ARC-027 deep-link contract: a published item keeps the frozen
+	/// musical-version/song/arrangement identity while the display fields
+	/// resolve read-time — relabelling the version reaches the member view
+	/// and the frozen history alike, and every id the member's deep link
+	/// resolves stays exactly where it was published.
+	/// </summary>
+	[Fact]
+	public async Task PublishedProgrammeLinksStayCurrentMusicalVersions()
+	{
+		await using var factory = new AuthApiFactory();
+		await SeedAsync(factory, Member, ArchiveRoles.Member);
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		var memberSession = await SignInAsync(factory, Member);
+		var editorSession = await SignInAsync(factory, Editor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var song = await CreateSongAsync(client, editorSession, "Wanderschaft",
+			versionLabel: "Erste Fassung");
+		var eventId = await CreateEventAsync(client, editorSession,
+			new { kind = "concert", title = "Herbstkonzert" });
+		await PublishEventAsync(client, editorSession, eventId);
+		var items = new object[]
+		{
+			new { songId = song.SongId, musicalVersionId = song.VersionId, note = "Stehchoral" },
+		};
+		using var firstSave = await PutJsonAsync(client, $"/api/events/{eventId}/programme/items",
+			new { items }, editorSession);
+		Assert.Equal(HttpStatusCode.OK, firstSave.StatusCode);
+		using var firstPublishResponse = await PostJsonAsync(client,
+			$"/api/events/{eventId}/programme/publish",
+			new { rowVersion = (await ProgrammeOfAsync(firstSave)).GetProperty("rowVersion").GetUInt32() },
+			editorSession);
+		Assert.Equal(HttpStatusCode.OK, firstPublishResponse.StatusCode);
+		var firstItem = (await ProgrammeOfAsync(firstPublishResponse)).GetProperty("published")
+			.GetProperty("items").EnumerateArray().Single();
+		var frozenItemId = firstItem.GetProperty("id").GetString()!;
+		Assert.Equal(song.VersionId, Guid.Parse(firstItem.GetProperty("musicalVersionId").GetString()!));
+		Assert.Equal(song.SongId, Guid.Parse(firstItem.GetProperty("songId").GetString()!));
+		Assert.Equal(song.ArrangementId, Guid.Parse(firstItem.GetProperty("arrangementId").GetString()!));
+		Assert.Equal("Erste Fassung", firstItem.GetProperty("musicalVersionLabel").GetString());
+
+		// The editor relabels the musical version (catalogue PATCH route
+		// and body as the shared helper uses them).
+		var (cookie, token) = await GetCsrfAsync(client, editorSession);
+		using var relabel = AuthedPatch($"/api/musical-versions/{song.VersionId}",
+			new { label = "Neue Fassung" }, $"{cookie}; {editorSession}", token);
+		using var relabelResponse = await client.SendAsync(relabel);
+		Assert.Equal(HttpStatusCode.OK, relabelResponse.StatusCode);
+
+		// The member item keeps its deep-link identity while the label
+		// shows the NEW value: linked scores resolve to the current
+		// musical-version files, never frozen copies.
+		var memberDetail = await GetEventDetailAsync(client, memberSession, eventId);
+		var memberItem = memberDetail.GetProperty("programme").GetProperty("published")
+			.GetProperty("items").EnumerateArray().Single();
+		Assert.Equal(frozenItemId, memberItem.GetProperty("id").GetString());
+		Assert.Equal(song.VersionId, Guid.Parse(memberItem.GetProperty("musicalVersionId").GetString()!));
+		Assert.Equal(song.SongId, Guid.Parse(memberItem.GetProperty("songId").GetString()!));
+		Assert.Equal(song.ArrangementId, Guid.Parse(memberItem.GetProperty("arrangementId").GetString()!));
+		Assert.Equal("Neue Fassung", memberItem.GetProperty("musicalVersionLabel").GetString());
+		Assert.Equal("Stehchoral", memberItem.GetProperty("note").GetString());
+
+		// A second publication turns revision 1 into frozen history; the
+		// frozen entry resolves the CURRENT label at read time while the
+		// frozen ids stay exactly as published.
+		var draftRowVersion = await EditorProgrammeRowVersionAsync(client, editorSession, eventId);
+		var draftItems = new object[]
+		{
+			new { songId = song.SongId, musicalVersionId = song.VersionId, note = "Stehchoral" },
+		};
+		using var draftSave = await PutJsonAsync(client, $"/api/events/{eventId}/programme/items",
+			new { items = draftItems, rowVersion = draftRowVersion }, editorSession);
+		Assert.Equal(HttpStatusCode.OK, draftSave.StatusCode);
+		using var secondPublishResponse = await PostJsonAsync(client,
+			$"/api/events/{eventId}/programme/publish",
+			new { rowVersion = (await ProgrammeOfAsync(draftSave)).GetProperty("rowVersion").GetUInt32() },
+			editorSession);
+		Assert.Equal(HttpStatusCode.OK, secondPublishResponse.StatusCode);
+		var editorDetail = await GetEventDetailAsync(client, editorSession, eventId);
+		var historyEntry = editorDetail.GetProperty("programme").GetProperty("history")
+			.EnumerateArray().Single();
+		Assert.Equal(1, historyEntry.GetProperty("number").GetInt32());
+		var historyItem = historyEntry.GetProperty("items").EnumerateArray().Single();
+		Assert.Equal(frozenItemId, historyItem.GetProperty("id").GetString());
+		Assert.Equal(song.VersionId, Guid.Parse(historyItem.GetProperty("musicalVersionId").GetString()!));
+		Assert.Equal(song.SongId, Guid.Parse(historyItem.GetProperty("songId").GetString()!));
+		Assert.Equal(song.ArrangementId, Guid.Parse(historyItem.GetProperty("arrangementId").GetString()!));
+		Assert.Equal("Neue Fassung", historyItem.GetProperty("musicalVersionLabel").GetString());
+		// The member's newest publication carries the fresh item id of the
+		// copied draft but the same deep-link identity and label.
+		var memberDetailAfter = await GetEventDetailAsync(client, memberSession, eventId);
+		var memberPublishedAfter = memberDetailAfter.GetProperty("programme").GetProperty("published");
+		Assert.Equal(2, memberPublishedAfter.GetProperty("number").GetInt32());
+		var memberItemAfter = memberPublishedAfter.GetProperty("items").EnumerateArray().Single();
+		Assert.NotEqual(frozenItemId, memberItemAfter.GetProperty("id").GetString());
+		Assert.Equal(song.VersionId, Guid.Parse(memberItemAfter.GetProperty("musicalVersionId").GetString()!));
+		Assert.Equal("Neue Fassung", memberItemAfter.GetProperty("musicalVersionLabel").GetString());
 	}
 
 	private static void AssertNoPerformedFields(JsonElement element)
