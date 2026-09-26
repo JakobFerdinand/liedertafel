@@ -186,6 +186,7 @@ app.MapMemberAdminEndpoints();
 app.MapCatalogueEndpoints();
 app.MapEventEndpoints();
 app.MapProgrammeEndpoints();
+app.MapPerformanceEndpoints();
 app.MapChatEndpoints();
 app.MapAssetEndpoints();
 app.MapDevelopmentDiagnostics();

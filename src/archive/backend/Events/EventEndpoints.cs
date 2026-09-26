@@ -135,7 +135,10 @@ public static class EventEndpoints
 			// documents, role-filtered (members: newest published revision
 			// only; editors: working draft too).
 			var programme = await ProgrammeEndpoints.LoadDetailEmbedAsync(db, isEditor, id, token);
-			return Results.Ok(new { @event = EventDetail(choirEvent, documents, programme) });
+			// ARC-028: the evidence embed rides after programme, role-
+			// filtered (members only the minimal occurrences, never notes).
+			var performances = await PerformanceEndpoints.LoadEventPerformancesAsync(db, isEditor, id, token);
+			return Results.Ok(new { @event = EventDetail(choirEvent, documents, programme, performances) });
 		});
 
 		app.MapPost("/api/events", async (
@@ -272,7 +275,8 @@ public static class EventEndpoints
 			}
 			var documents = await LoadEventDocumentsAsync(db, IsEditor(decision), id, token);
 			var programme = await ProgrammeEndpoints.LoadDetailEmbedAsync(db, IsEditor(decision), id, token);
-			return Results.Ok(new { @event = EventDetail(choirEvent, documents, programme) });
+			var performances = await PerformanceEndpoints.LoadEventPerformancesAsync(db, IsEditor(decision), id, token);
+			return Results.Ok(new { @event = EventDetail(choirEvent, documents, programme, performances) });
 		}).DisableAntiforgery();
 
 		app.MapPost("/api/events/{id}/publish", async (
@@ -300,7 +304,8 @@ public static class EventEndpoints
 			}
 			var publishDocuments = await LoadEventDocumentsAsync(db, IsEditor(decision!), id, token);
 			var publishProgramme = await ProgrammeEndpoints.LoadDetailEmbedAsync(db, IsEditor(decision!), id, token);
-			return Results.Ok(new { @event = EventDetail(choirEvent, publishDocuments, publishProgramme) });
+			var publishPerformances = await PerformanceEndpoints.LoadEventPerformancesAsync(db, IsEditor(decision!), id, token);
+			return Results.Ok(new { @event = EventDetail(choirEvent, publishDocuments, publishProgramme, publishPerformances) });
 		}).DisableAntiforgery();
 
 		app.MapPost("/api/events/{id}/unpublish", async (
@@ -328,7 +333,8 @@ public static class EventEndpoints
 			}
 			var unpublishDocuments = await LoadEventDocumentsAsync(db, IsEditor(decision!), id, token);
 			var unpublishProgramme = await ProgrammeEndpoints.LoadDetailEmbedAsync(db, IsEditor(decision!), id, token);
-			return Results.Ok(new { @event = EventDetail(choirEvent, unpublishDocuments, unpublishProgramme) });
+			var unpublishPerformances = await PerformanceEndpoints.LoadEventPerformancesAsync(db, IsEditor(decision!), id, token);
+			return Results.Ok(new { @event = EventDetail(choirEvent, unpublishDocuments, unpublishProgramme, unpublishPerformances) });
 		}).DisableAntiforgery();
 	}
 
@@ -387,7 +393,7 @@ public static class EventEndpoints
 		published = e.PublishedAt is not null,
 	};
 
-	private static object EventDetail(ChoirEvent e, IReadOnlyList<object>? documents = null, object? programme = null) => new
+	private static object EventDetail(ChoirEvent e, IReadOnlyList<object>? documents = null, object? programme = null, IReadOnlyList<object>? performances = null) => new
 	{
 		id = e.Id,
 		kind = e.Kind,
@@ -405,6 +411,7 @@ public static class EventEndpoints
 		sourceNote = e.SourceNote,
 		documents = documents ?? [],
 		programme,
+		performances = performances ?? [],
 		createdAt = e.CreatedAt,
 		updatedAt = e.UpdatedAt,
 		publishedAt = e.PublishedAt,

@@ -614,11 +614,13 @@ public sealed class EventAssetApiTests
 			Assert.Equal(1, await db.Events.CountAsync());
 			// ARC-025 acceptance: attaching a scanned programme creates no
 			// confirmed performance records. ARC-026 introduces the ordered
-			// programme aggregate beside the event; what must not exist at
-			// all is anything that tracks performed or confirmed songs.
+			// programme aggregate beside the event and ARC-028 the explicit
+			// performance evidence (closed confirmed/mention values, never
+			// an ambiguous "performed" flag); attaching assets alone must
+			// leave the occurrence table empty.
+			Assert.Empty(await db.Performances.AsNoTracking().ToListAsync());
 			Assert.DoesNotContain(db.Model.GetEntityTypes(), t =>
-				t.ClrType.Name.Contains("Performance", StringComparison.OrdinalIgnoreCase)
-				|| t.ClrType.Name.Contains("Performed", StringComparison.OrdinalIgnoreCase)
+				t.ClrType.Name.Contains("Performed", StringComparison.OrdinalIgnoreCase)
 				|| t.ClrType.Name.Contains("Confirmed", StringComparison.OrdinalIgnoreCase));
 		}
 	}
