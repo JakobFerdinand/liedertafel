@@ -1,6 +1,6 @@
 ---
 id: ARC-028
-status: in_progress
+status: done
 phase: core
 kind: slice
 depends_on: ["ARC-013", "ARC-024"]
@@ -20,15 +20,15 @@ unconfirmed programme mention, even when its arrangement is unknown.
 
 ## Acceptance criteria
 
-- [ ] Add event-side entry/editing with song, optional known arrangement/version,
+- [x] Add event-side entry/editing with song, optional known arrangement/version,
   evidence status, source notes and stable occurrence identity.
-- [ ] Preserve event date uncertainty and reject mismatched song/arrangement
+- [x] Preserve event date uncertainty and reject mismatched song/arrangement
   selections. Missing facts remain unknown rather than invented.
-- [ ] Distinguish repeated occurrences of the same song at one event from repeated
+- [x] Distinguish repeated occurrences of the same song at one event from repeated
   submissions of the same occurrence; idempotent retries cannot inflate totals.
-- [ ] Record editor attribution and publish useful partial history. Date passage
+- [x] Record editor attribution and publish useful partial history. Date passage
   or a scanned programme alone never silently confirms a performance.
-- [ ] Define the performance ID and evidence contract consumed by recordings and
+- [x] Define the performance ID and evidence contract consumed by recordings and
   programme confirmation, independent of future-programme editing.
 
 ## Verification
@@ -57,3 +57,12 @@ editor attribution with RowVersion/409 concurrency.
 - `dotnet test tests/archive/backend --filter "FullyQualifiedName~PerformanceApiTests"` → 15/15 passed.
 - `dotnet test tests/archive/backend` → 353 passed, 0 failed.
 - Remaining slices: editor workbench UI, member partial history UI.
+
+Slices 2 and 3 completed 2026-09-26 — editor workbench for recording/editing/deleting evidence on the event detail (`components/auftritt-belege.tsx`, idempotency key per form instance, 409 reload-and-redo) and the member partial-history view with honest evidence distinction ("Bestätigt" vs "Programmangabe"), unknown chains rendered as "Fassung unbekannt", deep links via the shared recipe; reviewed by three fresh review passes (approve after fixes).
+
+- `dotnet test tests/archive/backend --filter "FullyQualifiedName~PerformanceApiTests"` → 15/15 passed
+- `dotnet test tests/archive/backend` → 353 passed, 0 failed
+- `dotnet test tests/archive/apphost --filter "FullyQualifiedName~CleanStartConnectsDependenciesAndRunsExplicitMigrationsAndWorker"` → passed (clean Aspire stack; `_PerformanceEvidence` asserted pending before `archive-migrate`, empty after; an initial failure traced to a stale `next dev` process from a parallel session holding the frontend dev lock — resolved by terminating it, no code change)
+- `dotnet build src/archive/Archive.slnx` → 0 warnings, 0 errors
+- `pnpm run check` → green; `pnpm run build` → static export succeeded
+- `pnpm run test:browser -- --grep "Belege"` → 10/10 on desktop + mobile; `programm.spec` 28/28 and `auftritte.spec` 16/16 no regressions (full browser suite exercised during Slice 2; the 3 `shell.spec` cases that need a real API origin are covered by the workflow's production smoke)
