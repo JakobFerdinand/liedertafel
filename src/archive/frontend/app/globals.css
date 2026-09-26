@@ -2272,9 +2272,11 @@ fieldset.programm-verwaltung {
 /* ─── Aufführungsnachweise (ARC-028) ──────────────────────────────────
    Die Nachweise lesen sich wie das Programm als geordnete Reihe: die
    Position als stiller Zähler vor dem Liedtitel, der Bestätigungsstand
-   als ruhige Marke und die Fassungsangabe in der Meta-Leiter. „Bestätigt“
-   trägt die Markenfarbe, unbestätigte Programmangaben bleiben still —
-   die Ehrlichkeit des Stands ist die Information. Keine neuen Farben —
+   als ruhige Marke und die Fassungsangabe in der Meta-Leiter.
+   „Bestätigt“ trägt die Markenfarbe, unbestätigte Programmangaben
+   bleiben still — die Ehrlichkeit des Stands ist die Information. Unter
+   der Rubriküberschrift erklärt das Satzpaar .belege-einleitung die
+   Unterscheidung (stille Schrift, kein neuer Ton). Keine neuen Farben —
    Paletten, Leitern und Radien kommen aus den gemeinsamen Variablen. */
 .nachweise-liste {
   list-style: none;
@@ -2283,6 +2285,15 @@ fieldset.programm-verwaltung {
   display: grid;
   gap: 1.1rem;
   max-width: 40rem;
+}
+/* Einleitung des Lesesaals: das ehrliche Satzpaar zur Unterscheidung
+   liest sich still (nach .noten-info) direkt unter der Rubriküberschrift
+   — kein eigener Ton, nur der Stand erklärt. */
+.belege-einleitung {
+  color: var(--muted);
+  font-size: var(--schrift-neben);
+  margin-block: 0.4rem 0;
+  max-width: 60ch;
 }
 .nachweis-eintrag {
   min-width: 0;
@@ -2300,6 +2311,22 @@ fieldset.programm-verwaltung {
 .nachweis-titel {
   margin-block: 0;
   font-size: var(--titel-abschnitt);
+  overflow-wrap: anywhere;
+}
+/* Tiefer Leseport wie in .programm-titel: ruhig ohne Unterstreichung,
+   die Zeigerhandlung liest sich beim Streifen. */
+.nachweis-titel a {
+  text-decoration: none;
+}
+.nachweis-titel a:hover {
+  text-decoration: underline;
+}
+/* Stille Meta-Leiter der Zeile (nach .noten-info): Standmarke und
+   Fassungsangabe, ohne Absatztrennung in der Reihe. */
+.nachweis-info {
+  color: var(--muted);
+  font-size: var(--schrift-neben);
+  margin-block: 0.2rem 0;
   overflow-wrap: anywhere;
 }
 .nachweis-marke {

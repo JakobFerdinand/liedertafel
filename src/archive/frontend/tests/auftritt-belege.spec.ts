@@ -278,6 +278,12 @@ test("Mitglied liest die Nachweise mit Standmarke, ohne Quellenangabe", async ({
     abschnitt.getByRole("heading", { name: "Aufführungsnachweise" }),
   ).toBeVisible();
 
+  // Ehrliche Einleitung: das Satzpaar erklärt die Unterscheidung, nur
+  // wenn Nachweise stehen (der Leerstand spricht für sich).
+  await expect(abschnitt.locator(".belege-einleitung")).toHaveText(
+    "Bestätigt heißt: der Auftritt ist überliefert. Programmangabe heißt: das Lied steht in einer Programmquelle, ohne dass die Aufführung gesichert ist.",
+  );
+
   // Geordnete Reihe in Positionsreihenfolge; die Titel lösen sich aus
   // den Lieddetails auf.
   const punkte = abschnitt.locator(".nachweise-liste .nachweis-eintrag");
@@ -301,6 +307,17 @@ test("Mitglied liest die Nachweise mit Standmarke, ohne Quellenangabe", async ({
   await expect(punkte.nth(1).locator(".nachweis-marke")).toHaveAttribute(
     "data-art",
     "mention",
+  );
+  // Tiefe Leseporte wie im Programm: die bekannte Kette fährt Fassung
+  // und Version in der Adresse, der Nachweis ohne Kette weist nur aufs
+  // Lied — nichts wird erfunden.
+  await expect(punkte.nth(0).getByRole("link")).toHaveAttribute(
+    "href",
+    `/lied/?id=${lied1Id}&fassung=${arrangement1Id}&version=${standardId}`,
+  );
+  await expect(punkte.nth(1).getByRole("link")).toHaveAttribute(
+    "href",
+    `/lied/?id=${lied2Id}`,
   );
   // Die Quellenangabe bleibt der Redaktion vorbehalten (Vertragssprache).
   await expect(punkte.getByText(/Quellenangabe/)).toHaveCount(0);
@@ -333,6 +350,9 @@ test("Ohne Nachweise bleibt der Abschnitt für beide rollen ehrlich leer", async
       "Zu diesem Auftritt sind noch keine Aufführungsnachweise erfasst.",
     ),
   ).toBeVisible();
+  // Ohne Zeilen liest keine Einleitung: der Leerstand braucht die
+  // Unterscheidung nicht.
+  await expect(page.locator(".belege-einleitung")).toHaveCount(0);
   await expect(page.locator(".nachweise-liste")).toHaveCount(0);
   await expect(page.locator(".belege-zeilen")).toHaveCount(0);
   await expect(page.locator("details.belege-erfassung")).toHaveCount(0);
@@ -348,6 +368,7 @@ test("Ohne Nachweise bleibt der Abschnitt für beide rollen ehrlich leer", async
       "Zu diesem Auftritt sind noch keine Aufführungsnachweise erfasst.",
     ),
   ).toBeVisible();
+  await expect(page.locator(".belege-einleitung")).toHaveCount(0);
 
   expect(errors).toEqual([]);
 });

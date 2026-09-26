@@ -207,6 +207,16 @@ fieldset.belege-erfassung {
   font-weight: 600;
   overflow-wrap: anywhere;
 }
+/* Dieselbe Tiefe wie im Lesesaal: die Zeilentitel weisen auf die
+   Liedseite; in der Werkbank lesen sie sich als Werkzeile weiter
+   (Tintenfarbe statt Zeigerfarbe, Mauszeiger zeigt die Stelle). */
+a.belege-zeile-titel {
+  color: inherit;
+  text-decoration: none;
+}
+a.belege-zeile-titel:hover {
+  text-decoration: underline;
+}
 .belege-quelle,
 .belege-erfasst {
   color: var(--muted);

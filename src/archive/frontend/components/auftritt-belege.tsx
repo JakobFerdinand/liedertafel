@@ -15,7 +15,15 @@
 // ohne Erfindung („Ohne Titel“), die Fassungsangabe aus der geladenen
 // Kette oder als „Fassung unbekannt“. Ältere Auftrittsantworten ohne
 // Nachweisfeld bleiben zulässig (Toleranz wie bei documents/programme).
+//
+// ARC-028, dritter Streifen: die Mitglied-Zeilen tragen tiefe Leseporte
+// auf die Liedseite (Rezeptur programmPunktUrl — mit bekannter Kette
+// fahren Fassung und Version in der Adresse, „Fassung unbekannt“ weist
+// nur aufs Lied). Unter der Rubriküberschrift liest ein stilles Satzpaar
+// ehrlich, was Bestätigt und Programmangabe unterscheidet — nur dann,
+// wenn Nachweise stehen.
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FassungsWahl } from "@/components/fassungs-wahl";
 import { problemTitel } from "@/lib/assets";
@@ -26,6 +34,7 @@ import {
   type Nachweis,
   type NachweisAenderung,
   type NachweisEditor,
+  nachweisUrl,
   posteNachweis,
   publishedAtText,
 } from "@/lib/events";
@@ -131,26 +140,33 @@ function NachweisEintrag({
   lied: LiedDetails | "fehler" | undefined;
   liedLaeuft: boolean;
 }) {
-  const stand = standZeile(beleg, lied);
+  // Die Standzeile liest sich einmal: Marke und Fassungsangabe getrennt
+  // gehalten, zum Lesen verbunden — unbekannte und noch ladende Teile
+  // erzeugen keinen hängenden Leiterstrich.
+  const marke = markeVon(beleg.evidenceStatus);
+  const fassung = fassungAngabe(beleg, lied);
+  const stand = [marke, fassung]
+    .filter((teil): teil is string => teil !== null && teil !== "")
+    .join(" · ");
   return (
     <li className="nachweis-eintrag">
       <h4 className="nachweis-titel">
         <span className="nachweis-nummer" aria-hidden="true">
           {stelle}.
         </span>{" "}
-        {titelVon(lied, liedLaeuft)}
+        {/* Tiefer Leseport wie im Programm: mit bekannter Kette fahren
+            Fassung und Version in der Adresse, „Fassung unbekannt“ weist
+            nur aufs Lied (nachweisUrl, Vertragsprache). */}
+        <Link href={nachweisUrl(beleg)}>{titelVon(lied, liedLaeuft)}</Link>
       </h4>
       {stand && (
         <p className="nachweis-info">
-          <span className="nachweis-marke" data-art={beleg.evidenceStatus}>
-            {markeVon(beleg.evidenceStatus)}
-          </span>
-          {fassungAngabe(beleg, lied) && (
-            <span>
-              {" · "}
-              {fassungAngabe(beleg, lied)}
+          {marke && (
+            <span className="nachweis-marke" data-art={beleg.evidenceStatus}>
+              {marke}
             </span>
           )}
+          {fassung && <span>{marke ? ` · ${fassung}` : fassung}</span>}
         </p>
       )}
     </li>
@@ -710,7 +726,11 @@ function BelegZeile({
         <span className="belege-zeile-nummer" aria-hidden="true">
           {stelle}.
         </span>
-        <span className="belege-zeile-titel">{titelVon(lied, liedLaeuft)}</span>
+        {/* Dieselbe Tiefe wie im Lesesaal: die Werkzeile weist mit denselben
+            Parametern auf die Liedseite; Werkzeuge bleiben Werkzeuge. */}
+        <Link className="belege-zeile-titel" href={nachweisUrl(beleg)}>
+          {titelVon(lied, liedLaeuft)}
+        </Link>
         {/* Eine ankündigende Stelle je Zeile: der Fehler läuft hier mit
             und wiederholt sich nicht über den ganzen Bereich. */}
         <span className="material-datei-status" aria-live="polite">
@@ -879,6 +899,16 @@ export function AuftrittBelege({
         <output aria-live="polite" className="auth-erfolg">
           {erfolg}
         </output>
+      )}
+      {/* Ehrliches Satzpaar für den Lesesaal: was Bestätigt von
+          Programmangabe unterscheidet — nur, wenn Nachweise stehen; der
+          Leerstand bleibt für sich sprechend. */}
+      {!isEditor && belege.length > 0 && (
+        <p className="belege-einleitung">
+          Bestätigt heißt: der Auftritt ist überliefert. Programmangabe heißt:
+          das Lied steht in einer Programmquelle, ohne dass die Aufführung
+          gesichert ist.
+        </p>
       )}
       {belege.length === 0 ? (
         <p className="auftritt-leer">

@@ -394,6 +394,23 @@ export function programmPunktUrl(punkt: ProgrammPunkt): string {
   return `/lied/?${parameter.toString()}`;
 }
 
+/**
+ * Tief verlinkte Liedseite des Aufführungsnachweises (ARC-028): mit
+ * bekannter Fassungskette fahren Fassung und Version in der Adresse
+ * (dieselbe Rezeptur wie der Programmpunkt); ohne Kette weist der Port
+ * nur auf das Lied — nichts wird erfunden.
+ */
+export function nachweisUrl(beleg: Nachweis): string {
+  const parameter = new URLSearchParams();
+  parameter.set("id", beleg.songId);
+  if (beleg.arrangementId && beleg.musicalVersionId) {
+    parameter.set("fassung", beleg.arrangementId);
+    parameter.set("version", beleg.musicalVersionId);
+  }
+  const query = parameter.toString();
+  return query ? `/lied/?${query}` : "/lied/";
+}
+
 // ─── ARC-028: Aufführungsnachweise ───────────────────────────────────
 // Nachweise sammeln die überlieferten Belege eines Auftritts: eine
 // bestätigte Aufführung („confirmed“) oder nur ein unverifizierter
