@@ -118,3 +118,206 @@
     padding-block: 1.5rem 0.5rem;
   }
 }
+
+/* ─── Nachweis-Werkbank (ARC-028) ─────────────────────────────────────
+   Die Redaktion liest dieselbe Reihe ausführlicher: Quelle,
+   Erfassungszeitpunkt und Zeilenwerkzeuge. Die Zeilen erben den
+   Werkstatt-Rhythmus (.programm-zeile), die Erfassung öffnet sich als
+   Aufklapper nach der geteilten Rezeptur, die Fassungswahl und die
+   Quellenangabe laufen in den gewohnten Feldrhythmen. Unter 700 px
+   stapelt die Zeile (das Umbrechen leistet die Basisregel). Keine neuen
+   Farben. */
+details.belege-erfassung {
+  margin-block: 1.2rem 0;
+}
+fieldset.belege-erfassung {
+  border: 0;
+  border-top: 1px solid var(--rule);
+  padding: 1.2rem 0 0;
+  margin-block: 1.2rem 0;
+}
+.belege-erfassung summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 2.75rem;
+  cursor: pointer;
+  list-style: none;
+}
+.belege-erfassung summary::-webkit-details-marker {
+  display: none;
+}
+.belege-erfassung summary:focus-visible {
+  outline: 3px solid currentColor;
+  outline-offset: 5px;
+}
+.belege-erfassung summary h4 {
+  margin-block: 0;
+  font-family: var(--font-heading);
+  font-size: var(--titel-abschnitt);
+  font-weight: 400;
+}
+.belege-erfassung-umschalter {
+  color: var(--brand);
+  font-size: var(--schrift-neben);
+  font-weight: 600;
+}
+.belege-erfassung summary:hover .belege-erfassung-umschalter {
+  text-decoration: underline;
+  text-underline-offset: 0.25em;
+}
+.belege-erfassung .belege-erfassung-zu {
+  display: none;
+}
+.belege-erfassung[open] .belege-erfassung-auf {
+  display: none;
+}
+.belege-erfassung[open] .belege-erfassung-zu {
+  display: inline;
+}
+
+.belege-zeilen {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.9rem;
+}
+.belege-zeile {
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-knopf);
+  background: var(--paper);
+  padding: 0.65rem 0.85rem;
+  display: grid;
+  gap: 0.35rem;
+}
+.belege-zeile-kopf {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem 0.6rem;
+  flex-wrap: wrap;
+}
+.belege-zeile-nummer {
+  font-family: var(--font-heading);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.belege-zeile-titel {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.belege-quelle,
+.belege-erfasst {
+  color: var(--muted);
+  font-size: var(--schrift-neben);
+  margin-block: 0.2rem 0;
+  overflow-wrap: anywhere;
+}
+.belege-werkzeuge {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.belege-werkzeuge button {
+  min-height: 2.75rem;
+}
+.belege-bearbeitung {
+  border-top: 1px dashed var(--rule);
+  padding-block-start: 0.5rem;
+  display: grid;
+  gap: 0.35rem;
+}
+.belege-erfassung-formular,
+.belege-bearbeitung-inhalt {
+  display: grid;
+  gap: 0.5rem;
+}
+.belege-gewaehlt-lied {
+  margin-block: 0.2rem;
+  font-weight: 600;
+}
+.belege-fassung-titel {
+  font-weight: 600;
+  font-size: var(--schrift-neben);
+  margin-block: 0.3rem 0.3rem;
+}
+.belege-art {
+  border: 0;
+  padding: 0;
+  margin-block: 0.2rem 0;
+}
+.belege-art legend {
+  font-weight: 600;
+  font-size: var(--schrift-neben);
+  padding: 0;
+  margin-block: 0.4rem 0.2rem;
+}
+.belege-art-auswahl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  gap: 0.2rem 1rem;
+}
+.belege-art-auswahl label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 2.75rem;
+  margin-block: 0;
+}
+.belege-art-auswahl input[type="radio"] {
+  width: 1.1rem;
+  height: 1.1rem;
+  margin: 0;
+  accent-color: var(--brand);
+}
+.belege-notiz label {
+  display: block;
+  font-weight: 600;
+  font-size: var(--schrift-neben);
+  margin-block: 0.3rem 0.15rem;
+}
+.belege-notiz textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 5.5rem;
+  padding: 0.55rem 0.7rem;
+  border: 2px solid var(--ink);
+  border-radius: var(--radius-knopf);
+  font: inherit;
+  background: var(--paper);
+  color: var(--ink);
+  resize: vertical;
+}
+.belege-lied-wahl {
+  margin-block: 0.4rem 0;
+}
+.belege-lied-wahl label {
+  display: block;
+  font-weight: 600;
+  font-size: var(--schrift-neben);
+  margin-block: 0.4rem 0.3rem;
+}
+.belege-lied-suche-reihe {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.belege-lied-suche-reihe input {
+  flex: 1 1 12rem;
+  min-width: 0;
+  padding: 0.55rem 0.7rem;
+  border: 2px solid var(--ink);
+  border-radius: var(--radius-knopf);
+  font: inherit;
+  background: var(--paper);
+  color: var(--ink);
+}
+.belege-lied-treffer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-block: 0.4rem 0.2rem;
+}

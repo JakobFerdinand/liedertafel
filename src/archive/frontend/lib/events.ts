@@ -393,3 +393,105 @@ export function programmPunktUrl(punkt: ProgrammPunkt): string {
   parameter.set("version", punkt.musicalVersionId);
   return `/lied/?${parameter.toString()}`;
 }
+
+// ─── ARC-028: Aufführungsnachweise ───────────────────────────────────
+// Nachweise sammeln die überlieferten Belege eines Auftritts: eine
+// bestätigte Aufführung („confirmed“) oder nur ein unverifizierter
+// Programmhinweis („mention“). Die Fassungskette (Arrangement +
+// musikalische Version) ist optional — ohne sie bleiben beide Ids null
+// („Fassung unbekannt“). Die Einbettung liest sich aus den
+// Auftrittsdetails hinter `programme`; ältere Antworten ohne das Feld
+// bleiben zulässig.
+
+export type Nachweis = {
+  id: string;
+  songId: string;
+  arrangementId: string | null;
+  musicalVersionId: string | null;
+  evidenceStatus: string;
+  position: number;
+};
+
+// Redaktionseinbettung: dieselbe Zeile plus Ersatzangabe, Erfassungs-
+// und Änderungszeitpunkt, Eignerereignis und Concurrency-Marke. Mitglieder
+// erhalten (vertragsgemäß) nur die schlanke Zeile oben — ohne Quellenangabe.
+export type NachweisEditor = Nachweis & {
+  eventId: string;
+  sourceNote: string | null;
+  capturedAt: string;
+  createdAt: string;
+  updatedAt: string;
+  rowVersion: number;
+};
+
+/** Übersetzt die Auftrittsdetails auf den Nachweis-Einbettungstyp;
+    ältere Antworten bleiben zulässig (Toleranz wie bei programme). */
+export type AuftrittDetailsMitBelegen = AuftrittDetails & {
+  performances?: Nachweis[] | null;
+};
+
+/** Körper des Erfassungsaufrufs: die Fassungskette entfällt bei
+    „Fassung unbekannt“, leere Quellenangaben werden weggelassen. */
+export type NachweisErfassung = {
+  songId: string;
+  evidenceStatus: string;
+  musicalVersionId?: string;
+  sourceNote?: string;
+  // Wiederholungsschlüssel gegen verlorene Doppelklicks: derselbe
+  // Schlüssel liefert denselben Nachweis zurück, statt neu anzulegen.
+  idempotencyKey?: string;
+};
+
+/** PATCH-Körper: abwesend = unverändert, explizit null räumt ab
+    (musicalVersionId null klart die Kette, sourceNote null die Angabe). */
+export type NachweisAenderung = {
+  evidenceStatus?: string;
+  musicalVersionId?: string | null;
+  sourceNote?: string | null;
+  rowVersion: number;
+};
+
+/**
+ * Hängt einen neuen Nachweis an den Auftritt; der Server antwortet mit
+ * der vollständigen Redaktionseinbettung (201, nach einer Wiederholung
+ * mit demselben Schlüssel mit 200).
+ */
+export async function posteNachweis(
+  eventId: string,
+  body: NachweisErfassung,
+): Promise<NachweisEditor> {
+  const response = await postAuth(
+    `/api/events/${encodeURIComponent(eventId)}/performances`,
+    body,
+  );
+  if (!response.ok) throw response;
+  const data = (await response.json()) as { performance: NachweisEditor };
+  return data.performance;
+}
+
+/**
+ * Ändert Nachweisart, Fassungskette und/oder Quellenangabe (PATCH:
+ * abwesende Felder bleiben unverändert). Ein veralteter rowVersion-Stand
+ * antwortet mit 409 — der frische Stand kommt dann über den Eltern-Nachlauf.
+ */
+export async function aendereNachweis(
+  id: string,
+  body: NachweisAenderung,
+): Promise<NachweisEditor> {
+  const response = await patchAuth(
+    `/api/performances/${encodeURIComponent(id)}`,
+    body,
+  );
+  if (!response.ok) throw response;
+  const data = (await response.json()) as { performance: NachweisEditor };
+  return data.performance;
+}
+
+/** Entfernt den Nachweis ersatzlos (ohne rowVersion, bestätigte Redaktionsarbeit). */
+export async function loescheNachweis(id: string): Promise<void> {
+  const response = await postAuth(
+    `/api/performances/${encodeURIComponent(id)}/delete`,
+    {},
+  );
+  if (!response.ok) throw response;
+}

@@ -2269,6 +2269,51 @@ fieldset.programm-verwaltung {
   margin-block: 0.2rem 0;
 }
 
+/* ─── Aufführungsnachweise (ARC-028) ──────────────────────────────────
+   Die Nachweise lesen sich wie das Programm als geordnete Reihe: die
+   Position als stiller Zähler vor dem Liedtitel, der Bestätigungsstand
+   als ruhige Marke und die Fassungsangabe in der Meta-Leiter. „Bestätigt“
+   trägt die Markenfarbe, unbestätigte Programmangaben bleiben still —
+   die Ehrlichkeit des Stands ist die Information. Keine neuen Farben —
+   Paletten, Leitern und Radien kommen aus den gemeinsamen Variablen. */
+.nachweise-liste {
+  list-style: none;
+  margin: 0.9rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 1.1rem;
+  max-width: 40rem;
+}
+.nachweis-eintrag {
+  min-width: 0;
+  border-top: 1px dashed var(--rule);
+  padding-block: 0.4rem;
+}
+.nachweis-eintrag:first-child {
+  border-top: 0;
+}
+.nachweis-nummer {
+  font-family: var(--font-heading);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.nachweis-titel {
+  margin-block: 0;
+  font-size: var(--titel-abschnitt);
+  overflow-wrap: anywhere;
+}
+.nachweis-marke {
+  display: inline;
+  color: var(--muted);
+  font-size: var(--schrift-neben);
+  font-weight: 600;
+}
+/* Bestätigte Aufführung trägt die Marke farblich; die Programmangabe
+   liest sich in der stillen Leiter weiter. */
+.nachweis-marke[data-art="confirmed"] {
+  color: var(--brand);
+}
+
 /* ─── Programmverzeichnis (ARC-026) ───────────────────────────────────
    Die Zeilen erben die Geometrie des Auftrittsverzeichnisses (Datum in
    der schmalen Spalte, Inhalt daneben); die Liederzahl liest sich in
