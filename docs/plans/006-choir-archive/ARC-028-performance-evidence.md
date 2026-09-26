@@ -1,6 +1,6 @@
 ---
 id: ARC-028
-status: planned
+status: in_progress
 phase: core
 kind: slice
 depends_on: ["ARC-013", "ARC-024"]
@@ -42,3 +42,18 @@ repeat occurrence; verify identity, source context and permissions.
 ARC-026/025 may implement future programmes concurrently. Agree only the shared
 event/song IDs and planned-versus-actual boundary; do not combine their persistence
 into a single ambiguous 'performed' flag.
+
+## Implementation record
+
+Slice 1 (backend evidence core) completed 2026-09-26 — entities
+`Performance`/`PerformanceEvidenceStatus` in `src/archive/backend/Events/`, additive
+migration `20260926061548_PerformanceEvidence`, `PerformanceEndpoints` API
+(POST /api/events/{eventId}/performances, PATCH /api/performances/{id},
+POST /api/performances/{id}/delete, GET /api/events/{eventId}/performances,
+GET /api/songs/{songId}/performances), event-detail embed with role-gated member
+visibility (source notes editor-only), idempotency keys plus content-duplicate guard,
+editor attribution with RowVersion/409 concurrency.
+
+- `dotnet test tests/archive/backend --filter "FullyQualifiedName~PerformanceApiTests"` → 15/15 passed.
+- `dotnet test tests/archive/backend` → 353 passed, 0 failed.
+- Remaining slices: editor workbench UI, member partial history UI.
