@@ -24,6 +24,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Archive.Backend.Tests;
 
@@ -459,6 +460,19 @@ public sealed class AuthApiTests
 		services.AddSingleton<IHostEnvironment>(new TestHostEnvironment(environment));
 		services.AddSingleton(TimeProvider.System);
 		services.AddSingleton<IConfiguration>(new ConfigurationBuilder().AddInMemoryCollection(settings).Build());
+		// The Identity schema version rides IdentityOptions through the EF
+		// application service provider. Without one the model silently falls
+		// back to Version 1 (no passkey tables). EF caches the first built
+		// model process-wide, so an unpinned bare context here can poison the
+		// repair tests' passkey operations depending on test scheduling.
+		// Mirrors the repair provider and the design-time factory (ARC-011-1).
+		var identityOptions = new OptionsWrapper<IdentityOptions>(new IdentityOptions
+		{
+			Stores = { SchemaVersion = IdentitySchemaVersions.Version3 },
+		});
+		var applicationServices = new ServiceCollection()
+			.AddSingleton<IOptions<IdentityOptions>>(identityOptions)
+			.BuildServiceProvider();
 		services.AddIdentity<ArchiveUser, ArchiveRole>()
 			.AddEntityFrameworkStores<ArchiveDbContext>()
 			.AddDefaultTokenProviders()
@@ -467,7 +481,8 @@ public sealed class AuthApiTests
 		// built per scope, so `new` inside the lambda would isolate every scope.
 		var root = new InMemoryDatabaseRoot();
 		services.AddDbContext<ArchiveDbContext>(options =>
-			options.UseInMemoryDatabase($"bootstrap-{Guid.NewGuid():N}", root));
+			options.UseInMemoryDatabase($"bootstrap-{Guid.NewGuid():N}", root)
+				.UseApplicationServiceProvider(applicationServices));
 		return services;
 	}
 
