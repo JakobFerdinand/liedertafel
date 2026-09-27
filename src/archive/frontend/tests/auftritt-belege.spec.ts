@@ -603,7 +603,8 @@ test("Bearbeiten sendet nur die geänderten Felder und verlangt Nacharbeit bei 4
     ),
   ).toBeVisible();
   // Der frische Stand liest sich in der Zeile (fremde Überarbeitung);
-  // erst danach liest sich der Zähler ohne Wettkampf um die Nachladung.
+  // erst dann ist der Nachlauf sicher gelandet, und der Zähler liest sich
+  // nachwartend statt als einmalige Ablesung um die Nachladung.
   await expect(zweite).toContainText(
     "Quellenangabe: Vom anderen Beitrag geändert.",
   );
@@ -611,7 +612,7 @@ test("Bearbeiten sendet nur die geänderten Felder und verlangt Nacharbeit bei 4
     rowVersion: 2,
     sourceNote: "Programmheft 1953, Stadtarchiv Mining.",
   });
-  expect(abfragen).toBe(2);
+  await expect.poll(() => abfragen).toBe(2);
 
   // Die zweite Bearbeitung trägt die frische rowVersion (7) und denselben
   // sparsamen Körper (nur das geänderte Feld reist mit).
@@ -619,12 +620,18 @@ test("Bearbeiten sendet nur die geänderten Felder und verlangt Nacharbeit bei 4
     .getByLabel("Quellenangabe", { exact: true })
     .fill("Programmheft 1953, Stadtarchiv Mining.");
   await zweite.getByRole("button", { name: "Änderungen speichern" }).click();
+  // Der Erfolgshinweis liest sich, bevor der Nachlauf ankommt (die Zeile
+  // trägt weiter den fremden Stand); erst der frische Zeilentext beweist
+  // die Nachladung — danach liest sich der Zähler nachwartend.
   await expect(page.getByText("Änderungen gespeichert.")).toBeVisible();
+  await expect(zweite).toContainText(
+    "Quellenangabe: Programmheft 1953, Stadtarchiv Mining.",
+  );
   expect(patches[1]).toEqual({
     rowVersion: 7,
     sourceNote: "Programmheft 1953, Stadtarchiv Mining.",
   });
-  expect(abfragen).toBe(3);
+  await expect.poll(() => abfragen).toBe(3);
   await expect(
     zweite.getByRole("button", { name: "Bearbeiten schließen" }),
   ).toHaveCount(0);
