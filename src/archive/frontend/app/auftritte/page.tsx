@@ -8,13 +8,7 @@ export default function AuftritteSeite() {
         className="introduction compact"
         aria-labelledby="auftritte-titel"
       >
-        <p className="section-label">Nur für Mitglieder</p>
         <h1 id="auftritte-titel">Auftritte</h1>
-        <p>
-          Die dokumentierten Auftritte des Chores: Konzerte, Gottesdienste und
-          Feste mit Ort und überliefertem Datum. Wo die Unterlagen nur ungefähre
-          Angaben hergeben, steht das Datum als unsicher im Verzeichnis.
-        </p>
       </section>
       <Suspense
         fallback={

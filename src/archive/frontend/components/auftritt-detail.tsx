@@ -143,6 +143,7 @@ export function AuftrittDetail() {
   if (!me.authenticated) {
     return (
       <div>
+        <h1>Anmeldung erforderlich</h1>
         <p>Bitte anmelden, um den Auftritt zu sehen.</p>
         <Link href="/anmelden/">Anmelden</Link>
       </div>
@@ -151,6 +152,7 @@ export function AuftrittDetail() {
   if (nichtGefunden) {
     return (
       <div aria-live="polite">
+        <h1>Auftritt nicht gefunden</h1>
         <p className="hinweis-block">
           Der Auftritt wurde nicht gefunden. Er ist entweder nicht
           veröffentlicht oder die Adresse ist nicht mehr gültig.
@@ -176,12 +178,12 @@ export function AuftrittDetail() {
   return (
     <div className="auftritt-detail">
       <article className="auftritt-ansicht">
+        <h1>{auftritt.title}</h1>
         {editor && (
           <p className="lieder-status">
             {auftritt.published ? "Veröffentlicht" : "Entwurf"}
           </p>
         )}
-        <h2>{auftritt.title}</h2>
         <p className="auftritte-art">{auftrittArtName(auftritt.kind)}</p>
         <p className="auftritt-datum">
           {auftritt.dateDisplay}
@@ -192,6 +194,73 @@ export function AuftrittDetail() {
           <p className="auftritt-zeit">{auftritt.startTime} Uhr</p>
         )}
       </article>
+
+      {editor && (
+        <section className="auftritt-redaktion" aria-label="Redaktion">
+          <h2 className="visually-hidden">Auftritt bearbeiten</h2>
+          <div className="auftritte-aktionen">
+            <button
+              type="button"
+              className="knopf-leise"
+              aria-expanded={bearbeitet}
+              aria-controls="auftritt-bearbeiten-formular"
+              disabled={aktionBusy !== ""}
+              onClick={() => setBearbeitet(!bearbeitet)}
+            >
+              {bearbeitet ? "Bearbeiten schließen" : "Bearbeiten"}
+            </button>
+            {auftritt.published ? (
+              <button
+                type="button"
+                disabled={aktionBusy !== ""}
+                onClick={() =>
+                  veroeffentlichen(
+                    `/api/events/${encodeURIComponent(auftritt.id)}/unpublish`,
+                    "Auftritt zurückgezogen. Er ist für Mitglieder nicht mehr sichtbar.",
+                  )
+                }
+              >
+                {aktionBusy !== ""
+                  ? "Wird zurückgezogen …"
+                  : "Veröffentlichung zurückziehen"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={aktionBusy !== ""}
+                onClick={() =>
+                  veroeffentlichen(
+                    `/api/events/${encodeURIComponent(auftritt.id)}/publish`,
+                    "Auftritt veröffentlicht. Mitglieder sehen ihn ab sofort.",
+                  )
+                }
+              >
+                {aktionBusy !== ""
+                  ? "Wird veröffentlicht …"
+                  : "Veröffentlichen"}
+              </button>
+            )}
+          </div>
+          <div
+            id="auftritt-bearbeiten-formular"
+            className="auth-karte"
+            hidden={!bearbeitet}
+          >
+            {bearbeitet && (
+              <AuftrittFormular
+                auftritt={auftritt}
+                absendenText="Änderungen speichern"
+                onAbbrechen={() => setBearbeitet(false)}
+                onSuccess={(gespeichert) => {
+                  setAuftritt(gespeichert);
+                  setErfolg("Änderungen gespeichert.");
+                  setHinweis("");
+                }}
+              />
+            )}
+          </div>
+        </section>
+      )}
 
       {auftritt.notes && (
         <section
@@ -241,72 +310,6 @@ export function AuftrittDetail() {
         </p>
       </section>
 
-      {editor && (
-        <section
-          className="auth-karte auftritt-bearbeiten"
-          aria-labelledby="auftritt-bearbeiten-titel"
-        >
-          <h2 id="auftritt-bearbeiten-titel">Auftritt bearbeiten</h2>
-          <div className="auftritte-aktionen">
-            <button
-              type="button"
-              className="knopf-leise"
-              aria-expanded={bearbeitet}
-              aria-controls="auftritt-bearbeiten-formular"
-              disabled={aktionBusy !== ""}
-              onClick={() => setBearbeitet(!bearbeitet)}
-            >
-              {bearbeitet ? "Bearbeiten schließen" : "Bearbeiten"}
-            </button>
-            {auftritt.published ? (
-              <button
-                type="button"
-                disabled={aktionBusy !== ""}
-                onClick={() =>
-                  veroeffentlichen(
-                    `/api/events/${encodeURIComponent(auftritt.id)}/unpublish`,
-                    "Auftritt zurückgezogen. Er ist für Mitglieder nicht mehr sichtbar.",
-                  )
-                }
-              >
-                {aktionBusy !== ""
-                  ? "Wird zurückgezogen …"
-                  : "Veröffentlichung zurückziehen"}
-              </button>
-            ) : (
-              <button
-                type="button"
-                disabled={aktionBusy !== ""}
-                onClick={() =>
-                  veroeffentlichen(
-                    `/api/events/${encodeURIComponent(auftritt.id)}/publish`,
-                    "Auftritt veröffentlicht. Mitglieder sehen ihn ab sofort.",
-                  )
-                }
-              >
-                {aktionBusy !== ""
-                  ? "Wird veröffentlicht …"
-                  : "Veröffentlichen"}
-              </button>
-            )}
-          </div>
-          <div id="auftritt-bearbeiten-formular" hidden={!bearbeitet}>
-            {bearbeitet && (
-              <AuftrittFormular
-                auftritt={auftritt}
-                absendenText="Änderungen speichern"
-                onAbbrechen={() => setBearbeitet(false)}
-                onSuccess={(gespeichert) => {
-                  setAuftritt(gespeichert);
-                  setErfolg("Änderungen gespeichert.");
-                  setHinweis("");
-                }}
-              />
-            )}
-          </div>
-        </section>
-      )}
-
       {erfolg && (
         <output aria-live="polite" className="auth-erfolg">
           {erfolg}
@@ -320,9 +323,6 @@ export function AuftrittDetail() {
           )}
         </output>
       )}
-      <p>
-        <Link href="/auftritte/">Zum Auftrittsverzeichnis</Link>
-      </p>
     </div>
   );
 }

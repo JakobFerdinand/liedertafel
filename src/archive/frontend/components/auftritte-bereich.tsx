@@ -207,10 +207,6 @@ export function AuftritteBereich() {
         >
           <summary>
             <h2 id="auftritt-anlegen-titel">Neuer Auftritt</h2>
-            <span className="auftritt-anlegen-umschalter" aria-hidden="true">
-              <span className="auftritt-anlegen-auf">Ausklappen</span>
-              <span className="auftritt-anlegen-zu">Einklappen</span>
-            </span>
           </summary>
           <AuftrittFormular
             absendenText="Auftritt anlegen"
@@ -289,7 +285,13 @@ export function AuftritteBereich() {
           aria-labelledby="auftritte-verzeichnis-titel"
           className="auftritte-liste"
         >
-          <h2 id="auftritte-verzeichnis-titel">Auftritte</h2>
+          <h2 id="auftritte-verzeichnis-titel">
+            {jahr === null
+              ? "Alle Auftritte"
+              : jahr === "ohne"
+                ? "Auftritte ohne Jahr"
+                : `Auftritte ${jahr}`}
+          </h2>
           {auftritte === null ? (
             <p aria-live="polite" className="auth-statuszeile">
               Auftritte werden geladen …

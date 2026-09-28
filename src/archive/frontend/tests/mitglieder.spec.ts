@@ -155,6 +155,32 @@ test("Verwaltung gates members without administration rights", async ({
   expect(errors).toEqual([]);
 });
 
+test("Verwaltung stellt das Register vor die Nebenwerkzeuge", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1154, height: 800 });
+  await mockAdminSeite(page);
+  await page.goto("/verwaltung/");
+
+  await expect(
+    page.getByRole("heading", { name: "Mitgliederverwaltung" }),
+  ).toBeVisible();
+  const register = page
+    .getByRole("row", { name: /mitglied@liedertafel\.test/ })
+    .first();
+  await expect(register).toBeVisible();
+  expect(
+    await register.evaluate((element) => element.getBoundingClientRect().top),
+  ).toBeLessThan(500);
+  await expect(page.locator("#archiv-chat")).toBeHidden();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
+    390,
+  );
+  await expect(register).toBeVisible();
+});
+
 test("Verwaltung invites and resends with a mocked API", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));

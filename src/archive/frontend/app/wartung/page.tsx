@@ -14,25 +14,18 @@ export default function Wartung() {
   return (
     <>
       <section className="introduction compact" aria-labelledby="wartung-title">
-        <p className="section-label">Hinweis</p>
-        <h1 id="wartung-title">Wartungsarbeiten im Archiv.</h1>
+        <h1 id="wartung-title">Wartungsarbeiten im Archiv</h1>
         <p>
-          Das Archiv wird gerade gewartet und ist vorübergehend nicht verfügbar.
-          Bitte versuchen Sie es später erneut — Anmeldung, Suche und
-          Dateizugriff pausieren, bis die Arbeiten abgeschlossen sind.
+          Anmeldung, Suche und Dateizugriff sind vorübergehend nicht verfügbar.
+          Bitte versuche es später erneut.
         </p>
       </section>
-      <section className="archive-note" aria-labelledby="wartung-weiter">
-        <h2 id="wartung-weiter">Wie geht es weiter?</h2>
-        <p>
-          Sobald die Wartung abgeschlossen ist, steht das Archiv wie gewohnt zur
-          Verfügung. Den aktuellen Zustand sehen Sie auf der{" "}
-          <Link href="/system/status/">Systemstatus-Seite</Link>.
-        </p>
+      <div className="wartung-aktionen">
+        <Link href="/system/status/">Systemstatus ansehen</Link>
         <Link href="/" className="knopf-leise-rahmen">
           Zur Startseite
         </Link>
-      </section>
+      </div>
     </>
   );
 }

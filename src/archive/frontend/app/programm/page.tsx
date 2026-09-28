@@ -8,14 +8,7 @@ export default function ProgrammeSeite() {
         className="introduction compact"
         aria-labelledby="programme-titel"
       >
-        <p className="section-label">Nur für Mitglieder</p>
         <h1 id="programme-titel">Programme</h1>
-        <p>
-          Die kommenden Auftritte mit ihrem veröffentlichten Programm:
-          Reihenfolge, Fassungen und praktische Notizen zum Mitnehmen. Wo das
-          Datum nur ungefähr überliefert ist, bleibt es als unsicher
-          gekennzeichnet.
-        </p>
       </section>
       <Suspense
         fallback={

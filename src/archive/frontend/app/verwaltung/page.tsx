@@ -7,12 +7,11 @@ export default function VerwaltungSeite() {
         className="introduction compact"
         aria-labelledby="verwaltung-titel"
       >
-        <p className="section-label">Verwaltung</p>
-        <h1 id="verwaltung-titel">Mitgliederverwaltung</h1>
-        <p>
-          Administratoren laden Mitglieder ein, ändern Rollen und verwalten
-          Konten.
-        </p>
+        <h1 id="verwaltung-titel">
+          Mitglieder
+          <wbr />
+          verwaltung
+        </h1>
       </section>
       <MitgliederVerwaltung />
     </>

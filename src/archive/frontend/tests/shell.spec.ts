@@ -23,7 +23,7 @@ test("German deep link renders the actual API version and survives refresh", asy
     .getByRole("link", { name: "Liedertafel Archiv, Startseite" })
     .click();
   await expect(
-    page.getByRole("heading", { name: "Was wir singen, bleibt bei uns." }),
+    page.getByRole("heading", { name: "Das Chorarchiv" }),
   ).toBeVisible();
   if (isMobile)
     await page.getByRole("button", { name: "Menü", exact: true }).click();

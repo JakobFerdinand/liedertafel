@@ -83,7 +83,7 @@ h3 {
    Klassen:
    – .hinweis-block: Zustandsblock, Markenlinker auf Waschgrund
      (3px, Innenabstand 1rem 1.2rem). .chat-zustand/.chat-fehler,
-     .archive-note (Wartung), .auth-erfolg und .auth-fehler
+      .auth-erfolg und .auth-fehler
      (Anmelden, Mitgliederbereich, Verwaltung, Katalog) und
      .verbindungs-fehler (Systemstatus) teilen dieselbe Rezeptur.
    – .auth-statuszeile: Statuszeile des Anmeldeablaufs nach .chat-status
@@ -102,7 +102,6 @@ h3 {
 .hinweis-block,
 .chat-zustand,
 .chat-fehler,
-.archive-note,
 .auth-erfolg,
 .auth-fehler,
 .verbindungs-fehler {
@@ -148,12 +147,12 @@ h3 {
     Die Reihe gliedert sich ohne Überschriften: Inhaltseiten vorne,
     Mitglieder- und Verwaltungsaufgaben danach, ein stiller Haarriss
     (.nav-trenner) zwischen den Gruppen.
-   Unter 1100 px klappt das Menü als echte Offenbarung auf
+   Unter 1200 px klappt das Menü als echte Offenbarung auf
    (Knopf + aria-expanded/aria-controls, siehe haupt-navigation.tsx). */
 .site-header {
   background: var(--brand);
   color: var(--paper);
-  padding: 1.2rem max(6vw, calc((100vw - 68rem) / 2));
+  padding: 0.8rem max(4vw, calc((100vw - 82rem) / 2));
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -247,7 +246,7 @@ h3 {
   gap: 0.8rem;
 }
 
-@media (min-width: 1100px) {
+@media (min-width: 1200px) {
   .haupt-nav {
     display: flex;
     justify-content: flex-end;
@@ -266,25 +265,34 @@ main {
   max-width: 57ch;
 }
 .introduction > p:last-child {
-  font-size: 1.15rem;
+  font-size: 1rem;
+  color: var(--muted);
+  margin-block: 0.45rem 0;
 }
 .introduction.compact {
-  padding-bottom: 1rem;
+  padding-block: clamp(1.4rem, 3vw, 2.3rem) 1rem;
 }
 .compact h1 {
-  font-size: clamp(2.5rem, 5vw, 3.5rem);
+  font-size: clamp(2.2rem, 4vw, 3.2rem);
+  margin: 0;
+  overflow-wrap: anywhere;
 }
-.section-label {
-  color: var(--brand);
+.detail-zurueck {
+  padding-block: 1.35rem 0.15rem;
+  font-size: var(--schrift-neben);
 }
-/* Aufruf-Block der Wartung: Rezeptur .hinweis-block (Markenlinker auf
-   Waschgrund), kompakte Serifen-Überschrift, Verweise in Markenfarbe. */
-.archive-note {
-  max-width: 32rem;
-  margin-block: 1rem 3rem;
+.detail-zurueck a {
+  text-decoration: none;
 }
-.archive-note h2 {
-  font-size: var(--titel-abschnitt);
+.detail-zurueck a:hover {
+  text-decoration: underline;
+}
+.wartung-aktionen {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.3rem;
+  margin-block: 1rem 2rem;
 }
 /* Statuszeile, keine Karte: voller Markenbalken, ruhige Textführung
    nach der Aufruf-Rezeptur (fettes Stichwort, ruhiger Satz). */
@@ -382,7 +390,7 @@ dd {
    Markenfarbe, damit mehrfeldrige Karten das Feld benennen. */
 .auth-karte {
   background: var(--wash);
-  padding: clamp(1.2rem, 4vw, 2.5rem);
+  padding: clamp(1rem, 2.5vw, 1.5rem);
   border-radius: var(--radius-karte);
   max-width: 32rem;
 }
@@ -473,11 +481,8 @@ dd {
   min-width: 0;
   padding: 0.7rem 0.8rem;
 }
-/* ─── Mitgliederbereich: Komposition auf Papier ───────────────────────
-   Die Waschkarte zerlegt sich in Werkzeugzeile (Titel links, stiller
-   Sitzungstext und Abmelden rechts, Haarriss oben und unten nach
-   .chat-werkzeuge), Begrüßung als Fließtext und den Katalogverweis als
-   Vorschlagskachel. Alles läuft im Kartenmaß 32rem. */
+/* Das Konto beginnt mit Sitzung und Abmeldung; der Katalogverweis und die
+   Passkeys folgen unmittelbar in derselben schmalen Arbeitsspalte. */
 .mitglieder-bereich {
   max-width: 32rem;
 }
@@ -628,7 +633,7 @@ dd {
    Karte — dieselbe Auszeichnung, nur mit CSS neu gesetzt, damit die
    Zeilen- und Zellenrollen der Prüfung unangetastet bleiben. */
 .mitglieder-liste {
-  margin-top: 2.5rem;
+  margin-top: 1rem;
   /* Die Karte misst ihre eigene Spalte: Im Arbeitsplatz schrumpft der
      Seiteninhalt hinter dem offenen Chat, darum schaltet hier nicht die
      Fensterbreite, sondern die wahre Spaltenbreite um. Für zu breite
@@ -637,7 +642,11 @@ dd {
   overflow-x: auto;
 }
 .mitglieder-liste h2 {
-  font-size: var(--titel-abschnitt);
+  font-size: 1.25rem;
+  margin-bottom: 0.5rem;
+}
+.verwaltung-hinweis {
+  margin-top: 1.2rem;
 }
 .mitglieder-liste table {
   width: 100%;
@@ -710,7 +719,31 @@ dd {
    (siehe .lied-anlegen). Zugeklappt: die Tabelle ist der Alltag, das
    Einladen der seltene Fall. */
 .mitglied-einladen {
-  margin-block: 0 2.5rem;
+  margin-block: 0 0.7rem;
+  padding: 0;
+  background: transparent;
+  border-bottom: 1px solid var(--rule);
+  border-radius: 0;
+  max-width: 38rem;
+}
+.mitglied-einladen[open] {
+  padding: 1rem;
+  background: var(--wash);
+  border-radius: var(--radius-knopf);
+}
+.mitglied-einladen summary {
+  width: fit-content;
+  color: var(--brand);
+}
+.mitglied-einladen summary h2 {
+  font:
+    600 var(--schrift-neben) Arial,
+    Helvetica,
+    sans-serif;
+}
+.mitglied-einladen:not([open]) summary::after {
+  content: "+";
+  margin-left: 0.45rem;
 }
 /* Adresswechsel als Aufklapper: der Kopfruh ist der leise Marken-
    Textknopf, der aufgeklappte Fluss trägt seinen Hinweis und die
@@ -1058,7 +1091,7 @@ dd {
 .lied-detail {
   max-width: 48rem;
 }
-.lied-ansicht h2 {
+.lied-ansicht h1 {
   margin-block: 0.3rem 0.25rem;
   font-size: var(--titel-seite);
   overflow-wrap: anywhere;
@@ -1757,9 +1790,9 @@ footer {
   }
 }
 
-/* Unter 1100 px teilt sich die Kopfleiste in Wortmarke und Menüknopf;
+/* Unter 1200 px teilt sich die Kopfleiste in Wortmarke und Menüknopf;
    das aufgeklappte Menü läuft als Spalte im Markenbalken weiter. */
-@media (max-width: 1099px) {
+@media (max-width: 1199px) {
   .site-header {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
@@ -1801,39 +1834,34 @@ footer {
   }
 }
 
-/* ─── Auftritte (ARC-024): Jahresleiste und Eintragszeilen ───────────
-   Die Jahresleiste ist die eine eigenständige Struktur des Abschnitts:
-   ruhige Kacheln nach .fassungs-liste (Haarriss-Rahmen auf Papier,
-   gewählt solide in Markenfarbe) neben dem Verzeichnis. Die Einträge
-   laufen in demselben Gesprächsrhythmus wie der Liederkatalog; das
-   Datum steht als eigene Spalte in Serifenschrift, Redaktionsmarken
-   und Aktionen erben die Rezepturen (.lieder-status, leise Knöpfe).
-   Unsicherheit bleibt leise: kleines Etikett in --muted, kein Alarm.
-   Unter 700 px wird die Leiste zur querlaufenden Reihe und der Eintrag
-   stapelt unter sein Datum. */
+/* Auftritte (ARC-024): Jahre als schmale Registerleiste über dem Bestand;
+   Datum und Titel stehen in den darunterliegenden Verzeichniszeilen.
+   Unter 700 px rückt das Datum über den Titel. */
 .auftritte-bereich {
-  display: grid;
-  grid-template-columns: 11rem minmax(0, 1fr);
-  gap: 1rem 2.5rem;
-  align-items: start;
-  margin-top: 2.5rem;
+  margin-top: 0.7rem;
 }
 .auftritte-jahre {
   list-style: none;
   margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 0.5rem;
+  padding: 0 0 0.25rem;
+  display: flex;
+  gap: 0.3rem;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--rule);
+}
+.auftritte-jahre li {
+  flex: 0 0 auto;
 }
 .auftritte-jahre button {
   display: inline-flex;
   align-items: baseline;
   gap: 0.35rem;
-  width: 100%;
+  width: auto;
   min-height: 2.75rem;
   padding: 0.5rem 0.75rem;
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-knopf);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
   background: var(--paper);
   color: var(--brand);
   font: inherit;
@@ -1844,11 +1872,10 @@ footer {
 }
 .auftritte-jahre button:hover:not(:disabled):not([aria-pressed="true"]) {
   background: var(--wash);
-  border-color: var(--brand);
 }
 .auftritte-jahre button[aria-pressed="true"] {
-  background: var(--brand);
-  color: var(--paper);
+  background: var(--paper);
+  color: var(--brand);
   border-color: var(--brand);
 }
 .auftritte-jahr-anzahl {
@@ -1857,20 +1884,23 @@ footer {
   opacity: 0.85;
 }
 .auftritte-liste h2 {
-  font-size: var(--titel-abschnitt);
+  font-size: 1.25rem;
+  margin-block: 1rem 0.4rem;
 }
 .auftritte-einträge {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 1.8rem;
+  gap: 0;
 }
 .auftritte-eintrag {
   display: grid;
   grid-template-columns: 10rem minmax(0, 1fr);
   gap: 0.2rem 1.4rem;
   min-width: 0;
+  padding-block: 0.9rem 1.1rem;
+  border-bottom: 1px solid var(--rule);
 }
 .auftritte-inhalt {
   min-width: 0;
@@ -1937,7 +1967,31 @@ footer {
 /* Anlageformular als Aufklapper nach der geteilten Aufklapper-Rezeptur
    (siehe .lied-anlegen). */
 .auftritt-anlegen {
-  margin-block: 0 2.5rem;
+  margin: 0;
+  padding: 0;
+  max-width: 38rem;
+  background: transparent;
+  border-bottom: 1px solid var(--rule);
+  border-radius: 0;
+}
+.auftritt-anlegen[open] {
+  padding: 1rem;
+  background: var(--wash);
+  border-radius: var(--radius-knopf);
+}
+.auftritt-anlegen summary {
+  width: fit-content;
+  color: var(--brand);
+}
+.auftritt-anlegen summary h2 {
+  font:
+    600 var(--schrift-neben) Arial,
+    Helvetica,
+    sans-serif;
+}
+.auftritt-anlegen:not([open]) summary::after {
+  content: "+";
+  margin-left: 0.45rem;
 }
 /* Bearbeiten-Karten (Zeile im Verzeichnis, Karte im Lesesaal). */
 .auftritt-bearbeiten {
@@ -1948,10 +2002,22 @@ footer {
 .auftritt-detail {
   max-width: 48rem;
 }
-.auftritt-ansicht h2 {
+.auftritt-ansicht h1 {
   margin-block: 0.3rem 0.25rem;
   font-size: var(--titel-seite);
   overflow-wrap: anywhere;
+}
+.auftritt-redaktion {
+  max-width: 48rem;
+  padding-block: 0.55rem;
+  border-block: 1px solid var(--rule);
+  margin-block: 1rem 1.2rem;
+}
+.auftritt-redaktion .auftritte-aktionen {
+  margin: 0;
+}
+.auftritt-redaktion .auth-karte {
+  margin-top: 0.7rem;
 }
 .auftritt-ansicht .auftritt-datum {
   margin-block: 0.4rem 0;
@@ -2364,13 +2430,18 @@ fieldset.programm-verwaltung {
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 1.8rem;
+  gap: 0;
 }
 .programme-eintrag {
   display: grid;
   grid-template-columns: 10rem minmax(0, 1fr);
   gap: 0.2rem 1.4rem;
   min-width: 0;
+  padding-block: 1rem 1.2rem;
+  border-bottom: 1px solid var(--rule);
+}
+.programme-verzeichnis {
+  max-width: 52rem;
 }
 .programme-eintrag h3 {
   margin-block: 0;
@@ -2385,20 +2456,6 @@ fieldset.programm-verwaltung {
   }
   /* Die Werkzeile stapelt im Handymaß (das Umbrechen der Werkzeugreihe
      leistet die Basisregel); die Pfeilknöpfe behalten ihre Berührziele. */
-  /* Die Jahresleiste läuft als querlaufende Reihe; die Knöpfe bleiben
-     ungebogen, die Reihe wischt statt umzubrechen. */
-  .auftritte-jahre {
-    display: flex;
-    overflow-x: auto;
-    padding-block-end: 0.4rem;
-  }
-  .auftritte-jahre li {
-    flex: 0 0 auto;
-  }
-  .auftritte-jahre button {
-    width: auto;
-    white-space: nowrap;
-  }
   .auftritte-eintrag {
     grid-template-columns: 1fr;
     gap: 0.1rem;

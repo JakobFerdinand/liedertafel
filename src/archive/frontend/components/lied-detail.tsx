@@ -195,6 +195,7 @@ export function LiedDetail() {
   if (!me.authenticated) {
     return (
       <div>
+        <h1>Anmeldung erforderlich</h1>
         <p>Bitte anmelden, um das Lied zu sehen.</p>
         <Link href="/anmelden/">Anmelden</Link>
       </div>
@@ -203,6 +204,7 @@ export function LiedDetail() {
   if (nichtGefunden) {
     return (
       <div aria-live="polite">
+        <h1>Lied nicht gefunden</h1>
         <p>
           Dieses Lied wurde nicht gefunden. Es ist entweder nicht veröffentlicht
           oder die Adresse ist nicht mehr gültig.
@@ -234,12 +236,12 @@ export function LiedDetail() {
   return (
     <div className="lied-detail">
       <article className="lied-ansicht">
+        <h1>{lied.title}</h1>
         {editor && (
           <p className="lieder-status lied-status-kopf">
             {lied.published ? "Veröffentlicht" : "Entwurf"}
           </p>
         )}
-        <h2>{lied.title}</h2>
         {(lied.composer || lied.lyricist) && (
           <p className="lieder-urheber">
             {[
@@ -485,9 +487,6 @@ export function LiedDetail() {
           )}
         </output>
       )}
-      <p>
-        <Link href="/lieder/">Zum Liederkatalog</Link>
-      </p>
     </div>
   );
 }

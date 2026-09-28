@@ -186,6 +186,7 @@ async function auftrittAnlegenAufklappen(page: Page) {
 test("Mitglied sieht Auftritte mit Jahresleiste und ehrlichen Daten", async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 1154, height: 800 });
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await mockSitzung(page, memberMe);
@@ -207,6 +208,18 @@ test("Mitglied sieht Auftritte mit Jahresleiste und ehrlichen Daten", async ({
   });
 
   await page.goto("/auftritte/");
+  expect(
+    await page
+      .locator(".site-header")
+      .evaluate((element) => element.getBoundingClientRect().height),
+  ).toBeLessThan(110);
+  const menue = page.getByRole("button", { name: "Menü", exact: true });
+  await expect(menue).toBeVisible();
+  await menue.focus();
+  await menue.press("Enter");
+  await expect(menue).toHaveAttribute("aria-expanded", "true");
+  await menue.press("Escape");
+  await expect(menue).toHaveAttribute("aria-expanded", "false");
   await expect(
     page.getByRole("heading", { name: "Auftritte" }).first(),
   ).toBeVisible();
@@ -233,6 +246,11 @@ test("Mitglied sieht Auftritte mit Jahresleiste und ehrlichen Daten", async ({
     "href",
     `/auftritt/?id=${konzertId}`,
   );
+  expect(
+    await konzertEintrag.evaluate(
+      (element) => element.getBoundingClientRect().top,
+    ),
+  ).toBeLessThan(500);
   await expect(page.getByText("um 1950", { exact: true })).toBeVisible();
   await expect(
     page.getByText("Datum unbekannt", { exact: true }),

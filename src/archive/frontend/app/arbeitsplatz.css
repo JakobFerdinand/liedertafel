@@ -51,7 +51,7 @@
 @media (min-width: 1100px) {
   .archiv-arbeitsplatz:not(.archiv-grossansicht).archiv-chat-offen {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(23rem, 0.7fr);
+    grid-template-columns: minmax(0, 1fr) minmax(20rem, 0.52fr);
     gap: clamp(2rem, 4vw, 4rem);
   }
 
@@ -71,7 +71,12 @@
   }
 
   .archiv-arbeitsplatz:not(.archiv-grossansicht) .chat-einleitung {
-    padding-block: 1.5rem 0.5rem;
+    padding-block: 1.2rem 0.5rem;
+  }
+
+  .archiv-arbeitsplatz:not(.archiv-grossansicht) .chat-leer-kopf,
+  .archiv-arbeitsplatz:not(.archiv-grossansicht) .chat-speicher-hinweis {
+    display: none;
   }
 
   .archiv-arbeitsplatz:not(.archiv-grossansicht) .chat-einleitung p {
@@ -90,7 +95,7 @@
     min-height: 8rem;
     max-height: none;
     align-content: start;
-    padding-block: 1rem;
+    padding-block: 0.5rem;
   }
 
   .archiv-arbeitsplatz:not(.archiv-grossansicht) .chat-vorschlaege {

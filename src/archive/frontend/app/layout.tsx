@@ -36,7 +36,7 @@ export default function RootLayout({
         </header>
         <MaintenanceBanner />
         <ArchivArbeitsplatz>{children}</ArchivArbeitsplatz>
-        <footer>Gemeinsam singen. Gemeinsam bewahren.</footer>
+        <footer>Liedertafel Mining 1906</footer>
       </body>
     </html>
   );

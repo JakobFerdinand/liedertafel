@@ -43,7 +43,7 @@ export function ArchivBereich() {
     : "";
   const kopf = (
     <div className="mitglieder-kopf">
-      <h2 id="bereich-titel">Unser Archiv</h2>
+      <h2 id="bereich-titel">Dein Konto</h2>
       {sitzung && (
         <div className="mitglieder-sitzung">
           <p className="mitglieder-rolle">{rolle}</p>
@@ -97,14 +97,9 @@ export function ArchivBereich() {
   return (
     <>
       {kopf}
-      <p>Willkommen im Archiv. Hier entsteht die Sammlung unseres Chores.</p>
       <Link href="/lieder/" className="verweis-kachel">
         <span>
-          <strong>Der Liederkatalog ist jetzt geöffnet</strong>
-          <span className="verweis-kachel-neben">
-            Veröffentlichte Lieder mit Fassungen und Bearbeitungen sind dort
-            sichtbar.
-          </span>
+          <strong>Zum Liederkatalog</strong>
         </span>
         <span aria-hidden="true">↗</span>
       </Link>

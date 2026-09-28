@@ -7,12 +7,8 @@ export default function AnmeldenSeite() {
         className="introduction compact"
         aria-labelledby="anmelden-titel"
       >
-        <p className="section-label">Mitgliederzugang</p>
         <h1 id="anmelden-titel">Anmelden</h1>
-        <p>
-          Mitglieder melden sich mit E-Mail-Adresse und Code an. Der Code kommt
-          per E-Mail und ist einmalig gültig.
-        </p>
+        <p>Mit E-Mail-Adresse und Einmalcode zum Chorarchiv.</p>
       </section>
       <AnmeldeFormular />
     </>

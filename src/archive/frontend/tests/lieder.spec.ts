@@ -253,6 +253,7 @@ test("Katalog zeigt Lieder direkt und hält Filter per Tastatur erreichbar", asy
 test("Mitglied öffnet ein veröffentlichtes Lied; Entwürfe bleiben unfindbar", async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 1154, height: 800 });
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await mockSitzung(page, memberMe);
@@ -269,6 +270,9 @@ test("Mitglied öffnet ein veröffentlichtes Lied; Entwürfe bleiben unfindbar",
   await page.goto(`/lied/?id=${publishedId}`);
   await expect(
     page.getByRole("heading", { name: "Das Wandern ist des Müllers Lust" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: publishedSong.title, level: 1 }),
   ).toBeVisible();
   await expect(
     page.getByText("Komponist: Carl Friedrich Zöllner"),

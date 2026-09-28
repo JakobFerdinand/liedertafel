@@ -461,10 +461,6 @@ export function MitgliederVerwaltung() {
       >
         <summary>
           <h2 id="einladen-titel">Mitglied einladen</h2>
-          <span className="mitglied-einladen-umschalter" aria-hidden="true">
-            <span className="mitglied-einladen-auf">Ausklappen</span>
-            <span className="mitglied-einladen-zu">Einklappen</span>
-          </span>
         </summary>
         <form onSubmit={einladen} noValidate>
           <label htmlFor="einladung-email">E-Mail-Adresse</label>
@@ -533,11 +529,6 @@ export function MitgliederVerwaltung() {
 
       <section aria-labelledby="mitglieder-titel" className="mitglieder-liste">
         <h2 id="mitglieder-titel">Mitglieder und Einladungen</h2>
-        <p className="feld-hinweis">
-          Deaktivierte behalten Kennung und Verlauf; ihre Sitzungen werden
-          abgemeldet und eine erneute Anmeldung ist nach Reaktivierung nötig.
-          Rollen gelten ab der nächsten Anfrage.
-        </p>
         {mitglieder === null ? (
           <p aria-live="polite" className="auth-statuszeile">
             Mitglieder werden geladen …
@@ -744,6 +735,11 @@ export function MitgliederVerwaltung() {
             </tbody>
           </table>
         )}
+        <p className="feld-hinweis verwaltung-hinweis">
+          Deaktivierte behalten Kennung und Verlauf; ihre Sitzungen werden
+          abgemeldet und eine erneute Anmeldung ist nach Reaktivierung nötig.
+          Rollen gelten ab der nächsten Anfrage.
+        </p>
       </section>
     </div>
   );

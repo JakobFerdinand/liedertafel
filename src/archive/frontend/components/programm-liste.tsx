@@ -79,8 +79,7 @@ export function ProgrammListe() {
   }
 
   return (
-    <section aria-labelledby="programme-verzeichnis-titel">
-      <h2 id="programme-verzeichnis-titel">Kommende Programme</h2>
+    <section aria-label="Kommende Programme" className="programme-verzeichnis">
       {programme === null ? (
         <p aria-live="polite" className="auth-statuszeile">
           Programme werden geladen …

@@ -648,20 +648,19 @@ test("Ein fremder Chatverlauf wird verworfen und der Chat startet frisch", async
 
 test("Der Chat führt auch auf der Anmeldeseite zurück zum Anmeldeformular", async ({
   page,
-  isMobile,
 }) => {
   await page.route("**/api/auth/me", (route) =>
     route.fulfill(json({ authenticated: false })),
   );
   await page.goto("/anmelden/");
-  if (isMobile) {
-    // Ohne Leiste führt die Hauptnavigation zum Chat.
+  // Die Anmeldung hat einen ungeteilten Arbeitsplatz; der Chat bleibt
+  // über die Navigation erreichbar.
+  if (await page.getByRole("button", { name: "Menü", exact: true }).isVisible())
     await page.getByRole("button", { name: "Menü", exact: true }).click();
-    await page
-      .getByRole("navigation", { name: "Hauptnavigation" })
-      .getByRole("link", { name: "Archiv fragen" })
-      .click();
-  }
+  await page
+    .getByRole("navigation", { name: "Hauptnavigation" })
+    .getByRole("link", { name: "Archiv fragen" })
+    .click();
   await page.getByRole("link", { name: "Zur Anmeldung für den Chat" }).click();
   await expect(page.getByLabel("E-Mail-Adresse")).toBeVisible();
   await expect(page).toHaveURL(/\/anmelden\/$/);
@@ -857,7 +856,7 @@ test("Der Einstieg öffnet den Chat; beide Chat-Ansichten teilen den Entwurf", a
   await mockArchiv(page);
   await page.goto("/");
   await expect(
-    page.getByRole("heading", { name: "Was wir singen, bleibt bei uns." }),
+    page.getByRole("heading", { name: "Das Chorarchiv" }),
   ).toBeVisible();
   const eingabe = page.getByLabel("Frage stellen");
   await expect(eingabe).toBeVisible();
@@ -871,7 +870,7 @@ test("Der Einstieg öffnet den Chat; beide Chat-Ansichten teilen den Entwurf", a
     .click();
   await expect(page).toHaveURL(/\/fragen\/$/);
   await expect(
-    page.getByRole("heading", { name: "Fragen zum Archiv" }),
+    page.getByRole("heading", { name: "Archiv fragen" }),
   ).toBeVisible();
   await expect(eingabe).toHaveValue("Mein Entwurf bleibt stehen");
 });

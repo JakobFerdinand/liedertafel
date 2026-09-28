@@ -1,14 +1,13 @@
+import Link from "next/link";
 import { Suspense } from "react";
 import { LiedDetail } from "@/components/lied-detail";
 
 export default function LiedSeite() {
   return (
     <>
-      <section className="introduction compact" aria-labelledby="lied-titel">
-        <p className="section-label">Nur für Mitglieder</p>
-        <h1 id="lied-titel">Lied</h1>
-        <p>Titel, Mitwirkende und alle erfassten Fassungen eines Liedes.</p>
-      </section>
+      <nav className="detail-zurueck" aria-label="Zurück zum Verzeichnis">
+        <Link href="/lieder/">Liederkatalog</Link>
+      </nav>
       <Suspense fallback={<p aria-live="polite">Lied wird geladen …</p>}>
         <LiedDetail />
       </Suspense>

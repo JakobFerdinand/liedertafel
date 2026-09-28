@@ -17,9 +17,16 @@ export function ArchivArbeitsplatz({
   const pfad = pathname.replace(/\/$/, "");
   const grossansicht = pfad === "" || pfad === "/fragen";
   const startseite = pfad === "";
+  const mitChat = [
+    "/lieder",
+    "/lied",
+    "/auftritte",
+    "/auftritt",
+    "/programm",
+  ].includes(pfad);
   const [breit, setBreit] = useState(false);
   const [offen, setOffen] = useState<boolean | null>(null);
-  const sichtbar = grossansicht || (offen ?? breit);
+  const sichtbar = grossansicht || (mitChat && (offen ?? breit));
 
   useEffect(() => {
     const media = window.matchMedia("(min-width: 1100px)");
@@ -92,17 +99,14 @@ export function ArchivArbeitsplatz({
           <div className="chat-einleitung">
             {grossansicht ? (
               <h1 id="fragen-titel">
-                {startseite
-                  ? "Was wir singen, bleibt bei uns."
-                  : "Fragen zum Archiv"}
+                {startseite ? "Das Chorarchiv" : "Archiv fragen"}
               </h1>
             ) : (
               <h2 id="fragen-titel">Fragen zum Archiv</h2>
             )}
-            <p>
-              Entdecke unsere Lieder und ihre Urheber – mit Antworten aus dem
-              Archiv.
-            </p>
+            {grossansicht && (
+              <p>Frag nach Liedern, Fassungen oder Auftritten.</p>
+            )}
           </div>
           {!grossansicht && (
             <div className="archiv-chat-ansicht">
