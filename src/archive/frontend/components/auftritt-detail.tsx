@@ -259,6 +259,19 @@ export function AuftrittDetail() {
               />
             )}
           </div>
+          {erfolg && (
+            <output aria-live="polite" className="auth-erfolg">
+              {erfolg}
+            </output>
+          )}
+          {hinweis && (
+            <output aria-live="polite" className="feld-fehler">
+              {hinweis}{" "}
+              {hinweis.includes("erneute Anmeldung") && (
+                <Link href="/anmelden/">Anmelden</Link>
+              )}
+            </output>
+          )}
         </section>
       )}
 
@@ -309,20 +322,6 @@ export function AuftrittDetail() {
           Zu diesem Auftritt sind noch keine Aufnahmen hinterlegt.
         </p>
       </section>
-
-      {erfolg && (
-        <output aria-live="polite" className="auth-erfolg">
-          {erfolg}
-        </output>
-      )}
-      {hinweis && (
-        <output aria-live="polite" className="feld-fehler">
-          {hinweis}{" "}
-          {hinweis.includes("erneute Anmeldung") && (
-            <Link href="/anmelden/">Anmelden</Link>
-          )}
-        </output>
-      )}
     </div>
   );
 }

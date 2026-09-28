@@ -83,7 +83,7 @@ h3 {
    Klassen:
    – .hinweis-block: Zustandsblock, Markenlinker auf Waschgrund
      (3px, Innenabstand 1rem 1.2rem). .chat-zustand/.chat-fehler,
-      .auth-erfolg und .auth-fehler
+     .auth-erfolg und .auth-fehler
      (Anmelden, Mitgliederbereich, Verwaltung, Katalog) und
      .verbindungs-fehler (Systemstatus) teilen dieselbe Rezeptur.
    – .auth-statuszeile: Statuszeile des Anmeldeablaufs nach .chat-status
