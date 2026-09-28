@@ -1504,6 +1504,20 @@ test("Unsichere Daten bleiben auch im Programmverzeichnis gekennzeichnet", async
   expect(titel.x + titel.width).toBeLessThan(anzahl.x);
   expect(Math.abs(datum.y - anzahl.y)).toBeLessThan(20);
 
+  await page.setViewportSize({ width: 680, height: 844 });
+  const mittelDatum = await zeile.locator(".auftritt-datum").boundingBox();
+  const mittelTitel = await zeile.locator("h3").boundingBox();
+  const mittelAnzahl = await zeile.locator(".programme-anzahl").boundingBox();
+  if (!mittelDatum || !mittelTitel || !mittelAnzahl)
+    throw new Error("Programmzeile bei 680px fehlt");
+  expect(mittelTitel.x).toBeCloseTo(mittelDatum.x, 0);
+  expect(mittelAnzahl.x).toBeCloseTo(mittelDatum.x, 0);
+  expect(mittelTitel.y).toBeGreaterThan(mittelDatum.y);
+  expect(mittelAnzahl.y).toBeGreaterThan(mittelTitel.y);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
+    680,
+  );
+
   await page.setViewportSize({ width: 390, height: 844 });
   const mobilDatum = await zeile.locator(".auftritt-datum").boundingBox();
   const mobilTitel = await zeile.locator("h3").boundingBox();

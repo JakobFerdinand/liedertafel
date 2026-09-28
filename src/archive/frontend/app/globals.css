@@ -1936,7 +1936,7 @@ footer {
 
 /* Auftritte (ARC-024): Jahre als schmale Registerleiste über dem Bestand;
    Datum und Titel stehen in den darunterliegenden Verzeichniszeilen.
-   Unter 700 px rückt das Datum über den Titel. */
+   Bei schmalem Inhaltsbereich rückt das Datum über den Titel. */
 .auftritte-bereich {
   margin-top: 0.7rem;
 }
@@ -2508,7 +2508,7 @@ fieldset.programm-verwaltung {
 /* ─── Programmverzeichnis (ARC-026) ───────────────────────────────────
    Die Zeilen erben die Geometrie des Auftrittsverzeichnisses (Datum in
    der schmalen Spalte, Inhalt daneben); die Liederzahl liest sich in
-   der Meta-Leiter. Unter 700 px stapelt der Eintrag unter sein Datum. */
+   der Meta-Leiter. Schmale Inhaltsbereiche stapeln die Einträge. */
 .programme-einträge {
   list-style: none;
   margin: 0;
@@ -2532,7 +2532,7 @@ fieldset.programm-verwaltung {
   font-size: var(--titel-abschnitt);
   overflow-wrap: anywhere;
 }
-@container (min-width: 38rem) and (max-width: 51.99rem) {
+@container (min-width: 42rem) and (max-width: 51.99rem) {
   .auftritte-eintrag > .lieder-status,
   .auftritte-eintrag > .auftritte-aktionen,
   .programme-anzahl {
@@ -2634,15 +2634,18 @@ fieldset.programm-verwaltung {
   }
 }
 
-@media (max-width: 700px) {
+@container (max-width: 42rem) {
   .programme-eintrag {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     gap: 0.1rem;
   }
-  /* Die Werkzeile stapelt im Handymaß (das Umbrechen der Werkzeugreihe
-     leistet die Basisregel); die Pfeilknöpfe behalten ihre Berührziele. */
   .auftritte-eintrag {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     gap: 0.1rem;
+  }
+  .auftritte-eintrag > .lieder-status,
+  .auftritte-eintrag > .auftritte-aktionen,
+  .programme-anzahl {
+    grid-column: 1;
   }
 }

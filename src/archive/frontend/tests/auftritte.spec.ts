@@ -308,6 +308,25 @@ test("Auftrittsverzeichnis ordnet Datum, Titel und Redaktion nebeneinander", asy
   expect(status.x + status.width).toBeLessThan(aktionen.x);
   expect(Math.abs(datum.y - aktionen.y)).toBeLessThan(20);
 
+  await page.setViewportSize({ width: 680, height: 844 });
+  const mittelDatum = await zeile.locator(".auftritt-datum").boundingBox();
+  const mittelTitel = await zeile.locator("h3").boundingBox();
+  const mittelStatus = await zeile.locator(".lieder-status").boundingBox();
+  const mittelAktionen = await zeile
+    .locator(".auftritte-aktionen")
+    .boundingBox();
+  if (!mittelDatum || !mittelTitel || !mittelStatus || !mittelAktionen)
+    throw new Error("Auftrittszeile bei 680px fehlt");
+  expect(mittelTitel.x).toBeCloseTo(mittelDatum.x, 0);
+  expect(mittelStatus.x).toBeCloseTo(mittelDatum.x, 0);
+  expect(mittelAktionen.x).toBeCloseTo(mittelDatum.x, 0);
+  expect(mittelTitel.y).toBeGreaterThan(mittelDatum.y);
+  expect(mittelStatus.y).toBeGreaterThan(mittelTitel.y);
+  expect(mittelAktionen.y).toBeGreaterThan(mittelStatus.y);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
+    680,
+  );
+
   await page.setViewportSize({ width: 390, height: 844 });
   const mobilDatum = await zeile.locator(".auftritt-datum").boundingBox();
   const mobilTitel = await zeile.locator("h3").boundingBox();
