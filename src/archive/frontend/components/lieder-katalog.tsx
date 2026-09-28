@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { LiedFormular } from "@/components/lied-formular";
 import { fetchMe, type MeResponse, postAuth } from "@/lib/auth";
 import {
@@ -45,6 +45,12 @@ const filterTextfelder = [
   ["tag", "Schlagwort"],
 ] as const;
 
+const materialOptionen = [
+  ["noten", "Noten"],
+  ["audio", "Audio"],
+  ["midi", "MIDI"],
+] as const;
+
 // Materialwerte der Adresse: kommagetrennt, beschnitten, ohne leere oder
 // unbekannte Einträge (ein eigenhändig verbogener Wert filtert nicht).
 function materialAusAdresse(wert: string | null): string[] {
@@ -85,6 +91,25 @@ export function LiederKatalog() {
     [stimmbesetzung, begleitung, tonart, sprache, anlass, schlagwort].some(
       Boolean,
     ) || materialWerte.length > 0;
+  const aktiveFilter = [
+    ...filterTextfelder.flatMap(([name, beschriftung]) =>
+      filterAnfang[name]
+        ? [{ name, beschriftung, wert: filterAnfang[name] }]
+        : [],
+    ),
+    ...materialOptionen.flatMap(([wert, beschriftung]) =>
+      materialWerte.includes(wert)
+        ? [
+            {
+              name: "material",
+              beschriftung: "Material",
+              wert: beschriftung,
+              materialWert: wert,
+            },
+          ]
+        : [],
+    ),
+  ];
   // Fassungsfilter (Stimmverteilung, Begleitung, Tonart, Material) lassen
   // die Treffer die passende Fassung nennen; reine Liedfilter tun das nicht.
   const hatFassungsFilter =
@@ -101,6 +126,7 @@ export function LiederKatalog() {
   const [aktionBusy, setAktionBusy] = useState("");
   const [bearbeitet, setBearbeitet] = useState<string | null>(null);
   const [versuch, setVersuch] = useState(0);
+  const filterRef = useRef<HTMLDetailsElement>(null);
 
   const editor = me?.authenticated && istEditor(me);
 
@@ -248,6 +274,7 @@ export function LiederKatalog() {
 
   function filterAnwenden(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    filterSchliessen();
     router.push(
       katalogPfad(
         abfrage,
@@ -260,10 +287,31 @@ export function LiederKatalog() {
   // Zurücksetzen löscht die Filter, behält aber die laufende Suche; die
   // Seite fällt auf den Anfang zurück (ohne seite-Parameter).
   function filterZuruecksetzen() {
+    filterSchliessen();
     const parameter = new URLSearchParams();
     if (abfrage) parameter.set("suche", abfrage);
     const zeichenkette = parameter.toString();
     router.push(zeichenkette ? `/lieder/?${zeichenkette}` : "/lieder/");
+  }
+
+  function filterEntfernen(name: string, materialWert?: string) {
+    const filter = filterParameter(suchParameter);
+    if (materialWert) {
+      const verbleibend = materialWerte.filter((wert) => wert !== materialWert);
+      if (verbleibend.length > 0) filter.set("material", verbleibend.join(","));
+      else filter.delete("material");
+    } else {
+      filter.delete(name);
+    }
+    filterSchliessen();
+    router.push(katalogPfad(abfrage, filter, 1));
+  }
+
+  function filterSchliessen() {
+    if (filterRef.current) {
+      filterRef.current.open = false;
+      filterRef.current.querySelector("summary")?.focus();
+    }
   }
 
   function seiteWechseln(naechste: number) {
@@ -324,10 +372,10 @@ export function LiederKatalog() {
           </form>
         </section>
 
-        {/* Repertoirefilter (ARC-023): bei aktiven Filtern aufgeklappt. */}
+        {/* Repertoirefilter (ARC-023): der Bestand bleibt auch gefiltert vorn. */}
         <details
+          ref={filterRef}
           className="lieder-filter"
-          open={hatFilter}
           aria-labelledby="lieder-filter-titel"
         >
           <summary>
@@ -355,11 +403,7 @@ export function LiederKatalog() {
               <legend>Material</legend>
               <div className="lieder-filter-auswahl">
                 {/* Aufnahmen ergänzen hier ihre Materialwahl (ARC-032). */}
-                {[
-                  ["noten", "Noten"],
-                  ["audio", "Audio"],
-                  ["midi", "MIDI"],
-                ].map(([wert, beschriftung]) => (
+                {materialOptionen.map(([wert, beschriftung]) => (
                   <label key={wert} htmlFor={`lieder-filter-material-${wert}`}>
                     <input
                       key={`${wert}:${materialWerte.includes(wert)}`}
@@ -414,6 +458,40 @@ export function LiederKatalog() {
           </details>
         )}
       </div>
+
+      {hatFilter && (
+        <nav className="lieder-filter-aktiv" aria-label="Aktive Filter">
+          <ul>
+            {aktiveFilter.map((filter) => (
+              <li key={`${filter.name}:${filter.wert}`}>
+                <button
+                  type="button"
+                  className="knopf-leise"
+                  aria-label={`${filter.beschriftung}: ${filter.wert} entfernen`}
+                  onClick={() =>
+                    filterEntfernen(
+                      filter.name,
+                      "materialWert" in filter
+                        ? filter.materialWert
+                        : undefined,
+                    )
+                  }
+                >
+                  {filter.beschriftung}: {filter.wert}{" "}
+                  <span aria-hidden="true">×</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          <button
+            type="button"
+            className="knopf-leise"
+            onClick={filterZuruecksetzen}
+          >
+            Alle Filter zurücksetzen
+          </button>
+        </nav>
+      )}
 
       {erfolg && (
         <output aria-live="polite" className="auth-erfolg">

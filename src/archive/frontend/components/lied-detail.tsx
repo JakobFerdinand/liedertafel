@@ -177,7 +177,8 @@ export function LiedDetail() {
 
   if (fehler) {
     return (
-      <div aria-live="polite">
+      <div className="detail-zustand" aria-live="polite">
+        <h1>Lied nicht verfügbar</h1>
         <p>{fehler}</p>
         <button type="button" onClick={() => setVersuch(versuch + 1)}>
           Erneut versuchen
@@ -187,8 +188,8 @@ export function LiedDetail() {
   }
   if (me === null) {
     return (
-      <div aria-live="polite">
-        <p>Lied wird geladen …</p>
+      <div className="detail-zustand" aria-live="polite">
+        <h1>Lied wird geladen …</h1>
       </div>
     );
   }
@@ -215,8 +216,8 @@ export function LiedDetail() {
   }
   if (lied === null) {
     return (
-      <div aria-live="polite">
-        <p>Lied wird geladen …</p>
+      <div className="detail-zustand" aria-live="polite">
+        <h1>Lied wird geladen …</h1>
       </div>
     );
   }

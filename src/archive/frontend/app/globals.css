@@ -287,6 +287,11 @@ main {
 .detail-zurueck a:hover {
   text-decoration: underline;
 }
+.detail-zustand h1,
+.detail-zustand-titel {
+  font-size: var(--titel-seite);
+  margin-block: 0.8rem;
+}
 .wartung-aktionen {
   display: flex;
   align-items: center;
@@ -715,33 +720,38 @@ dd {
   background: var(--paper);
   color: var(--ink);
 }
-/* Einladungskarte als Aufklapper nach der geteilten Aufklapper-Rezeptur
-   (siehe .lied-anlegen). Zugeklappt: die Tabelle ist der Alltag, das
-   Einladen der seltene Fall. */
-.mitglied-einladen {
-  margin-block: 0 0.7rem;
+/* Leise Anlage-Aufklapper: Bestand und Register bleiben zuerst sichtbar. */
+.mitglied-einladen,
+.auftritt-anlegen {
   padding: 0;
   background: transparent;
   border-bottom: 1px solid var(--rule);
   border-radius: 0;
   max-width: 38rem;
 }
-.mitglied-einladen[open] {
+.mitglied-einladen {
+  margin-block: 0 0.7rem;
+}
+.mitglied-einladen[open],
+.auftritt-anlegen[open] {
   padding: 1rem;
   background: var(--wash);
   border-radius: var(--radius-knopf);
 }
-.mitglied-einladen summary {
+.mitglied-einladen summary,
+.auftritt-anlegen summary {
   width: fit-content;
   color: var(--brand);
 }
-.mitglied-einladen summary h2 {
+.mitglied-einladen summary h2,
+.auftritt-anlegen summary h2 {
   font:
     600 var(--schrift-neben) Arial,
     Helvetica,
     sans-serif;
 }
-.mitglied-einladen:not([open]) summary::after {
+.mitglied-einladen:not([open]) summary::after,
+.auftritt-anlegen:not([open]) summary::after {
   content: "+";
   margin-left: 0.45rem;
 }
@@ -875,9 +885,43 @@ dd {
   padding-block: 0 1rem;
   border-bottom: 1px solid var(--rule);
 }
+.lieder-filter-aktiv {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.9rem;
+  max-width: 52rem;
+  margin-top: 0.55rem;
+  font-size: var(--schrift-neben);
+}
+.lieder-filter-aktiv ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.75rem;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.lieder-filter-aktiv button {
+  min-height: 2.5rem;
+  padding: 0.25rem 0;
+  text-align: left;
+}
+.lieder-filter-aktiv li button {
+  color: var(--ink);
+  border-bottom: 1px solid var(--rule);
+}
+.lieder-filter-aktiv li button:hover {
+  color: var(--brand);
+  border-color: var(--brand);
+}
+.lieder-filter-aktiv li span {
+  color: var(--brand);
+  margin-inline-start: 0.25rem;
+}
 .lieder-liste {
   max-width: 52rem;
-  margin-top: 1.2rem;
+  margin-top: 0.9rem;
 }
 .lieder-liste h2 {
   font-size: 1.25rem;
@@ -1964,34 +2008,8 @@ footer {
   font-size: var(--schrift-neben);
   border-radius: var(--radius-knopf);
 }
-/* Anlageformular als Aufklapper nach der geteilten Aufklapper-Rezeptur
-   (siehe .lied-anlegen). */
 .auftritt-anlegen {
   margin: 0;
-  padding: 0;
-  max-width: 38rem;
-  background: transparent;
-  border-bottom: 1px solid var(--rule);
-  border-radius: 0;
-}
-.auftritt-anlegen[open] {
-  padding: 1rem;
-  background: var(--wash);
-  border-radius: var(--radius-knopf);
-}
-.auftritt-anlegen summary {
-  width: fit-content;
-  color: var(--brand);
-}
-.auftritt-anlegen summary h2 {
-  font:
-    600 var(--schrift-neben) Arial,
-    Helvetica,
-    sans-serif;
-}
-.auftritt-anlegen:not([open]) summary::after {
-  content: "+";
-  margin-left: 0.45rem;
 }
 /* Bearbeiten-Karten (Zeile im Verzeichnis, Karte im Lesesaal). */
 .auftritt-bearbeiten {

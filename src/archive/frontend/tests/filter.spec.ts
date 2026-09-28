@@ -138,8 +138,7 @@ const suchRoute = /\/api\/songs(\?.*)?$/;
 const liedRoute = /\/api\/songs\/[0-9a-f-]+$/;
 const arrangementBearbeiten = /\/api\/arrangements\/[0-9a-f-]+$/;
 
-// Öffnet den Filteraufklapper (er ist zu, solange kein Filterparameter in
-// der Adresse steht) und wählt ein Material.
+// Öffnet das Filterformular; auch bei aktiven Filtern bleibt es zunächst zu.
 async function filterAufklappen(page: Page) {
   await page.locator("details.lieder-filter > summary").click();
   await expect(page.locator("details.lieder-filter")).toHaveAttribute(
@@ -196,12 +195,12 @@ test("Filter schicken die erwarteten Abfrageparameter an den Katalog", async ({
     "",
   );
   await filterAufklappen(page);
-  await page.getByLabel("Stimmverteilung").fill("SATB");
-  await page.getByLabel("Begleitung").fill("Klavier");
-  await page.getByLabel("Tonart").fill("G-Dur");
-  await page.getByLabel("Sprache").fill("Deutsch");
-  await page.getByLabel("Anlass").fill("Sommerfest");
-  await page.getByLabel("Schlagwort").fill("Wanderlied");
+  await page.getByRole("textbox", { name: "Stimmverteilung" }).fill("SATB");
+  await page.getByRole("textbox", { name: "Begleitung" }).fill("Klavier");
+  await page.getByRole("textbox", { name: "Tonart" }).fill("G-Dur");
+  await page.getByRole("textbox", { name: "Sprache" }).fill("Deutsch");
+  await page.getByRole("textbox", { name: "Anlass" }).fill("Sommerfest");
+  await page.getByRole("textbox", { name: "Schlagwort" }).fill("Wanderlied");
   await page.getByRole("button", { name: "Filtern", exact: true }).click();
 
   await expect(page).toHaveURL(
@@ -221,6 +220,11 @@ test("Filter schicken die erwarteten Abfrageparameter an den Katalog", async ({
   expect(anfrage.searchParams.has("q")).toBe(false);
   expect(anfrage.searchParams.has("page")).toBe(false);
 
+  await expect(page.locator("details.lieder-filter")).not.toHaveAttribute(
+    "open",
+    "",
+  );
+
   expect(errors).toEqual([]);
 });
 
@@ -238,7 +242,7 @@ test("Materialwahl übersetzt die Werte in die Materialarten", async ({
 
   await page.goto("/lieder/");
   await filterAufklappen(page);
-  await page.getByLabel("Noten").check();
+  await page.getByRole("checkbox", { name: "Noten" }).check();
   await page.getByRole("button", { name: "Filtern", exact: true }).click();
 
   await expect(page).toHaveURL(/\/lieder\/\?material=noten&seite=1$/);
@@ -249,7 +253,8 @@ test("Materialwahl übersetzt die Werte in die Materialarten", async ({
   expect(new URL(anfragen[1]).searchParams.get("material")).toBe("score");
 
   // Ein zweiter Materialtyp kommt als kombinierte Auswahl mit.
-  await page.getByLabel("Audio").check();
+  await filterAufklappen(page);
+  await page.getByRole("checkbox", { name: "Audio" }).check();
   await page.getByRole("button", { name: "Filtern", exact: true }).click();
 
   await expect(page).toHaveURL(/\/lieder\/\?material=noten%2Caudio&seite=1$/);
@@ -308,7 +313,8 @@ test("Filtern startet vorne und Blättern behält die Filter", async ({
 
   // Filtern ändert die Fassungsbedingung und setzt auf Seite 1 zurück.
   const weiter = page.getByRole("button", { name: "Weiter" });
-  await page.getByLabel("Stimmverteilung").fill("SSAA");
+  await filterAufklappen(page);
+  await page.getByRole("textbox", { name: "Stimmverteilung" }).fill("SSAA");
   await page.getByRole("button", { name: "Filtern", exact: true }).click();
   await expect(page).toHaveURL(
     /\/lieder\/\?suche=Studie&stimmbesetzung=SSAA&seite=1$/,
@@ -349,14 +355,23 @@ test("Aufgerufene Adresse stellt Filter und Suche wieder her", async ({
   });
 
   await page.goto("/lieder/?suche=Wandern&stimmbesetzung=SATB&material=noten");
-  // Der Aufklapper steht offen und die Felder tragen die Adresswerte.
-  await expect(page.locator("details.lieder-filter")).toHaveAttribute(
+  // Die gesetzten Werte sind sofort sichtbar, das Formular bleibt kompakt.
+  await expect(page.locator("details.lieder-filter")).not.toHaveAttribute(
     "open",
     "",
   );
-  await expect(page.getByLabel("Stimmverteilung")).toHaveValue("SATB");
-  await expect(page.getByLabel("Noten")).toBeChecked();
-  await expect(page.getByLabel("Audio")).not.toBeChecked();
+  await expect(
+    page.getByRole("button", { name: "Stimmverteilung: SATB entfernen" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Material: Noten entfernen" }),
+  ).toBeVisible();
+  await filterAufklappen(page);
+  await expect(
+    page.getByRole("textbox", { name: "Stimmverteilung" }),
+  ).toHaveValue("SATB");
+  await expect(page.getByRole("checkbox", { name: "Noten" })).toBeChecked();
+  await expect(page.getByRole("checkbox", { name: "Audio" })).not.toBeChecked();
   await expect(page.getByLabel("Lieder suchen")).toHaveValue("Wandern");
   await expect(
     page.getByRole("link", { name: "Das Wandern ist des Müllers Lust" }),
@@ -371,8 +386,15 @@ test("Aufgerufene Adresse stellt Filter und Suche wieder her", async ({
 
   // Neuladen hält den Filterzustand fest.
   await page.reload();
-  await expect(page.getByLabel("Stimmverteilung")).toHaveValue("SATB");
-  await expect(page.getByLabel("Noten")).toBeChecked();
+  await expect(page.locator("details.lieder-filter")).not.toHaveAttribute(
+    "open",
+    "",
+  );
+  await filterAufklappen(page);
+  await expect(
+    page.getByRole("textbox", { name: "Stimmverteilung" }),
+  ).toHaveValue("SATB");
+  await expect(page.getByRole("checkbox", { name: "Noten" })).toBeChecked();
   await expect(
     page.getByRole("link", { name: "Das Wandern ist des Müllers Lust" }),
   ).toBeVisible();
@@ -387,6 +409,53 @@ test("Aufgerufene Adresse stellt Filter und Suche wieder her", async ({
   }
 
   expect(errors).toEqual([]);
+});
+
+test("Gefiltertes Verzeichnis zeigt das erste Lied im ersten Bild und lässt Filter einzeln entfernen", async ({
+  page,
+}) => {
+  await mockSitzung(page, memberMe);
+  await page.route(suchRoute, (route) =>
+    route.fulfill(json(suchErgebnis("Wandern", 1, 1, [wanderlied]))),
+  );
+  const adresse =
+    "/lieder/?suche=Wandern&stimmbesetzung=SATB&begleitung=Klavier&tonart=G-Dur&sprache=Deutsch&anlass=Sommerfest&tag=Wanderlied&material=noten";
+  for (const width of [1154, 390]) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.goto(adresse);
+    const lied = page.getByRole("link", { name: wanderlied.title });
+    await expect(lied).toBeVisible();
+    await expect(page.locator("details.lieder-filter")).not.toHaveAttribute(
+      "open",
+      "",
+    );
+    expect(
+      await lied.evaluate((element) => element.getBoundingClientRect().top),
+    ).toBeLessThan(width === 390 ? 680 : 600);
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+    ).toBe(width);
+  }
+
+  await page
+    .getByRole("button", { name: "Begleitung: Klavier entfernen" })
+    .click();
+  await expect(page).not.toHaveURL(/begleitung=/);
+  await expect(page.locator("details.lieder-filter > summary")).toBeFocused();
+  await expect(page).toHaveURL(/stimmbesetzung=SATB/);
+  await expect(page).toHaveURL(/suche=Wandern/);
+  await filterAufklappen(page);
+  await expect(page.getByRole("textbox", { name: "Begleitung" })).toHaveValue(
+    "",
+  );
+  await expect(
+    page.getByRole("textbox", { name: "Stimmverteilung" }),
+  ).toHaveValue("SATB");
+  await page.getByRole("button", { name: "Alle Filter zurücksetzen" }).click();
+  await expect(page).toHaveURL(/\/lieder\/\?suche=Wandern$/);
+  await expect(
+    page.getByRole("button", { name: "Alle Filter zurücksetzen" }),
+  ).toHaveCount(0);
 });
 
 test("Passende Fassung erscheint nur bei Fassungsfiltern", async ({ page }) => {
@@ -479,7 +548,9 @@ test("Leere Filterergebnisse bieten das Zurücksetzen an", async ({ page }) => {
 
   await page.goto("/lieder/?anlass=Sommerfest&seite=1");
   await expect(page.getByText("Keine Lieder gefunden.")).toBeVisible();
-  await page.getByRole("button", { name: "Filter zurücksetzen" }).click();
+  await page
+    .getByRole("button", { name: "Filter zurücksetzen", exact: true })
+    .click();
 
   // Das Zurücksetzen kehrt zum ungefilterten Bestand zurück.
   await expect(page).toHaveURL(/\/lieder\/$/);
@@ -503,6 +574,7 @@ test("Zurücksetzen löscht die Filter und behält die Suche", async ({
   });
 
   await page.goto("/lieder/?suche=Wandern&stimmbesetzung=SATB&material=noten");
+  await filterAufklappen(page);
   await page
     .locator("details.lieder-filter")
     .getByRole("button", { name: "Zurücksetzen" })

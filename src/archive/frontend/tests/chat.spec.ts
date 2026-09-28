@@ -678,6 +678,7 @@ test("Ein kleines Desktopfenster behält lesbaren Verlauf und erreichbaren Compo
     }),
   );
   await page.goto("/lieder/");
+  await page.getByRole("button", { name: "Chat öffnen" }).click();
   await page.getByLabel("Frage stellen").fill("Wer komponierte das Lied?");
   await page.getByRole("button", { name: "Absenden" }).click();
   await expect(page.getByRole("log")).toContainText("Kleines Fenster");
@@ -719,7 +720,9 @@ test("Der Chat bleibt über die Navigation erreichbar; Minimieren erhält den En
     await expect(page).toHaveURL(/\/fragen\/$/);
     await expect(katalog).toBeHidden();
   } else {
-    // Auf breiten Fenstern steht der Chat neben dem Seiteninhalt.
+    // Der Bestand nutzt zuerst die volle Breite; der Chat wird bewusst geöffnet.
+    await expect(eingabe).toBeHidden();
+    await page.getByRole("button", { name: "Chat öffnen" }).click();
     await expect(eingabe).toBeVisible();
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(page).toHaveURL(/\/lieder\/$/);
@@ -745,19 +748,20 @@ test("Der Chat bleibt über die Navigation erreichbar; Minimieren erhält den En
     await fragen.click();
     await expect(page).toHaveURL(/\/fragen\/$/);
     await expect(eingabe).toBeVisible();
-    // Von dort stellt die Chatansicht die Voreinstellung wieder her:
-    // der Katalog zeigt den Chat wieder neben dem Inhalt.
+    // Wer aus der Chatansicht kommt, führt das Gespräch auf breiten
+    // Inhaltsseiten daneben weiter.
     await page
       .getByRole("navigation", { name: "Hauptnavigation" })
       .getByRole("link", { name: "Liederkatalog", exact: true })
       .click();
     await expect(page).toHaveURL(/\/lieder\/$/);
     await expect(eingabe).toBeVisible();
-    // Escape minimiert ebenfalls und lässt den Fokus beim Weg zurück:
-    // dem Navigationslink zum Chat.
+    // Escape minimiert ebenfalls und fokussiert den sichtbaren Öffnen-Knopf.
     await eingabe.press("Escape");
     await expect(eingabe).toBeHidden();
-    await expect(fragen).toBeFocused();
+    await expect(
+      page.getByRole("button", { name: "Chat öffnen" }),
+    ).toBeFocused();
     await fragen.click();
     await expect(page).toHaveURL(/\/fragen\/$/);
   }
@@ -873,6 +877,48 @@ test("Der Einstieg öffnet den Chat; beide Chat-Ansichten teilen den Entwurf", a
     page.getByRole("heading", { name: "Archiv fragen" }),
   ).toBeVisible();
   await expect(eingabe).toHaveValue("Mein Entwurf bleibt stehen");
+});
+
+test("Startseite führt direkt zum Bestand; Inhaltsseiten geben ihm die volle Breite", async ({
+  page,
+}) => {
+  await mockArchiv(page);
+  for (const width of [1154, 1280, 390]) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.goto("/");
+    const einstieg = page.getByRole("link", { name: "Liederkatalog öffnen" });
+    await expect(einstieg).toBeInViewport();
+    await einstieg.click();
+    await expect(page).toHaveURL(/\/lieder\/$/);
+    await expect(page.getByLabel("Frage stellen")).toBeHidden();
+    await expect(
+      page.getByRole("button", { name: "Chat öffnen" }),
+    ).toBeVisible();
+    if (width >= 1154)
+      expect(
+        await page
+          .locator(".archiv-seiteninhalt")
+          .evaluate((element) => element.getBoundingClientRect().width),
+      ).toBeGreaterThan(900);
+  }
+});
+
+test("Chat minimieren stellt bei verborgenem Navigationslink den sichtbaren Fokus wieder her", async ({
+  page,
+}) => {
+  await mockArchiv(page);
+  await page.setViewportSize({ width: 1154, height: 800 });
+  await page.goto("/lieder/");
+  const oeffnen = page.getByRole("button", { name: "Chat öffnen" });
+  await oeffnen.click();
+  await expect(
+    page.getByRole("button", { name: "Chat minimieren" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Chat minimieren" }).click();
+  await expect(oeffnen).toBeFocused();
+  await expect(
+    page.getByRole("button", { name: "Menü", exact: true }),
+  ).toBeVisible();
 });
 
 test("Eine verzögerte Chatantwort überlebt Navigation und Minimieren", async ({
@@ -1003,6 +1049,8 @@ for (const quellenLink of ["Quelle", "Quelle öffnen"]) {
         .getByRole("navigation", { name: "Hauptnavigation" })
         .getByRole("link", { name: "Archiv fragen" })
         .click();
+    } else {
+      await page.getByRole("button", { name: "Chat öffnen" }).click();
     }
     await page
       .getByLabel("Frage stellen")

@@ -123,7 +123,8 @@ export function AuftrittDetail() {
 
   if (fehler) {
     return (
-      <div aria-live="polite">
+      <div className="detail-zustand" aria-live="polite">
+        <h1>Auftritt nicht verfügbar</h1>
         <p className="hinweis-block">{fehler}</p>
         <p>
           <button type="button" onClick={() => setVersuch(versuch + 1)}>
@@ -135,8 +136,8 @@ export function AuftrittDetail() {
   }
   if (me === null) {
     return (
-      <div aria-live="polite">
-        <p className="auth-statuszeile">Auftritt wird geladen …</p>
+      <div className="detail-zustand" aria-live="polite">
+        <h1>Auftritt wird geladen …</h1>
       </div>
     );
   }
@@ -165,8 +166,8 @@ export function AuftrittDetail() {
   }
   if (auftritt === null) {
     return (
-      <div aria-live="polite">
-        <p className="auth-statuszeile">Auftritt wird geladen …</p>
+      <div className="detail-zustand" aria-live="polite">
+        <h1>Auftritt wird geladen …</h1>
       </div>
     );
   }

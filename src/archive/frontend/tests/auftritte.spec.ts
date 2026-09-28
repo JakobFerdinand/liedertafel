@@ -399,6 +399,33 @@ test("Mitglied öffnet einen Auftritt per Direktlink; Entwürfe bleiben unfindba
   expect(errors).toEqual([]);
 });
 
+test("Auftritt behält einen Seitentitel während Laden und Fehler", async ({
+  page,
+}) => {
+  let antworten = () => {};
+  const warten = new Promise<void>((resolve) => {
+    antworten = resolve;
+  });
+  await page.route("**/api/auth/me", async (route) => {
+    await warten;
+    await route.fulfill({ status: 503 });
+  });
+  try {
+    await page.goto(`/auftritt/?id=${konzertId}`);
+    await expect(
+      page.getByRole("heading", { name: "Auftritt wird geladen …", level: 1 }),
+    ).toBeVisible();
+  } finally {
+    antworten();
+  }
+  await expect(
+    page.getByRole("button", { name: "Erneut versuchen" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Auftritt nicht verfügbar", level: 1 }),
+  ).toBeVisible();
+});
+
 test("Unsichere und unbekannte Daten bleiben im Lesesaal gekennzeichnet", async ({
   page,
 }) => {

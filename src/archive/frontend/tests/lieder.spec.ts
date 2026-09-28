@@ -298,6 +298,33 @@ test("Mitglied öffnet ein veröffentlichtes Lied; Entwürfe bleiben unfindbar",
   expect(errors).toEqual([]);
 });
 
+test("Lied behält einen Seitentitel während Laden und Fehler", async ({
+  page,
+}) => {
+  let antworten = () => {};
+  const warten = new Promise<void>((resolve) => {
+    antworten = resolve;
+  });
+  await page.route("**/api/auth/me", async (route) => {
+    await warten;
+    await route.fulfill({ status: 503 });
+  });
+  try {
+    await page.goto(`/lied/?id=${publishedId}`);
+    await expect(
+      page.getByRole("heading", { name: "Lied wird geladen …", level: 1 }),
+    ).toBeVisible();
+  } finally {
+    antworten();
+  }
+  await expect(
+    page.getByRole("button", { name: "Erneut versuchen" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Lied nicht verfügbar", level: 1 }),
+  ).toBeVisible();
+});
+
 test("Redaktion sieht Entwürfe, legt ein Lied an und veröffentlicht es", async ({
   page,
 }) => {

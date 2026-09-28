@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChatBereich } from "@/components/chat-bereich";
 
 // Ein einziger Chat im dauerhaften Layout: auch Entwurf und laufende Antwort
@@ -25,11 +25,12 @@ export function ArchivArbeitsplatz({
     "/programm",
   ].includes(pfad);
   const [breit, setBreit] = useState(false);
-  const [offen, setOffen] = useState<boolean | null>(null);
-  const sichtbar = grossansicht || (mitChat && (offen ?? breit));
+  const [offen, setOffen] = useState(false);
+  const vorherPfad = useRef(pfad);
+  const sichtbar = grossansicht || (mitChat && offen);
 
   useEffect(() => {
-    const media = window.matchMedia("(min-width: 1100px)");
+    const media = window.matchMedia("(min-width: 1200px)");
     const aktualisieren = () => setBreit(media.matches);
     aktualisieren();
     media.addEventListener("change", aktualisieren);
@@ -37,27 +38,33 @@ export function ArchivArbeitsplatz({
   }, []);
 
   useEffect(() => {
-    // Minimiert bleibt der Chat zu, bis eine Chatansicht (/ oder /fragen/)
-    // ihn wieder hervorholt; erst sie stellt die Voreinstellung für
-    // folgende Inhaltsseiten wieder her. Auch ein Wechsel des Breitpunkts
-    // stellt die Voreinstellung wieder her. Der gemountete Chat behält
-    // dabei Entwurf und laufende Antwort.
-    if (grossansicht) setOffen(null);
-  }, [grossansicht]);
+    // Der Bestand hat die volle Breite. Nur wer aus der ausdrücklichen
+    // Chatansicht kommt, führt das Gespräch auf breiten Seiten daneben weiter.
+    if (grossansicht) setOffen(false);
+    else if (vorherPfad.current === "/fragen" && breit) setOffen(true);
+    vorherPfad.current = pfad;
+  }, [grossansicht, breit, pfad]);
 
   useEffect(() => {
-    void breit;
-    setOffen(null);
+    if (!breit) setOffen(false);
   }, [breit]);
 
   function minimieren() {
     setOffen(false);
-    // Minimieren darf den Fokus nicht ins Leere fallen lassen: der
-    // Navigationslink zum Chat ist der Weg zurück.
-    if (breit)
+    // Das sichtbare Öffnen-Werkzeug bleibt auch unter der Menüschwelle
+    // erreichbar; nach dem Umschalten ist es wieder im DOM.
+    requestAnimationFrame(() =>
       document
-        .querySelector<HTMLAnchorElement>('#haupt-nav a[href="/fragen/"]')
-        ?.focus();
+        .querySelector<HTMLButtonElement>(".archiv-chat-oeffnen")
+        ?.focus(),
+    );
+  }
+
+  function oeffnenChat() {
+    setOffen(true);
+    requestAnimationFrame(() =>
+      document.getElementById("archiv-chat")?.focus(),
+    );
   }
 
   return (
@@ -66,6 +73,16 @@ export function ArchivArbeitsplatz({
       className={`archiv-arbeitsplatz${grossansicht ? " archiv-grossansicht" : ""}${sichtbar ? " archiv-chat-offen" : ""}`}
     >
       <div className="archiv-seiteninhalt" hidden={grossansicht}>
+        {mitChat && !sichtbar && (
+          <button
+            type="button"
+            className="archiv-chat-oeffnen knopf-leise"
+            aria-controls="archiv-chat"
+            onClick={oeffnenChat}
+          >
+            Chat öffnen
+          </button>
+        )}
         {children}
       </div>
       <section
@@ -104,10 +121,22 @@ export function ArchivArbeitsplatz({
             ) : (
               <h2 id="fragen-titel">Fragen zum Archiv</h2>
             )}
-            {grossansicht && (
+            {grossansicht && !startseite && (
               <p>Frag nach Liedern, Fassungen oder Auftritten.</p>
             )}
           </div>
+          {startseite && (
+            <>
+              <nav className="start-bestand" aria-label="Im Chorarchiv">
+                <Link href="/lieder/" className="start-bestand-haupt">
+                  Liederkatalog öffnen
+                </Link>
+                <Link href="/auftritte/">Auftritte</Link>
+                <Link href="/programm/">Programme</Link>
+              </nav>
+              <p>Frag nach Liedern, Fassungen oder Auftritten.</p>
+            </>
+          )}
           {!grossansicht && (
             <div className="archiv-chat-ansicht">
               <Link href="/fragen/">Großansicht</Link>
