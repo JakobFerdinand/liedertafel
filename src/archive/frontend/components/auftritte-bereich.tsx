@@ -332,86 +332,86 @@ export function AuftritteBereich() {
                     {auftritt.venue && (
                       <p className="auftritt-ort">{auftritt.venue}</p>
                     )}
-                    {editor && (
-                      <p className="lieder-status">
-                        {auftritt.published ? "Veröffentlicht" : "Entwurf"}
-                      </p>
-                    )}
-                    {editor && (
-                      <div className="auftritte-aktionen">
+                  </div>
+                  {editor && (
+                    <p className="lieder-status">
+                      {auftritt.published ? "Veröffentlicht" : "Entwurf"}
+                    </p>
+                  )}
+                  {editor && (
+                    <div className="auftritte-aktionen">
+                      <button
+                        type="button"
+                        className="knopf-leise"
+                        aria-expanded={bearbeitet === auftritt.id}
+                        aria-controls={`auftritt-bearbeiten-${auftritt.id}`}
+                        disabled={aktionBusy !== ""}
+                        onClick={() =>
+                          setBearbeitet(
+                            bearbeitet === auftritt.id ? null : auftritt.id,
+                          )
+                        }
+                      >
+                        {bearbeitet === auftritt.id
+                          ? "Bearbeiten schließen"
+                          : "Bearbeiten"}
+                      </button>
+                      {auftritt.published ? (
                         <button
                           type="button"
-                          className="knopf-leise"
-                          aria-expanded={bearbeitet === auftritt.id}
-                          aria-controls={`auftritt-bearbeiten-${auftritt.id}`}
                           disabled={aktionBusy !== ""}
                           onClick={() =>
-                            setBearbeitet(
-                              bearbeitet === auftritt.id ? null : auftritt.id,
+                            auftrittAktion(
+                              `unpublish:${auftritt.id}`,
+                              `/api/events/${encodeURIComponent(auftritt.id)}/unpublish`,
+                              "Auftritt zurückgezogen. Er ist für Mitglieder nicht mehr sichtbar.",
                             )
                           }
                         >
-                          {bearbeitet === auftritt.id
-                            ? "Bearbeiten schließen"
-                            : "Bearbeiten"}
+                          {aktionBusy === `unpublish:${auftritt.id}`
+                            ? "Wird zurückgezogen …"
+                            : "Zurückziehen"}
                         </button>
-                        {auftritt.published ? (
-                          <button
-                            type="button"
-                            disabled={aktionBusy !== ""}
-                            onClick={() =>
-                              auftrittAktion(
-                                `unpublish:${auftritt.id}`,
-                                `/api/events/${encodeURIComponent(auftritt.id)}/unpublish`,
-                                "Auftritt zurückgezogen. Er ist für Mitglieder nicht mehr sichtbar.",
-                              )
-                            }
-                          >
-                            {aktionBusy === `unpublish:${auftritt.id}`
-                              ? "Wird zurückgezogen …"
-                              : "Zurückziehen"}
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            disabled={aktionBusy !== ""}
-                            onClick={() =>
-                              auftrittAktion(
-                                `publish:${auftritt.id}`,
-                                `/api/events/${encodeURIComponent(auftritt.id)}/publish`,
-                                "Auftritt veröffentlicht. Mitglieder sehen ihn ab sofort.",
-                              )
-                            }
-                          >
-                            {aktionBusy === `publish:${auftritt.id}`
-                              ? "Wird veröffentlicht …"
-                              : "Veröffentlichen"}
-                          </button>
-                        )}
-                      </div>
-                    )}
-                    {editor && (
-                      <div
-                        id={`auftritt-bearbeiten-${auftritt.id}`}
-                        className="auftritt-bearbeiten auth-karte"
-                        hidden={bearbeitet !== auftritt.id}
-                      >
-                        {bearbeitet === auftritt.id && (
-                          <AuftrittFormular
-                            auftritt={auftritt}
-                            absendenText="Änderungen speichern"
-                            onAbbrechen={() => setBearbeitet(null)}
-                            onSuccess={(gespeichert) => {
-                              ersetzeAuftritt(gespeichert);
-                              setErfolg("Änderungen gespeichert.");
-                              setHinweis("");
-                              setBearbeitet(null);
-                            }}
-                          />
-                        )}
-                      </div>
-                    )}
-                  </div>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={aktionBusy !== ""}
+                          onClick={() =>
+                            auftrittAktion(
+                              `publish:${auftritt.id}`,
+                              `/api/events/${encodeURIComponent(auftritt.id)}/publish`,
+                              "Auftritt veröffentlicht. Mitglieder sehen ihn ab sofort.",
+                            )
+                          }
+                        >
+                          {aktionBusy === `publish:${auftritt.id}`
+                            ? "Wird veröffentlicht …"
+                            : "Veröffentlichen"}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {editor && (
+                    <div
+                      id={`auftritt-bearbeiten-${auftritt.id}`}
+                      className="auftritt-bearbeiten auth-karte"
+                      hidden={bearbeitet !== auftritt.id}
+                    >
+                      {bearbeitet === auftritt.id && (
+                        <AuftrittFormular
+                          auftritt={auftritt}
+                          absendenText="Änderungen speichern"
+                          onAbbrechen={() => setBearbeitet(null)}
+                          onSuccess={(gespeichert) => {
+                            ersetzeAuftritt(gespeichert);
+                            setErfolg("Änderungen gespeichert.");
+                            setHinweis("");
+                            setBearbeitet(null);
+                          }}
+                        />
+                      )}
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>

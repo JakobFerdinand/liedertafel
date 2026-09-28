@@ -609,6 +609,17 @@ dd {
   border-radius: var(--radius-knopf);
   font-size: var(--schrift-neben);
 }
+@container (min-width: 38rem) {
+  .passkey-liste li {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    border-bottom: 1px solid var(--rule);
+    padding-block: 0.45rem;
+  }
+  .passkey-liste input {
+    width: 100%;
+  }
+}
 /* Hinzufügen-Zeile in der Geometrie der Suchkomponisten-Zeile
    (.lieder-suche-felder): Feld wächst, Knopf steht rechts. */
 .passkey-neu {
@@ -920,7 +931,6 @@ dd {
   margin-inline-start: 0.25rem;
 }
 .lieder-liste {
-  max-width: 52rem;
   margin-top: 0.9rem;
 }
 .lieder-liste h2 {
@@ -937,6 +947,9 @@ dd {
   padding-block: 1rem 1.15rem;
   border-bottom: 1px solid var(--rule);
 }
+.lieder-titelgruppe {
+  min-width: 0;
+}
 .lieder-eintrag h3 {
   margin-block: 0;
   font-size: clamp(1.35rem, 2vw, 1.6rem);
@@ -951,6 +964,10 @@ dd {
   color: var(--muted);
   font-size: var(--schrift-neben);
   margin-block: 0.2rem 0;
+  overflow-wrap: anywhere;
+}
+.lieder-urheber span {
+  display: block;
 }
 .lieder-fundstellen {
   display: grid;
@@ -1002,6 +1019,43 @@ dd {
   padding: 0.5rem 0.9rem;
   font-size: var(--schrift-neben);
   border-radius: var(--radius-knopf);
+}
+/* Ein Katalogblatt nutzt die tatsächlich verfügbare Lesebreite. Bei
+   offenem Chat entscheidet die Inhalts- statt der Fensterbreite. */
+@container (min-width: 52rem) {
+  .lieder-eintrag {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(10rem, 1fr) auto auto;
+    grid-template-areas:
+      "titel urheber stand aktionen"
+      "fund fund fund fund"
+      "formular formular formular formular";
+    gap: 0.3rem clamp(0.8rem, 1.5vw, 1.6rem);
+    align-items: start;
+  }
+  .lieder-eintrag > .lieder-titelgruppe {
+    grid-area: titel;
+  }
+  .lieder-eintrag > .lieder-urheber {
+    grid-area: urheber;
+    margin-block: 0.2rem 0;
+  }
+  .lieder-eintrag > .lieder-status {
+    grid-area: stand;
+    margin-block: 0.2rem 0;
+    white-space: nowrap;
+  }
+  .lieder-eintrag > .lieder-aktionen {
+    grid-area: aktionen;
+    margin-top: 0;
+    flex-wrap: nowrap;
+  }
+  .lieder-eintrag > .lieder-fundstellen {
+    grid-area: fund;
+  }
+  .lieder-eintrag > .lied-bearbeiten {
+    grid-area: formular;
+  }
 }
 .lied-anlegen {
   margin: 0;
@@ -1127,12 +1181,14 @@ dd {
   border-block-end: 1px solid var(--rule);
   padding-block-end: 0.9rem;
 }
-/* ─── Lied-Detail: Lesesaal ───────────────────────────────────────────
-   Die tiefste Mitgliedsseite liest sich wie eine Chat-Antwort:
-   Serifentitel in der Seitengröße (--titel-seite), stille Urheberzeile,
-   Abschnitte hinter dem Haarriss (--rule). Die Spalte läuft im
-   Großansicht-Maß von 48rem. */
+/* Der Lesetext bleibt schmal; Fassungen und Materialien dürfen die
+   Breite des Arbeitsraums nutzen. */
 .lied-detail {
+  min-width: 0;
+}
+.lied-ansicht,
+.lied-detail > .lied-bearbeiten,
+.lied-detail > .lied-fassungen {
   max-width: 48rem;
 }
 .lied-ansicht h1 {
@@ -1946,6 +2002,14 @@ footer {
   padding-block: 0.9rem 1.1rem;
   border-bottom: 1px solid var(--rule);
 }
+.auftritte-eintrag > .lieder-status,
+.auftritte-eintrag > .auftritte-aktionen {
+  align-self: start;
+  margin-top: 0;
+}
+.auftritte-eintrag > .auftritt-bearbeiten {
+  grid-column: 1 / -1;
+}
 .auftritte-inhalt {
   min-width: 0;
 }
@@ -2015,9 +2079,13 @@ footer {
 .auftritt-bearbeiten {
   margin-block: 0.6rem 0;
 }
-/* Lesesaal des Auftritts nach .lied-detail: Serifentitel in der
-   Seitengröße, stille Meta-Zeilen, Abschnitte hinter dem Haarriss. */
+/* Der Lesetext bleibt schmal, die Beleg- und Programmregister können
+   wie die Verzeichnisse die ganze Inhaltsbreite einnehmen. */
 .auftritt-detail {
+  min-width: 0;
+}
+.auftritt-ansicht,
+.auftritt-detail > .auftritt-abschnitt {
   max-width: 48rem;
 }
 .auftritt-ansicht h1 {
@@ -2202,7 +2270,6 @@ footer {
   padding: 0;
   display: grid;
   gap: 1.1rem;
-  max-width: 40rem;
 }
 .programm-eintrag {
   min-width: 0;
@@ -2382,7 +2449,6 @@ fieldset.programm-verwaltung {
   padding: 0;
   display: grid;
   gap: 1.1rem;
-  max-width: 40rem;
 }
 /* Einleitung des Lesesaals: das ehrliche Satzpaar zur Unterscheidung
    liest sich still (nach .noten-info) direkt unter der Rubriküberschrift
@@ -2459,12 +2525,113 @@ fieldset.programm-verwaltung {
   border-bottom: 1px solid var(--rule);
 }
 .programme-verzeichnis {
-  max-width: 52rem;
+  min-width: 0;
 }
 .programme-eintrag h3 {
   margin-block: 0;
   font-size: var(--titel-abschnitt);
   overflow-wrap: anywhere;
+}
+@container (min-width: 38rem) and (max-width: 51.99rem) {
+  .auftritte-eintrag > .lieder-status,
+  .auftritte-eintrag > .auftritte-aktionen,
+  .programme-anzahl {
+    grid-column: 2;
+  }
+}
+@container (min-width: 48rem) {
+  .programm-eintrag,
+  .nachweis-eintrag {
+    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) minmax(14rem, 1fr);
+    gap: 0.25rem 1.5rem;
+    align-items: baseline;
+  }
+  .programm-eintrag > .noten-info,
+  .nachweis-eintrag > .nachweis-info {
+    margin-block: 0;
+  }
+  .programm-eintrag > .programm-notiz {
+    grid-column: 1 / -1;
+  }
+  .material-gruppe > .material-eintrag {
+    display: grid;
+    grid-template-columns: minmax(9rem, 0.4fr) minmax(0, 1fr);
+    gap: 0.2rem 1.5rem;
+    align-items: baseline;
+  }
+  .material-gruppe > .material-eintrag > .material-stimme,
+  .material-gruppe > .material-eintrag > .noten-info {
+    margin-block: 0;
+  }
+  .material-gruppe > .material-eintrag > .material-beschreibung,
+  .material-gruppe > .material-eintrag > .noten-aktionen {
+    grid-column: 1 / -1;
+  }
+  .programm-zeile {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.35rem 1rem;
+  }
+  .programm-zeile > .programm-zeile-kopf {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .programm-zeile > .programm-zeile-werkzeuge {
+    grid-column: 2;
+    grid-row: 1;
+    flex-wrap: nowrap;
+  }
+  .programm-zeile > :not(.programm-zeile-kopf, .programm-zeile-werkzeuge) {
+    grid-column: 1 / -1;
+  }
+}
+@container (min-width: 52rem) {
+  .dokumente-liste .material-eintrag {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(8rem, 0.4fr) auto;
+    grid-template-areas: "titel info aktionen";
+    gap: 0.2rem 1.5rem;
+    align-items: start;
+  }
+  .dokumente-liste .dokument-titel {
+    grid-area: titel;
+    margin-block: 0;
+  }
+  .dokumente-liste .noten-info {
+    grid-area: info;
+    margin-block: 0;
+  }
+  .dokumente-liste .noten-aktionen:first-of-type {
+    grid-area: aktionen;
+    margin-block: 0;
+  }
+  .dokumente-liste
+    .material-eintrag
+    > :not(.dokument-titel, .noten-info, .noten-aktionen:first-of-type) {
+    grid-column: 1 / -1;
+  }
+}
+/* Datums- und Quellen-Spalten bleiben über alle Verzeichnisse fluchtend;
+   Details und Formulare nehmen bei Bedarf eine eigene ganze Zeile ein. */
+@container (min-width: 52rem) {
+  .auftritte-eintrag {
+    grid-template-columns: 10rem minmax(0, 1fr) auto auto;
+    gap: 0.2rem clamp(0.8rem, 1.5vw, 1.6rem);
+  }
+  .auftritte-eintrag > .lieder-status {
+    white-space: nowrap;
+  }
+  .auftritte-eintrag > .auftritte-aktionen {
+    flex-wrap: nowrap;
+  }
+  .programme-eintrag {
+    grid-template-columns: 10rem minmax(0, 1fr) auto;
+    gap: 0.2rem clamp(0.8rem, 1.5vw, 1.6rem);
+  }
+  .programme-anzahl {
+    margin-block: 0;
+    white-space: nowrap;
+  }
 }
 
 @media (max-width: 700px) {

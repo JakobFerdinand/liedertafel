@@ -125,11 +125,11 @@ export function ProgrammListe() {
                   {programm.startTime && (
                     <p className="auftritt-zeit">{programm.startTime} Uhr</p>
                   )}
-                  <p className="noten-info">
-                    {programm.itemCount}{" "}
-                    {programm.itemCount === 1 ? "Lied" : "Lieder"}
-                  </p>
                 </div>
+                <p className="noten-info programme-anzahl">
+                  {programm.itemCount}{" "}
+                  {programm.itemCount === 1 ? "Lied" : "Lieder"}
+                </p>
               </li>
             );
           })}

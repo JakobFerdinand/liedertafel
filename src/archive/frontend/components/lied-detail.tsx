@@ -265,21 +265,22 @@ export function LiedDetail() {
             />
           )
         )}
-        {auswahl && ausgewaehlteFassung && (
-          <NotenBereich
-            fassungId={ausgewaehlteFassung.id}
-            fassungLabel={ausgewaehlteFassung.label}
-            stimmenKonfiguration={
-              lied.arrangements.find(
-                (eintrag) => eintrag.id === auswahl?.arrangementId,
-              )?.voiceConfiguration ?? null
-            }
-            assets={ausgewaehlteFassung.assets ?? []}
-            isEditor={editor === true}
-            aktualisieren={() => void notenAktualisieren()}
-          />
-        )}
       </article>
+
+      {auswahl && ausgewaehlteFassung && (
+        <NotenBereich
+          fassungId={ausgewaehlteFassung.id}
+          fassungLabel={ausgewaehlteFassung.label}
+          stimmenKonfiguration={
+            lied.arrangements.find(
+              (eintrag) => eintrag.id === auswahl?.arrangementId,
+            )?.voiceConfiguration ?? null
+          }
+          assets={ausgewaehlteFassung.assets ?? []}
+          isEditor={editor === true}
+          aktualisieren={() => void notenAktualisieren()}
+        />
+      )}
 
       {editor && (
         <details

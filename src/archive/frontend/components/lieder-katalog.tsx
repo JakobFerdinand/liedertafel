@@ -560,31 +560,30 @@ export function LiederKatalog() {
                 const andere = lied.alternateTitles ?? [];
                 return (
                   <li key={lied.id} className="lieder-eintrag">
-                    <h3>
-                      {lied.published ? (
-                        <Link href={`/lied/?id=${encodeURIComponent(lied.id)}`}>
-                          {lied.title}
-                        </Link>
-                      ) : (
-                        lied.title
+                    <div className="lieder-titelgruppe">
+                      <h3>
+                        {lied.published ? (
+                          <Link
+                            href={`/lied/?id=${encodeURIComponent(lied.id)}`}
+                          >
+                            {lied.title}
+                          </Link>
+                        ) : (
+                          lied.title
+                        )}
+                      </h3>
+                      {andere.length > 0 && (
+                        <p className="lieder-andere-titel">
+                          Auch bekannt als: {andere.join(", ")}
+                        </p>
                       )}
-                    </h3>
-                    {andere.length > 0 && (
-                      <p className="lieder-andere-titel">
-                        Auch bekannt als: {andere.join(", ")}
-                      </p>
-                    )}
+                    </div>
                     <p className="lieder-urheber">
-                      {lied.composer || lied.lyricist
-                        ? [
-                            lied.composer
-                              ? `Komponist: ${lied.composer}`
-                              : null,
-                            lied.lyricist ? `Text: ${lied.lyricist}` : null,
-                          ]
-                            .filter(Boolean)
-                            .join(" · ")
-                        : null}
+                      {lied.composer && <span>Komponist: {lied.composer}</span>}
+                      {lied.lyricist && <span>Text: {lied.lyricist}</span>}
+                      {!lied.composer &&
+                        !lied.lyricist &&
+                        "Urheber nicht erfasst"}
                     </p>
                     {hinweise.length > 0 && (
                       <div className="lieder-fundstellen">

@@ -5,8 +5,7 @@
 
 .archiv-seiteninhalt {
   min-width: 0;
-  max-width: 68rem;
-  margin-inline: auto;
+  container-type: inline-size;
 }
 
 .archiv-chat-oeffnen {
@@ -274,6 +273,38 @@ a.belege-zeile-titel:hover {
   padding-block-start: 0.5rem;
   display: grid;
   gap: 0.35rem;
+}
+@container (min-width: 52rem) {
+  .belege-zeile {
+    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) auto;
+    grid-template-areas:
+      "kopf stand werkzeuge"
+      "quelle erfasst werkzeuge";
+    gap: 0.25rem 1rem;
+    align-items: start;
+  }
+  .belege-zeile > .belege-zeile-kopf {
+    grid-area: kopf;
+  }
+  .belege-zeile > .nachweis-info {
+    grid-area: stand;
+    margin-block: 0;
+  }
+  .belege-zeile > .belege-quelle {
+    grid-area: quelle;
+  }
+  .belege-zeile > .belege-erfasst {
+    grid-area: erfasst;
+  }
+  .belege-zeile > .belege-werkzeuge {
+    grid-area: werkzeuge;
+    flex-wrap: nowrap;
+  }
+  .belege-zeile > .noten-aktionen,
+  .belege-zeile > .feld-fehler,
+  .belege-zeile > .belege-bearbeitung {
+    grid-column: 1 / -1;
+  }
 }
 .belege-erfassung-formular,
 .belege-bearbeitung-inhalt {
