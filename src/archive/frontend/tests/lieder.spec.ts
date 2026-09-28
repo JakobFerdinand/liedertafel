@@ -179,10 +179,8 @@ test("Mitglied sieht veröffentlichte Lieder ohne Redaktionswerkzeuge", async ({
   );
 
   await page.goto("/lieder/");
-  // Die Seite liefert h1 und die Komponente zusätzlich ein h2 mit gleichem
-  // Titel; die Auswahl bleibt deshalb auf das erste Element begrenzt.
   await expect(
-    page.getByRole("heading", { name: "Liederkatalog" }).first(),
+    page.getByRole("heading", { name: "Liederkatalog" }),
   ).toBeVisible();
   const eintrag = page.getByRole("link", {
     name: "Das Wandern ist des Müllers Lust",
@@ -211,6 +209,45 @@ test("Mitglied sieht veröffentlichte Lieder ohne Redaktionswerkzeuge", async ({
   ).toHaveCount(0);
 
   expect(errors).toEqual([]);
+});
+
+test("Katalog zeigt Lieder direkt und hält Filter per Tastatur erreichbar", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1154, height: 800 });
+  await mockSitzung(page, memberMe);
+  await page.route("**/api/songs", (route) =>
+    route.fulfill(json({ songs: [publishedSong] })),
+  );
+
+  await page.goto("/lieder/");
+  const lied = page.getByRole("link", { name: publishedSong.title });
+  await expect(lied).toBeVisible();
+  expect(
+    await lied.evaluate((element) => element.getBoundingClientRect().top),
+  ).toBeLessThan(500);
+  await expect(page.locator("#lieder-titel")).toHaveCount(1);
+  await expect(
+    page.getByRole("heading", { name: "Alle Lieder" }),
+  ).toBeVisible();
+
+  const filter = page.locator("details.lieder-filter > summary");
+  await filter.focus();
+  await filter.press("Enter");
+  await expect(page.locator("details.lieder-filter")).toHaveAttribute(
+    "open",
+    "",
+  );
+  await expect(page.getByLabel("Stimmverteilung")).toBeVisible();
+
+  await filter.press("Enter");
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await lied.evaluate((element) => element.getBoundingClientRect().top),
+  ).toBeLessThan(600);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
+    390,
+  );
 });
 
 test("Mitglied öffnet ein veröffentlichtes Lied; Entwürfe bleiben unfindbar", async ({

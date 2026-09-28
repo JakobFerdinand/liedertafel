@@ -441,14 +441,16 @@ test("Trefferzahl nennt die begrenzte Gesamtzahl bei Suche und Filter", async ({
   });
 
   await page.goto("/lieder/?suche=Wandern&seite=1");
-  await expect(page.getByText("2 Lieder gefunden.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "2 Treffer" })).toBeVisible();
 
   await page.goto("/lieder/?suche=Abendstille&seite=1");
-  await expect(page.getByText("1 Lied gefunden.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "1 Treffer" })).toBeVisible();
 
-  // Ohne Suche und Filter zählt die Liste nicht vor.
+  // Ohne Suche und Filter trägt das Verzeichnis seinen eigenen Namen.
   await page.goto("/lieder/");
-  await expect(page.getByText(/Lieder gefunden./)).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "Alle Lieder" }),
+  ).toBeVisible();
 
   expect(errors).toEqual([]);
 });

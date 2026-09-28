@@ -303,121 +303,117 @@ export function LiederKatalog() {
 
   return (
     <div>
-      <section className="lieder-suche" aria-labelledby="lieder-suche-titel">
-        <h2 id="lieder-suche-titel">Suche im Katalog</h2>
-        <form onSubmit={suchen}>
-          <label htmlFor="lieder-suche-begriff">Lieder suchen</label>
-          <div className="lieder-suche-felder">
-            <input
-              key={suchWort ?? ""}
-              id="lieder-suche-begriff"
-              name="suche"
-              type="search"
-              maxLength={200}
-              placeholder="Titel, Urheber oder Textworte …"
-              defaultValue={suchWort ?? ""}
-            />
-            <button type="submit">Suchen</button>
-          </div>
-        </form>
-      </section>
-
-      {/* Repertoirefilter (ARC-023): Aufklapper neben der Suchkomponisten-
-          Karte, aufgeklappt, wenn Filterparameter in der Adresse stehen. */}
-      <details
-        className="lieder-filter"
-        open={hatFilter}
-        aria-labelledby="lieder-filter-titel"
-      >
-        <summary>
-          <h2 id="lieder-filter-titel">Filter</h2>
-          <span className="lieder-filter-umschalter" aria-hidden="true">
-            <span className="lieder-filter-auf">Ausklappen</span>
-            <span className="lieder-filter-zu">Einklappen</span>
-          </span>
-        </summary>
-        <form onSubmit={filterAnwenden}>
-          <div className="lieder-filter-felder">
-            {filterTextfelder.map(([name, beschriftung]) => (
-              <div key={name}>
-                <label htmlFor={`lieder-filter-${name}`}>{beschriftung}</label>
-                <input
-                  key={filterAnfang[name]}
-                  id={`lieder-filter-${name}`}
-                  name={name}
-                  type="text"
-                  maxLength={200}
-                  defaultValue={filterAnfang[name]}
-                />
-              </div>
-            ))}
-          </div>
-          <fieldset className="lieder-filter-material">
-            <legend>Material</legend>
-            <div className="lieder-filter-auswahl">
-              {/* Aufnahmen ergänzen hier ihre Materialwahl (ARC-032). */}
-              {[
-                ["noten", "Noten"],
-                ["audio", "Audio"],
-                ["midi", "MIDI"],
-              ].map(([wert, beschriftung]) => (
-                <label key={wert} htmlFor={`lieder-filter-material-${wert}`}>
-                  <input
-                    key={`${wert}:${materialWerte.includes(wert)}`}
-                    id={`lieder-filter-material-${wert}`}
-                    name="material"
-                    type="checkbox"
-                    value={wert}
-                    defaultChecked={materialWerte.includes(wert)}
-                  />
-                  {beschriftung}
-                </label>
-              ))}
+      <div className="lieder-werkzeuge">
+        <section className="lieder-suche" aria-label="Katalogsuche">
+          <form onSubmit={suchen}>
+            <label className="visually-hidden" htmlFor="lieder-suche-begriff">
+              Lieder suchen
+            </label>
+            <div className="lieder-suche-felder">
+              <input
+                key={suchWort ?? ""}
+                id="lieder-suche-begriff"
+                name="suche"
+                type="search"
+                maxLength={200}
+                placeholder="Titel, Urheber, Text …"
+                defaultValue={suchWort ?? ""}
+              />
+              <button type="submit">Suchen</button>
             </div>
-          </fieldset>
-          <div className="lieder-filter-aktionen">
-            <button type="submit">Filtern</button>
-            <button
-              type="button"
-              className="knopf-leise"
-              onClick={filterZuruecksetzen}
-            >
-              Zurücksetzen
-            </button>
-          </div>
-        </form>
-      </details>
+          </form>
+        </section>
 
-      {editor && (
+        {/* Repertoirefilter (ARC-023): bei aktiven Filtern aufgeklappt. */}
         <details
-          className="auth-karte lied-anlegen"
-          aria-labelledby="lied-anlegen-titel"
+          className="lieder-filter"
+          open={hatFilter}
+          aria-labelledby="lieder-filter-titel"
         >
           <summary>
-            <h2 id="lied-anlegen-titel">Neues Lied</h2>
-            <span className="lied-anlegen-umschalter" aria-hidden="true">
-              <span className="lied-anlegen-auf">Ausklappen</span>
-              <span className="lied-anlegen-zu">Einklappen</span>
-            </span>
+            <h2 id="lieder-filter-titel">Filter</h2>
           </summary>
-          <LiedFormular
-            absendenText="Lied anlegen"
-            onSuccess={(gespeichert) => {
-              setErgebnis((bisher) =>
-                bisher
-                  ? {
-                      ...bisher,
-                      total: bisher.total + 1,
-                      songs: [...bisher.songs, gespeichert],
-                    }
-                  : bisher,
-              );
-              setErfolg("Lied angelegt.");
-              setHinweis("");
-            }}
-          />
+          <form onSubmit={filterAnwenden}>
+            <div className="lieder-filter-felder">
+              {filterTextfelder.map(([name, beschriftung]) => (
+                <div key={name}>
+                  <label htmlFor={`lieder-filter-${name}`}>
+                    {beschriftung}
+                  </label>
+                  <input
+                    key={filterAnfang[name]}
+                    id={`lieder-filter-${name}`}
+                    name={name}
+                    type="text"
+                    maxLength={200}
+                    defaultValue={filterAnfang[name]}
+                  />
+                </div>
+              ))}
+            </div>
+            <fieldset className="lieder-filter-material">
+              <legend>Material</legend>
+              <div className="lieder-filter-auswahl">
+                {/* Aufnahmen ergänzen hier ihre Materialwahl (ARC-032). */}
+                {[
+                  ["noten", "Noten"],
+                  ["audio", "Audio"],
+                  ["midi", "MIDI"],
+                ].map(([wert, beschriftung]) => (
+                  <label key={wert} htmlFor={`lieder-filter-material-${wert}`}>
+                    <input
+                      key={`${wert}:${materialWerte.includes(wert)}`}
+                      id={`lieder-filter-material-${wert}`}
+                      name="material"
+                      type="checkbox"
+                      value={wert}
+                      defaultChecked={materialWerte.includes(wert)}
+                    />
+                    {beschriftung}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <div className="lieder-filter-aktionen">
+              <button type="submit">Filtern</button>
+              <button
+                type="button"
+                className="knopf-leise"
+                onClick={filterZuruecksetzen}
+              >
+                Zurücksetzen
+              </button>
+            </div>
+          </form>
         </details>
-      )}
+
+        {editor && (
+          <details
+            className="auth-karte lied-anlegen"
+            aria-labelledby="lied-anlegen-titel"
+          >
+            <summary>
+              <h2 id="lied-anlegen-titel">Neues Lied</h2>
+            </summary>
+            <LiedFormular
+              absendenText="Lied anlegen"
+              onSuccess={(gespeichert) => {
+                setErgebnis((bisher) =>
+                  bisher
+                    ? {
+                        ...bisher,
+                        total: bisher.total + 1,
+                        songs: [...bisher.songs, gespeichert],
+                      }
+                    : bisher,
+                );
+                setErfolg("Lied angelegt.");
+                setHinweis("");
+              }}
+            />
+          </details>
+        )}
+      </div>
 
       {erfolg && (
         <output aria-live="polite" className="auth-erfolg">
@@ -433,13 +429,17 @@ export function LiederKatalog() {
         </output>
       )}
 
-      <section aria-labelledby="lieder-titel" className="lieder-liste">
-        <h2 id="lieder-titel">Liederkatalog</h2>
-        {lieder !== null && gesamt > 0 && (abfrage || hatFilter) && (
-          <p className="lieder-anzahl">
-            {gesamt === 1 ? "1 Lied gefunden." : `${gesamt} Lieder gefunden.`}
-          </p>
-        )}
+      <section
+        aria-labelledby="lieder-ergebnisse-titel"
+        className="lieder-liste"
+      >
+        <h2 id="lieder-ergebnisse-titel">
+          {lieder !== null && (abfrage || hatFilter)
+            ? gesamt === 1
+              ? "1 Treffer"
+              : `${gesamt} Treffer`
+            : "Alle Lieder"}
+        </h2>
         {lieder === null ? (
           <p aria-live="polite" className="auth-statuszeile">
             Lieder werden geladen …
