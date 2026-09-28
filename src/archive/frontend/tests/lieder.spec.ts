@@ -304,6 +304,14 @@ test("Katalog nutzt die Breite auch neben offenem Chat und faltet mobil", async 
     expect(aktionen.x).toBeGreaterThan(status.x + status.width);
     expect(Math.abs(titel.y - status.y)).toBeLessThan(20);
     expect(Math.abs(titel.y - aktionen.y)).toBeLessThan(20);
+    expect(titel.height).toBeLessThan(45);
+    const knoepfe = await zeile.locator(".lieder-aktionen button").all();
+    expect(knoepfe).toHaveLength(2);
+    for (const knopf of knoepfe) {
+      const box = await knopf.boundingBox();
+      if (!box) throw new Error("Zeilenknopf ist nicht sichtbar");
+      expect(Math.abs(titel.y - box.y)).toBeLessThan(20);
+    }
     expect(aktionen.x + aktionen.width).toBeLessThanOrEqual(
       inhalt.x + inhalt.width + 1,
     );

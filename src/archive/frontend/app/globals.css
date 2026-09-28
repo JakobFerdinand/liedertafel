@@ -1025,11 +1025,12 @@ dd {
 @container (min-width: 52rem) {
   .lieder-eintrag {
     display: grid;
-    grid-template-columns: minmax(0, 2fr) minmax(10rem, 1fr) auto auto;
+    grid-template-columns: minmax(0, 1fr) auto auto;
     grid-template-areas:
-      "titel urheber stand aktionen"
-      "fund fund fund fund"
-      "formular formular formular formular";
+      "titel stand aktionen"
+      "urheber urheber urheber"
+      "fund fund fund"
+      "formular formular formular";
     gap: 0.3rem clamp(0.8rem, 1.5vw, 1.6rem);
     align-items: start;
   }
@@ -1055,6 +1056,15 @@ dd {
   }
   .lieder-eintrag > .lied-bearbeiten {
     grid-area: formular;
+  }
+}
+@container (min-width: 75rem) {
+  .lieder-eintrag {
+    grid-template-columns: minmax(0, 2fr) minmax(10rem, 1fr) auto auto;
+    grid-template-areas:
+      "titel urheber stand aktionen"
+      "fund fund fund fund"
+      "formular formular formular formular";
   }
 }
 .lied-anlegen {
