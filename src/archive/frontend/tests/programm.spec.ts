@@ -1446,6 +1446,7 @@ test("Ungespeicherte Änderungen bremsen Veröffentlichen: kein POST, erst Hinwe
 test("Unsichere Daten bleiben auch im Programmverzeichnis gekennzeichnet", async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 1804, height: 1304 });
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await mockSitzung(page, memberMe);
@@ -1490,6 +1491,24 @@ test("Unsichere Daten bleiben auch im Programmverzeichnis gekennzeichnet", async
   await expect(zeilen.nth(1).locator(".datum-unsicher")).toHaveText(
     "Datum unsicher",
   );
+  const zeile = zeilen.first();
+  const datum = await zeile.locator(".auftritt-datum").boundingBox();
+  const titel = await zeile.locator("h3").boundingBox();
+  const anzahl = await zeile.locator(".programme-anzahl").boundingBox();
+  const inhalt = await page.locator(".archiv-seiteninhalt").boundingBox();
+  const eintrag = await zeile.boundingBox();
+  if (!datum || !titel || !anzahl || !inhalt || !eintrag)
+    throw new Error("Programmzeile ist nicht sichtbar");
+  expect(eintrag.width).toBeGreaterThan(inhalt.width * 0.95);
+  expect(datum.x + datum.width).toBeLessThan(titel.x);
+  expect(titel.x + titel.width).toBeLessThan(anzahl.x);
+  expect(Math.abs(datum.y - anzahl.y)).toBeLessThan(20);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  const mobilDatum = await zeile.locator(".auftritt-datum").boundingBox();
+  const mobilTitel = await zeile.locator("h3").boundingBox();
+  if (!mobilDatum || !mobilTitel) throw new Error("Mobile Programmzeile fehlt");
+  expect(mobilTitel.y).toBeGreaterThan(mobilDatum.y);
   // Auch im Handymaß bleibt das Verzeichnis ohne Seitenüberlauf.
   expect(
     await page.evaluate(

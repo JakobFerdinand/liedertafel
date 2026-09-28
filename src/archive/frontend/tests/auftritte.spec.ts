@@ -281,6 +281,44 @@ test("Mitglied sieht Auftritte mit Jahresleiste und ehrlichen Daten", async ({
   expect(errors).toEqual([]);
 });
 
+test("Auftrittsverzeichnis ordnet Datum, Titel und Redaktion nebeneinander", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1804, height: 1304 });
+  await mockSitzung(page, editorMe);
+  await page.route(ereignisRoute, (route) =>
+    route.fulfill(
+      json({ years: [{ year: 1950, count: 1 }], total: 1, events: [konzert] }),
+    ),
+  );
+  await page.goto("/auftritte/");
+  const zeile = page.locator(".auftritte-eintrag");
+  await expect(zeile.getByRole("link", { name: konzert.title })).toBeVisible();
+  const datum = await zeile.locator(".auftritt-datum").boundingBox();
+  const titel = await zeile.locator("h3").boundingBox();
+  const status = await zeile.locator(".lieder-status").boundingBox();
+  const aktionen = await zeile.locator(".auftritte-aktionen").boundingBox();
+  const inhalt = await page.locator(".archiv-seiteninhalt").boundingBox();
+  const eintrag = await zeile.boundingBox();
+  if (!datum || !titel || !status || !aktionen || !inhalt || !eintrag)
+    throw new Error("Auftrittszeile ist nicht sichtbar");
+  expect(eintrag.width).toBeGreaterThan(inhalt.width * 0.95);
+  expect(datum.x + datum.width).toBeLessThan(titel.x);
+  expect(titel.x + titel.width).toBeLessThan(status.x);
+  expect(status.x + status.width).toBeLessThan(aktionen.x);
+  expect(Math.abs(datum.y - aktionen.y)).toBeLessThan(20);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  const mobilDatum = await zeile.locator(".auftritt-datum").boundingBox();
+  const mobilTitel = await zeile.locator("h3").boundingBox();
+  if (!mobilDatum || !mobilTitel)
+    throw new Error("Mobile Auftrittszeile fehlt");
+  expect(mobilTitel.y).toBeGreaterThan(mobilDatum.y);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
+    390,
+  );
+});
+
 test("Ein Jahr in der Leiste filtert die Auftritte; Ohne Jahr bleibt ehrlich", async ({
   page,
 }) => {

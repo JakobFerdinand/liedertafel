@@ -250,6 +250,89 @@ test("Katalog zeigt Lieder direkt und hält Filter per Tastatur erreichbar", asy
   );
 });
 
+test("Katalog nutzt die Breite auch neben offenem Chat und faltet mobil", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1804, height: 1304 });
+  await mockSitzung(page, editorMe);
+  const langerTitel = `Hosianna ${"Singstimmen".repeat(20)}`;
+  await page.route("**/api/songs", (route) =>
+    route.fulfill(
+      json({
+        songs: [
+          publishedSong,
+          draftSong,
+          {
+            ...publishedSong,
+            id: "00000000-0000-0000-0000-00000000000c",
+            title: langerTitel,
+          },
+        ],
+      }),
+    ),
+  );
+  await page.goto("/lieder/");
+
+  const zeile = page.locator(".lieder-eintrag").first();
+  await expect(
+    zeile.getByText("Komponist: Carl Friedrich Zöllner"),
+  ).toBeVisible();
+  await expect(zeile.getByText("Text: Wilhelm Müller")).toBeVisible();
+  await expect(zeile.getByText("Interpret", { exact: false })).toHaveCount(0);
+  await expect(page.locator(".lieder-eintrag").nth(1)).toContainText(
+    "Urheber nicht erfasst",
+  );
+
+  async function zeilenGeometrie() {
+    const titel = await zeile.locator("h3").boundingBox();
+    const status = await zeile.locator(".lieder-status").boundingBox();
+    const aktionen = await zeile.locator(".lieder-aktionen").boundingBox();
+    const inhalt = await page.locator(".archiv-seiteninhalt").boundingBox();
+    const eintrag = await zeile.boundingBox();
+    if (!titel || !status || !aktionen || !inhalt || !eintrag)
+      throw new Error("Katalogzeile ist nicht sichtbar");
+    return { titel, status, aktionen, inhalt, eintrag };
+  }
+
+  for (const mitChat of [false, true]) {
+    if (mitChat)
+      await page.getByRole("button", { name: "Chat öffnen" }).click();
+    const { titel, status, aktionen, inhalt, eintrag } =
+      await zeilenGeometrie();
+    expect(eintrag.width).toBeGreaterThan(inhalt.width * 0.95);
+    expect(status.x).toBeGreaterThan(titel.x + titel.width);
+    expect(aktionen.x).toBeGreaterThan(status.x + status.width);
+    expect(Math.abs(titel.y - status.y)).toBeLessThan(20);
+    expect(Math.abs(titel.y - aktionen.y)).toBeLessThan(20);
+    expect(aktionen.x + aktionen.width).toBeLessThanOrEqual(
+      inhalt.x + inhalt.width + 1,
+    );
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+    ).toBe(1804);
+  }
+
+  await page.getByRole("button", { name: "Chat minimieren" }).click();
+  await zeile.getByRole("button", { name: "Bearbeiten", exact: true }).click();
+  const formular = zeile.locator(".lied-bearbeiten");
+  await expect(formular).toBeVisible();
+  const formBox = await formular.boundingBox();
+  const titelBox = await zeile.locator("h3").boundingBox();
+  if (!formBox || !titelBox)
+    throw new Error("Bearbeitungsformular ist nicht sichtbar");
+  expect(formBox.y).toBeGreaterThan(titelBox.y + titelBox.height);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
+    390,
+  );
+  const statusMobil = await zeile.locator(".lieder-status").boundingBox();
+  const titelMobil = await zeile.locator("h3").boundingBox();
+  if (!statusMobil || !titelMobil)
+    throw new Error("Mobile Zeile ist nicht sichtbar");
+  expect(statusMobil.y).toBeGreaterThan(titelMobil.y);
+});
+
 test("Mitglied öffnet ein veröffentlichtes Lied; Entwürfe bleiben unfindbar", async ({
   page,
 }) => {
