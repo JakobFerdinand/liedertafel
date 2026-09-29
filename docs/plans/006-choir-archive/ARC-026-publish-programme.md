@@ -20,15 +20,15 @@ versions, and explicitly publishes the programme members should follow.
 
 ## Acceptance criteria
 
-- [ ] Add/remove/reorder entries using stable item IDs and arrangement/version
+- [x] Add/remove/reorder entries using stable item IDs and arrangement/version
   selection, preserving repeated songs as distinct programme entries.
-- [ ] Introduce separate working/published revision identities from the first
+- [x] Introduce separate working/published revision identities from the first
   publication; save a draft without making it member-visible.
-- [ ] Publish atomically with a timestamp; members see ordered items, event details
+- [x] Publish atomically with a timestamp; members see ordered items, event details
   and notes with links to the selected musical version's current materials.
-- [ ] Validate unavailable/private selections and stale edits on publication.
+- [x] Validate unavailable/private selections and stale edits on publication.
   Merely passing the event date does not mark its songs performed.
-- [ ] Make upcoming published programmes accessible from member navigation.
+- [x] Make upcoming published programmes accessible from member navigation.
 
 ## Verification
 
