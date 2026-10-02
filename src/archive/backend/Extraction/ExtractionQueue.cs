@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Text.Json;
-using Azure.Identity;
 using Azure.Storage.Queues;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
@@ -55,27 +54,11 @@ public static class ExtractionQueue
 	{
 		var options = configuration.GetSection(ExtractionOptions.SectionName).Get<ExtractionOptions>()
 			?? new ExtractionOptions();
-		var connectionString = configuration.GetConnectionString("archive-queues");
-		if (!string.IsNullOrWhiteSpace(connectionString))
-		{
-			return new AzureExtractionQueue(new QueueServiceClient(connectionString, BoundedRetryOptions()),
-				Options.Create(options));
-		}
-		if (!string.IsNullOrWhiteSpace(options.QueueServiceUri))
-		{
-			return new AzureExtractionQueue(
-				new QueueServiceClient(new Uri(options.QueueServiceUri), new DefaultAzureCredential(),
-					BoundedRetryOptions()),
-				Options.Create(options));
-		}
-		return new NullExtractionQueue();
+		var client = ExtractionQueueClient.Create(configuration, options);
+		if (client is null)
+			return new NullExtractionQueue();
+		return new AzureExtractionQueue(client, Options.Create(options));
 	}
-
-	/// <summary>Same bounded retry posture as the local blob/queue services.</summary>
-	private static QueueClientOptions BoundedRetryOptions() => new()
-	{
-		Retry = { MaxRetries = 2, NetworkTimeout = TimeSpan.FromSeconds(5) },
-	};
 }
 
 /// <summary>

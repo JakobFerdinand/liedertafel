@@ -44,6 +44,9 @@ public interface IAssetStorageAdapter
 	/// <summary>Reads at most <paramref name="length"/> leading bytes; null when the object does not exist.</summary>
 	Task<byte[]?> ReadHeaderAsync(string blobName, int length, CancellationToken cancellationToken);
 
+	/// <summary>ARC-034: opens the object for bounded reading; null when it does not exist.</summary>
+	Task<Stream?> OpenReadAsync(string blobName, CancellationToken cancellationToken = default);
+
 	/// <summary>Server-side copy from a staged object to its final revision name.</summary>
 	Task PromoteAsync(string sourceBlobName, string targetBlobName, CancellationToken cancellationToken);
 
@@ -170,6 +173,24 @@ public sealed class BlobAssetStorageAdapter(
 					read += chunk;
 				}
 				return header[..read];
+			}
+			catch (RequestFailedException exception) when (exception.Status == 404)
+			{
+				return null;
+			}
+		});
+
+	/// <summary>
+	/// ARC-034: opens the object for the extraction worker's bounded read.
+	/// The returned stream is seekable (range-backed); the caller owns its
+	/// disposal. Missing objects answer null like <see cref="ReadHeaderAsync"/>.
+	/// </summary>
+	public Task<Stream?> OpenReadAsync(string blobName, CancellationToken cancellationToken = default) =>
+		ExecuteAsync<Stream?>("open_read", async () =>
+		{
+			try
+			{
+				return await Blob(blobName).OpenReadAsync(new BlobOpenReadOptions(false), cancellationToken);
 			}
 			catch (RequestFailedException exception) when (exception.Status == 404)
 			{

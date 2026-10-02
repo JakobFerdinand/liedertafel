@@ -37,6 +37,21 @@ public static class ExtractionService
 	}
 
 	/// <summary>
+	/// Revision-carried overload for the worker's self-healing path (ARC-034):
+	/// the revision itself supplies asset id and triggering account.
+	/// </summary>
+	public static ExtractionJob CreateForRevision(FileRevision revision, DateTimeOffset now) =>
+		new()
+		{
+			RevisionId = revision.Id,
+			AssetId = revision.AssetId,
+			Status = ExtractionStatus.Queued,
+			TriggeredByAccountId = revision.CreatedByAccountId,
+			CreatedAt = now,
+			UpdatedAt = now,
+		};
+
+	/// <summary>
 	/// Bounded quiet enqueue (ARC-034): up to two send attempts, catching the
 	/// queue's failures, propagating only cancellation. On an accepted
 	/// send the row's <see cref="ExtractionJob.LastEnqueuedAt"/> is stamped

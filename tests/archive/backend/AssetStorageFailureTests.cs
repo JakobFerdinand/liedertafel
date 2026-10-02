@@ -157,6 +157,9 @@ public sealed class AssetStorageFailureTests
 		public Task<byte[]?> ReadHeaderAsync(string blobName, int length, CancellationToken cancellationToken) =>
 			throw new InvalidOperationException("Speicherdienst nicht erreichbar.");
 
+		public Task<Stream?> OpenReadAsync(string blobName, CancellationToken cancellationToken = default) =>
+			throw new InvalidOperationException("Speicherdienst nicht erreichbar.");
+
 		public Task PromoteAsync(string sourceBlobName, string targetBlobName, CancellationToken cancellationToken) =>
 			throw new InvalidOperationException("Speicherdienst nicht erreichbar.");
 

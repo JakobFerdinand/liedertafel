@@ -14,12 +14,13 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Options;
 // The chat slice's configuration type shares its name with Microsoft's
 // Microsoft.Extensions.AI.ChatOptions; the alias keeps the usage sites short.
 using ChatOptions = Archive.Backend.Chat.ChatOptions;
 
 var command = args.FirstOrDefault();
-if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" or "--bootstrap-admin" or "--repair-admin" or "--seed-dev-auth" or "--send-test-mail" or "--cleanup-uploads")
+if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" or "--bootstrap-admin" or "--repair-admin" or "--seed-dev-auth" or "--send-test-mail" or "--cleanup-uploads" or "--extract-queue" or "--dispatch-extraction")
 {
     var jobs = Host.CreateApplicationBuilder(args.Skip(1).ToArray());
     jobs.AddServiceDefaults();
@@ -34,6 +35,21 @@ if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" o
     jobs.Services.AddSingleton<BlobAssetStorageAdapter>();
     jobs.Services.AddSingleton<IAssetStorageAdapter>(sp => sp.GetRequiredService<BlobAssetStorageAdapter>());
     jobs.Services.AddScoped<UploadSessionCleaner>();
+    // ARC-034: the extraction worker stack for the finite commands. The
+    // message source is built from the same shared queue client factory as
+    // the sender; an explicitly started consumer without any queue backend
+    // is a configuration error and fails loudly.
+    jobs.Services.AddOptions<ExtractionOptions>().BindConfiguration(ExtractionOptions.SectionName);
+    jobs.Services.AddSingleton<IExtractionQueue>(ExtractionQueue.Create(jobs.Configuration));
+    jobs.Services.AddSingleton<IExtractionMessageSource>(sp =>
+    {
+        var extractionOptions = sp.GetRequiredService<IOptions<ExtractionOptions>>().Value;
+        var queueClient = ExtractionQueueClient.Create(jobs.Configuration, extractionOptions)
+            ?? throw new InvalidOperationException("Kein Warteschlangen-Endpunkt für die Textauswertung konfiguriert.");
+        return new AzureExtractionMessageSource(queueClient, sp.GetRequiredService<IOptions<ExtractionOptions>>());
+    });
+    jobs.Services.AddScoped<ExtractionWorker>();
+    jobs.Services.AddScoped<ExtractionPump>();
     using var host = jobs.Build();
     await host.StartAsync();
     Environment.ExitCode = await host.RunArchiveJobAsync(command[2..], async token =>
@@ -54,6 +70,47 @@ if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" o
                 .CleanAsync(token);
             provider.GetRequiredService<ILoggerFactory>().CreateLogger("Archive.Jobs")
                 .LogInformation("Cleanup marked {AbandonedCount} upload sessions abandoned", cleaned);
+        }
+        else if (command == "--extract-queue")
+        {
+            // ARC-034: read the maintenance flag first — a paused run receives
+            // nothing, touches no database and exits 0; the queue scale rule
+            // re-triggers the run later.
+            var extractionLogger = provider.GetRequiredService<ILoggerFactory>().CreateLogger("Archive.Extraction");
+            if (MaintenanceConfiguration.IsEnabled(host.Services.GetRequiredService<IConfiguration>()))
+            {
+                extractionLogger.LogInformation("Extraction worker paused: maintenance mode is enabled");
+                return;
+            }
+            // Piggyback recovery first: hand un-enqueued and stale rows to the
+            // queue (bounded, its own scope), then drain the queue itself.
+            int dispatched;
+            using (var dispatchScope = host.Services.CreateScope())
+            {
+                dispatched = await ExtractionDispatcher.DispatchPendingAsync(
+                    dispatchScope.ServiceProvider.GetRequiredService<ArchiveDbContext>(),
+                    dispatchScope.ServiceProvider.GetRequiredService<IExtractionQueue>(),
+                    dispatchScope.ServiceProvider.GetRequiredService<IOptions<ExtractionOptions>>(),
+                    dispatchScope.ServiceProvider.GetRequiredService<TimeProvider>(),
+                    extractionLogger, token);
+            }
+            var processed = await provider.GetRequiredService<ExtractionPump>().DrainAsync(token);
+            extractionLogger.LogInformation(
+                "Extraction worker dispatched {Dispatched} rows and processed {Processed} messages",
+                dispatched, processed);
+        }
+        else if (command == "--dispatch-extraction")
+        {
+            // ARC-034 outbox sweeper alone; also fine under maintenance — the
+            // messages just wait on the queue.
+            var dispatchLogger = provider.GetRequiredService<ILoggerFactory>().CreateLogger("Archive.Extraction");
+            var dispatched = await ExtractionDispatcher.DispatchPendingAsync(
+                provider.GetRequiredService<ArchiveDbContext>(),
+                provider.GetRequiredService<IExtractionQueue>(),
+                provider.GetRequiredService<IOptions<ExtractionOptions>>(),
+                provider.GetRequiredService<TimeProvider>(),
+                dispatchLogger, token);
+            dispatchLogger.LogInformation("Extraction dispatch handed {Dispatched} rows to the queue", dispatched);
         }
         else if (command == "--seed-dev-auth")
             await OperatorConfiguration.SeedDevAuthAsync(provider, token);

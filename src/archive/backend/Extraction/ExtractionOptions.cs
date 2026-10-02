@@ -103,4 +103,47 @@ public sealed class ExtractionOptions
 	}
 
 	private TimeSpan visibilityBackoff = TimeSpan.FromSeconds(30);
+
+	/// <summary>Azure Queue Storage accepts at most this many messages per receive round.</summary>
+	public const int MaxReceiveBatch = 32;
+
+	/// <summary>
+	/// One receive round asks for at most this many messages; the Azure
+	/// service cap (<see cref="MaxReceiveBatch"/>) is enforced defensively so
+	/// an oversized configuration cannot break every round.
+	/// </summary>
+	public int BatchSize
+	{
+		get => batchSize;
+		set => batchSize = value is > 0 and <= MaxReceiveBatch ? value : MaxReceiveBatch;
+	}
+
+	private int batchSize = MaxReceiveBatch;
+
+	/// <summary>Visibility window while one received message is being handled.</summary>
+	public TimeSpan ReceiveVisibility
+	{
+		get => receiveVisibility;
+		set => receiveVisibility = value > TimeSpan.Zero ? value : TimeSpan.FromMinutes(10);
+	}
+
+	private TimeSpan receiveVisibility = TimeSpan.FromMinutes(10);
+
+	/// <summary>Upper bound of messages a single finite worker run processes.</summary>
+	public int MaxMessagesPerRun
+	{
+		get => maxMessagesPerRun;
+		set => maxMessagesPerRun = value > 0 ? value : 500;
+	}
+
+	private int maxMessagesPerRun = 500;
+
+	/// <summary>Wall-clock budget for one finite drain run; the pump stops when it elapses.</summary>
+	public TimeSpan DrainBudget
+	{
+		get => drainBudget;
+		set => drainBudget = value > TimeSpan.Zero ? value : TimeSpan.FromMinutes(10);
+	}
+
+	private TimeSpan drainBudget = TimeSpan.FromMinutes(10);
 }

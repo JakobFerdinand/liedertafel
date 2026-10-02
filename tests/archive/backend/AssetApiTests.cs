@@ -1312,6 +1312,12 @@ internal sealed class FakeAssetStorage : IAssetStorageAdapter
 			? stored.Bytes[..Math.Min(length, stored.Bytes.Length)]
 			: null);
 
+	/// <summary>ARC-034: a fresh read-only stream of the stored bytes; null when missing.</summary>
+	public Task<Stream?> OpenReadAsync(string blobName, CancellationToken cancellationToken = default) =>
+		Task.FromResult(objects.TryGetValue(blobName, out var stored)
+			? (Stream?)new MemoryStream(stored.Bytes, writable: false)
+			: null);
+
 	public Task PromoteAsync(string sourceBlobName, string targetBlobName, CancellationToken cancellationToken)
 	{
 		if (!objects.TryGetValue(sourceBlobName, out var stored))
