@@ -54,24 +54,41 @@ ARC-035 (score-text search) and ARC-037 (import job) build on.
   reads the maintenance flag first (`Archive:MaintenanceMode`, the
   [runbook job contract](../../infrastructure/archive/README.md)) and abandons
   received messages while it is true; drains one receive round at a time
-  (batch ≤ 32, serial processing = constrained concurrency); deletes the
-  message on terminal success (incl. idempotent duplicates) and on
-  deterministic failure (corrupt/oversize/overlength PDF → `Failed` without
-  retry); abandons with visibility backoff on transient failure while
-  `AttemptCount < MaxAttempts` (5), otherwise marks `Failed` terminal and
-  deletes the message; exits as a finite run once a receive round is empty —
-  no idle polling, no Neon queries while idle (production is re-triggered by
-  the queue scale rule; KEDA polls the queue, not Neon).
+  (batch ≤ 8 with a 10-minute receive visibility, serial processing =
+  constrained concurrency, each message budgeted to `TimeBudget` so a batch
+  always fits its visibility window); deletes the message on terminal success
+  (incl. idempotent duplicates) and on deterministic failure (corrupt,
+  encrypted, oversize or overlength PDF → `Failed` without retry); abandons
+  with visibility backoff on transient failure while attempts remain
+  (`MaxAttempts` 5, counted on the row and the message's dequeue count),
+  otherwise marks `Failed` terminal and deletes the message; exits as a
+  finite run once a receive round is empty — no idle polling, no Neon queries
+  while idle (production is re-triggered by the queue scale rule; KEDA polls
+  the queue, not Neon). An interrupted run leaves `Running` rows on a
+  **stale lease** (`LastAttemptAt` older than `StaleRunningAfter`, 15 min):
+  the next dequeue re-takes the attempt (counted), the editor's retry action
+  may reset a stale-lease row, and exhausted re-takes go terminal — an
+  interrupted attempt can never strand the row.
+- **Extraction bounds (honest residual):** the compressed input is capped at
+  `MaxPdfBytes`; the parser's internal decoded expansion is a PdfPig-internal
+  limit that no .NET API can cap — a runaway parse is bounded end-to-end by
+  the container memory limit (OOM kill), after which the stale-lease recovery
+  resolves the row through the bounded attempt ladder.
 - **Trace propagation:** the sender stamps `traceparent`/`tracestate` from the
   request activity; the consumer parses the remote parent and opens
   `archive.queue.process` (Consumer) like `LocalServices`. All finite runs
   flush via `RunArchiveJobAsync`.
 - **Extraction bounds (`Archive:Extraction` options):** `MaxTextCharacters`
-  (100 000), `MaxPdfBytes` (64 MiB — larger documents fail with an honest
-  German reason), `MaxPdfPages` (500), `TimeBudget` (2 min per message),
-  `MaxAttempts` (5), `RedisplayAfter` (10 min), `MaxDispatchPerRun` (200),
-  `VisibilityBackoff` (30 s). Embedded text only, via PdfPig (pure managed,
-  Apache-2.0); no OCR is introduced.
+  (100 000 — a document whose text exceeds the cap answers a deterministic
+  `Failed`, per the frozen overlength rule), `MaxPdfBytes` (64 MiB — larger
+  documents fail with an honest German reason), `MaxPdfPages` (500 — pages
+  beyond the cap are not read; the bounded partial text completes), `TimeBudget`
+  (2 min per message, spanning blob open and parsing), `MaxAttempts` (5),
+  `StaleRunningAfter` (15 min), `RedisplayAfter` (10 min),
+  `MaxDispatchPerRun` (200), `VisibilityBackoff` (30 s), `BatchSize` (8),
+  `ReceiveVisibility` (10 min), `MaxMessagesPerRun` (500), `DrainBudget`
+  (10 min). Embedded text only, via PdfPig (pure managed, Apache-2.0); no
+  OCR is introduced.
 
 ## Vertical slices (each directly testable, committed before the next)
 
@@ -82,9 +99,10 @@ ARC-035 (score-text search) and ARC-037 (import job) build on.
   the request, auth matrix, retry state matrix).
 - **S2 — extraction worker (backend + xUnit):** `--extract-queue` and
   `--dispatch-extraction` finite commands, `IExtractionMessageSource` +
-  Azure source, bounded PdfPig extraction, idempotency, bounded retry,
-  maintenance pause, trace propagation, full worker test coverage (text and
-  scanned PDFs, duplicates, failures, bounds).
+  Azure source, bounded PdfPig extraction, idempotency, bounded retry with
+  the stale-lease recovery for interrupted attempts, maintenance pause, trace
+  propagation, fresh worker scope per message, full worker test coverage
+  (text and scanned PDFs, duplicates, failures, bounds, leases).
 - **S3 — AppHost wiring (apphost + integration test):** `archive-extract`
   explicit-start resource against Azurite, storage init creates the
   extraction queue, real-stack integration test: upload a text-bearing PDF →
