@@ -202,10 +202,120 @@ public sealed class ExtractionWorkerTests
 		var disposition = await host.Worker.HandleAsync(Message(revision.Id), host.Deadline, CancellationToken.None);
 
 		Assert.True(disposition.Abandon);
+		job = await host.Db.ExtractionJobs.AsNoTracking().SingleAsync();
 		Assert.Equal(ExtractionStatus.Queued, job.Status);
 		Assert.Equal(1, job.AttemptCount);
 		Assert.Null(job.Text);
 		Assert.Null(job.CompletedAt);
+	}
+
+	[Theory]
+	[InlineData(ExtractionStatus.Completed)]
+	[InlineData(ExtractionStatus.NoText)]
+	[InlineData(ExtractionStatus.Failed)]
+	public async Task DeadlineExpiryNeverRewritesAConcurrentTerminalWinner(ExtractionStatus status)
+	{
+		var host = new WorkerHost();
+		var (_, revision) = SeedRevision(host);
+		SeedJob(host, revision);
+		await using var winnerDb = new ArchiveDbContext(host.DbOptions);
+		ExtractionJob? winner = null;
+		host.Storage.BeforeOpenRead = async () =>
+		{
+			winner = await winnerDb.ExtractionJobs.SingleAsync();
+			Assert.Equal(ExtractionStatus.Running, winner.Status);
+			winner.Status = status;
+			winner.Text = status == ExtractionStatus.Completed ? "Text des Gewinners" : null;
+			winner.FailureReason = status == ExtractionStatus.Failed ? PdfTextExtractor.CorruptReason : null;
+			winner.CompletedAt = status == ExtractionStatus.Failed ? null : DateTimeOffset.UtcNow;
+			winner.UpdatedAt = DateTimeOffset.UtcNow;
+			winner.RowVersion++;
+			await winnerDb.SaveChangesAsync();
+		};
+		host.Storage.OpenDelay = TimeSpan.FromMilliseconds(300);
+
+		var disposition = await host.Worker.HandleAsync(Message(revision.Id),
+			TimeProvider.System.GetUtcNow() + TimeSpan.FromMilliseconds(100), CancellationToken.None);
+
+		Assert.Equal(MessageDisposition.Delete, disposition);
+		Assert.NotNull(winner);
+		var saved = await host.Db.ExtractionJobs.AsNoTracking().SingleAsync();
+		Assert.Equal(winner.Status, saved.Status);
+		Assert.Equal(winner.Text, saved.Text);
+		Assert.Equal(winner.FailureReason, saved.FailureReason);
+		Assert.Equal(winner.CompletedAt, saved.CompletedAt);
+		Assert.Equal(winner.UpdatedAt, saved.UpdatedAt);
+		Assert.Equal(winner.AttemptCount, saved.AttemptCount);
+		Assert.Equal(winner.RowVersion, saved.RowVersion);
+		Assert.Equal(1, host.Storage.OpenReadCalls);
+	}
+
+	[Theory]
+	[InlineData(ExtractionStatus.Running)]
+	[InlineData(ExtractionStatus.Queued)]
+	public async Task DeadlineExpiryNeverRewritesANewerLeaseOrReleasedRow(ExtractionStatus status)
+	{
+		var host = new WorkerHost();
+		var (_, revision) = SeedRevision(host);
+		SeedJob(host, revision);
+		await using var otherDb = new ArchiveDbContext(host.DbOptions);
+		ExtractionJob? other = null;
+		host.Storage.BeforeOpenRead = async () =>
+		{
+			other = await otherDb.ExtractionJobs.SingleAsync();
+			Assert.Equal(ExtractionStatus.Running, other.Status);
+			other.Status = status;
+			other.AttemptCount = status == ExtractionStatus.Running ? other.AttemptCount + 1 : 0;
+			other.LastAttemptAt = status == ExtractionStatus.Running ? DateTimeOffset.UtcNow : null;
+			other.UpdatedAt = DateTimeOffset.UtcNow;
+			other.RowVersion++;
+			await otherDb.SaveChangesAsync();
+		};
+		host.Storage.OpenDelay = TimeSpan.FromMilliseconds(300);
+
+		var disposition = await host.Worker.HandleAsync(Message(revision.Id, dequeueCount: 2),
+			TimeProvider.System.GetUtcNow() + TimeSpan.FromMilliseconds(100), CancellationToken.None);
+
+		Assert.True(disposition.Abandon);
+		Assert.Equal(host.Options.VisibilityBackoff * 2, disposition.Visibility);
+		Assert.NotNull(other);
+		var saved = await host.Db.ExtractionJobs.AsNoTracking().SingleAsync();
+		Assert.Equal(other.Status, saved.Status);
+		Assert.Equal(other.AttemptCount, saved.AttemptCount);
+		Assert.Equal(other.LastAttemptAt, saved.LastAttemptAt);
+		Assert.Equal(other.UpdatedAt, saved.UpdatedAt);
+		Assert.Equal(other.RowVersion, saved.RowVersion);
+		Assert.Equal(1, host.Storage.OpenReadCalls);
+	}
+
+	[Theory]
+	[InlineData(false, false)]
+	[InlineData(true, false)]
+	[InlineData(false, true)]
+	public async Task DeadlineExpiryReleasesOnlyItsOwnCountedLease(bool exhaustRow, bool exhaustMessage)
+	{
+		var host = new WorkerHost();
+		var (_, revision) = SeedRevision(host);
+		var job = SeedJob(host, revision);
+		job.AttemptCount = exhaustRow ? host.Options.MaxAttempts - 1 : 0;
+		await host.Db.SaveChangesAsync();
+		host.Storage.OpenDelay = TimeSpan.FromMilliseconds(300);
+
+		var disposition = await host.Worker.HandleAsync(
+			Message(revision.Id, dequeueCount: exhaustMessage ? host.Options.MaxAttempts : 1),
+			TimeProvider.System.GetUtcNow() + TimeSpan.FromMilliseconds(100), CancellationToken.None);
+
+		var exhausted = exhaustRow || exhaustMessage;
+		Assert.Equal(!exhausted, disposition.Abandon);
+		var saved = await host.Db.ExtractionJobs.AsNoTracking().SingleAsync();
+		Assert.Equal(exhausted ? ExtractionStatus.Failed : ExtractionStatus.Queued, saved.Status);
+		Assert.Equal(exhaustRow ? host.Options.MaxAttempts : 1, saved.AttemptCount);
+		Assert.Equal(exhausted ? ExtractionWorker.ExhaustedReason : null, saved.FailureReason);
+		Assert.Equal(2u, saved.RowVersion);
+		Assert.NotNull(saved.LastAttemptAt);
+		Assert.Null(saved.Text);
+		Assert.Null(saved.CompletedAt);
+		Assert.Equal(1, host.Storage.OpenReadCalls);
 	}
 
 	[Fact]
@@ -606,6 +716,7 @@ public sealed class ExtractionWorkerTests
 			TimeProvider.System.GetUtcNow() + TimeSpan.FromMilliseconds(100), CancellationToken.None);
 
 		Assert.True(disposition.Abandon);
+		job = await host.Db.ExtractionJobs.AsNoTracking().SingleAsync();
 		Assert.Equal(ExtractionStatus.Queued, job.Status);
 		Assert.Equal(1, job.AttemptCount);
 		Assert.Null(job.Text);
@@ -1094,10 +1205,13 @@ public sealed class ExtractionWorkerTests
 		public bool ThrowOnOpenRead { get; set; }
 		public TimeSpan OpenDelay { get; set; }
 		public bool IgnoreCancellation { get; set; }
+		public Func<Task>? BeforeOpenRead { get; set; }
 
 		public async Task<Stream?> OpenReadAsync(string blobName, CancellationToken cancellationToken = default)
 		{
 			OpenReadCalls++;
+			if (BeforeOpenRead is not null)
+				await BeforeOpenRead();
 			if (ThrowOnOpenRead)
 				throw new InvalidOperationException("Speicherdienst nicht erreichbar.");
 			if (OpenDelay > TimeSpan.Zero)

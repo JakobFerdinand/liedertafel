@@ -103,14 +103,18 @@ public sealed class ExtractionWorker(
 		{
 			logger.LogWarning("Extraction for revision {RevisionId} exceeded its time budget", revisionId);
 			// Recovery must survive the expired processing token. Discard any
-			// unsaved transition before reading the durable attempt count.
+			// unsaved transition before checking the durable lease identity.
 			db.ChangeTracker.Clear();
 			if (!attempt.LeaseTaken)
 				return new MessageDisposition(Abandon: true, Visibility: Backoff(message.DequeueCount));
 			var job = await db.ExtractionJobs.FirstOrDefaultAsync(j => j.RevisionId == revisionId, token);
 			if (job is null)
 				return new MessageDisposition(Abandon: true, Visibility: Backoff(message.DequeueCount));
-			return await RetryAsync(job, revisionId, message, token);
+			if (job.Status is ExtractionStatus.Completed or ExtractionStatus.NoText or ExtractionStatus.Failed)
+				return MessageDisposition.Delete;
+			if (job.Status != ExtractionStatus.Running || job.RowVersion != attempt.LeaseRowVersion)
+				return new MessageDisposition(Abandon: true, Visibility: Backoff(message.DequeueCount));
+			return await RetryAsync(job, revisionId, message, attempt.LeaseAttemptCount, token);
 		}
 	}
 
@@ -211,6 +215,8 @@ public sealed class ExtractionWorker(
 		{
 			await db.SaveChangesAsync(token);
 			attempt.LeaseTaken = true;
+			attempt.LeaseRowVersion = job.RowVersion;
+			attempt.LeaseAttemptCount = job.AttemptCount;
 		}
 		catch (DbUpdateConcurrencyException)
 		{
@@ -248,11 +254,6 @@ public sealed class ExtractionWorker(
 				outcome = PdfTextExtractor.Extract(stream, options.Value, budget.Token);
 				budget.Token.ThrowIfCancellationRequested();
 			}
-		}
-		catch (OperationCanceledException) when (budget.IsCancellationRequested && !parentToken.IsCancellationRequested)
-		{
-			logger.LogWarning("Extraction for revision {RevisionId} exceeded its time budget", revisionId);
-			transient = true;
 		}
 		catch (Exception exception) when (exception is not OperationCanceledException)
 		{
@@ -293,16 +294,16 @@ public sealed class ExtractionWorker(
 			return await SaveAndConcludeAsync(job, revisionId, MessageDisposition.Delete, token);
 		}
 
-		return await RetryAsync(job, revisionId, message, parentToken);
+		return await RetryAsync(job, revisionId, message, job.AttemptCount, parentToken);
 	}
 
 	private async Task<MessageDisposition> RetryAsync(ExtractionJob job, Guid revisionId,
-		ExtractionMessage message, CancellationToken token)
+		ExtractionMessage message, int attemptCount, CancellationToken token)
 	{
 		// Transient path: exhaustion (row budget or the message's own dequeue
 		// count) is evaluated after the attempt bump. Terminal failure ends
 		// the work; the editor's retry action restarts it fresh.
-		if (job.AttemptCount >= options.Value.MaxAttempts || message.DequeueCount >= options.Value.MaxAttempts)
+		if (attemptCount >= options.Value.MaxAttempts || message.DequeueCount >= options.Value.MaxAttempts)
 		{
 			logger.LogWarning("Extraction for revision {RevisionId} exhausted its attempts", revisionId);
 			job.Status = ExtractionStatus.Failed;
@@ -326,6 +327,8 @@ public sealed class ExtractionWorker(
 	private sealed class AttemptState
 	{
 		public bool LeaseTaken { get; set; }
+		public uint LeaseRowVersion { get; set; }
+		public int LeaseAttemptCount { get; set; }
 	}
 
 	/// <summary>

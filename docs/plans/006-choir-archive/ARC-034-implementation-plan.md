@@ -57,9 +57,12 @@ ARC-035 (score-text search) and ARC-037 (import job) build on.
   (batch received with a visibility-fit count: at most `BatchSize` (8) and
   only as many messages as can each get their `TimeBudget` inside the
   receive visibility minus a release headroom; serial processing =
-  constrained concurrency, and each message's effective budget is the
-  remaining batch visibility — an expired budget takes the bounded transient
-  path, it never overruns a receipt); deletes the message on terminal success
+  constrained concurrency; each message is processed under an absolute
+  deadline = the smaller of `TimeBudget` and the batch's remaining receive
+  visibility, spanning database work, blob open and parsing — an expired
+  deadline rejects the outcome via the bounded transient path; a single
+  synchronous page parse cannot be interrupted inside PdfPig, and recovery
+  runs use the parent token); deletes the message on terminal success
   (incl. idempotent duplicates) and on deterministic failure (corrupt,
   encrypted, oversize or overlength PDF → `Failed` without retry); abandons
   with visibility backoff on transient failure while attempts remain
