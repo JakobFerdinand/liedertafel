@@ -45,17 +45,22 @@ public sealed class ExtractionPump(
 				logger.LogInformation("Extraction drain reached its run budget after {Processed} messages", processed);
 				break;
 			}
-			var size = Math.Min(options.Value.BatchSize, options.Value.MaxMessagesPerRun - processed);
+			var size = Math.Min(options.Value.VisibilityFitBatchSize, options.Value.MaxMessagesPerRun - processed);
+			var batchStart = time.GetUtcNow();
 			var messages = await source.ReceiveBatchAsync(size, token);
 			if (messages.Count == 0)
 			{
 				// Queue empty: the finite run exits without idle waiting.
 				break;
 			}
+			var batchExhausted = false;
 			foreach (var message in messages)
 			{
 				token.ThrowIfCancellationRequested();
-				if (time.GetUtcNow() >= deadline || MaintenanceConfiguration.IsEnabled(configuration))
+				var now = time.GetUtcNow();
+				var remaining = batchStart + options.Value.ReceiveVisibility - now;
+				batchExhausted |= remaining <= TimeSpan.Zero;
+				if (batchExhausted || now >= deadline || MaintenanceConfiguration.IsEnabled(configuration))
 				{
 					// Release all unprocessed receipts immediately, including the
 					// rest of this batch, rather than waiting out receive visibility.
@@ -67,7 +72,8 @@ public sealed class ExtractionPump(
 				try
 				{
 					await using var workerScope = createWorkerScope();
-					disposition = await workerScope.ServiceProvider.GetRequiredService<ExtractionWorker>().HandleAsync(message, token);
+					var budget = remaining < options.Value.TimeBudget ? remaining : options.Value.TimeBudget;
+					disposition = await workerScope.ServiceProvider.GetRequiredService<ExtractionWorker>().HandleAsync(message, budget, token);
 				}
 				catch (Exception exception) when (exception is not OperationCanceledException)
 				{
@@ -80,6 +86,8 @@ public sealed class ExtractionPump(
 				await ApplyDispositionAsync(message, disposition, token);
 				processed++;
 			}
+			if (batchExhausted)
+				break;
 		}
 		return processed;
 	}

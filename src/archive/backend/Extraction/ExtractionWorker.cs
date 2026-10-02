@@ -50,7 +50,7 @@ public sealed class ExtractionWorker(
 	/// <summary>ARC-034: the bounded attempt budget is spent; the editor's retry action restarts the work.</summary>
 	public const string ExhaustedReason = "Die Verarbeitung ist nach mehreren Versuchen fehlgescheitert.";
 
-	public async Task<MessageDisposition> HandleAsync(ExtractionMessage message, CancellationToken token)
+	public async Task<MessageDisposition> HandleAsync(ExtractionMessage message, TimeSpan timeBudget, CancellationToken token)
 	{
 		// 1. Envelope: malformed JSON, a missing/unparsable revision id or a
 		// foreign type is poison on this extraction-only queue — it can never
@@ -75,11 +75,11 @@ public sealed class ExtractionWorker(
 		ActivityContext.TryParse(envelope.TraceParent, envelope.TraceState, isRemote: true, out var parent);
 		using (Extensions.Activities.StartActivity("archive.queue.process", ActivityKind.Consumer, parent))
 		{
-			return await ProcessAsync(envelope.RevisionId, message, token);
+			return await ProcessAsync(envelope.RevisionId, message, timeBudget, token);
 		}
 	}
 
-	private async Task<MessageDisposition> ProcessAsync(Guid revisionId, ExtractionMessage message, CancellationToken token)
+	private async Task<MessageDisposition> ProcessAsync(Guid revisionId, ExtractionMessage message, TimeSpan timeBudget, CancellationToken token)
 	{
 		// 3. Maintenance pause: the row stays untouched and the message
 		// redisplay after the backoff window; the pump stops the run itself.
@@ -198,7 +198,7 @@ public sealed class ExtractionWorker(
 		ExtractionOutcome? outcome = null;
 		var transient = false;
 		using var budget = CancellationTokenSource.CreateLinkedTokenSource(token);
-		budget.CancelAfter(options.Value.TimeBudget);
+		budget.CancelAfter(timeBudget);
 		try
 		{
 			stream = await storage.OpenReadAsync(revision.BlobName, budget.Token);

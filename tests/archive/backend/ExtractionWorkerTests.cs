@@ -40,7 +40,7 @@ public sealed class ExtractionWorkerTests
 		var job = SeedJob(host, revision);
 		host.Storage.Store(revision.BlobName, TextPdf("Hallo Liedertafel"));
 
-		var disposition = await host.Worker.HandleAsync(Message(revision.Id), CancellationToken.None);
+		var disposition = await host.Worker.HandleAsync(Message(revision.Id), host.Options.TimeBudget, CancellationToken.None);
 
 		Assert.False(disposition.Abandon);
 		Assert.Equal(ExtractionStatus.Completed, job.Status);
@@ -61,7 +61,7 @@ public sealed class ExtractionWorkerTests
 		// A valid PDF page without any text stands in for a scanned document.
 		host.Storage.Store(revision.BlobName, ScannedPdf());
 
-		var disposition = await host.Worker.HandleAsync(Message(revision.Id), CancellationToken.None);
+		var disposition = await host.Worker.HandleAsync(Message(revision.Id), host.Options.TimeBudget, CancellationToken.None);
 
 		Assert.False(disposition.Abandon);
 		Assert.Equal(ExtractionStatus.NoText, job.Status);
@@ -79,7 +79,7 @@ public sealed class ExtractionWorkerTests
 		var job = SeedJob(host, revision);
 		host.Storage.Store(revision.BlobName, CorruptPdf());
 
-		var disposition = await host.Worker.HandleAsync(Message(revision.Id), CancellationToken.None);
+		var disposition = await host.Worker.HandleAsync(Message(revision.Id), host.Options.TimeBudget, CancellationToken.None);
 
 		Assert.False(disposition.Abandon);
 		Assert.Equal(ExtractionStatus.Failed, job.Status);
@@ -113,7 +113,7 @@ public sealed class ExtractionWorkerTests
 		var job = SeedJob(host, revision);
 		host.Storage.Store(revision.BlobName, TextPdf("Mehr als zehn Zeichen"));
 
-		var disposition = await host.Worker.HandleAsync(Message(revision.Id), CancellationToken.None);
+		var disposition = await host.Worker.HandleAsync(Message(revision.Id), host.Options.TimeBudget, CancellationToken.None);
 
 		Assert.False(disposition.Abandon);
 		Assert.Equal(ExtractionStatus.Failed, job.Status);
@@ -139,7 +139,7 @@ public sealed class ExtractionWorkerTests
 		}
 		host.Storage.Store(revision.BlobName, bytes);
 
-		var disposition = await host.Worker.HandleAsync(Message(revision.Id), CancellationToken.None);
+		var disposition = await host.Worker.HandleAsync(Message(revision.Id), host.Options.TimeBudget, CancellationToken.None);
 
 		Assert.False(disposition.Abandon);
 		Assert.Equal(ExtractionStatus.Completed, job.Status);
@@ -199,7 +199,7 @@ public sealed class ExtractionWorkerTests
 		var job = SeedJob(host, revision);
 		host.Storage.Store(revision.BlobName, TextPdf("Nie akzeptiert"));
 
-		var disposition = await host.Worker.HandleAsync(Message(revision.Id), CancellationToken.None);
+		var disposition = await host.Worker.HandleAsync(Message(revision.Id), host.Options.TimeBudget, CancellationToken.None);
 
 		Assert.True(disposition.Abandon);
 		Assert.Equal(ExtractionStatus.Queued, job.Status);
@@ -215,10 +215,10 @@ public sealed class ExtractionWorkerTests
 		var (_, revision) = SeedRevision(host);
 		var job = SeedJob(host, revision);
 		host.Storage.Store(revision.BlobName, TextPdf("Erster Text"));
-		await host.Worker.HandleAsync(Message(revision.Id), CancellationToken.None);
+		await host.Worker.HandleAsync(Message(revision.Id), host.Options.TimeBudget, CancellationToken.None);
 		var completed = (job.Status, job.AttemptCount, job.RowVersion, job.Text);
 
-		var duplicate = await host.Worker.HandleAsync(Message(revision.Id), CancellationToken.None);
+		var duplicate = await host.Worker.HandleAsync(Message(revision.Id), host.Options.TimeBudget, CancellationToken.None);
 
 		Assert.False(duplicate.Abandon);
 		Assert.Equal(completed, (job.Status, job.AttemptCount, job.RowVersion, job.Text));
@@ -233,7 +233,7 @@ public sealed class ExtractionWorkerTests
 		var job = SeedJob(host, revision);
 		host.Storage.ThrowOnOpenRead = true;
 
-		var disposition = await host.Worker.HandleAsync(Message(revision.Id), CancellationToken.None);
+		var disposition = await host.Worker.HandleAsync(Message(revision.Id), host.Options.TimeBudget, CancellationToken.None);
 
 		// The row returns to Queued so the next dequeue proceeds, the attempt
 		// is counted, and the message redisplay after the bounded backoff.
@@ -248,7 +248,7 @@ public sealed class ExtractionWorkerTests
 		// The message's own dequeue count ends the retry loop: exhaustion is
 		// evaluated after the attempt bump and goes terminal Failed.
 		var terminal = await host.Worker.HandleAsync(
-			Message(revision.Id, dequeueCount: host.Options.MaxAttempts), CancellationToken.None);
+			Message(revision.Id, dequeueCount: host.Options.MaxAttempts), host.Options.TimeBudget, CancellationToken.None);
 		Assert.False(terminal.Abandon);
 		Assert.Equal(ExtractionStatus.Failed, job.Status);
 		Assert.Equal(ExtractionWorker.ExhaustedReason, job.FailureReason);
@@ -265,7 +265,7 @@ public sealed class ExtractionWorkerTests
 		host.Storage.ThrowOnOpenRead = true;
 
 		var disposition = await host.Worker.HandleAsync(
-			Message(revision.Id, dequeueCount: host.Options.MaxAttempts), CancellationToken.None);
+			Message(revision.Id, dequeueCount: host.Options.MaxAttempts), host.Options.TimeBudget, CancellationToken.None);
 
 		Assert.False(disposition.Abandon);
 		Assert.Equal(ExtractionStatus.Failed, job.Status);
@@ -283,7 +283,7 @@ public sealed class ExtractionWorkerTests
 		host.Db.SaveChanges();
 		host.Storage.ThrowOnOpenRead = true;
 
-		var disposition = await host.Worker.HandleAsync(Message(revision.Id), CancellationToken.None);
+		var disposition = await host.Worker.HandleAsync(Message(revision.Id), host.Options.TimeBudget, CancellationToken.None);
 
 		Assert.False(disposition.Abandon);
 		Assert.Equal(ExtractionStatus.Failed, job.Status);
@@ -302,7 +302,7 @@ public sealed class ExtractionWorkerTests
 		host.Db.SaveChanges();
 		var before = (job.RowVersion, job.UpdatedAt, job.LastAttemptAt);
 
-		var disposition = await host.Worker.HandleAsync(Message(revision.Id), CancellationToken.None);
+		var disposition = await host.Worker.HandleAsync(Message(revision.Id), host.Options.TimeBudget, CancellationToken.None);
 
 		Assert.True(disposition.Abandon);
 		Assert.True(disposition.Visibility > TimeSpan.Zero);
@@ -326,7 +326,7 @@ public sealed class ExtractionWorkerTests
 		host.Db.SaveChanges();
 		host.Storage.Store(revision.BlobName, TextPdf("Wieder aufgenommen"));
 
-		var disposition = await host.Worker.HandleAsync(Message(revision.Id), CancellationToken.None);
+		var disposition = await host.Worker.HandleAsync(Message(revision.Id), host.Options.TimeBudget, CancellationToken.None);
 
 		Assert.False(disposition.Abandon);
 		Assert.Equal(ExtractionStatus.Completed, job.Status);
@@ -351,7 +351,7 @@ public sealed class ExtractionWorkerTests
 		var rowVersion = job.RowVersion;
 		host.Storage.ThrowOnOpenRead = true;
 
-		var disposition = await host.Worker.HandleAsync(Message(revision.Id), CancellationToken.None);
+		var disposition = await host.Worker.HandleAsync(Message(revision.Id), host.Options.TimeBudget, CancellationToken.None);
 
 		Assert.Equal(MessageDisposition.Delete, disposition);
 		host.Db.ChangeTracker.Clear();
@@ -378,7 +378,7 @@ public sealed class ExtractionWorkerTests
 		host.Db.SaveChanges();
 		host.Storage.Store(revision.BlobName, TextPdf("Letzter erlaubter Versuch"));
 
-		var disposition = await host.Worker.HandleAsync(Message(revision.Id), CancellationToken.None);
+		var disposition = await host.Worker.HandleAsync(Message(revision.Id), host.Options.TimeBudget, CancellationToken.None);
 
 		Assert.Equal(MessageDisposition.Delete, disposition);
 		Assert.Equal(ExtractionStatus.Completed, job.Status);
@@ -400,7 +400,7 @@ public sealed class ExtractionWorkerTests
 			job.Status = ExtractionStatus.Running;
 			job.LastAttemptAt = DateTimeOffset.UtcNow - host.Options.StaleRunningAfter - TimeSpan.FromMinutes(1);
 			host.Db.SaveChanges();
-			var disposition = await host.Worker.HandleAsync(Message(revision.Id), CancellationToken.None);
+			var disposition = await host.Worker.HandleAsync(Message(revision.Id), host.Options.TimeBudget, CancellationToken.None);
 			Assert.Equal(attempt, job.AttemptCount);
 			Assert.Equal(attempt < host.Options.MaxAttempts, disposition.Abandon);
 		}
@@ -418,7 +418,7 @@ public sealed class ExtractionWorkerTests
 		job.FailureReason = PdfTextExtractor.CorruptReason;
 		host.Db.SaveChanges();
 
-		var disposition = await host.Worker.HandleAsync(Message(revision.Id), CancellationToken.None);
+		var disposition = await host.Worker.HandleAsync(Message(revision.Id), host.Options.TimeBudget, CancellationToken.None);
 
 		Assert.False(disposition.Abandon);
 		Assert.Equal(ExtractionStatus.Failed, job.Status);
@@ -434,7 +434,7 @@ public sealed class ExtractionWorkerTests
 		var job = SeedJob(host, revision);
 		host.Storage.Store(revision.BlobName, TextPdf("Hallo Liedertafel"));
 
-		var disposition = await host.Worker.HandleAsync(Message(revision.Id), CancellationToken.None);
+		var disposition = await host.Worker.HandleAsync(Message(revision.Id), host.Options.TimeBudget, CancellationToken.None);
 
 		Assert.True(disposition.Abandon);
 		Assert.True(disposition.Visibility > TimeSpan.Zero);
@@ -451,7 +451,7 @@ public sealed class ExtractionWorkerTests
 		var host = new WorkerHost();
 
 		var disposition = await host.Worker.HandleAsync(
-			Message(Guid.CreateVersion7()), CancellationToken.None);
+			Message(Guid.CreateVersion7()), host.Options.TimeBudget, CancellationToken.None);
 
 		Assert.False(disposition.Abandon);
 		Assert.Empty(await host.Db.ExtractionJobs.ToListAsync());
@@ -464,7 +464,7 @@ public sealed class ExtractionWorkerTests
 		var (_, revision) = SeedRevision(host);
 		host.Storage.Store(revision.BlobName, TextPdf("Selbstheilung"));
 
-		var disposition = await host.Worker.HandleAsync(Message(revision.Id), CancellationToken.None);
+		var disposition = await host.Worker.HandleAsync(Message(revision.Id), host.Options.TimeBudget, CancellationToken.None);
 
 		Assert.False(disposition.Abandon);
 		var job = await host.Db.ExtractionJobs.SingleAsync();
@@ -484,7 +484,7 @@ public sealed class ExtractionWorkerTests
 		var job = SeedJob(host, revision);
 		host.Storage.Store(revision.BlobName, TextPdf("Nie gelesen"));
 
-		var disposition = await host.Worker.HandleAsync(Message(revision.Id), CancellationToken.None);
+		var disposition = await host.Worker.HandleAsync(Message(revision.Id), host.Options.TimeBudget, CancellationToken.None);
 
 		Assert.False(disposition.Abandon);
 		Assert.Equal(ExtractionStatus.Failed, job.Status);
@@ -505,7 +505,7 @@ public sealed class ExtractionWorkerTests
 		job.AttemptCount = 2;
 		host.Db.SaveChanges();
 
-		var disposition = await host.Worker.HandleAsync(Message(revision.Id), CancellationToken.None);
+		var disposition = await host.Worker.HandleAsync(Message(revision.Id), host.Options.TimeBudget, CancellationToken.None);
 
 		Assert.False(disposition.Abandon);
 		Assert.Equal(ExtractionStatus.Failed, job.Status);
@@ -527,7 +527,7 @@ public sealed class ExtractionWorkerTests
 			var (_, revision) = SeedRevision(host, assetType: assetType, contentType: contentType);
 			host.Storage.Store(revision.BlobName, TextPdf("Nie gelesen"));
 
-			var disposition = await host.Worker.HandleAsync(Message(revision.Id), CancellationToken.None);
+			var disposition = await host.Worker.HandleAsync(Message(revision.Id), host.Options.TimeBudget, CancellationToken.None);
 
 			Assert.False(disposition.Abandon);
 			Assert.Empty(await host.Db.ExtractionJobs.ToListAsync());
@@ -552,7 +552,7 @@ public sealed class ExtractionWorkerTests
 		})
 		{
 			var disposition = await host.Worker.HandleAsync(
-				Message(revision.Id, body: body), CancellationToken.None);
+				Message(revision.Id, body: body), host.Options.TimeBudget, CancellationToken.None);
 			Assert.False(disposition.Abandon);
 		}
 
@@ -580,9 +580,9 @@ public sealed class ExtractionWorkerTests
 		host.Storage.Store(first.BlobName, TextPdf("Erste Fassung"));
 		host.Storage.Store(second.BlobName, TextPdf("Zweite Fassung"));
 
-		await host.Worker.HandleAsync(Message(first.Id), CancellationToken.None);
-		await host.Worker.HandleAsync(Message(second.Id), CancellationToken.None);
-		var lateDuplicate = await host.Worker.HandleAsync(Message(first.Id), CancellationToken.None);
+		await host.Worker.HandleAsync(Message(first.Id), host.Options.TimeBudget, CancellationToken.None);
+		await host.Worker.HandleAsync(Message(second.Id), host.Options.TimeBudget, CancellationToken.None);
+		var lateDuplicate = await host.Worker.HandleAsync(Message(first.Id), host.Options.TimeBudget, CancellationToken.None);
 
 		Assert.False(lateDuplicate.Abandon);
 		var jobs = await host.Db.ExtractionJobs.ToDictionaryAsync(j => j.RevisionId);
@@ -609,6 +609,48 @@ public sealed class ExtractionWorkerTests
 		Assert.Equal(0, host.Source.PendingCount);
 		Assert.Equal(3, host.Source.Deleted.Count);
 		Assert.Empty(host.Source.Abandoned);
+		Assert.All(host.Source.RequestedBatchSizes, size => Assert.InRange(size, 1, 4));
+		Assert.Equal(4, host.Source.RequestedBatchSizes[0]);
+	}
+
+	[Fact]
+	public async Task PumpClampsTheLastAttemptToRemainingReceiveVisibility()
+	{
+		var clock = new MutableTimeProvider();
+		var host = new WorkerHost(time: clock);
+		var (_, revision) = SeedRevision(host);
+		SeedJob(host, revision);
+		host.Storage.Store(revision.BlobName, TextPdf("Hallo Liedertafel"));
+		host.Storage.OpenDelay = TimeSpan.FromSeconds(5);
+		var remaining = TimeSpan.FromMilliseconds(100);
+		host.Source.Seed(Message(Guid.NewGuid(), body: "poison"), Message(revision.Id));
+		host.Source.AfterDelete = () => clock.Now += host.Options.ReceiveVisibility - remaining;
+		using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+
+		Assert.Equal(2, await host.Pump.DrainAsync(timeout.Token));
+
+		var job = await host.Db.ExtractionJobs.AsNoTracking().SingleAsync();
+		Assert.Equal(ExtractionStatus.Queued, job.Status);
+		Assert.Equal(1, job.AttemptCount);
+		Assert.Single(host.Source.Deleted);
+		Assert.Single(host.Source.Abandoned);
+		Assert.Equal(1, host.Storage.OpenReadCalls);
+	}
+
+	[Fact]
+	public async Task PumpReleasesAnExhaustedBatchAndEndsTheRound()
+	{
+		var clock = new MutableTimeProvider();
+		var host = new WorkerHost(time: clock);
+		host.Options.DrainBudget = TimeSpan.FromHours(1);
+		host.Source.Seed(Enumerable.Range(0, 5).Select(_ => Message(Guid.NewGuid(), body: "poison")).ToArray());
+		host.Source.AfterDelete = () => clock.Now += host.Options.ReceiveVisibility;
+
+		Assert.Equal(1, await host.Pump.DrainAsync(CancellationToken.None));
+		Assert.Equal(3, host.Source.Abandoned.Count);
+		Assert.All(host.Source.Abandoned, item => Assert.Equal(TimeSpan.Zero, item.Visibility));
+		Assert.Single(host.Source.RequestedBatchSizes);
+		Assert.Equal(1, host.Source.PendingCount);
 	}
 
 	[Fact]
@@ -770,6 +812,7 @@ public sealed class ExtractionWorkerTests
 	{
 		var options = new ExtractionOptions();
 		Assert.Equal(8, options.BatchSize);
+		Assert.Equal(4, options.VisibilityFitBatchSize);
 		Assert.Equal(TimeSpan.FromMinutes(15), options.StaleRunningAfter);
 		options.StaleRunningAfter = TimeSpan.Zero;
 		options.BatchSize = int.MaxValue;
@@ -777,6 +820,10 @@ public sealed class ExtractionWorkerTests
 		Assert.Equal(8, options.BatchSize);
 		options.BatchSize = 0;
 		Assert.Equal(8, options.BatchSize);
+		options.BatchSize = 2;
+		Assert.Equal(2, options.VisibilityFitBatchSize);
+		options.ReceiveVisibility = TimeSpan.FromSeconds(1);
+		Assert.Equal(1, options.VisibilityFitBatchSize);
 	}
 
 	private static (ArchiveAsset Asset, FileRevision Revision) SeedRevision(WorkerHost host,
@@ -1021,6 +1068,7 @@ public sealed class ExtractionWorkerTests
 /// </summary>
 internal sealed class FakeExtractionMessageSource(params ExtractionMessage[] initial) : IExtractionMessageSource
 {
+	public List<int> RequestedBatchSizes { get; } = [];
 	public Action? AfterDelete { get; set; }
 	public bool ThrowOnNextDelete { get; set; }
 	public bool ThrowOnNextAbandon { get; set; }
@@ -1057,6 +1105,7 @@ internal sealed class FakeExtractionMessageSource(params ExtractionMessage[] ini
 		var batch = new List<ExtractionMessage>();
 		lock (gate)
 		{
+			RequestedBatchSizes.Add(maxMessages);
 			while (batch.Count < maxMessages && pending.Count > 0)
 			{
 				var message = pending.Dequeue();

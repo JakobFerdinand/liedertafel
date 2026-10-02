@@ -39,7 +39,7 @@ public static class DiagnosticEndpoints
         // the revision through the real queue so the worker's idempotent
         // duplicate handling can be observed end to end.
         app.MapPost("/api/dev/extraction-duplicate", async (HttpContext context, IAntiforgery antiforgery,
-            IServiceProvider services, Guid? revisionId, CancellationToken token) =>
+            IExtractionQueue queue, Guid? revisionId, CancellationToken token) =>
         {
             try { await antiforgery.ValidateRequestAsync(context); }
             catch (AntiforgeryValidationException)
@@ -52,7 +52,7 @@ public static class DiagnosticEndpoints
             }
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
             timeout.CancelAfter(TimeSpan.FromSeconds(30));
-            if (!await ExtractionQueueDiagnostics.SendDuplicateAsync(services, revisionId.Value, timeout.Token))
+            if (!await queue.SendAsync(revisionId.Value, timeout.Token))
             {
                 return Results.Problem(statusCode: 502,
                     title: "Kein Warteschlangen-Endpunkt für die Textauswertung konfiguriert.");

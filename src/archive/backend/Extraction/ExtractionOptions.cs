@@ -128,7 +128,14 @@ public sealed class ExtractionOptions
 
 	private int batchSize = 8;
 
-	/// <summary>Visibility window while one received message is being handled.</summary>
+	/// <summary>Time reserved for receipt release after serial extraction in one batch.</summary>
+	public static readonly TimeSpan ReleaseHeadroom = TimeSpan.FromSeconds(30);
+
+	/// <summary>The configured batch cap, further bounded by serial attempts fitting the visibility window.</summary>
+	public int VisibilityFitBatchSize => (int)Math.Max(1, Math.Min(BatchSize,
+		(ReceiveVisibility - ReleaseHeadroom).Ticks / TimeBudget.Ticks));
+
+	/// <summary>Visibility window shared by all messages in one receive round.</summary>
 	public TimeSpan ReceiveVisibility
 	{
 		get => receiveVisibility;

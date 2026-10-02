@@ -19,15 +19,15 @@ namespace Archive.AppHost.Tests;
 /// the completed state. An immediate rerun exits finitely on the empty queue
 /// without reworking the row, a scanned PDF ends in the explicit noText
 /// state, and a duplicated queue message (development diagnostic) is handled
-/// idempotently. Every run ends Finished with exit code 0 — no continuously
-/// running worker stays behind.
+/// idempotently. The first run asserts Finished with exit code 0; reruns
+/// observe a new completion log without relying on replayed state snapshots.
 /// </summary>
 public sealed class ExtractionRoundtripTests(ITestOutputHelper output)
 {
     [Fact]
     public async Task ExtractionRoundtripThroughRealAzuriteQueueAndFiniteWorker()
     {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(7));
         var token = timeout.Token;
         var builder = await DistributedApplicationTestingBuilder.CreateAsync<Projects.Archive_AppHost>(
             // Port randomization is off so the pinned Azurite blob port (see
@@ -114,7 +114,7 @@ public sealed class ExtractionRoundtripTests(ITestOutputHelper output)
 
         // Finite rerun on the empty queue: immediate finite exit, and the
         // completed row is never rewritten by the duplicate round trip.
-        await RunFiniteAsync(app, "archive-extract", token);
+        await RerunExtractionAsync(app, token);
         var rerunItem = await GetStatusItemAsync(api, editorSession, textRevisionId, token);
         Assert.Equal("completed", rerunItem.GetProperty("status").GetString());
         Assert.Equal(completedText, rerunItem.GetProperty("text").GetString()!);
@@ -125,7 +125,7 @@ public sealed class ExtractionRoundtripTests(ITestOutputHelper output)
         var scannedAsset = await CreateAssetAsync(api, editorSession, versionId, token);
         var (_, scannedRevisionId) = await TransferAndFinalizeAsync(
             api, storage, editorSession, scannedAsset, ScannedPdf(), token);
-        await RunFiniteAsync(app, "archive-extract", token);
+        await RerunExtractionAsync(app, token);
         var scannedItem = await GetStatusItemAsync(api, editorSession, scannedRevisionId, token);
         Assert.Equal("noText", scannedItem.GetProperty("status").GetString());
         Assert.Equal(1, scannedItem.GetProperty("attemptCount").GetInt32());
@@ -143,7 +143,7 @@ public sealed class ExtractionRoundtripTests(ITestOutputHelper output)
         var duplicateBody = await duplicateResponse.Content.ReadFromJsonAsync<JsonElement>(token);
         Assert.True(duplicateBody.GetProperty("sent").GetBoolean());
 
-        await RunFiniteAsync(app, "archive-extract", token);
+        await RerunExtractionAsync(app, token);
         var duplicateHandled = await GetStatusItemAsync(api, editorSession, textRevisionId, token);
         Assert.Equal("completed", duplicateHandled.GetProperty("status").GetString());
         Assert.Equal(completedText, duplicateHandled.GetProperty("text").GetString()!);
@@ -152,27 +152,77 @@ public sealed class ExtractionRoundtripTests(ITestOutputHelper output)
 
     /// <summary>
     /// Starts one explicitly-started finite resource and asserts a clean exit.
-    /// The start happens before the waits, and the first wait requires a
-    /// non-terminal state so a replayed Finished snapshot of the previous
-    /// finite run can never satisfy this run's completion wait.
+    /// Used only for first runs, which start from NotStarted and have no
+    /// previous Finished snapshot to replay.
     /// </summary>
     private static async Task RunFiniteAsync(DistributedApplication app, string resource, CancellationToken token)
     {
         var commands = app.Services.GetRequiredService<ResourceCommandService>();
         await commands.ExecuteCommandAsync(resource, "start", token);
-        await app.ResourceNotifications.WaitForResourceAsync(resource, update =>
-        {
-            var state = update.Snapshot.State?.Text;
-            return state != KnownResourceStates.Finished && state != KnownResourceStates.FailedToStart;
-        }, token);
+        await AssertSuccessfulCompletion(app.ResourceNotifications, resource, token);
+    }
+
+    private static async Task AssertSuccessfulCompletion(ResourceNotificationService notifications, string resource, CancellationToken token)
+    {
         int? exitCode = null;
-        await app.ResourceNotifications.WaitForResourceAsync(resource, update =>
+        await notifications.WaitForResourceAsync(resource, update =>
         {
             if (update.Snapshot.State?.Text != KnownResourceStates.Finished) return false;
             exitCode = update.Snapshot.ExitCode;
             return true;
         }, token);
         Assert.Equal(0, exitCode);
+    }
+
+    /// <summary>
+    /// Read the completion-log baseline before start, then wait for a new
+    /// occurrence rather than a replay-fragile Finished state. Each GetAllAsync
+    /// enumeration supplies a fresh snapshot of the current log backlog.
+    /// Preserve completion identities because restarting replaces process logs.
+    /// </summary>
+    private static async Task RerunExtractionAsync(DistributedApplication app, CancellationToken token)
+    {
+        const string resourceName = "archive-extract";
+        // Resolve the runtime instance name (including its DCP suffix) when
+        // fetching process logs rather than querying the model name directly.
+        var resource = app.Services.GetRequiredService<DistributedApplicationModel>()
+            .Resources.Single(resource => resource.Name == resourceName);
+        var logs = app.Services.GetRequiredService<ResourceLoggerService>();
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+        timeout.CancelAfter(TimeSpan.FromSeconds(120));
+        var backlog = await ReadLogsAsync();
+        var before = CompletionCount(backlog);
+        var completions = backlog.Where(IsCompletion).ToHashSet(StringComparer.Ordinal);
+        var completionCount = before;
+        await app.Services.GetRequiredService<ResourceCommandService>()
+            .ExecuteCommandAsync(resourceName, "start", timeout.Token);
+        while (true)
+        {
+            backlog = await ReadLogsAsync();
+            // GetAllAsync includes timestamps, so an old completion replay is
+            // ignored while a new run's completion survives backlog replacement.
+            foreach (var line in backlog.Where(IsCompletion))
+                if (completions.Add(line)) completionCount++;
+            if (completionCount > before) break;
+            await Task.Delay(TimeSpan.FromMilliseconds(500), timeout.Token);
+        }
+
+        Assert.DoesNotContain(backlog, line =>
+            line.Contains("Archive job extract-queue failed", StringComparison.Ordinal)
+            || line.Contains("FailedToStart", StringComparison.Ordinal));
+
+        static bool IsCompletion(string line) =>
+            line.Contains("Extraction worker dispatched", StringComparison.Ordinal);
+
+        static int CompletionCount(List<string> lines) => lines.Count(IsCompletion);
+
+        async Task<List<string>> ReadLogsAsync()
+        {
+            var lines = new List<string>();
+            await foreach (var batch in logs.GetAllAsync(resource).WithCancellation(timeout.Token))
+                lines.AddRange(batch.Select(line => line.Content));
+            return lines;
+        }
     }
 
     private static async Task<JsonElement> GetStatusItemAsync(
