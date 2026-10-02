@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { AudioSpieler } from "@/components/audio-spieler";
+import { ExtraktionStatus } from "@/components/extraktion-status";
 import { MidiSpieler } from "@/components/midi-spieler";
 import {
   AbbruchFehler,
@@ -701,6 +702,15 @@ export function NotenBereich({
                           </button>
                         )}
                       </div>
+                      {isEditor &&
+                        typ === "score" &&
+                        revision.contentType.toLowerCase() ===
+                          "application/pdf" && (
+                          <ExtraktionStatus
+                            revisionId={revision.revisionId}
+                            isEditor={isEditor}
+                          />
+                        )}
                       {isEditor && bearbeitenId === asset.id && (
                         <div className="material-bearbeiten">
                           <label htmlFor={`material-${asset.id}-stimme`}>

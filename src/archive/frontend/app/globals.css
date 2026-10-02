@@ -2575,7 +2575,8 @@ fieldset.programm-verwaltung {
     margin-block: 0;
   }
   .material-gruppe > .material-eintrag > .material-beschreibung,
-  .material-gruppe > .material-eintrag > .noten-aktionen {
+  .material-gruppe > .material-eintrag > .noten-aktionen,
+  .material-gruppe > .material-eintrag > .extraktion-status {
     grid-column: 1 / -1;
   }
   .programm-zeile {
@@ -2658,4 +2659,45 @@ fieldset.programm-verwaltung {
   .programme-anzahl {
     grid-column: 1;
   }
+}
+
+/* ─── Textauswertung (ARC-034) ────────────────────────────────────────
+   Stille Statuszeile der PDF-Textauswertung in den Material-Einträgen
+   (Noten und Auftrittsdokumente): der Stand liest sich nach .noten-info,
+   der Grund eines Fehlschlags hebt sich in der Fehlerschrift ab, und die
+   Textvorschau öffnet als begrenzter Kasten auf Papier im Waschton nach
+   .audio-spieler. Keine neuen Farben — Paletten, Leitern und Radien
+   kommen aus den gemeinsamen Variablen. */
+.extraktion-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.15rem 0.7rem;
+  min-width: 0;
+  margin-block: 0.15rem 0;
+}
+.extraktion-stand {
+  color: var(--muted);
+  font-size: var(--schrift-neben);
+  margin-block: 0;
+  overflow-wrap: anywhere;
+}
+.extraktion-grund {
+  color: var(--brand);
+  font-weight: 600;
+}
+.extraktion-status .knopf-leise {
+  min-height: 2.75rem;
+  padding: 0.3rem 0.7rem;
+  font-size: var(--schrift-neben);
+}
+.extraktion-vorschau {
+  font-size: var(--schrift-neben);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-fein);
+  background: var(--wash);
+  padding: 0.6rem 0.8rem;
+  margin-block: 0.3rem 0.1rem;
 }

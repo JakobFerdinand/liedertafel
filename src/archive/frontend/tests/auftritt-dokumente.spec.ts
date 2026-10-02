@@ -375,6 +375,31 @@ test("Redaktion hängt Dokument und Fotografie an, überträgt sie und sieht das
     const assetId = pfadTeil(route.request().url(), 3);
     return route.fulfill(json(zugriff(assetId)));
   });
+  // ARC-034: die Auswertungszeile des fertigen Dokuments liest ihren Stand
+  // ohne Nachfragen und ohne Knopf (fertig, ehrlich), damit die Zählung der
+  // Wiederholknöpfe die Werkbankzeile allein betrachtet.
+  await page.route("**/api/revisions/extraction*", (route) =>
+    route.fulfill(
+      json({
+        results: [
+          {
+            revisionId: `rev-${dokumentAssetId}`,
+            assetId: dokumentAssetId,
+            revisionNumber: 1,
+            status: "noText",
+            text: null,
+            failureReason: null,
+            attemptCount: 1,
+            completedAt: "2026-09-24T12:00:00.000Z",
+            lastAttemptAt: "2026-09-24T11:59:00.000Z",
+            lastEnqueuedAt: null,
+            updatedAt: "2026-09-24T12:00:00.000Z",
+            rowVersion: 1,
+          },
+        ],
+      }),
+    ),
+  );
 
   const antraege: Record<string, unknown>[] = [];
   await page.route(`**/api/events/${eventId}/assets`, (route) => {

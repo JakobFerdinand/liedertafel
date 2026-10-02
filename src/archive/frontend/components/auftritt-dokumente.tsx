@@ -8,6 +8,7 @@
 // Fortsetzen unterbrochener Übertragungen aus dem lokalen Speicher).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ExtraktionStatus } from "@/components/extraktion-status";
 import {
   AbbruchFehler,
   type AssetAccessResponse,
@@ -347,6 +348,14 @@ function DokumentEintrag({
       )}
       {isEditor && (
         <>
+          {dokument.assetType === "document" &&
+            dokument.currentRevision.contentType.toLowerCase() ===
+              "application/pdf" && (
+              <ExtraktionStatus
+                revisionId={dokument.currentRevision.revisionId}
+                isEditor={isEditor}
+              />
+            )}
           <div className="noten-aktionen">
             <button
               type="button"
