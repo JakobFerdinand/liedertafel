@@ -31,7 +31,7 @@ public sealed class ExtractionPump(
 	public async Task<int> DrainAsync(CancellationToken token)
 	{
 		var processed = 0;
-		var deadline = time.GetUtcNow() + options.Value.DrainBudget;
+		var drainDeadline = time.GetUtcNow() + options.Value.DrainBudget;
 		while (processed < options.Value.MaxMessagesPerRun)
 		{
 			token.ThrowIfCancellationRequested();
@@ -40,13 +40,14 @@ public sealed class ExtractionPump(
 				logger.LogInformation("Extraction drain paused: maintenance mode is enabled");
 				break;
 			}
-			if (time.GetUtcNow() >= deadline)
+			if (time.GetUtcNow() >= drainDeadline)
 			{
 				logger.LogInformation("Extraction drain reached its run budget after {Processed} messages", processed);
 				break;
 			}
 			var size = Math.Min(options.Value.VisibilityFitBatchSize, options.Value.MaxMessagesPerRun - processed);
 			var batchStart = time.GetUtcNow();
+			var deadline = batchStart + options.Value.ReceiveVisibility;
 			var messages = await source.ReceiveBatchAsync(size, token);
 			if (messages.Count == 0)
 			{
@@ -58,9 +59,8 @@ public sealed class ExtractionPump(
 			{
 				token.ThrowIfCancellationRequested();
 				var now = time.GetUtcNow();
-				var remaining = batchStart + options.Value.ReceiveVisibility - now;
-				batchExhausted |= remaining <= TimeSpan.Zero;
-				if (batchExhausted || now >= deadline || MaintenanceConfiguration.IsEnabled(configuration))
+				batchExhausted |= now >= deadline;
+				if (batchExhausted || now >= drainDeadline || MaintenanceConfiguration.IsEnabled(configuration))
 				{
 					// Release all unprocessed receipts immediately, including the
 					// rest of this batch, rather than waiting out receive visibility.
@@ -72,8 +72,10 @@ public sealed class ExtractionPump(
 				try
 				{
 					await using var workerScope = createWorkerScope();
-					var budget = remaining < options.Value.TimeBudget ? remaining : options.Value.TimeBudget;
-					disposition = await workerScope.ServiceProvider.GetRequiredService<ExtractionWorker>().HandleAsync(message, budget, token);
+					var messageDeadline = now + options.Value.TimeBudget;
+					if (messageDeadline > deadline)
+						messageDeadline = deadline;
+					disposition = await workerScope.ServiceProvider.GetRequiredService<ExtractionWorker>().HandleAsync(message, messageDeadline, token);
 				}
 				catch (Exception exception) when (exception is not OperationCanceledException)
 				{

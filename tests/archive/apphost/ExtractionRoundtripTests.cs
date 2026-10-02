@@ -20,7 +20,7 @@ namespace Archive.AppHost.Tests;
 /// without reworking the row, a scanned PDF ends in the explicit noText
 /// state, and a duplicated queue message (development diagnostic) is handled
 /// idempotently. The first run asserts Finished with exit code 0; reruns
-/// observe a new completion log without relying on replayed state snapshots.
+/// observe a new completion log before waiting for that run's successful exit.
 /// </summary>
 public sealed class ExtractionRoundtripTests(ITestOutputHelper output)
 {
@@ -176,7 +176,7 @@ public sealed class ExtractionRoundtripTests(ITestOutputHelper output)
 
     /// <summary>
     /// Read the completion-log baseline before start, then wait for a new
-    /// occurrence rather than a replay-fragile Finished state. Each GetAllAsync
+    /// occurrence before observing the latest process's successful Finished state. Each GetAllAsync
     /// enumeration supplies a fresh snapshot of the current log backlog.
     /// Preserve completion identities because restarting replaces process logs.
     /// </summary>
@@ -207,6 +207,10 @@ public sealed class ExtractionRoundtripTests(ITestOutputHelper output)
             await Task.Delay(TimeSpan.FromMilliseconds(500), timeout.Token);
         }
 
+        await app.ResourceNotifications.WaitForResourceAsync(resourceName, update =>
+            update.Snapshot.State?.Text == KnownResourceStates.Finished
+            && update.Snapshot.ExitCode == 0, timeout.Token);
+        backlog = await ReadLogsAsync();
         Assert.DoesNotContain(backlog, line =>
             line.Contains("Archive job extract-queue failed", StringComparison.Ordinal)
             || line.Contains("FailedToStart", StringComparison.Ordinal));

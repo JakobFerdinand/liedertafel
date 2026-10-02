@@ -54,9 +54,12 @@ ARC-035 (score-text search) and ARC-037 (import job) build on.
   reads the maintenance flag first (`Archive:MaintenanceMode`, the
   [runbook job contract](../../infrastructure/archive/README.md)) and abandons
   received messages while it is true; drains one receive round at a time
-  (batch ≤ 8 with a 10-minute receive visibility, serial processing =
-  constrained concurrency, each message budgeted to `TimeBudget` so a batch
-  always fits its visibility window); deletes the message on terminal success
+  (batch received with a visibility-fit count: at most `BatchSize` (8) and
+  only as many messages as can each get their `TimeBudget` inside the
+  receive visibility minus a release headroom; serial processing =
+  constrained concurrency, and each message's effective budget is the
+  remaining batch visibility — an expired budget takes the bounded transient
+  path, it never overruns a receipt); deletes the message on terminal success
   (incl. idempotent duplicates) and on deterministic failure (corrupt,
   encrypted, oversize or overlength PDF → `Failed` without retry); abandons
   with visibility backoff on transient failure while attempts remain

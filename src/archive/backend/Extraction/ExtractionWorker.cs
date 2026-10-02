@@ -31,7 +31,8 @@ public sealed record MessageDisposition(bool Abandon, TimeSpan Visibility)
 /// the bounded transient path (row back to Queued, message abandoned with
 /// visibility backoff) or the terminal failed state once attempts are
 /// exhausted.
-/// The deadline spans blob open and parsing. PdfPig cannot interrupt a
+/// The caller supplies an absolute per-message deadline clamped by the batch's
+/// receive visibility. It spans database work, blob open and parsing. PdfPig cannot interrupt a
 /// synchronous document/page parse internally; a single page can overrun the
 /// budget, but an expired outcome is never accepted. Decoded expansion remains
 /// bounded by container memory, with stale-lease recovery after interruption.
@@ -50,7 +51,12 @@ public sealed class ExtractionWorker(
 	/// <summary>ARC-034: the bounded attempt budget is spent; the editor's retry action restarts the work.</summary>
 	public const string ExhaustedReason = "Die Verarbeitung ist nach mehreren Versuchen fehlgescheitert.";
 
-	public async Task<MessageDisposition> HandleAsync(ExtractionMessage message, TimeSpan timeBudget, CancellationToken token)
+	/// <summary>Handles one envelope within the caller's absolute deadline.</summary>
+	/// <param name="message">The received extraction envelope and queue receipt.</param>
+	/// <param name="deadline">Absolute per-message deadline, clamped by the batch's receive visibility;
+	/// covers database work, blob opening and parsing.</param>
+	/// <param name="token">Parent cancellation, distinct from deadline expiry.</param>
+	public async Task<MessageDisposition> HandleAsync(ExtractionMessage message, DateTimeOffset deadline, CancellationToken token)
 	{
 		// 1. Envelope: malformed JSON, a missing/unparsable revision id or a
 		// foreign type is poison on this extraction-only queue — it can never
@@ -75,12 +81,43 @@ public sealed class ExtractionWorker(
 		ActivityContext.TryParse(envelope.TraceParent, envelope.TraceState, isRemote: true, out var parent);
 		using (Extensions.Activities.StartActivity("archive.queue.process", ActivityKind.Consumer, parent))
 		{
-			return await ProcessAsync(envelope.RevisionId, message, timeBudget, token);
+			return await ProcessAsync(envelope.RevisionId, message, deadline, token);
 		}
 	}
 
-	private async Task<MessageDisposition> ProcessAsync(Guid revisionId, ExtractionMessage message, TimeSpan timeBudget, CancellationToken token)
+	private async Task<MessageDisposition> ProcessAsync(Guid revisionId, ExtractionMessage message, DateTimeOffset deadline, CancellationToken token)
 	{
+		using var budget = CancellationTokenSource.CreateLinkedTokenSource(token);
+		var remaining = deadline - time.GetUtcNow();
+		if (remaining <= TimeSpan.Zero)
+			budget.Cancel();
+		else
+			budget.CancelAfter(remaining);
+		var attempt = new AttemptState();
+		try
+		{
+			budget.Token.ThrowIfCancellationRequested();
+			return await ProcessAttemptAsync(revisionId, message, budget, attempt, token);
+		}
+		catch (OperationCanceledException) when (budget.IsCancellationRequested && !token.IsCancellationRequested)
+		{
+			logger.LogWarning("Extraction for revision {RevisionId} exceeded its time budget", revisionId);
+			// Recovery must survive the expired processing token. Discard any
+			// unsaved transition before reading the durable attempt count.
+			db.ChangeTracker.Clear();
+			if (!attempt.LeaseTaken)
+				return new MessageDisposition(Abandon: true, Visibility: Backoff(message.DequeueCount));
+			var job = await db.ExtractionJobs.FirstOrDefaultAsync(j => j.RevisionId == revisionId, token);
+			if (job is null)
+				return new MessageDisposition(Abandon: true, Visibility: Backoff(message.DequeueCount));
+			return await RetryAsync(job, revisionId, message, token);
+		}
+	}
+
+	private async Task<MessageDisposition> ProcessAttemptAsync(Guid revisionId, ExtractionMessage message,
+		CancellationTokenSource budget, AttemptState attempt, CancellationToken parentToken)
+	{
+		var token = budget.Token;
 		// 3. Maintenance pause: the row stays untouched and the message
 		// redisplay after the backoff window; the pump stops the run itself.
 		if (MaintenanceConfiguration.IsEnabled(configuration))
@@ -173,6 +210,7 @@ public sealed class ExtractionWorker(
 		try
 		{
 			await db.SaveChangesAsync(token);
+			attempt.LeaseTaken = true;
 		}
 		catch (DbUpdateConcurrencyException)
 		{
@@ -192,13 +230,10 @@ public sealed class ExtractionWorker(
 			return await SaveAndConcludeAsync(job, revisionId, MessageDisposition.Delete, token);
 		}
 
-		// 10. Bounded extraction: the time budget rides a linked token so the
-		// parent cancellation stays distinguishable from budget exhaustion.
+		// 10. Blob open and parsing share the database work's deadline token.
 		Stream? stream = null;
 		ExtractionOutcome? outcome = null;
 		var transient = false;
-		using var budget = CancellationTokenSource.CreateLinkedTokenSource(token);
-		budget.CancelAfter(timeBudget);
 		try
 		{
 			stream = await storage.OpenReadAsync(revision.BlobName, budget.Token);
@@ -214,7 +249,7 @@ public sealed class ExtractionWorker(
 				budget.Token.ThrowIfCancellationRequested();
 			}
 		}
-		catch (OperationCanceledException) when (budget.IsCancellationRequested && !token.IsCancellationRequested)
+		catch (OperationCanceledException) when (budget.IsCancellationRequested && !parentToken.IsCancellationRequested)
 		{
 			logger.LogWarning("Extraction for revision {RevisionId} exceeded its time budget", revisionId);
 			transient = true;
@@ -233,7 +268,7 @@ public sealed class ExtractionWorker(
 		}
 
 		// Disposal can also cross the deadline; no expired result is accepted.
-		token.ThrowIfCancellationRequested();
+		parentToken.ThrowIfCancellationRequested();
 		transient |= budget.IsCancellationRequested;
 		if (!transient)
 		{
@@ -258,6 +293,12 @@ public sealed class ExtractionWorker(
 			return await SaveAndConcludeAsync(job, revisionId, MessageDisposition.Delete, token);
 		}
 
+		return await RetryAsync(job, revisionId, message, parentToken);
+	}
+
+	private async Task<MessageDisposition> RetryAsync(ExtractionJob job, Guid revisionId,
+		ExtractionMessage message, CancellationToken token)
+	{
 		// Transient path: exhaustion (row budget or the message's own dequeue
 		// count) is evaluated after the attempt bump. Terminal failure ends
 		// the work; the editor's retry action restarts it fresh.
@@ -280,6 +321,11 @@ public sealed class ExtractionWorker(
 		var visibility = Backoff(message.DequeueCount);
 		return await SaveAndConcludeAsync(job, revisionId,
 			new MessageDisposition(Abandon: true, Visibility: visibility), token);
+	}
+
+	private sealed class AttemptState
+	{
+		public bool LeaseTaken { get; set; }
 	}
 
 	/// <summary>
