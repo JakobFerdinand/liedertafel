@@ -55,10 +55,12 @@ export async function holeExtraktionStatus(
  */
 export async function starteExtraktionErneut(
   revisionId: string,
+  signal?: AbortSignal,
 ): Promise<ExtraktionsInfo> {
   const response = await postAuth(
     `/api/revisions/${encodeURIComponent(revisionId)}/extraction/retry`,
     {},
+    signal,
   );
   if (!response.ok) throw response;
   return (await response.json()) as ExtraktionsInfo;

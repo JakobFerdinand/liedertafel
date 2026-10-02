@@ -214,7 +214,7 @@ test("Redaktion liest den Auswertungsstand und öffnet die Textvorschau", async 
   await page.route(`**/api/assets/${notenAssetId}/access`, (route) =>
     route.fulfill(json(notenZugriff())),
   );
-  const text = "A".repeat(600) + "BCD";
+  const text = `${"A".repeat(600)}BCD`;
   await page.route("**/api/revisions/extraction*", (route) =>
     route.fulfill(
       json({ results: [auswertung(notenRevisionId, notenAssetId, { text })] }),
@@ -235,7 +235,7 @@ test("Redaktion liest den Auswertungsstand und öffnet die Textvorschau", async 
   await expect(zeile.locator(".extraktion-vorschau")).toHaveCount(0);
   await umschalter.click();
   const vorschau = zeile.locator(".extraktion-vorschau");
-  await expect(vorschau).toHaveText("A".repeat(600) + "…");
+  await expect(vorschau).toHaveText(`${"A".repeat(600)}…`);
   const schliessen = zeile.getByRole("button", {
     name: "Vorschau schließen",
   });
@@ -284,7 +284,19 @@ test("Wartende Auswertung frischt sich selbst auf und ruht, wenn sie fertig ist"
   page.on("pageerror", (error) => errors.push(error.message));
   await mockSitzung(page, editorMe);
   await page.route(`**/api/songs/${songId}`, (route) =>
-    route.fulfill(json(liedDetail([notenEintrag()]))),
+    route.fulfill(
+      json(
+        liedDetail([
+          notenEintrag(),
+          {
+            ...notenEintrag(),
+            id: dokumentAssetId,
+            voiceLabel: "Sopran",
+            currentRevision: revision(dokumentRevisionId),
+          },
+        ]),
+      ),
+    ),
   );
   let stand = auswertung(notenRevisionId, notenAssetId, {
     status: "queued",
@@ -296,24 +308,48 @@ test("Wartende Auswertung frischt sich selbst auf und ruht, wenn sie fertig ist"
   let anfragen = 0;
   await page.route("**/api/revisions/extraction*", (route) => {
     anfragen += 1;
-    return route.fulfill(json({ results: [stand] }));
+    expect(
+      new URL(route.request().url()).searchParams.get("ids")?.split(",").sort(),
+    ).toEqual([notenRevisionId, dokumentRevisionId].sort());
+    return route.fulfill(
+      json({
+        results: [
+          stand,
+          {
+            ...stand,
+            revisionId: dokumentRevisionId,
+            assetId: dokumentAssetId,
+          },
+        ],
+      }),
+    );
   });
 
   await page.goto(`/lied/?id=${songId}`);
   const standZeile = page.locator(".extraktion-stand");
-  await expect(standZeile).toHaveText("Textauswertung wartet …");
+  await expect(standZeile).toHaveText([
+    "Textauswertung wartet …",
+    "Textauswertung wartet …",
+  ]);
+  expect(anfragen).toBe(1);
 
   stand = auswertung(notenRevisionId, notenAssetId, {
     status: "running",
     text: null,
     completedAt: null,
   });
-  await expect(standZeile).toHaveText("Textauswertung läuft …", {
-    timeout: 10_000,
-  });
+  await expect(standZeile).toHaveText(
+    ["Textauswertung läuft …", "Textauswertung läuft …"],
+    {
+      timeout: 10_000,
+    },
+  );
+  expect(anfragen).toBe(2);
 
   stand = auswertung(notenRevisionId, notenAssetId);
-  await expect(standZeile).toHaveText("Text ausgelesen", { timeout: 10_000 });
+  await expect(standZeile).toHaveText(["Text ausgelesen", "Text ausgelesen"], {
+    timeout: 10_000,
+  });
 
   // Fertig ist fertig: ohne laufende Auswertung entsteht keine Nachfrage.
   const bisher = anfragen;
@@ -521,4 +557,225 @@ test("Gestörter Auswertungsabruf erklärt sich und stört die übrigen Aktionen
   );
 
   expect(errors).toEqual([]);
+});
+
+for (const status of [409, 500]) {
+  test(`Abgelehnter Versuch (${status}) behält den ehrlichen Stand und lädt neu`, async ({
+    page,
+  }) => {
+    await mockSitzung(page, editorMe);
+    await page.route(`**/api/songs/${songId}`, (route) =>
+      route.fulfill(json(liedDetail([notenEintrag()]))),
+    );
+    let anfragen = 0;
+    await page.route("**/api/revisions/extraction*", (route) => {
+      anfragen += 1;
+      return route.fulfill(
+        json({
+          results: [
+            auswertung(notenRevisionId, notenAssetId, {
+              status: "failed",
+              text: null,
+            }),
+          ],
+        }),
+      );
+    });
+    const titel = "Der Eintrag wurde zwischenzeitlich geändert.";
+    await page.route("**/api/revisions/*/extraction/retry", (route) =>
+      route.fulfill(problem(titel, status)),
+    );
+    await page.goto(`/lied/?id=${songId}`);
+    const zeile = page.locator(".extraktion-status");
+    await expect(zeile.locator(".extraktion-stand")).toHaveText(
+      "Textauswertung gescheitert",
+    );
+    await zeile
+      .getByRole("button", {
+        name: "Textauswertung für diese Datei erneut starten",
+      })
+      .click();
+    await expect(zeile.getByRole("alert")).toHaveText(titel);
+    await expect.poll(() => anfragen).toBe(2);
+    await expect(zeile.locator(".extraktion-stand")).toHaveText(
+      "Textauswertung gescheitert",
+    );
+    await expect(zeile).not.toContainText("Textauswertung läuft");
+    await expect(
+      zeile.getByRole("button", {
+        name: "Textauswertung für diese Datei erneut starten",
+      }),
+    ).toBeEnabled();
+  });
+}
+
+for (const fehlt of [false, true]) {
+  for (const status of [401, 403]) {
+    test(`Berechtigungsgrenze (${status}) verbirgt die Zeile beim ${fehlt ? "Start" : "erneuten Versuch"}`, async ({
+      page,
+    }) => {
+      await mockSitzung(page, editorMe);
+      await page.route(`**/api/songs/${songId}`, (route) =>
+        route.fulfill(json(liedDetail([notenEintrag()]))),
+      );
+      await page.route("**/api/revisions/extraction*", (route) =>
+        route.fulfill(
+          json({
+            results: fehlt
+              ? []
+              : [
+                  auswertung(notenRevisionId, notenAssetId, {
+                    status: "failed",
+                  }),
+                ],
+          }),
+        ),
+      );
+      await page.route("**/api/revisions/*/extraction/retry", (route) =>
+        route.fulfill(
+          problem("Keine Berechtigung für das Liedverzeichnis.", status),
+        ),
+      );
+      await page.goto(`/lied/?id=${songId}`);
+      const zeile = page.locator(".extraktion-status");
+      await zeile
+        .getByRole("button", {
+          name: fehlt
+            ? "Textauswertung starten"
+            : "Textauswertung für diese Datei erneut starten",
+        })
+        .click();
+      await expect(zeile).toHaveCount(0);
+    });
+  }
+}
+
+test("Fehlende Auswertungszeile bietet den Start an und wartet erst nach Erfolg", async ({
+  page,
+}) => {
+  await mockSitzung(page, editorMe);
+  await page.route(`**/api/songs/${songId}`, (route) =>
+    route.fulfill(json(liedDetail([notenEintrag()]))),
+  );
+  let gestartet = false;
+  const stand = auswertung(notenRevisionId, notenAssetId, {
+    status: "queued",
+    text: null,
+  });
+  await page.route("**/api/revisions/extraction*", (route) =>
+    route.fulfill(json({ results: gestartet ? [stand] : [] })),
+  );
+  let loslassen: () => void = () => {};
+  const warte = new Promise<void>((resolve) => {
+    loslassen = resolve;
+  });
+  let posts = 0;
+  await page.route(
+    `**/api/revisions/${notenRevisionId}/extraction/retry`,
+    async (route) => {
+      expect(route.request().method()).toBe("POST");
+      expect(route.request().postDataJSON()).toEqual({});
+      posts += 1;
+      await warte;
+      gestartet = true;
+      await route.fulfill(json(stand));
+    },
+  );
+  await page.goto(`/lied/?id=${songId}`);
+  const zeile = page.locator(".extraktion-status");
+  const starten = zeile.getByRole("button", { name: "Textauswertung starten" });
+  await expect(starten).toHaveClass("knopf-leise");
+  await starten.click();
+  await expect.poll(() => posts).toBe(1);
+  await expect(zeile.locator(".extraktion-stand")).toHaveCount(0);
+  loslassen();
+  await expect(zeile.locator(".extraktion-stand")).toHaveText(
+    "Textauswertung wartet …",
+  );
+});
+
+test("Späte Retry-Antwort der alten Revision verändert die neue Revision nicht", async ({
+  page,
+}) => {
+  await mockSitzung(page, editorMe);
+  let neu = false;
+  await page.route(`**/api/songs/${songId}`, (route) =>
+    route.fulfill(
+      json(
+        liedDetail([
+          {
+            ...notenEintrag(),
+            currentRevision: revision(
+              neu ? dokumentRevisionId : notenRevisionId,
+            ),
+          },
+        ]),
+      ),
+    ),
+  );
+  await page.route(`**/api/assets/${notenAssetId}`, (route) => {
+    expect(route.request().method()).toBe("PATCH");
+    neu = true;
+    return route.fulfill(json({}));
+  });
+  await page.route("**/api/revisions/extraction*", (route) => {
+    const id = new URL(route.request().url()).searchParams.get("ids");
+    return route.fulfill(
+      json({
+        results: [
+          auswertung(id ?? "", notenAssetId, {
+            status: id === notenRevisionId ? "failed" : "completed",
+            text: id === notenRevisionId ? null : "Text der neuen Revision B",
+          }),
+        ],
+      }),
+    );
+  });
+  let begonnen = false;
+  let beendet = false;
+  await page.route(
+    `**/api/revisions/${notenRevisionId}/extraction/retry`,
+    async (route) => {
+      begonnen = true;
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await route.fulfill(
+        json(
+          auswertung(notenRevisionId, notenAssetId, {
+            status: "queued",
+            text: "Alter Text der Revision A",
+          }),
+        ),
+      );
+      beendet = true;
+    },
+  );
+  await page.goto(`/lied/?id=${songId}`);
+  const zeile = page.locator(".extraktion-status");
+  await zeile
+    .getByRole("button", {
+      name: "Textauswertung für diese Datei erneut starten",
+    })
+    .click();
+  await expect.poll(() => begonnen).toBe(true);
+  const eintrag = page.locator(".material-eintrag");
+  await eintrag
+    .getByRole("button", { name: "Bearbeiten", exact: true })
+    .click();
+  await eintrag.getByRole("button", { name: "Änderungen speichern" }).click();
+  await expect(zeile.locator(".extraktion-stand")).toHaveText(
+    "Text ausgelesen",
+  );
+  // B ist schon sichtbar, während A noch auf die verspätete Antwort wartet.
+  expect(beendet).toBe(false);
+  await expect.poll(() => beendet).toBe(true);
+  await expect(zeile.locator(".extraktion-stand")).toHaveText(
+    "Text ausgelesen",
+  );
+  const vorschau = zeile.getByRole("button", { name: "Textvorschau" });
+  await expect(vorschau).toHaveAttribute("aria-expanded", "false");
+  await vorschau.click();
+  await expect(zeile.locator(".extraktion-vorschau")).toHaveText(
+    "Text der neuen Revision B",
+  );
+  await expect(zeile.getByRole("alert")).toHaveCount(0);
 });

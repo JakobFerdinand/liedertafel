@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ExtraktionStatus } from "@/components/extraktion-status";
+import { ExtraktionUebersichtProvider } from "@/components/extraktion-uebersicht";
 import {
   AbbruchFehler,
   type AssetAccessResponse,
@@ -988,17 +989,19 @@ export function AuftrittDokumente({
             </ul>
           )}
           {dokumentEintraege.length > 0 && (
-            <div className="material-liste dokumente-liste">
-              {dokumentEintraege.map((eintrag) => (
-                <DokumentEintrag
-                  dokument={eintrag}
-                  isEditor={isEditor}
-                  onBearbeitet={() => setErfolg("Änderungen gespeichert.")}
-                  aktualisieren={aktualisieren}
-                  key={eintrag.id}
-                />
-              ))}
-            </div>
+            <ExtraktionUebersichtProvider>
+              <div className="material-liste dokumente-liste">
+                {dokumentEintraege.map((eintrag) => (
+                  <DokumentEintrag
+                    dokument={eintrag}
+                    isEditor={isEditor}
+                    onBearbeitet={() => setErfolg("Änderungen gespeichert.")}
+                    aktualisieren={aktualisieren}
+                    key={eintrag.id}
+                  />
+                ))}
+              </div>
+            </ExtraktionUebersichtProvider>
           )}
         </>
       ) : (

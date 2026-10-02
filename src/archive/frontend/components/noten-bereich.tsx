@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AudioSpieler } from "@/components/audio-spieler";
 import { ExtraktionStatus } from "@/components/extraktion-status";
+import { ExtraktionUebersichtProvider } from "@/components/extraktion-uebersicht";
 import { MidiSpieler } from "@/components/midi-spieler";
 import {
   AbbruchFehler,
@@ -525,244 +526,254 @@ export function NotenBereich({
       <h3 id="material-titel">Material</h3>
       <p className="noten-info">Fassung: {fassungLabel}</p>
       {veroeffentlicht.length > 0 && (
-        <div className="material-liste">
-          {bearbeitenErfolg && (
-            <output aria-live="polite" className="auth-erfolg">
-              {bearbeitenErfolg}
-            </output>
-          )}
-          {zugriffFehler && (
-            <output aria-live="polite" className="feld-fehler">
-              {zugriffFehler}
-            </output>
-          )}
-          {materialgruppen.map(([typ, titel]) => {
-            const gruppenAssets = veroeffentlicht.filter(
-              (asset) => asset.assetType === typ,
-            );
-            if (gruppenAssets.length === 0) return null;
-            return (
-              <div className="material-gruppe" key={typ}>
-                <h4>{titel}</h4>
-                {gruppenAssets.map((asset) => {
-                  const revision = asset.currentRevision;
-                  if (!revision) return null;
-                  const stimme = asset.voiceLabel?.trim() || "Vollmix";
-                  const zugriff = zugriffe[asset.id] ?? null;
-                  return (
-                    <article
-                      className="material-eintrag"
-                      key={asset.id}
-                      aria-label={`${titel} · ${stimme}`}
-                    >
-                      <p className="material-stimme">{stimme}</p>
-                      <p className="noten-info">
-                        {titel} · Fassung {revision.revisionNumber} ·{" "}
-                        {groesseText(revision.sizeBytes)} ·{" "}
-                        {typText(revision.contentType)}
-                      </p>
-                      {asset.description?.trim() && (
-                        <p className="material-beschreibung">
-                          {asset.description.trim()}
+        <ExtraktionUebersichtProvider>
+          <div className="material-liste">
+            {bearbeitenErfolg && (
+              <output aria-live="polite" className="auth-erfolg">
+                {bearbeitenErfolg}
+              </output>
+            )}
+            {zugriffFehler && (
+              <output aria-live="polite" className="feld-fehler">
+                {zugriffFehler}
+              </output>
+            )}
+            {materialgruppen.map(([typ, titel]) => {
+              const gruppenAssets = veroeffentlicht.filter(
+                (asset) => asset.assetType === typ,
+              );
+              if (gruppenAssets.length === 0) return null;
+              return (
+                <div className="material-gruppe" key={typ}>
+                  <h4>{titel}</h4>
+                  {gruppenAssets.map((asset) => {
+                    const revision = asset.currentRevision;
+                    if (!revision) return null;
+                    const stimme = asset.voiceLabel?.trim() || "Vollmix";
+                    const zugriff = zugriffe[asset.id] ?? null;
+                    return (
+                      <article
+                        className="material-eintrag"
+                        key={asset.id}
+                        aria-label={`${titel} · ${stimme}`}
+                      >
+                        <p className="material-stimme">{stimme}</p>
+                        <p className="noten-info">
+                          {titel} · Fassung {revision.revisionNumber} ·{" "}
+                          {groesseText(revision.sizeBytes)} ·{" "}
+                          {typText(revision.contentType)}
                         </p>
-                      )}
-                      <div className="noten-aktionen">
-                        {typ === "score" ? (
-                          zugriff ? (
-                            <>
-                              <iframe
-                                className="noten-ansicht"
-                                src={zugriff.viewUrl}
-                                title={`Noten (PDF) · ${stimme}`}
-                                allow="fullscreen"
-                              />
-                              {vollbildMoeglich && (
-                                <button
-                                  type="button"
-                                  className="knopf-leise"
-                                  onClick={(ereignis) =>
-                                    oeffneVollbild(ereignis.currentTarget)
-                                  }
-                                >
-                                  Vollbild
-                                </button>
-                              )}
-                            </>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => void anzeigen(asset)}
-                              disabled={zugriffBusy[asset.id] === true}
-                            >
-                              {zugriffBusy[asset.id]
-                                ? "Noten werden vorbereitet …"
-                                : "Noten anzeigen"}
-                            </button>
-                          )
-                        ) : null}
-                        {typ === "score" && zugriff && (
-                          <a
-                            className="noten-laden"
-                            href={zugriff.downloadUrl}
-                            download
-                          >
-                            Herunterladen
-                          </a>
+                        {asset.description?.trim() && (
+                          <p className="material-beschreibung">
+                            {asset.description.trim()}
+                          </p>
                         )}
-                        {typ === "audio" &&
-                          (zugriff ? (
-                            <>
-                              <AudioSpieler
-                                assetId={asset.id}
-                                stimme={stimme}
-                                zugriff={zugriff}
-                                aktiv={spielendesAudio === asset.id}
-                                onAbspielen={() => setSpielendesAudio(asset.id)}
-                                onErneuert={(erneuert) =>
-                                  setZugriffe((vorher) => ({
-                                    ...vorher,
-                                    [asset.id]: erneuert,
-                                  }))
-                                }
-                              />
-                              <a
-                                className="noten-laden"
-                                href={zugriff.downloadUrl}
-                                download
+                        <div className="noten-aktionen">
+                          {typ === "score" ? (
+                            zugriff ? (
+                              <>
+                                <iframe
+                                  className="noten-ansicht"
+                                  src={zugriff.viewUrl}
+                                  title={`Noten (PDF) · ${stimme}`}
+                                  allow="fullscreen"
+                                />
+                                {vollbildMoeglich && (
+                                  <button
+                                    type="button"
+                                    className="knopf-leise"
+                                    onClick={(ereignis) =>
+                                      oeffneVollbild(ereignis.currentTarget)
+                                    }
+                                  >
+                                    Vollbild
+                                  </button>
+                                )}
+                              </>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => void anzeigen(asset)}
+                                disabled={zugriffBusy[asset.id] === true}
                               >
-                                Herunterladen
-                              </a>
-                            </>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => void anzeigen(asset)}
-                              disabled={zugriffBusy[asset.id] === true}
+                                {zugriffBusy[asset.id]
+                                  ? "Noten werden vorbereitet …"
+                                  : "Noten anzeigen"}
+                              </button>
+                            )
+                          ) : null}
+                          {typ === "score" && zugriff && (
+                            <a
+                              className="noten-laden"
+                              href={zugriff.downloadUrl}
+                              download
                             >
-                              {zugriffBusy[asset.id]
-                                ? "Wird vorbereitet …"
-                                : "Anhören"}
-                            </button>
-                          ))}
-                        {typ === "midi" &&
-                          (zugriff ? (
-                            <>
-                              <MidiSpieler
-                                assetId={asset.id}
-                                stimme={stimme}
-                                zugriff={zugriff}
-                                aktiv={spielendesAudio === asset.id}
-                                onAbspielen={() => setSpielendesAudio(asset.id)}
-                                onErneuert={(erneuert) =>
-                                  setZugriffe((vorher) => ({
-                                    ...vorher,
-                                    [asset.id]: erneuert,
-                                  }))
-                                }
-                              />
-                              <a
-                                className="noten-laden"
-                                href={zugriff.downloadUrl}
-                                download
-                              >
-                                Herunterladen
-                              </a>
-                            </>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => void anzeigen(asset)}
-                              disabled={zugriffBusy[asset.id] === true}
-                            >
-                              {zugriffBusy[asset.id]
-                                ? "Wird vorbereitet …"
-                                : "Anhören"}
-                            </button>
-                          ))}
-                        {isEditor && (
-                          <button
-                            type="button"
-                            className="knopf-leise"
-                            onClick={() =>
-                              bearbeitenId === asset.id
-                                ? bearbeitenSchliessen()
-                                : (() => {
-                                    setBearbeitenId(asset.id);
-                                    setBearbeitenStimme(asset.voiceLabel ?? "");
-                                    setBearbeitenBeschreibung(
-                                      asset.description ?? "",
-                                    );
-                                    setBearbeitenFehler("");
-                                  })()
-                            }
-                          >
-                            {bearbeitenId === asset.id
-                              ? "Bearbeiten schließen"
-                              : "Bearbeiten"}
-                          </button>
-                        )}
-                      </div>
-                      {isEditor &&
-                        typ === "score" &&
-                        revision.contentType.toLowerCase() ===
-                          "application/pdf" && (
-                          <ExtraktionStatus
-                            revisionId={revision.revisionId}
-                            isEditor={isEditor}
-                          />
-                        )}
-                      {isEditor && bearbeitenId === asset.id && (
-                        <div className="material-bearbeiten">
-                          <label htmlFor={`material-${asset.id}-stimme`}>
-                            Stimme (optional)
-                          </label>
-                          <input
-                            id={`material-${asset.id}-stimme`}
-                            type="text"
-                            maxLength={200}
-                            list="material-stimmen"
-                            value={bearbeitenStimme}
-                            onChange={(event) =>
-                              setBearbeitenStimme(event.target.value)
-                            }
-                          />
-                          <label htmlFor={`material-${asset.id}-beschreibung`}>
-                            Beschreibung (optional)
-                          </label>
-                          <input
-                            id={`material-${asset.id}-beschreibung`}
-                            type="text"
-                            maxLength={500}
-                            value={bearbeitenBeschreibung}
-                            onChange={(event) =>
-                              setBearbeitenBeschreibung(event.target.value)
-                            }
-                          />
-                          {bearbeitenFehler && (
-                            <p role="alert" className="feld-fehler">
-                              {bearbeitenFehler}
-                            </p>
+                              Herunterladen
+                            </a>
                           )}
-                          <div className="auth-aktionen">
+                          {typ === "audio" &&
+                            (zugriff ? (
+                              <>
+                                <AudioSpieler
+                                  assetId={asset.id}
+                                  stimme={stimme}
+                                  zugriff={zugriff}
+                                  aktiv={spielendesAudio === asset.id}
+                                  onAbspielen={() =>
+                                    setSpielendesAudio(asset.id)
+                                  }
+                                  onErneuert={(erneuert) =>
+                                    setZugriffe((vorher) => ({
+                                      ...vorher,
+                                      [asset.id]: erneuert,
+                                    }))
+                                  }
+                                />
+                                <a
+                                  className="noten-laden"
+                                  href={zugriff.downloadUrl}
+                                  download
+                                >
+                                  Herunterladen
+                                </a>
+                              </>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => void anzeigen(asset)}
+                                disabled={zugriffBusy[asset.id] === true}
+                              >
+                                {zugriffBusy[asset.id]
+                                  ? "Wird vorbereitet …"
+                                  : "Anhören"}
+                              </button>
+                            ))}
+                          {typ === "midi" &&
+                            (zugriff ? (
+                              <>
+                                <MidiSpieler
+                                  assetId={asset.id}
+                                  stimme={stimme}
+                                  zugriff={zugriff}
+                                  aktiv={spielendesAudio === asset.id}
+                                  onAbspielen={() =>
+                                    setSpielendesAudio(asset.id)
+                                  }
+                                  onErneuert={(erneuert) =>
+                                    setZugriffe((vorher) => ({
+                                      ...vorher,
+                                      [asset.id]: erneuert,
+                                    }))
+                                  }
+                                />
+                                <a
+                                  className="noten-laden"
+                                  href={zugriff.downloadUrl}
+                                  download
+                                >
+                                  Herunterladen
+                                </a>
+                              </>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => void anzeigen(asset)}
+                                disabled={zugriffBusy[asset.id] === true}
+                              >
+                                {zugriffBusy[asset.id]
+                                  ? "Wird vorbereitet …"
+                                  : "Anhören"}
+                              </button>
+                            ))}
+                          {isEditor && (
                             <button
                               type="button"
-                              disabled={bearbeitenBusy}
-                              onClick={() => void bearbeitenSpeichern(asset)}
+                              className="knopf-leise"
+                              onClick={() =>
+                                bearbeitenId === asset.id
+                                  ? bearbeitenSchliessen()
+                                  : (() => {
+                                      setBearbeitenId(asset.id);
+                                      setBearbeitenStimme(
+                                        asset.voiceLabel ?? "",
+                                      );
+                                      setBearbeitenBeschreibung(
+                                        asset.description ?? "",
+                                      );
+                                      setBearbeitenFehler("");
+                                    })()
+                              }
                             >
-                              {bearbeitenBusy
-                                ? "Wird gespeichert …"
-                                : "Änderungen speichern"}
+                              {bearbeitenId === asset.id
+                                ? "Bearbeiten schließen"
+                                : "Bearbeiten"}
                             </button>
-                          </div>
+                          )}
                         </div>
-                      )}
-                    </article>
-                  );
-                })}
-              </div>
-            );
-          })}
-        </div>
+                        {isEditor &&
+                          typ === "score" &&
+                          revision.contentType.toLowerCase() ===
+                            "application/pdf" && (
+                            <ExtraktionStatus
+                              revisionId={revision.revisionId}
+                              isEditor={isEditor}
+                            />
+                          )}
+                        {isEditor && bearbeitenId === asset.id && (
+                          <div className="material-bearbeiten">
+                            <label htmlFor={`material-${asset.id}-stimme`}>
+                              Stimme (optional)
+                            </label>
+                            <input
+                              id={`material-${asset.id}-stimme`}
+                              type="text"
+                              maxLength={200}
+                              list="material-stimmen"
+                              value={bearbeitenStimme}
+                              onChange={(event) =>
+                                setBearbeitenStimme(event.target.value)
+                              }
+                            />
+                            <label
+                              htmlFor={`material-${asset.id}-beschreibung`}
+                            >
+                              Beschreibung (optional)
+                            </label>
+                            <input
+                              id={`material-${asset.id}-beschreibung`}
+                              type="text"
+                              maxLength={500}
+                              value={bearbeitenBeschreibung}
+                              onChange={(event) =>
+                                setBearbeitenBeschreibung(event.target.value)
+                              }
+                            />
+                            {bearbeitenFehler && (
+                              <p role="alert" className="feld-fehler">
+                                {bearbeitenFehler}
+                              </p>
+                            )}
+                            <div className="auth-aktionen">
+                              <button
+                                type="button"
+                                disabled={bearbeitenBusy}
+                                onClick={() => void bearbeitenSpeichern(asset)}
+                              >
+                                {bearbeitenBusy
+                                  ? "Wird gespeichert …"
+                                  : "Änderungen speichern"}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </article>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        </ExtraktionUebersichtProvider>
       )}
       {isEditor && (
         <details
