@@ -2,6 +2,7 @@ using Archive.Backend.Auth;
 using Archive.Backend.Catalogue;
 using Archive.Backend.Data;
 using Archive.Backend.Events;
+using Archive.Backend.Extraction;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -20,7 +21,9 @@ namespace Archive.Backend.Assets;
 ///   musical-version link: document/photo types, creator-only session
 ///   initiation, and event-scoped visibility and budgets.
 /// - Revision changes: swapping <see cref="ArchiveAsset.CurrentRevisionId"/> is
-///   the atom ARC-031 performs; extraction/search consumers subscribe later
+///   the atom ARC-031 performs. ARC-034 subscribes at finalize: a PDF
+///   revision's extraction row is written in the same save (outbox) and
+///   handed to the queue afterwards; text-search consumers subscribe later
 ///   (ARC-032/ARC-033).
 /// - Retained reference: revisions must not be removed while referenced
 ///   (ARC-037); the database enforces this via the current-revision FK.
@@ -592,7 +595,9 @@ public static class AssetEndpoints
 		app.MapPost("/api/upload-sessions/{id}/finalize", async (
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
 			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time,
-			IOptions<AssetStorageOptions> options, IAssetStorageAdapter storage, Guid id, CancellationToken token,
+			IOptions<AssetStorageOptions> options, IAssetStorageAdapter storage,
+			ILoggerFactory loggerFactory, IExtractionQueue extractionQueue,
+			Guid id, CancellationToken token,
 			FinalizeUploadRequest? body) =>
 		{
 			try { await antiforgery.ValidateRequestAsync(context); }
@@ -740,12 +745,26 @@ public static class AssetEndpoints
 			{
 				return Results.Problem(statusCode: 502, title: StorageFailureMessage);
 			}
-			await DeletePendingBestEffortAsync(storage, session.BlobName, token);
 			db.FileRevisions.Add(revision);
 			asset.CurrentRevisionId = revision.Id;
 			asset.RowVersion++;
 			session.State = PendingUploadState.Finalized;
 			session.FinalizedRevisionId = revision.Id;
+			// ARC-034 outbox: PDF score/document revisions gain their
+			// extraction row in the same SaveChanges as the revision, so a
+			// committed upload can never lose its extraction request. The
+			// queue send after the save is best-effort: a send failure leaves
+			// the Queued row un-enqueued for the dispatch sweep, and it never
+			// fails finalize. The idempotent re-entry branch above never
+			// reaches this, so no revision ever gains a second row.
+			ExtractionJob? extractionJob = null;
+			if (ExtractionService.IsExtractable(asset.AssetType)
+				&& string.Equals(revision.ContentType, PdfContentType, StringComparison.OrdinalIgnoreCase))
+			{
+				extractionJob = ExtractionService.CreateForRevision(
+					asset, revision, decision.AccountId, time.GetUtcNow());
+				db.ExtractionJobs.Add(extractionJob);
+			}
 			try
 			{
 				await db.SaveChangesAsync(token);
@@ -753,6 +772,13 @@ public static class AssetEndpoints
 			catch (DbUpdateConcurrencyException)
 			{
 				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
+			}
+			// Keep the staged upload replayable until the revision is committed.
+			await DeletePendingBestEffortAsync(storage, session.BlobName, token);
+			if (extractionJob is not null)
+			{
+				await ExtractionService.TryEnqueueAsync(
+					db, extractionQueue, loggerFactory.CreateLogger("Archive.Extraction"), revision.Id, time, token);
 			}
 			return Results.Ok(RevisionPayload(revision));
 		}).DisableAntiforgery();

@@ -1,6 +1,6 @@
 ---
 id: ARC-034
-status: planned
+status: in_progress
 phase: core
 kind: slice
 depends_on: ["ARC-012", "ARC-051"]

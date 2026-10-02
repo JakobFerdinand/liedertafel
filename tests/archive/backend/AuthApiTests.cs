@@ -8,6 +8,7 @@ using Archive.Backend.Assets;
 using Archive.Backend.Auth;
 using Archive.Backend.Data;
 using Archive.Backend.Development;
+using Archive.Backend.Extraction;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -700,9 +701,12 @@ internal sealed class AuthApiFactory : WebApplicationFactory<Program>
 
 	private readonly ISaveChangesInterceptor? saveChangesInterceptor;
 
+	/// <summary>ARC-034: per-test extraction queue; default tests never touch Azure config.</summary>
+	private readonly IExtractionQueue? queueOverride;
+
 	private readonly IDictionary<string, string?>? extraSettings;
 
-	public AuthApiFactory(string environment = "Development", InMemoryDatabaseRoot? root = null, string? keysPath = null, string? databaseName = null, string? otlpEndpoint = null, TimeSpan? freshVerificationWindow = null, IDictionary<string, string?>? settings = null, IAssetStorageAdapter? storage = null, IChatClient? chatClient = null, ISaveChangesInterceptor? saveChangesInterceptor = null)
+	public AuthApiFactory(string environment = "Development", InMemoryDatabaseRoot? root = null, string? keysPath = null, string? databaseName = null, string? otlpEndpoint = null, TimeSpan? freshVerificationWindow = null, IDictionary<string, string?>? settings = null, IAssetStorageAdapter? storage = null, IChatClient? chatClient = null, ISaveChangesInterceptor? saveChangesInterceptor = null, IExtractionQueue? queue = null)
 	{
 		this.environment = environment;
 		sharedRoot = root ?? new InMemoryDatabaseRoot();
@@ -714,6 +718,7 @@ internal sealed class AuthApiFactory : WebApplicationFactory<Program>
 		storageOverride = storage;
 		chatClientOverride = chatClient;
 		this.saveChangesInterceptor = saveChangesInterceptor;
+		queueOverride = queue;
 		Directory.CreateDirectory(Path.Combine(this.root, "system/status"));
 		File.WriteAllText(Path.Combine(this.root, "index.html"), "<html lang=de><h1>frontend-fixture</h1></html>");
 		File.WriteAllText(Path.Combine(this.root, "system/status/index.html"), "<html lang=de><h1>frontend-fixture status</h1></html>");
@@ -767,6 +772,11 @@ internal sealed class AuthApiFactory : WebApplicationFactory<Program>
 			});
 			services.RemoveAll<IArchiveMailSender>();
 			services.AddSingleton<IArchiveMailSender>(Mail);
+			// ARC-034: the extraction queue is faked per test; Program's
+			// Azure-backed registry never runs in tests (no queue config →
+			// NullExtractionQueue), so no real account is contacted.
+			services.RemoveAll<IExtractionQueue>();
+			services.AddSingleton<IExtractionQueue>(queueOverride ?? new NullExtractionQueue());
 			// Program registers both the concrete adapter and a forwarding
 			// interface registration; both must go before the fake replaces
 			// the real Blob storage path (no network, no credentials).

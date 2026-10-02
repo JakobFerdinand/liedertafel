@@ -7,6 +7,7 @@ using Archive.Backend.Chat;
 using Archive.Backend.Data;
 using Archive.Backend.Development;
 using Archive.Backend.Events;
+using Archive.Backend.Extraction;
 using Archive.Backend.Maintenance;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.DataProtection;
@@ -75,6 +76,12 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddOptions<AssetStorageOptions>().BindConfiguration("Archive:Assets");
 builder.Services.AddSingleton<BlobAssetStorageAdapter>();
 builder.Services.AddSingleton<IAssetStorageAdapter>(sp => sp.GetRequiredService<BlobAssetStorageAdapter>());
+// ARC-034: bounded extraction options and the queue seam. Without any queue
+// configuration the registry returns the no-op sender, so Development and
+// tests degrade gracefully — extraction rows wait for a later dispatch sweep.
+builder.Services.AddOptions<ExtractionOptions>()
+	.BindConfiguration(ExtractionOptions.SectionName);
+builder.Services.AddSingleton<IExtractionQueue>(ExtractionQueue.Create(builder.Configuration));
 builder.Services.AddScoped<UploadSessionCleaner>();
 builder.Services.AddHttpContextAccessor();
 // ARC-022: bounded archive chat configuration (availability gate and caps).
@@ -189,6 +196,7 @@ app.MapProgrammeEndpoints();
 app.MapPerformanceEndpoints();
 app.MapChatEndpoints();
 app.MapAssetEndpoints();
+app.MapExtractionEndpoints();
 app.MapDevelopmentDiagnostics();
 
 // A specific fallback reserves the entire API namespace, including missing files.

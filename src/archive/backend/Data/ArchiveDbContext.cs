@@ -2,6 +2,7 @@ using Archive.Backend.Assets;
 using Archive.Backend.Auth;
 using Archive.Backend.Catalogue;
 using Archive.Backend.Events;
+using Archive.Backend.Extraction;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
@@ -58,6 +59,9 @@ public sealed class ArchiveDbContext(DbContextOptions<ArchiveDbContext> options)
 	public DbSet<FileRevision> FileRevisions => Set<FileRevision>();
 
 	public DbSet<PendingUpload> UploadSessions => Set<PendingUpload>();
+
+	/// <summary>ARC-034: revision-keyed text extraction work, one row per FileRevision.</summary>
+	public DbSet<ExtractionJob> ExtractionJobs => Set<ExtractionJob>();
 
 	public DbSet<Chat.ChatThread> ChatThreads => Set<Chat.ChatThread>();
 
