@@ -33,4 +33,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
+  <!-- The ARC-034 finite-job gate is internal; the xUnit project verifies its command matrix. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Archive.Backend.Tests" />
+  </ItemGroup>
+
 </Project>

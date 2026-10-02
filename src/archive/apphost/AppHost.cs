@@ -69,6 +69,16 @@ builder.AddProject<Projects.Archive_Backend>("archive-mail-test", launchProfileN
     .WaitForCompletion(initialize)
     .WithExplicitStart();
 
+// ARC-034: finite extraction worker; the queue scale rule (production) or an
+// explicit start (local) triggers a run that dispatches un-enqueued rows and
+// drains the extraction queue, then exits — no continuously running worker.
+builder.AddProject<Projects.Archive_Backend>("archive-extract", launchProfileName: null)
+    .WithArgs("--extract-queue")
+    .WithArchiveTelemetry()
+    .WithArchiveDependencies(dependencies, mailSource)
+    .WaitForCompletion(initialize)
+    .WithExplicitStart();
+
 builder.AddJavaScriptApp("archive-frontend", "../frontend")
     .WithPnpm()
     .WithHttpEndpoint(env: "PORT")

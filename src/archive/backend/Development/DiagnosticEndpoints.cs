@@ -1,5 +1,6 @@
 using Archive.Backend.Auth;
 using Archive.Backend.Data;
+using Archive.Backend.Extraction;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -32,6 +33,31 @@ public static class DiagnosticEndpoints
             await services.ExerciseAsync(timeout.Token);
             loggerFactory.CreateLogger("Archive.Diagnostics").LogInformation("Local Blob, queue and mail exercise completed");
             return Results.Ok(new { message = "Blob und Warteschlange geprüft. Testmail wurde gesendet." });
+        });
+
+        // ARC-034 duplicate diagnostic: re-sends one extraction envelope for
+        // the revision through the real queue so the worker's idempotent
+        // duplicate handling can be observed end to end.
+        app.MapPost("/api/dev/extraction-duplicate", async (HttpContext context, IAntiforgery antiforgery,
+            IServiceProvider services, Guid? revisionId, CancellationToken token) =>
+        {
+            try { await antiforgery.ValidateRequestAsync(context); }
+            catch (AntiforgeryValidationException)
+            {
+                return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
+            }
+            if (revisionId is null || revisionId == Guid.Empty)
+            {
+                return Results.Problem(statusCode: 400, title: "Es wurde keine Revision angegeben.");
+            }
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+            timeout.CancelAfter(TimeSpan.FromSeconds(30));
+            if (!await ExtractionQueueDiagnostics.SendDuplicateAsync(services, revisionId.Value, timeout.Token))
+            {
+                return Results.Problem(statusCode: 502,
+                    title: "Kein Warteschlangen-Endpunkt für die Textauswertung konfiguriert.");
+            }
+            return Results.Ok(new { sent = true });
         });
 
         app.MapPost("/api/dev/auth/seed", async (HttpContext context, IAntiforgery antiforgery,

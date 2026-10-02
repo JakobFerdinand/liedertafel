@@ -42,12 +42,13 @@ certificates. Production cookies are Secure; local cookies use SameAsRequest.
 | `archive-blobs` | Injects `ConnectionStrings__archive-blobs` |
 | `archive-queues` | Injects `ConnectionStrings__archive-queues` |
 | `archive-mail` | Mailpit 1.27.8, HTTP inbox and SMTP; injects `Mail__Host` / `Mail__Port` |
-| `archive-storage-init` | Automatic finite local command; creates private `archive-assets` container and `archive-work` queue |
+| `archive-storage-init` | Automatic finite local command; creates private `archive-assets` container and the configured extraction queue (`archive-extraction`) |
 | `archive-api` | HTTP `/api/*`, process-only `/alive`; waits for dependencies and successful storage setup |
 | `archive-frontend` | Next.js/Turbopack; waits for API; receives `PORT` and server-only `ARCHIVE_API_URL` |
 | `archive-migrate` | **Explicit Start**; only resource receiving `ConnectionStrings__archive-migrations` |
 | `archive-worker-smoke` | **Explicit Start**; finite Blob/queue/mail verification with correlated producer/consumer tracing |
 | `archive-mail-test` | **Explicit Start**; ARC-010 integration run with Aspire telemetry: sends the marked German test message through the real Azure sender. Requires `Mail:Provider=Azure` plus `Archive:MailTestRecipient` in AppHost configuration and refuses otherwise |
+| `archive-extract` | **Explicit Start**; ARC-034 finite queue worker — dispatch sweep + drain of the extraction queue, then exit (production runs the same command as a queue-triggered job) |
 
 `WithArchiveDependencies` owns reference injection and readiness for local C#
 workers. Use `WithExplicitStart()` for operator-triggered work, and
@@ -81,7 +82,11 @@ are owned by the later authentication/cloud slices.
 
 The diagnostic uses fixed `.test` mail addresses. It creates a unique scratch
 queue and a `diagnostics/<id>.txt` blob, round-trips them and removes them with
-a bounded cleanup token. It never consumes messages from `archive-work`.
+a bounded cleanup token. It never consumes messages from the configured
+extraction queue (`archive-extraction`); the finite `archive-extract` worker is
+the only local consumer, and `POST /api/dev/extraction-duplicate` re-sends one
+extraction envelope for a revision so its idempotent handling can be observed
+against the real queue.
 AppHost injects emulator connections; there are no production storage credentials
 or `UseDevelopmentStorage=true` shortcuts in application configuration.
 
@@ -97,6 +102,7 @@ If the Aspire CLI is installed, the dashboard actions also have CLI equivalents:
 ```bash
 aspire resource archive-migrate start --apphost src/archive/apphost/Archive.AppHost.csproj
 aspire resource archive-worker-smoke start --apphost src/archive/apphost/Archive.AppHost.csproj
+aspire resource archive-extract start --apphost src/archive/apphost/Archive.AppHost.csproj
 ```
 
 To author a migration, run from `src/archive`:
@@ -143,8 +149,11 @@ and the Npgsql EF provider to 10.0.3. Lockfiles record the frontend resolution.
 - The development rewrite forwards cookies, `Set-Cookie`, request bodies,
   `X-CSRF-TOKEN`, and API status/content types. There is no permissive CORS policy.
 - GET `/api/antiforgery` supplies the request token and HTTP-only SameSite cookie.
-  POST `/api/dev/exercise` validates both before side effects. These diagnostics
-  are absent in production. They do not implement member authentication.
+  POST `/api/dev/exercise` validates both before side effects, and
+  `POST /api/dev/extraction-duplicate?revisionId=<id>` re-sends one extraction
+  envelope through the configured queue (502 when no queue backend exists).
+  These diagnostics are absent in production. They do not implement member
+  authentication.
 - `pnpm run build` uses `output: "export"` and emits `out/`. ASP.NET serves each
   generated route's `index.html`, including `/system/status/`, its scripts and
   Next navigation payloads. Unknown API paths always return Problem Details;

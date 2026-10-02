@@ -24,7 +24,9 @@ if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" o
 {
     var jobs = Host.CreateApplicationBuilder(args.Skip(1).ToArray());
     jobs.AddServiceDefaults();
-    if (command != "--migrate" && !jobs.Environment.IsDevelopment() && command != "--bootstrap-admin" && command != "--repair-admin")
+    // ARC-034: the extraction commands are production jobs (queue-triggered
+    // Container Apps Job / maintainer sweep); FiniteJobs owns the gate.
+    if (FiniteJobs.IsDevelopmentRequired(command) && !jobs.Environment.IsDevelopment())
         throw new InvalidOperationException("Local service commands require Development.");
     jobs.Services.AddDbContext<ArchiveDbContext>(options => options.UseNpgsql(
         OperatorConfiguration.Connection(jobs.Configuration)));

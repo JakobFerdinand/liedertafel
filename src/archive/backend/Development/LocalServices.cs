@@ -1,18 +1,19 @@
 using Archive.Backend.Assets;
+using Archive.Backend.Extraction;
 using System.Diagnostics;
 using System.Text.Json;
 using Azure.Storage.Blobs;
 using Azure.Storage.Queues;
 using MailKit.Net.Smtp;
 using MailKit.Security;
+using Microsoft.Extensions.Options;
 using MimeKit;
 
 namespace Archive.Backend.Development;
 
-public sealed class LocalServices(IConfiguration configuration)
+public sealed class LocalServices(IConfiguration configuration, IOptions<ExtractionOptions> extractionOptions)
 {
     public const string ContainerName = "archive-assets";
-    public const string QueueName = "archive-work";
 
     private BlobServiceClient Blobs => new(configuration.GetConnectionString("archive-blobs"),
         new BlobClientOptions { Retry = { MaxRetries = 2, NetworkTimeout = TimeSpan.FromSeconds(5) } });
@@ -22,7 +23,11 @@ public sealed class LocalServices(IConfiguration configuration)
     public async Task InitializeAsync(CancellationToken cancellationToken)
     {
         await Blobs.GetBlobContainerClient(ContainerName).CreateIfNotExistsAsync(cancellationToken: cancellationToken);
-        await Queues.GetQueueClient(QueueName).CreateIfNotExistsAsync(cancellationToken: cancellationToken);
+        // ARC-034: storage setup creates the extraction queue under its
+        // configured name; the smoke diagnostics below still use unique
+        // scratch queues so parallel runs never touch real work.
+        await Queues.GetQueueClient(extractionOptions.Value.QueueName)
+            .CreateIfNotExistsAsync(cancellationToken: cancellationToken);
         await AssetStorageEmulatorBootstrap.EnsureEmulatorCorsAsync(Blobs, cancellationToken);
     }
 
