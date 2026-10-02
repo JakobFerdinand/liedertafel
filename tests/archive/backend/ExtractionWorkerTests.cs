@@ -1,4 +1,6 @@
+using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Archive.Backend.Assets;
 using Archive.Backend.Data;
 using Archive.Backend.Extraction;
@@ -6,8 +8,10 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using UglyToad.PdfPig;
 using UglyToad.PdfPig.Content;
 using UglyToad.PdfPig.Core;
 using UglyToad.PdfPig.Exceptions;
@@ -101,15 +105,107 @@ public sealed class ExtractionWorkerTests
 	}
 
 	[Fact]
-	public void PageAndTextBoundsTruncateInsteadOfFailing()
+	public async Task OverlengthTextFailsDeterministically()
 	{
-		var textPdf = TextPdf(string.Join(" ", Enumerable.Repeat("Wort", 200)));
-		var options = new ExtractionOptions { MaxTextCharacters = 10, MaxPdfPages = 1 };
+		var host = new WorkerHost();
+		host.Options.MaxTextCharacters = 10;
+		var (_, revision) = SeedRevision(host);
+		var job = SeedJob(host, revision);
+		host.Storage.Store(revision.BlobName, TextPdf("Mehr als zehn Zeichen"));
 
-		var outcome = PdfTextExtractor.Extract(new MemoryStream(textPdf), options, CancellationToken.None);
+		var disposition = await host.Worker.HandleAsync(Message(revision.Id), CancellationToken.None);
 
-		Assert.NotNull(outcome.Text);
-		Assert.Equal(10, outcome.Text.Length);
+		Assert.False(disposition.Abandon);
+		Assert.Equal(ExtractionStatus.Failed, job.Status);
+		Assert.Equal(PdfTextExtractor.TooMuchTextReason, job.FailureReason);
+		Assert.Null(job.Text);
+	}
+
+	[Fact]
+	public async Task PageCapCompletesWithOnlyTheIncludedPages()
+	{
+		var host = new WorkerHost();
+		host.Options.MaxPdfPages = 1;
+		var (_, revision) = SeedRevision(host);
+		var job = SeedJob(host, revision);
+		var bytes = PdfWithCorruptSecondPage();
+		// The document and included page are readable, but parsing the excluded
+		// page really throws: collecting every page then truncating cannot pass.
+		using (var document = PdfDocument.Open(bytes))
+		{
+			Assert.Equal(2, document.NumberOfPages);
+			Assert.Contains("Erste Seite", document.GetPage(1).Text);
+			Assert.ThrowsAny<Exception>(() => document.GetPage(2));
+		}
+		host.Storage.Store(revision.BlobName, bytes);
+
+		var disposition = await host.Worker.HandleAsync(Message(revision.Id), CancellationToken.None);
+
+		Assert.False(disposition.Abandon);
+		Assert.Equal(ExtractionStatus.Completed, job.Status);
+		Assert.Contains("Erste Seite", job.Text);
+		Assert.DoesNotContain("Zweite", job.Text);
+		Assert.Null(job.FailureReason);
+	}
+
+	[Fact]
+	public void NonSeekableFallbackRejectsOversizeWithoutUnboundedBuffering()
+	{
+		using var stream = new NonSeekablePdfStream(new byte[100_000]);
+		var outcome = PdfTextExtractor.Extract(stream, new ExtractionOptions { MaxPdfBytes = 100 }, CancellationToken.None);
+
+		Assert.Equal(PdfTextExtractor.TooLargeReason, outcome.FailureReason);
+		Assert.Equal(101, stream.Position);
+		Assert.True(stream.CanRead); // The caller retains ownership.
+	}
+
+	[Fact]
+	public void NonSeekableFallbackParsesAnExactlyBoundedDocument()
+	{
+		var bytes = TextPdf("Begrenzter Text");
+		using var stream = new NonSeekablePdfStream(bytes);
+		var outcome = PdfTextExtractor.Extract(stream, new ExtractionOptions { MaxPdfBytes = bytes.Length }, CancellationToken.None);
+
+		Assert.Contains("Begrenzter Text", outcome.Text);
+	}
+
+	[Fact]
+	public void CancelledBudgetIsCheckedBeforeOpeningPdf()
+	{
+		using var cancelled = new CancellationTokenSource();
+		cancelled.Cancel();
+		Assert.Throws<OperationCanceledException>(() => PdfTextExtractor.Extract(
+			new ThrowingPdfStream(new InvalidOperationException("Must never parse")), new ExtractionOptions(), cancelled.Token));
+	}
+
+	[Fact]
+	public void BudgetExpiryDuringSynchronousParsingNeverReturnsText()
+	{
+		using var budget = new CancellationTokenSource();
+		using var stream = new CancellingPdfStream(TextPdf("Nie akzeptiert"), budget);
+		Assert.Throws<OperationCanceledException>(() => PdfTextExtractor.Extract(stream, new ExtractionOptions(), budget.Token));
+	}
+
+	[Theory]
+	[InlineData(false)]
+	[InlineData(true)]
+	public async Task BlobOpenIsInsideTheBudgetEvenWhenStorageIgnoresCancellation(bool ignoreCancellation)
+	{
+		var host = new WorkerHost();
+		host.Options.TimeBudget = TimeSpan.FromMilliseconds(10);
+		host.Storage.OpenDelay = TimeSpan.FromMilliseconds(50);
+		host.Storage.IgnoreCancellation = ignoreCancellation;
+		var (_, revision) = SeedRevision(host);
+		var job = SeedJob(host, revision);
+		host.Storage.Store(revision.BlobName, TextPdf("Nie akzeptiert"));
+
+		var disposition = await host.Worker.HandleAsync(Message(revision.Id), CancellationToken.None);
+
+		Assert.True(disposition.Abandon);
+		Assert.Equal(ExtractionStatus.Queued, job.Status);
+		Assert.Equal(1, job.AttemptCount);
+		Assert.Null(job.Text);
+		Assert.Null(job.CompletedAt);
 	}
 
 	[Fact]
@@ -202,7 +298,9 @@ public sealed class ExtractionWorkerTests
 		var (_, revision) = SeedRevision(host);
 		var job = SeedJob(host, revision);
 		job.Status = ExtractionStatus.Running;
+		job.LastAttemptAt = DateTimeOffset.UtcNow;
 		host.Db.SaveChanges();
+		var before = (job.RowVersion, job.UpdatedAt, job.LastAttemptAt);
 
 		var disposition = await host.Worker.HandleAsync(Message(revision.Id), CancellationToken.None);
 
@@ -210,6 +308,104 @@ public sealed class ExtractionWorkerTests
 		Assert.True(disposition.Visibility > TimeSpan.Zero);
 		Assert.Equal(ExtractionStatus.Running, job.Status);
 		Assert.Equal(0, job.AttemptCount);
+		Assert.Equal(before, (job.RowVersion, job.UpdatedAt, job.LastAttemptAt));
+		Assert.Equal(0, host.Storage.OpenReadCalls);
+	}
+
+	[Theory]
+	[InlineData(false)]
+	[InlineData(true)]
+	public async Task StaleRunningLeaseIsRetakenAndCompleted(bool missingTimestamp)
+	{
+		var host = new WorkerHost();
+		var (_, revision) = SeedRevision(host);
+		var job = SeedJob(host, revision);
+		job.Status = ExtractionStatus.Running;
+		job.AttemptCount = 2;
+		job.LastAttemptAt = missingTimestamp ? null : DateTimeOffset.UtcNow - host.Options.StaleRunningAfter - TimeSpan.FromMinutes(1);
+		host.Db.SaveChanges();
+		host.Storage.Store(revision.BlobName, TextPdf("Wieder aufgenommen"));
+
+		var disposition = await host.Worker.HandleAsync(Message(revision.Id), CancellationToken.None);
+
+		Assert.False(disposition.Abandon);
+		Assert.Equal(ExtractionStatus.Completed, job.Status);
+		Assert.Equal(3, job.AttemptCount);
+		Assert.Contains("Wieder aufgenommen", job.Text);
+		Assert.NotNull(job.CompletedAt);
+		Assert.True(job.LastAttemptAt > DateTimeOffset.UtcNow.AddMinutes(-1));
+		Assert.Equal(2u, job.RowVersion);
+	}
+
+	[Fact]
+	public async Task StaleRunningLeaseWithSpentBudgetFailsWithoutOpeningTheBlob()
+	{
+		var clock = new MutableTimeProvider();
+		var host = new WorkerHost(time: clock);
+		var (_, revision) = SeedRevision(host);
+		var job = SeedJob(host, revision);
+		job.Status = ExtractionStatus.Running;
+		job.AttemptCount = host.Options.MaxAttempts;
+		job.LastAttemptAt = clock.Now - host.Options.StaleRunningAfter - TimeSpan.FromMinutes(1);
+		host.Db.SaveChanges();
+		var rowVersion = job.RowVersion;
+		host.Storage.ThrowOnOpenRead = true;
+
+		var disposition = await host.Worker.HandleAsync(Message(revision.Id), CancellationToken.None);
+
+		Assert.Equal(MessageDisposition.Delete, disposition);
+		host.Db.ChangeTracker.Clear();
+		var saved = await host.Db.ExtractionJobs.SingleAsync();
+		Assert.Equal(ExtractionStatus.Failed, saved.Status);
+		Assert.Equal(ExtractionWorker.ExhaustedReason, saved.FailureReason);
+		Assert.Equal(host.Options.MaxAttempts, saved.AttemptCount);
+		Assert.Equal(clock.Now, saved.LastAttemptAt);
+		Assert.Equal(clock.Now, saved.UpdatedAt);
+		Assert.Equal(rowVersion + 1, saved.RowVersion);
+		Assert.Null(saved.CompletedAt);
+		Assert.Equal(0, host.Storage.OpenReadCalls);
+	}
+
+	[Fact]
+	public async Task StaleRunningLeaseCanCompleteItsFinalAllowedAttempt()
+	{
+		var host = new WorkerHost();
+		var (_, revision) = SeedRevision(host);
+		var job = SeedJob(host, revision);
+		job.Status = ExtractionStatus.Running;
+		job.AttemptCount = host.Options.MaxAttempts - 1;
+		job.LastAttemptAt = DateTimeOffset.UtcNow - host.Options.StaleRunningAfter - TimeSpan.FromMinutes(1);
+		host.Db.SaveChanges();
+		host.Storage.Store(revision.BlobName, TextPdf("Letzter erlaubter Versuch"));
+
+		var disposition = await host.Worker.HandleAsync(Message(revision.Id), CancellationToken.None);
+
+		Assert.Equal(MessageDisposition.Delete, disposition);
+		Assert.Equal(ExtractionStatus.Completed, job.Status);
+		Assert.Equal(host.Options.MaxAttempts, job.AttemptCount);
+		Assert.Contains("Letzter erlaubter Versuch", job.Text);
+		Assert.Equal(1, host.Storage.OpenReadCalls);
+	}
+
+	[Fact]
+	public async Task RepeatedStaleRetakesSpendTheAttemptLadderAndFailTerminally()
+	{
+		var host = new WorkerHost();
+		var (_, revision) = SeedRevision(host);
+		var job = SeedJob(host, revision);
+		host.Storage.ThrowOnOpenRead = true;
+		for (var attempt = 1; attempt <= host.Options.MaxAttempts; attempt++)
+		{
+			// Simulate each preceding process dying with a Running row.
+			job.Status = ExtractionStatus.Running;
+			job.LastAttemptAt = DateTimeOffset.UtcNow - host.Options.StaleRunningAfter - TimeSpan.FromMinutes(1);
+			host.Db.SaveChanges();
+			var disposition = await host.Worker.HandleAsync(Message(revision.Id), CancellationToken.None);
+			Assert.Equal(attempt, job.AttemptCount);
+			Assert.Equal(attempt < host.Options.MaxAttempts, disposition.Abandon);
+		}
+		Assert.Equal(ExtractionStatus.Failed, job.Status);
+		Assert.Equal(ExtractionWorker.ExhaustedReason, job.FailureReason);
 	}
 
 	[Fact]
@@ -295,6 +491,26 @@ public sealed class ExtractionWorkerTests
 		Assert.Equal(ExtractionWorker.TooLargeReason, job.FailureReason);
 		Assert.Equal(0, job.AttemptCount);
 		Assert.NotNull(job.LastAttemptAt);
+		Assert.Equal(0, host.Storage.OpenReadCalls);
+	}
+
+	[Fact]
+	public async Task StaleOversizeLeaseIsCountedBeforeItsDeterministicFailure()
+	{
+		var host = new WorkerHost();
+		host.Options.MaxPdfBytes = 1024;
+		var (_, revision) = SeedRevision(host, sizeBytes: 4096);
+		var job = SeedJob(host, revision);
+		job.Status = ExtractionStatus.Running;
+		job.AttemptCount = 2;
+		host.Db.SaveChanges();
+
+		var disposition = await host.Worker.HandleAsync(Message(revision.Id), CancellationToken.None);
+
+		Assert.False(disposition.Abandon);
+		Assert.Equal(ExtractionStatus.Failed, job.Status);
+		Assert.Equal(3, job.AttemptCount);
+		Assert.Equal(PdfTextExtractor.TooLargeReason, job.FailureReason);
 		Assert.Equal(0, host.Storage.OpenReadCalls);
 	}
 
@@ -479,6 +695,89 @@ public sealed class ExtractionWorkerTests
 	}
 
 	// ---- fixtures ----
+	[Fact]
+	public async Task PumpAbandonsTheRestOfABatchImmediatelyAtTheDeadline()
+	{
+		var clock = new MutableTimeProvider();
+		var host = new WorkerHost(time: clock);
+		host.Source.Seed(Message(Guid.NewGuid(), body: "poison"), Message(Guid.NewGuid(), body: "poison"), Message(Guid.NewGuid(), body: "poison"));
+		host.Source.AfterDelete = () => clock.Now += host.Options.DrainBudget;
+
+		var processed = await host.Pump.DrainAsync(CancellationToken.None);
+
+		Assert.Equal(1, processed);
+		Assert.Single(host.Source.Deleted);
+		Assert.Equal(2, host.Source.Abandoned.Count);
+		Assert.All(host.Source.Abandoned, item => Assert.Equal(TimeSpan.Zero, item.Visibility));
+	}
+
+	[Fact]
+	public async Task PumpContinuesAfterAReceiptDeleteFailure()
+	{
+		var host = new WorkerHost();
+		host.Source.Seed(Message(Guid.NewGuid(), body: "poison"), Message(Guid.NewGuid(), body: "poison"));
+		host.Source.ThrowOnNextDelete = true;
+
+		Assert.Equal(2, await host.Pump.DrainAsync(CancellationToken.None));
+		Assert.Single(host.Source.Deleted);
+	}
+
+	[Fact]
+	public async Task PumpContinuesReleasingRemainingReceiptsAfterAnAbandonFailure()
+	{
+		var clock = new MutableTimeProvider();
+		var host = new WorkerHost(time: clock);
+		host.Source.Seed(Message(Guid.NewGuid(), body: "poison"), Message(Guid.NewGuid(), body: "poison"), Message(Guid.NewGuid(), body: "poison"));
+		host.Source.AfterDelete = () => clock.Now += host.Options.DrainBudget;
+		host.Source.ThrowOnNextAbandon = true;
+
+		Assert.Equal(1, await host.Pump.DrainAsync(CancellationToken.None));
+		Assert.Single(host.Source.Abandoned);
+	}
+
+	[Fact]
+	public async Task PumpUsesFreshMessageScopesSoAnEditorRetryIsVisible()
+	{
+		var host = new WorkerHost();
+		var (_, revision) = SeedRevision(host);
+		var job = SeedJob(host, revision);
+		job.Status = ExtractionStatus.Failed;
+		host.Db.SaveChanges();
+		host.Storage.Store(revision.BlobName, TextPdf("Nach dem Retry"));
+		host.Options.BatchSize = 1;
+		host.Source.Seed(Message(revision.Id), Message(revision.Id));
+		host.Source.AfterDelete = () =>
+		{
+			// An editor's independent context resets the failed row between
+			// receives. Reusing the first worker context would hide this retry.
+			using var db = new ArchiveDbContext(host.DbOptions);
+			var current = db.ExtractionJobs.Single();
+			current.Status = ExtractionStatus.Queued;
+			current.RowVersion++;
+			db.SaveChanges();
+			host.Source.AfterDelete = null;
+		};
+
+		Assert.Equal(2, await host.Pump.DrainAsync(CancellationToken.None));
+		var result = await host.Db.ExtractionJobs.AsNoTracking().SingleAsync();
+		Assert.Equal(ExtractionStatus.Completed, result.Status);
+		Assert.Contains("Nach dem Retry", result.Text);
+		Assert.Equal(1, result.AttemptCount);
+	}
+
+	[Fact]
+	public void LeaseAndBatchOptionsStayDefensivelyBounded()
+	{
+		var options = new ExtractionOptions();
+		Assert.Equal(8, options.BatchSize);
+		Assert.Equal(TimeSpan.FromMinutes(15), options.StaleRunningAfter);
+		options.StaleRunningAfter = TimeSpan.Zero;
+		options.BatchSize = int.MaxValue;
+		Assert.Equal(TimeSpan.FromMinutes(15), options.StaleRunningAfter);
+		Assert.Equal(8, options.BatchSize);
+		options.BatchSize = 0;
+		Assert.Equal(8, options.BatchSize);
+	}
 
 	private static (ArchiveAsset Asset, FileRevision Revision) SeedRevision(WorkerHost host,
 		long sizeBytes = 2048, string assetType = AssetEndpoints.ScoreAssetType,
@@ -536,11 +835,12 @@ public sealed class ExtractionWorkerTests
 				ExtractionEnvelope.SerializerOptions),
 			dequeueCount);
 
-	private static byte[] TextPdf(string text)
+	private static byte[] TextPdf(params string[] pages)
 	{
 		var builder = new PdfDocumentBuilder();
 		var font = builder.AddStandard14Font(Standard14Font.Helvetica);
-		builder.AddPage(PageSize.A4).AddText(text, 12, new PdfPoint(50, 700), font);
+		foreach (var text in pages)
+			builder.AddPage(PageSize.A4).AddText(text, 12, new PdfPoint(50, 700), font);
 		return builder.Build();
 	}
 
@@ -549,6 +849,25 @@ public sealed class ExtractionWorkerTests
 		var builder = new PdfDocumentBuilder();
 		builder.AddPage(PageSize.A4);
 		return builder.Build();
+	}
+
+	private static byte[] PdfWithCorruptSecondPage()
+	{
+		var bytes = TextPdf("Erste Seite", "Zweite Seite");
+		var pdf = Encoding.Latin1.GetString(bytes);
+		var streams = Regex.Matches(pdf, @"\bstream\r?\n");
+		Assert.Equal(2, streams.Count);
+		var second = streams[1];
+		var dictionaryStart = pdf.LastIndexOf("<<", second.Index, StringComparison.Ordinal);
+		Assert.Contains("/FlateDecode", pdf[dictionaryStart..second.Index]);
+		var start = second.Index + second.Length;
+		var end = pdf.IndexOf("endstream", start, StringComparison.Ordinal);
+		Assert.True(end > start);
+		// Keep object lengths and xref offsets intact while invalidating only
+		// page 2's content decoder. Document opening/page 1 remain valid.
+		var filterStart = pdf.IndexOf("/FlateDecode", dictionaryStart, StringComparison.Ordinal);
+		Encoding.ASCII.GetBytes("/BadFilterXX").CopyTo(bytes, filterStart);
+		return bytes;
 	}
 
 	private static byte[] CorruptPdf() => "%PDF-1.7\n%%EOF\n"u8.ToArray();
@@ -560,6 +879,26 @@ public sealed class ExtractionWorkerTests
 			Task.FromException<int>(failure);
 	}
 
+	private sealed class NonSeekablePdfStream(byte[] bytes) : MemoryStream(bytes)
+	{
+		public override bool CanSeek => false;
+	}
+
+	private sealed class CancellingPdfStream(byte[] bytes, CancellationTokenSource budget) : MemoryStream(bytes)
+	{
+		public override int Read(byte[] buffer, int offset, int count)
+		{
+			budget.Cancel();
+			return base.Read(buffer, offset, count);
+		}
+	}
+
+	private sealed class MutableTimeProvider : TimeProvider
+	{
+		public DateTimeOffset Now { get; set; } = DateTimeOffset.UtcNow;
+		public override DateTimeOffset GetUtcNow() => Now;
+	}
+
 	/// <summary>
 	/// No-WebApplicationFactory test host: the worker is constructed directly
 	/// against its own InMemory database, a fake storage adapter, an in-memory
@@ -567,12 +906,13 @@ public sealed class ExtractionWorkerTests
 	/// </summary>
 	private sealed class WorkerHost
 	{
-		public WorkerHost(bool maintenance = false)
+		public WorkerHost(bool maintenance = false, TimeProvider? time = null)
 		{
-			Db = new ArchiveDbContext(new DbContextOptionsBuilder<ArchiveDbContext>()
+			DbOptions = new DbContextOptionsBuilder<ArchiveDbContext>()
 				.UseInMemoryDatabase($"extraction-worker-{Guid.NewGuid():N}", new InMemoryDatabaseRoot())
 				.ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning))
-				.Options);
+				.Options;
+			Db = new ArchiveDbContext(DbOptions);
 			Storage = new WrapperStorage();
 			Source = new FakeExtractionMessageSource();
 			Options = new ExtractionOptions();
@@ -583,10 +923,20 @@ public sealed class ExtractionWorkerTests
 				})
 				.Build();
 			Worker = new ExtractionWorker(Db, Storage, Microsoft.Extensions.Options.Options.Create(Options),
-				Configuration, TimeProvider.System, NullLogger<ExtractionWorker>.Instance);
-			Pump = new ExtractionPump(Source, Worker, Microsoft.Extensions.Options.Options.Create(Options),
-				Configuration, TimeProvider.System, NullLogger<ExtractionPump>.Instance);
+				Configuration, time ?? TimeProvider.System, NullLogger<ExtractionWorker>.Instance);
+			// Match production: each factory-created scope owns a fresh context
+			// and worker, disposed after its single message.
+			var services = new ServiceCollection();
+			services.AddScoped(_ => new ArchiveDbContext(DbOptions));
+			services.AddScoped(sp => new ExtractionWorker(sp.GetRequiredService<ArchiveDbContext>(), Storage,
+				Microsoft.Extensions.Options.Options.Create(Options), Configuration,
+				time ?? TimeProvider.System, NullLogger<ExtractionWorker>.Instance));
+			var provider = services.BuildServiceProvider();
+			Pump = new ExtractionPump(Source, () => provider.CreateAsyncScope(), Microsoft.Extensions.Options.Options.Create(Options),
+				Configuration, time ?? TimeProvider.System, NullLogger<ExtractionPump>.Instance);
 		}
+
+		public DbContextOptions<ArchiveDbContext> DbOptions { get; }
 
 		public ArchiveDbContext Db { get; }
 
@@ -615,13 +965,17 @@ public sealed class ExtractionWorkerTests
 		public int OpenReadCalls { get; private set; }
 
 		public bool ThrowOnOpenRead { get; set; }
+		public TimeSpan OpenDelay { get; set; }
+		public bool IgnoreCancellation { get; set; }
 
-		public Task<Stream?> OpenReadAsync(string blobName, CancellationToken cancellationToken = default)
+		public async Task<Stream?> OpenReadAsync(string blobName, CancellationToken cancellationToken = default)
 		{
 			OpenReadCalls++;
 			if (ThrowOnOpenRead)
 				throw new InvalidOperationException("Speicherdienst nicht erreichbar.");
-			return inner.OpenReadAsync(blobName, cancellationToken);
+			if (OpenDelay > TimeSpan.Zero)
+				await Task.Delay(OpenDelay, IgnoreCancellation ? CancellationToken.None : cancellationToken);
+			return await inner.OpenReadAsync(blobName, IgnoreCancellation ? CancellationToken.None : cancellationToken);
 		}
 
 		public void Store(string blobName, byte[] content) => inner.Store(blobName, content);
@@ -667,6 +1021,9 @@ public sealed class ExtractionWorkerTests
 /// </summary>
 internal sealed class FakeExtractionMessageSource(params ExtractionMessage[] initial) : IExtractionMessageSource
 {
+	public Action? AfterDelete { get; set; }
+	public bool ThrowOnNextDelete { get; set; }
+	public bool ThrowOnNextAbandon { get; set; }
 	private readonly object gate = new();
 	private readonly Queue<ExtractionMessage> pending = new(initial);
 	private readonly List<ExtractionMessage> received = [];
@@ -712,12 +1069,23 @@ internal sealed class FakeExtractionMessageSource(params ExtractionMessage[] ini
 
 	public Task DeleteAsync(string messageId, string popReceipt, CancellationToken token)
 	{
+		if (ThrowOnNextDelete)
+		{
+			ThrowOnNextDelete = false;
+			throw new InvalidOperationException("Expired receipt");
+		}
 		lock (gate) deleted.Add(Require(messageId));
+		AfterDelete?.Invoke();
 		return Task.CompletedTask;
 	}
 
 	public Task AbandonAsync(string messageId, string popReceipt, TimeSpan visibility, CancellationToken token)
 	{
+		if (ThrowOnNextAbandon)
+		{
+			ThrowOnNextAbandon = false;
+			throw new InvalidOperationException("Expired receipt");
+		}
 		lock (gate) abandoned.Add((Require(messageId), visibility));
 		return Task.CompletedTask;
 	}

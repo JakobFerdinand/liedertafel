@@ -68,6 +68,15 @@ public sealed class ExtractionOptions
 
 	private int maxAttempts = 5;
 
+	/// <summary>Interrupted Running attempts can be re-taken after this lease window.</summary>
+	public TimeSpan StaleRunningAfter
+	{
+		get => staleRunningAfter;
+		set => staleRunningAfter = value > TimeSpan.Zero ? value : TimeSpan.FromMinutes(15);
+	}
+
+	private TimeSpan staleRunningAfter = TimeSpan.FromMinutes(15);
+
 	/// <summary>Per-message time budget for one extraction run.</summary>
 	public TimeSpan TimeBudget
 	{
@@ -108,17 +117,16 @@ public sealed class ExtractionOptions
 	public const int MaxReceiveBatch = 32;
 
 	/// <summary>
-	/// One receive round asks for at most this many messages; the Azure
-	/// service cap (<see cref="MaxReceiveBatch"/>) is enforced defensively so
-	/// an oversized configuration cannot break every round.
+	/// One receive round asks for at most eight messages, enforcing the
+	/// worker contract's hard cap defensively for oversized configuration.
 	/// </summary>
 	public int BatchSize
 	{
 		get => batchSize;
-		set => batchSize = value is > 0 and <= MaxReceiveBatch ? value : MaxReceiveBatch;
+		set => batchSize = value > 0 ? Math.Min(value, 8) : 8;
 	}
 
-	private int batchSize = MaxReceiveBatch;
+	private int batchSize = 8;
 
 	/// <summary>Visibility window while one received message is being handled.</summary>
 	public TimeSpan ReceiveVisibility

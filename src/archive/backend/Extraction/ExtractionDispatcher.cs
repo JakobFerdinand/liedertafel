@@ -2,6 +2,7 @@ using Archive.Backend.Data;
 using Archive.Backend.Maintenance;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -15,10 +16,12 @@ namespace Archive.Backend.Extraction;
 /// round ends it — no idle polling (production is re-triggered by the queue
 /// scale rule). While maintenance is on, received messages are abandoned and
 /// the whole run stops.
+/// The scope factory creates and disposes a fresh worker/DbContext per message,
+/// so editor retries between rounds cannot be hidden by tracked terminal rows.
 /// </summary>
 public sealed class ExtractionPump(
 	IExtractionMessageSource source,
-	ExtractionWorker worker,
+	Func<AsyncServiceScope> createWorkerScope,
 	IOptions<ExtractionOptions> options,
 	IConfiguration configuration,
 	TimeProvider time,
@@ -51,10 +54,20 @@ public sealed class ExtractionPump(
 			}
 			foreach (var message in messages)
 			{
+				token.ThrowIfCancellationRequested();
+				if (time.GetUtcNow() >= deadline || MaintenanceConfiguration.IsEnabled(configuration))
+				{
+					// Release all unprocessed receipts immediately, including the
+					// rest of this batch, rather than waiting out receive visibility.
+					await ApplyDispositionAsync(message,
+						new MessageDisposition(Abandon: true, Visibility: TimeSpan.Zero), token);
+					continue;
+				}
 				MessageDisposition disposition;
 				try
 				{
-					disposition = await worker.HandleAsync(message, token);
+					await using var workerScope = createWorkerScope();
+					disposition = await workerScope.ServiceProvider.GetRequiredService<ExtractionWorker>().HandleAsync(message, token);
 				}
 				catch (Exception exception) when (exception is not OperationCanceledException)
 				{
@@ -64,14 +77,27 @@ public sealed class ExtractionPump(
 						exception.GetType().Name);
 					disposition = new MessageDisposition(Abandon: true, Visibility: options.Value.VisibilityBackoff);
 				}
-				if (disposition.Abandon)
-					await source.AbandonAsync(message.MessageId, message.PopReceipt, disposition.Visibility, token);
-				else
-					await source.DeleteAsync(message.MessageId, message.PopReceipt, token);
+				await ApplyDispositionAsync(message, disposition, token);
 				processed++;
 			}
 		}
 		return processed;
+	}
+
+	private async Task ApplyDispositionAsync(ExtractionMessage message, MessageDisposition disposition, CancellationToken token)
+	{
+		try
+		{
+			if (disposition.Abandon)
+				await source.AbandonAsync(message.MessageId, message.PopReceipt, disposition.Visibility, token);
+			else
+				await source.DeleteAsync(message.MessageId, message.PopReceipt, token);
+		}
+		catch (Exception exception) when (exception is not OperationCanceledException)
+		{
+			// An expired receipt costs a redisplay, never the entire drain.
+			logger.LogWarning("Extraction message disposition failed ({ExceptionType})", exception.GetType().Name);
+		}
 	}
 }
 

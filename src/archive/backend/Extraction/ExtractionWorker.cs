@@ -31,6 +31,10 @@ public sealed record MessageDisposition(bool Abandon, TimeSpan Visibility)
 /// the bounded transient path (row back to Queued, message abandoned with
 /// visibility backoff) or the terminal failed state once attempts are
 /// exhausted.
+/// The deadline spans blob open and parsing. PdfPig cannot interrupt a
+/// synchronous document/page parse internally; a single page can overrun the
+/// budget, but an expired outcome is never accepted. Decoded expansion remains
+/// bounded by container memory, with stale-lease recovery after interruption.
 /// </summary>
 public sealed class ExtractionWorker(
 	ArchiveDbContext db,
@@ -41,7 +45,7 @@ public sealed class ExtractionWorker(
 	ILogger<ExtractionWorker> logger)
 {
 	/// <summary>ARC-034: larger documents fail with an honest German reason without opening the blob.</summary>
-	public const string TooLargeReason = "Das Dokument ist zu groß für die automatische Textauswertung.";
+	public const string TooLargeReason = PdfTextExtractor.TooLargeReason;
 
 	/// <summary>ARC-034: the bounded attempt budget is spent; the editor's retry action restarts the work.</summary>
 	public const string ExhaustedReason = "Die Verarbeitung ist nach mehreren Versuchen fehlgescheitert.";
@@ -127,14 +131,28 @@ public sealed class ExtractionWorker(
 			case ExtractionStatus.Failed:
 				logger.LogDebug("Extraction for revision {RevisionId} is failed; duplicate of the original send deleted", revisionId);
 				return MessageDisposition.Delete;
-			case ExtractionStatus.Running:
+			case ExtractionStatus.Running when !ExtractionService.HasStaleLease(job, now, options.Value):
 				logger.LogInformation("Extraction for revision {RevisionId} is already running; message abandoned", revisionId);
 				return new MessageDisposition(Abandon: true, Visibility: options.Value.VisibilityBackoff);
 		}
 
+		// An interrupted final attempt has already spent the row's budget.
+		// Conclude before re-taking the lease without claiming another attempt.
+		if (job.AttemptCount >= options.Value.MaxAttempts)
+		{
+			logger.LogWarning("Extraction for revision {RevisionId} exhausted its attempts", revisionId);
+			job.Status = ExtractionStatus.Failed;
+			job.FailureReason = ExhaustedReason;
+			job.CompletedAt = null;
+			job.LastAttemptAt = now;
+			job.UpdatedAt = now;
+			job.RowVersion++;
+			return await SaveAndConcludeAsync(job, revisionId, MessageDisposition.Delete, token);
+		}
+
 		// 8. Oversize precheck: the blob is never opened for a document the
 		// bounds forbid; the failure is deterministic.
-		if (revision.SizeBytes > options.Value.MaxPdfBytes)
+		if (job.Status != ExtractionStatus.Running && revision.SizeBytes > options.Value.MaxPdfBytes)
 		{
 			logger.LogInformation("Extraction for revision {RevisionId} refused: the document is too large", revisionId);
 			job.Status = ExtractionStatus.Failed;
@@ -164,14 +182,26 @@ public sealed class ExtractionWorker(
 			return new MessageDisposition(Abandon: true, Visibility: options.Value.VisibilityBackoff);
 		}
 
+		// A stale Running lease with budget remaining is re-taken and counted before the
+		// deterministic bounds are reapplied, even for an oversize revision.
+		if (revision.SizeBytes > options.Value.MaxPdfBytes)
+		{
+			job.Status = ExtractionStatus.Failed;
+			job.FailureReason = TooLargeReason;
+			job.RowVersion++;
+			return await SaveAndConcludeAsync(job, revisionId, MessageDisposition.Delete, token);
+		}
+
 		// 10. Bounded extraction: the time budget rides a linked token so the
 		// parent cancellation stays distinguishable from budget exhaustion.
 		Stream? stream = null;
 		ExtractionOutcome? outcome = null;
 		var transient = false;
+		using var budget = CancellationTokenSource.CreateLinkedTokenSource(token);
+		budget.CancelAfter(options.Value.TimeBudget);
 		try
 		{
-			stream = await storage.OpenReadAsync(revision.BlobName, token);
+			stream = await storage.OpenReadAsync(revision.BlobName, budget.Token);
 			if (stream is null)
 			{
 				// The revision row exists but its object is missing — not a
@@ -180,19 +210,14 @@ public sealed class ExtractionWorker(
 			}
 			else
 			{
-				using var budget = CancellationTokenSource.CreateLinkedTokenSource(token);
-				budget.CancelAfter(options.Value.TimeBudget);
-				try
-				{
-					outcome = PdfTextExtractor.Extract(stream, options.Value, budget.Token);
-				}
-				catch (OperationCanceledException) when (budget.IsCancellationRequested && !token.IsCancellationRequested)
-				{
-					// The time budget expired; the counted attempt stands.
-					logger.LogWarning("Extraction for revision {RevisionId} exceeded its time budget", revisionId);
-					transient = true;
-				}
+				outcome = PdfTextExtractor.Extract(stream, options.Value, budget.Token);
+				budget.Token.ThrowIfCancellationRequested();
 			}
+		}
+		catch (OperationCanceledException) when (budget.IsCancellationRequested && !token.IsCancellationRequested)
+		{
+			logger.LogWarning("Extraction for revision {RevisionId} exceeded its time budget", revisionId);
+			transient = true;
 		}
 		catch (Exception exception) when (exception is not OperationCanceledException)
 		{
@@ -207,6 +232,9 @@ public sealed class ExtractionWorker(
 				await stream.DisposeAsync();
 		}
 
+		// Disposal can also cross the deadline; no expired result is accepted.
+		token.ThrowIfCancellationRequested();
+		transient |= budget.IsCancellationRequested;
 		if (!transient)
 		{
 			var completedAt = time.GetUtcNow();

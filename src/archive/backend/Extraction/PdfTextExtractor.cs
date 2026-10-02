@@ -38,51 +38,81 @@ public static class PdfTextExtractor
 
 	public const string CorruptReason = "Das Dokument konnte nicht gelesen werden.";
 
+	public const string TooLargeReason = "Das Dokument ist zu groß für die automatische Textauswertung.";
+
+	public const string TooMuchTextReason = "Das Dokument enthält zu viel Text für die automatische Auswertung.";
+
 	/// <summary>
 	/// Extracts the embedded text of one PDF within <paramref name="options"/>'s
-	/// bounds. Pages are appended in order, separated by newlines. Reaching
-	/// <see cref="ExtractionOptions.MaxPdfPages"/> or exceeding
-	/// <see cref="ExtractionOptions.MaxTextCharacters"/> stops appending and
-	/// hard-truncates — the bounds yield a truncated result, never a failure.
+	/// bounds. Pages are appended in order, separated by newlines. Pages beyond
+	/// <see cref="ExtractionOptions.MaxPdfPages"/> are never parsed; partial text
+	/// completes. Text exceeding <see cref="ExtractionOptions.MaxTextCharacters"/>
+	/// fails deterministically; buffering and appending never exceed their caps.
 	/// Zero extracted characters answer the explicit no-text outcome (scanned
-	/// PDF). <paramref name="token"/> is checked per page; cancellation
-	/// propagates. IO/stream failures propagate for the worker's transient path.
+	/// PDF). Cancellation is checked before opening, per page and before returning.
+	/// PdfPig's synchronous document/page parsing cannot be interrupted internally:
+	/// one page can overrun the deadline or expand beyond the compressed byte cap.
+	/// Expired outcomes are rejected; decoded expansion relies on container memory
+	/// limits and the worker's stale-lease recovery. IO/stream failures propagate.
 	/// </summary>
 	public static ExtractionOutcome Extract(Stream pdfStream, ExtractionOptions options, CancellationToken token)
 	{
-		if (!pdfStream.CanSeek)
-		{
-			// Blob streams are seekable; stay defensive for other callers.
-			var buffered = new MemoryStream();
-			pdfStream.CopyTo(buffered);
-			buffered.Position = 0;
-			pdfStream = buffered;
-		}
+		using var buffered = pdfStream.CanSeek ? null : new MemoryStream();
 		try
 		{
+			token.ThrowIfCancellationRequested();
+			if (buffered is not null)
+			{
+				var buffer = new byte[8192];
+				while (buffered.Length < options.MaxPdfBytes)
+				{
+					token.ThrowIfCancellationRequested();
+					var read = pdfStream.Read(buffer, 0, (int)Math.Min(buffer.Length, options.MaxPdfBytes - buffered.Length));
+					if (read == 0)
+						break;
+					buffered.Write(buffer, 0, read);
+				}
+				token.ThrowIfCancellationRequested();
+				// One probe byte detects overflow; it is never buffered.
+				if (buffered.Length == options.MaxPdfBytes && pdfStream.ReadByte() != -1)
+				{
+					token.ThrowIfCancellationRequested();
+					return ExtractionOutcome.Failure(TooLargeReason);
+				}
+				buffered.Position = 0;
+				pdfStream = buffered;
+			}
+			token.ThrowIfCancellationRequested();
 			using var document = PdfDocument.Open(pdfStream);
 			var text = new StringBuilder();
-			var page = 0;
-			foreach (var content in document.GetPages())
+			for (var index = 0; index < document.NumberOfPages; index++)
 			{
 				token.ThrowIfCancellationRequested();
-				// The page cap stops appending (not a failure) and once the
-				// text budget is spent whole-page extraction is skipped.
-				if (page >= options.MaxPdfPages || text.Length >= options.MaxTextCharacters)
+				if (index >= options.MaxPdfPages)
 					break;
-				if (text.Length > 0)
+				var content = document.GetPage(index + 1);
+				var pageText = ContentOrderTextExtractor.GetText(content);
+				token.ThrowIfCancellationRequested();
+				var separator = text.Length > 0 ? 1 : 0;
+				var remaining = options.MaxTextCharacters - text.Length;
+				var overlength = (long)pageText.Length + separator > remaining;
+				if (separator > 0 && remaining > 0)
+				{
 					text.Append('\n');
-				text.Append(ContentOrderTextExtractor.GetText(content));
-				if (text.Length > options.MaxTextCharacters)
-					text.Length = options.MaxTextCharacters;
-				page++;
+					remaining--;
+				}
+				text.Append(pageText, 0, Math.Min(pageText.Length, remaining));
+				if (overlength)
+					return ExtractionOutcome.Failure(TooMuchTextReason);
 			}
+			token.ThrowIfCancellationRequested();
 			return text.Length == 0
 				? ExtractionOutcome.NoTextOutcome()
 				: ExtractionOutcome.TextResult(text.ToString());
 		}
 		catch (Exception exception) when (exception is not OperationCanceledException && IsStructureException(exception))
 		{
+			token.ThrowIfCancellationRequested();
 			return exception is PdfDocumentEncryptedException
 				? ExtractionOutcome.Failure(EncryptedReason)
 				: ExtractionOutcome.Failure(CorruptReason);

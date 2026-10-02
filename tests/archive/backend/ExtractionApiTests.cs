@@ -411,6 +411,7 @@ public sealed class ExtractionApiTests
 			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
 			var job = await db.ExtractionJobs.SingleAsync();
 			job.Status = ExtractionStatus.Running;
+			job.LastAttemptAt = DateTimeOffset.UtcNow;
 			await db.SaveChangesAsync();
 		}
 
@@ -420,6 +421,50 @@ public sealed class ExtractionApiTests
 		var problem = await retry.Content.ReadFromJsonAsync<JsonElement>();
 		Assert.Equal(ExtractionEndpoints.ExtractionRunningMessage, problem.GetProperty("title").GetString());
 		Assert.Single(queue.Attempts);
+	}
+
+	[Theory]
+	[InlineData(false)]
+	[InlineData(true)]
+	public async Task RetryResetsStaleRunningLeaseAndEnqueues(bool missingTimestamp)
+	{
+		var queue = new FakeExtractionQueue();
+		await using var factory = new AuthApiFactory(queue: queue);
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		var session = await SignInAsync(factory, Editor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, session);
+		var assetId = await CreateAssetAsync(client, session, versionId, "score");
+		var (_, _, revision) = await UploadAndFinalizeAsync(factory, client, session, assetId);
+		var revisionId = revision.GetProperty("revisionId").GetGuid();
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			var job = await db.ExtractionJobs.SingleAsync();
+			job.Status = ExtractionStatus.Running;
+			job.AttemptCount = 4;
+			job.FailureReason = "Vorheriger Versuch";
+			job.LastAttemptAt = missingTimestamp ? null : DateTimeOffset.UtcNow.AddMinutes(-16);
+			await db.SaveChangesAsync();
+		}
+
+		using var retry = await PostJsonAsync(client, $"/api/revisions/{revisionId}/extraction/retry", new { }, session);
+		Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
+		var body = await retry.Content.ReadFromJsonAsync<JsonElement>();
+		Assert.Equal("queued", body.GetProperty("status").GetString());
+		Assert.Equal(0, body.GetProperty("attemptCount").GetInt32());
+		Assert.Equal(JsonValueKind.Null, body.GetProperty("failureReason").ValueKind);
+		Assert.Equal(JsonValueKind.Null, body.GetProperty("lastAttemptAt").ValueKind);
+		Assert.Equal(JsonValueKind.String, body.GetProperty("lastEnqueuedAt").ValueKind);
+		Assert.Equal(1, body.GetProperty("rowVersion").GetInt32());
+		Assert.Equal(2, queue.Attempts.Count);
+		using var verification = factory.Services.CreateScope();
+		var persisted = await verification.ServiceProvider.GetRequiredService<ArchiveDbContext>().ExtractionJobs.SingleAsync();
+		Assert.Equal(ExtractionStatus.Queued, persisted.Status);
+		Assert.Equal(0, persisted.AttemptCount);
+		Assert.Null(persisted.LastAttemptAt);
+		Assert.Null(persisted.FailureReason);
+		Assert.NotNull(persisted.LastEnqueuedAt);
 	}
 
 	[Theory]
@@ -454,6 +499,7 @@ public sealed class ExtractionApiTests
 				Status = winnerStatus,
 				Text = winnerStatus == ExtractionStatus.Completed ? "Gespeicherter Text" : null,
 				AttemptCount = 2,
+				LastAttemptAt = winnerStatus == ExtractionStatus.Running ? DateTimeOffset.UtcNow : null,
 				LastEnqueuedAt = winnerStatus == ExtractionStatus.Queued ? null : inserted.Entity.CreatedAt,
 				CreatedAt = inserted.Entity.CreatedAt,
 				UpdatedAt = inserted.Entity.UpdatedAt,

@@ -49,7 +49,12 @@ if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" o
         return new AzureExtractionMessageSource(queueClient, sp.GetRequiredService<IOptions<ExtractionOptions>>());
     });
     jobs.Services.AddScoped<ExtractionWorker>();
-    jobs.Services.AddScoped<ExtractionPump>();
+    jobs.Services.AddSingleton<ExtractionPump>(sp => new ExtractionPump(
+        sp.GetRequiredService<IExtractionMessageSource>(),
+        () => sp.GetRequiredService<IServiceScopeFactory>().CreateAsyncScope(),
+        sp.GetRequiredService<IOptions<ExtractionOptions>>(),
+        sp.GetRequiredService<IConfiguration>(), sp.GetRequiredService<TimeProvider>(),
+        sp.GetRequiredService<ILogger<ExtractionPump>>()));
     using var host = jobs.Build();
     await host.StartAsync();
     Environment.ExitCode = await host.RunArchiveJobAsync(command[2..], async token =>
@@ -101,9 +106,13 @@ if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" o
         }
         else if (command == "--dispatch-extraction")
         {
-            // ARC-034 outbox sweeper alone; also fine under maintenance — the
-            // messages just wait on the queue.
+            // ARC-034: maintenance gates the sweep before DB resolution/query.
             var dispatchLogger = provider.GetRequiredService<ILoggerFactory>().CreateLogger("Archive.Extraction");
+            if (MaintenanceConfiguration.IsEnabled(host.Services.GetRequiredService<IConfiguration>()))
+            {
+                dispatchLogger.LogInformation("Extraction dispatch paused: maintenance mode is enabled");
+                return;
+            }
             var dispatched = await ExtractionDispatcher.DispatchPendingAsync(
                 provider.GetRequiredService<ArchiveDbContext>(),
                 provider.GetRequiredService<IExtractionQueue>(),

@@ -4,6 +4,7 @@ using Archive.Backend.Data;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Archive.Backend.Extraction;
 
@@ -62,7 +63,8 @@ public static class ExtractionEndpoints
 		app.MapPost("/api/revisions/{id}/extraction/retry", async (
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
 			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time,
-			ILoggerFactory loggerFactory, IExtractionQueue queue, Guid id, CancellationToken token) =>
+			ILoggerFactory loggerFactory, IExtractionQueue queue, IOptions<ExtractionOptions> options,
+			Guid id, CancellationToken token) =>
 		{
 			context.Response.Headers.CacheControl = "no-store";
 			try { await antiforgery.ValidateRequestAsync(context); }
@@ -96,7 +98,7 @@ public static class ExtractionEndpoints
 					db.ExtractionJobs.Add(job);
 					enqueue = true;
 				}
-				else if (job.Status == ExtractionStatus.Running)
+				else if (job.Status == ExtractionStatus.Running && !ExtractionService.HasStaleLease(job, now, options.Value))
 				{
 					return Results.Problem(statusCode: 409, title: ExtractionRunningMessage);
 				}
@@ -105,7 +107,7 @@ public static class ExtractionEndpoints
 					// Terminal results are idempotent replies: no new work, no enqueue.
 					return Results.Ok(StatusPayload(job));
 				}
-				else if (job.Status == ExtractionStatus.Failed)
+				else if (job.Status is ExtractionStatus.Failed or ExtractionStatus.Running)
 				{
 					// An explicit retry starts a fresh bounded attempt budget.
 					job.Status = ExtractionStatus.Queued;

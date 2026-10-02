@@ -23,12 +23,16 @@ public static class ExtractionService
 	/// <c>SaveChanges</c> as the revision (outbox).
 	/// </summary>
 	public static ExtractionJob CreateForRevision(ArchiveAsset asset,
+		FileRevision revision, Guid accountId, DateTimeOffset now) =>
+		CreateForRevision(asset.Id, revision, accountId, now);
+
+	private static ExtractionJob CreateForRevision(Guid assetId,
 		FileRevision revision, Guid accountId, DateTimeOffset now)
 	{
 		return new ExtractionJob
 		{
 			RevisionId = revision.Id,
-			AssetId = asset.Id,
+			AssetId = assetId,
 			Status = ExtractionStatus.Queued,
 			TriggeredByAccountId = accountId,
 			CreatedAt = now,
@@ -41,15 +45,11 @@ public static class ExtractionService
 	/// the revision itself supplies asset id and triggering account.
 	/// </summary>
 	public static ExtractionJob CreateForRevision(FileRevision revision, DateTimeOffset now) =>
-		new()
-		{
-			RevisionId = revision.Id,
-			AssetId = revision.AssetId,
-			Status = ExtractionStatus.Queued,
-			TriggeredByAccountId = revision.CreatedByAccountId,
-			CreatedAt = now,
-			UpdatedAt = now,
-		};
+		CreateForRevision(revision.AssetId, revision, revision.CreatedByAccountId, now);
+
+	/// <summary>Shared lease rule for worker recovery and the editor's retry action.</summary>
+	public static bool HasStaleLease(ExtractionJob job, DateTimeOffset now, ExtractionOptions options) =>
+		job.LastAttemptAt is null || job.LastAttemptAt < now - options.StaleRunningAfter;
 
 	/// <summary>
 	/// Bounded quiet enqueue (ARC-034): up to two send attempts, catching the
