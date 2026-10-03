@@ -14,7 +14,7 @@
 // - No Neon or email resources here. The storage account below is the only
 //   storage integration in this template and now carries the extraction
 //   queue (ARC-034) next to the key-ring and member-file blobs; the queue
-//   is self-provisioned by the worker's first run, not declared in Bicep.
+//   is declared in this template as well.
 //   Hosted sign-in is ARC-011, real email ARC-010.
 // - No database connection is baked in: the Neon runtime connection arrives
 //   as a Key Vault reference (secret `archive-db-connection`, placed by the
@@ -249,8 +249,23 @@ resource assetsContainer 'Microsoft.Storage/storageAccounts/blobServices/contain
 // ARC-034: the extraction queue lives on the SAME assets storage account —
 // one account owns blobs and queues. KEDA polls only this queue; the finite
 // worker drains it and exits, so idle deployments never query the database.
-// The queue itself is not declared here: the worker's first run provisions
-// it (CreateIfNotExists, see infrastructure/archive/README.md).
+// The queue is declared here: KEDA only starts the job once it can read the
+// queue, and the app's Message Sender role cannot create it, so a
+// worker-provisioned queue would never come into existence on a fresh
+// account. The worker's CreateIfNotExists stays as a harmless no-op.
+// The name must match ExtractionOptions.QueueName.
+var extractionQueueName = 'archive-extraction'
+
+resource queueService 'Microsoft.Storage/storageAccounts/queueServices@2023-05-01' = {
+  parent: storage
+  name: 'default'
+}
+
+resource extractionQueue 'Microsoft.Storage/storageAccounts/queueServices/queues@2023-05-01' = {
+  parent: queueService
+  name: extractionQueueName
+}
+
 var extractionQueueUri = 'https://${storage.name}.queue.${az.environment().suffixes.storage}'
 
 // ARC-021 — Azure OpenAI (Microsoft Foundry) chat path. The account carries
@@ -695,7 +710,8 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
 // the worker's 10-minute drain budget, and the 1 Gi memory cap bounds a
 // runaway parse end-to-end (OOM kill resolves through the stale-lease
 // ladder). The extraction identity's Storage Queue Data Contributor covers
-// create (self-provisioning on first run), send, receive and process.
+// create (a no-op safeguard; Bicep declares the queue), send, receive and
+// process.
 // The scale rule authenticates via the `identity` property — the current
 // Container Apps guidance (managed-identity#scale-rules: "use the identity
 // property instead of the auth property") with a user-assigned identity
@@ -778,7 +794,7 @@ resource extractJob 'Microsoft.App/jobs@2025-01-01' = {
               // match ExtractionOptions.QueueName — both default to
               // `archive-extraction`, and no env entry sets another value.
               metadata: {
-                queueName: 'archive-extraction'
+                queueName: extractionQueue.name
                 queueLength: '1'
                 // KEDA's supported value is visibleonly (not visible): hidden
                 // retry/lease messages must not activate an idle job.

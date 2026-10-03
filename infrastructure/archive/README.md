@@ -299,9 +299,12 @@ with 401 even for the subscription Owner (finding recorded in ARC-043,
 
 The extraction queue `archive-extraction` lives on the SAME storage account
 as the key ring and member files (`stliedertafelarchive`): one account owns
-blobs and queues, and Bicep declares no queue resources — the worker's first
-run self-provisions the queue (`CreateIfNotExists` in both `--extract-queue`
-and `--dispatch-extraction`), so there is no maintainer queue-creation step.
+blobs and queues. Bicep declares the queue (`extractionQueue` in
+`main.bicep`): KEDA cannot start the job while the queue is missing and the
+app's Message Sender role cannot create it, so a worker-provisioned queue
+would never appear on a fresh account. `CreateIfNotExists` in
+`--extract-queue` and `--dispatch-extraction` remains as a no-op safeguard,
+and there is no maintainer queue-creation step.
 The endpoint travels as `Archive__Extraction__QueueServiceUri` (Bicep output
 `assetsQueueServiceUri`; ARC-037's import job reuses it) and authenticates
 Entra-only — no storage key or connection string exists anywhere, and
@@ -334,7 +337,7 @@ like every other role assignment):
 | Identity | Role | Purpose |
 | --- | --- | --- |
 | `id-archive-app` (runtime) | `Storage Queue Data Message Sender` | finalize dispatches the extraction envelope inline (best-effort); nothing more |
-| `id-archive-extract` (job) | `Storage Queue Data Contributor` | worker self-provisions the queue (create), the dispatch sweep sends, the drain receives/processes/deletes — and KEDA's queue-length poll needs the `queues/read` action, which the narrower Message Sender/Processor roles lack |
+| `id-archive-extract` (job) | `Storage Queue Data Contributor` | worker's `CreateIfNotExists` safeguard (Bicep declares the queue), the dispatch sweep sends, the drain receives/processes/deletes — and KEDA's queue-length poll needs the `queues/read` action, which the narrower Message Sender/Processor roles lack |
 | `id-archive-extract` (job) | `Storage Blob Data Reader` | bounded PDF reads via `OpenReadAsync` |
 
 The extraction identity deliberately holds no Key Vault, key-ring, mail or
@@ -357,12 +360,12 @@ re-runs resolve the app's deployed image once and pass it to both (shared
 re-runs. Infra deploys share the release's `archive-prod` serialization
 group, so image capture and deployment cannot interleave a release.
 
-Bootstrap on a fresh account: deploy infrastructure, then start the job
-once (`az containerapp job start -n ja-archive-extract -g
-RG-Liedertafel-Archive`) — that run creates the queue, hands un-enqueued
-rows over and drains them. Until the queue exists, finalize's inline send
-fails best-effort and rows stay un-enqueued; from the first run onward the
-inline send and the queue scale rule keep the path self-sustaining.
+Bootstrap on a fresh account: deploying infrastructure creates the queue,
+so finalize's inline send and the queue scale rule are self-sustaining from
+the first upload. Rows that stayed un-enqueued (inline send failed, or they
+predate the queue) are only picked up by a job run: the next queue-triggered
+execution sweeps them, or start one by hand (`az containerapp job start -n
+ja-archive-extract -g RG-Liedertafel-Archive`).
 Maintenance windows share `Archive__MaintenanceMode` between the app and
 job, declared by the same `maintenanceMode` topology parameter. Infra runs
 preserve the app's live value and apply it to both resources. The release
