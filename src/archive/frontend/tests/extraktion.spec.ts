@@ -249,6 +249,121 @@ test("Redaktion liest den Auswertungsstand und öffnet die Textvorschau", async 
   expect(errors).toEqual([]);
 });
 
+test("101 PDFs werden in zwei aufeinanderfolgenden Stapeln gemeinsam angezeigt", async ({
+  page,
+}) => {
+  await mockSitzung(page, editorMe);
+  const assets = Array.from({ length: 101 }, (_, index) => ({
+    ...notenEintrag(),
+    id: `00000000-0000-0000-0000-${(0xe100 + index).toString(16).padStart(12, "0")}`,
+    currentRevision: revision(
+      `00000000-0000-0000-0000-${(0xf100 + index).toString(16).padStart(12, "0")}`,
+    ),
+  }));
+  await page.route(`**/api/songs/${songId}`, (route) =>
+    route.fulfill(json(liedDetail(assets))),
+  );
+  const urls: string[] = [];
+  let ersterStapelBeendet = false;
+  let loslassen: () => void = () => {};
+  const warte = new Promise<void>((resolve) => {
+    loslassen = resolve;
+  });
+  await page.route("**/api/revisions/extraction?ids=*", async (route) => {
+    expect(route.request().method()).toBe("GET");
+    urls.push(route.request().url());
+    const ids =
+      new URL(route.request().url()).searchParams.get("ids")?.split(",") ?? [];
+    if (urls.length === 2) {
+      expect(ersterStapelBeendet).toBe(true);
+      await warte;
+    }
+    await route.fulfill(
+      json({
+        results: ids.map((id) => {
+          const asset = assets.find(
+            (item) => item.currentRevision.revisionId === id,
+          );
+          return auswertung(id, asset?.id ?? "");
+        }),
+      }),
+    );
+    if (urls.length === 1) ersterStapelBeendet = true;
+  });
+
+  await page.goto(`/lied/?id=${songId}`);
+  await expect(page.locator(".material-eintrag")).toHaveCount(101);
+  await expect.poll(() => urls.length).toBe(2);
+  // Der erste Stapel allein darf noch keine Zwischenstände anzeigen.
+  await expect(page.locator(".extraktion-stand")).toHaveCount(0);
+  loslassen();
+  await expect(page.locator(".extraktion-stand")).toHaveText(
+    Array.from({ length: 101 }, () => "Text ausgelesen"),
+  );
+  const stapel = urls.map((url) =>
+    new URL(url).searchParams.get("ids")?.split(","),
+  );
+  expect(stapel.map((ids) => ids?.length)).toEqual([100, 1]);
+  expect(stapel.flat()).toEqual(
+    assets.map((asset) => asset.currentRevision.revisionId).sort(),
+  );
+});
+
+test("Geteilte Revision behält ihren Stand, wenn ein Eintrag die PDF verliert", async ({
+  page,
+}) => {
+  await mockSitzung(page, editorMe);
+  let entfernt = false;
+  await page.route(`**/api/songs/${songId}`, (route) =>
+    route.fulfill(
+      json(
+        liedDetail([
+          {
+            ...notenEintrag(),
+            currentRevision: entfernt ? null : revision(notenRevisionId),
+          },
+          { ...notenEintrag(), id: dokumentAssetId, voiceLabel: "Sopran" },
+        ]),
+      ),
+    ),
+  );
+  await page.route(`**/api/assets/${notenAssetId}`, (route) => {
+    expect(route.request().method()).toBe("PATCH");
+    entfernt = true;
+    return route.fulfill(json({}));
+  });
+  let anfragen = 0;
+  await page.route("**/api/revisions/extraction*", (route) => {
+    anfragen += 1;
+    expect(new URL(route.request().url()).searchParams.get("ids")).toBe(
+      notenRevisionId,
+    );
+    return route.fulfill(
+      json({ results: [auswertung(notenRevisionId, notenAssetId)] }),
+    );
+  });
+
+  await page.goto(`/lied/?id=${songId}`);
+  await expect(page.locator(".extraktion-stand")).toHaveText([
+    "Text ausgelesen",
+    "Text ausgelesen",
+  ]);
+  const ersterEintrag = page.getByRole("article", { name: "Noten · Vollmix" });
+  await ersterEintrag
+    .getByRole("button", { name: "Bearbeiten", exact: true })
+    .click();
+  await ersterEintrag
+    .getByRole("button", { name: "Änderungen speichern" })
+    .click();
+  await expect(ersterEintrag).toHaveCount(0);
+  await expect(
+    page
+      .getByRole("article", { name: "Noten · Sopran" })
+      .locator(".extraktion-stand"),
+  ).toHaveText("Text ausgelesen");
+  expect(anfragen).toBe(1);
+});
+
 test("Mitglied sieht keine Auswertungszeile", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));

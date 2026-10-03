@@ -4,6 +4,9 @@
 
 import { postAuth } from "@/lib/auth";
 
+/** Höchstzahl der Revisionen je Anfrage (Vertrag ExtractionEndpoints). */
+export const extraktionsLimit = 100;
+
 /** Zustände eines Auswertungslaufs (Vertrag ExtractionEndpoints). */
 export type ExtraktionsStatus =
   | "queued"
@@ -31,22 +34,27 @@ export type ExtraktionsInfo = {
 /**
  * Auswertungsstand mehrerer Revisionen, in der Reihenfolge der Anfrage;
  * unbekannte Kennungen fehlen in der Antwort still. Ohne Kennungen
- * entsteht keine Anfrage.
+ * entsteht keine Anfrage. Größere Listen werden nacheinander abgefragt.
  */
 export async function holeExtraktionStatus(
   revisionIds: string[],
   signal?: AbortSignal,
 ): Promise<ExtraktionsInfo[]> {
-  if (revisionIds.length === 0) return [];
-  const parameter = new URLSearchParams({ ids: revisionIds.join(",") });
-  const response = await fetch(`/api/revisions/extraction?${parameter}`, {
-    credentials: "same-origin",
-    cache: "no-store",
-    signal,
-  });
-  if (!response.ok) throw response;
-  const data = (await response.json()) as { results?: ExtraktionsInfo[] };
-  return data.results ?? [];
+  const results: ExtraktionsInfo[] = [];
+  for (let start = 0; start < revisionIds.length; start += extraktionsLimit) {
+    const parameter = new URLSearchParams({
+      ids: revisionIds.slice(start, start + extraktionsLimit).join(","),
+    });
+    const response = await fetch(`/api/revisions/extraction?${parameter}`, {
+      credentials: "same-origin",
+      cache: "no-store",
+      signal,
+    });
+    if (!response.ok) throw response;
+    const data = (await response.json()) as { results?: ExtraktionsInfo[] };
+    results.push(...(data.results ?? []));
+  }
+  return results;
 }
 
 /**

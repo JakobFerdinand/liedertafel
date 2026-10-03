@@ -6,6 +6,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
 } from "react";
 import { type ExtraktionsInfo, holeExtraktionStatus } from "@/lib/extraktion";
@@ -30,25 +31,22 @@ export function ExtraktionUebersichtProvider({
 }: {
   children: ReactNode;
 }) {
-  const [registrierungen, setRegistrierungen] = useState<
-    Record<string, number>
-  >({});
+  const registrierungen = useRef<Record<string, number>>({});
+  const [schluessel, setSchluessel] = useState("");
   const [staende, setStaende] = useState<Record<string, Stand>>({});
   const [abfrage, setAbfrage] = useState(0);
   const [laedt, setLaedt] = useState(false);
-  const schluessel = Object.keys(registrierungen).sort().join(",");
   const registriere = useCallback((id: string) => {
-    setRegistrierungen((vorher) => ({
-      ...vorher,
-      [id]: (vorher[id] ?? 0) + 1,
-    }));
+    const zaehler = registrierungen.current;
+    zaehler[id] = (zaehler[id] ?? 0) + 1;
+    setSchluessel(Object.keys(zaehler).sort().join(","));
     return () => {
-      setRegistrierungen((vorher) => {
-        const neu = { ...vorher };
-        if (neu[id] > 1) neu[id] -= 1;
-        else delete neu[id];
-        return neu;
-      });
+      if (zaehler[id] > 1) {
+        zaehler[id] -= 1;
+        return;
+      }
+      delete zaehler[id];
+      setSchluessel(Object.keys(zaehler).sort().join(","));
       setStaende((vorher) => {
         const neu = { ...vorher };
         delete neu[id];
