@@ -1,6 +1,6 @@
 "use client";
 
-import type { LiedDetails } from "@/lib/songs";
+import { fassungTonart, type LiedDetails } from "@/lib/songs";
 
 type FassungsWahlProps = {
   lied: LiedDetails;
@@ -51,8 +51,8 @@ export function FassungsWahl({
                     >
                       {fassung.label}
                       {fassung.creator ? ` · ${fassung.creator}` : ""}
-                      {fassung.musicalKey
-                        ? ` · Tonart: ${fassung.musicalKey}`
+                      {fassungTonart(fassung)
+                        ? ` · Tonart: ${fassungTonart(fassung)}`
                         : ""}
                     </button>
                   </li>

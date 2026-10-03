@@ -41,11 +41,25 @@ export type LiedRevision = {
   createdAt: string;
 };
 
+/** Aus dem Text der aktuellen Noten gelesene Angaben (Vertrag ScoreFacts). */
+export type NotenAngaben = {
+  voice: string | null;
+  musicalKey: string | null;
+  timeSignature: string | null;
+  tempo: string | null;
+  composer: string | null;
+  lyricist: string | null;
+  arranger: string | null;
+  copyright: string | null;
+};
+
 export type LiedAsset = {
   id: string;
   assetType: string;
   voiceLabel: string | null;
   description: string | null;
+  /** Fehlt in den Antworten der Material-Endpunkte; nur das Lieddetail trägt es. */
+  detected?: NotenAngaben | null;
   currentRevision: LiedRevision | null;
 };
 
@@ -168,4 +182,48 @@ export async function fetchSong(
   if (!response.ok) throw response;
   const data = (await response.json()) as { song: LiedDetails };
   return data.song;
+}
+
+/**
+ * Anzeigename eines Materials: die eingetragene Stimme gewinnt, sonst die
+ * aus den Noten erkannte; ohne beides heißen Noten „Noten“ und Aufnahmen
+ * „Vollmix“.
+ */
+export function materialStimme(asset: LiedAsset): string {
+  return (
+    asset.voiceLabel?.trim() ||
+    asset.detected?.voice ||
+    (asset.assetType === "score" ? "Noten" : "Vollmix")
+  );
+}
+
+/**
+ * Tonart einer Fassung: die eingetragene, sonst die aus den Noten erkannte —
+ * diese nur, wenn alle Noten der Fassung dieselbe nennen.
+ */
+export function fassungTonart(fassung: LiedMusicalVersion): string | null {
+  if (fassung.musicalKey) return fassung.musicalKey;
+  const erkannt = new Set(
+    // Antworten der Fassungs-Endpunkte tragen keine Materialliste.
+    (fassung.assets ?? [])
+      .map((asset) => asset.detected?.musicalKey)
+      .filter((tonart): tonart is string => Boolean(tonart)),
+  );
+  return erkannt.size === 1 ? [...erkannt][0] : null;
+}
+
+/** Erkannte Angaben als lesbare Teile, etwa „Tonart A♭“ und „4/4-Takt“. */
+export function notenAngabenTeile(
+  angaben: NotenAngaben | null | undefined,
+): string[] {
+  if (!angaben) return [];
+  return [
+    angaben.musicalKey ? `Tonart ${angaben.musicalKey}` : null,
+    angaben.timeSignature ? `${angaben.timeSignature}-Takt` : null,
+    angaben.tempo ? `Tempo ${angaben.tempo}` : null,
+    angaben.composer ? `Musik: ${angaben.composer}` : null,
+    angaben.lyricist ? `Text: ${angaben.lyricist}` : null,
+    angaben.arranger ? `Satz: ${angaben.arranger}` : null,
+    angaben.copyright,
+  ].filter((teil): teil is string => Boolean(teil));
 }

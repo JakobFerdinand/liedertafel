@@ -27,7 +27,7 @@ import {
   stimmenVorschlaege,
   uebertrageDatei,
 } from "@/lib/assets";
-import type { LiedAsset } from "@/lib/songs";
+import { type LiedAsset, materialStimme, notenAngabenTeile } from "@/lib/songs";
 
 type MaterialStatus =
   | "warten"
@@ -549,13 +549,24 @@ export function NotenBereich({
                   {gruppenAssets.map((asset) => {
                     const revision = asset.currentRevision;
                     if (!revision) return null;
-                    const stimme = asset.voiceLabel?.trim() || "Vollmix";
+                    const stimme = materialStimme(asset);
+                    const erkannt = asset.detected ?? null;
+                    // Weicht die eingetragene Stimme von den Noten ab, bleibt
+                    // die erkannte als Hinweis sichtbar.
+                    const erkannteTeile = [
+                      erkannt?.voice && erkannt.voice !== stimme
+                        ? `Stimme ${erkannt.voice}`
+                        : null,
+                      ...notenAngabenTeile(erkannt),
+                    ].filter((teil): teil is string => Boolean(teil));
                     const zugriff = zugriffe[asset.id] ?? null;
                     return (
                       <article
                         className="material-eintrag"
                         key={asset.id}
-                        aria-label={`${titel} · ${stimme}`}
+                        aria-label={
+                          stimme === titel ? titel : `${titel} · ${stimme}`
+                        }
                       >
                         <p className="material-stimme">{stimme}</p>
                         <p className="noten-info">
@@ -566,6 +577,11 @@ export function NotenBereich({
                         {asset.description?.trim() && (
                           <p className="material-beschreibung">
                             {asset.description.trim()}
+                          </p>
+                        )}
+                        {erkannteTeile.length > 0 && (
+                          <p className="material-beschreibung material-erkannt">
+                            Laut Noten: {erkannteTeile.join(" · ")}
                           </p>
                         )}
                         <div className="noten-aktionen">
@@ -717,6 +733,8 @@ export function NotenBereich({
                             <ExtraktionStatus
                               revisionId={revision.revisionId}
                               isEditor={isEditor}
+                              angabenBekannt={erkannt !== null}
+                              onErkannt={aktualisieren}
                             />
                           )}
                         {isEditor && bearbeitenId === asset.id && (
@@ -729,6 +747,7 @@ export function NotenBereich({
                               type="text"
                               maxLength={200}
                               list="material-stimmen"
+                              placeholder={erkannt?.voice ?? undefined}
                               value={bearbeitenStimme}
                               onChange={(event) =>
                                 setBearbeitenStimme(event.target.value)
@@ -907,6 +926,11 @@ export function NotenBereich({
                         type="text"
                         maxLength={200}
                         list="material-stimmen"
+                        placeholder={
+                          zeile.assetTyp === "score"
+                            ? "wird aus den Noten erkannt"
+                            : undefined
+                        }
                         value={zeile.stimme}
                         disabled={zeile.status !== "warten"}
                         onChange={(event) =>

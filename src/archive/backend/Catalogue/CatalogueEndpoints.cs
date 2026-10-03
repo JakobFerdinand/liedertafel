@@ -1,5 +1,7 @@
+using Archive.Backend.Assets;
 using Archive.Backend.Auth;
 using Archive.Backend.Data;
+using Archive.Backend.Extraction;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.EntityFrameworkCore;
 
@@ -865,6 +867,7 @@ public static class CatalogueEndpoints
 			.Where(a => a.MusicalVersionId != null && versionIds.Contains(a.MusicalVersionId.Value))
 			.OrderBy(a => a.Id)
 			.ToListAsync(token);
+		var detected = await LoadScoreFactsAsync(db, assets, token);
 		return assets
 			.GroupBy(a => a.MusicalVersionId!.Value)
 			.Select(group => (group.Key, group
@@ -874,6 +877,10 @@ public static class CatalogueEndpoints
 					assetType = a.AssetType,
 					voiceLabel = a.VoiceLabel,
 					description = a.Description,
+					// What the current score says about itself; entered values win in the UI.
+					detected = a.CurrentRevisionId is { } revisionId && detected.TryGetValue(revisionId, out var facts)
+						? ExtractionEndpoints.FactsPayload(facts)
+						: null,
 					currentRevision = a.CurrentRevision is null
 						? null
 						: (object)new
@@ -887,6 +894,27 @@ public static class CatalogueEndpoints
 				})
 				.ToList()))
 			.ToList();
+	}
+
+	/// <summary>
+	/// Facts read from the extracted text of the given assets' current score
+	/// revisions, keyed by revision. Only current revisions are read, so a
+	/// replaced score never contributes obsolete facts.
+	/// </summary>
+	public static async Task<Dictionary<Guid, ScoreFacts>> LoadScoreFactsAsync(
+		ArchiveDbContext db, IReadOnlyCollection<ArchiveAsset> assets, CancellationToken token)
+	{
+		var revisionIds = assets
+			.Where(a => a.AssetType == AssetEndpoints.ScoreAssetType && a.CurrentRevisionId is not null)
+			.Select(a => a.CurrentRevisionId!.Value)
+			.ToList();
+		if (revisionIds.Count == 0)
+			return [];
+		var texts = await db.ExtractionJobs.AsNoTracking()
+			.Where(j => revisionIds.Contains(j.RevisionId) && j.Status == ExtractionStatus.Completed)
+			.Select(j => new { j.RevisionId, j.Text })
+			.ToListAsync(token);
+		return texts.ToDictionary(t => t.RevisionId, t => ScoreTextAnalyzer.Analyze(t.Text).Facts);
 	}
 
 	private static object SongDetail(Song song, List<(Guid VersionId, List<object> Assets)>? versionAssets = null)

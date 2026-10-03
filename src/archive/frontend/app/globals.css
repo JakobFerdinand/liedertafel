@@ -2691,13 +2691,32 @@ fieldset.programm-verwaltung {
   padding: 0.3rem 0.7rem;
   font-size: var(--schrift-neben);
 }
+/* Die Vorschau nimmt die ganze Zeile des Eintrags ein und rollt ab einer
+   begrenzten Höhe, statt die Materialliste zu verdrängen. */
 .extraktion-vorschau {
+  flex: 1 0 100%;
+  box-sizing: border-box;
+  max-height: 22rem;
+  overflow-y: auto;
   font-size: var(--schrift-neben);
-  white-space: pre-wrap;
+  line-height: 1.55;
   overflow-wrap: anywhere;
   border: 1px solid var(--rule);
   border-radius: var(--radius-fein);
   background: var(--wash);
   padding: 0.6rem 0.8rem;
   margin-block: 0.3rem 0.1rem;
+}
+.extraktion-vorschau p {
+  margin-block: 0;
+  white-space: pre-wrap;
+}
+.extraktion-angaben {
+  color: var(--muted);
+  font-weight: 600;
+  padding-block-end: 0.4rem;
+}
+.material-erkannt {
+  color: var(--muted);
+  font-size: var(--schrift-neben);
 }

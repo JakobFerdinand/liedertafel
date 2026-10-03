@@ -641,6 +641,65 @@ public sealed class ExtractionApiTests
 	}
 
 	[Fact]
+	public async Task CompletedScoreTextSuppliesVoiceAndKeyToDetailStatusAndChat()
+	{
+		const string text = "Tenor 1 A♭\n44 .å\nHo -\nåê\nsi -\nå\nan -\nå\nna,";
+		await using var factory = new AuthApiFactory(queue: new FakeExtractionQueue());
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		var editorSession = await SignInAsync(factory, Editor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var (songId, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
+		var current = await CreateAssetAsync(client, editorSession, versionId, "score");
+		var (_, _, replaced) = await UploadAndFinalizeAsync(factory, client, editorSession, current);
+		var (_, _, revision) = await UploadAndFinalizeAsync(factory, client, editorSession, current);
+		var replacedId = Guid.Parse(replaced.GetProperty("revisionId").GetString()!);
+		var revisionId = Guid.Parse(revision.GetProperty("revisionId").GetString()!);
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			var jobs = await db.ExtractionJobs.ToListAsync();
+			// The replaced revision's text must never describe the current score.
+			var old = jobs.Single(j => j.RevisionId == replacedId);
+			old.Status = ExtractionStatus.Completed;
+			old.Text = "Bass 2\n34\nveraltet";
+			var job = jobs.Single(j => j.RevisionId == revisionId);
+			job.Status = ExtractionStatus.Completed;
+			job.Text = text;
+			(await db.Songs.SingleAsync(s => s.Id == songId)).PublishedAt = DateTimeOffset.UtcNow;
+			await db.SaveChangesAsync();
+		}
+
+		var detail = await GetSongDetailAsync(client, editorSession, songId);
+		var detected = detail.GetProperty("arrangements")[0].GetProperty("musicalVersions")[0]
+			.GetProperty("assets")[0].GetProperty("detected");
+		Assert.Equal("Tenor 1", detected.GetProperty("voice").GetString());
+		Assert.Equal("A♭", detected.GetProperty("musicalKey").GetString());
+		Assert.Equal("4/4", detected.GetProperty("timeSignature").GetString());
+
+		var (_, status, _) = await GetExtractionStatusAsync(client, editorSession, revisionId.ToString());
+		var result = status.GetProperty("results")[0];
+		Assert.Equal(text, result.GetProperty("text").GetString());
+		Assert.Equal("Tenor 1 A♭ 44 Hosianna,", result.GetProperty("cleanText").GetString());
+		Assert.Equal("Tenor 1", result.GetProperty("facts").GetProperty("voice").GetString());
+
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			var tool = (Microsoft.Extensions.AI.AIFunction)Archive.Backend.Chat.CatalogueTools.CreateSongDetailsTool(db);
+			var answer = await tool.InvokeAsync(new Microsoft.Extensions.AI.AIFunctionArguments(
+				new Dictionary<string, object?> { ["songId"] = songId.ToString() }));
+			using var document = JsonDocument.Parse(answer!.ToString()!);
+			Assert.Equal(songId.ToString(), document.RootElement.GetProperty("songs")[0].GetProperty("id").GetString());
+			var material = document.RootElement.GetProperty("arrangements")[0].GetProperty("versions")[0]
+				.GetProperty("material")[0];
+			Assert.Equal("Tenor 1", material.GetProperty("voice").GetString());
+			Assert.Equal("A♭", material.GetProperty("scoreFacts").GetProperty("musicalKey").GetString());
+			Assert.Equal("Tenor 1 A♭ 44 Hosianna,", material.GetProperty("scoreText").GetString());
+			Assert.DoesNotContain("veraltet", answer.ToString());
+		}
+	}
+
+	[Fact]
 	public async Task RetryOnTerminalStatesIsIdempotentWithoutNewWork()
 	{
 		var queue = new FakeExtractionQueue();

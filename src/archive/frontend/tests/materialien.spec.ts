@@ -504,7 +504,14 @@ test("Materialien sind nach Typ und Stimme gruppiert", async ({ page }) => {
   ).toBeVisible();
   await expect(page.getByText("Sopran", { exact: true })).toBeVisible();
   await expect(page.getByText("Alt", { exact: true })).toBeVisible();
-  await expect(page.getByText("Vollmix", { exact: true })).toHaveCount(2);
+  // Noten ohne Stimmangabe heißen „Noten“, nur Aufnahmen „Vollmix“.
+  await expect(page.getByText("Vollmix", { exact: true })).toHaveCount(1);
+  await expect(page.locator(".material-stimme")).toHaveText([
+    "Sopran",
+    "Noten",
+    "Alt",
+    "Vollmix",
+  ]);
   await expect(page.getByText("Chornoten für die Sopranstimme")).toBeVisible();
   await expect(page.getByText("Aufnahme der Altstimme")).toBeVisible();
   await expect(

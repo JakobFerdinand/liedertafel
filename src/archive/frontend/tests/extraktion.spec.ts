@@ -214,7 +214,7 @@ test("Redaktion liest den Auswertungsstand und öffnet die Textvorschau", async 
   await page.route(`**/api/assets/${notenAssetId}/access`, (route) =>
     route.fulfill(json(notenZugriff())),
   );
-  const text = `${"A".repeat(600)}BCD`;
+  const text = `${"A".repeat(4000)}BCD`;
   await page.route("**/api/revisions/extraction*", (route) =>
     route.fulfill(
       json({ results: [auswertung(notenRevisionId, notenAssetId, { text })] }),
@@ -235,7 +235,7 @@ test("Redaktion liest den Auswertungsstand und öffnet die Textvorschau", async 
   await expect(zeile.locator(".extraktion-vorschau")).toHaveCount(0);
   await umschalter.click();
   const vorschau = zeile.locator(".extraktion-vorschau");
-  await expect(vorschau).toHaveText(`${"A".repeat(600)}…`);
+  await expect(vorschau).toHaveText(`${"A".repeat(4000)}…`);
   const schliessen = zeile.getByRole("button", {
     name: "Vorschau schließen",
   });
@@ -348,7 +348,10 @@ test("Geteilte Revision behält ihren Stand, wenn ein Eintrag die PDF verliert",
     "Text ausgelesen",
     "Text ausgelesen",
   ]);
-  const ersterEintrag = page.getByRole("article", { name: "Noten · Vollmix" });
+  const ersterEintrag = page.getByRole("article", {
+    name: "Noten",
+    exact: true,
+  });
   await ersterEintrag
     .getByRole("button", { name: "Bearbeiten", exact: true })
     .click();
@@ -893,4 +896,70 @@ test("Späte Retry-Antwort der alten Revision verändert die neue Revision nicht
     "Text der neuen Revision B",
   );
   await expect(zeile.getByRole("alert")).toHaveCount(0);
+});
+
+test("Erkannte Angaben benennen die Noten, und die Vorschau nutzt die Breite", async ({
+  page,
+}) => {
+  const fakten = {
+    voice: "Tenor 1",
+    musicalKey: "A♭",
+    timeSignature: "4/4",
+    tempo: null,
+    composer: null,
+    lyricist: null,
+    arranger: null,
+    copyright: null,
+  };
+  await mockSitzung(page, editorMe);
+  // Erst nach fertiger Auswertung trägt das Lieddetail die Angaben.
+  let geladen = 0;
+  await page.route(`**/api/songs/${songId}`, (route) => {
+    geladen += 1;
+    return route.fulfill(
+      json(
+        liedDetail([
+          { ...notenEintrag(), detected: geladen > 1 ? fakten : null },
+        ]),
+      ),
+    );
+  });
+  await page.route("**/api/revisions/extraction*", (route) =>
+    route.fulfill(
+      json({
+        results: [
+          auswertung(notenRevisionId, notenAssetId, {
+            text: "Tenor 1 A♭\n44 .å\nHo -\nåê\nsi -\nå\nan -\nå\nna,",
+            cleanText: "Tenor 1 A♭ 44 Hosianna,",
+            facts: fakten,
+          }),
+        ],
+      }),
+    ),
+  );
+
+  await page.goto(`/lied/?id=${songId}`);
+  const eintrag = page.getByRole("article", { name: "Noten · Tenor 1" });
+  await expect(eintrag.locator(".material-stimme")).toHaveText("Tenor 1");
+  await expect(eintrag.locator(".material-erkannt")).toHaveText(
+    "Laut Noten: Tonart A♭ · 4/4-Takt",
+  );
+  await expect(
+    page.getByRole("button", { name: /Standardfassung.*Tonart: A♭/ }),
+  ).toBeVisible();
+  expect(geladen).toBe(2);
+
+  await eintrag.getByRole("button", { name: "Textvorschau" }).click();
+  const vorschau = eintrag.locator(".extraktion-vorschau");
+  await expect(vorschau).toContainText(
+    "Erkannt: Stimme Tenor 1 · Tonart A♭ · 4/4-Takt",
+  );
+  await expect(vorschau).toContainText("Tenor 1 A♭ 44 Hosianna,");
+  await expect(vorschau).not.toContainText("åê");
+  const breiten = await vorschau.evaluate((knoten) => [
+    knoten.getBoundingClientRect().width,
+    (knoten.parentElement as HTMLElement).getBoundingClientRect().width,
+  ]);
+  expect(breiten[0]).toBeGreaterThan(breiten[1] - 2);
+  await vorschau.screenshot({ path: test.info().outputPath("vorschau.png") });
 });

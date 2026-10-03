@@ -7,8 +7,9 @@ import {
   extraktionsStatusText,
   starteExtraktionErneut,
 } from "@/lib/extraktion";
+import { notenAngabenTeile } from "@/lib/songs";
 
-const vorschauLaenge = 600;
+const vorschauLaenge = 4000;
 const ladeFehlerText = "Auswertungsstatus konnte nicht geladen werden.";
 const wiederholErsatz =
   "Der erneute Versuch konnte nicht gestartet werden. Bitte erneut versuchen.";
@@ -16,9 +17,15 @@ const wiederholErsatz =
 export function ExtraktionStatus({
   revisionId,
   isEditor,
+  angabenBekannt = true,
+  onErkannt,
 }: {
   revisionId: string;
   isEditor: boolean;
+  /** Trägt der Eintrag die erkannten Angaben schon? */
+  angabenBekannt?: boolean;
+  /** Frisch erkannte Angaben liegen vor: der Eintrag soll neu laden. */
+  onErkannt?: () => void;
 }) {
   const { info, geladen, fehler, aktualisiereExtraktion, setzeExtraktion } =
     useExtraktionStand(revisionId, isEditor);
@@ -48,6 +55,17 @@ export function ExtraktionStatus({
       abbruchRef.current = null;
     };
   }, [revisionId]);
+
+  // Eine eben fertige Auswertung benennt den Eintrag ohne Neuladen der
+  // Seite; je Revision höchstens eine Nachfrage.
+  const gemeldetRef = useRef<string | null>(null);
+  const neuErkannt =
+    !angabenBekannt && info?.status === "completed" && Boolean(info.facts);
+  useEffect(() => {
+    if (!neuErkannt || gemeldetRef.current === revisionId) return;
+    gemeldetRef.current = revisionId;
+    onErkannt?.();
+  }, [neuErkannt, revisionId, onErkannt]);
 
   async function erneutStarten() {
     if (abbruchRef.current) return;
@@ -98,7 +116,15 @@ export function ExtraktionStatus({
   ) {
     return null;
   }
-  const text = typeof info?.text === "string" ? info.text : "";
+  // Der bereinigte Text liest sich wie der gesungene; ältere Antworten
+  // ohne ihn zeigen den Rohtext.
+  const text =
+    (typeof info?.cleanText === "string" && info.cleanText) ||
+    (typeof info?.text === "string" ? info.text : "");
+  const angaben = [
+    info?.facts?.voice ? `Stimme ${info.facts.voice}` : null,
+    ...notenAngabenTeile(info?.facts),
+  ].filter((teil): teil is string => Boolean(teil));
   const grund =
     info?.status === "failed" ? (info.failureReason?.trim() ?? "") : "";
   const vorschauId = `extraktion-vorschau-${revisionId}`;
@@ -144,10 +170,17 @@ export function ExtraktionStatus({
             {offen ? "Vorschau schließen" : "Textvorschau"}
           </button>
           {offen && (
-            <p className="extraktion-vorschau" id={vorschauId}>
-              {text.slice(0, vorschauLaenge)}
-              {text.length > vorschauLaenge ? "…" : ""}
-            </p>
+            <div className="extraktion-vorschau" id={vorschauId}>
+              {angaben.length > 0 && (
+                <p className="extraktion-angaben">
+                  Erkannt: {angaben.join(" · ")}
+                </p>
+              )}
+              <p>
+                {text.slice(0, vorschauLaenge)}
+                {text.length > vorschauLaenge ? "…" : ""}
+              </p>
+            </div>
           )}
         </>
       )}

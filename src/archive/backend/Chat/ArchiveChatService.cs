@@ -79,6 +79,10 @@ public sealed class ArchiveChatService(
 		  Erkläre bei hasMore, dass dies eine Auswahl ist. Biete bei nextPage weitere Lieder an und nutze
 		  bei Nachfrage diese Seite. Bei limitReached bitte um eine gezieltere Suche, statt Vollständigkeit zu behaupten.
 		  totalCount zählt nur veröffentlichte Treffer; eine leere spätere Seite bedeutet nicht, dass das Archiv leer ist.
+		- Für Fragen zu einem einzelnen Lied (Inhalt, Text, Stimmen, Tonart, Taktart, vorhandenes Material) rufe
+		  song_details auf. scoreFacts und scoreText stammen aus der automatischen Auswertung der Noten-PDFs:
+		  nutze sie für Inhalt und Angaben des Liedes, kennzeichne sie als „laut Noten“ und gib eingetragenen
+		  Verzeichnisangaben den Vorrang, wenn beide vorliegen.
 		- Belege Aussagen über einzelne Lieder mit [Quelle: Titel], wobei Titel exakt aus einem Werkzeugergebnis
 		  dieses Laufs stammen muss. Erfinde niemals Quellen wie [Quelle: Liedverzeichnis] oder andere Sammelquellen.
 		  Trefferzahlen, Suchgrenzen und fehlende Ergebnisse beschreibe ohne erfundenen Quellenmarker.

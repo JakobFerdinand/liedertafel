@@ -1,7 +1,9 @@
 using System.ComponentModel;
 using System.Text.Json;
+using Archive.Backend.Assets;
 using Archive.Backend.Catalogue;
 using Archive.Backend.Data;
+using Archive.Backend.Extraction;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 
@@ -30,6 +32,11 @@ public static class CatalogueTools
 
 	private const int ExcerptChars = 300;
 
+	/// <summary>Sung text handed to the model per score and per song.</summary>
+	private const int ScoreTextChars = 1500;
+
+	private const int ScoreTextBudget = 6000;
+
 	private const string SearchToolDescription =
 		"Sucht im veröffentlichten Liedverzeichnis nach Titeln, Komponisten, Textdichtern und Liedtexten. "
 		+ "Ein leerer Suchtext listet vorhandene Lieder auf. Liefert höchstens 10 Lieder pro Seite, "
@@ -49,7 +56,9 @@ public static class CatalogueTools
 		AIFunctionFactory.Create(
 			async ([Description("ID des gesuchten Liedes aus dem Liedverzeichnis.")] string songId) => await DetailsAsync(db, songId),
 			name: DetailsToolName,
-			description: "Liest ein einzelnes veröffentlichtes Lied aus dem Verzeichnis.");
+			description: "Liest ein einzelnes veröffentlichtes Lied aus dem Verzeichnis, mit Arrangements, Fassungen und "
+				+ "Material. Zu Noten liefert scoreFacts die aus dem PDF gelesenen Angaben (Stimme, Tonart, Taktart, "
+				+ "Tempo, Urheber) und scoreText den gesungenen Text aus den aktuellen Noten.");
 
 	private static async Task<string> SearchAsync(ArchiveDbContext db, string query, int page, CancellationToken token)
 	{
@@ -133,7 +142,75 @@ public static class CatalogueTools
 			.FirstOrDefaultAsync();
 		if (song is null)
 			return "{}";
-		return SerializeSongs([song]);
+		return JsonSerializer.Serialize(new
+		{
+			songs = SongPayload([song]),
+			arrangements = await ArrangementPayloadAsync(db, id),
+		});
+	}
+
+	/// <summary>
+	/// Arrangements, versions and current material of one published song.
+	/// Scores carry the facts and sung text read from their current
+	/// revision's extraction; the text is bounded per score and per song, and
+	/// identical text (the same lyrics in every voice part) is sent once.
+	/// </summary>
+	private static async Task<List<object>> ArrangementPayloadAsync(ArchiveDbContext db, Guid songId)
+	{
+		var arrangements = await db.Arrangements.AsNoTracking()
+			.Include(a => a.MusicalVersions)
+			.Where(a => a.SongId == songId)
+			.OrderBy(a => a.Id)
+			.ToListAsync();
+		var versionIds = arrangements.SelectMany(a => a.MusicalVersions).Select(v => v.Id).ToList();
+		var assets = await db.Assets.AsNoTracking()
+			.Where(a => a.MusicalVersionId != null && versionIds.Contains(a.MusicalVersionId.Value)
+				&& a.CurrentRevisionId != null)
+			.OrderBy(a => a.Id)
+			.ToListAsync();
+		var revisionIds = assets
+			.Where(a => a.AssetType == AssetEndpoints.ScoreAssetType)
+			.Select(a => a.CurrentRevisionId!.Value)
+			.ToList();
+		var texts = await db.ExtractionJobs.AsNoTracking()
+			.Where(j => revisionIds.Contains(j.RevisionId) && j.Status == ExtractionStatus.Completed)
+			.Select(j => new { j.RevisionId, j.Text })
+			.ToListAsync();
+		var analyses = texts.ToDictionary(t => t.RevisionId, t => ScoreTextAnalyzer.Analyze(t.Text));
+		var budget = ScoreTextBudget;
+		var sent = new HashSet<string>();
+		return arrangements.Select(a => (object)new
+		{
+			label = a.Label,
+			arranger = a.Arranger,
+			voiceConfiguration = a.VoiceConfiguration,
+			accompaniment = a.Accompaniment,
+			versions = a.MusicalVersions.OrderBy(v => v.Id).Select(v => new
+			{
+				label = v.Label,
+				creator = v.Creator,
+				musicalKey = v.MusicalKey,
+				material = assets.Where(asset => asset.MusicalVersionId == v.Id).Select(asset =>
+				{
+					var analysis = analyses.GetValueOrDefault(asset.CurrentRevisionId!.Value);
+					string? scoreText = null;
+					if (analysis is { CleanText.Length: > 0 } && budget > 0 && sent.Add(analysis.CleanText))
+					{
+						var length = Math.Min(Math.Min(analysis.CleanText.Length, ScoreTextChars), budget);
+						scoreText = analysis.CleanText[..length];
+						budget -= length;
+					}
+					return new
+					{
+						type = asset.AssetType,
+						voice = asset.VoiceLabel ?? analysis?.Facts.Voice,
+						description = asset.Description,
+						scoreFacts = ExtractionEndpoints.FactsPayload(analysis?.Facts),
+						scoreText,
+					};
+				}).ToList(),
+			}).ToList(),
+		}).ToList();
 	}
 
 	private static string SerializeSearch(IEnumerable<SearchRow> songs, int page, int totalCount) => JsonSerializer.Serialize(new
@@ -146,8 +223,6 @@ public static class CatalogueTools
 		nextPage = page < MaxPage && page * PageSize < totalCount ? (int?)(page + 1) : null,
 		limitReached = page == MaxPage && page * PageSize < totalCount,
 	});
-
-	private static string SerializeSongs(IEnumerable<SearchRow> songs) => JsonSerializer.Serialize(new { songs = SongPayload(songs) });
 
 	private static IEnumerable<object> SongPayload(IEnumerable<SearchRow> songs) => songs.Select(s => new
 		{

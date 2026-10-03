@@ -46,7 +46,7 @@ public static class ExtractionEndpoints
 			if (ids.Count > 0)
 			{
 				jobs = await db.ExtractionJobs.AsNoTracking()
-					.Include(j => j.Revision)
+					.Include(j => j.Revision).ThenInclude(r => r.Asset)
 					.Where(j => ids.Contains(j.RevisionId))
 					.ToListAsync(token);
 			}
@@ -86,7 +86,7 @@ public static class ExtractionEndpoints
 			for (var pass = 0; pass < 2; pass++)
 			{
 				var job = await db.ExtractionJobs
-					.Include(j => j.Revision)
+					.Include(j => j.Revision).ThenInclude(r => r.Asset)
 					.FirstOrDefaultAsync(j => j.RevisionId == id, token);
 				var creating = job is null;
 				var enqueue = false;
@@ -153,21 +153,44 @@ public static class ExtractionEndpoints
 	}
 
 	/// <summary>Single status item, shared by the batch query and the retry reply.</summary>
-	private static object StatusPayload(ExtractionJob job) => new
+	private static object StatusPayload(ExtractionJob job)
 	{
-		revisionId = job.RevisionId,
-		assetId = job.AssetId,
-		revisionNumber = job.Revision.RevisionNumber,
-		status = ToStatusString(job.Status),
-		text = job.Text,
-		failureReason = job.FailureReason,
-		attemptCount = job.AttemptCount,
-		completedAt = job.CompletedAt,
-		lastAttemptAt = job.LastAttemptAt,
-		lastEnqueuedAt = job.LastEnqueuedAt,
-		updatedAt = job.UpdatedAt,
-		rowVersion = job.RowVersion,
-	};
+		var analysis = job.Status == ExtractionStatus.Completed ? ScoreTextAnalyzer.Analyze(job.Text) : null;
+		return new
+		{
+			revisionId = job.RevisionId,
+			assetId = job.AssetId,
+			revisionNumber = job.Revision.RevisionNumber,
+			status = ToStatusString(job.Status),
+			text = job.Text,
+			// Readable text and facts are derived on read from the stored text.
+			cleanText = analysis?.CleanText,
+			// Voice, key and credits only describe scores, never event documents.
+			facts = job.Revision.Asset?.AssetType == AssetEndpoints.ScoreAssetType ? FactsPayload(analysis?.Facts) : null,
+			failureReason = job.FailureReason,
+			attemptCount = job.AttemptCount,
+			completedAt = job.CompletedAt,
+			lastAttemptAt = job.LastAttemptAt,
+			lastEnqueuedAt = job.LastEnqueuedAt,
+			updatedAt = job.UpdatedAt,
+			rowVersion = job.RowVersion,
+		};
+	}
+
+	/// <summary>Wire shape of <see cref="ScoreFacts"/>; null when nothing was recognised.</summary>
+	public static object? FactsPayload(ScoreFacts? facts) => facts is null || facts.IsEmpty
+		? null
+		: new
+		{
+			voice = facts.Voice,
+			musicalKey = facts.MusicalKey,
+			timeSignature = facts.TimeSignature,
+			tempo = facts.Tempo,
+			composer = facts.Composer,
+			lyricist = facts.Lyricist,
+			arranger = facts.Arranger,
+			copyright = facts.Copyright,
+		};
 
 	private static string ToStatusString(ExtractionStatus status) => status switch
 	{

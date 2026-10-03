@@ -40,3 +40,15 @@ results/snippets for Member versus Editor and a useful scanned-PDF fallback.
 
 Coordinate query/result changes with ARC-023/030. This completes PDF search as a
 member journey; the pilot should verify it, not implement missing indexing joins.
+
+## Groundwork already in place (2026-10-03)
+
+`Archive.Backend.Extraction.ScoreTextAnalyzer` reads the stored extraction text
+on demand: it drops music-font remnants, joins sung syllables into words
+(`CleanText`) and derives voice, key, time signature, tempo and credits
+(`ScoreFacts`). Nothing is persisted, so no migration exists and analyzer
+improvements apply to every already extracted revision. Current consumers are
+the song detail payload (`assets[].detected`, current revisions only), the
+editor status query (`cleanText`, `facts`) and the chat's `song_details` tool
+(`scoreFacts`, bounded `scoreText`). Search should index `CleanText`, not the
+raw text. Entered catalogue values always win over recognised ones.

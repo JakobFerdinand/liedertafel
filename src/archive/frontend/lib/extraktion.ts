@@ -3,6 +3,7 @@
 // Zwischenspeicherung, Fehler als geworfene Antwort, deutsche Zustandstexte.
 
 import { postAuth } from "@/lib/auth";
+import type { NotenAngaben } from "@/lib/songs";
 
 /** Höchstzahl der Revisionen je Anfrage (Vertrag ExtractionEndpoints). */
 export const extraktionsLimit = 100;
@@ -22,6 +23,10 @@ export type ExtraktionsInfo = {
   revisionNumber: number;
   status: ExtraktionsStatus;
   text: string | null;
+  /** Lesbarer Text ohne Notenzeichen, Silben zu Wörtern verbunden. */
+  cleanText?: string | null;
+  /** Aus dem Text erkannte Angaben; null, wenn nichts erkannt wurde. */
+  facts?: NotenAngaben | null;
   failureReason: string | null;
   attemptCount: number;
   completedAt: string | null;
