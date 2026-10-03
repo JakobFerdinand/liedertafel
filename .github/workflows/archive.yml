@@ -3,8 +3,10 @@ name: Archive
 # ARC-009: the only path that changes the running image. The check job runs
 # the full regression suite and builds the production image exactly once; the
 # release job reuses that exact image from the run artifact (never rebuilds),
-# pushes it to private GHCR and deploys it by immutable digest. Infrastructure
-# runs (infra-deploy-archive.yml) can never revert the selection.
+# pushes it to private GHCR and deploys it by immutable digest — to the app
+# AND the queue-triggered extraction job (ARC-034), which must never drift
+# apart. Infrastructure runs (infra-deploy-archive.yml) can never revert the
+# selection.
 #
 # ARC-012: releases carrying a database change run inside a maintenance
 # window. The sequence is: enter maintenance (members see the German
@@ -90,6 +92,9 @@ on:
 env:
   RESOURCE_GROUP: RG-Liedertafel-Archive
   APP_NAME: ca-liedertafel-archive
+  # ARC-034: the queue-triggered extraction job runs the same backend image
+  # and is pinned to the same digest as the app on every release.
+  EXTRACT_JOB_NAME: ja-archive-extract
   VAULT_NAME: kv-liedertafel-archive
 
 jobs:
@@ -344,6 +349,19 @@ jobs:
             --name "$APP_NAME" \
             --resource-group "$RESOURCE_GROUP" \
             --image "${{ steps.image.outputs.digest }}"
+
+      - name: Deploy extraction job image
+        # ARC-034: the queue-triggered extraction job must run the SAME
+        # digest as the app, so the finite worker's extraction code always
+        # matches the API that enqueued its messages. Unconditional (also on
+        # run_migration=false code-only releases). In-flight executions keep
+        # the previous image; the worker's stale-lease ladder resolves them.
+        run: |
+          az containerapp job update \
+            --name "$EXTRACT_JOB_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --image "${{ steps.image.outputs.digest }}"
+          echo "- extraction job pinned to ${{ steps.image.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Wait for the new revision to serve traffic
         run: |

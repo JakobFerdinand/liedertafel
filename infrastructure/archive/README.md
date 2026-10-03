@@ -7,7 +7,7 @@ through an explicit release run, by immutable digest.
 | File | Purpose |
 | --- | --- |
 | `subscription.bicep` | Subscription scope: creates `RG-Liedertafel-Archive` (idempotent) |
-| `main.bicep` | Group scope: logs, environment, app (0–2 replicas), vault, runtime identity, optional managed certificate |
+| `main.bicep` | Group scope: logs, environment, app (0–2 replicas), queue-triggered extraction job (ARC-034), vault, identities, optional managed certificate |
 | `main.bicepparam` | Non-secret defaults; image + pull credential are injected per run |
 
 `../../../.github/workflows/infra-deploy-archive.yml` owns topology (what-if
@@ -84,11 +84,14 @@ preview, destructive-change guard, image pass-through).
 
 - Bicep outputs: `environmentDefaultDomain`, `appFqdn`, `vaultUri`,
   `runtimeIdentityPrincipalId`, `runtimeIdentityClientId`, `keysBlobUri`,
-  `keysKeyVaultKeyUri`, `aiEndpoint`, `customDomainBound`.
+  `keysKeyVaultKeyUri`, `assetsServiceUri`, `assetsQueueServiceUri`,
+  `aiEndpoint`, `customDomainBound`.
 - Release inputs: image digest (`ghcr.io/jakobferdinand/liedertafel-archive@sha256:…`).
-- Deliberately absent here (later slices): member-file storage/queues
-  (ARC-049). Hosted sign-in (ARC-011) is wired: Blob key ring, Key Vault
-  wrapping key, Neon runtime connection and operator token. The shell still
+- Deliberately absent here (later slices): the import job wiring (ARC-037
+  reuses `assetsQueueServiceUri`) and the score-text search surface
+  (ARC-035). Hosted sign-in (ARC-011) is wired: Blob key ring, Key Vault
+  wrapping key, Neon runtime connection and operator token. Member files
+  (ARC-049) and the extraction queue (ARC-034) are wired; the shell still
   boots dependency-free; DB-backed endpoints answer a German 500 Problem
   until the `archive-db-connection` secret is placed.
 
@@ -291,6 +294,66 @@ alert-only, ARC-004 review trigger) is intentionally NOT in Bicep: the
 Consumption budgets API rejects programmatic creation on this subscription
 with 401 even for the subscription Owner (finding recorded in ARC-043,
 2026-09-23), so the alert is portal-managed via Cost Management budgets.
+
+## Extraction queue path (ARC-034)
+
+The extraction queue `archive-extraction` lives on the SAME storage account
+as the key ring and member files (`stliedertafelarchive`): one account owns
+blobs and queues, and Bicep declares no queue resources — the worker's first
+run self-provisions the queue (`CreateIfNotExists` in both `--extract-queue`
+and `--dispatch-extraction`), so there is no maintainer queue-creation step.
+The endpoint travels as `Archive__Extraction__QueueServiceUri` (Bicep output
+`assetsQueueServiceUri`; ARC-037's import job reuses it) and authenticates
+Entra-only — no storage key or connection string exists anywhere, and
+shared-key access stays disabled account-wide.
+
+Scale behavior (frozen contract): KEDA — the Container Apps scale rule —
+polls ONLY the queue, never Neon. `ja-archive-extract` runs the same backend
+image as the app with `--extract-queue` as a finite run: when a receive
+round comes back empty, the run exits, so an idle deployment creates no
+executions and issues no database queries (min executions 0, max 10).
+Retries are the worker's own bounded attempt ladder (visibility backoff,
+stale-lease re-take), so the platform retry limit is 0; the 30-minute
+replica timeout is generous headroom over the worker's 10-minute drain
+budget, and the 1 Gi memory cap bounds a runaway parse end-to-end (OOM kill
+resolves through the stale-lease ladder).
+
+Identities (RBAC on the storage account, guarded by `deployRoleAssignments`
+like every other role assignment):
+
+| Identity | Role | Purpose |
+| --- | --- | --- |
+| `id-archive-app` (runtime) | `Storage Queue Data Message Sender` | finalize dispatches the extraction envelope inline (best-effort); nothing more |
+| `id-archive-extract` (job) | `Storage Queue Data Contributor` | worker self-provisions the queue (create), the dispatch sweep sends, the drain receives/processes/deletes — and KEDA's queue-length poll needs the `queues/read` action, which the narrower Message Sender/Processor roles lack |
+| `id-archive-extract` (job) | `Storage Blob Data Reader` | bounded PDF reads via `OpenReadAsync` |
+
+The extraction identity deliberately holds no Key Vault, key-ring, mail or
+chat roles. `ja-archive-extract` carries both identities, but
+`identitySettings` marks the runtime identity `None` — unavailable inside
+the container — and uses it only for the platform's Key Vault resolution of
+`archive-db-connection` (the app's secret pattern, reused verbatim);
+`AZURE_CLIENT_ID` pins `DefaultAzureCredential` to the extraction identity
+for the queue and blob calls. Telemetry needs no extra role: the job's
+console logs stream to the shared Log Analytics workspace through the
+environment's `appLogsConfiguration`, and the app sets no `OTEL_*` env in
+production either.
+
+Release and image pass-through: `archive.yml` pins the app and the
+extraction job to the SAME digest (`az containerapp update --image`, then
+`az containerapp job update --image` — in-flight executions keep the
+previous image and are resolved by the stale-lease ladder). Infrastructure
+re-runs resolve the app's deployed image once and pass it to both (shared
+`containerImage` param), so an infra run cannot revert a release.
+
+Bootstrap on a fresh account: deploy infrastructure, then start the job
+once (`az containerapp job start -n ja-archive-extract -g
+RG-Liedertafel-Archive`) — that run creates the queue, hands un-enqueued
+rows over and drains them. Until the queue exists, finalize's inline send
+fails best-effort and rows stay un-enqueued; from the first run onward the
+inline send and the queue scale rule keep the path self-sustaining.
+Maintenance windows pause everything: the worker reads
+`Archive:MaintenanceMode` first and exits 0 without receiving a message or
+querying the database, and the scale rule re-triggers a run later.
 
 ## Controlled database releases (ARC-012)
 

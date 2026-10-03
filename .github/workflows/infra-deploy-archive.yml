@@ -1,7 +1,8 @@
 name: Deploy Archive Infrastructure
 
 # ARC-009: topology only. This workflow never selects the running image: it
-# reads the currently deployed image and passes it through, so an
+# reads the currently deployed image and passes it through (to the app and
+# the extraction job, which share the same containerImage parameter), so an
 # infrastructure re-run cannot revert a release. Releases happen exclusively
 # through archive.yml.
 

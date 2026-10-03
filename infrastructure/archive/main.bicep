@@ -9,10 +9,13 @@
 //   vault, workspace, identities). It never invents the running image: the
 //   release workflow supplies containerImage by immutable digest, and the
 //   infra workflow passes the currently deployed image through so an
-//   infrastructure re-run cannot revert a release.
-// - No queues, Neon or email resources here. The key-ring storage account
-//   below is the only Blob integration in this template; member-file Blob
-//   integration stays ARC-049. Hosted sign-in is ARC-011, real email ARC-010.
+//   infrastructure re-run cannot revert a release. The app and the
+//   extraction job (ARC-034) run the same image parameter.
+// - No Neon or email resources here. The storage account below is the only
+//   storage integration in this template and now carries the extraction
+//   queue (ARC-034) next to the key-ring and member-file blobs; the queue
+//   is self-provisioned by the worker's first run, not declared in Bicep.
+//   Hosted sign-in is ARC-011, real email ARC-010.
 // - No database connection is baked in: the Neon runtime connection arrives
 //   as a Key Vault reference (secret `archive-db-connection`, placed by the
 //   maintainer per infrastructure/archive/README.md). The shell still boots
@@ -32,6 +35,12 @@ param appName string = 'ca-liedertafel-archive'
 
 @description('Runtime user-assigned managed identity name.')
 param runtimeIdentityName string = 'id-archive-app'
+
+@description('Extraction job identity name (ARC-034). Least privilege: queue contributor plus blob reader on the assets storage account, nothing else.')
+param extractionIdentityName string = 'id-archive-extract'
+
+@description('Queue-triggered extraction job name (ARC-034). Runs the same backend image with --extract-queue as a finite run.')
+param extractionJobName string = 'ja-archive-extract'
 
 @description('Key Vault name (RBAC model). Holds the GHCR pull credential lifecycle; runtime secrets arrive in ARC-011.')
 param vaultName string = 'kv-liedertafel-archive'
@@ -109,6 +118,15 @@ resource workspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
 
 resource runtimeIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
   name: runtimeIdentityName
+  location: location
+}
+
+// ARC-034 — least-privilege identity of the queue-triggered extraction job.
+// It only reads the assets account's blobs (bounded OpenReadAsync) and
+// creates/sends/receives/processes queue messages; it deliberately holds no
+// vault, key-ring, mail or chat roles.
+resource extractionIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: extractionIdentityName
   location: location
 }
 
@@ -228,6 +246,13 @@ resource assetsContainer 'Microsoft.Storage/storageAccounts/blobServices/contain
   }
 }
 
+// ARC-034: the extraction queue lives on the SAME assets storage account —
+// one account owns blobs and queues. KEDA polls only this queue; the finite
+// worker drains it and exits, so idle deployments never query the database.
+// The queue itself is not declared here: the worker's first run provisions
+// it (CreateIfNotExists, see infrastructure/archive/README.md).
+var extractionQueueUri = 'https://${storage.name}.queue.${az.environment().suffixes.storage}'
+
 // ARC-021 — Azure OpenAI (Microsoft Foundry) chat path. The account carries
 // the stateless keyless inference surface: deployments live at account level,
 // the model name never appears in a hostname, and `disableLocalAuth` forces
@@ -338,6 +363,62 @@ resource blobContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = 
       'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
     )
     principalId: runtimeIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// ARC-034: the runtime identity dispatches extraction envelopes inline at
+// finalize (best-effort; a failure keeps the row un-enqueued for the
+// dispatch sweep). Message Sender only — add a message, nothing else; the
+// sweep jobs own receive/process. Skipped in PR what-if like the other RBAC
+// assignments.
+resource queueMessageSender 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployRoleAssignments) {
+  name: guid(storage.id, runtimeIdentity.id, 'queue-message-sender')
+  scope: storage
+  properties: {
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      'c6a89b2d-59bc-44d0-9896-0f6e12d7b80a'
+    )
+    principalId: runtimeIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// ARC-034: extraction job identity on the same account. Queue Data
+// Contributor (create + send + receive + process): the worker self-
+// provisions the queue, the dispatch sweep sends, the drain receives,
+// processes and deletes — and KEDA's queue-length poll needs the
+// `queues/read` action, which the narrower Message Sender/Processor roles
+// lack, so no split of narrow roles covers this job. Skipped in PR what-if
+// like the other RBAC assignments.
+resource extractionQueueContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployRoleAssignments) {
+  name: guid(storage.id, extractionIdentity.id, 'queue-data-contributor')
+  scope: storage
+  properties: {
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      '974c5e8b-45b9-4653-ba55-5f855dd0fb88'
+    )
+    principalId: extractionIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// ARC-034: bounded PDF reads for the extraction worker (OpenReadAsync on
+// the private assets container). Reader only — the app keeps its existing
+// blob-contributor assignment for uploads and ticket signing. No vault,
+// key-ring or chat roles for the job identity. Skipped in PR what-if like
+// the other RBAC assignments.
+resource extractionBlobReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployRoleAssignments) {
+  name: guid(storage.id, extractionIdentity.id, 'blob-data-reader')
+  scope: storage
+  properties: {
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      '2a2b9908-6ea1-4ae2-8e65-a410df84e7d1'
+    )
+    principalId: extractionIdentity.properties.principalId
     principalType: 'ServicePrincipal'
   }
 }
@@ -495,6 +576,15 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
               name: 'Archive__Assets__ServiceUri'
               value: 'https://${storage.name}.blob.${az.environment().suffixes.storage}'
             }
+            // ARC-034: finalize dispatches the extraction envelope inline
+            // (best-effort; a failure keeps the row un-enqueued for the
+            // dispatch sweep). The runtime identity holds Storage Queue
+            // Data Message Sender on the same account — no receive or
+            // process rights, and no storage key.
+            {
+              name: 'Archive__Extraction__QueueServiceUri'
+              value: extractionQueueUri
+            }
             // ARC-011-1: stable WebAuthn relying-party ID and the exact
             // trusted ceremony origins. Never derived from request host
             // headers; the startup guard fails without the RP ID outside
@@ -593,6 +683,149 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
   }
 }
 
+// ARC-034 — queue-triggered extraction job. It runs the SAME backend image
+// as the app (the release workflow pins both to the same digest, and the
+// infra workflow passes the currently deployed image through for both), and
+// each execution is one finite worker run (`--extract-queue`): it dispatches
+// un-enqueued rows, drains the extraction queue and exits when a receive
+// round comes back empty. KEDA polls ONLY the queue — never Neon — and
+// minExecutions 0 keeps an idle deployment execution-free. Platform retries
+// stay off (`replicaRetryLimit` 0): retries are the worker's own bounded
+// attempt ladder. The 30-minute replica timeout is generous headroom over
+// the worker's 10-minute drain budget, and the 1 Gi memory cap bounds a
+// runaway parse end-to-end (OOM kill resolves through the stale-lease
+// ladder). The extraction identity's Storage Queue Data Contributor covers
+// create (self-provisioning on first run), send, receive and process.
+// The scale rule authenticates via the `identity` property — the current
+// Container Apps guidance (managed-identity#scale-rules: "use the identity
+// property instead of the auth property") with a user-assigned identity
+// resource ID — which pins KEDA's queue poll to `id-archive-extract` even
+// though the job carries a second identity for Key Vault secret resolution.
+// API version 2025-01-01 is the oldest GA version whose JobScaleRule
+// carries that `identity` property (2024-03-01 offers only secret-based
+// ScaleRuleAuth with ambiguous multi-identity semantics).
+resource extractJob 'Microsoft.App/jobs@2025-01-01' = {
+  name: extractionJobName
+  location: location
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${extractionIdentity.id}': {}
+      // Attached only so the platform can resolve the Key Vault-referenced
+      // database secret below; identitySettings lifecycle None keeps it
+      // unavailable inside the container (least privilege, per the
+      // Container Apps "control managed identity availability" guidance —
+      // `None` exists exactly for identities used only for scale rules or
+      // Key Vault secrets).
+      '${runtimeIdentity.id}': {}
+    }
+  }
+  properties: {
+    environmentId: environment.id
+    workloadProfileName: 'Consumption'
+    configuration: {
+      identitySettings: [
+        {
+          identity: runtimeIdentity.id
+          lifecycle: 'None'
+        }
+        {
+          identity: extractionIdentity.id
+          lifecycle: 'All'
+        }
+      ]
+      registries: [
+        {
+          server: 'ghcr.io'
+          username: ghcrUsername
+          passwordSecretRef: 'ghcr-password'
+        }
+      ]
+      secrets: [
+        {
+          name: 'ghcr-password'
+          value: ghcrPassword
+        }
+        // Same pattern as the app: the Neon runtime connection arrives as a
+        // Key Vault reference resolved by the runtime identity (whose
+        // Secrets User role is reused; the job gains no new vault rights).
+        {
+          name: 'archive-db-connection'
+          keyVaultUrl: '${vault.properties.vaultUri}secrets/archive-db-connection'
+          identity: runtimeIdentity.id
+        }
+      ]
+      replicaTimeout: 1800
+      replicaRetryLimit: 0
+      // Per the Jobs REST schema, triggerType sits on the configuration and
+      // selects the eventTriggerConfig variant (Bicep's type definition
+      // warns otherwise, which is a known type inaccuracy for jobs).
+      triggerType: 'Event'
+      eventTriggerConfig: {
+        replicaCompletionCount: 1
+        parallelism: 1
+        scale: {
+          minExecutions: 0
+          maxExecutions: 10
+          pollingInterval: 30
+          rules: [
+            {
+              name: 'extraction-queue'
+              type: 'azure-queue'
+              // The scaler endpoint derives from accountName for the public
+              // cloud; the account is Entra-only (no shared key), so the
+              // rule uses the extraction identity below. queueName must
+              // match ExtractionOptions.QueueName — both default to
+              // `archive-extraction`, and no env entry sets another value.
+              metadata: {
+                queueName: 'archive-extraction'
+                queueLength: '1'
+                accountName: storage.name
+              }
+              identity: extractionIdentity.id
+            }
+          ]
+        }
+      }
+    }
+    template: {
+      containers: [
+        {
+          name: 'extract'
+          image: containerImage
+          // The image's entrypoint stays `dotnet Archive.Backend.dll`; the
+          // finite command selects the extraction worker path.
+          args: [
+            '--extract-queue'
+          ]
+          resources: {
+            cpu: json('0.5')
+            memory: '1Gi'
+          }
+          env: [
+            {
+              name: 'ConnectionStrings__archive-db'
+              secretRef: 'archive-db-connection'
+            }
+            {
+              name: 'AZURE_CLIENT_ID'
+              value: extractionIdentity.properties.clientId
+            }
+            {
+              name: 'Archive__Assets__ServiceUri'
+              value: 'https://${storage.name}.blob.${az.environment().suffixes.storage}'
+            }
+            {
+              name: 'Archive__Extraction__QueueServiceUri'
+              value: extractionQueueUri
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
+
 // Managed certificate with CNAME domain control validation. Second stage only:
 // the hostname must already be attached to the app (bindCustomDomain run) and
 // the CNAME plus asuid TXT records must exist (see
@@ -620,6 +853,10 @@ output keysKeyVaultKeyUri string = keysKey.properties.keyUri
 // ARC-049: assets account endpoint for extraction/import jobs; they receive
 // their own role assignment separately from the key-ring identity state.
 output assetsServiceUri string = 'https://${storage.name}.blob.${az.environment().suffixes.storage}'
+// ARC-034: extraction queue endpoint on the same assets account — the job
+// receives it as `Archive__Extraction__QueueServiceUri`, and ARC-037's
+// import job reuses this output, mirroring the ARC-051 assets pattern.
+output assetsQueueServiceUri string = extractionQueueUri
 // ARC-021: Azure OpenAI inference endpoint (custom subdomain of the AI
 // account), same value the app receives as `Archive__Chat__Endpoint`.
 output aiEndpoint string = aiEndpointUri

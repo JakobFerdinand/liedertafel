@@ -56,6 +56,26 @@ internal static class ExtractionQueueClient
 	{
 		Retry = { MaxRetries = 2, NetworkTimeout = TimeSpan.FromSeconds(5) },
 	};
+
+	/// <summary>
+	/// ARC-034 S5: creates the configured queue when missing so the first
+	/// queue-triggered production run self-provisions it on a fresh account
+	/// (the extraction job identity holds Storage Queue Data Contributor),
+	/// instead of failing the run. False when no queue backend is configured
+	/// — the local degradation keeps its existing behavior: rows wait
+	/// un-enqueued for the sweep and the pump fails loudly on the missing
+	/// message source.
+	/// </summary>
+	public static async Task<bool> EnsureQueueAsync(
+		IConfiguration configuration, ExtractionOptions options, CancellationToken token)
+	{
+		var client = Create(configuration, options);
+		if (client is null)
+			return false;
+		await client.GetQueueClient(options.QueueName)
+			.CreateIfNotExistsAsync(cancellationToken: token);
+		return true;
+	}
 }
 
 /// <summary>

@@ -91,6 +91,12 @@ if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" o
             }
             // Piggyback recovery first: hand un-enqueued and stale rows to the
             // queue (bounded, its own scope), then drain the queue itself.
+            // ARC-034 S5: ensure the queue exists before either step — the
+            // first queue-triggered run on a fresh production account
+            // self-provisions it instead of failing dispatch and drain.
+            await ExtractionQueueClient.EnsureQueueAsync(
+                host.Services.GetRequiredService<IConfiguration>(),
+                host.Services.GetRequiredService<IOptions<ExtractionOptions>>().Value, token);
             int dispatched;
             using (var dispatchScope = host.Services.CreateScope())
             {
@@ -115,6 +121,13 @@ if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" o
                 dispatchLogger.LogInformation("Extraction dispatch paused: maintenance mode is enabled");
                 return;
             }
+            // ARC-034 S5: the sweep may send to a queue that does not exist
+            // yet on a fresh production account; the run self-provisions it
+            // (the job identity holds Storage Queue Data Contributor) instead
+            // of failing on every send.
+            await ExtractionQueueClient.EnsureQueueAsync(
+                provider.GetRequiredService<IConfiguration>(),
+                provider.GetRequiredService<IOptions<ExtractionOptions>>().Value, token);
             var dispatched = await ExtractionDispatcher.DispatchPendingAsync(
                 provider.GetRequiredService<ArchiveDbContext>(),
                 provider.GetRequiredService<IExtractionQueue>(),
