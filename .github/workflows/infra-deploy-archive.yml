@@ -2,9 +2,10 @@ name: Deploy Archive Infrastructure
 
 # ARC-009: topology only. This workflow never selects the running image: it
 # reads the currently deployed image and passes it through (to the app and
-# the extraction job, which share the same containerImage parameter), so an
-# infrastructure re-run cannot revert a release. Releases happen exclusively
-# through archive.yml.
+# the extraction job, which share the same containerImage parameter), so
+# sequential infrastructure re-runs preserve the deployed image. The deploy
+# job shares archive.yml's serialization group so it cannot interleave a
+# release. Releases happen exclusively through archive.yml.
 
 on:
   push:
@@ -149,11 +150,11 @@ jobs:
     name: Deploy archive infrastructure
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    # Serializes deployments: duplicate push events for the same commit would
-    # otherwise race on the same ARM deployment name ("main") and fail with
-    # DeploymentActive. Queued runs redeploy idempotently.
+    # Shares the release lock: image/maintenance capture and topology deploy
+    # cannot interleave a release. Duplicate infra runs also serialize on the
+    # ARM deployment name ("main"); queued runs redeploy idempotently.
     concurrency:
-      group: archive-infra
+      group: archive-prod
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7

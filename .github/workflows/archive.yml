@@ -26,8 +26,8 @@ name: Archive
 # split across releases (additive first, cleanup later).
 #
 # Serialization: the release job's concurrency group `archive-prod` queues
-# competing runs, so two releases can never migrate or deploy at once. Checks
-# (including PRs) are not part of that group and always run. EF migrations
+# competing releases and infrastructure deploys, so they cannot interleave.
+# Checks (including PRs) are not part of that group and always run. EF migrations
 # are idempotent (applied versions are recorded in the migration history), so
 # a queued run re-entering an already-migrated schema is a safe no-op, and a
 # replay never reruns an applied migration.
@@ -229,8 +229,8 @@ jobs:
       packages: write
       id-token: write
     environment: archive-prod
-    # Serializes competing releases: two runs can never migrate or deploy
-    # at once. Queued runs see an already-migrated schema as an EF no-op.
+    # Shares the infra deploy lock: image/maintenance capture cannot race a
+    # release. Queued releases see an already-migrated schema as an EF no-op.
     concurrency:
       group: archive-prod
       cancel-in-progress: false
@@ -297,6 +297,10 @@ jobs:
             --name "$APP_NAME" \
             --resource-group "$RESOURCE_GROUP" \
             --set-env-vars Archive__MaintenanceMode=true >/dev/null
+          az containerapp job update \
+            --name "$EXTRACT_JOB_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --set-env-vars Archive__MaintenanceMode=true >/dev/null
           FQDN="${{ steps.endpoint.outputs.fqdn }}"
           echo "Waiting for /api/maintenance to report the window (cold start up to ~60 s is expected)"
           for attempt in $(seq 1 30); do
@@ -309,6 +313,46 @@ jobs:
             fi
             if [ "$attempt" = "30" ]; then
               echo "::error::Maintenance window did not activate within 5 minutes; refusing to migrate without paused member access."
+              exit 1
+            fi
+            sleep 10
+          done
+
+      - name: Quiesce extraction executions
+        if: steps.maintenance.outputs.run_migration == 'true'
+        run: |
+          # New executions see maintenance and exit before touching Neon.
+          # Existing executions retain their old env; stop them explicitly.
+          # No --yes is needed/supported. Never hide an operational failure:
+          # a failed stop is tolerated only if the running set is now empty.
+          running_extractions() {
+            az containerapp job execution list \
+              --name "$EXTRACT_JOB_NAME" \
+              --resource-group "$RESOURCE_GROUP" \
+              --query "length([?properties.status=='Running'])" -o tsv
+          }
+          RUNNING=$(running_extractions)
+          if [ "$RUNNING" != "0" ]; then
+            if ! az containerapp job stop \
+              --name "$EXTRACT_JOB_NAME" \
+              --resource-group "$RESOURCE_GROUP" >/dev/null; then
+              RUNNING=$(running_extractions)
+              if [ "$RUNNING" != "0" ]; then
+                echo "::error::Extraction stop failed with running executions; maintenance stays ACTIVE."
+                exit 1
+              fi
+            fi
+          fi
+          # Stop is a blocking ARM operation; confirm no execution remains
+          # running before migration, bounded by the worker's drain budget.
+          for attempt in $(seq 1 60); do
+            RUNNING=$(running_extractions)
+            if [ "$RUNNING" = "0" ]; then
+              echo "- extraction quiesced under maintenance; interrupted leases recover through the stale-lease ladder" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            if [ "$attempt" = "60" ]; then
+              echo "::error::Extraction did not quiesce within 10 minutes; maintenance stays ACTIVE, refusing to migrate."
               exit 1
             fi
             sleep 10
@@ -408,6 +452,10 @@ jobs:
         run: |
           az containerapp update \
             --name "$APP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --set-env-vars Archive__MaintenanceMode=false >/dev/null
+          az containerapp job update \
+            --name "$EXTRACT_JOB_NAME" \
             --resource-group "$RESOURCE_GROUP" \
             --set-env-vars Archive__MaintenanceMode=false >/dev/null
           FQDN="${{ steps.endpoint.outputs.fqdn }}"

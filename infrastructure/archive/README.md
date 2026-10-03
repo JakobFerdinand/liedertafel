@@ -308,7 +308,17 @@ Entra-only — no storage key or connection string exists anywhere, and
 shared-key access stays disabled account-wide.
 
 Scale behavior (frozen contract): KEDA — the Container Apps scale rule —
-polls ONLY the queue, never Neon. `ja-archive-extract` runs the same backend
+polls ONLY the queue, never Neon. The rule passes
+`queueLengthStrategy: 'visibleonly'` through its metadata: messages hidden
+by visibility backoff or an active lease do not activate an idle job; a
+message becoming visible again re-triggers processing on a later poll.
+[KEDA's Azure Storage Queue scaler](https://keda.sh/docs/2.21/scalers/azure-storage-queue/)
+uses Peek for this count (the supported value is `visibleonly`, not
+`visible`). At 32 or more visible messages it falls back to counting all
+messages, so this is an idle/backoff guarantee, not an exact-once execution
+guarantee under a large backlog. Container Apps accepts these scaler keys
+in [event job scale-rule metadata](https://learn.microsoft.com/azure/container-apps/jobs#event-driven-jobs).
+`ja-archive-extract` runs the same backend
 image as the app with `--extract-queue` as a finite run: when a receive
 round comes back empty, the run exits, so an idle deployment creates no
 executions and issues no database queries (min executions 0, max 10).
@@ -343,7 +353,9 @@ extraction job to the SAME digest (`az containerapp update --image`, then
 `az containerapp job update --image` — in-flight executions keep the
 previous image and are resolved by the stale-lease ladder). Infrastructure
 re-runs resolve the app's deployed image once and pass it to both (shared
-`containerImage` param), so an infra run cannot revert a release.
+`containerImage` param), preserving the deployed image across sequential
+re-runs. Infra deploys share the release's `archive-prod` serialization
+group, so image capture and deployment cannot interleave a release.
 
 Bootstrap on a fresh account: deploy infrastructure, then start the job
 once (`az containerapp job start -n ja-archive-extract -g
@@ -351,9 +363,18 @@ RG-Liedertafel-Archive`) — that run creates the queue, hands un-enqueued
 rows over and drains them. Until the queue exists, finalize's inline send
 fails best-effort and rows stay un-enqueued; from the first run onward the
 inline send and the queue scale rule keep the path self-sustaining.
-Maintenance windows pause everything: the worker reads
-`Archive:MaintenanceMode` first and exits 0 without receiving a message or
-querying the database, and the scale rule re-triggers a run later.
+Maintenance windows share `Archive__MaintenanceMode` between the app and
+job, declared by the same `maintenanceMode` topology parameter. Infra runs
+preserve the app's live value and apply it to both resources. The release
+workflow sets both flags before migrations, then stops running extraction
+executions with `az containerapp job stop --name ... --resource-group ...`
+and confirms they have quiesced (no confirmation flag is needed). In-flight
+executions cannot see env updates; interrupted runs recover through the
+stale-lease ladder. New executions read `Archive:MaintenanceMode` first and
+exit 0 without receiving a message or querying the database, so KEDA
+triggering during the window never launches new database work. After
+migration and pre-open checks, both flags clear and visible messages
+re-trigger processing; failures before reopening keep maintenance active.
 
 ## Controlled database releases (ARC-012)
 
@@ -379,19 +400,22 @@ window; push-triggered runs always migrate.
    discarded after the window.
 3. Run `archive.yml` (`workflow_dispatch`, inputs `version` plus
    `run_migration=true`). The workflow then:
-   enters maintenance (`Archive__MaintenanceMode=true`, members see the
-   German banner/`/wartung/`, conflicting API work answers 503), runs the
+   enters maintenance on the app AND extraction job
+   (`Archive__MaintenanceMode=true`, members see the German banner/`/wartung/`,
+   conflicting API work answers 503), stops in-flight extraction executions
+   and confirms quiescence (new executions exit 0 before database work), runs the
    selected image's `--migrate` exactly once with the migration role,
-   deploys the digest, proves the window on the new revision, reopens
-   access, and smoke-checks (`/alive`, `/api/build`,
+   deploys the digest to app and job, proves the window on the new revision,
+   clears maintenance on both to reopen access and extraction, and
+   smoke-checks (`/alive`, `/api/build`,
    `/api/maintenance:false`, `/system/status/`, `/wartung/`,
    `/api/antiforgery:200`, dev-absence, unknown-API 404).
 4. Discard the migrator password (rotate via the Neon API) and delete the
    `archive-migrations-connection` secret version.
 
 Competing runs serialize on the `archive-prod` concurrency group: a second
-release waits instead of migrating alongside the first. EF records applied
-versions in the migration history, so a queued run or a replay is a safe
+release or infrastructure deploy waits instead of interleaving the first.
+EF records applied versions in the migration history, so a queued run or a replay is a safe
 no-op — an applied migration never runs twice.
 
 ### Credentials
@@ -423,6 +447,9 @@ no-op — an applied migration never runs twice.
 
 `GET /api/maintenance` (`{ maintenance, message }`, `no-store`) is the
 machine-readable window state; `Archive:MaintenanceMode` carries the same
-flag in configuration. Future extraction/import jobs must read it before
-conflicting work and pause while `maintenance` is true. Probes plus
+flag in configuration. The extraction job receives it in its template and
+checks it before any database/queue work; the release stops existing
+executions before migration because their configuration is immutable.
+Future import jobs must receive and check the same flag before conflicting
+work and quiesce existing executions while `maintenance` is true. Probes plus
 `/api/build` and `/api/maintenance` always stay available for observers.

@@ -780,6 +780,9 @@ resource extractJob 'Microsoft.App/jobs@2025-01-01' = {
               metadata: {
                 queueName: 'archive-extraction'
                 queueLength: '1'
+                // KEDA's supported value is visibleonly (not visible): hidden
+                // retry/lease messages must not activate an idle job.
+                queueLengthStrategy: 'visibleonly'
                 accountName: storage.name
               }
               identity: extractionIdentity.id
@@ -818,6 +821,12 @@ resource extractJob 'Microsoft.App/jobs@2025-01-01' = {
             {
               name: 'Archive__Extraction__QueueServiceUri'
               value: extractionQueueUri
+            }
+            // Shared with the app; infra preserves the live flag and release
+            // sets it before stopping executions for the migration window.
+            {
+              name: 'Archive__MaintenanceMode'
+              value: maintenanceMode ? 'true' : 'false'
             }
           ]
         }
