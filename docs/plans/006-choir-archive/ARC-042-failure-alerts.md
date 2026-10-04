@@ -32,6 +32,11 @@ that the primary or second maintainer can use to find the relevant failure.
 - [ ] Distinguish terminal failures from controlled transient retries and avoid
   notification storms. Do not add a keep-alive website monitoring loop.
 
+## AI assistance
+
+None. Alerts stay deterministic and do not depend on the model. Queued AI work
+at the budget cap is a normal state, not a failure alert. Decisions: [architecture §14](architecture.md#14-ai-assistance).
+
 ## Verification
 
 Inject one safe job failure and a simulated release failure, verify receipt by

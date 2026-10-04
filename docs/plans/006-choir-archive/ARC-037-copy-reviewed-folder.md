@@ -36,6 +36,12 @@ files ready for publication, even after the import job is interrupted and restar
 - [ ] Keep imported content editor-only until publication and show useful
   per-file success/failure state; a failed file does not duplicate siblings.
 
+## AI assistance
+
+The copy itself stays deterministic. Copied scans without embedded text are
+queued for ARC-034-1 under the monthly budget cap; a large import may
+therefore spread scan reading over more than one month. Decisions: [architecture §14](architecture.md#14-ai-assistance).
+
 ## Verification
 
 Copy an authorized representative folder through the real Azure job, interrupt

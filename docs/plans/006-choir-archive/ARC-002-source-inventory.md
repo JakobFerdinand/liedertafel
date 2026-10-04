@@ -30,6 +30,14 @@ import supports and demonstrate them with a small, reusable fixture set.
 - [ ] Commit only synthetic/sanitized mapping fixtures and expectations; record
   how authorized maintainers obtain representative real samples separately.
 
+## AI assistance
+
+- [ ] Also measure how many source PDFs are scans without embedded text and
+  their page counts, so the cost of reading them with the model (ARC-034-1)
+  can be estimated against the EUR 15 monthly cap before the import starts.
+
+The inventory itself stays deterministic. Decisions: [architecture §14](architecture.md#14-ai-assistance).
+
 ## Verification
 
 Have an editor trace every fixture back to a real convention and explain its

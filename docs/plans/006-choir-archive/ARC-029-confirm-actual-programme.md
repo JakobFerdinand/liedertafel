@@ -30,6 +30,12 @@ skipped song and adds an encore while preserving the original plan.
   the planned list. Show members the distinction between plan and actual history.
 - [ ] Restrict confirmation to editors/admins and retain attribution.
 
+## AI assistance
+
+None in this slice. Confirming what was actually sung is a human statement by
+definition. Drafted programmes from scans (ARC-025-1) arrive here as ordinary
+unconfirmed entries. Decisions: [architecture §14](architecture.md#14-ai-assistance).
+
 ## Verification
 
 Confirm a programme unchanged, then exercise skip-plus-encore and repeated-song

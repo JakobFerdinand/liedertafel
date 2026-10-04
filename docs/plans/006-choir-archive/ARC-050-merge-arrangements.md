@@ -28,6 +28,13 @@ versions, so scores, practice files and performance references remain correct.
 - [ ] Keep genuine repeated performance occurrences distinct; identify ambiguous
   duplicate evidence for review rather than guessing during the merge.
 
+## AI assistance
+
+- [ ] The possible-duplicates pass from ARC-046 also covers arrangements within
+  a song. The merge and its key mapping are always a human decision.
+
+Decisions: [architecture §14](architecture.md#14-ai-assistance).
+
 ## Verification
 
 Merge arrangements with overlapping keys, conflicting scores, retained revisions

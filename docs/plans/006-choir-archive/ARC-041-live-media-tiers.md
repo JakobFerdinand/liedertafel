@@ -33,6 +33,10 @@ preservation original to Cold storage without interrupting member playback.
 - [ ] Use the chosen region/LRS baseline; add no operational backup objects or
   automatic transcoding. Coordinate expired-object policy with editor trash.
 
+## AI assistance
+
+None. This slice stays deterministic: code does the job as well as a model would. Decisions: [architecture §14](architecture.md#14-ai-assistance).
+
 ## Verification
 
 Use real Azure storage to upload/read with managed-identity-issued access,

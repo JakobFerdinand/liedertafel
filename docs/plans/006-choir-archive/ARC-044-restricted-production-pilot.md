@@ -3,7 +3,7 @@ id: ARC-044
 status: planned
 phase: launch
 kind: validation
-depends_on: ["ARC-006", "ARC-007", "ARC-008", "ARC-019", "ARC-032", "ARC-035", "ARC-038", "ARC-040", "ARC-041", "ARC-042", "ARC-043"]
+depends_on: ["ARC-006", "ARC-007", "ARC-008", "ARC-019", "ARC-032", "ARC-034-1", "ARC-035", "ARC-038", "ARC-040", "ARC-041", "ARC-042", "ARC-043"]
 touches: ["pilot-evidence", "planning"]
 external_inputs: ["azure-maintainer-access", "pilot-mailboxes", "pilot-devices", "drive-sample-access"]
 ---
@@ -13,6 +13,7 @@ external_inputs: ["azure-maintainer-access", "pilot-mailboxes", "pilot-devices",
 **Depends on:** [ARC-006](ARC-006-member-invitations.md),
 [ARC-007](ARC-007-membership-revocation.md), [ARC-008](ARC-008-account-repair.md),
 [ARC-019](ARC-019-midi-listening.md), [ARC-032](ARC-032-recording-passages.md),
+[ARC-034-1](ARC-034-1-scan-reading.md),
 [ARC-035](ARC-035-search-score-text.md), [ARC-038](ARC-038-import-review-publication.md),
 [ARC-040](ARC-040-event-trash.md), [ARC-041](ARC-041-live-media-tiers.md),
 [ARC-042](ARC-042-failure-alerts.md), [ARC-043](ARC-043-cost-and-quota-alerts.md).
@@ -39,6 +40,17 @@ and Neon infrastructure, using a bounded dataset before wider invitations.
   normal-month total and outstanding defects. Review deviations from EUR 10.
 - [ ] Every failed acceptance check creates a concrete blocking fix; this gate
   does not hide unfinished feature implementation or claim guaranteed cold-start time.
+
+## AI assistance
+
+- [ ] Record the ARC-021-1 switch-gate evidence (chat evaluation on Luna,
+  vision evaluation) and the ARC-034-1 regression results on pilot material.
+- [ ] Verify on the real deployment that reaching the budget cap pauses AI and
+  leaves upload, search, playback and forms working.
+- [ ] Verify a member cannot reach drafts, proposals or provenance through the
+  chat, search or any API.
+
+Decisions: [architecture §14](architecture.md#14-ai-assistance).
 
 ## Verification
 

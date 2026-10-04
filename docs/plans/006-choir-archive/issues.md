@@ -1,12 +1,14 @@
 # Choir Archive — Implementation Issue Index
 
-Status: ARC-001, ARC-003, ARC-004, ARC-005, ARC-006, ARC-007, ARC-008, ARC-009, ARC-011, ARC-011-1, ARC-013, ARC-014, ARC-015, ARC-016, ARC-017, ARC-018, ARC-019, ARC-020, ARC-021, ARC-022, ARC-023, ARC-024, ARC-025, ARC-026, ARC-027, ARC-028 and ARC-034 completed; ARC-010, ARC-012 and ARC-051 are in progress; remaining implementation issues are planned.
-Date: 2026-10-03
+Status: ARC-001, ARC-003, ARC-004, ARC-005, ARC-006, ARC-007, ARC-008, ARC-009, ARC-011, ARC-011-1, ARC-013, ARC-014, ARC-015, ARC-016, ARC-017, ARC-018, ARC-019, ARC-020, ARC-021, ARC-022, ARC-023, ARC-024, ARC-025, ARC-026, ARC-027, ARC-028 and ARC-034 completed; ARC-010, ARC-012 and ARC-051 are in progress; remaining implementation issues are planned. AI assistance was added to every open issue and as follow-up issues to completed ones on 2026-10-04.
+Date: 2026-10-04
 Sources: [PRD](prd.md) · [Architecture](architecture.md)
 
-**Start here to pick work:** [ARC-021] is the next priority — choose the AI
-provider for grounded chat; it has no implementation dependencies. Beyond it,
-[ARC-002]
+**Start here to pick work:** [ARC-021-1] (switch to GPT-6 Luna under a hard
+monthly cap) and [ARC-013-1] (field provenance and the "Vorschläge" queue) are
+the next priority; every other AI slice builds on them and they can run in
+parallel. The agreed order is in
+[architecture §14](architecture.md#14-ai-assistance). Beyond them, [ARC-002]
 has no implementation dependencies and can start in parallel, subject to its
 external access requirements. Completed [ARC-001] provides **Aspire local
 orchestration and development OpenTelemetry export to the Aspire dashboard**;
@@ -15,8 +17,10 @@ orchestration and development OpenTelemetry export to the Aspire dashboard**;
 Completed [ARC-004] provides the **Austria East footprint, identity/OIDC contract,
 and cost worksheet** consumed by [ARC-009] and [ARC-010].
 
-There are **50 file-based issues** in this directory: 45 core issues, two launch
-gates and three follow-up slices. IDs are stable identifiers, not priority
+There are **59 file-based issues** in this directory: 49 core issues, two launch
+gates and eight follow-up slices. Issues with a suffix such as `ARC-034-1` are
+follow-ups to a completed issue; the completed issue stays the record of what
+shipped. IDs are stable identifiers, not priority
 numbers or a mandatory execution order. For example, ARC-050 is a follow-up
 arrangement merge, while ARC-051 is an early core live-storage slice.
 
@@ -113,6 +117,12 @@ issues in an earlier row. External inputs and shared edits still apply.
 | 9 | [ARC-044], [ARC-052] |
 | 10 | [ARC-045] |
 
+The layers above predate the AI assistance issues and do not place them.
+[ARC-021-1] and [ARC-013-1] are ready now; [ARC-034-1] follows both;
+[ARC-052] follows [ARC-021-1]; [ARC-036] now also waits for [ARC-013-1],
+[ARC-021-1] and [ARC-052], which moves the import chain and the launch gates
+behind them.
+
 ### Coordination that is not a dependency
 
 - **EF migrations:** feature work can run in parallel, but coordinate migration
@@ -177,7 +187,7 @@ product slices each own their UI/API/data/authorization work as required.
 | [ARC-033] | Correct a score while preserving revisions | [ARC-015] | Assets, catalogue materials |
 | [ARC-034] | Extract PDF text with visible durable job status | [ARC-012], [ARC-051] | Extraction, Azure jobs, AppHost, OTel |
 | [ARC-035] | Search inside the current authorized score | [ARC-020], [ARC-033], [ARC-034] | Search, extraction, revisions |
-| [ARC-036] | Preview folder-to-catalogue mapping | [ARC-002], [ARC-014] | Import, catalogue |
+| [ARC-036] | Preview folder-to-catalogue mapping, proposed by AI | [ARC-002], [ARC-014], [ARC-013-1], [ARC-021-1], [ARC-052] | Import, catalogue |
 | [ARC-037] | Copy one reviewed Drive folder safely | [ARC-012], [ARC-017], [ARC-036], [ARC-051] | Import, assets, jobs, AppHost, OTel |
 | [ARC-038] | Bulk-publish clear imports and resolve ambiguity | [ARC-037] | Import, catalogue, assets |
 | [ARC-039] | Recover deleted catalogue items within seven days | [ARC-033] | Catalogue trash, assets |
@@ -185,17 +195,21 @@ product slices each own their UI/API/data/authorization work as required.
 | [ARC-041] | Keep playback Hot and separate originals Cold | [ARC-017], [ARC-030], [ARC-051] | Storage tiers, recordings |
 | [ARC-042] | Receive actionable failed-job/release alerts | [ARC-034], [ARC-037] | Observability, alerts, jobs |
 | [ARC-043] | Notice cost/quota/credential limits | [ARC-002], [ARC-011] | Observability, alerts, operator checks |
-| [ARC-052] | Search the catalogue semantically for the chat with pgvector | [ARC-021], [ARC-022] | Chatbot, search |
+| [ARC-052] | Search the catalogue semantically with pgvector, drafts included behind a visibility flag | [ARC-021], [ARC-022], [ARC-021-1] | Chatbot, search |
+| [ARC-021-1] | Switch all AI work to GPT-6 Luna under a EUR 15 hard cap | [ARC-021], [ARC-022] | Chatbot, AI evaluation, Azure foundation |
+| [ARC-013-1] | Mark AI-derived fields and review proposals in one queue | [ARC-013], [ARC-014] | Catalogue, events, membership admin |
+| [ARC-034-1] | Read scanned scores and prefill catalogue fields | [ARC-034], [ARC-021-1], [ARC-013-1] | Extraction, catalogue, jobs |
 
 ## Launch gates
 
 ARC-044 depends on the terminal core slices. Following their dependency chains
-covers **every core issue ARC-001 through ARC-043 plus ARC-051**. Its purpose is verification
+covers **every core issue ARC-001 through ARC-043 plus ARC-051, ARC-052 and the
+core AI follow-ups ARC-021-1, ARC-013-1 and ARC-034-1**. Its purpose is verification
 on the real deployment; feature implementation belongs in the slices above.
 
 | ID | Slice / outcome | Direct dependencies | Shared areas |
 | --- | --- | --- | --- |
-| [ARC-044] | Restricted production pilot and final cost/performance evidence | [ARC-006], [ARC-007], [ARC-008], [ARC-019], [ARC-022], [ARC-032], [ARC-035], [ARC-038], [ARC-040], [ARC-041], [ARC-042], [ARC-043] | Pilot evidence, planning |
+| [ARC-044] | Restricted production pilot and final cost/performance evidence | [ARC-006], [ARC-007], [ARC-008], [ARC-019], [ARC-022], [ARC-032], [ARC-034-1], [ARC-035], [ARC-038], [ARC-040], [ARC-041], [ARC-042], [ARC-043] | Pilot evidence, planning |
 | [ARC-045] | Reviewed catalogue/history rollout and member invitations | [ARC-044] | Launch content, editor coordination |
 
 ## Follow-up phase
@@ -209,6 +223,21 @@ requirement to finish all other post-launch work first.
 | [ARC-046] | Merge duplicate songs and preserve links | [ARC-032], [ARC-035], [ARC-038], [ARC-040] | Merge, catalogue, history, import |
 | [ARC-050] | Merge duplicate arrangements with explicit key mapping | [ARC-046] | Merge, assets, programmes |
 | [ARC-047] | Member correction with attachment and editor resolution | [ARC-032], [ARC-040] | Corrections, assets |
+| [ARC-022-1] | Chat answers event and performance-history questions | [ARC-022], [ARC-028], [ARC-021-1] | Chatbot, events, performances |
+| [ARC-022-2] | Editor assistant creates and edits drafts | [ARC-022-1], [ARC-013-1] | Chatbot, catalogue, events |
+| [ARC-025-1] | Draft an event and programme from a programme scan | [ARC-025], [ARC-026], [ARC-028], [ARC-034-1], [ARC-052] | Events, programmes, performances |
+| [ARC-020-1] | Find songs by meaning in the catalogue search box | [ARC-020], [ARC-052] | Search, catalogue |
+| [ARC-013-2] | German translation of non-German lyrics | [ARC-013-1], [ARC-021-1] | Catalogue |
+
+## AI assistance
+
+Every open issue has an **AI assistance** section stating its AI part or that
+it has none. Post-launch AI increments inside core issues ([ARC-031],
+[ARC-033]) are marked as such and do not block the launch gate. Completed
+issues without a follow-up above (sign-in, membership, uploads, playback,
+filters, programme publication and revisions) have no AI part: deterministic
+code does the job. The shared rules are in
+[architecture §14](architecture.md#14-ai-assistance).
 
 ## External inputs
 
@@ -249,8 +278,9 @@ one of them before it can start.
   appropriate. Tickets that explicitly require live cloud behaviour include the
   corresponding external access markers and verification; the pilot rechecks them.
 - Use the existing single-container production release path and finite C# jobs.
-  Operational backups/restoration, OCR and automatic transcoding are not added by
-  these issues. Seven-day editor trash and retained score revisions remain in scope.
+  Operational backups/restoration, optical music recognition, audio analysis and
+  automatic transcoding are not added by these issues. Reading the text of
+  scans is in scope through [ARC-034-1]. Seven-day editor trash and retained score revisions remain in scope.
 - Coordinate shared changes, integrate required migrations, and update status to
   `done` only after acceptance and verification are complete.
 
@@ -272,7 +302,11 @@ one of them before it can start.
 | Diagnostics, notifications, quota/cost/credential checks | [ARC-042], [ARC-043] |
 | Restricted pilot and reviewed member rollout | [ARC-044], [ARC-045] |
 | Follow-up merges and corrections | [ARC-046], [ARC-050], [ARC-047] |
-| Grounded chatbot | [ARC-021], [ARC-022], [ARC-052] |
+| Grounded chatbot | [ARC-021], [ARC-022], [ARC-052], [ARC-022-1] |
+| AI assistance: model, budget, provenance, proposals | [ARC-021-1], [ARC-013-1], [ARC-043] |
+| AI assistance: reading scans and programmes | [ARC-034-1], [ARC-025-1] |
+| AI assistance: search, import, duplicates, corrections | [ARC-052], [ARC-020-1], [ARC-036], [ARC-038], [ARC-046], [ARC-050], [ARC-047] |
+| AI assistance: editor assistant and generated text | [ARC-022-2], [ARC-031], [ARC-013-2] |
 
 [ARC-001]: ARC-001-local-walking-skeleton.md
 [ARC-002]: ARC-002-source-inventory.md
@@ -324,3 +358,11 @@ one of them before it can start.
 [ARC-050]: ARC-050-merge-arrangements.md
 [ARC-051]: ARC-051-hosted-private-file.md
 [ARC-052]: ARC-052-chat-embeddings-pgvector.md
+[ARC-013-1]: ARC-013-1-field-provenance-and-proposals.md
+[ARC-013-2]: ARC-013-2-lyric-translation.md
+[ARC-020-1]: ARC-020-1-hybrid-search.md
+[ARC-021-1]: ARC-021-1-luna-switch-and-budget-cap.md
+[ARC-022-1]: ARC-022-1-chat-history-tools.md
+[ARC-022-2]: ARC-022-2-editor-assistant.md
+[ARC-025-1]: ARC-025-1-programme-scan-reading.md
+[ARC-034-1]: ARC-034-1-scan-reading.md

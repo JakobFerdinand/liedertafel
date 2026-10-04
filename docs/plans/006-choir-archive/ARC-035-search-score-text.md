@@ -30,6 +30,14 @@ matching current score under the correct arrangement/version.
 - [ ] Combine text results with metadata search without duplicate song hits or
   misleading matching-version context.
 
+## AI assistance
+
+- [ ] Text that ARC-034-1 reads from scans is searchable the same way as
+  embedded PDF text, under the same current-revision and visibility rules.
+
+No model call in the search path; search by meaning is ARC-052 and ARC-020-1.
+Decisions: [architecture §14](architecture.md#14-ai-assistance).
+
 ## Verification
 
 Search a phrase present only in a PDF, replace it with a different phrase, delay

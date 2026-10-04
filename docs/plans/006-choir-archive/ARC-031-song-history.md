@@ -30,6 +30,20 @@ performances separated from uncertain programme evidence.
 - [ ] Provide an extension slot keyed by performance ID for upcoming recording
   links; this slice is useful without recording indexing.
 
+## AI assistance
+
+Counts and dates stay plain database queries. Post-launch increment, not
+required for the launch gate:
+
+- [ ] Generate a short written history per song from its recorded performances
+  and evidence, with citations to the events, keeping confirmed and uncertain
+  evidence distinct.
+- [ ] The text is a draft in "Vorschläge" until an editor approves it; members
+  see only the approved text. It is stored, never generated on page view, and
+  regenerated as a new draft only when the underlying evidence changes.
+
+Depends on ARC-013-1 and ARC-021-1 for this increment. Decisions: [architecture §14](architecture.md#14-ai-assistance).
+
 ## Verification
 
 Use mixed evidence, uncertain dates, duplicate supporting sources, repeats and

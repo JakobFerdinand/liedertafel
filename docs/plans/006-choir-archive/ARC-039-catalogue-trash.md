@@ -30,6 +30,10 @@ can recover it from a seven-day trash while retained score revisions remain inta
 - [ ] Keep current/prior score revisions until deliberately removed; publish the
   retained-reference contract for event/history consumers and cleanup jobs.
 
+## AI assistance
+
+None. This slice stays deterministic: code does the job as well as a model would. Decisions: [architecture §14](architecture.md#14-ai-assistance).
+
 ## Verification
 
 Trash and recover an arrangement with a revised score, test draft visibility and

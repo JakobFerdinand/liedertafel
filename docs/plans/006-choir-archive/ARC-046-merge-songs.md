@@ -31,6 +31,14 @@ arrangements, source references, materials and documented appearances.
 - [ ] Recompute authorized search/history views without duplicate occurrence
   counts. Do not auto-collapse two potentially genuine repeated performances.
 
+## AI assistance
+
+- [ ] A background pass over the ARC-052 embeddings lists possible duplicate
+  songs with the reason for each pair in "Vorschläge". The merge is always a
+  human confirmation.
+
+Decisions: [architecture §14](architecture.md#14-ai-assistance).
+
 ## Verification
 
 Merge duplicate-title songs with distinct arrangements, score revisions,

@@ -31,6 +31,16 @@ that passage from the song's history or recorded-material search results.
   explicit song/performance relationships, respecting visibility/deletion.
 - [ ] Whole-recording playback continues to work when only some songs are marked.
 
+## AI assistance
+
+No model call and no audio analysis.
+
+- [ ] When the event has a confirmed or published programme, prefill the marker
+  list with its songs in order, so the editor steps through known titles and
+  only sets start and end times.
+
+Decisions: [architecture §14](architecture.md#14-ai-assistance).
+
 ## Verification
 
 Index two songs in one video and one of those performances in a second recording.

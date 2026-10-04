@@ -33,6 +33,18 @@ credential renewal, and receives a useful notification near agreed thresholds.
 - [ ] Document the monthly check and review-before-upgrade action, including the
   second maintainer. Thresholds are explicit configuration, not hidden defaults.
 
+## AI assistance
+
+No model call. This slice owns the maintainer-facing side of the AI budget:
+
+- [ ] Show AI spend for the current month per feature from the usage ledger and
+  notify the maintainer at agreed thresholds before the EUR 15 hard cap
+  (enforced by ARC-021-1) is reached, and once when it is reached.
+- [ ] Include AI in the cost worksheet separately from the EUR 10 normal-month
+  target.
+
+Decisions: [architecture §14](architecture.md#14-ai-assistance).
+
 ## Verification
 
 Exercise threshold/reminder evaluation with synthetic usage and a harmless

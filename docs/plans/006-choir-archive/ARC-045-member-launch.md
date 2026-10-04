@@ -30,6 +30,11 @@ set of linked historical concerts that is already more useful than Drive.
 - [ ] Record the remaining 30-year recording/120-year historical enrichment
   backlog, current cost position and maintainer/editor ownership.
 
+## AI assistance
+
+None in this slice. Launch content is published by editors; AI-derived fields
+that were not reviewed keep their "KI" marking for editors. Decisions: [architecture §14](architecture.md#14-ai-assistance).
+
 ## Verification
 
 Have a member complete the find-material and historical-recording journeys on

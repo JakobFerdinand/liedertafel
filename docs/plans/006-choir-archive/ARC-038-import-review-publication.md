@@ -30,6 +30,16 @@ duplicate candidates stay in a manageable private review queue.
 - [ ] Produce an import summary for operator/editor review. General-purpose
   merging of already-published duplicates remains ARC-046.
 
+## AI assistance
+
+- [ ] Present the ARC-036 proposals in confidence bands: the editor bulk-approves
+  the confident band and reviews the rest one by one. Publication is always
+  the editor's explicit action.
+- [ ] Each proposal shows its reason and source, and a rejected proposal is not
+  proposed again on rerun.
+
+Decisions: [architecture §14](architecture.md#14-ai-assistance).
+
 ## Verification
 
 Use a multi-folder fixture batch containing duplicate titles, keys, revisions and

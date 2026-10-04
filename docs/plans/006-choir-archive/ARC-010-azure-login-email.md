@@ -36,6 +36,10 @@ real inbox through Azure Email, and completes the existing sign-in journey.
   (Gmail pilot 2026-09-17, details below; quotas recorded, sender rejection
   simulated. Further providers remain optional hardening.)
 
+## AI assistance
+
+None. This slice stays deterministic: code does the job as well as a model would. Decisions: [architecture §14](architecture.md#14-ai-assistance).
+
 ## Verification
 
 Use real test inboxes to request/enter codes and accept an invitation. Simulate

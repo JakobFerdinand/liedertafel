@@ -32,6 +32,10 @@ historical evidence, actual performances or linked recording ownership.
   during recovery and cleanup; preserve useful reference/tombstone information
   where deletion cannot safely remove an identity.
 
+## AI assistance
+
+None. This slice stays deterministic: code does the job as well as a model would. Decisions: [architecture §14](architecture.md#14-ai-assistance).
+
 ## Verification
 
 Delete/recover an event with a revised programme, skipped song, encore, document

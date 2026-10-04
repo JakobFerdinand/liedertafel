@@ -32,6 +32,10 @@ German maintenance state and conflicting writes/jobs remain paused.
 - [x] Document the operator sequence, credentials, failure handling, and code-only
   rollback. Add no database restore/export or backup job.
 
+## AI assistance
+
+None. This slice stays deterministic: code does the job as well as a model would. Decisions: [architecture §14](architecture.md#14-ai-assistance).
+
 ## Verification
 
 Rehearse successful additive migration, competing release attempts, restart, and

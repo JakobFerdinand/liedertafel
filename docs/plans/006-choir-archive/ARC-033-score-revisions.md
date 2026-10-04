@@ -30,6 +30,16 @@ inspect or make an earlier retained revision current again.
 - [ ] Retain score revisions until explicitly removed, independently of the
   seven-day trash policy; enforce role checks on old-revision file tickets.
 
+## AI assistance
+
+Post-launch increment, not required for the launch gate:
+
+- [ ] When a score is replaced, rerun extraction (ARC-034, ARC-034-1) on the new
+  revision and show the editor which derived fields changed (key, voice,
+  lyrics). Fields a human has locked are never overwritten.
+
+No page-by-page visual comparison. Decisions: [architecture §14](architecture.md#14-ai-assistance).
+
 ## Verification
 
 Replace a PDF, follow an existing member link, inspect history as editor, restore

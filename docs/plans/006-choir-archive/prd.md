@@ -123,7 +123,8 @@ Catalogue filters support:
 
 Metadata can be incomplete. Unknown values must remain explicit rather than
 being guessed to satisfy required fields. Tags supplement structured musical
-relationships and metadata.
+relationships and metadata. Values the AI reads from a score are marked as
+AI-derived and revertible; they are never presented as human-entered.
 
 ## 4. Member navigation
 
@@ -279,12 +280,38 @@ published catalogue.
 - Confirmed performances and uncertain historical evidence remain distinct.
 - A representative use case is: “Wann haben wir dieses Lied gesungen?”
 
+### AI assistance (confirmed 2026-10-04)
+
+The archive is AI-assisted wherever that is reasonably useful; the technical
+contract is in [architecture.md](architecture.md#14-ai-assistance).
+
+- **Editors:** scanned scores and programme photos are read by the model;
+  song, arrangement and event forms arrive prefilled; the Drive import proposes
+  its mapping; duplicates and member corrections arrive as prepared proposals.
+  An assistant can create and edit drafts on request.
+- **Members:** one search box that also finds by meaning, the grounded chat
+  including event and performance history, an approved written history per
+  song, and a stored German translation of non-German lyrics.
+- **Rules:** low-stakes fields are applied automatically, marked "KI" and
+  revertible; identity, publication, merges and deletion always need a human;
+  generated text is a draft until an editor approves it.
+- **Budget:** EUR 15 per month as a hard cap. When it is reached AI pauses and
+  the archive keeps working by hand.
+- **Before the member launch:** only the model switch, scan reading,
+  embeddings and the AI-assisted import. The rest follows after launch.
+
+This reverses two earlier decisions: reading scanned documents is now in
+scope, and editor-triggered AI may read unpublished drafts. The member chat
+still sees published content only.
+
 ### Features outside the agreed first release
 
-- OCR of scanned or handwritten scores/documents.
+- Optical music recognition (reading the notes themselves). Reading the *text*
+  of scanned scores and documents is in scope; see AI assistance above.
 - MIDI track mixing/soloing, automatic MIDI-to-audio generation, practice loops,
   progress tracking, and offline rehearsal functionality.
-- Automatic media conversion or automatic recording boundary detection.
+- Automatic media conversion, automatic recording boundary detection, and any
+  other audio analysis.
 - Continuous synchronization with Google Drive and in-app paper scanning.
 - Rehearsal planning, collaborative repertoire proposals, and guest sharing.
 - Duration/difficulty filters, programme sections/breaks, print/export bundles,
@@ -345,7 +372,7 @@ additional archive app in this repository, a React/TypeScript frontend served by
 one ASP.NET Core application, Neon PostgreSQL metadata, private blob media, and
 separate archive roles. It records Austria East as the preferred Azure region,
 local development plus production, explicit releases, and the EUR 10 normal-month
-budget target.
+budget target, plus a separate EUR 15 monthly hard cap for AI usage.
 
 Local development uses Aspire AppHost to start the app, required dependencies and
 implemented workers. Development OpenTelemetry logs, traces and metrics from the

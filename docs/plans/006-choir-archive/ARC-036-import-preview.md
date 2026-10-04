@@ -3,7 +3,7 @@ id: ARC-036
 status: planned
 phase: core
 kind: slice
-depends_on: ["ARC-002", "ARC-014"]
+depends_on: ["ARC-002", "ARC-014", "ARC-013-1", "ARC-021-1", "ARC-052"]
 touches: ["import", "catalogue", "operator-commands", "db-migrations"]
 external_inputs: ["drive-sample-access"]
 ---
@@ -11,7 +11,10 @@ external_inputs: ["drive-sample-access"]
 # ARC-036 — Preview a Drive folder as proposed catalogue entries
 
 **Depends on:** [ARC-002](ARC-002-source-inventory.md),
-[ARC-014](ARC-014-arrangements-and-keys.md).
+[ARC-014](ARC-014-arrangements-and-keys.md),
+[ARC-013-1](ARC-013-1-field-provenance-and-proposals.md),
+[ARC-021-1](ARC-021-1-luna-switch-and-budget-cap.md),
+[ARC-052](ARC-052-chat-embeddings-pgvector.md).
 
 ## Outcome
 
@@ -30,6 +33,23 @@ arrangements, keys and file labels before any source material is published.
   candidates; source changes are surfaced rather than silently overwriting review.
 - [ ] Record provenance and review attribution; private source details stay out
   of member APIs and unrestricted logs/artifacts.
+
+## AI assistance
+
+- [ ] The model proposes the mapping of folders and files to song, arrangement,
+  musical version and voice label, with a confidence and a short reason for
+  each proposal; deterministic naming conventions are applied first.
+- [ ] Possible duplicates are suggested from the ARC-052 embeddings, across
+  candidates and against the existing catalogue.
+- [ ] Nothing in the import is applied automatically. Every mapping is a
+  proposal, sorted into confidence bands, and the rule not to infer an
+  arrangement identity from a matching title alone still binds the editor's
+  decision.
+- [ ] The mapping job reads unpublished source material and has no write access
+  beyond its own candidate records. File names and contents are data, never
+  instructions.
+
+Decisions: [architecture §14](architecture.md#14-ai-assistance).
 
 ## Verification
 

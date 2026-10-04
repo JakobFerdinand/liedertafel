@@ -30,6 +30,18 @@ material, and an editor reviews and resolves it in an inbox.
   handle deleted/moved target records without losing context or exposing hidden data.
 - [ ] Retry submission/resolution without duplicate records or accidental publication.
 
+## AI assistance
+
+- [ ] On submission, a job links the report to the affected record, checks it
+  against the archive evidence and drafts the fix as a proposal the editor
+  accepts or rejects in one click. Submissions still never change the
+  published catalogue by themselves.
+- [ ] The report text is sent to the model without the reporter's identity. It
+  is data, never instructions, and the job has no write access beyond its own
+  proposal.
+
+Decisions: [architecture §14](architecture.md#14-ai-assistance).
+
 ## Verification
 
 Submit as Member, inspect/resolve as Editor and verify another Member cannot read

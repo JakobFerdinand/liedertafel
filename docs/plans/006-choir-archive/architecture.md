@@ -73,6 +73,8 @@ to keep this overview readable.
 
 - **Budget:** target EUR 10 per normal month, with explicit review before
   accepting a higher recurring commitment. This is a target, not a spending cap.
+  AI usage has its own **EUR 15 per month hard cap** enforced by the
+  application; see [AI assistance](#14-ai-assistance).
 - **Usage:** up to five simultaneous users; under ten aggregate hours of
   concert-video viewing per month.
 - **Collection:** approximately 500 songs/arrangements, 100–500 GB of source
@@ -555,8 +557,10 @@ in the operational setup, rather than introducing a dedicated monitoring server.
 ## 10. Cost model
 
 The normal-month target is **EUR 10** for the archive's ordinary operation.
-Initial migration activity and the chatbot cost are reviewed separately. An Azure
-budget alert is a notification, not automatic enforcement of a spending ceiling.
+Initial migration activity is reviewed separately. An Azure budget alert is a
+notification, not automatic enforcement of a spending ceiling. AI usage is the
+exception: the application enforces a separate EUR 15 monthly cap itself
+([AI assistance](#14-ai-assistance)).
 
 ### Illustrative primary-media capacity
 
@@ -615,9 +619,10 @@ These are explicit implementation prerequisites, not claims of completed tests.
 | Member launch | Restricted production pilot passed and PRD content launch gate met |
 
 The grounded chatbot is a read-only feature over the same authorized
-queries. Its provider, data handling, and spending controls require a separate
-decision before implementation. No dedicated model/search compute or additional
-worker language is required by this baseline.
+queries. Its provider, data handling, and spending controls were decided in
+ARC-021 and extended on 2026-10-04 to AI assistance across the archive; see
+[AI assistance](#14-ai-assistance). No dedicated model/search compute or
+additional worker language is required by this baseline.
 
 ## 12. Reference glossary
 
@@ -680,3 +685,108 @@ quote. Recheck provider limits, region availability, and pricing before deployme
   `infrastructure/main.bicepparam`, existing infrastructure/application workflows,
   root `AGENTS.md`, and [the PRD](prd.md). Existing resource-group identity scopes
   require explicit bootstrap work for the additional archive group.
+
+## 14. AI assistance
+
+Confirmed with the user on 2026-10-04. The archive is AI-assisted in every
+feature where that is reasonably useful. This section is the shared contract;
+each issue's **AI assistance** section applies it to that slice.
+
+### Where AI is used and where it is not
+
+- **Interaction model:** the classic navigation stays. Every editor screen gets
+  AI help (prefilled fields, proposals, drafts); editors and administrators also
+  get an assistant that can act through tools. Members get search and the
+  read-only grounded chat. The app is not chat-first.
+- **Editors first:** the manual editorial work (upload, metadata, events,
+  import, curation) is the main target; members benefit through better data.
+- **No AI when** deterministic code does the job as well, or when a wrong
+  result costs more than the time saved. Counts, permissions, alerts, copying,
+  trash and media handling stay deterministic.
+- **Still out of scope:** audio analysis, including automatic recording
+  boundary detection, and optical music recognition. Text generated per page
+  view is also excluded; generated text is produced once and stored.
+
+### Model and provider
+
+- Azure OpenAI in the EU Data Zone stays the only provider (ARC-021 gate:
+  EU processing, no training on inputs). The model for **all** AI work is
+  **GPT-6 Luna**, replacing `gpt-5.4-mini`, including image input for scans.
+- Embeddings use `text-embedding-3-small` in the same Azure OpenAI resource
+  with pgvector in the existing Neon database (ARC-052).
+- **Switch gate (ARC-021-1):** the live chat evaluation must pass on Luna at
+  today's pass rate, and a small fixed set of real scanned scores and programme
+  photos must pass for the vision path. If the chat suite fails, the chat alone
+  stays on `gpt-5.4-mini` until it passes.
+- On Chat Completions, Luna only supports function calling with reasoning
+  effort `none`; the tool loop either runs without reasoning or moves to the
+  Responses API. ARC-021-1 decides this with the evaluation.
+
+### Budget
+
+- **EUR 15 per month, hard cap**, enforced in the application's AI call path
+  from the usage ledger; it replaces the EUR 5 alert-plus-manual-disable.
+- When the cap is reached: background AI jobs stay queued and resume next
+  month; the chat and the editor assistant show "Monatsbudget erreicht"; every
+  form keeps working by hand; search keeps working because stored embeddings
+  cost nothing to query.
+
+### Authority of AI output
+
+| Kind of change | Behaviour |
+| --- | --- |
+| Low-stakes, reversible fields (key, voice, lyrics text, tags, creators read from a score) | Applied automatically above a confidence threshold, marked as AI-derived, revertible |
+| Identity or visibility (new song identity, merge, publication, deletion, anything in member administration) | Proposal only; a human confirms |
+| Everything in the Drive import | Proposal only, sorted into confidence bands for bulk approval |
+| Generated text (song history, programme notes, translations) | Draft that an editor approves; grounded in archive records with citations |
+
+- **Per-field provenance (ARC-013-1):** every AI- or regex-written field
+  records source (human / regex / AI), confidence, model and previous value. A
+  human edit locks the field against later AI overwrites.
+- **UI:** a "KI" badge with one-click revert on auto-applied fields, and one
+  "Vorschläge" queue in `/verwaltung` for everything awaiting confirmation.
+- **Deterministic first:** where embedded PDF text exists, the regex analyzer
+  runs first; the model fills only empty fields and reads scans without text.
+
+### Data boundaries
+
+- Member names and emails never reach the provider (unchanged from ARC-021).
+  Correction reports are sent without the reporter's identity; free text may
+  name historical or catalogue persons.
+- **Drafts:** editor-triggered AI and background jobs may read unpublished
+  material. The member chat and member search see published content only.
+  Embedding rows carry a visibility flag that enforces this split.
+- **Untrusted text:** scans, imported files and member reports are data, not
+  instructions. Jobs that read them have no write access beyond their own
+  draft or proposal. The editor assistant never acts on text it read from a
+  document without the editor's confirmation.
+- **Assistant tools:** the editor assistant creates and edits drafts of songs,
+  arrangements, events, programme items and performances. Publish, merge,
+  delete and member administration are proposals with a confirm button. The
+  member chat stays read-only.
+
+### Search
+
+One search box backed by lexical plus embedding search. No model call sits in
+the search path, so search stays fast after a cold start and has no per-query
+cost. Questions go to the chat.
+
+### Evaluation
+
+Features that auto-apply get a fixed evaluation set of real documents with
+expected fields: scan reading (ARC-034-1) and programme reading (ARC-025-1).
+Features that are always human-confirmed (duplicates, import mapping,
+corrections) need ordinary tests of the plumbing only.
+
+### Order of work
+
+1. Model switch to Luna with its gate, and the hard budget cap (ARC-021-1).
+2. Per-field provenance and the "Vorschläge" queue (ARC-013-1).
+3. Scan reading through vision on upload (ARC-034-1).
+4. Embeddings, widened to drafts (ARC-052).
+5. Import chain with AI mapping (ARC-036 to ARC-038).
+6. Launch gates (ARC-044, ARC-045).
+7. After launch: chat tools for events and history (ARC-022-1), programme
+   reading (ARC-025-1), editor assistant (ARC-022-2), hybrid member search
+   (ARC-020-1), duplicates (ARC-046, ARC-050), corrections (ARC-047), song
+   histories (ARC-031) and lyric translations (ARC-013-2).

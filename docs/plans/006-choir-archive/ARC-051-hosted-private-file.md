@@ -54,6 +54,10 @@ reads it through the hosted app's short-lived access ticket.
   Azurite 3.35 rejects `StartCopyFromUri` with HTTP 500 (emulator gap, not a
   backend defect); hosted verification of the full transfer remains open.
 
+## AI assistance
+
+None. This slice stays deterministic: code does the job as well as a model would. Decisions: [architecture §14](architecture.md#14-ai-assistance).
+
 ## Verification
 
 Upload, finalize, open and download through the real domain. Verify the browser

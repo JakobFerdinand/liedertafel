@@ -31,6 +31,10 @@ any song timestamps have been entered.
 - [ ] Default concert downloads to disabled and enforce editor-controlled
   enablement in API/access responses as well as the UI.
 
+## AI assistance
+
+None. Audio analysis, including automatic boundary detection, stays out of scope. Decisions: [architecture §14](architecture.md#14-ai-assistance).
+
 ## Verification
 
 Publish a short video and a separate audio recording, play/seek as a member,
