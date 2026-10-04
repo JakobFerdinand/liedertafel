@@ -57,6 +57,15 @@ namespace Archive.Backend.Data.Migrations
                 table: "asset_revision_changes",
                 column: "RevisionId");
 
+            // The declared upload name was only kept on the session so far.
+            migrationBuilder.Sql(
+                """
+                UPDATE file_revisions r
+                SET "OriginalFileName" = s."DeclaredFileName"
+                FROM upload_sessions s
+                WHERE s."FinalizedRevisionId" = r."Id" AND s."DeclaredFileName" IS NOT NULL;
+                """);
+
             // Until this migration every revision became current when its
             // upload finalized, so the existing history is exactly one
             // upload entry per revision, replacing its predecessor.

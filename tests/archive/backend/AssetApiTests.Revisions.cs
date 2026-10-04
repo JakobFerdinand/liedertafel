@@ -5,6 +5,7 @@ using Archive.Backend.Assets;
 using Archive.Backend.Auth;
 using Archive.Backend.Data;
 using Archive.Backend.Extraction;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -264,7 +265,9 @@ public sealed partial class AssetApiTests
 		using var foreign = await PostJsonAsync(client, path, new { revisionId = RevisionId(other) }, editorSession);
 		Assert.Equal(HttpStatusCode.NotFound, foreign.StatusCode);
 		using var missing = await PostJsonAsync(client, path, new { }, editorSession);
-		Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
+		Assert.Equal(HttpStatusCode.BadRequest, missing.StatusCode);
+		var missingProblem = await missing.Content.ReadFromJsonAsync<JsonElement>();
+		Assert.Equal(AssetEndpoints.RevisionRequiredMessage, missingProblem.GetProperty("title").GetString());
 		using var member = await PostJsonAsync(client, path, new { revisionId = RevisionId(first) }, memberSession);
 		Assert.Equal(HttpStatusCode.Forbidden, member.StatusCode);
 		using var anonymous = await client.PostAsJsonAsync(path, new { revisionId = RevisionId(first) });
@@ -405,6 +408,164 @@ public sealed partial class AssetApiTests
 		Assert.Equal(2, history.GetProperty("revisions").GetArrayLength());
 		Assert.Equal(2, history.GetProperty("changes").GetArrayLength());
 		Assert.True(factory.Storage.Has(firstBlob));
+	}
+
+	[Fact]
+	public async Task RestoreThatLosesTheRaceChangesNothingAndStaysRetryable()
+	{
+		// The first save that would log a restore fails the way a lost
+		// optimistic-concurrency race does.
+		var lostOnce = false;
+		var interceptor = new ExtractionSaveInterceptor((db, _) =>
+		{
+			if (!lostOnce && db.ChangeTracker.Entries<RevisionChange>()
+				.Any(e => e.State == EntityState.Added && e.Entity.Kind == RevisionChangeKind.Restore))
+			{
+				lostOnce = true;
+				throw new DbUpdateConcurrencyException("Simulated lost race.");
+			}
+			return Task.CompletedTask;
+		});
+		await using var factory = new AuthApiFactory(saveChangesInterceptor: interceptor);
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		var editorSession = await SignInAsync(factory, Editor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
+		var assetId = await CreateScoreAssetAsync(client, editorSession, versionId);
+		var (_, _, first) = await UploadAndFinalizeAsync(factory, client, editorSession, assetId);
+		var (_, _, second) = await UploadAndFinalizeAsync(factory, client, editorSession, assetId);
+		var request = new { revisionId = RevisionId(first), expectedCurrentRevisionId = RevisionId(second) };
+
+		using var lost = await PostJsonAsync(client, $"/api/assets/{assetId}/current-revision", request, editorSession);
+
+		Assert.Equal(HttpStatusCode.Conflict, lost.StatusCode);
+		var problem = await lost.Content.ReadFromJsonAsync<JsonElement>();
+		Assert.Equal(AssetEndpoints.ConcurrencyMessage, problem.GetProperty("title").GetString());
+		var unchanged = await GetJsonAsync(client, $"/api/assets/{assetId}/revisions", editorSession);
+		Assert.Equal(RevisionId(second), Guid.Parse(unchanged.GetProperty("currentRevisionId").GetString()!));
+		Assert.Equal(2, unchanged.GetProperty("changes").GetArrayLength());
+
+		using var retry = await PostJsonAsync(client, $"/api/assets/{assetId}/current-revision", request, editorSession);
+
+		Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
+		var restored = await retry.Content.ReadFromJsonAsync<JsonElement>();
+		Assert.Equal(RevisionId(first), Guid.Parse(restored.GetProperty("currentRevisionId").GetString()!));
+		Assert.Equal(3, restored.GetProperty("changes").GetArrayLength());
+	}
+
+	[Fact]
+	public async Task EventAssetsStayWithTheirCreatorForCorrectionAndRestore()
+	{
+		await using var factory = new AuthApiFactory();
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		await SeedAsync(factory, SecondEditor, ArchiveRoles.Editor);
+		var editorSession = await SignInAsync(factory, Editor);
+		var secondSession = await SignInAsync(factory, SecondEditor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		using var createEvent = await PostJsonAsync(client, "/api/events",
+			new { kind = "concert", title = "Frühjahrskonzert" }, editorSession);
+		Assert.Equal(HttpStatusCode.Created, createEvent.StatusCode);
+		var eventId = (await createEvent.Content.ReadFromJsonAsync<JsonElement>())
+			.GetProperty("event").GetProperty("id").GetString();
+		using var createAsset = await PostJsonAsync(client, $"/api/events/{eventId}/assets",
+			new { assetType = "document" }, editorSession);
+		Assert.Equal(HttpStatusCode.Created, createAsset.StatusCode);
+		var assetId = Guid.Parse((await createAsset.Content.ReadFromJsonAsync<JsonElement>())
+			.GetProperty("id").GetString()!);
+		var (_, _, first) = await UploadAndFinalizeAsync(factory, client, editorSession, assetId, size: 1024);
+		var (_, _, second) = await UploadAndFinalizeAsync(factory, client, editorSession, assetId, size: 2048);
+
+		// Unlike a musical-version asset, an event document with a file is
+		// not open to other editors: neither a correction …
+		using var correction = await PostJsonAsync(client,
+			$"/api/assets/{assetId}/upload-session", new { }, secondSession);
+		Assert.Equal(HttpStatusCode.Forbidden, correction.StatusCode);
+		var correctionProblem = await correction.Content.ReadFromJsonAsync<JsonElement>();
+		Assert.Equal(AssetEndpoints.AssetOwnerMessage, correctionProblem.GetProperty("title").GetString());
+		// … nor a restore.
+		using var restore = await PostJsonAsync(client, $"/api/assets/{assetId}/current-revision",
+			new { revisionId = RevisionId(first) }, secondSession);
+		Assert.Equal(HttpStatusCode.Forbidden, restore.StatusCode);
+		var restoreProblem = await restore.Content.ReadFromJsonAsync<JsonElement>();
+		Assert.Equal(AssetEndpoints.AssetOwnerMessage, restoreProblem.GetProperty("title").GetString());
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			Assert.Equal(RevisionId(second), (await db.Assets.SingleAsync()).CurrentRevisionId);
+			Assert.Equal(2, await db.RevisionChanges.CountAsync());
+			Assert.Equal(2, await db.UploadSessions.CountAsync());
+		}
+
+		// The creating editor keeps both abilities.
+		using var own = await PostJsonAsync(client, $"/api/assets/{assetId}/current-revision",
+			new { revisionId = RevisionId(first) }, editorSession);
+		Assert.Equal(HttpStatusCode.OK, own.StatusCode);
+	}
+
+	[Fact]
+	public async Task DowngradedOrRevokedEditorsLoseTheRevisionEndpoints()
+	{
+		await using var factory = new AuthApiFactory();
+		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
+		await SeedAsync(factory, SecondEditor, ArchiveRoles.Editor);
+		var editorSession = await SignInAsync(factory, Editor);
+		var formerSession = await SignInAsync(factory, SecondEditor);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
+		var assetId = await CreateScoreAssetAsync(client, editorSession, versionId);
+		var (_, _, first) = await UploadAndFinalizeAsync(factory, client, editorSession, assetId);
+		var (_, _, second) = await UploadAndFinalizeAsync(factory, client, editorSession, assetId);
+		var historyPath = $"/api/assets/{assetId}/revisions";
+		var ticketPath = $"/api/assets/{assetId}/revisions/{RevisionId(first)}/access";
+		var restorePath = $"/api/assets/{assetId}/current-revision";
+		// While still an editor, the session works.
+		using (var before = await GetAsync(client, historyPath, formerSession))
+			Assert.Equal(HttpStatusCode.OK, before.StatusCode);
+		var ticketsBefore = factory.Storage.Tickets.Count;
+
+		// The signed-in session is downgraded to a plain member.
+		using (var scope = factory.Services.CreateScope())
+		{
+			var users = scope.ServiceProvider.GetRequiredService<UserManager<ArchiveUser>>();
+			var user = await users.FindByEmailAsync(SecondEditor);
+			Assert.True((await users.RemoveFromRoleAsync(user!, ArchiveRoles.Editor)).Succeeded);
+		}
+		await SeedAsync(factory, SecondEditor, ArchiveRoles.Member);
+		await AssertRevisionEndpointsAsync(HttpStatusCode.Forbidden);
+
+		// Revoking the membership ends access altogether.
+		using (var scope = factory.Services.CreateScope())
+		{
+			var users = scope.ServiceProvider.GetRequiredService<UserManager<ArchiveUser>>();
+			var user = await users.FindByEmailAsync(SecondEditor);
+			user!.EmailConfirmed = false;
+			Assert.True((await users.UpdateAsync(user)).Succeeded);
+		}
+		await AssertRevisionEndpointsAsync(HttpStatusCode.Unauthorized);
+
+		Assert.Equal(ticketsBefore, factory.Storage.Tickets.Count);
+		var history = await GetJsonAsync(client, historyPath, editorSession);
+		Assert.Equal(RevisionId(second), Guid.Parse(history.GetProperty("currentRevisionId").GetString()!));
+
+		async Task AssertRevisionEndpointsAsync(HttpStatusCode expected)
+		{
+			using var history = await GetAsync(client, historyPath, formerSession);
+			Assert.Equal(expected, history.StatusCode);
+			using var ticket = await GetAsync(client, ticketPath, formerSession);
+			Assert.Equal(expected, ticket.StatusCode);
+			// A changed account re-issues the session cookie alongside the
+			// CSRF cookie; send whatever the server handed out last.
+			using var tokenRequest = new HttpRequestMessage(HttpMethod.Get, "/api/antiforgery");
+			tokenRequest.Headers.Add("Cookie", formerSession);
+			using var tokenResponse = await client.SendAsync(tokenRequest);
+			var cookies = tokenResponse.Headers.GetValues("Set-Cookie").Select(c => c.Split(';')[0]).ToList();
+			var auth = cookies.LastOrDefault(c => c.StartsWith("archive.auth=", StringComparison.Ordinal)) ?? formerSession;
+			var csrf = cookies.Single(c => c.StartsWith("archive.csrf=", StringComparison.Ordinal));
+			var token = (await tokenResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("token").GetString()!;
+			using var restore = await client.SendAsync(AuthedPost(restorePath,
+				new { revisionId = RevisionId(first) }, $"{csrf}; {auth}", token));
+			Assert.Equal(expected, restore.StatusCode);
+		}
 	}
 
 	[Fact]

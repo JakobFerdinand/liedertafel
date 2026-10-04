@@ -10,6 +10,7 @@ import {
   groesseText,
   MaterialFehler,
   problemTitel,
+  restlaufzeitMs,
   setzeAktuellenDateiStand,
   uebertrageDatei,
 } from "@/lib/assets";
@@ -21,6 +22,9 @@ type NotenVerlaufProps = {
   /** Der aktuelle Dateistand hat gewechselt (Korrektur oder Rückgriff). */
   onGeaendert: () => void;
 };
+
+/** Wie beim Audio-Spieler: Tickets gelten eine Minute vor Ablauf als verbraucht. */
+const ticketVorlaufMs = 60_000;
 
 type LadeZustand = "laden" | "bereit" | "fehler";
 
@@ -82,6 +86,29 @@ export function NotenVerlauf({
     return () => abbruch.abort();
   }, [assetId, ladeVersuch]);
 
+  // Datei-Tickets gelten 15 Minuten. Kurz vor dem Ablauf verschwinden die
+  // Links wieder; „Ansehen" holt dann ein frisches Ticket, statt dass ein
+  // Klick beim Speicherdienst ins Leere läuft.
+  useEffect(() => {
+    const reste = Object.values(zugriffe).map(
+      (zugriff) => restlaufzeitMs(zugriff.expiresAt) - ticketVorlaufMs,
+    );
+    if (reste.length === 0) return;
+    const zeitgeber = window.setTimeout(
+      () =>
+        setZugriffe((vorher) =>
+          Object.fromEntries(
+            Object.entries(vorher).filter(
+              ([, zugriff]) =>
+                restlaufzeitMs(zugriff.expiresAt) > ticketVorlaufMs,
+            ),
+          ),
+        ),
+      Math.max(0, Math.min(...reste)),
+    );
+    return () => window.clearTimeout(zeitgeber);
+  }, [zugriffe]);
+
   const beschaeftigt = uebertragung !== null || wechselBusy !== null;
 
   async function korrekturHochladen(datei: File) {
@@ -112,6 +139,9 @@ export function NotenVerlauf({
       setLadeVersuch((versuch) => versuch + 1);
       onGeaendert();
     } catch (ursache) {
+      const konflikt =
+        (ursache instanceof MaterialFehler && ursache.status === 409) ||
+        (ursache instanceof Response && ursache.status === 409);
       setFehler(
         ursache instanceof MaterialFehler
           ? ursache.message
@@ -120,6 +150,12 @@ export function NotenVerlauf({
               "Die korrigierten Noten konnten nicht hochgeladen werden. Der bisherige Dateistand bleibt aktuell.",
             ),
       );
+      // Ein Konflikt heißt: Der Verlauf hier ist veraltet.
+      if (konflikt) {
+        setZugriffe({});
+        setLadeVersuch((versuch) => versuch + 1);
+        onGeaendert();
+      }
     } finally {
       setUebertragung(null);
     }

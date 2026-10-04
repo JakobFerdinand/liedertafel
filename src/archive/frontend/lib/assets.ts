@@ -41,7 +41,15 @@ export type AssetAccessResponse = {
 
 export type MaterialSchritt = "uebertragen" | "geprueft";
 
-export class MaterialFehler extends Error {}
+export class MaterialFehler extends Error {
+  /** HTTP-Status der abgewiesenen Anfrage, falls der Server geantwortet hat. */
+  readonly status: number | null;
+
+  constructor(meldung: string, status: number | null = null) {
+    super(meldung);
+    this.status = status;
+  }
+}
 
 export class AbbruchFehler extends MaterialFehler {
   constructor() {
@@ -654,14 +662,44 @@ export async function uebertrageDatei(
   }
   onSchritt?.("geprueft");
   try {
-    const revision = await finalizeUpload(sitzung.uploadSessionId, identitaet);
+    const revision = await schliesseUploadAb(
+      sitzung.uploadSessionId,
+      identitaet,
+    );
     entferneUploadSitzung(assetId);
     return revision;
   } catch (ursache) {
     if (optionen.signal?.aborted) {
       werfeAbbruch(assetId, sitzung);
     }
-    throw new MaterialFehler(await abschlussFehler(ursache));
+    throw new MaterialFehler(
+      await abschlussFehler(ursache),
+      ursache instanceof Response ? ursache.status : null,
+    );
+  }
+}
+
+/** Vertrag AssetEndpoints.ConcurrencyMessage: gleichzeitige Änderung verloren. */
+const gleichzeitigGeaendert = "Der Eintrag wurde zwischenzeitlich geändert.";
+
+/**
+ * Schließt den Upload ab. Hat eine gleichzeitige Korrektur gewonnen (409 mit
+ * der Meldung oben), bleibt die Sitzung samt übertragener Datei bestehen —
+ * ein zweiter Abschluss legt dann den nächsten Dateistand an, ohne die Datei
+ * erneut zu übertragen. Andere 409 (Datei fehlt, abgelaufen, abgebrochen)
+ * sind endgültig und werden nicht wiederholt.
+ */
+async function schliesseUploadAb(
+  uploadSessionId: string,
+  identitaet: DateiIdentitaet,
+): Promise<RevisionResponse> {
+  try {
+    return await finalizeUpload(uploadSessionId, identitaet);
+  } catch (ursache) {
+    if (!(ursache instanceof Response) || ursache.status !== 409) throw ursache;
+    const titel = await problemTitel(ursache.clone(), "");
+    if (titel !== gleichzeitigGeaendert) throw ursache;
+    return await finalizeUpload(uploadSessionId, identitaet);
   }
 }
 

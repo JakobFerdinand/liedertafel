@@ -485,10 +485,15 @@ coordination point with catalogue/import work.
 
 A correction is a new immutable file revision under the **same** logical asset,
 never a new arrangement, musical version or material entry. It uses the
-unchanged ARC-015 upload protocol on the existing asset id; once a
-version-owned asset has a current revision, every editor may start a
-correction (an asset without a file, and every event-owned asset, stay with
-the editor who created it). Members, song detail and old links read through
+unchanged ARC-015 upload protocol on the existing asset id.
+
+Who may change the file an asset serves (one rule, `MayChangeCurrentFile` in
+`backend/Assets/AssetEndpoints.cs`, shared by starting an upload session and
+by restoring a revision): the creating editor always; every other editor only
+for a **musical-version asset that already has a file**. That deliberately
+covers every material type on a version — scores, voice files, audio and
+MIDI — not only scores. An asset without a file, and every event-owned asset
+(ARC-025), stay with the editor who created them. Members, song detail and old links read through
 the asset's current-revision pointer and therefore follow a correction or a
 restore immediately.
 
@@ -511,12 +516,18 @@ Editor-only endpoints (members 403, anonymous 401, all `no-store`):
   through `GET /api/assets/{id}/access`.
 - `POST /api/assets/{id}/current-revision` with `{ revisionId,
   expectedCurrentRevisionId }` — makes a retained revision current again. No
-  revision is created; a stale `expectedCurrentRevisionId` or a lost race is
+  revision is created; a missing `revisionId` is 400, another editor's
+  event-owned asset 403, a stale `expectedCurrentRevisionId` or a lost race
   409; repeating the request for the already-current revision is a no-op 200.
+
+Uploaders and restorers appear in the history by display name, falling back
+to the account's email address when none is set (editor-only view).
 
 Competing replacements never overwrite each other: every revision has its own
 blob name, and a finalize that loses the race answers 409 with its session
-still pending, so a retry adds the next revision. Revisions are retained until
+still pending, so a retry adds the next revision. The browser repeats the
+finalize once for exactly that 409 without transferring the file again, and
+the history panel reloads whenever a 409 is shown. Revisions are retained until
 explicitly removed; nothing expires them (the upload cleanup only touches
 pending sessions). No removal action exists yet — ARC-039 owns deliberate
 removal together with the retained-reference check.

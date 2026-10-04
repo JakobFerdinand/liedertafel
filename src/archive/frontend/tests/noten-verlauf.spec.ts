@@ -298,7 +298,7 @@ test("Redaktion sieht einen früheren Dateistand an und legt ihn als aktuell fes
           ...revision(1),
           viewUrl: "https://speicher.test/ansicht?sig=stand-1",
           downloadUrl: "https://speicher.test/laden?sig=stand-1",
-          expiresAt: "2026-09-21T09:15:00.000Z",
+          expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
         }),
       ),
   );
@@ -369,6 +369,184 @@ test("Redaktion sieht einen früheren Dateistand an und legt ihn als aktuell fes
   ).toBeVisible();
 
   expect(errors).toEqual([]);
+});
+
+async function mockKorrekturUpload(page: Page, schritte: string[]) {
+  await page.route(`**/api/assets/${assetId}/upload-session`, (route) => {
+    schritte.push("sitzung");
+    return route.fulfill(
+      json(
+        {
+          uploadSessionId: "00000000-0000-0000-0000-0000000000aa",
+          blobName: null,
+          uploadUrl,
+          expiresAt: "2026-09-20T16:00:00.000Z",
+          maxBytes: 5242880,
+          blockBytes: 5242880,
+        },
+        201,
+      ),
+    );
+  });
+  await page.route(uploadMuster, (route) => {
+    schritte.push("uebertragung");
+    return route.fulfill(json({}, 201));
+  });
+}
+
+async function waehleKorrektur(page: Page) {
+  const bereich = page.getByRole("region", { name: "Dateistände · Noten" });
+  const wahl = page.waitForEvent("filechooser");
+  await bereich
+    .getByRole("button", { name: "Korrigierte Noten hochladen" })
+    .click();
+  await (await wahl).setFiles({
+    name: "wandern-korrigiert.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from("%PDF-1.4 wandern, neu"),
+  });
+}
+
+const gleichzeitigGeaendert = "Der Eintrag wurde zwischenzeitlich geändert.";
+
+test("Verlorener Abschluss wird ohne erneute Übertragung wiederholt", async ({
+  page,
+}) => {
+  await mockSitzung(page, editorMe);
+  let ersetzt = false;
+  await page.route(`**/api/songs/${songId}`, (route) =>
+    route.fulfill(json(detail(ersetzt ? 2 : 1))),
+  );
+  await page.route(`**/api/assets/${assetId}/revisions`, (route) =>
+    route.fulfill(json(ersetzt ? verlaufZweiStaende(2) : verlaufEinStand())),
+  );
+  const schritte: string[] = [];
+  await mockKorrekturUpload(page, schritte);
+  let abschluesse = 0;
+  await page.route("**/api/upload-sessions/*/finalize", (route) => {
+    schritte.push("finalisierung");
+    abschluesse += 1;
+    if (abschluesse === 1) {
+      return route.fulfill(problem(gleichzeitigGeaendert, 409));
+    }
+    ersetzt = true;
+    return route.fulfill(json({ assetId, ...revision(2) }));
+  });
+
+  await page.goto(`/lied/?id=${songId}`);
+  await oeffneDateistaende(page);
+  await waehleKorrektur(page);
+
+  const bereich = page.getByRole("region", { name: "Dateistände · Noten" });
+  await expect(
+    bereich.getByText(/Dateistand 2 ist jetzt aktuell\./),
+  ).toBeVisible();
+  await expect(bereich.getByRole("alert")).toHaveCount(0);
+  // Die Datei geht genau einmal zum Speicherdienst; nur der Abschluss
+  // läuft ein zweites Mal.
+  expect(schritte).toEqual([
+    "sitzung",
+    "uebertragung",
+    "uebertragung",
+    "finalisierung",
+    "finalisierung",
+  ]);
+});
+
+test("Zweimal verlorener Abschluss meldet den Konflikt und lädt den Verlauf neu", async ({
+  page,
+}) => {
+  await mockSitzung(page, editorMe);
+  await page.route(`**/api/songs/${songId}`, (route) =>
+    route.fulfill(json(detail(2))),
+  );
+  let abrufe = 0;
+  let fremdeKorrektur = false;
+  await page.route(`**/api/assets/${assetId}/revisions`, (route) => {
+    abrufe += 1;
+    return route.fulfill(
+      json(fremdeKorrektur ? verlaufZweiStaende(2) : verlaufEinStand()),
+    );
+  });
+  const schritte: string[] = [];
+  await mockKorrekturUpload(page, schritte);
+  await page.route("**/api/upload-sessions/*/finalize", (route) => {
+    schritte.push("finalisierung");
+    // Jemand anderes hat inzwischen Dateistand 2 angelegt.
+    fremdeKorrektur = true;
+    return route.fulfill(problem(gleichzeitigGeaendert, 409));
+  });
+
+  await page.goto(`/lied/?id=${songId}`);
+  await oeffneDateistaende(page);
+  const bereich = page.getByRole("region", { name: "Dateistände · Noten" });
+  await expect(bereich.locator(".noten-verlauf-stand")).toHaveCount(1);
+  const abrufeVorher = abrufe;
+  await waehleKorrektur(page);
+
+  await expect(bereich.getByRole("alert")).toHaveText(gleichzeitigGeaendert);
+  expect(
+    schritte.filter((schritt) => schritt === "finalisierung"),
+  ).toHaveLength(2);
+  // Der Verlauf zeigt jetzt die fremde Korrektur statt des alten Stands.
+  await expect.poll(() => abrufe).toBeGreaterThan(abrufeVorher);
+  await expect(bereich.locator(".noten-verlauf-stand")).toHaveCount(2);
+  await expect(bereich.locator(".noten-verlauf-stand").nth(0)).toContainText(
+    "Dateistand 2 · aktuell",
+  );
+});
+
+test("Abgelaufene Tickets verschwinden; Ansehen holt ein frisches", async ({
+  page,
+}) => {
+  await mockSitzung(page, editorMe);
+  await page.route(`**/api/songs/${songId}`, (route) =>
+    route.fulfill(json(detail(2))),
+  );
+  await page.route(`**/api/assets/${assetId}/revisions`, (route) =>
+    route.fulfill(json(verlaufZweiStaende(2))),
+  );
+  let tickets = 0;
+  await page.route(
+    `**/api/assets/${assetId}/revisions/${standEinsId}/access`,
+    (route) => {
+      tickets += 1;
+      // Das erste Ticket ist zwei Sekunden vor der Verfallsgrenze (eine
+      // Minute Vorlauf), das zweite ist frisch.
+      const restMs = tickets === 1 ? 62_000 : 15 * 60_000;
+      return route.fulfill(
+        json({
+          assetId,
+          ...revision(1),
+          viewUrl: `https://speicher.test/ansicht?sig=stand-1-${tickets}`,
+          downloadUrl: `https://speicher.test/laden?sig=stand-1-${tickets}`,
+          expiresAt: new Date(Date.now() + restMs).toISOString(),
+        }),
+      );
+    },
+  );
+
+  await page.goto(`/lied/?id=${songId}`);
+  await oeffneDateistaende(page);
+  const bereich = page.getByRole("region", { name: "Dateistände · Noten" });
+  const ansehen = bereich.getByRole("button", { name: "Dateistand 1 ansehen" });
+  const oeffnen = bereich.getByRole("link", { name: "Dateistand 1 öffnen" });
+
+  await ansehen.click();
+  await expect(oeffnen).toHaveAttribute(
+    "href",
+    "https://speicher.test/ansicht?sig=stand-1-1",
+  );
+  // Vor dem Ablauf verschwinden die Links wieder.
+  await expect(oeffnen).toHaveCount(0, { timeout: 10_000 });
+  await expect(ansehen).toBeVisible();
+
+  await ansehen.click();
+  await expect(oeffnen).toHaveAttribute(
+    "href",
+    "https://speicher.test/ansicht?sig=stand-1-2",
+  );
+  expect(tickets).toBe(2);
 });
 
 test("Veralteter Verlauf wird beim Festlegen abgewiesen und neu geladen", async ({

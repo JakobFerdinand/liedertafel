@@ -61,10 +61,14 @@ Design decisions:
 - A correction reuses the ARC-015 upload protocol on the existing asset id:
   session, direct transfer, validated finalize. Finalize adds revision
   `max + 1` with its own blob name and swaps the pointer in the same save.
-  Once a version-owned asset has a current revision, every editor may start a
-  correction; an asset without a file, and every event-owned asset, stay with
-  the creating editor (ARC-025 rule unchanged). Sessions still belong to
-  their creator.
+- **Who may correct or restore (decided, wider than the ticket text):** the
+  ticket only says "score", but the rule applies to every material type on a
+  musical version. Any editor may correct or restore a version-owned asset
+  that already has a file — scores, voice files, audio and MIDI. An asset
+  without a file, and every event-owned asset, stay with the creating editor
+  (ARC-025 rule unchanged). One helper, `MayChangeCurrentFile` in
+  `AssetEndpoints.cs`, decides this for both the upload-session and the
+  restore path. Sessions still belong to their creator.
 - **Revision-change contract:** `RevisionChanges.MakeCurrentAsync`
   (`src/archive/backend/Assets/RevisionChange.cs`) is the only code that
   moves `ArchiveAsset.CurrentRevisionId`. Upload and restore both call it:
@@ -72,16 +76,22 @@ Design decisions:
   entry and, for a PDF revision without one, the ARC-034 extraction row
   commit together. Extraction stays keyed by revision, so a restored revision
   reuses its stored text and nothing is extracted twice.
-- Restore creates no revision. `expectedCurrentRevisionId` rejects a stale
-  history with 409; repeating the request for the already-current revision
-  is a 200 without a new history entry.
+- Restore creates no revision. A missing `revisionId` is 400;
+  `expectedCurrentRevisionId` rejects a stale history with 409; repeating
+  the request for the already-current revision is a 200 without a new
+  history entry.
+- History attribution shows the account's display name and falls back to its
+  email address when none is set. This stays: the history is editor-only.
 - A finalize that loses a race (asset token moved, or the revision number is
   already taken) answers 409, drops only its own copied object and leaves its
   session pending, so a retry adds the next revision. Other save failures are
-  not treated as a conflict.
+  not treated as a conflict. The browser repeats finalize once for exactly
+  this 409 (no second transfer) and reloads the history panel whenever it
+  shows a 409.
 - Migration `20261004104336_ScoreRevisionHistory`: nullable
-  `file_revisions.OriginalFileName`, table `asset_revision_changes`, and a
-  backfill of one upload entry per existing revision.
+  `file_revisions.OriginalFileName` (backfilled from the finalizing upload
+  session's declared name), table `asset_revision_changes`, and a backfill
+  of one upload entry per existing revision.
 - The UI calls a file revision "Dateistand" everywhere (the material line
   used to say "Fassung N", which collided with the musical "Fassung").
 
@@ -149,11 +159,44 @@ Notes and limits of this verification:
 - In the concurrent Aspire run both finalizes committed without a conflict,
   so the lost-race branch was exercised only by the backend test that
   simulates the failed save, not against PostgreSQL.
-- The migration ran against empty tables; the backfill statement executed
-  but was not checked against existing revision rows.
+- In the first pass the migration ran against empty tables only; the
+  backfills were checked against seeded rows in the review follow-up below.
 - The other Aspire tests (`tests/archive/apphost`) were not run.
 - No manual check in a real browser against a running stack; live SAS/CORS
   behaviour stays with ARC-044/ARC-051.
+
+### Review follow-up (2026-10-04)
+
+An independent review of the first commit led to these changes: restore on
+an event-owned asset is creator-only (shared `MayChangeCurrentFile` rule),
+a missing `revisionId` is 400, the browser repeats a lost finalize once and
+reloads the history on any 409, history-panel tickets are dropped before
+they expire, and the migration also backfills `OriginalFileName`.
+
+| Command | Result |
+| --- | --- |
+| `dotnet build src/archive/Archive.slnx` | succeeded, 0 warnings, 0 errors |
+| `dotnet test tests/archive/backend` | 480 passed, 0 failed, 0 skipped |
+| `corepack pnpm run check` | passed |
+| `corepack pnpm run build` | passed |
+| `ARCHIVE_BASE_URL=http://localhost:3100 corepack pnpm exec playwright test tests/noten-verlauf.spec.ts tests/noten.spec.ts tests/materialien.spec.ts tests/auftritt-dokumente.spec.ts tests/audio-wiedergabe.spec.ts tests/midi-wiedergabe.spec.ts tests/extraktion.spec.ts --workers=1` | 116 passed |
+| `dotnet ef database update 20261002103803_ExtractionJobs`, seed three revisions and four upload sessions by SQL, then `dotnet ef database update` (throwaway `postgres:17.6`) | both backfills correct: file names copied from the finalizing sessions (null where none was declared, the unfinalized session ignored), one upload entry per revision with the right predecessor |
+| `dotnet ef migrations has-pending-model-changes --project backend` | "No changes have been made to the model since the last migration." |
+
+New backend tests (`AssetApiTests.Revisions.cs`, now 12): a second editor is
+refused both a correction and a restore on an event document that has a file
+(observed failing with the version-owned condition removed from the rule);
+a restore that loses the save race answers 409, changes nothing and succeeds
+on retry; an editor downgraded to member gets 403 and a revoked one 401 on
+all three endpoints; a restore without `revisionId` is 400. New browser
+scenarios (`noten-verlauf.spec.ts`, now 9): a lost finalize is repeated
+without a second transfer; a twice-lost finalize shows the conflict and
+reloads the history; an expiring ticket disappears and "Ansehen" fetches a
+fresh one.
+
+Not rerun for the follow-up: the Aspire test and the full browser suite. The
+seeded migration check bypassed foreign keys (`session_replication_role =
+replica`) instead of building the full song chain.
 
 ## Left out and known limits
 
@@ -169,8 +212,12 @@ Notes and limits of this verification:
 - An interrupted correction upload is not offered for resume after a page
   reload (the ARC-017 resume list only covers assets without a file); the
   editor starts the correction again.
-- Restore is available for any asset type at the API; the UI offers the
-  history for scores only.
+- Correction and restore work for every version-owned material type at the
+  API (see the decision above); the UI offers the history panel for scores
+  only. History and old-revision tickets of event-owned assets are readable
+  by every editor; only changing them is creator-only.
+- History-panel tickets are dropped one minute before they expire, so the
+  editor asks for a fresh one; they are not renewed silently.
 - The pointer-change log orders entries of the same instant by id, which is
   not a strict order within one millisecond.
 
@@ -193,5 +240,9 @@ Notes and limits of this verification:
   keep writing into the row of the revision it read, never by asset;
   `MakeCurrentAsync` only creates a missing row and never resets an existing
   one, so a restored revision keeps whatever text it has.
+- **Everyone adding material types or owners:** the correction/restore rule
+  is `MayChangeCurrentFile`; any editor may replace the file of any
+  version-owned asset that has one, whatever its type. Attribution in the
+  history may show an email address where no display name exists.
 - **ARC-017/032:** upload-session and finalize wire shapes are unchanged;
   `FileRevision.OriginalFileName` is filled from the declared file name.

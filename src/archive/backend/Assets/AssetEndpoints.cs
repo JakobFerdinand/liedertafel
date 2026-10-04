@@ -88,6 +88,8 @@ public static class AssetEndpoints
 
 	public const string RevisionNotFoundMessage = "Dateistand nicht gefunden.";
 
+	public const string RevisionRequiredMessage = "Bitte einen Dateistand angeben.";
+
 	public const string ConcurrencyMessage = "Der Eintrag wurde zwischenzeitlich geändert.";
 
 	public const string ScoreAssetType = "score";
@@ -413,13 +415,10 @@ public static class AssetEndpoints
 			var asset = await db.Assets.FirstOrDefaultAsync(a => a.Id == id, token);
 			if (asset is null)
 				return Results.Problem(statusCode: 404, title: AssetNotFoundMessage);
-			// ARC-025: pending objects must not be reassigned to someone else;
-			// only the asset's creator may fill an asset that has no file yet
-			// and any event-owned asset. ARC-033: once a version-owned asset
-			// has a current revision, every editor may correct it — the
-			// session (and its pending object) still belongs to its creator.
-			var isCorrection = asset.MusicalVersionId is not null && asset.CurrentRevisionId is not null;
-			if (!isCorrection && asset.CreatedByAccountId != decision!.AccountId)
+			// ARC-025: pending objects must not be reassigned to someone else.
+			// ARC-033 widens this only for corrections; the session (and its
+			// pending object) still belongs to its creator either way.
+			if (!MayChangeCurrentFile(asset, decision!.AccountId))
 				return Results.Problem(statusCode: 403, title: AssetOwnerMessage);
 			// ARC-017: the declared identity is stored for the finalization
 			// mismatch check; a stale session cannot commit a different file.
@@ -903,7 +902,13 @@ public static class AssetEndpoints
 				.FirstOrDefaultAsync(a => a.Id == id, token);
 			if (asset is null)
 				return Results.Problem(statusCode: 404, title: AssetNotFoundMessage);
-			var revision = asset.Revisions.FirstOrDefault(r => r.Id == body?.RevisionId);
+			// Same ownership rule as starting a correction: event-owned
+			// assets stay with the editor who created them.
+			if (!MayChangeCurrentFile(asset, decision!.AccountId))
+				return Results.Problem(statusCode: 403, title: AssetOwnerMessage);
+			if (body?.RevisionId is not { } requestedRevisionId)
+				return Results.Problem(statusCode: 400, title: RevisionRequiredMessage);
+			var revision = asset.Revisions.FirstOrDefault(r => r.Id == requestedRevisionId);
 			if (revision is null)
 				return Results.Problem(statusCode: 404, title: RevisionNotFoundMessage);
 			if (asset.CurrentRevisionId == revision.Id)
@@ -911,7 +916,7 @@ public static class AssetEndpoints
 			if (body?.ExpectedCurrentRevisionId is { } expected && expected != asset.CurrentRevisionId)
 				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
 			var enqueueExtraction = await RevisionChanges.MakeCurrentAsync(
-				db, asset, revision, RevisionChangeKind.Restore, decision!.AccountId, time.GetUtcNow(), token);
+				db, asset, revision, RevisionChangeKind.Restore, decision.AccountId, time.GetUtcNow(), token);
 			try
 			{
 				await db.SaveChangesAsync(token);
@@ -928,6 +933,17 @@ public static class AssetEndpoints
 			return Results.Ok(await HistoryPayloadAsync(db, asset, token));
 		}).DisableAntiforgery();
 	}
+
+	/// <summary>
+	/// Who may change which file an asset currently serves — by starting an
+	/// upload session or by making a retained revision current (ARC-033).
+	/// The creating editor always may. Every other editor may only correct a
+	/// musical-version asset that already has a file; an asset without a
+	/// file, and every event-owned asset (ARC-025), stay with their creator.
+	/// </summary>
+	private static bool MayChangeCurrentFile(ArchiveAsset asset, Guid accountId) =>
+		asset.CreatedByAccountId == accountId
+		|| (asset.MusicalVersionId is not null && asset.CurrentRevisionId is not null);
 
 	/// <summary>Scoped view and download tickets for exactly one revision.</summary>
 	private static async Task<IResult> AccessTicketsAsync(
