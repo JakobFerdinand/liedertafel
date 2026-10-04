@@ -5,6 +5,7 @@ import { AudioSpieler } from "@/components/audio-spieler";
 import { ExtraktionStatus } from "@/components/extraktion-status";
 import { ExtraktionUebersichtProvider } from "@/components/extraktion-uebersicht";
 import { MidiSpieler } from "@/components/midi-spieler";
+import { NotenVerlauf } from "@/components/noten-verlauf";
 import {
   AbbruchFehler,
   type AssetAccessResponse,
@@ -137,6 +138,7 @@ export function NotenBereich({
   const [bearbeitenBusy, setBearbeitenBusy] = useState(false);
   const [bearbeitenFehler, setBearbeitenFehler] = useState("");
   const [bearbeitenErfolg, setBearbeitenErfolg] = useState("");
+  const [verlaufId, setVerlaufId] = useState<string | null>(null);
   // Nur ein Audio-Spieler läuft gleichzeitig; über die Id merkt sich der
   // Bereich, welcher Eintrag gerade die aktive Datei spielt.
   const [spielendesAudio, setSpielendesAudio] = useState<string | null>(null);
@@ -570,7 +572,7 @@ export function NotenBereich({
                       >
                         <p className="material-stimme">{stimme}</p>
                         <p className="noten-info">
-                          {titel} · Fassung {revision.revisionNumber} ·{" "}
+                          {titel} · Dateistand {revision.revisionNumber} ·{" "}
                           {groesseText(revision.sizeBytes)} ·{" "}
                           {typText(revision.contentType)}
                         </p>
@@ -725,7 +727,40 @@ export function NotenBereich({
                                 : "Bearbeiten"}
                             </button>
                           )}
+                          {isEditor && typ === "score" && (
+                            <button
+                              type="button"
+                              className="knopf-leise"
+                              aria-expanded={verlaufId === asset.id}
+                              onClick={() =>
+                                setVerlaufId(
+                                  verlaufId === asset.id ? null : asset.id,
+                                )
+                              }
+                            >
+                              {verlaufId === asset.id
+                                ? "Dateistände schließen"
+                                : "Dateistände"}
+                            </button>
+                          )}
                         </div>
+                        {isEditor &&
+                          typ === "score" &&
+                          verlaufId === asset.id && (
+                            <NotenVerlauf
+                              assetId={asset.id}
+                              stimme={stimme}
+                              onGeaendert={() => {
+                                // Ein offenes Ticket zeigt noch die alte
+                                // Datei; es verfällt mit dem Wechsel.
+                                setZugriffe((vorher) => {
+                                  const { [asset.id]: _alt, ...rest } = vorher;
+                                  return rest;
+                                });
+                                aktualisieren();
+                              }}
+                            />
+                          )}
                         {isEditor &&
                           typ === "score" &&
                           revision.contentType.toLowerCase() ===

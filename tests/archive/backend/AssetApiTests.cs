@@ -18,7 +18,7 @@ namespace Archive.Backend.Tests;
 /// session, transfer, idempotent finalize), read tickets for members and the
 /// negative matrix (roles, validation, abandoned sessions, visibility).
 /// </summary>
-public sealed class AssetApiTests
+public sealed partial class AssetApiTests
 {
 	private const string Member = "mitglied@liedertafel.test";
 	private const string Editor = "redaktion@liedertafel.test";

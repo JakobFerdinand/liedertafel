@@ -60,6 +60,9 @@ public sealed class ArchiveDbContext(DbContextOptions<ArchiveDbContext> options)
 
 	public DbSet<PendingUpload> UploadSessions => Set<PendingUpload>();
 
+	/// <summary>ARC-033: append-only history of current-revision pointer changes.</summary>
+	public DbSet<RevisionChange> RevisionChanges => Set<RevisionChange>();
+
 	/// <summary>ARC-034: revision-keyed text extraction work, one row per FileRevision.</summary>
 	public DbSet<ExtractionJob> ExtractionJobs => Set<ExtractionJob>();
 

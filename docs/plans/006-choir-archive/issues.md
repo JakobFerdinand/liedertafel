@@ -1,6 +1,6 @@
 # Choir Archive — Implementation Issue Index
 
-Status: ARC-001, ARC-003, ARC-004, ARC-005, ARC-006, ARC-007, ARC-008, ARC-009, ARC-011, ARC-011-1, ARC-013, ARC-014, ARC-015, ARC-016, ARC-017, ARC-018, ARC-019, ARC-020, ARC-021, ARC-022, ARC-023, ARC-024, ARC-025, ARC-026, ARC-027, ARC-028 and ARC-034 completed; ARC-010, ARC-012 and ARC-051 are in progress; remaining implementation issues are planned. AI assistance was added to every open issue and as follow-up issues to completed ones on 2026-10-04.
+Status: ARC-001, ARC-003, ARC-004, ARC-005, ARC-006, ARC-007, ARC-008, ARC-009, ARC-011, ARC-011-1, ARC-013, ARC-014, ARC-015, ARC-016, ARC-017, ARC-018, ARC-019, ARC-020, ARC-021, ARC-022, ARC-023, ARC-024, ARC-025, ARC-026, ARC-027, ARC-028, ARC-033 and ARC-034 completed; ARC-010, ARC-012 and ARC-051 are in progress; remaining implementation issues are planned. AI assistance was added to every open issue and as follow-up issues to completed ones on 2026-10-04.
 Date: 2026-10-04
 Sources: [PRD](prd.md) · [Architecture](architecture.md)
 
@@ -240,7 +240,8 @@ requirement to finish all other post-launch work first.
 
 Every open issue has an **AI assistance** section stating its AI part or that
 it has none. Post-launch AI increments inside core issues ([ARC-031],
-[ARC-033]) are marked as such and do not block the launch gate. Completed
+[ARC-033]) are marked as such and do not block the launch gate; [ARC-033]'s
+core slice is done and its AI increment is still open. Completed
 issues without a follow-up above (sign-in, membership, uploads, playback,
 filters, programme publication and revisions) have no AI part: deterministic
 code does the job. The shared rules are in

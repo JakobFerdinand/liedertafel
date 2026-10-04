@@ -481,6 +481,50 @@ detail are published for ARC-030 (concert recordings attach through the same
 registry); the per-owner budget and the shared owner registry are the
 coordination point with catalogue/import work.
 
+## ARC-033 score corrections and retained revisions
+
+A correction is a new immutable file revision under the **same** logical asset,
+never a new arrangement, musical version or material entry. It uses the
+unchanged ARC-015 upload protocol on the existing asset id; once a
+version-owned asset has a current revision, every editor may start a
+correction (an asset without a file, and every event-owned asset, stay with
+the editor who created it). Members, song detail and old links read through
+the asset's current-revision pointer and therefore follow a correction or a
+restore immediately.
+
+`RevisionChanges.MakeCurrentAsync` (`backend/Assets/RevisionChange.cs`) is the
+revision-change contract and the only code that moves the pointer. Finalize
+and restore both call it: pointer swap, optimistic token bump, an append-only
+`asset_revision_changes` entry (who made which revision current, replacing
+which) and — for a PDF revision without one — the ARC-034 extraction row are
+committed in one save. Extraction stays keyed by revision, so a restored
+revision reuses its stored text. Consumers that need "current text" join
+through `assets.CurrentRevisionId`; there is no second signal to subscribe to.
+
+Editor-only endpoints (members 403, anonymous 401, all `no-store`):
+
+- `GET /api/assets/{id}/revisions` — retained revisions newest first with file
+  name, size, upload time and uploader, plus the pointer-change log.
+- `GET /api/assets/{id}/revisions/{revisionId}/access` — 15-minute view and
+  download tickets for exactly that revision; a revision of another asset is
+  the same 404 as an unknown one. Members only ever get the current revision
+  through `GET /api/assets/{id}/access`.
+- `POST /api/assets/{id}/current-revision` with `{ revisionId,
+  expectedCurrentRevisionId }` — makes a retained revision current again. No
+  revision is created; a stale `expectedCurrentRevisionId` or a lost race is
+  409; repeating the request for the already-current revision is a no-op 200.
+
+Competing replacements never overwrite each other: every revision has its own
+blob name, and a finalize that loses the race answers 409 with its session
+still pending, so a retry adds the next revision. Revisions are retained until
+explicitly removed; nothing expires them (the upload cleanup only touches
+pending sessions). No removal action exists yet — ARC-039 owns deliberate
+removal together with the retained-reference check.
+
+The editor UI lives in `components/noten-verlauf.tsx` ("Dateistände" on a
+score entry); the file revision is called "Dateistand" throughout so it is not
+confused with the musical "Fassung".
+
 ## Focused verification
 
 From the repository root:

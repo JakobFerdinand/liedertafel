@@ -682,6 +682,99 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         Assert.Equal(HttpStatusCode.OK, downloadResponse.StatusCode);
         Assert.Equal(pdf, await downloadResponse.Content.ReadAsByteArrayAsync(token));
         Assert.Contains("attachment", downloadResponse.Content.Headers.ContentDisposition?.DispositionType ?? "");
+
+        // ARC-033: a correction adds revision 2 under the same asset; the
+        // unchanged access link now serves the corrected bytes while the
+        // earlier revision stays readable for editors through its own ticket.
+        var corrected = ValidPdf(1536);
+        var (_, correctedRevisionId) = await TransferAndFinalizeAsync(
+            api, storage, editorSession, assets[1], corrected, token);
+        Assert.NotEqual(revisionId, correctedRevisionId);
+        using var currentAccess = await GetAsync(api, $"/api/assets/{assets[1]}/access", editorSession, token);
+        var currentBody = await currentAccess.Content.ReadFromJsonAsync<JsonElement>(token);
+        Assert.Equal(2, currentBody.GetProperty("revisionNumber").GetInt32());
+        using var currentBytes = await storage.GetAsync(currentBody.GetProperty("viewUrl").GetString(), token);
+        Assert.Equal(corrected, await currentBytes.Content.ReadAsByteArrayAsync(token));
+
+        var earlierPath = $"/api/assets/{assets[1]}/revisions/{revisionId}/access";
+        using var earlierAccess = await GetAsync(api, earlierPath, editorSession, token);
+        Assert.Equal(HttpStatusCode.OK, earlierAccess.StatusCode);
+        var earlierBody = await earlierAccess.Content.ReadFromJsonAsync<JsonElement>(token);
+        using var earlierBytes = await storage.GetAsync(earlierBody.GetProperty("viewUrl").GetString(), token);
+        Assert.Equal(pdf, await earlierBytes.Content.ReadAsByteArrayAsync(token));
+        using var memberEarlier = await GetAsync(api, earlierPath, memberSession, token);
+        Assert.Equal(HttpStatusCode.Forbidden, memberEarlier.StatusCode);
+        using var memberHistory = await GetAsync(api, $"/api/assets/{assets[1]}/revisions", memberSession, token);
+        Assert.Equal(HttpStatusCode.Forbidden, memberHistory.StatusCode);
+
+        // Making revision 1 current again swaps only the pointer.
+        using var restore = await PostJsonAsync(api, $"/api/assets/{assets[1]}/current-revision",
+            new { revisionId, expectedCurrentRevisionId = correctedRevisionId }, editorSession, token);
+        Assert.Equal(HttpStatusCode.OK, restore.StatusCode);
+        var restored = await restore.Content.ReadFromJsonAsync<JsonElement>(token);
+        Assert.Equal(revisionId, Guid.Parse(restored.GetProperty("currentRevisionId").GetString()!));
+        Assert.Equal(2, restored.GetProperty("revisions").GetArrayLength());
+        Assert.Equal("restore", restored.GetProperty("changes")[0].GetProperty("kind").GetString());
+        using var restoredAccess = await GetAsync(api, $"/api/assets/{assets[1]}/access", editorSession, token);
+        var restoredBody = await restoredAccess.Content.ReadFromJsonAsync<JsonElement>(token);
+        using var restoredBytes = await storage.GetAsync(restoredBody.GetProperty("viewUrl").GetString(), token);
+        Assert.Equal(pdf, await restoredBytes.Content.ReadAsByteArrayAsync(token));
+
+        // Two editors finalize competing corrections at the same moment
+        // against real PostgreSQL: each attempt either commits or loses the
+        // race with a clean 409 and succeeds on retry. Both files survive
+        // under their own revision numbers.
+        var racers = new[]
+        {
+            (Session: editorSession, Bytes: ValidPdf(2048)),
+            (Session: adminSession, Bytes: ValidPdf(3072)),
+        };
+        var raceSessions = new Guid[racers.Length];
+        for (var i = 0; i < racers.Length; i++)
+        {
+            var (raceSessionId, raceUploadUrl, _) = await CreateUploadSessionAsync(
+                api, racers[i].Session, assets[1], token);
+            raceSessions[i] = raceSessionId;
+            using var put = new HttpRequestMessage(HttpMethod.Put, raceUploadUrl)
+            {
+                Content = new ByteArrayContent(racers[i].Bytes),
+            };
+            put.Content.Headers.ContentType = new("application/pdf");
+            put.Headers.Add("x-ms-blob-type", "BlockBlob");
+            using var putResponse = await storage.SendAsync(put, token);
+            Assert.Equal(HttpStatusCode.Created, putResponse.StatusCode);
+        }
+        var raced = await Task.WhenAll(racers.Select((racer, i) => PostJsonAsync(api,
+            $"/api/upload-sessions/{raceSessions[i]}/finalize", new { }, racer.Session, token)));
+        for (var i = 0; i < raced.Length; i++)
+        {
+            Assert.Contains(raced[i].StatusCode, new[] { HttpStatusCode.OK, HttpStatusCode.Conflict });
+            if (raced[i].StatusCode == HttpStatusCode.Conflict)
+            {
+                output.WriteLine($"ARC-033 race: finalize {i} lost and is retried.");
+                using var again = await PostJsonAsync(api,
+                    $"/api/upload-sessions/{raceSessions[i]}/finalize", new { }, racers[i].Session, token);
+                Assert.Equal(HttpStatusCode.OK, again.StatusCode);
+            }
+            raced[i].Dispose();
+        }
+        using var raceHistory = await GetAsync(api, $"/api/assets/{assets[1]}/revisions", editorSession, token);
+        var raceBody = await raceHistory.Content.ReadFromJsonAsync<JsonElement>(token);
+        var raceRevisions = raceBody.GetProperty("revisions").EnumerateArray().ToList();
+        Assert.Equal([4, 3, 2, 1], raceRevisions.Select(r => r.GetProperty("revisionNumber").GetInt32()));
+        Assert.Equal(
+            new long[] { 768, 1536, 2048, 3072 },
+            raceRevisions.Select(r => r.GetProperty("sizeBytes").GetInt64()).Order());
+        foreach (var raceRevision in raceRevisions)
+        {
+            using var ticket = await GetAsync(api,
+                $"/api/assets/{assets[1]}/revisions/{raceRevision.GetProperty("revisionId").GetString()}/access",
+                editorSession, token);
+            var ticketBody = await ticket.Content.ReadFromJsonAsync<JsonElement>(token);
+            using var bytes = await storage.GetAsync(ticketBody.GetProperty("viewUrl").GetString(), token);
+            Assert.Equal(raceRevision.GetProperty("sizeBytes").GetInt64(),
+                (await bytes.Content.ReadAsByteArrayAsync(token)).LongLength);
+        }
     }
 
     [Fact]

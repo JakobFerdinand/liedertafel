@@ -1548,6 +1548,48 @@ fieldset.material-verwaltung {
 .material-bearbeiten {
   margin-top: 0.4rem;
 }
+/* Dateistände (Redaktion): stille Liste im Materialrhythmus; der aktuelle
+   Stand trägt nur ein Wort, keinen eigenen Farbton. */
+.noten-verlauf {
+  margin-top: 0.6rem;
+  border-top: 1px dashed var(--rule);
+  padding-block-start: 0.6rem;
+}
+.noten-verlauf h5 {
+  margin-block: 0 0.2rem;
+  font-size: var(--schrift-etikett);
+}
+.noten-verlauf-liste,
+.noten-verlauf-wechsel ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.noten-verlauf-stand {
+  border-top: 1px solid var(--rule);
+  padding-block: 0.5rem 0.1rem;
+}
+.noten-verlauf-titel {
+  font-weight: 700;
+  margin-block: 0;
+}
+.noten-verlauf-aktuell {
+  color: var(--brand);
+}
+.noten-verlauf-wechsel {
+  margin-block: 0.6rem 0;
+  font-size: var(--schrift-neben);
+}
+.noten-verlauf-wechsel summary {
+  cursor: pointer;
+  min-height: 2.75rem;
+  display: flex;
+  align-items: center;
+  font-weight: 600;
+}
+.noten-verlauf-wechsel li {
+  margin-block: 0.3rem;
+}
 .material-bearbeiten label {
   display: block;
   font-size: var(--schrift-neben);

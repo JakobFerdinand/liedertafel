@@ -205,7 +205,7 @@ test("Mitglied hört Sprachaufnahme mit Bedienelementen und behält den Download
 
   await page.goto(`/lied/?id=${songId}`);
   await expect(
-    page.getByText("Audio · Fassung 3 · 3 MB · audio/wav"),
+    page.getByText("Audio · Dateistand 3 · 3 MB · audio/wav"),
   ).toBeVisible();
   await expect(page.getByRole("button", { name: "Anhören" })).toBeVisible();
   expect(zugriffe).toBe(0);

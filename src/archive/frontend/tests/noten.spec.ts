@@ -156,7 +156,7 @@ test("Mitglied sieht Noten und kann sie anzeigen und herunterladen", async ({
 
   await page.goto(`/lied/?id=${songId}`);
   await expect(
-    page.getByText("Noten · Fassung 1 · 0,4 MB · PDF"),
+    page.getByText("Noten · Dateistand 1 · 0,4 MB · PDF"),
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Noten anzeigen" }),
@@ -294,7 +294,7 @@ test("Redaktion lädt Noten hoch; Reihenfolge und Übertragung stimmen", async (
   await page.getByRole("button", { name: "Material übertragen" }).click();
   await expect(page.getByText("1 von 1 Dateien gespeichert.")).toBeVisible();
   await expect(
-    page.getByText("Noten · Fassung 1 · 0,4 MB · PDF"),
+    page.getByText("Noten · Dateistand 1 · 0,4 MB · PDF"),
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Material hochladen" }),

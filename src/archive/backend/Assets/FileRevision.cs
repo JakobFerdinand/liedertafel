@@ -23,6 +23,12 @@ public sealed class FileRevision
 
 	public long SizeBytes { get; set; }
 
+	/// <summary>
+	/// ARC-033: the file name declared for the upload, shown in the editor's
+	/// revision history; null when the upload declared none.
+	/// </summary>
+	public string? OriginalFileName { get; set; }
+
 	public Guid CreatedByAccountId { get; set; }
 
 	public DateTimeOffset CreatedAt { get; set; }

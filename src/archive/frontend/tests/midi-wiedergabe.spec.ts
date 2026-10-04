@@ -270,7 +270,7 @@ test("Mitglied hört MIDI-Stück mit Bedienelementen und behält den Download", 
 
   await page.goto(`/lied/?id=${songId}`);
   await expect(
-    page.getByText(/^MIDI · Fassung 3 · .+ · audio\/midi$/),
+    page.getByText(/^MIDI · Dateistand 3 · .+ · audio\/midi$/),
   ).toBeVisible();
   await expect(page.getByRole("button", { name: "Anhören" })).toBeVisible();
   expect(zugriffe).toBe(0);

@@ -515,10 +515,10 @@ test("Materialien sind nach Typ und Stimme gruppiert", async ({ page }) => {
   await expect(page.getByText("Chornoten für die Sopranstimme")).toBeVisible();
   await expect(page.getByText("Aufnahme der Altstimme")).toBeVisible();
   await expect(
-    page.getByText("Noten · Fassung 1 · 0,4 MB · PDF"),
+    page.getByText("Noten · Dateistand 1 · 0,4 MB · PDF"),
   ).toBeVisible();
   await expect(
-    page.getByText("Audio · Fassung 3 · 1,2 MB · audio/mpeg"),
+    page.getByText("Audio · Dateistand 3 · 1,2 MB · audio/mpeg"),
   ).toBeVisible();
   await expect(page.getByText("Tenor")).toHaveCount(0);
   await expect(page.getByText("Noch in Arbeit")).toHaveCount(0);
@@ -563,7 +563,7 @@ test("Gescheiterte Änderung am Material zeigt Fehler", async ({ page }) => {
 
   await page.goto(`/lied/?id=${songId}`);
   await expect(
-    page.getByText("Audio · Fassung 1 · 0,4 MB · audio/mpeg"),
+    page.getByText("Audio · Dateistand 1 · 0,4 MB · audio/mpeg"),
   ).toBeVisible();
   const eintrag = page
     .locator("article")

@@ -335,6 +335,74 @@ export async function fetchAssetAccess(
   return (await response.json()) as AssetAccessResponse;
 }
 
+/** Ein aufbewahrter Dateistand im Redaktionsverlauf (ARC-033). */
+export type DateiStand = LiedRevision & {
+  fileName: string | null;
+  createdBy: string | null;
+  isCurrent: boolean;
+};
+
+/** Ein Eintrag im Verlauf: welcher Dateistand wann aktuell wurde. */
+export type DateiStandWechsel = {
+  kind: "upload" | "restore";
+  revisionId: string;
+  revisionNumber: number | null;
+  previousRevisionNumber: number | null;
+  changedAt: string;
+  changedBy: string | null;
+};
+
+export type DateiVerlauf = {
+  assetId: string;
+  assetType: string;
+  currentRevisionId: string | null;
+  revisions: DateiStand[];
+  changes: DateiStandWechsel[];
+};
+
+/** Nur für die Redaktion: alle aufbewahrten Dateistände eines Materials. */
+export async function fetchDateiVerlauf(
+  assetId: string,
+  signal?: AbortSignal,
+): Promise<DateiVerlauf> {
+  const response = await fetch(
+    `/api/assets/${encodeURIComponent(assetId)}/revisions`,
+    { credentials: "same-origin", cache: "no-store", signal },
+  );
+  if (!response.ok) throw response;
+  return (await response.json()) as DateiVerlauf;
+}
+
+/** Nur für die Redaktion: Datei-Tickets für genau einen Dateistand. */
+export async function fetchDateiStandAccess(
+  assetId: string,
+  revisionId: string,
+): Promise<AssetAccessResponse> {
+  const response = await fetch(
+    `/api/assets/${encodeURIComponent(assetId)}/revisions/${encodeURIComponent(revisionId)}/access`,
+    { credentials: "same-origin", cache: "no-store" },
+  );
+  if (!response.ok) throw response;
+  return (await response.json()) as AssetAccessResponse;
+}
+
+/**
+ * Legt einen aufbewahrten Dateistand wieder als aktuell fest. Der erwartete
+ * aktuelle Stand schützt davor, auf einem veralteten Verlauf zu handeln.
+ */
+export async function setzeAktuellenDateiStand(
+  assetId: string,
+  revisionId: string,
+  expectedCurrentRevisionId: string | null,
+): Promise<DateiVerlauf> {
+  const response = await postAuth(
+    `/api/assets/${encodeURIComponent(assetId)}/current-revision`,
+    { revisionId, expectedCurrentRevisionId },
+  );
+  if (!response.ok) throw response;
+  return (await response.json()) as DateiVerlauf;
+}
+
 /**
  * Verbleibende Laufzeit eines Datei-Tickets in Millisekunden. Ein unparsbares
  * Ablaufdatum zählt als abgelaufen, damit Wiedergaben nicht auf ein

@@ -227,7 +227,7 @@ test("Redaktion liest den Auswertungsstand und öffnet die Textvorschau", async 
     "Text ausgelesen",
   );
   await expect(
-    page.getByText("Noten · Fassung 1 · 0,4 MB · PDF"),
+    page.getByText("Noten · Dateistand 1 · 0,4 MB · PDF"),
   ).toBeVisible();
 
   const umschalter = zeile.getByRole("button", { name: "Textvorschau" });
@@ -384,7 +384,7 @@ test("Mitglied sieht keine Auswertungszeile", async ({ page }) => {
 
   await page.goto(`/lied/?id=${songId}`);
   await expect(
-    page.getByText("Noten · Fassung 1 · 0,4 MB · PDF"),
+    page.getByText("Noten · Dateistand 1 · 0,4 MB · PDF"),
   ).toBeVisible();
   await expect(page.locator(".extraktion-status")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Textvorschau" })).toHaveCount(

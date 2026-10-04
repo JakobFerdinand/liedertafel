@@ -4,7 +4,8 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 namespace Archive.Backend.Assets;
 
 public sealed class AssetModelConfiguration
-	: IEntityTypeConfiguration<ArchiveAsset>, IEntityTypeConfiguration<FileRevision>, IEntityTypeConfiguration<PendingUpload>
+	: IEntityTypeConfiguration<ArchiveAsset>, IEntityTypeConfiguration<FileRevision>, IEntityTypeConfiguration<PendingUpload>,
+		IEntityTypeConfiguration<RevisionChange>
 {
 	public void Configure(EntityTypeBuilder<ArchiveAsset> builder)
 	{
@@ -54,6 +55,7 @@ public sealed class AssetModelConfiguration
 		builder.HasKey(x => x.Id);
 		builder.Property(x => x.BlobName).HasMaxLength(300).IsRequired();
 		builder.Property(x => x.ContentType).HasMaxLength(100).IsRequired();
+		builder.Property(x => x.OriginalFileName).HasMaxLength(300);
 		builder.HasOne(x => x.Asset)
 			.WithMany(a => a.Revisions)
 			.HasForeignKey(x => x.AssetId)
@@ -79,5 +81,25 @@ public sealed class AssetModelConfiguration
 			.WithOne()
 			.HasForeignKey<PendingUpload>(x => x.FinalizedRevisionId)
 			.OnDelete(DeleteBehavior.Restrict);
+	}
+
+	public void Configure(EntityTypeBuilder<RevisionChange> builder)
+	{
+		builder.ToTable("asset_revision_changes");
+		builder.HasKey(x => x.Id);
+		builder.HasOne(x => x.Asset)
+			.WithMany()
+			.HasForeignKey(x => x.AssetId)
+			.OnDelete(DeleteBehavior.Cascade);
+		/// <summary>
+		/// The history entry belongs to the revision it made current and goes
+		/// with it; <see cref="RevisionChange.PreviousRevisionId"/> is a plain
+		/// historic reference so a later removal never blocks on it.
+		/// </summary>
+		builder.HasOne(x => x.Revision)
+			.WithMany()
+			.HasForeignKey(x => x.RevisionId)
+			.OnDelete(DeleteBehavior.Cascade);
+		builder.HasIndex(x => new { x.AssetId, x.ChangedAt });
 	}
 }

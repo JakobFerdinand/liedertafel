@@ -20,11 +20,12 @@ namespace Archive.Backend.Assets;
 ///   registry (<see cref="ArchiveAsset.EventId"/>) instead of the
 ///   musical-version link: document/photo types, creator-only session
 ///   initiation, and event-scoped visibility and budgets.
-/// - Revision changes: swapping <see cref="ArchiveAsset.CurrentRevisionId"/> is
-///   the atom ARC-031 performs. ARC-034 subscribes at finalize: a PDF
-///   revision's extraction row is written in the same save (outbox) and
-///   handed to the queue afterwards; text-search consumers subscribe later
-///   (ARC-032/ARC-033).
+/// - Revision changes: <see cref="RevisionChanges.MakeCurrentAsync"/> is the
+///   only place that swaps <see cref="ArchiveAsset.CurrentRevisionId"/>
+///   (ARC-033), for a finalized upload and for an editor's restore alike.
+///   ARC-034 subscribes there: a PDF revision's extraction row is written in
+///   the same save (outbox) and handed to the queue afterwards; text search
+///   (ARC-035) reads through the pointer.
 /// - Retained reference: revisions must not be removed while referenced
 ///   (ARC-037); the database enforces this via the current-revision FK.
 /// Signed ticket URLs exist only in JSON responses and are never logged.
@@ -84,6 +85,8 @@ public static class AssetEndpoints
 
 	/// <summary>ARC-025: neutral pending message for event-owned assets.</summary>
 	public const string NoCurrentRevisionEventMessage = "Für dieses Material wurde noch keine Datei hochgeladen.";
+
+	public const string RevisionNotFoundMessage = "Dateistand nicht gefunden.";
 
 	public const string ConcurrencyMessage = "Der Eintrag wurde zwischenzeitlich geändert.";
 
@@ -411,9 +414,12 @@ public static class AssetEndpoints
 			if (asset is null)
 				return Results.Problem(statusCode: 404, title: AssetNotFoundMessage);
 			// ARC-025: pending objects must not be reassigned to someone else;
-			// only the asset's creator may initiate upload sessions (event and
-			// version assets alike).
-			if (asset.CreatedByAccountId != decision!.AccountId)
+			// only the asset's creator may fill an asset that has no file yet
+			// and any event-owned asset. ARC-033: once a version-owned asset
+			// has a current revision, every editor may correct it — the
+			// session (and its pending object) still belongs to its creator.
+			var isCorrection = asset.MusicalVersionId is not null && asset.CurrentRevisionId is not null;
+			if (!isCorrection && asset.CreatedByAccountId != decision!.AccountId)
 				return Results.Problem(statusCode: 403, title: AssetOwnerMessage);
 			// ARC-017: the declared identity is stored for the finalization
 			// mismatch check; a stale session cannot commit a different file.
@@ -734,6 +740,7 @@ public static class AssetEndpoints
 				BlobName = $"revisions/{asset.Id}/{Guid.CreateVersion7()}",
 				ContentType = effectiveContentType,
 				SizeBytes = probe.SizeBytes,
+				OriginalFileName = session.DeclaredFileName,
 				CreatedByAccountId = decision.AccountId,
 				CreatedAt = time.GetUtcNow(),
 			};
@@ -746,36 +753,35 @@ public static class AssetEndpoints
 				return Results.Problem(statusCode: 502, title: StorageFailureMessage);
 			}
 			db.FileRevisions.Add(revision);
-			asset.CurrentRevisionId = revision.Id;
-			asset.RowVersion++;
 			session.State = PendingUploadState.Finalized;
 			session.FinalizedRevisionId = revision.Id;
-			// ARC-034 outbox: PDF score/document revisions gain their
-			// extraction row in the same SaveChanges as the revision, so a
-			// committed upload can never lose its extraction request. The
-			// queue send after the save is best-effort: a send failure leaves
-			// the Queued row un-enqueued for the dispatch sweep, and it never
-			// fails finalize. The idempotent re-entry branch above never
-			// reaches this, so no revision ever gains a second row.
-			ExtractionJob? extractionJob = null;
-			if (ExtractionService.IsExtractable(asset.AssetType)
-				&& string.Equals(revision.ContentType, PdfContentType, StringComparison.OrdinalIgnoreCase))
-			{
-				extractionJob = ExtractionService.CreateForRevision(
-					asset, revision, decision.AccountId, time.GetUtcNow());
-				db.ExtractionJobs.Add(extractionJob);
-			}
+			// ARC-033 revision-change contract: pointer swap, history entry
+			// and (ARC-034 outbox) the PDF revision's extraction row ride the
+			// same SaveChanges as the revision, so a committed upload can
+			// never lose its extraction request. The queue send after the
+			// save is best-effort: a send failure leaves the Queued row
+			// un-enqueued for the dispatch sweep, and it never fails
+			// finalize. The idempotent re-entry branch above never reaches
+			// this, so no revision ever gains a second row.
+			var enqueueExtraction = await RevisionChanges.MakeCurrentAsync(
+				db, asset, revision, RevisionChangeKind.Upload, decision.AccountId, time.GetUtcNow(), token);
 			try
 			{
 				await db.SaveChangesAsync(token);
 			}
-			catch (DbUpdateConcurrencyException)
+			catch (DbUpdateException exception) when (RevisionChanges.IsLostRace(exception))
 			{
+				// ARC-033: a competing replacement won — either the asset's
+				// token moved or the revision number is taken. Nothing of the
+				// winner is touched: this attempt's own, uniquely named copy is
+				// dropped and the session stays pending with its staged object,
+				// so retrying finalize adds the next revision.
+				await DeletePendingBestEffortAsync(storage, revision.BlobName, token);
 				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
 			}
 			// Keep the staged upload replayable until the revision is committed.
 			await DeletePendingBestEffortAsync(storage, session.BlobName, token);
-			if (extractionJob is not null)
+			if (enqueueExtraction)
 			{
 				await ExtractionService.TryEnqueueAsync(
 					db, extractionQueue, loggerFactory.CreateLogger("Archive.Extraction"), revision.Id, time, token);
@@ -821,33 +827,194 @@ public static class AssetEndpoints
 				return Results.Problem(statusCode: 404, title: asset.Event is not null
 					? NoCurrentRevisionEventMessage
 					: NoCurrentRevisionMessage);
-			var lifetime = options.Value.ReadTicketLifetime;
-			string viewUrl;
-			string downloadUrl;
+			return await AccessTicketsAsync(storage, revision, options.Value.ReadTicketLifetime, time, token);
+		});
+
+		/// <summary>
+		/// ARC-033 editor-only history: every retained revision of the asset
+		/// with its attribution, plus the append-only log of pointer changes.
+		/// Members answer 403 like every other editor surface; the history
+		/// never appears in member payloads.
+		/// </summary>
+		app.MapGet("/api/assets/{id}/revisions", async (
+			HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access,
+			ArchiveDbContext db, Guid id, CancellationToken token) =>
+		{
+			context.Response.Headers.CacheControl = "no-store";
+			var (_, error) = await RequireEditorAsync(context, accessor, access);
+			if (error is not null)
+				return error;
+			var asset = await db.Assets.AsNoTracking()
+				.Include(a => a.Revisions)
+				.FirstOrDefaultAsync(a => a.Id == id, token);
+			if (asset is null)
+				return Results.Problem(statusCode: 404, title: AssetNotFoundMessage);
+			return Results.Ok(await HistoryPayloadAsync(db, asset, token));
+		});
+
+		/// <summary>
+		/// ARC-033: scoped tickets for one retained revision, current or not.
+		/// Editor-only — members read through <c>/access</c>, which only ever
+		/// resolves the current revision. A revision of another asset answers
+		/// the same 404 as an unknown one.
+		/// </summary>
+		app.MapGet("/api/assets/{id}/revisions/{revisionId}/access", async (
+			HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access,
+			ArchiveDbContext db, TimeProvider time, IOptions<AssetStorageOptions> options,
+			IAssetStorageAdapter storage, Guid id, Guid revisionId, CancellationToken token) =>
+		{
+			context.Response.Headers.CacheControl = "no-store";
+			var (_, error) = await RequireEditorAsync(context, accessor, access);
+			if (error is not null)
+				return error;
+			var revision = await db.FileRevisions.AsNoTracking()
+				.FirstOrDefaultAsync(r => r.Id == revisionId && r.AssetId == id, token);
+			if (revision is null)
+				return Results.Problem(statusCode: 404, title: RevisionNotFoundMessage);
+			return await AccessTicketsAsync(storage, revision, options.Value.ReadTicketLifetime, time, token);
+		});
+
+		/// <summary>
+		/// ARC-033: an editor makes a retained revision current again. No
+		/// revision is created or changed; the swap goes through the shared
+		/// revision-change contract (<see cref="RevisionChanges"/>), so
+		/// members, old links, extraction and search follow it like a
+		/// replacement. <c>expectedCurrentRevisionId</c> guards against acting
+		/// on a stale history; repeating the request for the revision that is
+		/// already current is an idempotent success without a new entry.
+		/// </summary>
+		app.MapPost("/api/assets/{id}/current-revision", async (
+			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
+			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time,
+			ILoggerFactory loggerFactory, IExtractionQueue extractionQueue,
+			Guid id, CancellationToken token, SetCurrentRevisionRequest? body) =>
+		{
+			try { await antiforgery.ValidateRequestAsync(context); }
+			catch (AntiforgeryValidationException)
+			{
+				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
+			}
+			context.Response.Headers.CacheControl = "no-store";
+			var (decision, error) = await RequireEditorAsync(context, accessor, access);
+			if (error is not null)
+				return error;
+			var asset = await db.Assets
+				.Include(a => a.Revisions)
+				.FirstOrDefaultAsync(a => a.Id == id, token);
+			if (asset is null)
+				return Results.Problem(statusCode: 404, title: AssetNotFoundMessage);
+			var revision = asset.Revisions.FirstOrDefault(r => r.Id == body?.RevisionId);
+			if (revision is null)
+				return Results.Problem(statusCode: 404, title: RevisionNotFoundMessage);
+			if (asset.CurrentRevisionId == revision.Id)
+				return Results.Ok(await HistoryPayloadAsync(db, asset, token));
+			if (body?.ExpectedCurrentRevisionId is { } expected && expected != asset.CurrentRevisionId)
+				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
+			var enqueueExtraction = await RevisionChanges.MakeCurrentAsync(
+				db, asset, revision, RevisionChangeKind.Restore, decision!.AccountId, time.GetUtcNow(), token);
 			try
 			{
-				viewUrl = await storage.CreateReadTicketAsync(
-					revision.BlobName, lifetime, asDownload: false, contentType: revision.ContentType, token);
-				downloadUrl = await storage.CreateReadTicketAsync(
-					revision.BlobName, lifetime, asDownload: true, contentType: revision.ContentType, token);
+				await db.SaveChangesAsync(token);
 			}
-			catch (InvalidOperationException)
+			catch (DbUpdateException exception) when (RevisionChanges.IsLostRace(exception))
 			{
-				return Results.Problem(statusCode: 502, title: StorageFailureMessage);
+				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
 			}
-			return Results.Ok(new
+			if (enqueueExtraction)
 			{
-				assetId = asset.Id,
-				revisionId = revision.Id,
-				revisionNumber = revision.RevisionNumber,
-				contentType = revision.ContentType,
-				sizeBytes = revision.SizeBytes,
-				createdAt = revision.CreatedAt,
-				viewUrl,
-				downloadUrl,
-				expiresAt = time.GetUtcNow() + lifetime,
-			});
+				await ExtractionService.TryEnqueueAsync(
+					db, extractionQueue, loggerFactory.CreateLogger("Archive.Extraction"), revision.Id, time, token);
+			}
+			return Results.Ok(await HistoryPayloadAsync(db, asset, token));
+		}).DisableAntiforgery();
+	}
+
+	/// <summary>Scoped view and download tickets for exactly one revision.</summary>
+	private static async Task<IResult> AccessTicketsAsync(
+		IAssetStorageAdapter storage, FileRevision revision, TimeSpan lifetime, TimeProvider time,
+		CancellationToken token)
+	{
+		string viewUrl;
+		string downloadUrl;
+		try
+		{
+			viewUrl = await storage.CreateReadTicketAsync(
+				revision.BlobName, lifetime, asDownload: false, contentType: revision.ContentType, token);
+			downloadUrl = await storage.CreateReadTicketAsync(
+				revision.BlobName, lifetime, asDownload: true, contentType: revision.ContentType, token);
+		}
+		catch (InvalidOperationException)
+		{
+			return Results.Problem(statusCode: 502, title: StorageFailureMessage);
+		}
+		return Results.Ok(new
+		{
+			assetId = revision.AssetId,
+			revisionId = revision.Id,
+			revisionNumber = revision.RevisionNumber,
+			contentType = revision.ContentType,
+			sizeBytes = revision.SizeBytes,
+			createdAt = revision.CreatedAt,
+			viewUrl,
+			downloadUrl,
+			expiresAt = time.GetUtcNow() + lifetime,
 		});
+	}
+
+	/// <summary>
+	/// ARC-033 history wire shape: revisions newest first, pointer changes
+	/// newest first, attribution resolved to display names (null when the
+	/// account no longer exists). Requires <see cref="ArchiveAsset.Revisions"/>.
+	/// </summary>
+	private static async Task<object> HistoryPayloadAsync(
+		ArchiveDbContext db, ArchiveAsset asset, CancellationToken token)
+	{
+		var changes = await db.RevisionChanges.AsNoTracking()
+			.Where(c => c.AssetId == asset.Id)
+			.ToListAsync(token);
+		var accountIds = asset.Revisions.Select(r => r.CreatedByAccountId)
+			.Concat(changes.Select(c => c.ChangedByAccountId))
+			.Distinct()
+			.ToList();
+		var names = await db.Users.AsNoTracking()
+			.Where(u => accountIds.Contains(u.Id))
+			.Select(u => new { u.Id, Name = u.DisplayName ?? u.Email })
+			.ToDictionaryAsync(u => u.Id, u => u.Name, token);
+		var numbers = asset.Revisions.ToDictionary(r => r.Id, r => r.RevisionNumber);
+		return new
+		{
+			assetId = asset.Id,
+			assetType = asset.AssetType,
+			currentRevisionId = asset.CurrentRevisionId,
+			revisions = asset.Revisions
+				.OrderByDescending(r => r.RevisionNumber)
+				.Select(r => new
+				{
+					revisionId = r.Id,
+					revisionNumber = r.RevisionNumber,
+					contentType = r.ContentType,
+					sizeBytes = r.SizeBytes,
+					fileName = r.OriginalFileName,
+					createdAt = r.CreatedAt,
+					createdBy = names.GetValueOrDefault(r.CreatedByAccountId),
+					isCurrent = r.Id == asset.CurrentRevisionId,
+				})
+				.ToList(),
+			// Guid v7 ids break ties between entries of the same instant.
+			changes = changes
+				.OrderByDescending(c => c.ChangedAt).ThenByDescending(c => c.Id)
+				.Select(c => new
+				{
+					kind = c.Kind == RevisionChangeKind.Restore ? "restore" : "upload",
+					revisionId = c.RevisionId,
+					revisionNumber = numbers.TryGetValue(c.RevisionId, out var number) ? number : (int?)null,
+					previousRevisionNumber = c.PreviousRevisionId is { } previous
+						&& numbers.TryGetValue(previous, out var previousNumber) ? previousNumber : (int?)null,
+					changedAt = c.ChangedAt,
+					changedBy = names.GetValueOrDefault(c.ChangedByAccountId),
+				})
+				.ToList(),
+		};
 	}
 
 	private static object RevisionPayload(FileRevision revision) => new
@@ -928,3 +1095,9 @@ public sealed record CreateUploadSessionRequest(long? SizeBytes, string? FileNam
 
 /// <summary>ARC-017: optional observed file identity at finalization, compared against the declaration.</summary>
 public sealed record FinalizeUploadRequest(long? SizeBytes, string? FileName);
+
+/// <summary>
+/// ARC-033: the retained revision to make current, and optionally the revision
+/// the editor saw as current (stale-history guard).
+/// </summary>
+public sealed record SetCurrentRevisionRequest(Guid? RevisionId, Guid? ExpectedCurrentRevisionId);
