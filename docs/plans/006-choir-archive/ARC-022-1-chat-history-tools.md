@@ -26,6 +26,8 @@ citations, with confirmed performances kept apart from uncertain evidence.
   song. Each enforces member visibility inside the tool.
 - [ ] Answers keep `confirmed` and `mention` evidence distinct and state date
   uncertainty as recorded; counts come from the tool, never from the model.
+- [ ] Events and programmes in answers render as `AuftrittKarte` and
+  `ProgrammListe` where ARC-022-4 is available.
 - [ ] Citations cover events and programmes as well as songs, through the
   existing citation filter.
 - [ ] Extend the chat evaluation with history questions, including a song with

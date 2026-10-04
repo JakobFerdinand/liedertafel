@@ -21,21 +21,34 @@ click, and works through everything that needs confirmation in a single
 
 ## Acceptance criteria
 
-- [ ] Persist per-field provenance for song, arrangement, musical-version,
-  asset and event fields: source (human / regex / AI), confidence, model,
-  previous value, time. Add it through an explicit EF migration.
+- [ ] Persist per-field provenance in one generic `FieldProvenance` table for
+  song, arrangement, musical-version, asset and event fields: entity type and
+  id, field, source (human / regex / AI), confidence (`sicher` / `unsicher`),
+  model, prompt version, previous value, time, actor. Add it through an
+  explicit EF migration.
+- [ ] Move the song, arrangement, version and event mutations that AI features
+  touch out of the endpoint lambdas into a shared write service used by
+  endpoints, proposal handlers and jobs, so validation and audit fields cannot
+  drift.
+- [ ] Song, arrangement and version PATCHes carry a row version and return 409
+  on a stale edit; arrangement and musical version gain a row version.
 - [ ] A human edit sets the field's source to human and locks it: later AI or
   regex runs never overwrite it. Reverting restores the previous value and
   locks the field the same way.
 - [ ] Offer one write path for automated writers that applies a value only when
   the field is unlocked and the confidence is above a configured threshold;
   otherwise it creates a proposal.
-- [ ] Persist proposals (kind, target record, proposed change, reason,
-  confidence, source document) with accept / reject and editor attribution.
-  Accepting applies the change through the normal authorized write path.
+- [ ] Persist proposals in one `Proposal` table (kind, target record, JSON
+  payload, reason, confidence, source document, row version of the target at
+  proposal time) with a typed handler per kind, accept / reject and editor
+  attribution. Accepting applies the change through the shared write service.
+- [ ] If the target changed since the proposal was made, accepting shows the
+  current value beside the proposed one for a fresh decision instead of
+  applying it.
 - [ ] Show a "KI" badge with revert on auto-applied fields in the existing
   forms, and a "Vorschläge" page in `/verwaltung` listing open proposals by
-  kind. Members never see the badge or proposals.
+  kind. Both are ordinary React over stored state, not agent-rendered, so they
+  work while AI is paused. Members never see the badge or proposals.
 - [ ] Changes to identity or visibility (new song, merge, publish, delete,
   member administration) can only ever be proposals, enforced server-side.
 

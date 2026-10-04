@@ -43,8 +43,8 @@ and Neon infrastructure, using a bounded dataset before wider invitations.
 
 ## AI assistance
 
-- [ ] Record the ARC-021-1 switch-gate evidence (chat evaluation on Luna,
-  vision evaluation) and the ARC-034-1 regression results on pilot material.
+- [ ] Record the chat evaluation on Luna (ARC-021-1) and the ARC-034-1
+  regression results on pilot material.
 - [ ] Verify on the real deployment that reaching the budget cap pauses AI and
   leaves upload, search, playback and forms working.
 - [ ] Verify a member cannot reach drafts, proposals or provenance through the

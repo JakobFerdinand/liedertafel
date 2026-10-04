@@ -39,7 +39,7 @@ No model call. This slice owns the maintainer-facing side of the AI budget:
 
 - [ ] Show AI spend for the current month per feature from the usage ledger and
   notify the maintainer at agreed thresholds before the EUR 15 hard cap
-  (enforced by ARC-021-1) is reached, and once when it is reached.
+  (enforced by ARC-022-3) is reached, and once when it is reached.
 - [ ] Include AI in the cost worksheet separately from the EUR 10 normal-month
   target.
 

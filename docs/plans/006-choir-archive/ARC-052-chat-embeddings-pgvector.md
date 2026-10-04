@@ -22,7 +22,8 @@ paraphrased German question still reaches the records the answer cites.
 
 ## Acceptance criteria
 
-- [ ] Enable the pgvector extension in the existing Neon PostgreSQL and add a
+- [ ] Create the `vector` extension once as the admin role through
+  `infrastructure/neon` (the migrator role cannot create extensions), and add a
   `text-embedding-3-small` deployment to `infrastructure/archive/main.bicep`
   (pinned dated version per ARC-021's version policy; evaluation and pricing
   re-check before any upgrade).
@@ -38,6 +39,14 @@ paraphrased German question still reaches the records the answer cites.
   keeps the same visibility filtering and result bounds as the lexical path;
   authorization stays inside the tool and the model never reaches drafts or
   raw queries.
+- [ ] Chunk lyrics and score text at about 500 tokens and use one vector for
+  short fields; 512 dimensions; exact scan without an index.
+- [ ] Compute embeddings in the AI job through the outbox-and-queue pattern, so
+  saving a record never waits on or fails because of the provider. Only the
+  query embedding is computed in the request.
+- [ ] Put vector search behind a small interface with a fake for unit tests
+  (EF InMemory cannot run vector queries) and cover the real SQL in the
+  AppHost integration tests.
 - [ ] Record the embedding token cost of backfill/re-embed; embedding calls go
   through the EUR 15 hard cap from ARC-021-1 and queue when it is reached.
 

@@ -714,18 +714,17 @@ each issue's **AI assistance** section applies it to that slice.
   **GPT-6 Luna**, replacing `gpt-5.4-mini`, including image input for scans.
 - Embeddings use `text-embedding-3-small` in the same Azure OpenAI resource
   with pgvector in the existing Neon database (ARC-052).
-- **Switch gate (ARC-021-1):** the live chat evaluation must pass on Luna at
-  today's pass rate, and a small fixed set of real scanned scores and programme
-  photos must pass for the vision path. If the chat suite fails, the chat alone
-  stays on `gpt-5.4-mini` until it passes.
-- On Chat Completions, Luna only supports function calling with reasoning
-  effort `none`; the tool loop either runs without reasoning or moves to the
-  Responses API. ARC-021-1 decides this with the evaluation.
+- **No switch gate:** the deployment moves to Luna directly (ARC-021-1). The
+  chat evaluation is still run and recorded, but it does not block the switch.
+- The chat stays on Chat Completions with reasoning effort `none`, because
+  Luna rejects function calling with reasoning there. Move to the Responses
+  API only if the evaluation shows worse answers.
 
 ### Budget
 
 - **EUR 15 per month, hard cap**, enforced in the application's AI call path
-  from the usage ledger; it replaces the EUR 5 alert-plus-manual-disable.
+  from the usage ledger; it replaces the EUR 5 warning, which was only logged
+  after the call and never stopped anything.
 - When the cap is reached: background AI jobs stay queued and resume next
   month; the chat and the editor assistant show "Monatsbudget erreicht"; every
   form keeps working by hand; search keeps working because stored embeddings
@@ -780,7 +779,9 @@ corrections) need ordinary tests of the plumbing only.
 
 ### Order of work
 
-1. Model switch to Luna with its gate, and the hard budget cap (ARC-021-1).
+1. Chat on an Agent Framework agent with the cap and ledger as chat-client
+   middleware (ARC-022-3), then the Luna deployment (ARC-021-1) and the
+   AG-UI client with the A2UI catalog (ARC-022-4).
 2. Per-field provenance and the "Vorschläge" queue (ARC-013-1).
 3. Scan reading through vision on upload (ARC-034-1).
 4. Embeddings, widened to drafts (ARC-052).
@@ -790,3 +791,96 @@ corrections) need ordinary tests of the plumbing only.
    reading (ARC-025-1), editor assistant (ARC-022-2), hybrid member search
    (ARC-020-1), duplicates (ARC-046, ARC-050), corrections (ARC-047), song
    histories (ARC-031) and lyric translations (ARC-013-2).
+
+### Technical design
+
+Confirmed with the user on 2026-10-04 in a second, technical interview.
+
+**Frameworks and protocols**
+
+- **Microsoft Agent Framework** on the backend. Every AI feature is a named
+  agent, including tool-less ones with structured output. No Agent Framework
+  workflows: durable job state stays in database rows.
+- The existing hand-rolled chat loop is rewritten onto an agent first
+  (ARC-022-3), keeping the tool-call bound, citation filter, no-token timeout
+  and server-owned thread history (existing tables behind a history provider).
+- **AG-UI** stays the wire protocol. Backend: the stable `AGUI.Server` package
+  fed from the agent's streaming updates in our own endpoint, which keeps the
+  membership and thread-ownership checks; the Agent Framework's prerelease
+  hosting adapter is not used. Frontend: `@ag-ui/client` directly against the
+  .NET endpoint. CopilotKit is not used because its runtime is a Node server
+  and the archive is a static export with one origin.
+- **A2UI** renders what an agent shows in the member chat and the editor
+  assistant, with `@a2ui/react` and a catalog of the archive's own components
+  only (`LiedKarte`, `AuftrittKarte`, `ProgrammListe`, `VorschlagKarte`,
+  `AenderungsVorschau`, `Quellen`). The agent supplies record IDs; validated
+  server data fills the components; the model never supplies a URL.
+- The agent emits A2UI through a `zeige_oberflaeche` tool whose arguments are
+  validated against the catalog before streaming. Citation chips stay a
+  server-built `CUSTOM` event. Validated A2UI messages are stored with the
+  chat message and re-checked for visibility on reload.
+- The "Vorschläge" queue and "KI" badges are ordinary React over stored state,
+  so they work when AI is paused.
+- Clicks in agent-made UI call the REST endpoints directly; the agent is told
+  through shared state. Tool approval (an AG-UI interrupt) is used for one
+  case: changing a draft based on text read from a document or report.
+- The editor assistant is a side panel on every editor screen that knows the
+  open record through shared state, with its own endpoint, agent and editor
+  tool set. Member chat tools stay hard-coded to published content.
+
+**Budget and ledger**
+
+- Cap and ledger sit below the agents as chat-client middleware, so every call
+  passes one chokepoint. The ledger is checked before each call; overshoot is
+  bounded by the calls in flight and a maximum output per call. A
+  tokens-per-minute limit on the deployment is the backstop.
+- `chat_usage_entries` is generalised in place and renamed: feature and model
+  columns, token usage summed across tool-loop iterations (today the maximum is
+  kept, which under-counts), month key in Europe/Vienna.
+- At the cap, queued AI work gets the status `WaitingForBudget`, the queue
+  message is acknowledged, and the dispatch sweep re-enqueues it when the month
+  changes or the cap is raised.
+- No batch deployment. Results are never recomputed automatically when a
+  prompt or model changes; an operator command reruns a feature for unlocked
+  fields. Prompts are versioned constants in code.
+
+**Provenance, proposals and writes**
+
+- One generic `FieldProvenance` table (entity type and id, field, source,
+  confidence, model, prompt version, previous value, time, actor); a row with
+  source `human` is the lock.
+- One `Proposal` table with a kind, a JSON payload and a typed handler per
+  kind. Each proposal stores the row version it was made against; on accept a
+  changed record is shown beside the proposed value for a fresh decision.
+- The song, arrangement, version and event mutations the AI features touch move
+  from endpoint lambdas into a shared write service used by endpoints, proposal
+  handlers and jobs. Song, arrangement and version PATCHes carry a row version;
+  arrangement and musical version gain one.
+- Confidence is categorical (`sicher` / `unsicher`) plus a verbatim quote that
+  code verifies against the read text. Auto-apply needs both.
+- Regex facts are written through the same path with source `regex`, into
+  empty unlocked fields only.
+
+**Reading scans**
+
+- Two steps: page images to transcribed text, stored as the revision's text;
+  then text to fields, the same path text PDFs with gaps take.
+- A second "AI reading" job with its own identity, queue, size and timeout.
+  The extraction job stays model-free and hands `NoText` and gap-filling work
+  over; `NoText` is no longer terminal.
+- Pages are rendered in the job with a PDFium-based package that ships its
+  native library. Up to 20 pages per document in requests of up to 10 images
+  at a bounded resolution; longer documents are marked "teilweise gelesen" and
+  an editor can request the rest.
+
+**Embeddings and search**
+
+- pgvector, with the extension created once by the admin role in
+  `infrastructure/neon` (the migrator role cannot create extensions).
+- Chunks of about 500 tokens for lyrics and score text, one vector for short
+  fields, 512 dimensions, exact scan without an index.
+- Embeddings are computed by the AI job through the outbox-and-queue pattern;
+  only the query embedding is computed in the request.
+- Vector search sits behind a small interface with a fake for unit tests; the
+  real SQL is covered by the AppHost integration tests. Model calls in jobs
+  get a scripted stand-in, so CI never calls the provider.

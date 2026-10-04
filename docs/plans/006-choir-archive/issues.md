@@ -4,10 +4,12 @@ Status: ARC-001, ARC-003, ARC-004, ARC-005, ARC-006, ARC-007, ARC-008, ARC-009, 
 Date: 2026-10-04
 Sources: [PRD](prd.md) · [Architecture](architecture.md)
 
-**Start here to pick work:** [ARC-021-1] (switch to GPT-6 Luna under a hard
-monthly cap) and [ARC-013-1] (field provenance and the "Vorschläge" queue) are
-the next priority; every other AI slice builds on them and they can run in
-parallel. The agreed order is in
+**Start here to pick work:** [ARC-022-3] (chat on an Agent Framework agent
+under a hard monthly cap) and [ARC-013-1] (field provenance and the
+"Vorschläge" queue) are the next priority; every other AI slice builds on them
+and they can run in parallel. [ARC-021-1] (Luna) and [ARC-022-4] (AG-UI client
+and A2UI catalog) follow [ARC-022-3]. The agreed order and technical design are
+in
 [architecture §14](architecture.md#14-ai-assistance). Beyond them, [ARC-002]
 has no implementation dependencies and can start in parallel, subject to its
 external access requirements. Completed [ARC-001] provides **Aspire local
@@ -17,7 +19,7 @@ orchestration and development OpenTelemetry export to the Aspire dashboard**;
 Completed [ARC-004] provides the **Austria East footprint, identity/OIDC contract,
 and cost worksheet** consumed by [ARC-009] and [ARC-010].
 
-There are **59 file-based issues** in this directory: 49 core issues, two launch
+There are **61 file-based issues** in this directory: 51 core issues, two launch
 gates and eight follow-up slices. Issues with a suffix such as `ARC-034-1` are
 follow-ups to a completed issue; the completed issue stays the record of what
 shipped. IDs are stable identifiers, not priority
@@ -118,7 +120,8 @@ issues in an earlier row. External inputs and shared edits still apply.
 | 10 | [ARC-045] |
 
 The layers above predate the AI assistance issues and do not place them.
-[ARC-021-1] and [ARC-013-1] are ready now; [ARC-034-1] follows both;
+[ARC-022-3] and [ARC-013-1] are ready now; [ARC-021-1] and [ARC-022-4] follow
+[ARC-022-3]; [ARC-034-1] follows [ARC-021-1] and [ARC-013-1];
 [ARC-052] follows [ARC-021-1]; [ARC-036] now also waits for [ARC-013-1],
 [ARC-021-1] and [ARC-052], which moves the import chain and the launch gates
 behind them.
@@ -196,7 +199,9 @@ product slices each own their UI/API/data/authorization work as required.
 | [ARC-042] | Receive actionable failed-job/release alerts | [ARC-034], [ARC-037] | Observability, alerts, jobs |
 | [ARC-043] | Notice cost/quota/credential limits | [ARC-002], [ARC-011] | Observability, alerts, operator checks |
 | [ARC-052] | Search the catalogue semantically with pgvector, drafts included behind a visibility flag | [ARC-021], [ARC-022], [ARC-021-1] | Chatbot, search |
-| [ARC-021-1] | Switch all AI work to GPT-6 Luna under a EUR 15 hard cap | [ARC-021], [ARC-022] | Chatbot, AI evaluation, Azure foundation |
+| [ARC-022-3] | Chat on an Agent Framework agent under a EUR 15 hard cap | [ARC-022] | Chatbot, AI evaluation |
+| [ARC-021-1] | Switch all AI work to GPT-6 Luna | [ARC-021], [ARC-022-3] | Chatbot, AI evaluation, Azure foundation |
+| [ARC-022-4] | Agent answers as archive components with AG-UI and A2UI | [ARC-022-3] | Chatbot, shell |
 | [ARC-013-1] | Mark AI-derived fields and review proposals in one queue | [ARC-013], [ARC-014] | Catalogue, events, membership admin |
 | [ARC-034-1] | Read scanned scores and prefill catalogue fields | [ARC-034], [ARC-021-1], [ARC-013-1] | Extraction, catalogue, jobs |
 
@@ -204,7 +209,9 @@ product slices each own their UI/API/data/authorization work as required.
 
 ARC-044 depends on the terminal core slices. Following their dependency chains
 covers **every core issue ARC-001 through ARC-043 plus ARC-051, ARC-052 and the
-core AI follow-ups ARC-021-1, ARC-013-1 and ARC-034-1**. Its purpose is verification
+core AI follow-ups ARC-022-3, ARC-021-1, ARC-013-1 and ARC-034-1**. ARC-022-4
+is core but only gates the post-launch assistant, so the pilot does not wait
+for it. Its purpose is verification
 on the real deployment; feature implementation belongs in the slices above.
 
 | ID | Slice / outcome | Direct dependencies | Shared areas |
@@ -224,7 +231,7 @@ requirement to finish all other post-launch work first.
 | [ARC-050] | Merge duplicate arrangements with explicit key mapping | [ARC-046] | Merge, assets, programmes |
 | [ARC-047] | Member correction with attachment and editor resolution | [ARC-032], [ARC-040] | Corrections, assets |
 | [ARC-022-1] | Chat answers event and performance-history questions | [ARC-022], [ARC-028], [ARC-021-1] | Chatbot, events, performances |
-| [ARC-022-2] | Editor assistant creates and edits drafts | [ARC-022-1], [ARC-013-1] | Chatbot, catalogue, events |
+| [ARC-022-2] | Editor assistant creates and edits drafts | [ARC-022-1], [ARC-022-4], [ARC-013-1] | Chatbot, catalogue, events |
 | [ARC-025-1] | Draft an event and programme from a programme scan | [ARC-025], [ARC-026], [ARC-028], [ARC-034-1], [ARC-052] | Events, programmes, performances |
 | [ARC-020-1] | Find songs by meaning in the catalogue search box | [ARC-020], [ARC-052] | Search, catalogue |
 | [ARC-013-2] | German translation of non-German lyrics | [ARC-013-1], [ARC-021-1] | Catalogue |
@@ -303,7 +310,8 @@ one of them before it can start.
 | Restricted pilot and reviewed member rollout | [ARC-044], [ARC-045] |
 | Follow-up merges and corrections | [ARC-046], [ARC-050], [ARC-047] |
 | Grounded chatbot | [ARC-021], [ARC-022], [ARC-052], [ARC-022-1] |
-| AI assistance: model, budget, provenance, proposals | [ARC-021-1], [ARC-013-1], [ARC-043] |
+| AI assistance: agent framework, model, budget, provenance, proposals | [ARC-022-3], [ARC-021-1], [ARC-013-1], [ARC-043] |
+| AI assistance: AG-UI client and A2UI components | [ARC-022-4], [ARC-022-2] |
 | AI assistance: reading scans and programmes | [ARC-034-1], [ARC-025-1] |
 | AI assistance: search, import, duplicates, corrections | [ARC-052], [ARC-020-1], [ARC-036], [ARC-038], [ARC-046], [ARC-050], [ARC-047] |
 | AI assistance: editor assistant and generated text | [ARC-022-2], [ARC-031], [ARC-013-2] |
@@ -366,3 +374,5 @@ one of them before it can start.
 [ARC-022-2]: ARC-022-2-editor-assistant.md
 [ARC-025-1]: ARC-025-1-programme-scan-reading.md
 [ARC-034-1]: ARC-034-1-scan-reading.md
+[ARC-022-3]: ARC-022-3-chat-on-agent-framework.md
+[ARC-022-4]: ARC-022-4-ag-ui-client-and-a2ui-catalog.md

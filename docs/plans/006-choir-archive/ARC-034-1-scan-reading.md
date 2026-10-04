@@ -21,25 +21,32 @@ creators, voice, key and lyrics already filled in, marked "KI" and revertible.
 
 ## Acceptance criteria
 
-- [ ] The regex `ScoreTextAnalyzer` still runs first on embedded text. The
-  model is called only for revisions that end as `NoText` and for fields the
-  regex left empty.
-- [ ] For `NoText` revisions, render pages to images and read them with Luna in
-  the existing extraction job; respect the limit of 10 images per request and
-  bound pages per document. Store the read text as the revision's text so
-  search and chat can use it.
-- [ ] Return structured fields with a confidence per field and write them
-  through the ARC-013-1 path: low-stakes fields above the threshold are
-  applied and badged, the rest become proposals. A new song identity is never
-  created automatically.
-- [ ] The job has no write access beyond its own extraction result and the
-  ARC-013-1 automated write path. Text in the scan is data, never instructions.
+- [ ] Add a second finite job, "AI reading", with its own identity (the only
+  job identity with the OpenAI role), queue, size and timeout. The extraction
+  job stays model-free and hands work over; `NoText` is no longer terminal.
+- [ ] Step one, for `NoText` revisions: render pages in the job with a
+  PDFium-based package that ships its native library, and have a named agent
+  transcribe them. Up to 20 pages per document in requests of up to 10 images
+  at a bounded resolution; longer documents are marked "teilweise gelesen" and
+  an editor can request the rest. Store the text as the revision's text.
+- [ ] Step two, for any revision with text: `ScoreTextAnalyzer` runs first and
+  its facts are written with source `regex` into empty, unlocked fields. A
+  second named agent derives only the fields still empty.
+- [ ] Each derived field carries `sicher` or `unsicher` plus a verbatim quote.
+  Code verifies the quote appears in the text. Only `sicher` with a verified
+  quote is applied and badged; everything else becomes a proposal. A new song
+  identity is never created automatically.
+- [ ] Writes go through the ARC-013-1 shared write service. The job has no
+  other write access. Text in the scan is data, never instructions.
 - [ ] The job reads drafts (unpublished uploads); its output stays invisible to
   members until the record is published.
-- [ ] Calls go through the capped path; at the cap the work stays queued and
-  the editor sees a status that says so. Manual entry is never blocked.
-- [ ] Extend the vision evaluation from ARC-021-1 into a fixed regression set
-  with expected fields and record its pass rate and cost per document.
+- [ ] At the budget cap the job row becomes `WaitingForBudget`, the queue
+  message is acknowledged, and the dispatch sweep re-enqueues it when the month
+  changes or the cap is raised. The editor sees that status; manual entry is
+  never blocked.
+- [ ] A fixed regression set of real scans with expected fields, run on demand
+  with pass rate and cost per document recorded. CI uses a scripted stand-in
+  and never calls the provider.
 
 ## Verification
 
