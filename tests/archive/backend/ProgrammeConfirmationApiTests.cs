@@ -54,6 +54,11 @@ public sealed class ProgrammeConfirmationApiTests
 		Assert.All(confirmedItems, item => Assert.Equal("sung", item.GetProperty("outcome").GetString()));
 		Assert.Equal(1u, confirmed.GetProperty("rowVersion").GetUInt32());
 		Assert.False(confirmed.GetProperty("confirmation").ValueKind is JsonValueKind.Null);
+		// The PUT answer carries the planned display fields (the workbench
+		// renders them straight after a save).
+		Assert.Equal("Erstes Lied", confirmedItems[0].GetProperty("songTitle").GetString());
+		Assert.Equal("Grundtonart", confirmedItems[0].GetProperty("musicalVersionLabel").GetString());
+		Assert.Equal("Zweites Lied", confirmedItems[1].GetProperty("songTitle").GetString());
 
 		// Each planned entry owns its own occurrence: the repeated song is
 		// two distinct occurrences, all confirmed and linked to the item.
@@ -112,6 +117,9 @@ public sealed class ProgrammeConfirmationApiTests
 		Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
 		var retryReview = await ReviewOfAsync(retry);
 		Assert.Equal(firstIds, PerformanceIds(retryReview));
+		// The unchanged-retry answer is as complete as the writing one.
+		Assert.Equal("Erstes Lied", retryReview.GetProperty("items")[0].GetProperty("songTitle").GetString());
+		Assert.Equal("Grundtonart", retryReview.GetProperty("items")[0].GetProperty("musicalVersionLabel").GetString());
 		Assert.Equal(firstReview.GetProperty("rowVersion").GetUInt32(),
 			retryReview.GetProperty("rowVersion").GetUInt32());
 		Assert.Equal(3, await scenario.CountPerformancesAsync());
@@ -550,6 +558,283 @@ public sealed class ProgrammeConfirmationApiTests
 		var memberActual = (await scenario.DetailAsync(scenario.MemberSession))
 			.GetProperty("programme").GetProperty("confirmation").GetProperty("actual")[0];
 		Assert.Equal("mention", memberActual.GetProperty("evidenceStatus").GetString());
+	}
+
+
+	[Fact]
+	public async Task FutureEventReviewReportsItIsNotConfirmable()
+	{
+		await using var future = await Scenario.CreateAsync(dateYear: 2099);
+		var blocked = await future.ReviewAsync();
+		Assert.False(blocked.GetProperty("confirmable").GetBoolean());
+		Assert.Equal(ProgrammeConfirmationEndpoints.FutureEventMessage,
+			blocked.GetProperty("unconfirmableReason").GetString());
+		await using var past = await Scenario.CreateAsync();
+		var open = await past.ReviewAsync();
+		Assert.True(open.GetProperty("confirmable").GetBoolean());
+		Assert.True(open.GetProperty("unconfirmableReason").ValueKind is JsonValueKind.Null);
+	}
+
+	[Fact]
+	public async Task AdoptingAnOccurrenceOfAnotherSongIsRejected()
+	{
+		await using var scenario = await Scenario.CreateAsync();
+		var review = await scenario.ReviewAsync();
+		// The confirmation owns three planned occurrences and an encore of song D.
+		using var confirm = await scenario.ConfirmAsync(scenario.Body(review, additions:
+		[
+			new { clientKey = Guid.CreateVersion7(), songId = scenario.SongD.SongId },
+		]));
+		var confirmed = await ReviewOfAsync(confirm);
+		var encoreId = Guid.Parse(Assert.Single(confirmed.GetProperty("additions").EnumerateArray())
+			.GetProperty("id").GetString()!);
+		var itemIds = confirmed.GetProperty("items").EnumerateArray()
+			.Select(i => Guid.Parse(i.GetProperty("programmeItemId").GetString()!)).ToList();
+
+		// Pointing planned entry 1 (song A) at the encore (song D) is refused.
+		using var crossItem = await scenario.ConfirmAsync(new
+		{
+			revisionId = scenario.RevisionId,
+			rowVersion = confirmed.GetProperty("rowVersion").GetUInt32(),
+			items = new object[]
+			{
+				new { programmeItemId = itemIds[0], outcome = "sung", performanceId = encoreId },
+				new { programmeItemId = itemIds[1], outcome = "sung" },
+				new { programmeItemId = itemIds[2], outcome = "sung" },
+			},
+			additions = Array.Empty<object>(),
+		});
+		Assert.Equal(HttpStatusCode.BadRequest, crossItem.StatusCode);
+		// Likewise an encore of song C cannot adopt the song D occurrence.
+		using var crossAddition = await scenario.ConfirmAsync(new
+		{
+			revisionId = scenario.RevisionId,
+			rowVersion = confirmed.GetProperty("rowVersion").GetUInt32(),
+			items = itemIds.Select(id => new { programmeItemId = id, outcome = "sung" }).ToArray(),
+			additions = new object[]
+			{
+				new { performanceId = encoreId, songId = scenario.SongC.SongId },
+			},
+		});
+		Assert.Equal(HttpStatusCode.BadRequest, crossAddition.StatusCode);
+		// Nothing moved: the encore still belongs to song D and has no entry.
+		using var scope = scenario.Factory.Services.CreateScope();
+		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+		var row = await db.Performances.SingleAsync(p => p.Id == encoreId);
+		Assert.Equal(scenario.SongD.SongId, row.SongId);
+		Assert.Null(row.ProgrammeItemId);
+		Assert.Equal(4, await db.Performances.CountAsync(p => p.EventId == scenario.EventId));
+	}
+
+	[Fact]
+	public async Task MembersDoNotSeeSupersededPlanDetailsOfAnOlderConfirmation()
+	{
+		await using var scenario = await Scenario.CreateAsync();
+		var review = await scenario.ReviewAsync();
+		using var confirm = await scenario.ConfirmAsync(scenario.Body(review,
+			skip: [1], correctFirstTo: scenario.TransposedA));
+		Assert.Equal(HttpStatusCode.OK, confirm.StatusCode);
+		var current = (await scenario.DetailAsync(scenario.MemberSession))
+			.GetProperty("programme").GetProperty("confirmation");
+		Assert.Single(current.GetProperty("skipped").EnumerateArray());
+		Assert.True(current.GetProperty("actual")[0].GetProperty("differsFromPlan").GetBoolean());
+
+		await scenario.RepublishAsync([(scenario.SongA, scenario.SongA.VersionId)]);
+		var stale = (await scenario.DetailAsync(scenario.MemberSession))
+			.GetProperty("programme").GetProperty("confirmation");
+		Assert.False(stale.GetProperty("upToDate").GetBoolean());
+		// The actual songs stay readable; nothing of the superseded plan does.
+		Assert.Equal(2, stale.GetProperty("actual").GetArrayLength());
+		Assert.Empty(stale.GetProperty("skipped").EnumerateArray());
+		Assert.All(stale.GetProperty("actual").EnumerateArray(), entry =>
+		{
+			Assert.False(entry.GetProperty("differsFromPlan").GetBoolean());
+			Assert.True(entry.GetProperty("plannedMusicalVersionLabel").ValueKind is JsonValueKind.Null);
+		});
+		// Editors keep the full picture.
+		var editor = (await scenario.EditorProgrammeAsync()).GetProperty("confirmation");
+		Assert.Single(editor.GetProperty("skipped").EnumerateArray());
+	}
+
+	[Fact]
+	public async Task HandEnteredOccurrenceOfSameSongIsSuggestedAndAdoptedWithItsNote()
+	{
+		await using var scenario = await Scenario.CreateAsync();
+		// An editor recorded song B by hand (ARC-028) with a source note.
+		using var manual = await PostJsonAsync(scenario.Client,
+			$"/api/events/{scenario.EventId}/performances",
+			new { songId = scenario.SongB.SongId, evidenceStatus = "confirmed", sourceNote = "Handschriftlich notiert." },
+			scenario.EditorSession);
+		Assert.Equal(HttpStatusCode.Created, manual.StatusCode);
+		var manualId = (await manual.Content.ReadFromJsonAsync<JsonElement>())
+			.GetProperty("performance").GetProperty("id").GetString()!;
+
+		var review = await scenario.ReviewAsync();
+		var items = review.GetProperty("items").EnumerateArray().ToList();
+		Assert.True(items[0].GetProperty("suggestedPerformanceId").ValueKind is JsonValueKind.Null);
+		Assert.Equal(manualId, items[1].GetProperty("suggestedPerformanceId").GetString());
+		Assert.Equal("Handschriftlich notiert.",
+			items[1].GetProperty("suggestedPerformance").GetProperty("sourceNote").GetString());
+		var unowned = Assert.Single(review.GetProperty("unownedOccurrences").EnumerateArray());
+		Assert.Equal(manualId, unowned.GetProperty("id").GetString());
+
+		// Ignoring the suggestion creates a second occurrence of song B.
+		using var ignoring = await scenario.ConfirmAsync(scenario.AllSung(review));
+		Assert.Equal(HttpStatusCode.OK, ignoring.StatusCode);
+		Assert.Equal(4, await scenario.CountPerformancesAsync());
+		// The warning list still names the hand-entered row.
+		Assert.Single((await ReviewOfAsync(ignoring)).GetProperty("unownedOccurrences").EnumerateArray());
+	}
+
+	[Fact]
+	public async Task AdoptingTheHandEnteredOccurrenceKeepsIdentityAndNoteWithoutDoubling()
+	{
+		await using var scenario = await Scenario.CreateAsync();
+		using var manual = await PostJsonAsync(scenario.Client,
+			$"/api/events/{scenario.EventId}/performances",
+			new { songId = scenario.SongB.SongId, evidenceStatus = "mention", sourceNote = "Programmheft." },
+			scenario.EditorSession);
+		var manualId = Guid.Parse((await manual.Content.ReadFromJsonAsync<JsonElement>())
+			.GetProperty("performance").GetProperty("id").GetString()!);
+		var review = await scenario.ReviewAsync();
+		var itemIds = review.GetProperty("items").EnumerateArray()
+			.Select(i => Guid.Parse(i.GetProperty("programmeItemId").GetString()!)).ToList();
+
+		using var adopt = await scenario.ConfirmAsync(new
+		{
+			revisionId = scenario.RevisionId,
+			rowVersion = review.GetProperty("rowVersion").GetUInt32(),
+			items = new object[]
+			{
+				new { programmeItemId = itemIds[0], outcome = "sung" },
+				new { programmeItemId = itemIds[1], outcome = "sung", performanceId = manualId },
+				new { programmeItemId = itemIds[2], outcome = "sung" },
+			},
+			additions = Array.Empty<object>(),
+		});
+		Assert.Equal(HttpStatusCode.OK, adopt.StatusCode);
+		var adopted = await ReviewOfAsync(adopt);
+		Assert.Empty(adopted.GetProperty("unownedOccurrences").EnumerateArray());
+		// Three occurrences in total: the hand-entered row is the sung entry 2.
+		Assert.Equal(3, await scenario.CountPerformancesAsync());
+		var performance = adopted.GetProperty("items")[1].GetProperty("performance");
+		Assert.Equal(manualId, Guid.Parse(performance.GetProperty("id").GetString()!));
+		Assert.Equal("confirmed", performance.GetProperty("evidenceStatus").GetString());
+		Assert.Equal("Programmheft.", performance.GetProperty("sourceNote").GetString());
+		using var scope = scenario.Factory.Services.CreateScope();
+		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+		var row = await db.Performances.SingleAsync(p => p.Id == manualId);
+		Assert.NotNull(row.ConfirmationId);
+		Assert.Equal(itemIds[1], row.ProgrammeItemId);
+	}
+
+	[Fact]
+	public async Task RemovingAnOccurrenceWithAStaleRowTokenIsRefused()
+	{
+		await using var scenario = await Scenario.CreateAsync();
+		var review = await scenario.ReviewAsync();
+		using var confirm = await scenario.ConfirmAsync(scenario.AllSung(review));
+		var confirmed = await ReviewOfAsync(confirm);
+		var items = confirmed.GetProperty("items").EnumerateArray().ToList();
+		var firstId = items[0].GetProperty("performance").GetProperty("id").GetString()!;
+		var staleToken = items[0].GetProperty("performance").GetProperty("rowVersion").GetUInt32();
+
+		// A second editor patches a source note onto the occurrence.
+		using var patch = await PatchJsonAsync(scenario.Client, $"/api/performances/{firstId}",
+			new { rowVersion = staleToken, sourceNote = "Wichtige Quelle." }, scenario.SecondEditorSession);
+		Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
+
+		object Known(uint token) => new[]
+		{
+			new { performanceId = Guid.Parse(firstId), rowVersion = token },
+			new { performanceId = Guid.Parse(items[1].GetProperty("performance").GetProperty("id").GetString()!), rowVersion = items[1].GetProperty("performance").GetProperty("rowVersion").GetUInt32() },
+			new { performanceId = Guid.Parse(items[2].GetProperty("performance").GetProperty("id").GetString()!), rowVersion = items[2].GetProperty("performance").GetProperty("rowVersion").GetUInt32() },
+		};
+		object Body(object known) => new
+		{
+			revisionId = scenario.RevisionId,
+			rowVersion = confirmed.GetProperty("rowVersion").GetUInt32(),
+			items = items.Select((item, index) => new
+			{
+				programmeItemId = Guid.Parse(item.GetProperty("programmeItemId").GetString()!),
+				outcome = index == 0 ? "skipped" : "sung",
+			}).ToArray(),
+			additions = Array.Empty<object>(),
+			knownOccurrences = known,
+		};
+
+		using var refused = await scenario.ConfirmAsync(Body(Known(staleToken)));
+		Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+		Assert.Equal(3, await scenario.CountPerformancesAsync());
+		// A row the client never saw (another editor's addition) is refused too.
+		using var unseen = await scenario.ConfirmAsync(Body(new[]
+		{
+			new { performanceId = Guid.Parse(items[1].GetProperty("performance").GetProperty("id").GetString()!), rowVersion = items[1].GetProperty("performance").GetProperty("rowVersion").GetUInt32() },
+		}));
+		Assert.Equal(HttpStatusCode.Conflict, unseen.StatusCode);
+		Assert.Equal(3, await scenario.CountPerformancesAsync());
+
+		// With the fresh token the removal goes through knowingly.
+		using var accepted = await scenario.ConfirmAsync(Body(Known(staleToken + 1)));
+		Assert.Equal(HttpStatusCode.OK, accepted.StatusCode);
+		Assert.Equal(2, await scenario.CountPerformancesAsync());
+	}
+
+	[Fact]
+	public async Task DuplicateClientKeysAreRejectedUpFront()
+	{
+		await using var scenario = await Scenario.CreateAsync();
+		var review = await scenario.ReviewAsync();
+		var key = Guid.CreateVersion7();
+		using var response = await scenario.ConfirmAsync(scenario.Body(review, additions:
+		[
+			new { clientKey = key, songId = scenario.SongD.SongId },
+			new { clientKey = key, songId = scenario.SongD.SongId },
+		]));
+		Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+		Assert.Equal(ProgrammeConfirmationEndpoints.DuplicateKeyMessage,
+			(await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("title").GetString());
+		Assert.Equal(0, await scenario.CountPerformancesAsync());
+	}
+
+	[Fact]
+	public async Task AnAdditionAdoptedIntoAPlannedEntryTakesThePlannedEntryKey()
+	{
+		await using var scenario = await Scenario.CreateAsync();
+		var review = await scenario.ReviewAsync();
+		var key = Guid.CreateVersion7();
+		using var first = await scenario.ConfirmAsync(scenario.Body(review, additions:
+		[
+			new { clientKey = key, songId = scenario.SongA.SongId, musicalVersionId = scenario.SongA.VersionId },
+		]));
+		Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+		var confirmed = await ReviewOfAsync(first);
+		var additionId = Guid.Parse(Assert.Single(confirmed.GetProperty("additions").EnumerateArray())
+			.GetProperty("id").GetString()!);
+		var ids = PerformanceIds(confirmed);
+
+		// Republish with a fourth entry (song A again) and adopt every old row;
+		// the old encore becomes planned entry 4.
+		await scenario.RepublishAsync([
+			(scenario.SongA, scenario.SongA.VersionId), (scenario.SongB, scenario.SongB.VersionId),
+			(scenario.SongA, scenario.SongA.VersionId), (scenario.SongA, scenario.SongA.VersionId)]);
+		var newest = await scenario.ReviewAsync();
+		var newItems = newest.GetProperty("items").EnumerateArray()
+			.Select(i => Guid.Parse(i.GetProperty("programmeItemId").GetString()!)).ToList();
+		var adoptIds = new[] { Guid.Parse(ids[0]), Guid.Parse(ids[1]), Guid.Parse(ids[2]), additionId };
+		using var adopt = await scenario.ConfirmAsync(new
+		{
+			revisionId = Guid.Parse(newest.GetProperty("revision").GetProperty("id").GetString()!),
+			rowVersion = newest.GetProperty("rowVersion").GetUInt32(),
+			items = newItems.Select((id, i) => new { programmeItemId = id, outcome = "sung", performanceId = adoptIds[i] }).ToArray(),
+			additions = Array.Empty<object>(),
+		});
+		Assert.Equal(HttpStatusCode.OK, adopt.StatusCode);
+		using var scope = scenario.Factory.Services.CreateScope();
+		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+		var adopted = await db.Performances.SingleAsync(p => p.Id == additionId);
+		Assert.Equal($"programme-item:{newItems[3]:N}", adopted.IdempotencyKey);
+		Assert.Equal(newItems[3], adopted.ProgrammeItemId);
 	}
 
 	private static async Task<JsonElement> ReviewOfAsync(HttpResponseMessage response)

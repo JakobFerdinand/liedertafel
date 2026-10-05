@@ -437,6 +437,9 @@ export type Nachweis = {
 // erhalten (vertragsgemäß) nur die schlanke Zeile oben — ohne Quellenangabe.
 export type NachweisEditor = Nachweis & {
   eventId: string;
+  // ARC-029: gehört zur Programmbestätigung (wird dort geändert).
+  programmeItemId?: string | null;
+  confirmationId?: string | null;
   sourceNote: string | null;
   capturedAt: string;
   createdAt: string;
@@ -572,6 +575,8 @@ export type BestaetigungAusgang = "open" | "sung" | "skipped" | "unconfirmed";
 export type BestaetigungNachweis = BestaetigungFassung & {
   id: string;
   evidenceStatus: string;
+  // Redaktionsansicht: eine am Nachweis hinterlegte Quellenangabe.
+  sourceNote: string | null;
   programmeItemId: string | null;
   rowVersion: number;
 };
@@ -585,12 +590,20 @@ export type BestaetigungPunkt = BestaetigungFassung & {
   // Nach einer Neuveröffentlichung: bisheriger Nachweis desselben Liedes,
   // den die Redaktion ausdrücklich übernehmen kann.
   suggestedPerformanceId: string | null;
+  // Dieser Vorschlag samt Fassungskette und Marke; er kann ein früherer
+  // Nachweis (nach einer Neuveröffentlichung) oder ein von Hand erfasster
+  // Nachweis desselben Liedes sein.
+  suggestedPerformance: BestaetigungNachweis | null;
 };
 
 export type BestaetigungPruefung = {
   revision: { id: string; number: number; publishedAt: string };
   currentRevisionId: string;
   upToDate: boolean;
+  // false, solange der Auftritt noch sicher in der Zukunft liegt; der Grund
+  // steht in unconfirmableReason.
+  confirmable: boolean;
+  unconfirmableReason: string | null;
   confirmation: {
     id: string;
     revisionId: string;
@@ -602,6 +615,9 @@ export type BestaetigungPruefung = {
   rowVersion: number;
   items: BestaetigungPunkt[];
   additions: BestaetigungNachweis[];
+  // Von Hand erfasste Nachweise von Liedern des Programms, die in keiner
+  // Bestätigung stehen und doppelt zählten, wenn sie nicht übernommen werden.
+  unownedOccurrences: BestaetigungNachweis[];
 };
 
 export type BestaetigungEintrag = {
@@ -628,6 +644,9 @@ export type BestaetigungAbsenden = {
   rowVersion: number;
   items: BestaetigungEintrag[];
   additions: BestaetigungZusatz[];
+  // Jeder geladene Nachweis mit seiner Zeilenmarke: entfernt die Aussage
+  // einen davon, muss er unverändert sein (sonst 409).
+  knownOccurrences?: Array<{ performanceId: string; rowVersion: number }>;
 };
 
 /** Prüfansicht einer veröffentlichten Revision (ohne Angabe: die neueste). */

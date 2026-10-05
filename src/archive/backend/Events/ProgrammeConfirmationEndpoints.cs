@@ -23,9 +23,17 @@ public sealed record ConfirmationItemRequest(
 public sealed record ConfirmationAdditionRequest(
 	Guid? PerformanceId, Guid? ClientKey, Guid? SongId, Guid? MusicalVersionId, uint? RowVersion);
 
+/// <summary>An occurrence of this confirmation as the editor last saw it.</summary>
+public sealed record KnownOccurrence(Guid? PerformanceId, uint RowVersion);
+
+/// <param name="KnownOccurrences">
+/// Every occurrence the client loaded with its row token. When present, an
+/// occurrence the statement removes must be among them with an unchanged
+/// token, so a source note patched in the meantime is never deleted blindly.
+/// </param>
 public sealed record SaveConfirmationRequest(
 	Guid? RevisionId, uint RowVersion, List<ConfirmationItemRequest>? Items,
-	List<ConfirmationAdditionRequest>? Additions);
+	List<ConfirmationAdditionRequest>? Additions, List<KnownOccurrence>? KnownOccurrences = null);
 
 /// <summary>
 /// Confirmation of the actual programme (ARC-029). An editor reviews one
@@ -58,6 +66,8 @@ public static class ProgrammeConfirmationEndpoints
 
 	public const string VersionMismatchMessage = "Die gewählte Fassung gehört nicht zu diesem Lied.";
 
+	public const string DuplicateKeyMessage = "Ein Wiederholungsschlüssel kommt mehrfach vor.";
+
 	public const string InvalidMessage = "Die Bestätigung ist ungültig.";
 
 	public const string OutcomeSung = "sung";
@@ -73,13 +83,15 @@ public static class ProgrammeConfirmationEndpoints
 	{
 		app.MapGet("/api/events/{eventId}/programme/confirmation", async (
 			HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access,
-			ArchiveDbContext db, Guid eventId, Guid? revisionId, CancellationToken token) =>
+			ArchiveDbContext db, TimeProvider time, Guid eventId, Guid? revisionId, CancellationToken token) =>
 		{
 			context.Response.Headers.CacheControl = "no-store";
 			var (_, error) = await RequireEditorAsync(context, accessor, access);
 			if (error is not null)
 				return error;
-			if (!await db.Events.AsNoTracking().AnyAsync(e => e.Id == eventId, token))
+			var reviewedEvent = await db.Events.AsNoTracking()
+				.FirstOrDefaultAsync(e => e.Id == eventId, token);
+			if (reviewedEvent is null)
 				return Results.Problem(statusCode: 404, title: EventEndpoints.NotFoundMessage);
 			var programme = await ProgrammeEndpoints.LoadProgrammeWithChainAsync(db, eventId, token);
 			var newest = programme is null ? null : ProgrammeVisibility.NewestPublished(programme);
@@ -90,7 +102,12 @@ public static class ProgrammeConfirmationEndpoints
 				: programme.Revisions.FirstOrDefault(r => r.Id == revisionId && r.PublishedAt is not null);
 			if (revision is null)
 				return Results.Problem(statusCode: 404, title: RevisionNotFoundMessage);
-			return Results.Ok(new { review = await ReviewAsync(db, programme, newest, revision, token) });
+			var future = IsDefinitelyFuture(reviewedEvent, ProgrammeEndpoints.ViennaToday(time.GetUtcNow()));
+			return Results.Ok(new
+			{
+				review = await ReviewAsync(db, programme, newest.Id, revision.Id,
+					future ? FutureEventMessage : null, token),
+			});
 		});
 
 		app.MapPut("/api/events/{eventId}/programme/confirmation", async (
@@ -137,10 +154,14 @@ public static class ProgrammeConfirmationEndpoints
 			var owned = confirmation is null
 				? []
 				: await db.Performances.Where(p => p.ConfirmationId == confirmation.Id).ToListAsync(token);
+			// Hand-entered ARC-028 evidence of this event: never touched unless
+			// the editor adopts a row explicitly by its id.
+			var unowned = await db.Performances
+				.Where(p => p.EventId == eventId && p.ConfirmationId == null).ToListAsync(token);
 
 			// Everything is validated against the request and the catalogue
 			// before any row is touched (all-or-nothing).
-			var (plan, planError) = await PlanAsync(db, body, revision, owned, token);
+			var (plan, planError) = await PlanAsync(db, body, revision, owned, unowned, token);
 			if (planError is not null)
 				return planError;
 
@@ -154,13 +175,20 @@ public static class ProgrammeConfirmationEndpoints
 				// An identical (retried) statement answers the stored state
 				// without a write, even when its token is stale.
 				var stored = await ProgrammeEndpoints.LoadProgrammeWithChainAsync(db, eventId, token);
-				return Results.Ok(new { review = await ReviewAsync(db, stored!, newest, revision, token) });
+				return Results.Ok(new { review = await ReviewAsync(db, stored!, newest.Id, revision.Id, null, token) });
 			}
 			var expectedToken = confirmation?.RowVersion ?? 0u;
 			if (body.RowVersion != expectedToken)
 				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
 			if (changes.Any(e => e.Existing is not null && e.RequestedRowVersion is { } seen
 					&& seen != e.Existing.RowVersion))
+				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
+			// Removing an occurrence deletes whatever an editor patched onto it
+			// (source note, evidence); the client must have seen its current
+			// state — or the row is new to it.
+			if (body.KnownOccurrences is { } known
+				&& removed.Any(row => !known.Any(k => k is not null && k.PerformanceId == row.Id
+					&& k.RowVersion == row.RowVersion)))
 				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
 
 			if (confirmation is null)
@@ -197,6 +225,14 @@ public static class ProgrammeConfirmationEndpoints
 				if (entry.Existing is { } row)
 				{
 					row.SongId = entry.SongId;
+					row.ConfirmationId = confirmation.Id;
+					// An occurrence moving into a planned entry takes that entry's
+					// retry key, so its former encore key cannot clash later.
+					if (entry.ProgrammeItemId is not null
+						&& row.IdempotencyKey is { } oldKey
+						&& (oldKey.StartsWith("programme-addition:", StringComparison.Ordinal)
+							|| oldKey.StartsWith("programme-item:", StringComparison.Ordinal)))
+						row.IdempotencyKey = entry.RetryKey;
 					row.ArrangementId = entry.ArrangementId;
 					row.MusicalVersionId = entry.MusicalVersionId;
 					row.EvidenceStatus = PerformanceEvidenceStatus.Confirmed;
@@ -235,8 +271,10 @@ public static class ProgrammeConfirmationEndpoints
 				// the unique slots (planned entry, retry key, position).
 				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
 			}
+			// The answer is built from the chain-loaded programme: the tracked
+			// one above has no display labels.
 			var fresh = await ProgrammeEndpoints.LoadProgrammeWithChainAsync(db, eventId, token);
-			return Results.Ok(new { review = await ReviewAsync(db, fresh!, newest, revision, token) });
+			return Results.Ok(new { review = await ReviewAsync(db, fresh!, newest.Id, revision.Id, null, token) });
 		}).DisableAntiforgery();
 	}
 
@@ -245,6 +283,9 @@ public static class ProgrammeConfirmationEndpoints
 	/// read what was sung and what was skipped (no attribution, no tokens),
 	/// editors additionally the concurrency token. Null before the first
 	/// confirmation — an unreviewed programme is simply "not confirmed yet".
+	/// When the confirmation rests on a superseded revision, members keep the
+	/// sung songs but receive nothing taken from that older revision (skipped
+	/// entries, planned labels): older revisions are never member-visible.
 	/// </summary>
 	internal static async Task<object?> LoadEmbedAsync(
 		ArchiveDbContext db, EventProgramme programme, ProgrammeRevision? published,
@@ -257,7 +298,9 @@ public static class ProgrammeConfirmationEndpoints
 		var revision = programme.Revisions.FirstOrDefault(r => r.Id == confirmation.RevisionId);
 		if (revision is null)
 			return null;
-		var view = await LoadViewAsync(db, confirmation, token);
+		var view = await LoadViewAsync(db, programme.EventId, confirmation, token);
+		var upToDate = published is not null && published.Id == revision.Id;
+		var showPlan = isEditor || upToDate;
 		var planned = revision.Items.OrderBy(i => i.Position).ThenBy(i => i.Id).ToList();
 		var byItem = view.Owned.Where(r => r.ProgrammeItemId is not null)
 			.ToDictionary(r => r.ProgrammeItemId!.Value);
@@ -265,25 +308,27 @@ public static class ProgrammeConfirmationEndpoints
 		foreach (var item in planned)
 		{
 			if (byItem.TryGetValue(item.Id, out var row))
-				actual.Add(ActualEntry(view, row, item));
+				actual.Add(ActualEntry(view, row, showPlan ? item : null, added: false));
 		}
 		foreach (var row in view.Owned.Where(r => r.ProgrammeItemId is null))
-			actual.Add(ActualEntry(view, row, null));
-		var skipped = planned.Where(item => !byItem.ContainsKey(item.Id))
-			.Select(item => (object)new
-			{
-				programmeItemId = item.Id,
-				position = item.Position,
-				songId = item.SongId,
-				arrangementId = item.ArrangementId,
-				musicalVersionId = item.MusicalVersionId,
-				songTitle = item.MusicalVersion?.Arrangement?.Song?.Title,
-				arrangementLabel = item.MusicalVersion?.Arrangement?.Label,
-				voiceConfiguration = item.MusicalVersion?.Arrangement?.VoiceConfiguration,
-				musicalVersionLabel = item.MusicalVersion?.Label,
-				musicalKey = item.MusicalVersion?.MusicalKey,
-			})
-			.ToList();
+			actual.Add(ActualEntry(view, row, null, added: true));
+		var skipped = showPlan
+			? planned.Where(item => !byItem.ContainsKey(item.Id))
+				.Select(item => (object)new
+				{
+					programmeItemId = item.Id,
+					position = item.Position,
+					songId = item.SongId,
+					arrangementId = item.ArrangementId,
+					musicalVersionId = item.MusicalVersionId,
+					songTitle = item.MusicalVersion?.Arrangement?.Song?.Title,
+					arrangementLabel = item.MusicalVersion?.Arrangement?.Label,
+					voiceConfiguration = item.MusicalVersion?.Arrangement?.VoiceConfiguration,
+					musicalVersionLabel = item.MusicalVersion?.Label,
+					musicalKey = item.MusicalVersion?.MusicalKey,
+				})
+				.ToList()
+			: [];
 		// Members never see the concurrency token.
 		if (!isEditor)
 		{
@@ -293,7 +338,7 @@ public static class ProgrammeConfirmationEndpoints
 				revisionNumber = revision.Number,
 				confirmedAt = confirmation.CreatedAt,
 				updatedAt = confirmation.UpdatedAt,
-				upToDate = published is not null && published.Id == revision.Id,
+				upToDate,
 				actual,
 				skipped,
 			};
@@ -304,22 +349,23 @@ public static class ProgrammeConfirmationEndpoints
 			revisionNumber = revision.Number,
 			confirmedAt = confirmation.CreatedAt,
 			updatedAt = confirmation.UpdatedAt,
-			upToDate = published is not null && published.Id == revision.Id,
+			upToDate,
 			rowVersion = confirmation.RowVersion,
 			actual,
 			skipped,
 		};
 	}
 
-	private static object ActualEntry(ConfirmationView view, Performance row, ProgrammeItem? planned)
+	private static object ActualEntry(ConfirmationView view, Performance row, ProgrammeItem? planned, bool added)
 	{
 		var chain = row.MusicalVersion?.Arrangement;
+		var differs = planned is not null && planned.MusicalVersionId != row.MusicalVersionId;
 		return new
 		{
 			performanceId = row.Id,
 			programmeItemId = row.ProgrammeItemId,
-			added = planned is null,
-			differsFromPlan = planned is not null && planned.MusicalVersionId != row.MusicalVersionId,
+			added,
+			differsFromPlan = differs,
 			songId = row.SongId,
 			songTitle = view.SongTitles.GetValueOrDefault(row.SongId),
 			arrangementId = row.ArrangementId,
@@ -329,46 +375,59 @@ public static class ProgrammeConfirmationEndpoints
 			musicalVersionLabel = row.MusicalVersion?.Label,
 			musicalKey = row.MusicalVersion?.MusicalKey,
 			evidenceStatus = row.EvidenceStatus,
-			plannedMusicalVersionLabel = planned is not null && planned.MusicalVersionId != row.MusicalVersionId
-				? planned.MusicalVersion?.Label : null,
+			plannedMusicalVersionLabel = differs ? planned!.MusicalVersion?.Label : null,
 		};
 	}
 
-	/// <summary>The confirmation's owned occurrences with their labels.</summary>
+	/// <summary>
+	/// The confirmation's owned occurrences and the event's hand-entered
+	/// (unowned) ARC-028 occurrences, with their song titles.
+	/// </summary>
 	private sealed record ConfirmationView(
-		List<Performance> Owned, IReadOnlyDictionary<Guid, string> SongTitles);
+		List<Performance> Owned, List<Performance> Unowned, IReadOnlyDictionary<Guid, string> SongTitles);
 
 	private static async Task<ConfirmationView> LoadViewAsync(
-		ArchiveDbContext db, ProgrammeConfirmation confirmation, CancellationToken token)
+		ArchiveDbContext db, Guid eventId, ProgrammeConfirmation? confirmation, CancellationToken token)
 	{
-		var owned = await db.Performances.AsNoTracking()
+		var owned = confirmation is null
+			? []
+			: await db.Performances.AsNoTracking()
+				.Include(p => p.MusicalVersion).ThenInclude(v => v!.Arrangement)
+				.Where(p => p.ConfirmationId == confirmation.Id)
+				.OrderBy(p => p.Position).ThenBy(p => p.Id)
+				.ToListAsync(token);
+		var unowned = await db.Performances.AsNoTracking()
 			.Include(p => p.MusicalVersion).ThenInclude(v => v!.Arrangement)
-			.Where(p => p.ConfirmationId == confirmation.Id)
+			.Where(p => p.EventId == eventId && p.ConfirmationId == null)
 			.OrderBy(p => p.Position).ThenBy(p => p.Id)
 			.ToListAsync(token);
-		var songIds = owned.Select(p => p.SongId).Distinct().ToList();
+		var songIds = owned.Concat(unowned).Select(p => p.SongId).Distinct().ToList();
 		var titles = await db.Songs.AsNoTracking()
 			.Where(s => songIds.Contains(s.Id))
 			.ToDictionaryAsync(s => s.Id, s => s.Title, token);
-		return new ConfirmationView(owned, titles);
+		return new ConfirmationView(owned, unowned, titles);
 	}
 
 	/// <summary>
 	/// The editor's review of one published revision: every planned entry
 	/// with its outcome and the linked occurrence (open / sung / skipped /
 	/// unconfirmed when the evidence was later downgraded), suggested
-	/// carry-over occurrences when the confirmation still rests on an older
-	/// revision, and the added songs.
+	/// occurrences for adoption — earlier occurrences of an older revision
+	/// and hand-entered ARC-028 occurrences of the same song — the added
+	/// songs, the hand-entered rows that would be counted twice if not
+	/// adopted, and whether the event can be confirmed at all.
 	/// </summary>
 	private static async Task<object> ReviewAsync(
-		ArchiveDbContext db, EventProgramme programme, ProgrammeRevision newest,
-		ProgrammeRevision revision, CancellationToken token)
+		ArchiveDbContext db, EventProgramme programme, Guid newestId, Guid revisionId,
+		string? unconfirmableReason, CancellationToken token)
 	{
+		// Both come from the chain-loaded programme handed in: display
+		// labels exist only there.
+		var revision = programme.Revisions.First(r => r.Id == revisionId);
+		var newest = programme.Revisions.First(r => r.Id == newestId);
 		var confirmation = await db.ProgrammeConfirmations.AsNoTracking()
 			.FirstOrDefaultAsync(c => c.ProgrammeId == programme.Id, token);
-		var view = confirmation is null
-			? new ConfirmationView([], new Dictionary<Guid, string>())
-			: await LoadViewAsync(db, confirmation, token);
+		var view = await LoadViewAsync(db, programme.EventId, confirmation, token);
 		var planned = revision.Items.OrderBy(i => i.Position).ThenBy(i => i.Id).ToList();
 		var plannedIds = planned.Select(i => i.Id).ToHashSet();
 		var byItem = view.Owned.Where(r => r.ProgrammeItemId is { } id && plannedIds.Contains(id))
@@ -376,10 +435,12 @@ public static class ProgrammeConfirmationEndpoints
 		var boundHere = confirmation is not null && confirmation.RevisionId == revision.Id;
 		// Carry-over: occurrences still linked to entries of an older
 		// revision are offered to the same song's entries of this one, in
-		// order. The editor adopts them explicitly by sending the id.
+		// order. Hand-entered occurrences of the same song follow. The editor
+		// adopts a suggestion explicitly by sending its id.
 		var carry = new List<Performance>();
 		if (confirmation is not null && !boundHere && revision.Id == newest.Id)
 			carry = view.Owned.Where(r => r.ProgrammeItemId is not null).ToList();
+		var pool = view.Unowned.ToList();
 		var items = new List<object>();
 		foreach (var item in planned)
 		{
@@ -389,11 +450,13 @@ public static class ProgrammeConfirmationEndpoints
 				state = row.EvidenceStatus == PerformanceEvidenceStatus.Confirmed ? "sung" : StateUnconfirmed;
 			else
 				state = boundHere ? OutcomeSkipped : StateOpen;
-			Guid? suggested = null;
-			if (row is null && carry.FirstOrDefault(c => c.SongId == item.SongId) is { } candidate)
+			Performance? suggested = null;
+			if (row is null)
 			{
-				suggested = candidate.Id;
-				carry.Remove(candidate);
+				suggested = carry.FirstOrDefault(c => c.SongId == item.SongId)
+					?? pool.FirstOrDefault(c => c.SongId == item.SongId);
+				if (suggested is not null && !carry.Remove(suggested))
+					pool.Remove(suggested);
 			}
 			items.Add(new
 			{
@@ -410,16 +473,24 @@ public static class ProgrammeConfirmationEndpoints
 				note = item.Note,
 				outcome = state,
 				performance = row is null ? null : PerformanceView(view, row),
-				suggestedPerformanceId = suggested,
+				suggestedPerformanceId = suggested?.Id,
+				suggestedPerformance = suggested is null ? null : PerformanceView(view, suggested),
 			});
 		}
 		var additions = view.Owned.Where(r => r.ProgrammeItemId is null)
+			.Select(row => PerformanceView(view, row)).ToList();
+		// Hand-entered rows of a planned song: counted a second time when the
+		// confirmation creates its own occurrence instead of adopting them.
+		var plannedSongs = planned.Select(i => i.SongId).ToHashSet();
+		var unownedOccurrences = view.Unowned.Where(r => plannedSongs.Contains(r.SongId))
 			.Select(row => PerformanceView(view, row)).ToList();
 		return new
 		{
 			revision = new { id = revision.Id, number = revision.Number, publishedAt = revision.PublishedAt },
 			currentRevisionId = newest.Id,
 			upToDate = revision.Id == newest.Id,
+			confirmable = unconfirmableReason is null,
+			unconfirmableReason,
 			confirmation = confirmation is null
 				? null
 				: new
@@ -434,6 +505,7 @@ public static class ProgrammeConfirmationEndpoints
 			rowVersion = confirmation?.RowVersion ?? 0u,
 			items,
 			additions,
+			unownedOccurrences,
 		};
 	}
 
@@ -449,6 +521,7 @@ public static class ProgrammeConfirmationEndpoints
 		musicalVersionLabel = row.MusicalVersion?.Label,
 		musicalKey = row.MusicalVersion?.MusicalKey,
 		evidenceStatus = row.EvidenceStatus,
+		sourceNote = row.SourceNote,
 		programmeItemId = row.ProgrammeItemId,
 		rowVersion = row.RowVersion,
 	};
@@ -471,8 +544,12 @@ public static class ProgrammeConfirmationEndpoints
 		/// <summary>Retry key stored on newly created rows.</summary>
 		public required string RetryKey { get; init; }
 
-		/// <summary>True when the entry creates a row or differs from the stored one.</summary>
+		/// <summary>
+		/// True when the entry creates a row, adopts a hand-entered one or
+		/// differs from the stored one.
+		/// </summary>
 		public bool NeedsWrite => Existing is null
+			|| Existing.ConfirmationId is null
 			|| Existing.SongId != SongId
 			|| Existing.ArrangementId != ArrangementId
 			|| Existing.MusicalVersionId != MusicalVersionId
@@ -484,19 +561,24 @@ public static class ProgrammeConfirmationEndpoints
 
 	/// <summary>
 	/// Validates the request against the revision, the catalogue and the
-	/// confirmation's own occurrences, then resolves every requested
-	/// occurrence to an existing row (by adopted id, planned entry or retry
-	/// key) or a new one. Returns the German ProblemDetails error instead
-	/// when anything is off; no row has been touched at that point.
+	/// occurrences it may adopt (the confirmation's own and the event's
+	/// hand-entered ones), then resolves every requested occurrence to an
+	/// existing row (by adopted id, planned entry or retry key) or a new one.
+	/// An adopted row must keep its song (ARC-028 keeps it immutable).
+	/// Returns the German ProblemDetails error instead when anything is off;
+	/// no row has been touched at that point.
 	/// </summary>
 	private static async Task<(Plan? Plan, IResult? Error)> PlanAsync(
 		ArchiveDbContext db, SaveConfirmationRequest body, ProgrammeRevision revision,
-		List<Performance> owned, CancellationToken token)
+		List<Performance> owned, List<Performance> unowned, CancellationToken token)
 	{
 		var itemRequests = body.Items!;
 		var additionRequests = body.Additions ?? [];
 		if (itemRequests.Any(e => e is null) || additionRequests.Any(e => e is null))
 			return Invalid();
+		if (additionRequests.Where(e => e.ClientKey is not null)
+			.GroupBy(e => e.ClientKey).Any(g => g.Count() > 1))
+			return (null, Results.Problem(statusCode: 400, title: DuplicateKeyMessage));
 		var plannedItems = revision.Items.OrderBy(i => i.Position).ThenBy(i => i.Id).ToList();
 		var plannedById = plannedItems.ToDictionary(i => i.Id);
 		// The review is complete: every planned entry is stated exactly once
@@ -506,7 +588,7 @@ public static class ProgrammeConfirmationEndpoints
 			|| itemRequests.Count != plannedItems.Count
 			|| itemRequests.Any(e => !IsOutcome(e.Outcome)))
 			return Invalid();
-		var ownedById = owned.ToDictionary(p => p.Id);
+		var adoptableById = owned.Concat(unowned).ToDictionary(p => p.Id);
 		var versionIds = itemRequests.Where(e => e.MusicalVersionId is not null).Select(e => e.MusicalVersionId!.Value)
 			.Concat(additionRequests.Where(e => e.MusicalVersionId is not null).Select(e => e.MusicalVersionId!.Value))
 			.Distinct().ToList();
@@ -531,10 +613,11 @@ public static class ProgrammeConfirmationEndpoints
 			Performance? existing;
 			if (request.PerformanceId is { } adoptedId)
 			{
-				// Adopting an occurrence must stay within this confirmation, be
-				// unclaimed, and not displace one linked to a different entry of
-				// this very revision.
-				if (!ownedById.TryGetValue(adoptedId, out existing) || !claimed.Add(adoptedId)
+				// Adopting stays within the event, takes an unclaimed row of the
+				// same song, and must not displace one linked to a different
+				// entry of this very revision.
+				if (!adoptableById.TryGetValue(adoptedId, out existing) || !claimed.Add(adoptedId)
+					|| existing.SongId != item.SongId
 					|| (existing.ProgrammeItemId is { } linked && linked != item.Id && plannedById.ContainsKey(linked))
 					|| owned.Any(p => p.Id != adoptedId && p.ProgrammeItemId == item.Id))
 					return Invalid();
@@ -583,8 +666,8 @@ public static class ProgrammeConfirmationEndpoints
 			Performance? existing;
 			if (request.PerformanceId is { } adoptedId)
 			{
-				if (!ownedById.TryGetValue(adoptedId, out existing) || existing.ProgrammeItemId is not null
-					|| !claimed.Add(adoptedId))
+				if (!adoptableById.TryGetValue(adoptedId, out existing) || existing.ProgrammeItemId is not null
+					|| existing.SongId != songId || !claimed.Add(adoptedId))
 					return Invalid();
 			}
 			else

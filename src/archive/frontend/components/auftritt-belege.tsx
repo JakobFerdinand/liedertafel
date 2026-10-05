@@ -58,6 +58,11 @@ const liedLadeFehler =
 
 const katalogFehler = "Der Katalog antwortet nicht. Bitte erneut versuchen.";
 
+// ARC-029: Nachweise der Programmbestätigung werden dort geändert; der
+// Server verweigert das Löschen mit dieser Meldung (409).
+const gehoertZurBestaetigung =
+  "Dieser Nachweis gehört zur Programmbestätigung und wird dort geändert.";
+
 const veralteteAenderung =
   "Der Nachweis wurde zwischenzeitlich geändert. Bitte prüfe den aktuellen Stand und wiederhole deine Änderung.";
 
@@ -709,7 +714,12 @@ function BelegZeile({
       onGeloescht();
     } catch (ursache) {
       if (ursache instanceof Response && ursache.status === 409) {
-        setZeilenFehler(veralteteAenderung);
+        // Der Server nennt den Grund selbst: ein Nachweis der Bestätigung
+        // ist kein veralteter Stand.
+        const titel = await problemTitel(ursache, veralteteAenderung);
+        setZeilenFehler(
+          titel === gehoertZurBestaetigung ? titel : veralteteAenderung,
+        );
         aktualisieren();
         return;
       }
@@ -764,7 +774,12 @@ function BelegZeile({
         >
           {bearbeitet ? "Bearbeiten schließen" : "Bearbeiten"}
         </button>
-        {loeschbereit ? (
+        {beleg.confirmationId ? (
+          <p className="noten-info belege-bestaetigt">
+            Gehört zur Programmbestätigung; änderbar unter „Tatsächlich
+            gesungen“.
+          </p>
+        ) : loeschbereit ? (
           <button
             type="button"
             disabled={loeschBusy}

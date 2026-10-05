@@ -14,7 +14,7 @@
 // ein veralteter Stand lädt den frischen und bittet um Nacharbeit.
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { LiedWahl } from "@/components/auftritt-programm";
 import { FassungsWahl } from "@/components/fassungs-wahl";
 import { problemTitel } from "@/lib/assets";
@@ -22,6 +22,7 @@ import {
   type AuftrittDetailsMitProgramm,
   type BestaetigungAbsenden,
   type BestaetigungFassung,
+  type BestaetigungNachweis,
   type BestaetigungPruefung,
   bestaetigungUrl,
   fetchBestaetigung,
@@ -90,7 +91,9 @@ function zeilenAusPruefung(pruefung: BestaetigungPruefung): {
       ausgang[punkt.programmeItemId] = punkt.suggestedPerformanceId
         ? "sung"
         : null;
-    const gesungen = punkt.performance;
+    // Die gesungene Fassung folgt dem vorhandenen oder dem zur Übernahme
+    // vorgeschlagenen Nachweis, damit eine Übernahme sie behält.
+    const gesungen = punkt.performance ?? punkt.suggestedPerformance;
     korrektur[punkt.programmeItemId] =
       gesungen?.musicalVersionId &&
       gesungen.arrangementId &&
@@ -129,8 +132,8 @@ function absendeKoerper(
     rowVersion: pruefung.rowVersion,
     items: pruefung.items.map((punkt) => {
       const wert = ausgang[punkt.programmeItemId] ?? "skipped";
-      const vorhanden = punkt.performance?.id ?? punkt.suggestedPerformanceId;
-      const eigener = punkt.performance;
+      const eigener = punkt.performance ?? punkt.suggestedPerformance;
+      const vorhanden = eigener?.id ?? null;
       const geaendert = korrektur[punkt.programmeItemId];
       return {
         programmeItemId: punkt.programmeItemId,
@@ -144,6 +147,22 @@ function absendeKoerper(
           : {}),
       };
     }),
+    knownOccurrences: [
+      ...pruefung.items.flatMap((punkt) =>
+        punkt.performance
+          ? [
+              {
+                performanceId: punkt.performance.id,
+                rowVersion: punkt.performance.rowVersion,
+              },
+            ]
+          : [],
+      ),
+      ...pruefung.additions.map((nachweis) => ({
+        performanceId: nachweis.id,
+        rowVersion: nachweis.rowVersion,
+      })),
+    ],
     additions: zusaetze.map((zeile) => ({
       ...(zeile.performanceId
         ? {
@@ -159,6 +178,40 @@ function absendeKoerper(
         : {}),
     })),
   };
+}
+
+/** Vergleichsstand der Werkbank: ändert sich etwas, gilt sie als bearbeitet. */
+function standVon(
+  ausgang: Record<string, Ausgang | null>,
+  korrektur: Record<string, Korrektur | null>,
+  zusaetze: ZusatzZeile[],
+): string {
+  return JSON.stringify([
+    ausgang,
+    korrektur,
+    zusaetze.map((z) => [z.schluessel, z.songId, z.musicalVersionId]),
+  ]);
+}
+
+/** Ids der Nachweise, die der Körper behält (übernimmt oder fortschreibt). */
+function behalteneIds(koerper: BestaetigungAbsenden): Set<string> {
+  return new Set(
+    [...koerper.items, ...koerper.additions]
+      .map((eintrag) => eintrag.performanceId)
+      .filter((id): id is string => id !== undefined),
+  );
+}
+
+/** Alle Nachweise, die die Prüfansicht der Bestätigung zuordnet. */
+function bekannteNachweise(
+  pruefung: BestaetigungPruefung,
+): BestaetigungNachweis[] {
+  return [
+    ...pruefung.items.flatMap((punkt) =>
+      punkt.performance ? [punkt.performance] : [],
+    ),
+    ...pruefung.additions,
+  ];
 }
 
 // ─── Lesesaal ────────────────────────────────────────────────────────
@@ -263,9 +316,21 @@ function Werkbank({
   const [hinweis, setHinweis] = useState("");
   const [erfolg, setErfolg] = useState("");
   const [busy, setBusy] = useState(false);
+  // Vergleichsstand nach dem Laden/Speichern (ungespeicherte Arbeit) und die
+  // Freigabe eines Entfernens von Quellenangaben (zweiter Klick).
+  const [grundstand, setGrundstand] = useState("");
+  const [verlustFreigabe, setVerlustFreigabe] = useState("");
+  const meldungRef = useRef<HTMLDivElement>(null);
+
+  // Nach einem Speichern oder einem Konflikt führt der Fokus zur Meldung.
+  useEffect(() => {
+    if (erfolg || hinweis) meldungRef.current?.focus();
+  }, [erfolg, hinweis]);
 
   const uebernehmen = useCallback((neu: BestaetigungPruefung) => {
     const zeilen = zeilenAusPruefung(neu);
+    setGrundstand(standVon(zeilen.ausgang, zeilen.korrektur, zeilen.zusaetze));
+    setVerlustFreigabe("");
     setPruefung(neu);
     setAusgang(zeilen.ausgang);
     setKorrektur(zeilen.korrektur);
@@ -339,19 +404,33 @@ function Werkbank({
       aktualisieren();
     } catch (ursache) {
       if (ursache instanceof Response && ursache.status === 409) {
+        const titel = await problemTitel(ursache, veralteterStand);
+        let frisch: BestaetigungPruefung | null = null;
+        try {
+          frisch = await fetchBestaetigung(eventId);
+        } catch {
+          // Der Hinweis steht; das Nachladen wiederholt sich beim Aufklappen.
+        }
+        if (frisch && !frisch.confirmable) {
+          // Kein Konflikt, sondern eine Sperre: die Eingaben bleiben stehen,
+          // nur die Bestätigung ist (noch) nicht möglich.
+          const grund = frisch.unconfirmableReason;
+          setPruefung((bisher) =>
+            bisher
+              ? { ...bisher, confirmable: false, unconfirmableReason: grund }
+              : bisher,
+          );
+          setHinweis(titel);
+          return;
+        }
         // Veralteter Stand (oder neu veröffentlicht): der frische Stand
         // kommt sofort, die Redaktion prüft und wiederholt die Änderung.
-        const titel = await problemTitel(ursache, veralteterStand);
         setHinweis(
           titel === veralteterStand
             ? titel
             : `${titel} Bitte prüfe den aktuellen Stand und wiederhole deine Änderung.`,
         );
-        try {
-          uebernehmen(await fetchBestaetigung(eventId));
-        } catch {
-          // Der Hinweis steht; das Nachladen wiederholt sich beim Aufklappen.
-        }
+        if (frisch) uebernehmen(frisch);
         aktualisieren();
         return;
       }
@@ -367,7 +446,24 @@ function Werkbank({
       setHinweis(unentschieden);
       return;
     }
-    void absenden(absendeKoerper(pruefung, ausgang, korrektur, zusaetze));
+    const koerper = absendeKoerper(pruefung, ausgang, korrektur, zusaetze);
+    // Wer einen Nachweis mit Quellenangabe abwählt oder entfernt, verliert
+    // die Angabe: erst ein zweiter Klick auf dieselbe Aussage gibt frei.
+    const behalten = behalteneIds(koerper);
+    const verlust = bekannteNachweise(pruefung).filter(
+      (nachweis) => nachweis.sourceNote?.trim() && !behalten.has(nachweis.id),
+    );
+    if (verlust.length > 0) {
+      const marke = verlust.map((nachweis) => nachweis.id).join(",");
+      if (verlustFreigabe !== marke) {
+        setVerlustFreigabe(marke);
+        setHinweis(
+          `Beim Speichern werden Nachweise samt Quellenangabe entfernt: ${verlust.map((nachweis) => nachweis.songTitle ?? "Ohne Titel").join(", ")}. Zum Bestätigen noch einmal „Bestätigung speichern“ wählen.`,
+        );
+        return;
+      }
+    }
+    void absenden(koerper);
   }
 
   function unveraendertBestaetigen() {
@@ -376,6 +472,20 @@ function Werkbank({
     for (const punkt of pruefung.items) alles[punkt.programmeItemId] = "sung";
     void absenden(absendeKoerper(pruefung, alles, {}, []));
   }
+
+  const dirty =
+    pruefung !== null && standVon(ausgang, korrektur, zusaetze) !== grundstand;
+  const gesperrt = pruefung !== null && !pruefung.confirmable;
+  // Hand erfasste Nachweise, die der Stand der Werkbank nicht übernimmt:
+  // sie zählten neben der Bestätigung ein zweites Mal.
+  const unadoptiert = pruefung
+    ? pruefung.unownedOccurrences.filter(
+        (nachweis) =>
+          !behalteneIds(
+            absendeKoerper(pruefung, ausgang, korrektur, zusaetze),
+          ).has(nachweis.id),
+      )
+    : [];
 
   const lied = (songId: string) => {
     const stand = lieder[songId];
@@ -399,16 +509,36 @@ function Werkbank({
       <fieldset
         className="programm-verwaltung"
         aria-label="Aufführung bestätigen"
+        disabled={gesperrt}
       >
         {ausgeklappt && (
           <>
-            {ladeFehler && (
-              <p role="alert" className="feld-fehler">
-                {ladeFehler}
-              </p>
-            )}
+            {/* Dauerhafte Meldungsfläche: die Bereiche sind immer eingehängt,
+                damit Hilfstechnik Änderungen zuverlässig ansagt; nach einem
+                Speichern oder Konflikt führt der Fokus hierher. */}
+            <div
+              ref={meldungRef}
+              tabIndex={-1}
+              className="bestaetigung-meldung"
+            >
+              <output className={erfolg ? "auth-erfolg" : undefined}>
+                {erfolg}
+              </output>
+              <div
+                role="alert"
+                className={hinweis || ladeFehler ? "feld-fehler" : undefined}
+              >
+                {hinweis || ladeFehler}
+              </div>
+            </div>
             {!pruefung && !ladeFehler && (
               <p className="noten-info">Prüfansicht wird geladen …</p>
+            )}
+            {gesperrt && pruefung?.unconfirmableReason && (
+              <p className="noten-info bestaetigung-gesperrt">
+                {pruefung.unconfirmableReason} Bestätigen lässt sich das
+                Programm erst nach dem Auftritt.
+              </p>
             )}
             {pruefung && (
               <>
@@ -494,12 +624,31 @@ function Werkbank({
                             </label>
                           </div>
                         </fieldset>
+                        {wert === "sung" && punkt.suggestedPerformance && (
+                          <p className="noten-info">
+                            Ein vorhandener Nachweis dieses Liedes wird
+                            übernommen und behält seine Kennung
+                            {punkt.suggestedPerformance.sourceNote
+                              ? ` und die Quellenangabe: ${punkt.suggestedPerformance.sourceNote}`
+                              : ""}
+                            .
+                          </p>
+                        )}
+                        {wert === "skipped" &&
+                          punkt.performance?.sourceNote?.trim() && (
+                            <p className="feld-fehler">
+                              Der vorhandene Nachweis hat eine Quellenangabe (
+                              {punkt.performance.sourceNote}); sie geht beim
+                              Speichern verloren.
+                            </p>
+                          )}
                         {wert === "sung" && (
                           <div className="bestaetigung-fassung">
                             <button
                               type="button"
                               className="knopf-leise"
                               aria-expanded={offen}
+                              aria-label={`${offen ? "Fassungswahl schließen" : "Andere Fassung gesungen"}: ${punkt.songTitle ?? "Ohne Titel"}`}
                               onClick={() =>
                                 fassungUmschalten(
                                   punkt.programmeItemId,
@@ -520,6 +669,7 @@ function Werkbank({
                                 <button
                                   type="button"
                                   className="knopf-leise"
+                                  aria-label={`Wie geplant: ${punkt.songTitle ?? "Ohne Titel"}`}
                                   onClick={() =>
                                     setKorrektur((bisher) => ({
                                       ...bisher,
@@ -589,6 +739,7 @@ function Werkbank({
                               type="button"
                               className="knopf-leise"
                               aria-expanded={offen}
+                              aria-label={`${offen ? "Fassungswahl schließen" : "Fassung wählen"}: ${titel ?? "Zusätzliches Lied"}`}
                               onClick={() =>
                                 fassungUmschalten(
                                   zeile.schluessel,
@@ -659,21 +810,32 @@ function Werkbank({
                   onGewaehlt={neuerZusatz}
                 />
 
-                {erfolg && (
-                  <output aria-live="polite" className="auth-erfolg">
-                    {erfolg}
-                  </output>
+                {unadoptiert.length > 0 && (
+                  <p className="feld-fehler bestaetigung-doppelt">
+                    Zu diesem Auftritt gibt es bereits von Hand erfasste
+                    Nachweise, die nicht übernommen werden:{" "}
+                    {unadoptiert
+                      .map(
+                        (nachweis) =>
+                          `${nachweis.songTitle ?? "Ohne Titel"} (${nachweis.evidenceStatus === "confirmed" ? "bestätigt" : "Programmangabe"})`,
+                      )
+                      .join(", ")}
+                    . Die Lieder zählten sonst doppelt.
+                  </p>
                 )}
-                {hinweis && (
-                  <output aria-live="polite" className="feld-fehler">
-                    {hinweis}
-                  </output>
+                {dirty && pruefung.confirmation === null && (
+                  <p className="noten-info bestaetigung-ungespeichert">
+                    Es gibt nicht gespeicherte Änderungen in der Werkbank.
+                    „Programm unverändert bestätigen“ würde sie verwerfen:
+                    speichere sie mit „Bestätigung speichern“ oder lade die
+                    Ansicht neu.
+                  </p>
                 )}
                 <div className="noten-aktionen">
                   {pruefung.confirmation === null && (
                     <button
                       type="button"
-                      disabled={busy}
+                      disabled={busy || gesperrt || dirty}
                       onClick={unveraendertBestaetigen}
                     >
                       {busy
@@ -681,7 +843,11 @@ function Werkbank({
                         : "Programm unverändert bestätigen"}
                     </button>
                   )}
-                  <button type="button" disabled={busy} onClick={speichern}>
+                  <button
+                    type="button"
+                    disabled={busy || gesperrt}
+                    onClick={speichern}
+                  >
                     {busy ? "Wird gespeichert …" : "Bestätigung speichern"}
                   </button>
                 </div>

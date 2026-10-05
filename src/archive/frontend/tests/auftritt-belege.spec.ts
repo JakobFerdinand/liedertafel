@@ -683,3 +683,69 @@ test("Löschen bestätigt einmal in der Zeile und entfernt den Nachweis", async 
 
   expect(errors).toEqual([]);
 });
+
+// ARC-029: Nachweise der Programmbestätigung werden unter „Tatsächlich
+// gesungen“ geändert; die Löschen-Aktion entfällt, ein trotzdem eintreffendes
+// 409 zeigt die Meldung des Servers statt „zwischenzeitlich geändert“.
+test("Nachweise der Programmbestätigung bieten kein Löschen an", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await mockSitzung(page, editorMe);
+  await mockKatalog(page);
+  await page.route(`**/api/events/${eventId}`, (route) =>
+    route.fulfill(
+      json(
+        detail([
+          nachweisA({
+            programmeItemId: "00000000-0000-0000-0000-00000000b0b1",
+            confirmationId: "00000000-0000-0000-0000-00000000c0c1",
+          }),
+          nachweisB(),
+        ]),
+      ),
+    ),
+  );
+
+  await page.goto(`/auftritt/?id=${eventId}`);
+  await expect(page.locator(".belege-zeile")).toHaveCount(2);
+  const erste = page.locator(".belege-zeile").nth(0);
+  await expect(erste.getByRole("button", { name: "Löschen" })).toHaveCount(0);
+  await expect(erste).toContainText("Gehört zur Programmbestätigung");
+  await expect(erste).toContainText("Tatsächlich gesungen");
+  // Der Handnachweis daneben bleibt löschbar.
+  await expect(
+    page
+      .locator(".belege-zeile")
+      .nth(1)
+      .getByRole("button", { name: "Löschen" }),
+  ).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("Ein 409 der Bestätigung beim Löschen zeigt die Meldung des Servers", async ({
+  page,
+}) => {
+  await mockSitzung(page, editorMe);
+  await mockKatalog(page);
+  await page.route(`**/api/events/${eventId}`, (route) =>
+    route.fulfill(json(detail([nachweisA(), nachweisB()]))),
+  );
+  await page.route(`**/api/performances/${nachweisAId}/delete`, (route) =>
+    route.fulfill(
+      problem(
+        "Dieser Nachweis gehört zur Programmbestätigung und wird dort geändert.",
+        409,
+      ),
+    ),
+  );
+  await page.goto(`/auftritt/?id=${eventId}`);
+  const erste = page.locator(".belege-zeile").nth(0);
+  await erste.getByRole("button", { name: "Löschen" }).click();
+  await erste.getByRole("button", { name: "Wirklich löschen?" }).click();
+  await expect(erste).toContainText(
+    "Dieser Nachweis gehört zur Programmbestätigung und wird dort geändert.",
+  );
+  await expect(erste).not.toContainText("zwischenzeitlich geändert");
+});

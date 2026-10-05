@@ -525,6 +525,15 @@ Editor-only API (`ProgrammeConfirmationEndpoints.cs`, German ProblemDetails,
   `POST /api/performances/{id}/delete` refuses confirmation-owned rows (409:
   change them in the confirmation).
 
+Review hardening: the GET review reports `confirmable` (false for a
+certainly-future event), suggests adoptable occurrences (earlier ones after a
+republication, hand-entered unowned ones of the same song; adoption keeps id,
+source note and requires the same song) and lists `unownedOccurrences` that
+would be counted twice. The PUT may carry `knownOccurrences` (row tokens): an
+occurrence it removes must be among them unchanged, otherwise 409. Duplicate
+`clientKey` values are 400. Members never receive `skipped`/planned labels of a
+superseded revision.
+
 UI: `components/auftritt-bestaetigung.tsx` ("Tatsächlich gesungen") under the
 Programm section — member read view with plan/actual separation and honest
 "noch nicht bestätigt"; editor workbench with explicit per-entry decision,
