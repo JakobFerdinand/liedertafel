@@ -342,36 +342,16 @@ public static class EventEndpoints
 	/// Deterministic ARC-024 list order, newest first: known year descending;
 	/// within a year, day-precision entries first (month then day, both
 	/// descending), then month-only entries, then year-only entries;
-	/// unknown-year events sort last, by Id. Pure C# so InMemory tests and
-	/// PostgreSQL agree.
+	/// unknown-year events sort last, by Id (shared with the song history via
+	/// <see cref="EventDate.CompareNewestFirst"/>). Pure C# so InMemory tests
+	/// and PostgreSQL agree.
 	/// </summary>
 	private static int CompareEvents(EventRow left, EventRow right)
 	{
-		if (left.DateYear is null || right.DateYear is null)
-		{
-			if (left.DateYear == right.DateYear)
-				return left.Id.CompareTo(right.Id);
-			return left.DateYear is null ? 1 : -1;
-		}
-		var yearOrder = right.DateYear.Value.CompareTo(left.DateYear.Value);
-		if (yearOrder != 0)
-			return yearOrder;
-		var leftRank = PrecisionRank(left.DateMonth, left.DateDay);
-		var rightRank = PrecisionRank(right.DateMonth, right.DateDay);
-		if (leftRank != rightRank)
-			return leftRank.CompareTo(rightRank);
-		var monthOrder = (right.DateMonth ?? 0).CompareTo(left.DateMonth ?? 0);
-		if (monthOrder != 0)
-			return monthOrder;
-		var dayOrder = (right.DateDay ?? 0).CompareTo(left.DateDay ?? 0);
-		if (dayOrder != 0)
-			return dayOrder;
-		return left.Id.CompareTo(right.Id);
+		var order = EventDate.CompareNewestFirst(
+			left.DateYear, left.DateMonth, left.DateDay, right.DateYear, right.DateMonth, right.DateDay);
+		return order != 0 ? order : left.Id.CompareTo(right.Id);
 	}
-
-	/// <summary>0 = day precision, 1 = month only, 2 = year only.</summary>
-	private static int PrecisionRank(int? month, int? day)
-		=> month is null ? 2 : day is null ? 1 : 0;
 
 	/// <summary>Derived date precision from the set components (ARC-024); shared with the programme endpoints.</summary>
 	private static string DatePrecision(int? year, int? month, int? day)

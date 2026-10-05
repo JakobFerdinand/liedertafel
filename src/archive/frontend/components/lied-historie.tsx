@@ -41,14 +41,20 @@ function fassungText(zeile: HistorieZeile): string {
     : zeile.arrangement.label;
 }
 
-function Zahlen({
-  historie,
-  isEditor,
-}: {
-  historie: HistorieAntwort;
-  isEditor: boolean;
-}) {
-  const { confirmed, unconfirmed, draftEventOccurrences } = historie.counts;
+// Herkunft der Zeile: „Im Programm bestätigt“ gilt nur für bestätigte
+// Zeilen; eine zur Programmangabe herabgestufte Programmzeile bleibt
+// neutral („Aus dem Programm“) und liest sich nie als bestätigt.
+function herkunftText(zeile: HistorieZeile): string {
+  if (zeile.origin === "programme") {
+    return zeile.evidenceStatus === "confirmed"
+      ? "Im Programm bestätigt"
+      : "Aus dem Programm";
+  }
+  return "Aus Archivquelle erfasst";
+}
+
+function Zahlen({ historie }: { historie: HistorieAntwort }) {
+  const { confirmed, unconfirmed } = historie.counts;
   const leer = confirmed.occurrences === 0 && unconfirmed.occurrences === 0;
   return (
     <div className="historie-zahlen">
@@ -108,14 +114,6 @@ function Zahlen({
           </div>
         </dl>
       )}
-      {isEditor &&
-        draftEventOccurrences !== null &&
-        draftEventOccurrences > 0 && (
-          <p className="noten-info historie-zusatz">
-            {anzahl(draftEventOccurrences, "Nachweis", "Nachweise")} an
-            unveröffentlichten Auftritten sind in keiner Zahl enthalten.
-          </p>
-        )}
     </div>
   );
 }
@@ -149,17 +147,27 @@ function Eintrag({
         {" · "}
         {auftrittArtName(zeile.eventKind)}
         {" · "}
-        {zeile.origin === "programme"
-          ? "Im Programm bestätigt"
-          : "Aus Archivquelle erfasst"}
+        {herkunftText(zeile)}
         {" · "}
         {fassungText(zeile)}
       </p>
-      {zeile.occurrence && zeile.occurrence.of > 1 && (
+      {zeile.possiblyDuplicateAtEvent && zeile.occurrence ? (
         <p className="noten-info historie-hinweis">
-          Mehrmals an diesem Auftritt gesungen: Aufführung{" "}
-          {zeile.occurrence.index} von {zeile.occurrence.of}.
+          {anzahl(
+            zeile.occurrence.of,
+            "bestätigter Eintrag",
+            "bestätigte Einträge",
+          )}{" "}
+          an diesem Auftritt – möglicherweise doppelt erfasst.
         </p>
+      ) : (
+        zeile.occurrence &&
+        zeile.occurrence.of > 1 && (
+          <p className="noten-info historie-hinweis">
+            Mehrmals an diesem Auftritt gesungen: Aufführung{" "}
+            {zeile.occurrence.index} von {zeile.occurrence.of}.
+          </p>
+        )
       )}
       {zeile.possiblyDuplicate && (
         <p className="noten-info historie-hinweis" data-art="warnung">
@@ -198,22 +206,30 @@ export function LiedHistorie({
   const [versuch, setVersuch] = useState(0);
   const [historie, setHistorie] = useState<HistorieAntwort | null>(null);
   const [fehler, setFehler] = useState("");
+  const [laedt, setLaedt] = useState(true);
 
   useEffect(() => {
     const abort = new AbortController();
     // Ein erneuter Versuch führt die Wirkung erneut aus.
     void versuch;
     setFehler("");
+    setLaedt(true);
     fetchLiedHistorie(
       songId,
       { page: seite, evidence: evidenz, arrangementId: fassung },
       abort.signal,
     )
       .then((stand) => {
-        if (!abort.signal.aborted) setHistorie(stand);
+        if (abort.signal.aborted) return;
+        setHistorie(stand);
+        setLaedt(false);
+        // Der Server klemmt eine Seite hinter dem Ende auf die letzte
+        // Seite: diese Seite übernehmen statt „Seite 3 von 2“ zu zeigen.
+        if (stand.page !== seite) setSeite(stand.page);
       })
       .catch((ursache) => {
         if (abort.signal.aborted) return;
+        setLaedt(false);
         if (ursache instanceof Response && ursache.status === 401) {
           setFehler("Bitte erneut anmelden, um die Geschichte zu sehen.");
           return;
@@ -264,7 +280,7 @@ export function LiedHistorie({
         </p>
       ) : (
         <>
-          <Zahlen historie={historie} isEditor={isEditor} />
+          <Zahlen historie={historie} />
           {(historie.total > 0 || filterAktiv) && (
             <form
               className="historie-filter"
@@ -315,44 +331,64 @@ export function LiedHistorie({
           <output className="visually-hidden">
             {anzahl(historie.total, "Eintrag", "Einträge")} in dieser Auswahl
           </output>
-          {historie.total === 0 && filterAktiv && (
-            <p className="auftritt-leer" aria-live="polite">
-              Für diese Auswahl gibt es keine Einträge.
+          {isEditor && (historie.counts.draftEventOccurrences ?? 0) > 0 && (
+            <p className="noten-info historie-zusatz">
+              {anzahl(
+                historie.counts.draftEventOccurrences ?? 0,
+                "Eintrag gehört",
+                "Einträge gehören",
+              )}{" "}
+              zu unveröffentlichten Auftritten und{" "}
+              {historie.counts.draftEventOccurrences === 1 ? "ist" : "sind"} in
+              keiner Zahl und keiner Fassungsangabe mitgezählt. Die Liste kann
+              sie enthalten.
             </p>
           )}
-          {historie.performances.length > 0 && (
-            <ul className="historie-liste">
-              {historie.performances.map((zeile) => (
-                <Eintrag
-                  key={zeile.id}
-                  zeile={zeile}
-                  isEditor={isEditor}
-                  erweiterung={erweiterung}
-                />
-              ))}
-            </ul>
-          )}
-          {seitenZahl > 1 && (
-            <nav className="lieder-seiten" aria-label="Seiten der Geschichte">
-              <button
-                type="button"
-                disabled={seite <= 1}
-                onClick={() => setSeite(seite - 1)}
-              >
-                Zurück
-              </button>
-              <span className="lieder-seiten-stand">
-                Seite {historie.page} von {seitenZahl}
-              </span>
-              <button
-                type="button"
-                disabled={seite >= seitenZahl}
-                onClick={() => setSeite(seite + 1)}
-              >
-                Weiter
-              </button>
-            </nav>
-          )}
+          <div className="historie-bereich" aria-busy={laedt}>
+            {laedt && (
+              <output className="noten-info historie-laedt">
+                Wird aktualisiert …
+              </output>
+            )}
+            {historie.total === 0 && filterAktiv && (
+              <p className="auftritt-leer" aria-live="polite">
+                Für diese Auswahl gibt es keine Einträge.
+              </p>
+            )}
+            {historie.performances.length > 0 && (
+              <ul className="historie-liste">
+                {historie.performances.map((zeile) => (
+                  <Eintrag
+                    key={zeile.id}
+                    zeile={zeile}
+                    isEditor={isEditor}
+                    erweiterung={erweiterung}
+                  />
+                ))}
+              </ul>
+            )}
+            {seitenZahl > 1 && (
+              <nav className="lieder-seiten" aria-label="Seiten der Geschichte">
+                <button
+                  type="button"
+                  disabled={seite <= 1}
+                  onClick={() => setSeite(seite - 1)}
+                >
+                  Zurück
+                </button>
+                <span className="lieder-seiten-stand">
+                  Seite {historie.page} von {seitenZahl}
+                </span>
+                <button
+                  type="button"
+                  disabled={seite >= seitenZahl}
+                  onClick={() => setSeite(seite + 1)}
+                >
+                  Weiter
+                </button>
+              </nav>
+            )}
+          </div>
         </>
       )}
     </section>

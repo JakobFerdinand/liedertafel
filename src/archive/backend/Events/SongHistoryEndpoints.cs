@@ -110,6 +110,10 @@ public static class SongHistoryEndpoints
 			var eventsWithOwnedConfirmed = rows.Where(r => IsConfirmed(r) && r.Owned)
 				.Select(r => r.EventId).ToHashSet();
 			bool PossiblyDuplicate(Row r) => IsConfirmed(r) && !r.Owned && eventsWithOwnedConfirmed.Contains(r.EventId);
+			// Events whose confirmed rows may describe one performance twice:
+			// every confirmed sibling there must not read as a genuine repeat.
+			var eventsWithPossibleDuplicate = rows.Where(PossiblyDuplicate)
+				.Select(r => r.EventId).ToHashSet();
 
 			var counted = rows.Where(r => r.EventPublished).ToList();
 			var countedConfirmed = counted.Where(IsConfirmed).ToList();
@@ -159,8 +163,11 @@ public static class SongHistoryEndpoints
 			var ordered = listed.ToList();
 			ordered.Sort(CompareRows);
 
-			var requestedPage = page is null or < 1 ? 1 : page.Value;
-			var pageRows = ordered.Skip((int)Math.Min((long)(requestedPage - 1) * PageSize, ordered.Count)).Take(PageSize).ToList();
+			// A page past the end (rows disappeared, stale link) answers the
+			// last page and reports it, so the client never shows "Seite 3 von 2".
+			var lastPage = Math.Max(1, (ordered.Count + PageSize - 1) / PageSize);
+			var requestedPage = Math.Min(page is null or < 1 ? 1 : page.Value, lastPage);
+			var pageRows = ordered.Skip((requestedPage - 1) * PageSize).Take(PageSize).ToList();
 			return Results.Ok(new
 			{
 				song = new { id = song.Id, title = song.Title, published = song.PublishedAt is not null },
@@ -171,7 +178,7 @@ public static class SongHistoryEndpoints
 				arrangements,
 				unknownArrangement,
 				performances = pageRows.Select(row => Item(row, isEditor, arrangementLabels, versionLabels,
-					confirmedByEvent, PossiblyDuplicate(row))),
+					confirmedByEvent, PossiblyDuplicate(row), eventsWithPossibleDuplicate.Contains(row.EventId))),
 			});
 		});
 	}
@@ -185,7 +192,7 @@ public static class SongHistoryEndpoints
 
 	private static Dictionary<string, object?> Item(Row row, bool isEditor,
 		IReadOnlyDictionary<Guid, string> arrangementLabels, IReadOnlyDictionary<Guid, string> versionLabels,
-		IReadOnlyDictionary<Guid, List<Row>> confirmedByEvent, bool possiblyDuplicate)
+		IReadOnlyDictionary<Guid, List<Row>> confirmedByEvent, bool possiblyDuplicate, bool eventHasPossibleDuplicate)
 	{
 		var confirmed = IsConfirmed(row);
 		var siblings = confirmedByEvent.GetValueOrDefault(row.EventId);
@@ -204,8 +211,11 @@ public static class SongHistoryEndpoints
 			["datePrecision"] = EventDate.Precision(row.DateYear, row.DateMonth, row.DateDay),
 			["dateUncertain"] = IsDateUncertain(row),
 			["evidenceStatus"] = row.EvidenceStatus,
-			// "programme": confirmed through the published programme
-			// (ARC-029); "record": entered from an archive source (ARC-028).
+			// "programme": created through the programme confirmation
+			// (ARC-029), also after a downgrade to a mention; "record":
+			// entered from an archive source (ARC-028). Read it together
+			// with evidenceStatus: only a confirmed programme row is a
+			// confirmation.
 			["origin"] = row.Owned ? "programme" : "record",
 			["arrangement"] = row.ArrangementId is { } arrangementId
 				&& arrangementLabels.TryGetValue(arrangementId, out var arrangementLabel)
@@ -221,6 +231,10 @@ public static class SongHistoryEndpoints
 				? new { index = siblings.FindIndex(s => s.Id == row.Id) + 1, of = siblings.Count }
 				: null,
 			["possiblyDuplicate"] = possiblyDuplicate,
+			// Set on every confirmed row of an event where some confirmed
+			// row is a possible duplicate: "N occurrences" is then an upper
+			// bound there, not an asserted repeat.
+			["possiblyDuplicateAtEvent"] = confirmed && eventHasPossibleDuplicate,
 			// A mention at an event where the song has a confirmed
 			// occurrence is most likely the same performance's programme entry.
 			["alsoConfirmedAtEvent"] = !confirmed && siblings is not null,
@@ -231,28 +245,16 @@ public static class SongHistoryEndpoints
 	}
 
 	/// <summary>
-	/// Total order: newest known year first, then month and day descending
-	/// (day precision before coarser ones within a year), unknown years last;
-	/// ties group by event and follow the captured position, then id.
+	/// Total order: the shared event date order (<see cref="EventDate.CompareNewestFirst"/>,
+	/// identical to the event list); ties group by event and follow the
+	/// captured position, then id.
 	/// </summary>
 	private static int CompareRows(Row left, Row right)
 	{
-		if (left.DateYear is not null && right.DateYear is not null)
-		{
-			var yearOrder = right.DateYear.Value.CompareTo(left.DateYear.Value);
-			if (yearOrder != 0)
-				return yearOrder;
-			var monthOrder = (right.DateMonth ?? 0).CompareTo(left.DateMonth ?? 0);
-			if (monthOrder != 0)
-				return monthOrder;
-			var dayOrder = (right.DateDay ?? 0).CompareTo(left.DateDay ?? 0);
-			if (dayOrder != 0)
-				return dayOrder;
-		}
-		else if (left.DateYear != right.DateYear)
-		{
-			return left.DateYear is null ? 1 : -1;
-		}
+		var dateOrder = EventDate.CompareNewestFirst(
+			left.DateYear, left.DateMonth, left.DateDay, right.DateYear, right.DateMonth, right.DateDay);
+		if (dateOrder != 0)
+			return dateOrder;
 		var eventOrder = left.EventId.CompareTo(right.EventId);
 		if (eventOrder != 0)
 			return eventOrder;

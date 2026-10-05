@@ -93,6 +93,8 @@ public sealed class SongHistoryApiTests
 		Assert.Equal(2, rows[2].GetProperty("occurrence").GetProperty("of").GetInt32());
 		Assert.Equal(2, rows[3].GetProperty("occurrence").GetProperty("index").GetInt32());
 		Assert.Equal(1, rows[4].GetProperty("occurrence").GetProperty("of").GetInt32());
+		// Two hand-entered rows are a genuine repeat, not a possible duplicate.
+		Assert.All(rows, row => Assert.False(row.GetProperty("possiblyDuplicateAtEvent").GetBoolean()));
 
 		// Members get neither source notes nor editor attribution.
 		foreach (var row in rows)
@@ -148,6 +150,11 @@ public sealed class SongHistoryApiTests
 		// The three confirmed rows are numbered, the mention is not an occurrence.
 		Assert.Equal(3, byId[handEntered].GetProperty("occurrence").GetProperty("of").GetInt32());
 		Assert.True(byId[mention].GetProperty("occurrence").ValueKind is JsonValueKind.Null);
+		// Every confirmed row of the event is marked, so "3 of 3" is never
+		// presented as an asserted repeat; the mention is not.
+		Assert.All(rows.Where(r => r.GetProperty("evidenceStatus").GetString() == "confirmed"),
+			r => Assert.True(r.GetProperty("possiblyDuplicateAtEvent").GetBoolean()));
+		Assert.False(byId[mention].GetProperty("possiblyDuplicateAtEvent").GetBoolean());
 
 		// The member history leaks nothing of the plan.
 		var memberText = history.GetRawText();
@@ -163,6 +170,14 @@ public sealed class SongHistoryApiTests
 		Assert.Equal(2, after.GetProperty("confirmed").GetProperty("occurrences").GetInt32());
 		Assert.Equal(2, after.GetProperty("unconfirmed").GetProperty("occurrences").GetInt32());
 		Assert.Equal(1, after.GetProperty("confirmed").GetProperty("possiblyDuplicate").GetInt32());
+		// The downgraded row keeps its programme origin but never reads as
+		// a confirmation: evidence says mention.
+		var downgradedRow = (await scenario.HistoryAsync(songS.SongId, scenario.MemberSession))
+			.GetProperty("performances").EnumerateArray()
+			.Single(r => r.GetProperty("id").GetString() == ownedId);
+		Assert.Equal("mention", downgradedRow.GetProperty("evidenceStatus").GetString());
+		Assert.Equal("programme", downgradedRow.GetProperty("origin").GetString());
+		Assert.False(downgradedRow.GetProperty("possiblyDuplicateAtEvent").GetBoolean());
 
 		// The other song only has its own planned occurrence.
 		var other = (await scenario.HistoryAsync(songT.SongId, scenario.MemberSession)).GetProperty("counts");
@@ -325,12 +340,18 @@ public sealed class SongHistoryApiTests
 		// Same request, same answer; nonsense pages clamp to the first page.
 		Assert.Equal(first.GetRawText(), (await scenario.HistoryAsync(song.SongId, scenario.MemberSession)).GetRawText());
 		Assert.Equal(1, (await scenario.HistoryAsync(song.SongId, scenario.MemberSession, "?page=0")).GetProperty("page").GetInt32());
+		// A page past the end answers (and reports) the last page.
 		var beyond = await scenario.HistoryAsync(song.SongId, scenario.MemberSession, "?page=9");
-		Assert.Empty(beyond.GetProperty("performances").EnumerateArray());
+		Assert.Equal(2, beyond.GetProperty("page").GetInt32());
+		Assert.Equal(3, beyond.GetProperty("performances").GetArrayLength());
 		Assert.Equal(23, beyond.GetProperty("total").GetInt32());
-		// An absurd page number neither overflows nor errors.
 		var absurd = await scenario.HistoryAsync(song.SongId, scenario.MemberSession, $"?page={int.MaxValue}");
-		Assert.Empty(absurd.GetProperty("performances").EnumerateArray());
+		Assert.Equal(2, absurd.GetProperty("page").GetInt32());
+		Assert.Equal(3, absurd.GetProperty("performances").GetArrayLength());
+		// An empty selection still has a first page.
+		var none = await scenario.HistoryAsync(song.SongId, scenario.MemberSession, "?evidence=mention&arrangementId=" + second.ArrangementId + "&page=4");
+		Assert.Equal(1, none.GetProperty("page").GetInt32());
+		Assert.Empty(none.GetProperty("performances").EnumerateArray());
 
 		// Arrangement overview: counted per arrangement and unknown.
 		var arrangements = first.GetProperty("arrangements").EnumerateArray().ToList();
@@ -364,6 +385,30 @@ public sealed class SongHistoryApiTests
 		Assert.Equal(HttpStatusCode.NotFound, foreign.StatusCode);
 		Assert.Equal(SongHistoryEndpoints.ArrangementNotFoundMessage,
 			(await foreign.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("title").GetString());
+	}
+
+	[Fact]
+	public async Task SameYearOrderFollowsThePrecisionRankOfTheEventList()
+	{
+		await using var scenario = await Scenario.CreateAsync();
+		var song = await scenario.CreateSongAsync("Jahreslied");
+		var yearOnly = await scenario.CreateEventAsync("Nur Jahr", 1950, null, null, published: true);
+		var december = await scenario.CreateEventAsync("Dezember", 1950, 12, null, published: true);
+		var may = await scenario.CreateEventAsync("12. Mai", 1950, 5, 12, published: true);
+		var january = await scenario.CreateEventAsync("3. Januar", 1950, 1, 3, published: true);
+		foreach (var id in new[] { yearOnly, december, may, january })
+			await scenario.RecordAsync(id, song.SongId, "confirmed");
+
+		// Day precision first (newest day first), then month-only, then
+		// year-only: exactly the order of the event list.
+		var history = await scenario.HistoryAsync(song.SongId, scenario.MemberSession);
+		var historyOrder = history.GetProperty("performances").EnumerateArray()
+			.Select(r => Guid.Parse(r.GetProperty("eventId").GetString()!)).ToArray();
+		Assert.Equal(new[] { may, january, december, yearOnly }, historyOrder);
+		using var list = await scenario.GetRawAsync("/api/events?year=1950", scenario.MemberSession);
+		var listOrder = (await list.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("events")
+			.EnumerateArray().Select(e => Guid.Parse(e.GetProperty("id").GetString()!)).ToArray();
+		Assert.Equal(listOrder, historyOrder);
 	}
 
 	/// <summary>Reusable API scaffolding in the style of the other suites.</summary>

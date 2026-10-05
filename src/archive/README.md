@@ -554,8 +554,12 @@ occurrences and unconfirmed mentions are separate figures, never summed, and
 documents, retries and recordings never add to them. A hand-entered confirmed row
 beside a programme-confirmed row of the same song at one event is not merged but
 flagged `possiblyDuplicate` and reported in `counts.confirmed.possiblyDuplicate`
-(the total is an upper bound); a mention at a confirmed event is flagged
-`alsoConfirmedAtEvent`. Only published events are listed for members and counted
+(the total is an upper bound; every confirmed row of such an event carries
+`possiblyDuplicateAtEvent`, so the UI never asserts a repeat there); a mention at
+a confirmed event is flagged `alsoConfirmedAtEvent`. Read `origin` together with
+`evidenceStatus` (a downgraded programme row is a mention, not a confirmation).
+Ordering is `EventDate.CompareNewestFirst`, shared with the event list; a page
+past the end is clamped to the last page and reported. Only published events are listed for members and counted
 for everyone; editors also see unpublished-event rows (flagged, never counted,
 `counts.draftEventOccurrences`) and source notes. Unpublished songs are a 404 for
 members. The member filter lives in `EventVisibility.OfMemberVisibleEvents`

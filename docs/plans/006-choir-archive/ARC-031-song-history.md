@@ -153,3 +153,53 @@ the row `id` and may add a `recordings` field to the row projection; ARC-022-1
 chat tools should reuse this endpoint's visibility rules and counts wording
 (never sum confirmed and unconfirmed); ARC-040 must extend
 `EventVisibility.OfMemberVisibleEvents` so trashed events leave rows and counts.
+
+## Review follow-up (2026-10-05)
+
+An independent review of `1582a4e` found no blockers (and confirmed the history
+query translates and runs server-side on PostgreSQL). Fixed in the follow-up commit:
+
+- An unconfirmed row never reads as confirmed: the UI shows "Im Programm
+  bestätigt" only for confirmed programme rows; a programme-origin row
+  downgraded to a mention reads "Programmangabe · Aus dem Programm". The API
+  keeps `origin: programme` (it records how the row arose) and its doc says to
+  read it together with `evidenceStatus`.
+- A possible duplicate is never asserted as a repeat: new per-row flag
+  `possiblyDuplicateAtEvent` (set on every confirmed row of an event where any
+  confirmed row is `possiblyDuplicate`). Affected rows read "N bestätigte
+  Einträge an diesem Auftritt – möglicherweise doppelt erfasst."; the
+  "Mehrmals ... Aufführung i von n" wording remains only for genuine repeats.
+- One shared date order: `EventDate.CompareNewestFirst` (day precision before
+  month-only before year-only within a year) is used by the event list
+  (`CompareEvents`) and the song history (`CompareRows`); a backend test orders
+  same-year mixed precision identically in both.
+- Editors: when drafts exist, a line above the list says N entries belong to
+  unpublished events and are in no number and no arrangement figure (from
+  `draftEventOccurrences`, also under a filter). Counts stay published-only.
+- A page past the end is clamped server-side to the last page (the response
+  reports the clamped `page`); the UI adopts it, so "Seite 3 von 2" cannot occur.
+- Page/filter changes show `aria-busy` on the list region plus a visible
+  "Wird aktualisiert …" hint instead of silently keeping old rows.
+- Not done: an automated check of the `erweiterung(zeile)` slot. It has no
+  consumer until ARC-032, and a throw-away consumer would test only itself.
+
+Recorded limits: members see the evidence label and origin but no per-row
+source note (ARC-028 contract); there is no separate arrangement history page,
+only the Fassung filter plus per-arrangement counts on the song page; the whole
+song's rows are materialized per request (projections only, then sorted and
+paged in C#).
+
+Verification (actual commands/results):
+
+- Backend tests first (red against the pre-change code: 4 of 7 failed — chain
+  flags/paging/ordering/downgrade pair), then green.
+- `dotnet build src/archive/Archive.slnx`: 0 warnings, 0 errors.
+- `dotnet test tests/archive/backend`: **506 passed**, 0 failed (505 + the
+  same-year precision test; further assertions added to existing tests).
+- `corepack pnpm run check`: clean; `corepack pnpm run build`: static export ok.
+- Playwright (static export on port 3111, `--workers=1`): `lied-historie.spec.ts`
+  16/16 (8 tests x desktop + mobile; new: downgraded programme row and genuine
+  repeat, clamped page, loading state, editor draft hint under a filter);
+  `lieder`, `materialien`, `auftritte`, `chat` 102/102; `programm` 28/28. The
+  new Playwright cases were written alongside the UI change, so no separate red
+  run was recorded for them.

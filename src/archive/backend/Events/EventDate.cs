@@ -27,6 +27,38 @@ public static class EventDate
 			: year is not null ? "year"
 			: "unknown";
 
+	/// <summary>
+	/// The one newest-first date order shared by the event list and the song
+	/// history: known year descending; within a year day-precision entries
+	/// first (month then day descending), then month-only, then year-only;
+	/// unknown years last. 0 means equal dates; callers add their own
+	/// deterministic tie-break.
+	/// </summary>
+	public static int CompareNewestFirst(
+		int? leftYear, int? leftMonth, int? leftDay, int? rightYear, int? rightMonth, int? rightDay)
+	{
+		if (leftYear is null || rightYear is null)
+		{
+			if (leftYear == rightYear)
+				return 0;
+			return leftYear is null ? 1 : -1;
+		}
+		var yearOrder = rightYear.Value.CompareTo(leftYear.Value);
+		if (yearOrder != 0)
+			return yearOrder;
+		var rankOrder = PrecisionRank(leftMonth, leftDay).CompareTo(PrecisionRank(rightMonth, rightDay));
+		if (rankOrder != 0)
+			return rankOrder;
+		var monthOrder = (rightMonth ?? 0).CompareTo(leftMonth ?? 0);
+		if (monthOrder != 0)
+			return monthOrder;
+		return (rightDay ?? 0).CompareTo(leftDay ?? 0);
+	}
+
+	/// <summary>0 = day precision, 1 = month only, 2 = year only.</summary>
+	private static int PrecisionRank(int? month, int? day)
+		=> month is null ? 2 : day is null ? 1 : 0;
+
 	public static string Display(int? year, int? month, int? day, bool approximate)
 	{
 		if (year is null)

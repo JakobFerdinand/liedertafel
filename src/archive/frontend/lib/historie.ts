@@ -53,14 +53,19 @@ export type HistorieZeile = {
   datePrecision: "day" | "month" | "year" | "unknown";
   dateUncertain: boolean;
   evidenceStatus: string;
-  // programme = über das veröffentlichte Programm bestätigt (ARC-029),
-  // record = aus einer Archivquelle erfasst (ARC-028).
+  // programme = über die Programmbestätigung entstanden (ARC-029), auch nach
+  // einer Herabstufung zur Programmangabe; record = aus einer Archivquelle
+  // erfasst (ARC-028). Nur zusammen mit evidenceStatus lesen.
   origin: "programme" | "record";
   arrangement: { id: string; label: string } | null;
   musicalVersion: { id: string; label: string } | null;
   // Stelle unter den bestätigten Aufführungen des Liedes an diesem Auftritt.
   occurrence: { index: number; of: number } | null;
   possiblyDuplicate: boolean;
+  // Auf jeder bestätigten Zeile eines Auftritts, an dem eine bestätigte
+  // Zeile möglicherweise doppelt erfasst ist: die Anzahl dort ist eine
+  // Obergrenze, keine gesicherte Wiederholung.
+  possiblyDuplicateAtEvent: boolean;
   alsoConfirmedAtEvent: boolean;
   // Nur für die Redaktion.
   sourceNote?: string | null;
