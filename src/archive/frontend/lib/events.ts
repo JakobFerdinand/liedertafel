@@ -282,6 +282,9 @@ export type ProgrammEmbed = {
   published: ProgrammRevisionVeroeffentlicht | null;
   // ARC-027: Verlaufsrevisionen für die Werkbank; Mitglieder erhalten null.
   history?: ProgrammRevisionVeroeffentlicht[] | null;
+  // ARC-029: die bestätigte Aufführung (was tatsächlich gesungen wurde),
+  // getrennt vom Plan; null bis zur ersten Bestätigung.
+  confirmation?: BestaetigungEmbed | null;
 };
 
 /** Übersetzt die Auftrittsdetails auf den Programm-Einbettungstyp;
@@ -511,4 +514,169 @@ export async function loescheNachweis(id: string): Promise<void> {
     {},
   );
   if (!response.ok) throw response;
+}
+
+// ─── ARC-029: tatsächlich gesungenes Programm ────────────────────────
+// Die Redaktion bestätigt nach dem Auftritt eine veröffentlichte
+// Programmrevision: Programmpunkte gesungen („sung“) oder ausgefallen
+// („skipped“), mit korrigierter Fassung, dazu zusätzlich gesungene Lieder
+// (Zugaben). Das Ergebnis liegt als bestätigte Aufführungsnachweise vor;
+// der Plan bleibt unverändert. Mitglieder lesen die Einbettung
+// `programme.confirmation` und sehen Plan und tatsächlichen Verlauf
+// getrennt.
+
+export type BestaetigungFassung = {
+  songId: string;
+  songTitle: string | null;
+  arrangementId: string | null;
+  musicalVersionId: string | null;
+  arrangementLabel: string | null;
+  voiceConfiguration: string | null;
+  musicalVersionLabel: string | null;
+  musicalKey: string | null;
+};
+
+// Ein tatsächlich gesungenes Lied im Lesesaal (Mitglieder und Redaktion).
+export type BestaetigungIst = BestaetigungFassung & {
+  performanceId: string;
+  programmeItemId: string | null;
+  // Zusätzlich zum Plan gesungen (Zugabe).
+  added: boolean;
+  // Eine andere Fassung als geplant wurde gesungen.
+  differsFromPlan: boolean;
+  plannedMusicalVersionLabel: string | null;
+  evidenceStatus: string;
+};
+
+// Geplant, aber nicht gesungen.
+export type BestaetigungAusgefallen = BestaetigungFassung & {
+  programmeItemId: string;
+  position: number;
+};
+
+export type BestaetigungEmbed = {
+  revisionId: string;
+  revisionNumber: number;
+  confirmedAt: string;
+  updatedAt: string;
+  // Die Bestätigung bezieht sich auf die zuletzt veröffentlichte Revision.
+  upToDate: boolean;
+  // Nur die Redaktion erhält die Concurrency-Marke.
+  rowVersion?: number;
+  actual: BestaetigungIst[];
+  skipped: BestaetigungAusgefallen[];
+};
+
+export type BestaetigungAusgang = "open" | "sung" | "skipped" | "unconfirmed";
+
+export type BestaetigungNachweis = BestaetigungFassung & {
+  id: string;
+  evidenceStatus: string;
+  programmeItemId: string | null;
+  rowVersion: number;
+};
+
+export type BestaetigungPunkt = BestaetigungFassung & {
+  programmeItemId: string;
+  position: number;
+  note: string | null;
+  outcome: BestaetigungAusgang;
+  performance: BestaetigungNachweis | null;
+  // Nach einer Neuveröffentlichung: bisheriger Nachweis desselben Liedes,
+  // den die Redaktion ausdrücklich übernehmen kann.
+  suggestedPerformanceId: string | null;
+};
+
+export type BestaetigungPruefung = {
+  revision: { id: string; number: number; publishedAt: string };
+  currentRevisionId: string;
+  upToDate: boolean;
+  confirmation: {
+    id: string;
+    revisionId: string;
+    revisionNumber: number | null;
+    confirmedAt: string;
+    updatedAt: string;
+  } | null;
+  // 0 solange nichts bestätigt wurde; Anker für die Concurrency.
+  rowVersion: number;
+  items: BestaetigungPunkt[];
+  additions: BestaetigungNachweis[];
+};
+
+export type BestaetigungEintrag = {
+  programmeItemId: string;
+  outcome: "sung" | "skipped";
+  performanceId?: string;
+  rowVersion?: number;
+  // Korrigierte Fassung desselben Liedes; abwesend = wie geplant.
+  musicalVersionId?: string;
+};
+
+export type BestaetigungZusatz = {
+  performanceId?: string;
+  // Client-Schlüssel gegen Doppelanlage: derselbe Schlüssel liefert
+  // denselben Nachweis zurück.
+  clientKey?: string;
+  songId: string;
+  musicalVersionId?: string;
+  rowVersion?: number;
+};
+
+export type BestaetigungAbsenden = {
+  revisionId: string;
+  rowVersion: number;
+  items: BestaetigungEintrag[];
+  additions: BestaetigungZusatz[];
+};
+
+/** Prüfansicht einer veröffentlichten Revision (ohne Angabe: die neueste). */
+export async function fetchBestaetigung(
+  eventId: string,
+  revisionId?: string,
+  signal?: AbortSignal,
+): Promise<BestaetigungPruefung> {
+  const query = revisionId
+    ? `?revisionId=${encodeURIComponent(revisionId)}`
+    : "";
+  const response = await fetch(
+    `/api/events/${encodeURIComponent(eventId)}/programme/confirmation${query}`,
+    { credentials: "same-origin", cache: "no-store", signal },
+  );
+  if (!response.ok) throw response;
+  const data = (await response.json()) as { review: BestaetigungPruefung };
+  return data.review;
+}
+
+/**
+ * Bestätigt das tatsächliche Programm als ganze, wiederholbare Aussage:
+ * dieselben Nachweise werden fortgeschrieben, eine Wiederholung ändert
+ * nichts. Veraltete Revisionen und Stände antworten mit 409.
+ */
+export async function putBestaetigung(
+  eventId: string,
+  body: BestaetigungAbsenden,
+): Promise<BestaetigungPruefung> {
+  const response = await putAuth(
+    `/api/events/${encodeURIComponent(eventId)}/programme/confirmation`,
+    body,
+  );
+  if (!response.ok) throw response;
+  const data = (await response.json()) as { review: BestaetigungPruefung };
+  return data.review;
+}
+
+/** Tiefer Leseport auf die gesungene Fassung; ohne Kette nur aufs Lied. */
+export function bestaetigungUrl(eintrag: {
+  songId: string;
+  arrangementId: string | null;
+  musicalVersionId: string | null;
+}): string {
+  const parameter = new URLSearchParams();
+  parameter.set("id", eintrag.songId);
+  if (eintrag.arrangementId && eintrag.musicalVersionId) {
+    parameter.set("fassung", eintrag.arrangementId);
+    parameter.set("version", eintrag.musicalVersionId);
+  }
+  return `/lied/?${parameter.toString()}`;
 }

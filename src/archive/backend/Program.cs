@@ -275,6 +275,7 @@ app.MapCatalogueEndpoints();
 app.MapEventEndpoints();
 app.MapProgrammeEndpoints();
 app.MapPerformanceEndpoints();
+app.MapProgrammeConfirmationEndpoints();
 app.MapChatEndpoints();
 app.MapAssetEndpoints();
 app.MapExtractionEndpoints();

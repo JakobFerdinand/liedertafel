@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { AuftrittBelege } from "@/components/auftritt-belege";
+import { AuftrittBestaetigung } from "@/components/auftritt-bestaetigung";
 import { AuftrittDokumente } from "@/components/auftritt-dokumente";
 import { AuftrittFormular } from "@/components/auftritt-formular";
 import { AuftrittProgramm } from "@/components/auftritt-programm";
@@ -297,9 +298,15 @@ export function AuftrittDetail() {
 
       {/* Nützliche leere Abschnitte: Aufnahmen folgen in einem eigenen
           Abschnitt (ARC-032); das Programm liest sich über
-          AuftrittProgramm (ARC-026), die Nachweise über AuftrittBelege
-          (ARC-028). */}
+          AuftrittProgramm (ARC-026), das tatsächlich Gesungene über
+          AuftrittBestaetigung (ARC-029), die Nachweise über
+          AuftrittBelege (ARC-028). */}
       <AuftrittProgramm
+        auftritt={auftritt}
+        isEditor={editor === true}
+        aktualisieren={aktualisieren}
+      />
+      <AuftrittBestaetigung
         auftritt={auftritt}
         isEditor={editor === true}
         aktualisieren={aktualisieren}

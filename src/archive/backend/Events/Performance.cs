@@ -45,6 +45,20 @@ public sealed class Performance
 	/// <summary>Optional retry key: at most one occurrence per (event, key).</summary>
 	public string? IdempotencyKey { get; set; }
 
+	/// <summary>
+	/// ARC-029: the planned programme entry (frozen published item) this
+	/// occurrence confirms; null for historical evidence and encore additions.
+	/// At most one occurrence per planned entry.
+	/// </summary>
+	public Guid? ProgrammeItemId { get; set; }
+
+	/// <summary>
+	/// ARC-029: the programme confirmation owning this occurrence (planned
+	/// entries sung and added encore songs); null for ARC-028 historical
+	/// evidence, which confirmations never touch.
+	/// </summary>
+	public Guid? ConfirmationId { get; set; }
+
 	public DateTimeOffset CreatedAt { get; set; }
 
 	public Guid CreatedByAccountId { get; set; }

@@ -49,5 +49,21 @@ public sealed class PerformanceModelConfiguration : IEntityTypeConfiguration<Per
 			.HasForeignKey(x => x.ArrangementId)
 			.OnDelete(DeleteBehavior.Restrict);
 		builder.HasIndex(x => x.ArrangementId);
+		/// <summary>
+		/// ARC-029 programme confirmation links: a planned entry is confirmed
+		/// by at most one occurrence (unique, nulls never collide), and the
+		/// confirmation owns its occurrences. Restrict keeps programme
+		/// history from being deleted underneath retained evidence.
+		/// </summary>
+		builder.HasOne<ProgrammeItem>()
+			.WithMany()
+			.HasForeignKey(x => x.ProgrammeItemId)
+			.OnDelete(DeleteBehavior.Restrict);
+		builder.HasIndex(x => x.ProgrammeItemId).IsUnique();
+		builder.HasOne<ProgrammeConfirmation>()
+			.WithMany()
+			.HasForeignKey(x => x.ConfirmationId)
+			.OnDelete(DeleteBehavior.Restrict);
+		builder.HasIndex(x => x.ConfirmationId);
 	}
 }

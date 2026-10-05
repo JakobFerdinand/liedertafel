@@ -310,22 +310,35 @@ public static class ProgrammeEndpoints
 	public static async Task<object?> LoadDetailEmbedAsync(
 		ArchiveDbContext db, bool isEditor, Guid eventId, CancellationToken token)
 	{
-		var programme = await db.Programmes.AsNoTracking()
-			.Include(p => p.Revisions).ThenInclude(r => r.Items)
-			.ThenInclude(i => i.MusicalVersion).ThenInclude(v => v!.Arrangement).ThenInclude(a => a.Song)
-			.FirstOrDefaultAsync(p => p.EventId == eventId, token);
+		var programme = await LoadProgrammeWithChainAsync(db, eventId, token);
 		if (programme is null)
 			return null;
 		var published = ProgrammeVisibility.NewestPublished(programme);
 		var working = isEditor ? ProgrammeVisibility.WorkingDraft(programme) : null;
 		if (!isEditor && published is null)
 			return null;
-		return Embed(programme, working, published, isEditor);
+		// ARC-029: the actual programme (what was really sung) rides next to
+		// the plan so members can tell the two apart.
+		var confirmation = await ProgrammeConfirmationEndpoints.LoadEmbedAsync(
+			db, programme, published, isEditor, token);
+		return Embed(programme, working, published, isEditor, confirmation);
 	}
+
+	/// <summary>
+	/// The programme with every revision, its items and the display chain
+	/// (musical version, arrangement, song), untracked — shared by the
+	/// detail embed and the ARC-029 confirmation review.
+	/// </summary>
+	internal static Task<EventProgramme?> LoadProgrammeWithChainAsync(
+		ArchiveDbContext db, Guid eventId, CancellationToken token)
+		=> db.Programmes.AsNoTracking()
+			.Include(p => p.Revisions).ThenInclude(r => r.Items)
+			.ThenInclude(i => i.MusicalVersion).ThenInclude(v => v!.Arrangement).ThenInclude(a => a.Song)
+			.FirstOrDefaultAsync(p => p.EventId == eventId, token);
 
 	private static object Embed(
 		EventProgramme programme, ProgrammeRevision? working, ProgrammeRevision? published,
-		bool isEditor) => new
+		bool isEditor, object? confirmation) => new
 	{
 		id = programme.Id,
 		rowVersion = programme.RowVersion,
@@ -342,6 +355,7 @@ public static class ProgrammeEndpoints
 				.Select(PublishedEmbed)
 				.ToList()
 			: null,
+		confirmation,
 	};
 
 	private static object WorkingEmbed(EventProgramme programme, ProgrammeRevision revision) => new
@@ -454,7 +468,7 @@ public static class ProgrammeEndpoints
 	/// The choir's calendar day (Vienna local time), falling back to UTC when
 	/// the host lacks the zone definition.
 	/// </summary>
-	private static DateOnly ViennaToday(DateTimeOffset utcNow)
+	internal static DateOnly ViennaToday(DateTimeOffset utcNow)
 	{
 		try
 		{

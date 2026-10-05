@@ -6,7 +6,7 @@ namespace Archive.Backend.Events;
 
 public sealed class EventProgrammeModelConfiguration
 	: IEntityTypeConfiguration<EventProgramme>, IEntityTypeConfiguration<ProgrammeRevision>,
-		IEntityTypeConfiguration<ProgrammeItem>
+		IEntityTypeConfiguration<ProgrammeItem>, IEntityTypeConfiguration<ProgrammeConfirmation>
 {
 	public void Configure(EntityTypeBuilder<EventProgramme> builder)
 	{
@@ -69,6 +69,29 @@ public sealed class EventProgrammeModelConfiguration
 			.HasForeignKey(x => x.ArrangementId)
 			.OnDelete(DeleteBehavior.Restrict);
 		builder.HasIndex(x => x.ArrangementId);
+	}
+
+	public void Configure(EntityTypeBuilder<ProgrammeConfirmation> builder)
+	{
+		builder.ToTable("programme_confirmations");
+		builder.HasKey(x => x.Id);
+		builder.Property(x => x.RowVersion).IsConcurrencyToken();
+		/// <summary>
+		/// ARC-029: one confirmation per programme (the event's actual
+		/// programme), bound to the published revision it reviewed. Both links
+		/// cascade with the programme aggregate; the planned rows themselves
+		/// are never written by a confirmation.
+		/// </summary>
+		builder.HasOne(x => x.Programme)
+			.WithMany()
+			.HasForeignKey(x => x.ProgrammeId)
+			.OnDelete(DeleteBehavior.Cascade);
+		builder.HasIndex(x => x.ProgrammeId).IsUnique();
+		builder.HasOne(x => x.Revision)
+			.WithMany()
+			.HasForeignKey(x => x.RevisionId)
+			.OnDelete(DeleteBehavior.Cascade);
+		builder.HasIndex(x => x.RevisionId);
 	}
 }
 

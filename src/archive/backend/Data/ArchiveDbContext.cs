@@ -54,6 +54,8 @@ public sealed class ArchiveDbContext(DbContextOptions<ArchiveDbContext> options)
 
 	public DbSet<Performance> Performances => Set<Performance>();
 
+	public DbSet<ProgrammeConfirmation> ProgrammeConfirmations => Set<ProgrammeConfirmation>();
+
 	public DbSet<ArchiveAsset> Assets => Set<ArchiveAsset>();
 
 	public DbSet<FileRevision> FileRevisions => Set<FileRevision>();

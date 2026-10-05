@@ -463,11 +463,12 @@ const veroeffentlichtMitGeschichte = {
 
 // Öffnet den Werkbank-Aufklapper (er ist zu, bis die Redaktion ihn braucht).
 async function programmVerwaltungAufklappen(page: Page) {
-  await page.locator("details.programm-verwaltung > summary").click();
-  await expect(page.locator("details.programm-verwaltung")).toHaveAttribute(
-    "open",
-    "",
-  );
+  await page
+    .locator("section.auftritt-programm details.programm-verwaltung > summary")
+    .click();
+  await expect(
+    page.locator("section.auftritt-programm details.programm-verwaltung"),
+  ).toHaveAttribute("open", "");
 }
 
 test("Mitglied liest das veröffentlichte Programm mit Fassungsangaben und Notizen", async ({
@@ -513,7 +514,9 @@ test("Mitglied liest das veröffentlichte Programm mit Fassungsangaben und Notiz
     page.getByText(/Veröffentlicht am 20\. September 2026/),
   ).toBeVisible();
   // Der Werkbank-Aufklapper bleibt dem Mitglied verborgen.
-  await expect(page.locator("details.programm-verwaltung")).toHaveCount(0);
+  await expect(
+    page.locator("section.auftritt-programm details.programm-verwaltung"),
+  ).toHaveCount(0);
   // Auch im Handymaß bleibt der Abschnitt ohne Seitenüberlauf.
   expect(
     await page.evaluate(
@@ -539,7 +542,9 @@ test("Ohne Programm bleibt der Abschnitt für Mitglieder ehrlich leer", async ({
     page.getByText("Das Programm wurde noch nicht erfasst."),
   ).toBeVisible();
   await expect(page.locator(".programm-liste")).toHaveCount(0);
-  await expect(page.locator("details.programm-verwaltung")).toHaveCount(0);
+  await expect(
+    page.locator("section.auftritt-programm details.programm-verwaltung"),
+  ).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Aurora" })).toHaveCount(0);
 
   expect(errors).toEqual([]);

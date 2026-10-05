@@ -55,6 +55,7 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         Assert.Contains(pending, m => m.EndsWith("_HistoricalEvents", StringComparison.Ordinal));
         Assert.Contains(pending, m => m.EndsWith("_EventProgrammes", StringComparison.Ordinal));
         Assert.Contains(pending, m => m.EndsWith("_PerformanceEvidence", StringComparison.Ordinal));
+        Assert.Contains(pending, m => m.EndsWith("_ProgrammeConfirmation", StringComparison.Ordinal));
         Assert.Contains(pending, m => m.EndsWith("_ArchiveAssetsAndUploadSessions", StringComparison.Ordinal));
 
         // Merely starting the API did not apply a schema. Execute it explicitly.

@@ -481,6 +481,58 @@ detail are published for ARC-030 (concert recordings attach through the same
 registry); the per-owner budget and the shared owner registry are the
 coordination point with catalogue/import work.
 
+## ARC-029 confirming what was actually sung
+
+Plan and actual stay separate persistence. The planned revision rows
+(ARC-026/027) are never written by a confirmation; the actual programme is a
+`programme_confirmations` row (one per programme, bound to the published
+revision it reviewed, attribution + application-bumped `RowVersion`, token 0 =
+"nothing confirmed yet") plus ARC-028 `performances` rows that carry two new
+nullable columns: `ProgrammeItemId` (the frozen planned entry they confirm,
+unique) and `ConfirmationId` (the confirmation owning them; also set for
+added encores). Migration `ProgrammeConfirmation`. Occurrences written here
+are always evidence `confirmed`; historical ARC-028 rows (both columns null)
+are never touched.
+
+Editor-only API (`ProgrammeConfirmationEndpoints.cs`, German ProblemDetails,
+`no-store`, antiforgery on the write, members 403, anonymous/revoked 401):
+
+- `GET /api/events/{eventId}/programme/confirmation[?revisionId=]` — the
+  review of a published revision (newest by default): every planned entry
+  with `outcome` (`open`/`sung`/`skipped`/`unconfirmed`), its linked
+  occurrence, a `suggestedPerformanceId` carry-over after a republication,
+  the added songs, `upToDate` and the confirmation `rowVersion`.
+- `PUT` the same path — one complete, idempotent statement:
+  `{ revisionId, rowVersion, items: [{ programmeItemId, outcome: sung|skipped,
+  musicalVersionId?, performanceId?, rowVersion? }], additions: [{ clientKey?,
+  performanceId?, songId, musicalVersionId?, rowVersion? }] }`. Every planned
+  entry must be stated exactly once. A statement identical to the stored
+  state answers 200 without writing (lost-response retries, stale token
+  included); otherwise a stale `rowVersion` or occurrence token, or a lost
+  unique slot, is 409; a revision that is not the newest publication is 409
+  "Das Programm wurde zwischenzeitlich neu veröffentlicht."; a certainly
+  future event date is 409. Existing occurrences update in place (stable
+  performance ids), omitted ones owned by the confirmation are removed,
+  encores are keyed by `clientKey` (retry key `programme-addition:…`; planned
+  entries use `programme-item:…`) so repeats never double and genuine repeats
+  stay distinct rows. After a republication the editor adopts earlier
+  occurrences explicitly by sending their `performanceId` (identity of
+  performances survives for recordings).
+- `GET /api/events/{id}` embeds `programme.confirmation` for everyone (members
+  without token): `actual` (ordered: planned-linked in plan order, then
+  encores; `added`, `differsFromPlan`, evidence status) and `skipped`. ARC-028
+  editor occurrence embeds gain `programmeItemId`/`confirmationId`, and
+  `POST /api/performances/{id}/delete` refuses confirmation-owned rows (409:
+  change them in the confirmation).
+
+UI: `components/auftritt-bestaetigung.tsx` ("Tatsächlich gesungen") under the
+Programm section — member read view with plan/actual separation and honest
+"noch nicht bestätigt"; editor workbench with explicit per-entry decision,
+corrected version, encore search, "Programm unverändert bestätigen" (first
+confirmation only) and stale-state handling. Browser spec:
+`tests/auftritt-bestaetigung.spec.ts`; API tests:
+`tests/archive/backend/ProgrammeConfirmationApiTests.cs`.
+
 ## ARC-033 score corrections and retained revisions
 
 A correction is a new immutable file revision under the **same** logical asset,

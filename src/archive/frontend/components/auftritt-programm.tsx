@@ -293,7 +293,17 @@ function ProgrammZeile({
 
 // ─── Liedauswahl aus dem Katalog ─────────────────────────────────────
 
-function LiedWahl({ onGewaehlt }: { onGewaehlt: (songId: string) => void }) {
+export function LiedWahl({
+  onGewaehlt,
+  kennung = "programm-lied-suche",
+  beschriftung = "Lied aus dem Katalog suchen",
+}: {
+  onGewaehlt: (songId: string) => void;
+  // Eigene Feld-Id, wenn mehrere Liedsuchen auf einer Seite stehen
+  // (Programm-Werkbank und Aufführungsbestätigung).
+  kennung?: string;
+  beschriftung?: string;
+}) {
   const [suche, setSuche] = useState("");
   const [ergebnisse, setErgebnisse] = useState<
     Array<{ id: string; title: string }>
@@ -353,10 +363,10 @@ function LiedWahl({ onGewaehlt }: { onGewaehlt: (songId: string) => void }) {
       className="programm-lied-wahl"
       onSubmit={(event) => void suchen(event)}
     >
-      <label htmlFor="programm-lied-suche">Lied aus dem Katalog suchen</label>
+      <label htmlFor={kennung}>{beschriftung}</label>
       <div className="programm-lied-suche-reihe">
         <input
-          id="programm-lied-suche"
+          id={kennung}
           type="search"
           value={suche}
           onChange={(event) => setSuche(event.target.value)}

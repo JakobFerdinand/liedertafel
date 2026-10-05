@@ -55,6 +55,8 @@ public static class PerformanceEndpoints
 
 	public const string ConcurrencyMessage = "Der Nachweis wurde zwischenzeitlich geändert.";
 
+	public const string ConfirmedOccurrenceMessage = "Dieser Nachweis gehört zur Programmbestätigung und wird dort geändert.";
+
 	public const string IdempotencyKeyTooLongMessage = "Der Wiederholungsschlüssel ist zu lang.";
 
 	/// <summary>Field maximum for the source note (ARC-028 schema).</summary>
@@ -301,6 +303,11 @@ public static class PerformanceEndpoints
 				.FirstOrDefaultAsync(p => p.Id == id, token);
 			if (performance is null)
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
+			// ARC-029: an occurrence owned by the programme confirmation is
+			// changed there (skipping the entry or removing the encore), so
+			// the confirmed outcome never shifts behind the review's back.
+			if (performance.ConfirmationId is not null)
+				return Results.Problem(statusCode: 409, title: ConfirmedOccurrenceMessage);
 			// Plain delete without rowVersion (editable editor data, not
 			// frozen history); nothing else is written, the event row keeps
 			// its own stamps.
@@ -390,6 +397,10 @@ public static class PerformanceEndpoints
 		arrangementId = performance.ArrangementId,
 		musicalVersionId = performance.MusicalVersionId,
 		position = performance.Position,
+		// ARC-029: the planned entry this occurrence confirms (null for
+		// historical evidence and encores) and the owning confirmation.
+		programmeItemId = performance.ProgrammeItemId,
+		confirmationId = performance.ConfirmationId,
 		evidenceStatus = performance.EvidenceStatus,
 		sourceNote = performance.SourceNote,
 		// The moment we learned/confirmed this occurrence state.
