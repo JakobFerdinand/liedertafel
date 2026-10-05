@@ -499,18 +499,20 @@ public sealed class PerformanceApiTests
 			Assert.False(row.TryGetProperty("rowVersion", out _), "Unexpected audit field rowVersion.");
 		}
 
-		// Occurrence reads stay editor-only: members receive 403 and
-		// anonymous callers 401.
+		// Event occurrence reads stay editor-only: members receive 403
+		// and anonymous callers 401.
 		using var memberList = new HttpRequestMessage(HttpMethod.Get, $"/api/events/{eventId}/performances");
 		memberList.Headers.Add("Cookie", memberSession);
 		using var memberListResponse = await client.SendAsync(memberList);
 		Assert.Equal(HttpStatusCode.Forbidden, memberListResponse.StatusCode);
 		var memberListProblem = await memberListResponse.Content.ReadFromJsonAsync<JsonElement>();
 		Assert.Equal(PerformanceEndpoints.ForbiddenMessage, memberListProblem.GetProperty("title").GetString());
+		// The song history is member-readable since ARC-031 (published
+		// events only, never source notes; see SongHistoryApiTests).
 		using var memberSongList = new HttpRequestMessage(HttpMethod.Get, $"/api/songs/{song.SongId}/performances");
 		memberSongList.Headers.Add("Cookie", memberSession);
 		using var memberSongListResponse = await client.SendAsync(memberSongList);
-		Assert.Equal(HttpStatusCode.Forbidden, memberSongListResponse.StatusCode);
+		Assert.Equal(HttpStatusCode.OK, memberSongListResponse.StatusCode);
 		using var anonymousList = new HttpRequestMessage(HttpMethod.Get, $"/api/events/{eventId}/performances");
 		using var anonymousListResponse = await client.SendAsync(anonymousList);
 		Assert.Equal(HttpStatusCode.Unauthorized, anonymousListResponse.StatusCode);

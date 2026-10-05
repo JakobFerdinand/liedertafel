@@ -138,6 +138,36 @@ test("Mehrere Dateien werden nacheinander mit Status und ohne Duplikate hochgela
   await page.route(`**/api/songs/${songId}`, (route) =>
     route.fulfill(json(detail())),
   );
+  // ARC-031: die Aufführungsgeschichte der Liedseite lädt mit; ohne Mock
+  // träfe ihr Fehlerzustand die seitenweite „Erneut versuchen“-Suche.
+  await page.route(`**/api/songs/${songId}/performances**`, (route) =>
+    route.fulfill(
+      json({
+        song: { id: songId, title: "Testlied", published: true },
+        page: 1,
+        pageSize: 20,
+        total: 0,
+        counts: {
+          confirmed: {
+            occurrences: 0,
+            events: 0,
+            uncertainDates: 0,
+            possiblyDuplicate: 0,
+          },
+          unconfirmed: {
+            occurrences: 0,
+            events: 0,
+            onlyEvents: 0,
+            uncertainDates: 0,
+          },
+          draftEventOccurrences: null,
+        },
+        arrangements: [],
+        unknownArrangement: { confirmed: 0, unconfirmed: 0 },
+        performances: [],
+      }),
+    ),
+  );
   await page.route(`**/api/musical-versions/${versionId}/assets`, (route) => {
     erstellt += 1;
     const anfrage = route.request().postDataJSON() as {

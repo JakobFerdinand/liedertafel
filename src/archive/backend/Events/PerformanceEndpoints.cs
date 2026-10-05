@@ -341,34 +341,6 @@ public static class PerformanceEndpoints
 				.ToListAsync(token);
 			return Results.Ok(new { performances = rows.Select(PerformanceEmbed) });
 		});
-
-		app.MapGet("/api/songs/{songId}/performances", async (
-			HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access,
-			ArchiveDbContext db, Guid songId, CancellationToken token) =>
-		{
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await RequireEditorAsync(context, accessor, access);
-			if (error is not null)
-				return error;
-			var song = await db.Songs.AsNoTracking()
-				.FirstOrDefaultAsync(s => s.Id == songId, token);
-			if (song is null)
-				return Results.Problem(statusCode: 404, title: SongNotFoundMessage);
-			// ARC-031 groundwork: the song's historical occurrences with the
-			// live event reference. One materialized set so InMemory tests
-			// and PostgreSQL agree: the honest date-descending order runs in
-			// C# (date fields come from the referenced event, never
-			// snapshot).
-			var rows = await db.Performances.AsNoTracking()
-				.Where(p => p.SongId == songId)
-				.Select(p => new PerformanceHistoryRow(p.Id, p.EventId, p.Event.Title,
-					p.Event.DateYear, p.Event.DateMonth, p.Event.DateDay, p.Event.DateApproximate,
-					p.EvidenceStatus, p.SourceNote, p.ArrangementId, p.MusicalVersionId,
-					p.UpdatedAt, p.CreatedAt, p.Position))
-				.ToListAsync(token);
-			rows.Sort(CompareHistoryRows);
-			return Results.Ok(new { performances = rows.Select(PerformanceHistoryItem) });
-		});
 	}
 
 	/// <summary>
@@ -420,25 +392,6 @@ public static class PerformanceEndpoints
 		position = performance.Position,
 	};
 
-	private static object PerformanceHistoryItem(PerformanceHistoryRow row) => new
-	{
-		id = row.Id,
-		eventId = row.EventId,
-		eventTitle = row.EventTitle,
-		dateYear = row.DateYear,
-		dateMonth = row.DateMonth,
-		dateDay = row.DateDay,
-		dateApproximate = row.DateApproximate,
-		dateDisplay = EventDate.Display(row.DateYear, row.DateMonth, row.DateDay, row.DateApproximate),
-		datePrecision = EventDate.Precision(row.DateYear, row.DateMonth, row.DateDay),
-		evidenceStatus = row.EvidenceStatus,
-		sourceNote = row.SourceNote,
-		musicalVersionId = row.MusicalVersionId,
-		arrangementId = row.ArrangementId,
-		capturedAt = row.CapturedAt,
-		position = row.Position,
-	};
-
 	/// <summary>Trims to null so empty notes clear, mirroring event PATCH semantics.</summary>
 	private static string? CleanNote(string? raw)
 	{
@@ -452,46 +405,6 @@ public static class PerformanceEndpoints
 		var trimmed = raw?.Trim();
 		return string.IsNullOrEmpty(trimmed) ? null : trimmed;
 	}
-
-	/// <summary>
-	/// Honest history order (ARC-031 groundwork): newest event first by the
-	/// live event date fields (never snapshot on the occurrence row), day
-	/// precision before coarser ones within the same year; unknown-year
-	/// events sort last. Ties break deterministically by capture instant,
-	/// captured position and id (total order).
-	/// </summary>
-	private static int CompareHistoryRows(PerformanceHistoryRow left, PerformanceHistoryRow right)
-	{
-		if (left.DateYear is not null && right.DateYear is not null)
-		{
-			var yearOrder = right.DateYear.Value.CompareTo(left.DateYear.Value);
-			if (yearOrder != 0)
-				return yearOrder;
-			var monthOrder = (right.DateMonth ?? 0).CompareTo(left.DateMonth ?? 0);
-			if (monthOrder != 0)
-				return monthOrder;
-			var dayOrder = (right.DateDay ?? 0).CompareTo(left.DateDay ?? 0);
-			if (dayOrder != 0)
-				return dayOrder;
-		}
-		else if (left.DateYear != right.DateYear)
-		{
-			return left.DateYear is null ? 1 : -1;
-		}
-		var createdOrder = left.CreatedAt.CompareTo(right.CreatedAt);
-		if (createdOrder != 0)
-			return createdOrder;
-		var positionOrder = left.Position.CompareTo(right.Position);
-		if (positionOrder != 0)
-			return positionOrder;
-		return left.Id.CompareTo(right.Id);
-	}
-
-	/// <summary>Materialized history row for the C#-side sort path.</summary>
-	private sealed record PerformanceHistoryRow(Guid Id, Guid EventId, string EventTitle,
-		int? DateYear, int? DateMonth, int? DateDay, bool DateApproximate,
-		string EvidenceStatus, string? SourceNote, Guid? ArrangementId, Guid? MusicalVersionId,
-		DateTimeOffset CapturedAt, DateTimeOffset CreatedAt, int Position);
 
 	private static bool IsEditor(ArchiveAccessDecision decision)
 		=> decision.IsAdministrator || decision.Roles.Contains(ArchiveRoles.Editor);

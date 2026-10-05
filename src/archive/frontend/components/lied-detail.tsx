@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { FassungsFormular } from "@/components/fassungs-formular";
 import { FassungsWahl } from "@/components/fassungs-wahl";
 import { LiedFormular } from "@/components/lied-formular";
+import { LiedHistorie } from "@/components/lied-historie";
 import { NotenBereich } from "@/components/noten-bereich";
 import { fetchMe, type MeResponse, postAuth } from "@/lib/auth";
 import { fetchSong, type LiedDetails } from "@/lib/songs";
@@ -281,6 +282,8 @@ export function LiedDetail() {
           aktualisieren={() => void notenAktualisieren()}
         />
       )}
+
+      <LiedHistorie key={lied.id} songId={lied.id} isEditor={editor === true} />
 
       {editor && (
         <details

@@ -542,6 +542,33 @@ confirmation only) and stale-state handling. Browser spec:
 `tests/auftritt-bestaetigung.spec.ts`; API tests:
 `tests/archive/backend/ProgrammeConfirmationApiTests.cs`.
 
+## ARC-031 song history and honest occurrence counts
+
+`GET /api/songs/{songId}/performances[?page=&evidence=confirmed|mention&arrangementId=<id>|unknown]`
+(`backend/Events/SongHistoryEndpoints.cs`) is readable by every active member and
+replaces ARC-028's editor-only groundwork on the same path. Rows are the ARC-028
+performances (their `id` is the stable performance id for ARC-032 recordings),
+ordered by the event's honest date (newest first, unknown year last, then event,
+position, id) in fixed pages of 20. Counting is row counting: confirmed
+occurrences and unconfirmed mentions are separate figures, never summed, and
+documents, retries and recordings never add to them. A hand-entered confirmed row
+beside a programme-confirmed row of the same song at one event is not merged but
+flagged `possiblyDuplicate` and reported in `counts.confirmed.possiblyDuplicate`
+(the total is an upper bound); a mention at a confirmed event is flagged
+`alsoConfirmedAtEvent`. Only published events are listed for members and counted
+for everyone; editors also see unpublished-event rows (flagged, never counted,
+`counts.draftEventOccurrences`) and source notes. Unpublished songs are a 404 for
+members. The member filter lives in `EventVisibility.OfMemberVisibleEvents`
+(ARC-040 extends it). No migration.
+
+UI: "Aufführungsgeschichte" on `/lied/` (`components/lied-historie.tsx`,
+`lib/historie.ts`) with qualified counts ("nur erfasste Überlieferung"), explicit
+empty state, Nachweis/Fassung filters, paging, "Datum unsicher", "Fassung
+unbekannt" and an optional `erweiterung(zeile)` render prop keyed by performance id
+for ARC-032. Tests: `tests/archive/backend/SongHistoryApiTests.cs`,
+`frontend/tests/lied-historie.spec.ts`. The AI history text of the ticket is a
+post-launch follow-up (ARC-013-1/ARC-021-1) and not part of this slice.
+
 ## ARC-033 score corrections and retained revisions
 
 A correction is a new immutable file revision under the **same** logical asset,
