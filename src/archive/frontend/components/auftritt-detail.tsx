@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { AuftrittAufnahmen } from "@/components/auftritt-aufnahmen";
 import { AuftrittBelege } from "@/components/auftritt-belege";
 import { AuftrittBestaetigung } from "@/components/auftritt-bestaetigung";
 import { AuftrittDokumente } from "@/components/auftritt-dokumente";
@@ -18,6 +19,11 @@ import {
 export function AuftrittDetail() {
   const suchParameter = useSearchParams();
   const id = suchParameter.get("id");
+  // Verweis in eine Aufnahme: ?aufnahme=<id>&t=<Sekunden>.
+  const zeitAngabe = suchParameter.get("t");
+  const zeitWert = zeitAngabe === null ? Number.NaN : Number(zeitAngabe);
+  const startSekunden =
+    Number.isFinite(zeitWert) && zeitWert >= 0 ? zeitWert : null;
   const [me, setMe] = useState<MeResponse | null>(null);
   const [auftritt, setAuftritt] = useState<AuftrittDetails | null>(null);
   const [nichtGefunden, setNichtGefunden] = useState(false);
@@ -296,8 +302,8 @@ export function AuftrittDetail() {
         </section>
       )}
 
-      {/* Nützliche leere Abschnitte: Aufnahmen folgen in einem eigenen
-          Abschnitt (ARC-032); das Programm liest sich über
+      {/* Ganze Aufnahmen stehen in AuftrittAufnahmen (ARC-030), Zeitmarken
+          zu einzelnen Liedern folgen (ARC-032); das Programm liest sich über
           AuftrittProgramm (ARC-026), das tatsächlich Gesungene über
           AuftrittBestaetigung (ARC-029), die Nachweise über
           AuftrittBelege (ARC-028). */}
@@ -321,15 +327,12 @@ export function AuftrittDetail() {
         isEditor={editor === true}
         aktualisieren={aktualisieren}
       />
-      <section
-        className="auftritt-abschnitt"
-        aria-labelledby="auftritt-aufnahmen-titel"
-      >
-        <h3 id="auftritt-aufnahmen-titel">Aufnahmen</h3>
-        <p className="auftritt-leer">
-          Zu diesem Auftritt sind noch keine Aufnahmen hinterlegt.
-        </p>
-      </section>
+      <AuftrittAufnahmen
+        auftrittId={auftritt.id}
+        isEditor={editor === true}
+        startAufnahmeId={suchParameter.get("aufnahme")}
+        startSekunden={startSekunden}
+      />
     </div>
   );
 }

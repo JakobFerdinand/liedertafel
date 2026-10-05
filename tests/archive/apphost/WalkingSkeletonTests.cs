@@ -1229,6 +1229,203 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         Assert.Equal("Die Datei ist zu groß.", overLimitBody.GetProperty("title").GetString());
     }
 
+    /// <summary>
+    /// ARC-030 against real PostgreSQL and Azurite: an incompatible original
+    /// is preserved, a validated playback copy becomes what members stream
+    /// (with real range requests, as seeking needs), downloads obey the
+    /// editor's switch, and a second, independent recording of the same
+    /// event leaves the event without any performance record.
+    /// </summary>
+    [Fact]
+    public async Task ConcertRecordingRoundtripThroughRealAzuriteStorage()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+        var token = timeout.Token;
+        var builder = await DistributedApplicationTestingBuilder.CreateAsync<Projects.Archive_AppHost>(
+            ["--Archive:PersistLocalData=false", "DcpPublisher:RandomizePorts=false"],
+            (options, _) => options.DisableDashboard = false, token);
+        await using var app = await builder.BuildAsync(token);
+        await app.StartAsync(token);
+        try
+        {
+            await app.ResourceNotifications.WaitForResourceHealthyAsync("archive-api", token);
+        }
+        catch
+        {
+            var logs = app.Services.GetRequiredService<ResourceLoggerService>();
+            foreach (var name in new[] { "archive-api", "archive-storage-init" })
+                await foreach (var batch in logs.GetAllAsync(name))
+                    foreach (var line in batch) output.WriteLine($"{name}: {line.Content}");
+            throw;
+        }
+        await app.ResourceNotifications.WaitForResourceHealthyAsync("archive-frontend", token);
+
+        var commands = app.Services.GetRequiredService<ResourceCommandService>();
+        await commands.ExecuteCommandAsync("archive-migrate", "start", token);
+        await AssertSuccessfulCompletion(app.ResourceNotifications, "archive-migrate", token);
+
+        using var frontend = app.CreateHttpClient("archive-frontend", "http");
+        using var mail = app.CreateHttpClient("archive-mail", "http");
+        using var api = new HttpClient(new HttpClientHandler { UseCookies = false })
+        {
+            BaseAddress = frontend.BaseAddress,
+        };
+        using var storage = new HttpClient();
+
+        var (seedCsrfCookie, seedToken) = await GetCsrfAsync(api, null, token);
+        using var seed = new HttpRequestMessage(HttpMethod.Post, "/api/dev/auth/seed");
+        seed.Headers.Add("Cookie", seedCsrfCookie);
+        seed.Headers.Add("X-CSRF-TOKEN", seedToken);
+        seed.Content = JsonContent.Create(new { });
+        using var seedResponse = await api.SendAsync(seed, token);
+        Assert.Equal(HttpStatusCode.OK, seedResponse.StatusCode);
+
+        var editorSession = await SignInAsync(api, mail, "redaktion@liedertafel.test", token);
+        var memberSession = await SignInAsync(api, mail, "mitglied@liedertafel.test", token);
+
+        using var eventResponse = await PostJsonAsync(api, "/api/events",
+            new { kind = "concert", title = "ARC-030 Adventkonzert", dateYear = 2019 }, editorSession, token);
+        Assert.Equal(HttpStatusCode.Created, eventResponse.StatusCode);
+        var eventId = Guid.Parse((await eventResponse.Content.ReadFromJsonAsync<JsonElement>(token))
+            .GetProperty("event").GetProperty("id").GetString()!);
+        using (var publishEvent = await PostJsonAsync(api, $"/api/events/{eventId}/publish", new { }, editorSession, token))
+            Assert.Equal(HttpStatusCode.OK, publishEvent.StatusCode);
+
+        // A QuickTime original: stored and kept, not playable.
+        var video = await CreateRecordingAsync("Video Saal", "video");
+        var videoId = Guid.Parse(video.GetProperty("id").GetString()!);
+        var originalAssetId = Guid.Parse(video.GetProperty("editor").GetProperty("original")
+            .GetProperty("assetId").GetString()!);
+        var mov = new byte[2048];
+        "ftypqt  "u8.CopyTo(mov.AsSpan(4));
+        for (var i = 16; i < mov.Length; i++) mov[i] = (byte)(i % 251);
+        await TransferAndFinalizeAsync(api, storage, editorSession, originalAssetId, mov, token,
+            contentType: "video/quicktime");
+        using (var publish = await PatchJsonAsync(api, $"/api/recordings/{videoId}",
+            new { isPublished = true, downloadEnabled = true }, editorSession, token))
+        {
+            Assert.Equal(HttpStatusCode.OK, publish.StatusCode);
+            var published = (await publish.Content.ReadFromJsonAsync<JsonElement>(token)).GetProperty("recording");
+            Assert.Equal("Video Saal", published.GetProperty("label").GetString());
+            Assert.Equal("needsPlaybackCopy", published.GetProperty("playback").GetProperty("state").GetString());
+        }
+        var unplayable = await AccessAsync(videoId, memberSession);
+        Assert.Equal(JsonValueKind.Null, unplayable.GetProperty("viewUrl").ValueKind);
+        Assert.Equal("video/quicktime", unplayable.GetProperty("contentType").GetString());
+        using (var originalDownload = await storage.GetAsync(unplayable.GetProperty("downloadUrl").GetString(), token))
+        {
+            Assert.Equal(HttpStatusCode.OK, originalDownload.StatusCode);
+            Assert.Contains("attachment", originalDownload.Content.Headers.ContentDisposition?.DispositionType ?? "");
+            Assert.Equal(mov, await originalDownload.Content.ReadAsByteArrayAsync(token));
+        }
+
+        // The playback slot: a second QuickTime file is refused, a WebM passes.
+        using var slotResponse = await PostJsonAsync(api, $"/api/recordings/{videoId}/playback", new { }, editorSession, token);
+        Assert.Equal(HttpStatusCode.OK, slotResponse.StatusCode);
+        var playbackAssetId = Guid.Parse((await slotResponse.Content.ReadFromJsonAsync<JsonElement>(token))
+            .GetProperty("recording").GetProperty("editor").GetProperty("playbackCopy")
+            .GetProperty("assetId").GetString()!);
+        await TransferAndFinalizeAsync(api, storage, editorSession, playbackAssetId, mov, token,
+            expectFailure: HttpStatusCode.UnprocessableEntity, contentType: "video/mp4");
+        var webm = new byte[4096];
+        new byte[]
+        {
+            0x1A, 0x45, 0xDF, 0xA3, 0x9F, 0x42, 0x86, 0x81, 0x01, 0x42, 0xF7, 0x81, 0x01, 0x42, 0xF2, 0x81,
+            0x04, 0x42, 0xF3, 0x81, 0x08, 0x42, 0x82, 0x84, 0x77, 0x65, 0x62, 0x6D,
+        }.CopyTo(webm, 0);
+        for (var i = 64; i < webm.Length; i++) webm[i] = (byte)(i % 241);
+        // The transfer claims a wrong type; the bytes decide.
+        var (_, copyRevisionId) = await TransferAndFinalizeAsync(api, storage, editorSession, playbackAssetId,
+            webm, token, contentType: "application/octet-stream");
+
+        var playable = await AccessAsync(videoId, memberSession);
+        Assert.Equal("ready", playable.GetProperty("playbackState").GetString());
+        Assert.Equal("playbackCopy", playable.GetProperty("source").GetString());
+        Assert.Equal(copyRevisionId, Guid.Parse(playable.GetProperty("revisionId").GetString()!));
+        // Seeking is a range request against the ticket.
+        using (var range = new HttpRequestMessage(HttpMethod.Get, playable.GetProperty("viewUrl").GetString()))
+        {
+            range.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(1000, 1999);
+            using var partial = await storage.SendAsync(range, token);
+            Assert.Equal(HttpStatusCode.PartialContent, partial.StatusCode);
+            Assert.Equal("video/webm", partial.Content.Headers.ContentType?.MediaType);
+            Assert.DoesNotContain("attachment", partial.Content.Headers.ContentDisposition?.DispositionType ?? "");
+            Assert.Equal(webm[1000..2000], await partial.Content.ReadAsByteArrayAsync(token));
+        }
+        // Renewal: a second, different ticket for the same file.
+        var renewed = await AccessAsync(videoId, memberSession);
+        Assert.Equal(copyRevisionId, Guid.Parse(renewed.GetProperty("revisionId").GetString()!));
+        using (var renewedRead = await storage.GetAsync(renewed.GetProperty("viewUrl").GetString(), token))
+            Assert.Equal(webm, await renewedRead.Content.ReadAsByteArrayAsync(token));
+
+        // Downloads off: no link from the recording, none from the asset.
+        using (var lockDownloads = await PatchJsonAsync(api, $"/api/recordings/{videoId}",
+            new { downloadEnabled = false, durationSeconds = 5412.5 }, editorSession, token))
+            Assert.Equal(HttpStatusCode.OK, lockDownloads.StatusCode);
+        var locked = await AccessAsync(videoId, memberSession);
+        Assert.Equal(JsonValueKind.Null, locked.GetProperty("downloadUrl").ValueKind);
+        Assert.Equal(5412.5, locked.GetProperty("durationSeconds").GetDouble());
+        foreach (var assetId in new[] { originalAssetId, playbackAssetId })
+        {
+            using var generic = await GetAsync(api, $"/api/assets/{assetId}/access", memberSession, token);
+            Assert.Equal(HttpStatusCode.NotFound, generic.StatusCode);
+        }
+
+        // A stale form is refused by the stored version.
+        using (var stale = await PatchJsonAsync(api, $"/api/recordings/{videoId}",
+            new { label = "Veraltet", expectedVersion = 0 }, editorSession, token))
+            Assert.Equal(HttpStatusCode.Conflict, stale.StatusCode);
+
+        // A second, independent audio recording whose original plays as it is.
+        var audio = await CreateRecordingAsync("Ton Mischpult", "audio");
+        var audioId = Guid.Parse(audio.GetProperty("id").GetString()!);
+        var mp3 = "ID3"u8.ToArray().Concat(new byte[1021]).ToArray();
+        await TransferAndFinalizeAsync(api, storage, editorSession,
+            Guid.Parse(audio.GetProperty("editor").GetProperty("original").GetProperty("assetId").GetString()!),
+            mp3, token, contentType: "audio/mpeg");
+        // Unpublished: the member sees only the video.
+        using (var hidden = await GetAsync(api, $"/api/recordings/{audioId}/access", memberSession, token))
+            Assert.Equal(HttpStatusCode.NotFound, hidden.StatusCode);
+        using (var publishAudio = await PatchJsonAsync(api, $"/api/recordings/{audioId}",
+            new { isPublished = true }, editorSession, token))
+            Assert.Equal(HttpStatusCode.OK, publishAudio.StatusCode);
+
+        using var listResponse = await GetAsync(api, $"/api/events/{eventId}/recordings", memberSession, token);
+        Assert.Equal(HttpStatusCode.OK, listResponse.StatusCode);
+        var list = (await listResponse.Content.ReadFromJsonAsync<JsonElement>(token))
+            .GetProperty("recordings").EnumerateArray().ToList();
+        Assert.Equal(["Video Saal", "Ton Mischpult"], list.Select(r => r.GetProperty("label").GetString()!).ToArray());
+        Assert.Equal(["playbackCopy", "original"],
+            list.Select(r => r.GetProperty("playback").GetProperty("source").GetString()!).ToArray());
+        Assert.All(list, r => Assert.Equal(JsonValueKind.Null, r.GetProperty("editor").ValueKind));
+        var audioAccess = await AccessAsync(audioId, memberSession);
+        Assert.Equal("audio/mpeg", audioAccess.GetProperty("contentType").GetString());
+        using (var audioRead = await storage.GetAsync(audioAccess.GetProperty("viewUrl").GetString(), token))
+            Assert.Equal(mp3, await audioRead.Content.ReadAsByteArrayAsync(token));
+
+        // The event is still useful without timestamps, and nothing was
+        // recorded as performed.
+        using var eventDetail = await GetAsync(api, $"/api/events/{eventId}", memberSession, token);
+        var eventBody = (await eventDetail.Content.ReadFromJsonAsync<JsonElement>(token)).GetProperty("event");
+        Assert.Empty(eventBody.GetProperty("documents").EnumerateArray());
+        Assert.Empty(eventBody.GetProperty("performances").EnumerateArray());
+
+        async Task<JsonElement> CreateRecordingAsync(string label, string kind)
+        {
+            using var response = await PostJsonAsync(api, $"/api/events/{eventId}/recordings",
+                new { label, kind }, editorSession, token);
+            Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+            return (await response.Content.ReadFromJsonAsync<JsonElement>(token)).GetProperty("recording");
+        }
+
+        async Task<JsonElement> AccessAsync(Guid recordingId, string session)
+        {
+            using var response = await GetAsync(api, $"/api/recordings/{recordingId}/access", session, token);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            return await response.Content.ReadFromJsonAsync<JsonElement>(token);
+        }
+    }
+
     private static async Task AssertMemberChatListsPublishedSongAsync(
         HttpClient api, string memberSession, Guid songId, string songTitle,
         Guid draftId, string draftTitle, CancellationToken token)

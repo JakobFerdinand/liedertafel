@@ -412,6 +412,10 @@ test("Mitglied öffnet einen Auftritt per Direktlink; Entwürfe bleiben unfindba
   await page.route(`**/api/events/${entwurfId}`, (route) =>
     route.fulfill(problem("Der Auftritt wurde nicht gefunden.", 404)),
   );
+  // ARC-030: die Aufnahmen kommen aus ihrer eigenen Liste.
+  await page.route(`**/api/events/${konzertId}/recordings`, (route) =>
+    route.fulfill(json({ eventId: konzertId, recordings: [] })),
+  );
 
   await page.goto(`/auftritt/?id=${konzertId}`);
   await expect(

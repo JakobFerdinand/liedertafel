@@ -65,6 +65,9 @@ public sealed class ArchiveDbContext(DbContextOptions<ArchiveDbContext> options)
 	/// <summary>ARC-033: append-only history of current-revision pointer changes.</summary>
 	public DbSet<RevisionChange> RevisionChanges => Set<RevisionChange>();
 
+	/// <summary>ARC-030: whole recordings of an event, each with an original and an optional playback copy.</summary>
+	public DbSet<Recordings.Recording> Recordings => Set<Recordings.Recording>();
+
 	/// <summary>ARC-034: revision-keyed text extraction work, one row per FileRevision.</summary>
 	public DbSet<ExtractionJob> ExtractionJobs => Set<ExtractionJob>();
 

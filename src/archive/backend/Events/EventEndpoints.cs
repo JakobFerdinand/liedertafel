@@ -1,3 +1,4 @@
+using Archive.Backend.Assets;
 using Archive.Backend.Auth;
 using Archive.Backend.Data;
 using Microsoft.AspNetCore.Antiforgery;
@@ -408,7 +409,11 @@ public static class EventEndpoints
 	{
 		var assets = await db.Assets.AsNoTracking()
 			.Include(a => a.CurrentRevision)
-			.Where(a => a.EventId == eventId)
+			// ARC-030: a recording's files belong to the recording, not to
+			// the document list.
+			.Where(a => a.EventId == eventId
+				&& a.AssetType != AssetEndpoints.RecordingOriginalAssetType
+				&& a.AssetType != AssetEndpoints.RecordingPlaybackAssetType)
 			.OrderBy(a => a.CreatedAt).ThenBy(a => a.Id)
 			.ToListAsync(token);
 		return assets

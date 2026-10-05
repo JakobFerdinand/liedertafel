@@ -9,6 +9,7 @@ using Archive.Backend.Development;
 using Archive.Backend.Events;
 using Archive.Backend.Extraction;
 using Archive.Backend.Maintenance;
+using Archive.Backend.Recordings;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -279,6 +280,7 @@ app.MapSongHistoryEndpoints();
 app.MapProgrammeConfirmationEndpoints();
 app.MapChatEndpoints();
 app.MapAssetEndpoints();
+app.MapRecordingEndpoints();
 app.MapExtractionEndpoints();
 app.MapDevelopmentDiagnostics();
 

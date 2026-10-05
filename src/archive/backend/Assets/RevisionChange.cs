@@ -1,5 +1,6 @@
 using Archive.Backend.Data;
 using Archive.Backend.Extraction;
+using Archive.Backend.Recordings;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 
@@ -55,6 +56,8 @@ public sealed class RevisionChange
 /// - extraction (ARC-034) is keyed by revision, so the newly current PDF
 ///   revision gains its Queued row in the same save when it has none yet;
 ///   an existing row (and its text) is reused, never rewritten;
+/// - a recording whose file changes drops its measured duration in the same
+///   save (ARC-030); later per-file consequences for recordings hook in there;
 /// - search and other readers (ARC-035) resolve text and files through the
 ///   pointer, so eligibility follows the swap without a second signal.
 /// </summary>
@@ -80,6 +83,8 @@ public static class RevisionChanges
 		});
 		asset.CurrentRevisionId = revision.Id;
 		asset.RowVersion++;
+		if (AssetEndpoints.IsRecordingAssetType(asset.AssetType))
+			await RecordingFiles.OnCurrentFileChangedAsync(db, asset, token);
 		if (!ExtractionService.IsExtractable(asset.AssetType)
 			|| !string.Equals(revision.ContentType, AssetEndpoints.PdfContentType, StringComparison.OrdinalIgnoreCase))
 			return false;

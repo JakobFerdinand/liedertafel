@@ -628,6 +628,91 @@ The editor UI lives in `components/noten-verlauf.tsx` ("Dateistände" on a
 score entry); the file revision is called "Dateistand" throughout so it is not
 confused with the musical "Fassung".
 
+## ARC-030 whole event recordings
+
+A **recording** (`backend/Recordings/`, table `recordings`, migration
+`20261005104333_ConcertRecordings`) is labelled audio or video material about
+one event. An event may carry any number of them; creating or uploading one
+never touches the event row, a programme or a performance occurrence.
+
+Each recording has two event-owned asset slots that reuse the ARC-015
+revision and ticket contracts unchanged:
+
+- **Original** (`recording-original`): preserved whatever its format. Only an
+  empty file is refused.
+- **Playback copy** (`recording-playback`, optional): an externally converted
+  file. Finalize accepts it only if its leading bytes are a container
+  browsers play for the recording's kind — MP4/M4A, WebM, MP3 or WAV for
+  audio; MP4 or WebM for video (`backend/Recordings/RecordingFormats.cs`).
+  A refused candidate never becomes current; the earlier copy stays in place.
+
+`RecordingFiles.Resolve` decides what members play: the playback copy when it
+has a file, otherwise a playable original serving both roles as one object.
+The recognised type is stored on the revision (block-list commits carry no
+content type). This is a container check, not a decode: an MP4 with a codec a
+browser lacks passes and is then reported by the player; the editor answers
+that by adding a playback copy. There is no transcoding and no audio analysis.
+
+Endpoints (all `no-store`; mutations need the antiforgery token):
+
+- `GET /api/events/{id}/recordings` — members: published recordings of a
+  published event, otherwise the event's 404. Editors: all, with an `editor`
+  block (version, both slots with file name/type/size, `canChangeFiles`).
+- `POST /api/events/{id}/recordings` `{ label, kind }` — editor; creates the
+  recording and its empty original slot.
+- `PATCH /api/recordings/{id}` `{ label?, isPublished?, downloadEnabled?,
+  durationSeconds?, expectedVersion? }` — any editor. A stale
+  `expectedVersion` is 409 "Die Aufnahme wurde zwischenzeitlich geändert."
+  (reload); publishing without any file is a different 409 (not allowed in
+  this state, reloading does not help).
+- `POST /api/recordings/{id}/playback` — creating editor only; opens the
+  playback-copy slot, idempotent.
+- `GET /api/recordings/{id}/access` — the renewable ticket; renewal is the
+  same call again and re-reads membership, both publications and the download
+  switch. `viewUrl` is null while nothing is playable; `downloadUrl` is null
+  and **no download ticket is issued** unless an editor enabled downloads.
+
+Files are transferred with the existing upload protocol on the slot's asset
+id (`POST /api/assets/{id}/upload-session` …). File changes stay with the
+editor who created the recording (the ARC-025/ARC-033 `MayChangeCurrentFile`
+rule); labels, publication and the download switch are open to every editor.
+Members cannot reach recording files through `GET /api/assets/{id}/access`
+(404), so publication and the download switch cannot be bypassed; editors can,
+to fetch an original for conversion. The generic asset create/patch endpoints
+refuse the two recording types.
+
+Downloads default to off. Switching them off stops new download tickets; the
+streaming ticket is still a 15-minute read URL for the same object — the
+switch withholds the download link, it is not copy protection.
+
+`durationSeconds` is measured by the uploading editor's browser from the
+local file and may be null ("unknown"). It is cleared in the same save
+whenever the file members play changes (`RecordingFiles.OnCurrentFileChangedAsync`,
+called from `RevisionChanges.MakeCurrentAsync`).
+
+Frontend: `components/auftritt-aufnahmen.tsx` on `/auftritt/?id=…`, playing
+through `components/medien-spieler.tsx` — the ARC-018 player generalised to
+audio and video (`audio-spieler.tsx` is now a thin wrapper). Tickets are
+renewed before expiry with position and play state preserved, and a ticket
+that could not be renewed is dropped before it expires. Download tickets are
+fetched at click time and never kept. `/auftritt/?id=…&aufnahme=<id>&t=<seconds>`
+opens one recording at a position without starting it.
+
+For later slices:
+
+- ARC-032 keys passages on `recordings.Id`; `playback.revisionId` in the list
+  and access responses identifies the file a timestamp was taken against, and
+  `MedienSpieler` takes a `sprung` prop (`{ sekunden, marke }`) to position
+  the player.
+- ARC-040: `recordings.EventId` and both asset links are `Restrict`; member
+  visibility goes through `RecordingVisibility`, which builds on
+  `EventVisibility`.
+- ARC-041: a file is "original only" exactly when `RecordingFiles.Resolve`
+  does not return it as `Playable`; with downloads enabled and nothing
+  playable, the download ticket points at the original.
+- After applying the migration in a hosted database, run
+  `infrastructure/neon/runtime-grants.sql` as usual.
+
 ## Focused verification
 
 From the repository root:

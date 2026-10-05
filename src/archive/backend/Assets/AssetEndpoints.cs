@@ -3,6 +3,7 @@ using Archive.Backend.Catalogue;
 using Archive.Backend.Data;
 using Archive.Backend.Events;
 using Archive.Backend.Extraction;
+using Archive.Backend.Recordings;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -76,6 +77,13 @@ public static class AssetEndpoints
 
 	public const string InvalidPhotoMessage = "Die Datei ist kein gültiges Bild.";
 
+	public const string EmptyRecordingMessage = "Die Datei ist leer und kann nicht als Aufnahme gespeichert werden.";
+
+	public const string InvalidPlaybackMessage =
+		"Die Datei ist keine im Browser abspielbare Fassung. Geeignet sind MP4, WebM, MP3, M4A oder WAV, passend zur Art der Aufnahme.";
+
+	public const string RecordingAssetManagedMessage = "Dateien einer Aufnahme werden über die Aufnahme verwaltet.";
+
 	public const string StorageFailureMessage = "Speicherdienst nicht erreichbar.";
 
 	/// <summary>ARC-017: storage default for block-list commits without an explicit blob content type.</summary>
@@ -102,6 +110,12 @@ public static class AssetEndpoints
 
 	public const string PhotoAssetType = "photo";
 
+	/// <summary>ARC-030: the preserved original of an event recording, any format.</summary>
+	public const string RecordingOriginalAssetType = "recording-original";
+
+	/// <summary>ARC-030: an externally converted playback copy, validated as playable.</summary>
+	public const string RecordingPlaybackAssetType = "recording-playback";
+
 	public const string PdfContentType = "application/pdf";
 
 	public const string Mp3ContentType = "audio/mpeg";
@@ -125,7 +139,20 @@ public static class AssetEndpoints
 			[MidiAssetType] = [MidiContentType, XMidiContentType],
 			[DocumentAssetType] = [PdfContentType],
 			[PhotoAssetType] = [JpegContentType, PngContentType, WebpContentType],
+			// ARC-030: only the session's declared default; the real type
+			// of a recording file is recognised from its bytes at finalize.
+			[RecordingOriginalAssetType] = [StorageDefaultContentType],
+			[RecordingPlaybackAssetType] = [StorageDefaultContentType],
 		};
+
+	/// <summary>
+	/// ARC-030: recording files are event-owned assets, but they are created
+	/// and described only through their recording (never through the generic
+	/// create/patch endpoints, whose owner whitelists omit them), and members
+	/// reach them only through the recording's own access endpoint.
+	/// </summary>
+	public static bool IsRecordingAssetType(string assetType) =>
+		assetType is RecordingOriginalAssetType or RecordingPlaybackAssetType;
 
 	/// <summary>
 	/// ARC-025 per-owner type whitelists: musical-version assets keep the
@@ -167,6 +194,8 @@ public static class AssetEndpoints
 		MidiAssetType => InvalidMidiMessage,
 		DocumentAssetType => InvalidDocumentMessage,
 		PhotoAssetType => InvalidPhotoMessage,
+		RecordingOriginalAssetType => EmptyRecordingMessage,
+		RecordingPlaybackAssetType => InvalidPlaybackMessage,
 		_ => InvalidPdfMessage,
 	};
 
@@ -352,6 +381,8 @@ public static class AssetEndpoints
 				return Results.Problem(statusCode: 404, title: AssetNotFoundMessage);
 			if (asset.CreatedByAccountId != decision!.AccountId)
 				return Results.Problem(statusCode: 403, title: AssetOwnerMessage);
+			if (IsRecordingAssetType(asset.AssetType))
+				return Results.Problem(statusCode: 409, title: RecordingAssetManagedMessage);
 			string? assetType = null;
 			if (body?.AssetType is not null)
 			{
@@ -660,7 +691,9 @@ public static class AssetEndpoints
 				// Twelve leading bytes cover every honest format gate: the
 				// PDF prefix, the PNG signature and the WEBP "RIFF…WEBP"
 				// window at bytes 8..11. Shorter objects return what exists.
-				header = await storage.ReadHeaderAsync(session.BlobName, 12, token);
+				// ARC-030 recording containers need a longer look.
+				header = await storage.ReadHeaderAsync(session.BlobName,
+					IsRecordingAssetType(session.Asset.AssetType) ? RecordingFormats.HeaderBytes : 12, token);
 			}
 			catch (InvalidOperationException)
 			{
@@ -705,25 +738,46 @@ public static class AssetEndpoints
 				&& !string.Equals(storedType, StorageDefaultContentType, StringComparison.OrdinalIgnoreCase)
 					? storedType
 					: null;
-			var isPhoto = session.Asset.AssetType == PhotoAssetType;
 			string effectiveContentType;
-			if (storedContentType is null && isPhoto)
+			bool contentTypeValid;
+			bool magicBytesValid;
+			if (IsRecordingAssetType(session.Asset.AssetType))
 			{
-				effectiveContentType = DetectImageContentType(header) ?? string.Empty;
+				// ARC-030: the type of a recording file is what its bytes
+				// say, for the kind its recording declares. An original is
+				// preserved whatever it is (only an empty file is refused);
+				// a playback copy must be a container browsers play, or it
+				// never becomes current and the earlier copy stays in place.
+				var kind = await db.Recordings
+					.Where(r => r.OriginalAssetId == session.AssetId || r.PlaybackAssetId == session.AssetId)
+					.Select(r => r.Kind)
+					.FirstOrDefaultAsync(token);
+				var format = RecordingFormats.Detect(header, kind ?? RecordingKinds.Video);
+				effectiveContentType = format.ContentType;
+				contentTypeValid = probe.SizeBytes > 0;
+				magicBytesValid = session.Asset.AssetType == RecordingOriginalAssetType || format.Playable;
 			}
 			else
 			{
-				effectiveContentType = storedContentType ?? session.ContentType;
+				var isPhoto = session.Asset.AssetType == PhotoAssetType;
+				if (storedContentType is null && isPhoto)
+				{
+					effectiveContentType = DetectImageContentType(header) ?? string.Empty;
+				}
+				else
+				{
+					effectiveContentType = storedContentType ?? session.ContentType;
+				}
+				// Score/document keep the ARC-015 behavior: the effective type is
+				// checked against the whitelist and the %PDF- magic-bytes gate;
+				// photos must present an effective whitelisted image type with
+				// honest JPEG/PNG/WEBP magic bytes; audio/MIDI must present an
+				// effective whitelisted type and skip magic-byte validation.
+				contentTypeValid = session.Asset.AssetType is ScoreAssetType or DocumentAssetType
+					? string.Equals(effectiveContentType, PdfContentType, StringComparison.OrdinalIgnoreCase)
+					: whitelistedContentTypes.Contains(effectiveContentType, StringComparer.OrdinalIgnoreCase);
+				magicBytesValid = HasValidMagicBytes(session.Asset.AssetType, header, effectiveContentType);
 			}
-			// Score/document keep the ARC-015 behavior: the effective type is
-			// checked against the whitelist and the %PDF- magic-bytes gate;
-			// photos must present an effective whitelisted image type with
-			// honest JPEG/PNG/WEBP magic bytes; audio/MIDI must present an
-			// effective whitelisted type and skip magic-byte validation.
-			var contentTypeValid = session.Asset.AssetType is ScoreAssetType or DocumentAssetType
-				? string.Equals(effectiveContentType, PdfContentType, StringComparison.OrdinalIgnoreCase)
-				: whitelistedContentTypes.Contains(effectiveContentType, StringComparer.OrdinalIgnoreCase);
-			var magicBytesValid = HasValidMagicBytes(session.Asset.AssetType, header, effectiveContentType);
 			if (!contentTypeValid || !magicBytesValid)
 			{
 				await DeletePendingBestEffortAsync(storage, session.BlobName, token);
@@ -804,6 +858,11 @@ public static class AssetEndpoints
 				.Include(a => a.Event)
 				.FirstOrDefaultAsync(a => a.Id == id, token);
 			if (asset is null)
+				return Results.Problem(statusCode: 404, title: AssetNotFoundMessage);
+			// ARC-030: a recording's files obey the recording's publication
+			// and download switch, which only its own access endpoint
+			// applies; members get the indistinguishable 404 here.
+			if (!isEditor && IsRecordingAssetType(asset.AssetType))
 				return Results.Problem(statusCode: 404, title: AssetNotFoundMessage);
 			if (asset.Event is not null && asset.EventId is not null)
 			{
