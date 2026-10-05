@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
+import { mockLeereAufnahmen } from "./aufnahmen-mock";
 
 // ARC-031: Aufführungsgeschichte auf der Liedseite — bestätigte
 // Aufführungen und Programmangaben getrennt gezählt (mit Vorbehalt „nur
@@ -43,6 +44,7 @@ function json(body: unknown, status = 200) {
 }
 
 async function mockSitzung(page: Page, me: unknown) {
+  await mockLeereAufnahmen(page);
   await page.route("**/api/auth/me", (route) => route.fulfill(json(me)));
   await page.route("**/api/antiforgery", (route) =>
     route.fulfill(json({ token: "test" })),

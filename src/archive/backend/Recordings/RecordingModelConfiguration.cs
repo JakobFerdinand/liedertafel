@@ -8,8 +8,14 @@ public sealed class RecordingModelConfiguration : IEntityTypeConfiguration<Recor
 {
 	public void Configure(EntityTypeBuilder<Recording> builder)
 	{
-		builder.ToTable("recordings", t => t.HasCheckConstraint("CK_recordings_kind",
-			"\"Kind\" IN ('audio', 'video')"));
+		builder.ToTable("recordings", t =>
+		{
+			t.HasCheckConstraint("CK_recordings_kind", "\"Kind\" IN ('audio', 'video')");
+			// One asset cannot be both the preserved original and its own
+			// playback copy; "serves both roles" is an empty playback slot.
+			t.HasCheckConstraint("CK_recordings_slots",
+				"\"PlaybackAssetId\" IS NULL OR \"PlaybackAssetId\" <> \"OriginalAssetId\"");
+		});
 		builder.HasKey(x => x.Id);
 		builder.Property(x => x.Label).HasMaxLength(RecordingEndpoints.LabelMaxLength).IsRequired();
 		builder.Property(x => x.Kind).HasMaxLength(20).IsRequired();

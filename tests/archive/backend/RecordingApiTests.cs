@@ -223,14 +223,16 @@ public sealed partial class RecordingApiTests
 	}
 
 	private static async Task<HttpResponseMessage> UploadRawAsync(
-		AuthApiFactory factory, HttpClient client, string session, Guid assetId, byte[] content, string fileName)
+		AuthApiFactory factory, HttpClient client, string session, Guid assetId, byte[] content, string fileName,
+		FakeAssetStorage? storage = null)
 	{
+		storage ??= factory.Storage;
 		using var start = await PostJsonAsync(client, $"/api/assets/{assetId}/upload-session",
 			new { sizeBytes = content.LongLength, fileName }, session);
 		Assert.Equal(HttpStatusCode.Created, start.StatusCode);
 		var json = await start.Content.ReadFromJsonAsync<JsonElement>();
 		var sessionId = Guid.Parse(json.GetProperty("uploadSessionId").GetString()!);
-		factory.Storage.Store(factory.Storage.Find(json.GetProperty("uploadUrl").GetString()!)!.BlobName, content);
+		storage.Store(storage.Find(json.GetProperty("uploadUrl").GetString()!)!.BlobName, content);
 		return await PostJsonAsync(client, $"/api/upload-sessions/{sessionId}/finalize",
 			new { sizeBytes = content.LongLength, fileName }, session);
 	}

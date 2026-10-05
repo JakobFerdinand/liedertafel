@@ -734,6 +734,7 @@ export async function setzeUploadFort(
         ursache,
         "Die Unterbrechung konnte nicht aufgelöst werden. Bitte erneut versuchen.",
       ),
+      ursache instanceof Response ? ursache.status : null,
     );
   }
   if (optionen.signal?.aborted) {

@@ -1248,6 +1248,8 @@ namespace Archive.Backend.Data.Migrations
                     b.ToTable("recordings", null, t =>
                         {
                             t.HasCheckConstraint("CK_recordings_kind", "\"Kind\" IN ('audio', 'video')");
+
+                            t.HasCheckConstraint("CK_recordings_slots", "\"PlaybackAssetId\" IS NULL OR \"PlaybackAssetId\" <> \"OriginalAssetId\"");
                         });
                 });
 

@@ -644,6 +644,9 @@ revision and ticket contracts unchanged:
   file. Finalize accepts it only if its leading bytes are a container
   browsers play for the recording's kind — MP4/M4A, WebM, MP3 or WAV for
   audio; MP4 or WebM for video (`backend/Recordings/RecordingFormats.cs`).
+  MP4 counts only with a known audio/video brand (HEIC/AVIF stills in the
+  same container do not), MP3 only with an ID3 tag or a valid Layer III
+  frame header.
   A refused candidate never becomes current; the earlier copy stays in place.
 
 `RecordingFiles.Resolve` decides what members play: the playback copy when it
@@ -681,9 +684,25 @@ Members cannot reach recording files through `GET /api/assets/{id}/access`
 to fetch an original for conversion. The generic asset create/patch endpoints
 refuse the two recording types.
 
-Downloads default to off. Switching them off stops new download tickets; the
-streaming ticket is still a 15-minute read URL for the same object — the
-switch withholds the download link, it is not copy protection.
+Downloads default to off. Switching them off stops new download tickets, and
+the player then also sets `controlsList="nodownload"` and suppresses the
+context menu on the media element, so the browser's own "save"/"download"
+entries are not offered. The streaming ticket is still a 15-minute read URL
+for the same object — the switch withholds the download affordances, it is
+not copy protection.
+
+Storage limit (operator decision): recording files count against the
+event's collection budget together with its documents and all retained
+revisions — `Archive:Assets:MaxCollectionBytes`, 40 GiB by default. A few
+multi-gigabyte originals plus playback copies of one event reach it, and
+further uploads are then refused with 413. Decide the value for real
+concert material during large-transfer validation. The 30-second promote
+deadline for very large objects is inherited unchanged from ARC-017.
+
+The table has two checks: the kind is `audio` or `video`, and the playback
+slot never points at the original asset (`CK_recordings_slots`). The API
+additionally ignores a playback link that is not a `recording-playback`
+asset of the recording's own event.
 
 `durationSeconds` is measured by the uploading editor's browser from the
 local file and may be null ("unknown"). It is cleared in the same save
@@ -693,8 +712,12 @@ called from `RevisionChanges.MakeCurrentAsync`).
 Frontend: `components/auftritt-aufnahmen.tsx` on `/auftritt/?id=…`, playing
 through `components/medien-spieler.tsx` — the ARC-018 player generalised to
 audio and video (`audio-spieler.tsx` is now a thin wrapper). Tickets are
-renewed before expiry with position and play state preserved, and a ticket
-that could not be renewed is dropped before it expires. Download tickets are
+renewed before expiry with position and play state preserved (read at the
+moment the address is swapped). Twenty seconds before expiry the list itself
+fetches a fresh ticket if the player has none and keeps trying while the old
+one is valid; only when that fails — or the recording is no longer
+accessible — is the ticket dropped before it expires, with the position
+remembered for reopening. Download tickets are
 fetched at click time and never kept. `/auftritt/?id=…&aufnahme=<id>&t=<seconds>`
 opens one recording at a position without starting it.
 

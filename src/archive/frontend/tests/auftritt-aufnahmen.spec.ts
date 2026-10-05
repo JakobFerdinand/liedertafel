@@ -386,6 +386,23 @@ test("Mitglied sieht ein Video und hört eine Tonaufnahme desselben Auftritts", 
     }),
   ).toBeVisible();
 
+  // Herunterladen ist für das Video nicht freigegeben: auch das
+  // Medienelement selbst bietet keinen Speichern-Weg an.
+  await expect(spieler.locator("video")).toHaveAttribute(
+    "controlslist",
+    "nodownload",
+  );
+  expect(
+    await spieler.locator("video").evaluate((element) => {
+      const ereignis = new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+      });
+      element.dispatchEvent(ereignis);
+      return ereignis.defaultPrevented;
+    }),
+  ).toBe(true);
+
   // Die Tonaufnahme läuft im selben Spieler; das Video pausiert dabei.
   await ton.getByRole("button", { name: "Ton vom Mischpult anhören" }).click();
   const tonSpieler = page.getByRole("region", {
@@ -401,6 +418,21 @@ test("Mitglied sieht ein Video und hört eine Tonaufnahme desselben Auftritts", 
     spieler.getByRole("button", { name: "Gesamtmitschnitt Video abspielen" }),
   ).toBeVisible();
   expect(videoZugriffe).toBe(1);
+  // Wo das Herunterladen freigegeben ist, bleibt das Element unverändert.
+  await expect(tonSpieler.locator("audio")).not.toHaveAttribute(
+    "controlslist",
+    /.*/,
+  );
+  expect(
+    await tonSpieler.locator("audio").evaluate((element) => {
+      const ereignis = new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+      });
+      element.dispatchEvent(ereignis);
+      return ereignis.defaultPrevented;
+    }),
+  ).toBe(false);
 
   // Herunterladen holt sein Ticket im Augenblick des Klicks.
   const geladen = page.waitForRequest("https://speicher.test/ton?ticket=laden");
@@ -421,6 +453,24 @@ test("Mitglied sieht ein Video und hört eine Tonaufnahme desselben Auftritts", 
   expect(errors).toEqual([]);
 });
 
+/** Ticket einer Tonaufnahme mit bestimmter Restlaufzeit. */
+function tonTicketMit(restMs: number | null) {
+  return zugriff(tonId, {
+    kind: "audio",
+    contentType: "audio/wav",
+    ...(restMs === null
+      ? {}
+      : { expiresAt: new Date(Date.now() + restMs).toISOString() }),
+  });
+}
+
+function quelle(page: Page, element: "audio" | "video") {
+  return page.evaluate(
+    (name) => (document.querySelector(name) as HTMLMediaElement | null)?.src,
+    element,
+  );
+}
+
 test("Wiedergabe einer langen Aufnahme läuft über den Ticketablauf an derselben Stelle weiter", async ({
   page,
 }) => {
@@ -432,13 +482,9 @@ test("Wiedergabe einer langen Aufnahme läuft über den Ticketablauf an derselbe
   let zweite: string | null = null;
   await page.route(`**/api/recordings/${tonId}/access`, (route) => {
     zugriffe += 1;
-    const ticket = zugriff(tonId, {
-      kind: "audio",
-      contentType: "audio/wav",
-      ...(zugriffe === 1
-        ? { expiresAt: new Date(Date.now() + 12_000).toISOString() }
-        : {}),
-    });
+    // 66 Sekunden: der Spieler erneuert eine Minute vor Ablauf, also nach
+    // etwa sechs Sekunden Wiedergabe.
+    const ticket = tonTicketMit(zugriffe === 1 ? 66_000 : null);
     if (zugriffe > 1) zweite = ticket.viewUrl;
     dateien.set(ticket.viewUrl as string, {
       body: lang,
@@ -459,15 +505,12 @@ test("Wiedergabe einer langen Aufnahme läuft über den Ticketablauf an derselbe
   await expect
     .poll(() => position(page, "audio"), { timeout: 10_000 })
     .toBeGreaterThan(0.5);
-  // Vor dem Ablauf kommt ein frisches Ticket; dasselbe Element spielt mit
-  // der neuen Adresse weiter, ohne von vorn zu beginnen.
   await expect
     .poll(
-      async () =>
-        zweite !== null &&
-        (await page.evaluate(() => document.querySelector("audio")?.src)) ===
-          zweite,
-      { timeout: 20_000 },
+      async () => zweite !== null && (await quelle(page, "audio")) === zweite,
+      {
+        timeout: 20_000,
+      },
     )
     .toBe(true);
   // Ein Neustart von vorn käme in dieser Frist nicht über drei Sekunden.
@@ -477,58 +520,170 @@ test("Wiedergabe einer langen Aufnahme läuft über den Ticketablauf an derselbe
   expect(
     await page.evaluate(() => !document.querySelector("audio")?.paused),
   ).toBe(true);
-  // Der Spieler ist offen geblieben; nichts wurde verworfen.
+  expect(zugriffe).toBe(2);
   await expect(spieler).toBeVisible();
   await expect(page.getByText(/ist abgelaufen/)).toHaveCount(0);
 });
 
-test("Ein nicht erneuerbares Ticket wird vor seinem Ablauf verworfen", async ({
+test("Ein kurzer Ausfall beim Erneuern beendet die Tonwiedergabe nicht", async ({
   page,
 }) => {
+  test.setTimeout(90_000);
   await mockSeite(page, memberMe, () => [tonAufnahme()]);
+  const lang = wavBytes(30);
+  const dateien = new Map<string, { body: Buffer; contentType: string }>();
   let zugriffe = 0;
-  const erstes = zugriff(tonId, {
-    kind: "audio",
-    contentType: "audio/wav",
-    expiresAt: new Date(Date.now() + 12_000).toISOString(),
-  });
+  let neue: string | null = null;
   await page.route(`**/api/recordings/${tonId}/access`, (route) => {
     zugriffe += 1;
-    return zugriffe === 1
-      ? route.fulfill(json(erstes))
-      : route.fulfill(problem("Speicherdienst nicht erreichbar.", 502));
+    // Das zweite Ticket bleibt aus (Störung), das dritte kommt.
+    if (zugriffe === 2) {
+      return route.fulfill(problem("Speicherdienst nicht erreichbar.", 502));
+    }
+    const ticket = tonTicketMit(zugriffe === 1 ? 24_000 : null);
+    if (zugriffe > 2) neue = ticket.viewUrl;
+    dateien.set(ticket.viewUrl as string, {
+      body: lang,
+      contentType: "audio/wav",
+    });
+    return route.fulfill(json(ticket));
   });
-  await mockSpeicher(
-    page,
-    new Map([
-      [
-        erstes.viewUrl as string,
-        { body: wavBytes(), contentType: "audio/wav" },
-      ],
-    ]),
-  );
+  await mockSpeicher(page, dateien);
 
   await page.goto(`/auftritt/?id=${eventId}`);
   const ton = page.getByRole("article", { name: "Ton vom Mischpult" });
   await ton.getByRole("button", { name: "Ton vom Mischpult anhören" }).click();
-  await expect(
-    page.getByRole("region", { name: "Audio-Spieler · Ton vom Mischpult" }),
-  ).toBeVisible();
-  // Erneuern scheitert; noch vor dem Ablauf verschwindet der Spieler samt
-  // Ticket, und der Eintrag sagt warum.
+  const spieler = page.getByRole("region", {
+    name: "Audio-Spieler · Ton vom Mischpult",
+  });
+  await spieler
+    .getByRole("button", { name: "Ton vom Mischpult abspielen" })
+    .click();
+  await expect
+    .poll(async () => neue !== null && (await quelle(page, "audio")) === neue, {
+      timeout: 25_000,
+    })
+    .toBe(true);
+  expect(zugriffe).toBeGreaterThanOrEqual(3);
+  await expect
+    .poll(() => position(page, "audio"), { timeout: 2_000 })
+    .toBeGreaterThan(3);
+  expect(
+    await page.evaluate(() => !document.querySelector("audio")?.paused),
+  ).toBe(true);
+  await expect(spieler).toBeVisible();
+  await expect(ton.getByText(/abgelaufen/)).toHaveCount(0);
+});
+
+test("Ein angehaltenes Video behält über die Erneuerung seine Stelle", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  await mockSeite(page, memberMe, () => [aufnahme()]);
+  const dateien = new Map<string, { body: Buffer; contentType: string }>();
+  let zugriffe = 0;
+  let neue: string | null = null;
+  await page.route(`**/api/recordings/${videoId}/access`, (route) => {
+    zugriffe += 1;
+    const ticket = zugriff(
+      videoId,
+      zugriffe === 1
+        ? { expiresAt: new Date(Date.now() + 26_000).toISOString() }
+        : {},
+    );
+    if (zugriffe > 1) neue = ticket.viewUrl;
+    dateien.set(ticket.viewUrl as string, {
+      body: Buffer.from(webmBase64, "base64"),
+      contentType: "video/webm",
+    });
+    return route.fulfill(json(ticket));
+  });
+  await mockSpeicher(page, dateien);
+
+  await page.goto(`/auftritt/?id=${eventId}`);
+  await page
+    .getByRole("button", { name: "Gesamtmitschnitt Video ansehen" })
+    .click();
+  const spieler = page.getByRole("region", {
+    name: "Video-Spieler · Gesamtmitschnitt Video",
+  });
+  await expect(spieler.getByText(/^0:00 \/ 0:0[56]$/)).toBeVisible();
+  await spieler.getByLabel("Position (Gesamtmitschnitt Video)").fill("3");
+  await expect.poll(() => position(page, "video")).toBeGreaterThanOrEqual(2.9);
+  // Angehalten warten, bis die Liste vor dem Ablauf ein frisches Ticket holt.
+  await expect
+    .poll(async () => neue !== null && (await quelle(page, "video")) === neue, {
+      timeout: 25_000,
+    })
+    .toBe(true);
+  await expect(spieler.getByText(/^0:03 \/ 0:0[56]$/)).toBeVisible();
+  await expect
+    .poll(() => position(page, "video"), { timeout: 5_000 })
+    .toBeGreaterThanOrEqual(2.9);
+  expect(
+    await page.evaluate(() => document.querySelector("video")?.paused),
+  ).toBe(true);
+  await expect(page.getByText(/abgelaufen/)).toHaveCount(0);
+});
+
+test("Ein nicht erneuerbares Ticket wird vor seinem Ablauf verworfen; erneutes Öffnen setzt an der Stelle fort", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  await mockSeite(page, memberMe, () => [tonAufnahme()]);
+  const lang = wavBytes(30);
+  const dateien = new Map<string, { body: Buffer; contentType: string }>();
+  let zugriffe = 0;
+  let gestoert = true;
+  const erstes = tonTicketMit(12_000);
+  dateien.set(erstes.viewUrl as string, {
+    body: lang,
+    contentType: "audio/wav",
+  });
+  await page.route(`**/api/recordings/${tonId}/access`, (route) => {
+    zugriffe += 1;
+    if (zugriffe === 1) return route.fulfill(json(erstes));
+    if (gestoert) {
+      return route.fulfill(problem("Speicherdienst nicht erreichbar.", 502));
+    }
+    const ticket = tonTicketMit(null);
+    dateien.set(ticket.viewUrl as string, {
+      body: lang,
+      contentType: "audio/wav",
+    });
+    return route.fulfill(json(ticket));
+  });
+  await mockSpeicher(page, dateien);
+
+  await page.goto(`/auftritt/?id=${eventId}`);
+  const ton = page.getByRole("article", { name: "Ton vom Mischpult" });
+  await ton.getByRole("button", { name: "Ton vom Mischpult anhören" }).click();
+  await page
+    .getByRole("region", { name: "Audio-Spieler · Ton vom Mischpult" })
+    .getByRole("button", { name: "Ton vom Mischpult abspielen" })
+    .click();
+  // Mehrere Versuche scheitern; noch vor dem Ablauf verschwindet der
+  // Spieler samt Ticket, und der Eintrag sagt warum.
   await expect(
     ton.getByText(
-      "Der Zugriff auf die Aufnahme ist abgelaufen und konnte nicht erneuert werden. Bitte erneut öffnen.",
+      "Der Zugriff auf die Aufnahme ist abgelaufen und konnte nicht erneuert werden. Bitte erneut öffnen; die Wiedergabe setzt an derselben Stelle fort.",
     ),
-  ).toBeVisible({ timeout: 15_000 });
+  ).toBeVisible({ timeout: 20_000 });
   expect(Date.parse(erstes.expiresAt as string)).toBeGreaterThan(Date.now());
-  await expect(
-    page.getByRole("region", { name: "Audio-Spieler · Ton vom Mischpult" }),
-  ).toHaveCount(0);
-  await expect(
-    ton.getByRole("button", { name: "Ton vom Mischpult anhören" }),
-  ).toBeVisible();
-  expect(await page.evaluate(() => document.querySelector("audio"))).toBeNull();
+  expect(zugriffe).toBeGreaterThanOrEqual(3);
+  await expect(page.locator("audio")).toHaveCount(0);
+
+  // Der Dienst ist wieder da: geöffnet wird an der gemerkten Stelle,
+  // ohne von selbst loszuspielen.
+  gestoert = false;
+  await ton.getByRole("button", { name: "Ton vom Mischpult anhören" }).click();
+  await expect
+    .poll(() => position(page, "audio"), { timeout: 10_000 })
+    .toBeGreaterThan(3);
+  expect(
+    await page.evaluate(() => document.querySelector("audio")?.paused),
+  ).toBe(true);
+  await expect(ton.getByText(/abgelaufen/)).toHaveCount(0);
 });
 
 test("Fehlende Abspielfassung, nicht abspielbare Datei und leere Liste erklären sich", async ({
@@ -1168,4 +1323,269 @@ test("Fremde Aufnahme: Redaktion darf veröffentlichen, aber keine Dateien ände
   await expect(
     eintrag.getByLabel("Für Mitglieder veröffentlichen"),
   ).toBeEnabled();
+});
+
+test("Verweise mit unbrauchbaren Angaben stören nicht", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await mockSeite(page, memberMe, () => [aufnahme(), tonAufnahme()]);
+  let zugriffe = 0;
+  const dateien = new Map<string, { body: Buffer; contentType: string }>();
+  await page.route(`**/api/recordings/${tonId}/access`, (route) => {
+    zugriffe += 1;
+    const ticket = tonTicketMit(null);
+    dateien.set(ticket.viewUrl as string, {
+      body: wavBytes(),
+      contentType: "audio/wav",
+    });
+    return route.fulfill(json(ticket));
+  });
+  await mockSpeicher(page, dateien);
+  const spieler = page.getByRole("region", {
+    name: "Audio-Spieler · Ton vom Mischpult",
+  });
+
+  // Unbekannte Aufnahme: nichts öffnet sich, nichts wird gemeldet.
+  await page.goto(
+    `/auftritt/?id=${eventId}&aufnahme=00000000-0000-0000-0000-00000000dead&t=5`,
+  );
+  await expect(
+    page.getByRole("article", { name: "Ton vom Mischpult" }),
+  ).toBeVisible();
+  await expect(page.locator("audio, video")).toHaveCount(0);
+  await expect(page.locator(".aufnahmen .feld-fehler")).toHaveCount(0);
+  expect(zugriffe).toBe(0);
+
+  // Leere, unlesbare und negative Zeit: die Aufnahme öffnet sich am Anfang.
+  for (const zeit of ["", "abc", "-4"]) {
+    await page.goto(`/auftritt/?id=${eventId}&aufnahme=${tonId}&t=${zeit}`);
+    await expect(spieler.getByText(/^0:00 \/ 0:04$/)).toBeVisible();
+  }
+  // Eine Zeit hinter dem Ende beginnt vorn statt am Schluss.
+  await page.goto(`/auftritt/?id=${eventId}&aufnahme=${tonId}&t=99`);
+  await expect(spieler.getByText(/^0:00 \/ 0:04$/)).toBeVisible();
+  expect(await position(page, "audio")).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+test("Die Zeitangabe des Verweises übersteht einen gescheiterten ersten Ladeversuch", async ({
+  page,
+}) => {
+  await mockSeite(page, memberMe, () => [tonAufnahme()]);
+  let zugriffe = 0;
+  const dateien = new Map<string, { body: Buffer; contentType: string }>();
+  await page.route(`**/api/recordings/${tonId}/access`, (route) => {
+    zugriffe += 1;
+    const ticket = tonTicketMit(null);
+    // Die erste Adresse liefert der Speicherdienst nicht aus.
+    if (zugriffe > 1) {
+      dateien.set(ticket.viewUrl as string, {
+        body: wavBytes(),
+        contentType: "audio/wav",
+      });
+    }
+    return route.fulfill(json(ticket));
+  });
+  await mockSpeicher(page, dateien);
+  await page.goto(`/auftritt/?id=${eventId}&aufnahme=${tonId}&t=2`);
+  const spieler = page.getByRole("region", {
+    name: "Audio-Spieler · Ton vom Mischpult",
+  });
+  await expect(spieler.getByText(/^0:02 \/ 0:04$/)).toBeVisible({
+    timeout: 15_000,
+  });
+  expect(zugriffe).toBe(2);
+  await expect.poll(() => position(page, "audio")).toBeGreaterThanOrEqual(1.9);
+});
+
+/** Redaktionsseite mit einer Aufnahme, deren Abspielfassung noch fehlt. */
+async function mockAbspielfassungFehlt(page: Page, kopieAsset: string) {
+  const stand = aufnahme({
+    id: rohId,
+    label: "Kamera Empore",
+    durationSeconds: null,
+    playback: {
+      state: "needsPlaybackCopy",
+      source: null,
+      revisionId: null,
+      contentType: null,
+      sizeBytes: null,
+    },
+    editor: redaktion({
+      original: {
+        assetId: "00000000-0000-0000-0000-00000000b038",
+        file: datei({
+          contentType: "video/quicktime",
+          fileName: "kamera.mov",
+          playable: false,
+        }),
+      },
+      playbackCopy: { assetId: kopieAsset, file: null },
+    }),
+  });
+  await mockSeite(page, editorMe, () => [stand]);
+  await page.route(/speicher\.test\/uebertragung/, (route) =>
+    route.fulfill(json({}, 201)),
+  );
+  await page.route(`**/api/recordings/${rohId}`, (route) =>
+    route.fulfill(json({ recording: stand })),
+  );
+}
+
+/**
+ * Wählt eine Datei mit festem Änderungsdatum – die Wiedererkennung einer
+ * unterbrochenen Übertragung hängt an Name, Größe und diesem Datum.
+ */
+async function waehleDieselbeDatei(page: Page, testId: string) {
+  await page.getByTestId(testId).evaluate(
+    (element, [base64, name]) => {
+      const bytes = Uint8Array.from(atob(base64), (z) => z.charCodeAt(0));
+      const transfer = new DataTransfer();
+      transfer.items.add(
+        new File([bytes], name, {
+          type: "video/webm",
+          lastModified: 1_760_000_000_000,
+        }),
+      );
+      (element as HTMLInputElement).files = transfer.files;
+      element.dispatchEvent(new Event("change", { bubbles: true }));
+    },
+    [webmBase64, "kamera-web.webm"] as const,
+  );
+}
+
+function sitzungsAntwort(kennung: string) {
+  return json(
+    {
+      uploadSessionId: kennung,
+      blobName: null,
+      uploadUrl: `https://speicher.test/uebertragung?sig=${kennung}`,
+      expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+      maxBytes: 10737418240,
+      blockBytes: 8388608,
+    },
+    201,
+  );
+}
+
+test("Nach einer abgelehnten Datei beginnt dieselbe Datei eine frische Übertragung", async ({
+  page,
+}) => {
+  const kopieAsset = "00000000-0000-0000-0000-00000000b041";
+  await mockAbspielfassungFehlt(page, kopieAsset);
+  let sitzungen = 0;
+  await page.route(`**/api/assets/${kopieAsset}/upload-session`, (route) => {
+    sitzungen += 1;
+    return route.fulfill(sitzungsAntwort(`sitz-ablehnung-${sitzungen}`));
+  });
+  let erneuerungen = 0;
+  await page.route("**/api/upload-sessions/*/renew", (route) => {
+    erneuerungen += 1;
+    return route.fulfill(problem("Upload wurde abgebrochen.", 409));
+  });
+  const abschluesse: string[] = [];
+  await page.route("**/api/upload-sessions/*/finalize", (route) => {
+    const kennung = new URL(route.request().url()).pathname.split("/")[3];
+    abschluesse.push(kennung);
+    // Die erste Prüfung lehnt ab und beendet ihre Sitzung endgültig.
+    return kennung === "sitz-ablehnung-1"
+      ? route.fulfill(
+          problem(
+            "Die Datei ist keine im Browser abspielbare Fassung. Geeignet sind MP4, WebM, MP3, M4A oder WAV, passend zur Art der Aufnahme.",
+            422,
+          ),
+        )
+      : route.fulfill(
+          json({
+            assetId: kopieAsset,
+            revisionId: "00000000-0000-0000-0000-00000000f041",
+            revisionNumber: 1,
+            contentType: "video/webm",
+            sizeBytes: 1573,
+            createdAt: "2026-10-05T10:00:00.000Z",
+          }),
+        );
+  });
+
+  await page.goto(`/auftritt/?id=${eventId}`);
+  const eintrag = page.getByRole("article", { name: "Kamera Empore" });
+  const wahl = `aufnahme-datei-abspielfassung-${rohId}`;
+  await waehleDieselbeDatei(page, wahl);
+  await expect(eintrag.getByText("kamera-web.webm: gescheitert")).toBeVisible();
+  // Nichts bleibt als „unterbrochen“ gemerkt.
+  await expect(eintrag.getByText(/wurde unterbrochen/)).toHaveCount(0);
+  expect(
+    await page.evaluate(
+      (schluessel) => window.localStorage.getItem(schluessel),
+      `arc-upload-${kopieAsset}`,
+    ),
+  ).toBeNull();
+
+  await waehleDieselbeDatei(page, wahl);
+  await expect(
+    page.getByText("Abspielfassung für „Kamera Empore“ gespeichert."),
+  ).toBeVisible({ timeout: 20_000 });
+  expect(sitzungen).toBe(2);
+  expect(erneuerungen).toBe(0);
+  expect(abschluesse).toEqual(["sitz-ablehnung-1", "sitz-ablehnung-2"]);
+});
+
+test("Eine gemerkte, serverseitig beendete Übertragung weicht einer frischen Sitzung", async ({
+  page,
+}) => {
+  const kopieAsset = "00000000-0000-0000-0000-00000000b042";
+  const inhalt = Buffer.from(webmBase64, "base64");
+  await mockAbspielfassungFehlt(page, kopieAsset);
+  await page.addInitScript(
+    ([schluessel, groesse]) => {
+      window.localStorage.setItem(
+        schluessel as string,
+        JSON.stringify({
+          uploadSessionId: "sitz-alt",
+          fileName: "kamera-web.webm",
+          sizeBytes: groesse,
+          lastModified: 1_760_000_000_000,
+          blockBytes: 8388608,
+        }),
+      );
+    },
+    [`arc-upload-${kopieAsset}`, inhalt.length] as const,
+  );
+  const erneuerungen: string[] = [];
+  await page.route("**/api/upload-sessions/*/renew", (route) => {
+    erneuerungen.push(new URL(route.request().url()).pathname.split("/")[3]);
+    return route.fulfill(problem("Upload wurde abgebrochen.", 409));
+  });
+  let sitzungen = 0;
+  await page.route(`**/api/assets/${kopieAsset}/upload-session`, (route) => {
+    sitzungen += 1;
+    return route.fulfill(sitzungsAntwort("sitz-frisch"));
+  });
+  await page.route("**/api/upload-sessions/sitz-frisch/finalize", (route) =>
+    route.fulfill(
+      json({
+        assetId: kopieAsset,
+        revisionId: "00000000-0000-0000-0000-00000000f042",
+        revisionNumber: 1,
+        contentType: "video/webm",
+        sizeBytes: 1573,
+        createdAt: "2026-10-05T10:00:00.000Z",
+      }),
+    ),
+  );
+
+  await page.goto(`/auftritt/?id=${eventId}`);
+  const eintrag = page.getByRole("article", { name: "Kamera Empore" });
+  await expect(
+    eintrag.getByText(
+      "Die Übertragung von „kamera-web.webm“ wurde unterbrochen. Dieselbe Datei erneut wählen, um sie fortzusetzen.",
+    ),
+  ).toBeVisible();
+  await waehleDieselbeDatei(page, `aufnahme-datei-abspielfassung-${rohId}`);
+  await expect(
+    page.getByText("Abspielfassung für „Kamera Empore“ gespeichert."),
+  ).toBeVisible({ timeout: 20_000 });
+  // Ein Versuch, die alte Sitzung fortzusetzen, dann die frische.
+  expect(erneuerungen).toEqual(["sitz-alt"]);
+  expect(sitzungen).toBe(1);
 });

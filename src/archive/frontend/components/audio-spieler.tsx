@@ -34,6 +34,7 @@ export function AudioSpieler({
       onAbspielen={onAbspielen}
       onErneuert={onErneuert}
       ladeMeldung="Audio konnte nicht geladen werden. Bitte erneut versuchen."
+      herunterladenErlaubt
       formatMeldung="Dieses Audioformat kann im Browser nicht wiedergegeben werden. Die Datei kann weiterhin heruntergeladen werden."
     />
   );

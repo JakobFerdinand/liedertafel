@@ -177,15 +177,106 @@ Notes and limits of this verification:
   playable until an editor adds a playback copy.
 - The download switch withholds the download link; the streaming ticket is
   still a 15-minute read URL for the same object.
-- Recording files count against the event's `MaxCollectionBytes` (40 GiB by
-  default) together with its documents; several 10 GB originals of one event
-  reach it and are refused with 413.
+- Recording files count against the event's collection budget
+  (`Archive:Assets:MaxCollectionBytes`, 40 GiB by default) together with its
+  documents and all retained revisions; several multi-gigabyte originals of
+  one event reach it and are refused with 413. The value is an operator
+  decision for large-transfer validation (stated in the README).
 - The upload ticket is not renewed during a transfer by the shared engine.
   The recordings section resumes automatically with a renewed ticket when a
   transfer breaks after progress; this path is only reasoned, not tested
   with a large file (large-transfer validation is a separate consumer).
-- Event specs that do not mock `GET /api/events/{id}/recordings` now show
-  the section's load-failure message; they still pass.
+- A stale-state 409 discards the small recording form (label and two
+  switches) and reloads, by the existing convention; only "not allowed in
+  this state" keeps the input.
+- Races are reasoned, not provoked on PostgreSQL: finalize against a
+  concurrent PATCH (both bump the recording's version; the loser answers
+  409 and is retryable) and two simultaneous `/playback` calls (unique index
+  on `PlaybackAssetId`, loser 409).
+- H.264/MP4 playback, real long files and behaviour on phones are unverified
+  until pilot devices are available.
+- The 30-second promote deadline for objects near 10 GB is inherited from
+  ARC-017 unchanged.
+
+## Review follow-up (2026-10-05)
+
+An independent review of `83e1436` found no data exposure and no regression
+in the shared asset code, one blocking item and ten findings. Changes:
+
+- **B1** With downloads off, the player sets `controlsList="nodownload"` on
+  the media element and suppresses its context menu
+  (`MedienSpieler` prop `herunterladenErlaubt`); picture-in-picture is left
+  alone. Still not copy protection.
+- **N1** A terminally refused transfer (422, 413, terminal 409) forgets its
+  remembered upload session; a remembered session whose renewal answers
+  409/404 gives way to one fresh session. A lost concurrency finalize keeps
+  its session, and the engine's retry-once in `lib/assets.ts` is untouched
+  (the only change there: a failed renewal now carries its HTTP status).
+- **N2** Twenty seconds before expiry the list fetches a fresh ticket itself
+  and retries every five seconds while the old one is valid. The player
+  continues at the same position. Only when that fails (or the recording is
+  gone) is the ticket dropped, five seconds before expiry, with the position
+  remembered; reopening continues there. The timer now always reschedules.
+- **N3** "außerhalb" in the copy; comments in the touched files checked.
+- **N4** Position and play state are read when the address is swapped, not
+  when the ticket is requested; a seek during the swap applies to the new
+  address.
+- **N5** A pending jump survives a failed first load. An unknown `aufnahme`
+  id is ignored; an empty, unreadable or negative `t` opens at the start; a
+  `t` beyond the end starts at the beginning.
+- **N6** MP4 counts only with a known audio/video brand (HEIC/AVIF and
+  unknown brands do not; `M4A `/`M4B ` are audio only); MP3 needs an ID3 tag
+  or a valid Layer III frame header (a UTF-16 byte order mark does not
+  pass); an empty recording file is refused from its size, without a read.
+- **N7** Check constraint `CK_recordings_slots` (playback slot is never the
+  original asset), added by amending the unapplied migration
+  `20261005104333_ConcertRecordings` and the snapshot. The API ignores a
+  playback link that is not a `recording-playback` asset of the recording's
+  event, and finalize accepts a recording file only in the slot its type
+  names.
+- **N8** A PATCH without an effective change answers 200 without moving the
+  version or `UpdatedAt`.
+- **N9** `tests/aufnahmen-mock.ts` gives the other event specs an empty
+  recordings list; the real load-failure state keeps its own test. With the
+  list now loading there, the "Aufnahme hinzufügen" disclosure collided with
+  a selector of the documents spec, so it got its own class
+  (`aufnahme-anlegen`) in the shared disclosure styles.
+- **N10** Backend test for restoring an earlier playback copy.
+
+| Command | Result |
+| --- | --- |
+| `dotnet build src/archive/Archive.slnx` | succeeded, 0 errors |
+| `dotnet test tests/archive/backend` | 526 passed, 0 failed, 0 skipped (520 + 6 new) |
+| `dotnet ef migrations has-pending-model-changes --project backend` | "No changes have been made to the model since the last migration." |
+| `corepack pnpm run check` | passed |
+| `corepack pnpm run build` | passed |
+| `ARCHIVE_BASE_URL=http://localhost:3130 corepack pnpm exec playwright test tests/auftritt-aufnahmen.spec.ts tests/audio-wiedergabe.spec.ts tests/auftritte.spec.ts tests/auftritt-dokumente.spec.ts tests/auftritt-belege.spec.ts tests/auftritt-bestaetigung.spec.ts tests/programm.spec.ts tests/noten-verlauf.spec.ts tests/extraktion.spec.ts tests/lied-historie.spec.ts --workers=1` | 214 passed |
+| same without `extraktion` and `lied-historie`, one build earlier | 6 failed: three `auftritt-dokumente.spec.ts` tests on both projects, because `details.material-verwaltung` matched two elements once the recordings list loaded there; fixed by the class above |
+| `dotnet test tests/archive/apphost --filter "FullyQualifiedName~ConcertRecording"` | 1 passed (2 m 44 s), amended migration applied to real PostgreSQL |
+
+Seen failing before the fix:
+
+- Backend (`RecordingApiTests.Review.cs`, 6 tests): five failed first —
+  brand/byte-order-mark recognition, the HEIC/AVIF playback copy, the empty
+  file without a read, the unchanged PATCH, the foreign playback link. The
+  restore test (N10) passed on first run; it pins existing behaviour.
+- Browser (`auftritt-aufnahmen.spec.ts`, now 18 scenarios): run against the
+  previous build, seven failed — the `controlsList` assertion, the renewal
+  blip, drop-and-reopen at the remembered position, both deep-link cases,
+  and both upload-retry cases. "Paused video keeps its position" already
+  passed on the previous build (the player's own renewal covers it); it
+  stays as a regression test.
+
+Limits of the follow-up verification:
+
+- Ticket lifetimes in the browser tests are short real lifetimes (12–66
+  seconds), not a mocked clock; the 15-minute case is the same code path
+  with other numbers.
+- The seek-during-renewal fix (N4) is covered by the position checks around
+  a swap, not by a test that seeks at the exact moment of the swap.
+- The new check constraint was applied to PostgreSQL by the Aspire test;
+  no test tries to violate it there.
+- The full WalkingSkeleton class and the full browser suite were not rerun.
 
 ## Handoff
 

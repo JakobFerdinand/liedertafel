@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
+import { mockLeereAufnahmen } from "./aufnahmen-mock";
 
 const editorMe = {
   authenticated: true,
@@ -117,6 +118,7 @@ function detail(dokumente: unknown[] = []) {
 }
 
 async function mockSitzung(page: Page, me: unknown) {
+  await mockLeereAufnahmen(page);
   await page.route("**/api/auth/me", (route) => route.fulfill(json(me)));
   await page.route("**/api/antiforgery", (route) =>
     route.fulfill(json({ token: "test" })),

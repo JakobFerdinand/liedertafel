@@ -50,6 +50,15 @@ export type MedienSpielerProps<Zugriff extends SpielerZugriff> = {
    * (Verweis mit Zeitangabe) und bei jeder neuen Marke (ARC-032).
    */
   sprung?: SpielerSprung;
+  /**
+   * Darf die Datei heruntergeladen werden? Wenn nicht, bietet auch das
+   * Medienelement selbst keinen Speichern-Weg an (Kontextmenü, „Download“
+   * der Browser-Bedienung im Vollbild). Das ist kein Kopierschutz: die
+   * Adresse bleibt ein zeitlich begrenztes Lese-Ticket.
+   */
+  herunterladenErlaubt: boolean;
+  /** Meldet die aktuelle Position, damit der Aufrufer sie sich merken kann. */
+  onPosition?: (sekunden: number) => void;
 };
 
 export function MedienSpieler<Zugriff extends SpielerZugriff>({
@@ -64,6 +73,8 @@ export function MedienSpieler<Zugriff extends SpielerZugriff>({
   ladeMeldung,
   formatMeldung,
   sprung,
+  herunterladenErlaubt,
+  onPosition,
 }: MedienSpielerProps<Zugriff>) {
   const LadeFehler: SpielerFehler = { art: "laden", meldung: ladeMeldung };
   const stimme = name;
@@ -86,6 +97,8 @@ export function MedienSpieler<Zugriff extends SpielerZugriff>({
   ladeMeldungRef.current = ladeMeldung;
   // Ein Sprung, den die Datei noch nicht ausführen konnte.
   const offenerSprungRef = useRef<number | null>(null);
+  const onPositionRef = useRef(onPosition);
+  onPositionRef.current = onPosition;
   const [vollbild, setVollbild] = useState(false);
   const setzeMedium = useCallback((element: HTMLMediaElement | null) => {
     audioRef.current = element;
@@ -96,23 +109,30 @@ export function MedienSpieler<Zugriff extends SpielerZugriff>({
   const [dauer, setDauer] = useState<number | null>(null);
   const [lautstaerke, setLautstaerke] = useState(1);
   const [fehler, setFehler] = useState<SpielerFehler | null>(null);
-  // Die Ticket-URL wird erst nach dem Mount gesetzt: servergerendertes
-  // Audio lädt sofort und kann Fehler feuern, bevor React die Behandler
-  // angehängt hat.
-  const [eingehaengt, setEingehaengt] = useState(false);
 
+  // Die Ticket-Adresse setzt der Spieler selbst, nach dem Einhängen (die
+  // Behandler hängen dann schon) und bei jedem neuen Ticket. Position und
+  // Wiedergabezustand werden im Augenblick des Wechsels gelesen – nicht
+  // beim Anfordern des Tickets –, damit ein Suchen während der Erneuerung
+  // gilt. Ein noch nicht ausgeführter Sprung oder ein noch nicht
+  // abgeschlossener früherer Wechsel bleibt dabei das Ziel.
+  const adresse = zugriff.viewUrl;
   useEffect(() => {
-    setEingehaengt(true);
-  }, []);
+    const medium = audioRef.current;
+    if (!medium || medium.getAttribute("src") === adresse) return;
+    if (medium.getAttribute("src")) {
+      const offen = fortsetzenRef.current;
+      fortsetzenRef.current = {
+        position:
+          offen?.position ?? offenerSprungRef.current ?? medium.currentTime,
+        wiedergabe: offen?.wiedergabe ?? wiedergabeRef.current,
+      };
+      offenerSprungRef.current = null;
+    }
+    medium.src = adresse;
+  }, [adresse]);
 
   const erneuern = useCallback(async (hintergrund: boolean) => {
-    const audio = audioRef.current;
-    if (audio) {
-      fortsetzenRef.current = {
-        position: audio.currentTime,
-        wiedergabe: wiedergabeRef.current,
-      };
-    }
     try {
       const neu = await holeZugriffRef.current();
       onErneuertRef.current(neu);
@@ -129,6 +149,20 @@ export function MedienSpieler<Zugriff extends SpielerZugriff>({
     }
   }, []);
 
+  // Stellt eine Position ein. Ein Ziel hinter dem Ende der Datei (alter
+  // Verweis, kürzere Abspielfassung) beginnt vorn statt am Schluss.
+  const geheZu = useCallback((medium: HTMLMediaElement, ziel: number) => {
+    const ende = medium.duration;
+    const start = Number.isFinite(ende) && ziel >= ende ? 0 : ziel;
+    try {
+      medium.currentTime = start;
+    } catch {
+      // Nicht suchbar: Wiedergabe startet vorn.
+    }
+    setPosition(start);
+    onPositionRef.current?.(start);
+  }, []);
+
   // Angeforderte Position: sofort, wenn die Datei ihre Länge kennt, sonst
   // mit den Metadaten.
   const sprungSekunden = sprung?.sekunden;
@@ -140,16 +174,17 @@ export function MedienSpieler<Zugriff extends SpielerZugriff>({
     }
     const ziel = Math.max(0, sprungSekunden);
     const medium = audioRef.current;
-    if (medium && medium.readyState >= 1) {
-      medium.currentTime = ziel;
-      setPosition(ziel);
+    if (medium && medium.readyState >= 1 && fortsetzenRef.current === null) {
+      geheZu(medium, ziel);
+    } else if (fortsetzenRef.current) {
+      fortsetzenRef.current.position = ziel;
     } else {
       offenerSprungRef.current = ziel;
     }
-  }, [sprungSekunden, sprungMarke]);
+  }, [sprungSekunden, sprungMarke, geheZu]);
 
   // Im Vollbild trägt der Browser die Bedienung; die eigenen Regler liegen
-  // dann ausserhalb des sichtbaren Bereichs.
+  // dann außerhalb des sichtbaren Bereichs.
   useEffect(() => {
     if (art !== "video") return;
     function beiWechsel() {
@@ -190,7 +225,11 @@ export function MedienSpieler<Zugriff extends SpielerZugriff>({
 
   function beiZeit() {
     const audio = audioRef.current;
-    if (audio) setPosition(audio.currentTime);
+    // Während ein Ticketwechsel lädt, steht das Element kurz auf null; die
+    // gemerkte Position bleibt die Wahrheit.
+    if (!audio || fortsetzenRef.current) return;
+    setPosition(audio.currentTime);
+    onPositionRef.current?.(audio.currentTime);
   }
 
   function beiMetadaten() {
@@ -202,31 +241,18 @@ export function MedienSpieler<Zugriff extends SpielerZugriff>({
     fortsetzenRef.current = null;
     const offenerSprung = offenerSprungRef.current;
     offenerSprungRef.current = null;
-    if (offenerSprung !== null && !fortsetzen) {
-      try {
-        audio.currentTime = offenerSprung;
-        setPosition(offenerSprung);
-      } catch {
-        // Position jenseits der Datei: Wiedergabe startet vorn.
-      }
-    }
-    if (fortsetzen) {
-      try {
-        audio.currentTime = fortsetzen.position;
-      } catch {
-        // Position jenseits der neuen Datei: Wiedergabe startet vorn.
-      }
-      if (fortsetzen.wiedergabe) {
-        void audio.play().catch(() => {
-          // Ohne neuerliche Nutzergeste entscheidet der Abspielknopf.
-        });
-      }
+    const ziel = fortsetzen?.position ?? offenerSprung;
+    if (ziel !== null && ziel !== undefined) geheZu(audio, ziel);
+    if (fortsetzen?.wiedergabe) {
+      void audio.play().catch(() => {
+        // Ohne neuerliche Nutzergeste entscheidet der Abspielknopf.
+      });
     }
   }
 
   async function beiFehler() {
     // Abgelaufene Tickets, Netzwerkfehler und nicht dekodierbare Originale
-    // äussern sich alle als Ladefehler: erst einmal still erneuern und an
+    // äußern sich alle als Ladefehler: erst einmal still erneuern und an
     // derselben Position weiterspielen.
     if (!stillerVersuchRef.current) {
       stillerVersuchRef.current = true;
@@ -283,8 +309,11 @@ export function MedienSpieler<Zugriff extends SpielerZugriff>({
   }
 
   const medienEreignisse = {
-    src: eingehaengt ? zugriff.viewUrl : undefined,
     preload: "metadata" as const,
+    controlsList: herunterladenErlaubt ? undefined : "nodownload",
+    onContextMenu: herunterladenErlaubt
+      ? undefined
+      : (ereignis: React.MouseEvent) => ereignis.preventDefault(),
     onPlay: beiWiedergabeStart,
     onPause: beiWiedergabeStopp,
     onEnded: beiWiedergabeStopp,
@@ -354,7 +383,10 @@ export function MedienSpieler<Zugriff extends SpielerZugriff>({
           onChange={(ereignis) => {
             const wert = Number(ereignis.target.value);
             setPosition(wert);
-            if (audioRef.current) audioRef.current.currentTime = wert;
+            onPositionRef.current?.(wert);
+            // Lädt gerade ein erneuertes Ticket, gilt die neue Wahl dort.
+            if (fortsetzenRef.current) fortsetzenRef.current.position = wert;
+            else if (audioRef.current) audioRef.current.currentTime = wert;
           }}
         />
         <label

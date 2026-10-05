@@ -173,23 +173,32 @@ public static class RecordingEndpoints
 			var files = RecordingFiles.Resolve(recording);
 			if (body?.IsPublished == true && recording.PublishedAt is null && files.State == RecordingFiles.Missing)
 				return Results.Problem(statusCode: 409, title: NotPublishableMessage);
+			// A request that changes nothing leaves version and stamps alone,
+			// so repeating a save never invalidates someone else's form.
+			var relabel = body?.Label is not null && label != recording.Label;
+			var publish = body?.IsPublished == true && recording.PublishedAt is null;
+			var withdraw = body?.IsPublished == false && recording.PublishedAt is not null;
+			var switchDownload = body?.DownloadEnabled is { } wanted && wanted != recording.DownloadEnabled;
+			var measure = body?.DurationSeconds is { } measured && measured != recording.DurationSeconds;
+			if (!(relabel || publish || withdraw || switchDownload || measure))
+				return Results.Ok(new { recording = Payload(recording, decision!, isEditor: true) });
 			var now = time.GetUtcNow();
-			if (body?.Label is not null)
+			if (relabel)
 				recording.Label = label;
-			if (body?.IsPublished == true && recording.PublishedAt is null)
+			if (publish)
 			{
 				recording.PublishedAt = now;
 				recording.PublishedByAccountId = decision!.AccountId;
 			}
-			else if (body?.IsPublished == false)
+			else if (withdraw)
 			{
 				recording.PublishedAt = null;
 				recording.PublishedByAccountId = null;
 			}
-			if (body?.DownloadEnabled is { } downloadEnabled)
-				recording.DownloadEnabled = downloadEnabled;
-			if (body?.DurationSeconds is { } seconds)
-				recording.DurationSeconds = seconds;
+			if (switchDownload)
+				recording.DownloadEnabled = body!.DownloadEnabled!.Value;
+			if (measure)
+				recording.DurationSeconds = body!.DurationSeconds;
 			recording.UpdatedAt = now;
 			recording.UpdatedByAccountId = decision!.AccountId;
 			recording.RowVersion++;
@@ -229,7 +238,7 @@ public static class RecordingEndpoints
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
 			if (recording.CreatedByAccountId != decision!.AccountId)
 				return Results.Problem(statusCode: 403, title: FilesOwnerMessage);
-			if (recording.PlaybackAsset is null)
+			if (RecordingFiles.PlaybackSlot(recording) is null)
 			{
 				var now = time.GetUtcNow();
 				var copy = new ArchiveAsset
@@ -356,9 +365,9 @@ public static class RecordingEndpoints
 					canChangeFiles = recording.CreatedByAccountId == decision.AccountId,
 					publishedAt = recording.PublishedAt,
 					original = SlotPayload(recording.OriginalAsset, recording.Kind),
-					playbackCopy = recording.PlaybackAsset is null
-						? null
-						: SlotPayload(recording.PlaybackAsset, recording.Kind),
+					playbackCopy = RecordingFiles.PlaybackSlot(recording) is { } copySlot
+						? SlotPayload(copySlot, recording.Kind)
+						: null,
 				},
 		};
 	}
@@ -438,10 +447,25 @@ public sealed record RecordingFiles(string State, string? Source, FileRevision? 
 
 	public const string PlaybackCopySource = "playbackCopy";
 
+	/// <summary>
+	/// The playback-copy slot, or null when there is none. The link only
+	/// counts when it points at a playback asset of the recording's own
+	/// event and not at the original; anything else is treated as absent, so
+	/// a wrong link can never hand out another owner's file. The database
+	/// check <c>CK_recordings_slots</c> rules out the original itself.
+	/// </summary>
+	public static ArchiveAsset? PlaybackSlot(Recording recording) =>
+		recording.PlaybackAsset is { } asset
+			&& asset.AssetType == AssetEndpoints.RecordingPlaybackAssetType
+			&& asset.EventId == recording.EventId
+			&& asset.Id != recording.OriginalAssetId
+				? asset
+				: null;
+
 	/// <summary>Requires both asset slots loaded with their current revisions.</summary>
 	public static RecordingFiles Resolve(Recording recording)
 	{
-		var copy = recording.PlaybackAsset?.CurrentRevision;
+		var copy = PlaybackSlot(recording)?.CurrentRevision;
 		var original = recording.OriginalAsset.CurrentRevision;
 		if (copy is not null && RecordingFormats.IsPlayable(copy.ContentType, recording.Kind))
 			return new RecordingFiles(Ready, PlaybackCopySource, copy, null);
@@ -467,7 +491,7 @@ public sealed record RecordingFiles(string State, string? Source, FileRevision? 
 			.FirstOrDefaultAsync(r => r.OriginalAssetId == asset.Id || r.PlaybackAssetId == asset.Id, token);
 		if (recording is null || recording.DurationSeconds is null)
 			return;
-		var copyPlays = recording.PlaybackAsset?.CurrentRevisionId is not null;
+		var copyPlays = PlaybackSlot(recording)?.CurrentRevisionId is not null;
 		if (recording.OriginalAssetId == asset.Id && copyPlays)
 			return;
 		recording.DurationSeconds = null;

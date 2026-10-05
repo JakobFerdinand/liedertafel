@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
+import { mockLeereAufnahmen } from "./aufnahmen-mock";
 
 // ARC-029: tatsächlich gesungenes Programm — der Lesesaal der Mitglieder
 // (Plan und Aufführung getrennt, abweichende Fassung, Zugabe, ausgefallene
@@ -58,6 +59,7 @@ function problem(title: string, status: number) {
 }
 
 async function mockSitzung(page: Page, me: unknown) {
+  await mockLeereAufnahmen(page);
   await page.route("**/api/auth/me", (route) => route.fulfill(json(me)));
   await page.route("**/api/antiforgery", (route) =>
     route.fulfill(json({ token: "test" })),

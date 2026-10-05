@@ -43,8 +43,24 @@ import {
   patchAufnahme,
 } from "@/lib/aufnahmen";
 
+/**
+ * So lange vor dem Ablauf sorgt die Liste selbst für ein frisches Ticket,
+ * falls der Spieler (der schon früher erneuert) keines bekommen hat.
+ */
+const SichernVorlaufMs = 20_000;
+
+/** Abstand der weiteren Versuche, solange das alte Ticket noch gilt. */
+const SichernWiederholungMs = 5_000;
+
 /** Ein Ticket wird verworfen, bevor es abläuft – nie danach. */
 const VerwerfenVorlaufMs = 5_000;
+
+/** Upload-Abschlüsse mit 409, nach denen die Sitzung weiter brauchbar ist. */
+const WiederholbareAbschluesse = [
+  "Der Eintrag wurde zwischenzeitlich geändert.",
+  "Die Datei passt nicht zur bestehenden Uploadsitzung.",
+  "Die Datei wurde noch nicht übertragen.",
+];
 
 const LadeErsatz =
   "Die Aufnahme konnte nicht geladen werden. Bitte erneut versuchen.";
@@ -52,7 +68,7 @@ const LadeErsatz =
 const SpeicherErsatz = "Das hat nicht geklappt. Bitte erneut versuchen.";
 
 const UebertragErsatz =
-  "Die Übertragung ist gescheitert. Dieselbe Datei erneut wählen, um fortzusetzen.";
+  "Die Übertragung ist gescheitert. Bitte die Datei erneut wählen.";
 
 type Platz = "original" | "abspielfassung";
 
@@ -184,38 +200,121 @@ export function AuftrittAufnahmen({
     return () => abbruch.abort();
   }, [laden]);
 
-  const schliessen = useCallback((id: string) => {
+  // Positionen der offenen Spieler (laufend gemeldet) und die Stelle, an
+  // der eine verworfene Wiedergabe beim erneuten Öffnen weitergeht.
+  const positionen = useRef(new Map<string, number>());
+  const [wiederaufnahme, setWiederaufnahme] = useState<
+    Record<string, { sekunden: number; marke: number }>
+  >({});
+  const zugriffeRef = useRef(zugriffe);
+  zugriffeRef.current = zugriffe;
+  const sicherungen = useRef(new Set<string>());
+  const naechsterVersuch = useRef(new Map<string, number>());
+  const [takt, setTakt] = useState(0);
+
+  const entfernen = useCallback((id: string) => {
     setZugriffe((vorher) => {
       const { [id]: _weg, ...rest } = vorher;
       return rest;
     });
     setSpielend((vorher) => (vorher === id ? null : vorher));
+    naechsterVersuch.current.delete(id);
   }, []);
 
-  // Kein Ticket überlebt seinen Ablauf im Speicher der Seite: der Spieler
-  // erneuert vorher; gelingt das nicht, wird das Ticket rechtzeitig
-  // verworfen und der Eintrag sagt, warum die Wiedergabe endete.
+  // Von Hand geschlossen: die nächste Wiedergabe beginnt wie gewohnt.
+  const schliessen = useCallback(
+    (id: string) => {
+      entfernen(id);
+      positionen.current.delete(id);
+      setWiederaufnahme((vorher) => {
+        const { [id]: _weg, ...rest } = vorher;
+        return rest;
+      });
+    },
+    [entfernen],
+  );
+
+  // Sorgt vor dem Ablauf für ein frisches Ticket. Gelingt es, spielt der
+  // Spieler an derselben Stelle mit der neuen Adresse weiter. Scheitert es,
+  // wird weiter versucht, solange das alte Ticket noch gilt; erst dann –
+  // oder wenn die Aufnahme nicht mehr zugänglich ist – wird das Ticket
+  // verworfen, die Stelle gemerkt und der Grund gesagt.
+  const sichern = useCallback(
+    async (id: string) => {
+      if (sicherungen.current.has(id)) return;
+      sicherungen.current.add(id);
+      try {
+        const neu = await holeSpielZugriff(id);
+        if (neu === null) throw new Response(null, { status: 404 });
+        naechsterVersuch.current.delete(id);
+        setZugriffe((vorher) =>
+          vorher[id] ? { ...vorher, [id]: neu } : vorher,
+        );
+      } catch (ursache) {
+        const aktuell = zugriffeRef.current[id];
+        if (!aktuell) return;
+        const rest = restlaufzeitMs(aktuell.expiresAt);
+        // Der Spieler war inzwischen selbst erfolgreich.
+        if (rest > SichernVorlaufMs) return;
+        const status = ursache instanceof Response ? ursache.status : 0;
+        const endgueltig = status === 404 || status === 401;
+        if (!endgueltig && rest > VerwerfenVorlaufMs + 1_000) {
+          naechsterVersuch.current.set(
+            id,
+            Date.now() +
+              Math.min(SichernWiederholungMs, rest - VerwerfenVorlaufMs),
+          );
+          return;
+        }
+        const stelle = positionen.current.get(id);
+        if (stelle !== undefined && stelle > 0) {
+          setWiederaufnahme((vorher) => ({
+            ...vorher,
+            [id]: { sekunden: stelle, marke: (vorher[id]?.marke ?? 0) + 1 },
+          }));
+        }
+        entfernen(id);
+        setZugriffFehler((vorher) => ({
+          ...vorher,
+          [id]: endgueltig
+            ? zugriffsMeldung(ursache)
+            : "Der Zugriff auf die Aufnahme ist abgelaufen und konnte nicht erneuert werden. Bitte erneut öffnen; die Wiedergabe setzt an derselben Stelle fort.",
+        }));
+      } finally {
+        sicherungen.current.delete(id);
+      }
+    },
+    [entfernen],
+  );
+
+  // Kein Ticket überlebt seinen Ablauf im Speicher der Seite. Der Takt
+  // plant nach jedem Durchlauf neu, auch wenn sich an den Tickets nichts
+  // geändert hat (zu früh geweckt, Versuch noch unterwegs).
   useEffect(() => {
+    void takt;
     const eintraege = Object.entries(zugriffe);
     if (eintraege.length === 0) return;
+    const faelligIn = (id: string, zugriff: SpielZugriff) =>
+      Math.max(
+        restlaufzeitMs(zugriff.expiresAt) - SichernVorlaufMs,
+        (naechsterVersuch.current.get(id) ?? 0) - Date.now(),
+      );
     const naechster = Math.min(
-      ...eintraege.map(([, zugriff]) => restlaufzeitMs(zugriff.expiresAt)),
+      ...eintraege.map(([id, zugriff]) => faelligIn(id, zugriff)),
     );
     const timer = window.setTimeout(
       () => {
-        for (const [id, zugriff] of eintraege) {
-          if (restlaufzeitMs(zugriff.expiresAt) > VerwerfenVorlaufMs) continue;
-          schliessen(id);
-          setZugriffFehler((vorher) => ({
-            ...vorher,
-            [id]: "Der Zugriff auf die Aufnahme ist abgelaufen und konnte nicht erneuert werden. Bitte erneut öffnen.",
-          }));
-        }
+        const faellige = eintraege.filter(
+          ([id, zugriff]) => faelligIn(id, zugriff) <= 0,
+        );
+        void Promise.all(faellige.map(([id]) => sichern(id))).then(() =>
+          setTakt((vorher) => vorher + 1),
+        );
       },
-      Math.max(0, naechster - VerwerfenVorlaufMs),
+      Math.max(250, naechster),
     );
     return () => window.clearTimeout(timer);
-  }, [zugriffe, schliessen]);
+  }, [zugriffe, takt, sichern]);
 
   const oeffnen = useCallback(async (id: string) => {
     setBeschaeftigt(`oeffnen:${id}`);
@@ -309,7 +408,7 @@ export function AuftrittAufnahmen({
   }
 
   // Überträgt eine Datei in einen Platz der Aufnahme. Eine gemerkte,
-  // unterbrochene Übertragung derselben Datei wird fortgesetzt; reisst die
+  // unterbrochene Übertragung derselben Datei wird fortgesetzt; reißt die
   // Verbindung oder läuft das Upload-Ticket während einer langen Übertragung
   // ab, wird mit erneuertem Ticket ab dem letzten gesicherten Block
   // weitergemacht, solange dabei Fortschritt entsteht.
@@ -332,6 +431,8 @@ export function AuftrittAufnahmen({
     }
     let gesichert = 0;
     let letzterStand = 0;
+    let begonnen = false;
+    let frischVersucht = false;
     const optionen = {
       onFortschritt: (uebertragen: number, gesamt: number) => {
         gesichert = uebertragen;
@@ -341,9 +442,12 @@ export function AuftrittAufnahmen({
       },
       signal,
     };
-    const beiSchritt = (schritt: MaterialSchritt) =>
+    const beiSchritt = (schritt: MaterialSchritt) => {
+      begonnen = true;
       uebertragungAendern(schluessel, { status: schritt });
+    };
     for (;;) {
+      begonnen = false;
       try {
         return fortsetzen
           ? await setzeUploadFort(
@@ -361,6 +465,34 @@ export function AuftrittAufnahmen({
               optionen,
             );
       } catch (ursache) {
+        const status =
+          ursache instanceof MaterialFehler ? ursache.status : null;
+        // Die gemerkte Sitzung gibt es so nicht mehr (abgebrochen, beendet,
+        // abgelaufen): einmal mit einer frischen Sitzung von vorn.
+        if (
+          fortsetzen &&
+          !begonnen &&
+          !frischVersucht &&
+          !signal.aborted &&
+          (status === 409 || status === 404)
+        ) {
+          entferneUploadSitzung(assetId);
+          fortsetzen = false;
+          frischVersucht = true;
+          continue;
+        }
+        // Endgültig abgelehnt (Prüfung, Größe, beendete Sitzung): nichts
+        // bleibt gemerkt, die nächste Wahl beginnt neu. Ein verlorener
+        // Gleichzeitigkeits-Abschluss behält seine Sitzung.
+        if (
+          status === 413 ||
+          status === 422 ||
+          (status === 409 &&
+            ursache instanceof MaterialFehler &&
+            !WiederholbareAbschluesse.includes(ursache.message))
+        ) {
+          entferneUploadSitzung(assetId);
+        }
         const unterbrochen =
           ursache instanceof MaterialFehler &&
           !(ursache instanceof AbbruchFehler) &&
@@ -611,12 +743,17 @@ export function AuftrittAufnahmen({
                         ? "Diese Aufnahme kann in diesem Browser nicht wiedergegeben werden. Sie kann weiterhin heruntergeladen werden."
                         : "Diese Aufnahme kann in diesem Browser nicht wiedergegeben werden."
                     }
+                    herunterladenErlaubt={aufnahme.downloadEnabled}
+                    onPosition={(sekunden) =>
+                      positionen.current.set(aufnahme.id, sekunden)
+                    }
                     sprung={
-                      aufnahme.id === startAufnahmeId &&
+                      wiederaufnahme[aufnahme.id] ??
+                      (aufnahme.id === startAufnahmeId &&
                       startSekunden !== null &&
                       startSekunden !== undefined
                         ? { sekunden: startSekunden, marke: 0 }
-                        : undefined
+                        : undefined)
                     }
                   />
                 )}
@@ -742,7 +879,7 @@ function AufnahmeRedaktion({
     }
   }
 
-  // Das Original für die Umwandlung ausserhalb des Archivs: Ticket im
+  // Das Original für die Umwandlung außerhalb des Archivs: Ticket im
   // Augenblick des Klicks, nirgends aufbewahrt.
   async function originalLaden(assetId: string) {
     setLadeFehler("");
@@ -866,7 +1003,7 @@ function AufnahmeRedaktion({
           datei={abspiel}
           leerText={
             original && !original.playable
-              ? "Fehlt. Bitte eine ausserhalb des Archivs umgewandelte Fassung hochladen (MP4, WebM, MP3, M4A oder WAV, passend zur Art der Aufnahme)."
+              ? "Fehlt. Bitte eine außerhalb des Archivs umgewandelte Fassung hochladen (MP4, WebM, MP3, M4A oder WAV, passend zur Art der Aufnahme)."
               : "Nicht nötig, solange das Original im Browser abspielbar ist. Spielt es bei Mitgliedern nicht, hier eine umgewandelte Fassung ergänzen."
           }
           zusatz={
@@ -1058,12 +1195,12 @@ function NeueAufnahme({
   }
 
   return (
-    <details className="material-verwaltung">
+    <details className="aufnahme-anlegen">
       <summary>
         <h2 id="aufnahme-anlegen-titel">Aufnahme hinzufügen</h2>
-        <span className="material-verwaltung-umschalter" aria-hidden="true">
-          <span className="material-verwaltung-auf">Ausklappen</span>
-          <span className="material-verwaltung-zu">Einklappen</span>
+        <span className="aufnahme-anlegen-umschalter" aria-hidden="true">
+          <span className="aufnahme-anlegen-auf">Ausklappen</span>
+          <span className="aufnahme-anlegen-zu">Einklappen</span>
         </span>
       </summary>
       <form

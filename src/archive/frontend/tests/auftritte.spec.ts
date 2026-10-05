@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
+import { mockLeereAufnahmen } from "./aufnahmen-mock";
 
 const editorMe = {
   authenticated: true,
@@ -168,6 +169,7 @@ function problem(title: string, status: number) {
 const ereignisRoute = /\/api\/events(\?.*)?$/;
 
 async function mockSitzung(page: Page, me: unknown) {
+  await mockLeereAufnahmen(page);
   await page.route("**/api/auth/me", (route) => route.fulfill(json(me)));
   await page.route("**/api/antiforgery", (route) =>
     route.fulfill(json({ token: "test" })),
@@ -411,10 +413,6 @@ test("Mitglied öffnet einen Auftritt per Direktlink; Entwürfe bleiben unfindba
   );
   await page.route(`**/api/events/${entwurfId}`, (route) =>
     route.fulfill(problem("Der Auftritt wurde nicht gefunden.", 404)),
-  );
-  // ARC-030: die Aufnahmen kommen aus ihrer eigenen Liste.
-  await page.route(`**/api/events/${konzertId}/recordings`, (route) =>
-    route.fulfill(json({ eventId: konzertId, recordings: [] })),
   );
 
   await page.goto(`/auftritt/?id=${konzertId}`);

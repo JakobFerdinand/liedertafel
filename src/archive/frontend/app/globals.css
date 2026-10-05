@@ -1087,6 +1087,7 @@ dd {
 .auftritt-anlegen summary,
 .lied-fassungen summary,
 .lied-bearbeiten summary,
+.aufnahme-anlegen summary,
 .programm-verwaltung summary {
   display: flex;
   align-items: center;
@@ -1103,6 +1104,7 @@ dd {
 .auftritt-anlegen summary::-webkit-details-marker,
 .lied-fassungen summary::-webkit-details-marker,
 .lied-bearbeiten summary::-webkit-details-marker,
+.aufnahme-anlegen summary::-webkit-details-marker,
 .programm-verwaltung summary::-webkit-details-marker {
   display: none;
 }
@@ -1113,6 +1115,7 @@ dd {
 .auftritt-anlegen summary:focus-visible,
 .lied-fassungen summary:focus-visible,
 .lied-bearbeiten summary:focus-visible,
+.aufnahme-anlegen summary:focus-visible,
 .programm-verwaltung summary:focus-visible {
   outline: 3px solid currentColor;
   outline-offset: 5px;
@@ -1123,6 +1126,7 @@ dd {
 .lieder-filter summary h2,
 .auftritt-anlegen summary h2,
 .lied-fassungen summary h2,
+.aufnahme-anlegen summary h2,
 .lied-bearbeiten summary h2 {
   margin-block: 0;
   font-size: var(--titel-abschnitt);
@@ -1134,6 +1138,7 @@ dd {
 .auftritt-anlegen-umschalter,
 .lied-fassungen-umschalter,
 .lied-bearbeiten-umschalter,
+.aufnahme-anlegen-umschalter,
 .programm-verwaltung-umschalter {
   color: var(--brand);
   font-size: var(--schrift-neben);
@@ -1146,6 +1151,7 @@ dd {
 .auftritt-anlegen summary:hover .auftritt-anlegen-umschalter,
 .lied-fassungen summary:hover .lied-fassungen-umschalter,
 .lied-bearbeiten summary:hover .lied-bearbeiten-umschalter,
+.aufnahme-anlegen summary:hover .aufnahme-anlegen-umschalter,
 .programm-verwaltung summary:hover .programm-verwaltung-umschalter {
   text-decoration: underline;
   text-underline-offset: 0.25em;
@@ -1157,6 +1163,7 @@ dd {
 .auftritt-anlegen .auftritt-anlegen-zu,
 .lied-fassungen .lied-fassungen-zu,
 .lied-bearbeiten .lied-bearbeiten-zu,
+.aufnahme-anlegen .aufnahme-anlegen-zu,
 .programm-verwaltung .programm-verwaltung-zu {
   display: none;
 }
@@ -1167,6 +1174,7 @@ dd {
 .auftritt-anlegen[open] .auftritt-anlegen-auf,
 .lied-fassungen[open] .lied-fassungen-auf,
 .lied-bearbeiten[open] .lied-bearbeiten-auf,
+.aufnahme-anlegen[open] .aufnahme-anlegen-auf,
 .programm-verwaltung[open] .programm-verwaltung-auf {
   display: none;
 }
@@ -1177,6 +1185,7 @@ dd {
 .auftritt-anlegen[open] .auftritt-anlegen-zu,
 .lied-fassungen[open] .lied-fassungen-zu,
 .lied-bearbeiten[open] .lied-bearbeiten-zu,
+.aufnahme-anlegen[open] .aufnahme-anlegen-zu,
 .programm-verwaltung[open] .programm-verwaltung-zu {
   display: inline;
 }
@@ -2994,4 +3003,7 @@ fieldset.programm-verwaltung {
 .aufnahmen button[aria-disabled="true"] {
   opacity: 0.65;
   cursor: default;
+}
+details.aufnahme-anlegen {
+  margin-block: 1.4rem 0;
 }

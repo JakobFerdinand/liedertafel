@@ -35,6 +35,7 @@ namespace Archive.Backend.Data.Migrations
                 {
                     table.PrimaryKey("PK_recordings", x => x.Id);
                     table.CheckConstraint("CK_recordings_kind", "\"Kind\" IN ('audio', 'video')");
+                    table.CheckConstraint("CK_recordings_slots", "\"PlaybackAssetId\" IS NULL OR \"PlaybackAssetId\" <> \"OriginalAssetId\"");
                     table.ForeignKey(
                         name: "FK_recordings_assets_OriginalAssetId",
                         column: x => x.OriginalAssetId,

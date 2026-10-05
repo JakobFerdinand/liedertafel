@@ -36,7 +36,13 @@ public static class RecordingFormats
 				return new RecordingFormat("video/quicktime", false);
 			if (brand.StartsWith("3g"u8))
 				return new RecordingFormat("video/3gpp", false);
-			return new RecordingFormat(video ? "video/mp4" : "audio/mp4", true);
+			if (IsOneOf(brand, AudioOnlyBrands))
+				return new RecordingFormat("audio/mp4", !video);
+			// Only known audio/video brands count: the same container also
+			// carries still images (HEIC, AVIF) and other non-media data.
+			return IsOneOf(brand, MediaBrands)
+				? new RecordingFormat(video ? "video/mp4" : "audio/mp4", true)
+				: new RecordingFormat(UnknownContentType, false);
 		}
 		if (header.StartsWith(new byte[] { 0x1A, 0x45, 0xDF, 0xA3 }))
 		{
@@ -69,7 +75,37 @@ public static class RecordingFormats
 		(kind == RecordingKinds.Video ? PlayableVideoTypes : PlayableAudioTypes)
 			.Contains(contentType, StringComparer.OrdinalIgnoreCase);
 
-	/// <summary>MPEG audio frame sync with a real layer (layer bits 00 are AAC/ADTS, which is not MP3).</summary>
-	private static bool IsMpegAudioFrame(ReadOnlySpan<byte> header) =>
-		header.Length >= 2 && header[0] == 0xFF && (header[1] & 0xE0) == 0xE0 && (header[1] & 0x06) != 0;
+	/// <summary>ISO base media brands that mean ordinary audio/video MP4.</summary>
+	private static readonly string[] MediaBrands =
+		["isom", "iso2", "iso3", "iso4", "iso5", "iso6", "mp41", "mp42", "avc1", "M4V ", "dash", "mmp4", "MSNV"];
+
+	private static readonly string[] AudioOnlyBrands = ["M4A ", "M4B "];
+
+	private static bool IsOneOf(ReadOnlySpan<byte> brand, string[] brands)
+	{
+		foreach (var known in brands)
+		{
+			if (brand.Length == 4 && brand[0] == known[0] && brand[1] == known[1]
+				&& brand[2] == known[2] && brand[3] == known[3])
+				return true;
+		}
+		return false;
+	}
+
+	/// <summary>
+	/// A plausible MPEG Layer III frame header: 11 sync bits, a defined
+	/// version, layer III, and bitrate and sample-rate fields that are
+	/// neither free-format nor reserved. A bare <c>FF FE</c> (UTF-16 byte
+	/// order mark, Layer I by its bits) and AAC/ADTS do not pass.
+	/// </summary>
+	private static bool IsMpegAudioFrame(ReadOnlySpan<byte> header)
+	{
+		if (header.Length < 4 || header[0] != 0xFF || (header[1] & 0xE0) != 0xE0)
+			return false;
+		var version = (header[1] >> 3) & 0x03;
+		var layer = (header[1] >> 1) & 0x03;
+		var bitrate = header[2] >> 4;
+		var sampleRate = (header[2] >> 2) & 0x03;
+		return version != 0x01 && layer == 0x01 && bitrate is not (0x00 or 0x0F) && sampleRate != 0x03;
+	}
 }

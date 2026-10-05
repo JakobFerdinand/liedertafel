@@ -688,6 +688,15 @@ public static class AssetEndpoints
 			try
 			{
 				probe = await storage.ProbeAsync(session.BlobName, token);
+				// ARC-030: an empty recording file is decided by its size
+				// alone; a ranged read of an empty object is not attempted.
+				if (probe is { SizeBytes: 0 } && IsRecordingAssetType(session.Asset.AssetType))
+				{
+					await DeletePendingBestEffortAsync(storage, session.BlobName, token);
+					session.State = PendingUploadState.Abandoned;
+					await db.SaveChangesAsync(token);
+					return Results.Problem(statusCode: 422, title: InvalidTypeMessage(session.Asset.AssetType));
+				}
 				// Twelve leading bytes cover every honest format gate: the
 				// PDF prefix, the PNG signature and the WEBP "RIFF…WEBP"
 				// window at bytes 8..11. Shorter objects return what exists.
@@ -748,14 +757,19 @@ public static class AssetEndpoints
 				// preserved whatever it is (only an empty file is refused);
 				// a playback copy must be a container browsers play, or it
 				// never becomes current and the earlier copy stays in place.
+				// The asset must sit in the slot its type names, on a
+				// recording of its own event; otherwise it is not a
+				// recording file at all and nothing is accepted.
+				var isOriginal = session.Asset.AssetType == RecordingOriginalAssetType;
 				var kind = await db.Recordings
-					.Where(r => r.OriginalAssetId == session.AssetId || r.PlaybackAssetId == session.AssetId)
+					.Where(r => r.EventId == session.Asset.EventId
+						&& (isOriginal ? r.OriginalAssetId == session.AssetId : r.PlaybackAssetId == session.AssetId))
 					.Select(r => r.Kind)
 					.FirstOrDefaultAsync(token);
 				var format = RecordingFormats.Detect(header, kind ?? RecordingKinds.Video);
 				effectiveContentType = format.ContentType;
-				contentTypeValid = probe.SizeBytes > 0;
-				magicBytesValid = session.Asset.AssetType == RecordingOriginalAssetType || format.Playable;
+				contentTypeValid = kind is not null;
+				magicBytesValid = isOriginal || format.Playable;
 			}
 			else
 			{

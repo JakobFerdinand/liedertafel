@@ -21,7 +21,10 @@ export function AuftrittDetail() {
   const id = suchParameter.get("id");
   // Verweis in eine Aufnahme: ?aufnahme=<id>&t=<Sekunden>.
   const zeitAngabe = suchParameter.get("t");
-  const zeitWert = zeitAngabe === null ? Number.NaN : Number(zeitAngabe);
+  const zeitWert =
+    zeitAngabe === null || zeitAngabe.trim() === ""
+      ? Number.NaN
+      : Number(zeitAngabe);
   const startSekunden =
     Number.isFinite(zeitWert) && zeitWert >= 0 ? zeitWert : null;
   const [me, setMe] = useState<MeResponse | null>(null);
