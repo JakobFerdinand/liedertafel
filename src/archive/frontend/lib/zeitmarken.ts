@@ -72,6 +72,13 @@ export type HistorieAufnahme = {
 export const ZeitmarkeVeraltet =
   "Die Zeitmarke wurde zwischenzeitlich geändert.";
 
+/**
+ * Vertrag RecordingPassageEndpoints.StalePlaybackMessage: die Datei, die
+ * Mitglieder abspielen, wurde ersetzt, seit die Ansicht gebaut wurde.
+ */
+export const ZeitmarkeDateiErsetzt =
+  "Die Datei der Aufnahme wurde zwischenzeitlich ersetzt.";
+
 /** Vertrag RecordingPassages.BlockedPrefix: Zeitmarken verhindern das Entfernen einer Aufführung. */
 export const ZeitmarkenVorhanden = "Zeitmarken vorhanden:";
 
@@ -93,7 +100,13 @@ export async function fetchZeitmarken(
 
 export async function createZeitmarke(
   recordingId: string,
-  body: { performanceId: string; startSeconds: number; endSeconds: number },
+  body: {
+    performanceId: string;
+    startSeconds: number;
+    endSeconds: number;
+    // Die Datei, an der die Zeiten genommen wurden (playbackRevisionId der Ansicht).
+    expectedPlaybackRevisionId: string;
+  },
 ): Promise<Zeitmarke> {
   const response = await postAuth(basis(recordingId), body);
   if (!response.ok) throw response;
@@ -103,7 +116,12 @@ export async function createZeitmarke(
 export async function patchZeitmarke(
   recordingId: string,
   passageId: string,
-  body: { startSeconds: number; endSeconds: number; expectedVersion: number },
+  body: {
+    startSeconds: number;
+    endSeconds: number;
+    expectedVersion: number;
+    expectedPlaybackRevisionId: string;
+  },
 ): Promise<Zeitmarke> {
   const response = await patchAuth(
     `${basis(recordingId)}/${encodeURIComponent(passageId)}`,
@@ -125,11 +143,19 @@ export async function deleteZeitmarke(
   if (!response.ok) throw response;
 }
 
-/** Bestätigt alle zu prüfenden Zeitmarken gegen die Datei, die Mitglieder jetzt sehen. */
+/**
+ * Bestätigt genau die genannten Zeitmarken (mit dem Stand, den die Ansicht
+ * sah) gegen die Datei, die Mitglieder jetzt sehen.
+ */
 export async function bestaetigeZeitmarken(
   recordingId: string,
+  expectedPlaybackRevisionId: string,
+  passages: { id: string; expectedVersion: number }[],
 ): Promise<{ passages: Zeitmarke[] }> {
-  const response = await postAuth(`${basis(recordingId)}/review`, {});
+  const response = await postAuth(`${basis(recordingId)}/review`, {
+    expectedPlaybackRevisionId,
+    passages,
+  });
   if (!response.ok) throw response;
   return (await response.json()) as { passages: Zeitmarke[] };
 }

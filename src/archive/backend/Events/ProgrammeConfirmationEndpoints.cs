@@ -2,7 +2,6 @@ using Archive.Backend.Auth;
 using Archive.Backend.Catalogue;
 using Archive.Backend.Data;
 using Archive.Backend.Recordings;
-using Npgsql;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.EntityFrameworkCore;
 
@@ -170,12 +169,6 @@ public static class ProgrammeConfirmationEndpoints
 			var now = time.GetUtcNow();
 			var changes = plan!.Entries.Where(e => e.NeedsWrite).ToList();
 			var removed = owned.Where(row => !plan.Claimed.Contains(row.Id)).ToList();
-			// ARC-032: skipping an entry or dropping an encore removes its
-			// occurrence; one that recordings mark is kept and named instead
-			// of letting the foreign key surface as a generic error.
-			if (await RecordingPassages.BlockedMessageAsync(db, removed.Select(r => r.Id).ToList(), token)
-				is { } blocked)
-				return Results.Problem(statusCode: 409, title: blocked);
 			var unchanged = changes.Count == 0 && removed.Count == 0
 				&& confirmation is not null && confirmation.RevisionId == revision.Id;
 			if (unchanged)
@@ -198,6 +191,14 @@ public static class ProgrammeConfirmationEndpoints
 				&& removed.Any(row => !known.Any(k => k is not null && k.PerformanceId == row.Id
 					&& k.RowVersion == row.RowVersion)))
 				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
+			// ARC-032: skipping an entry or dropping an encore removes its
+			// occurrence; one that recordings mark is kept and named instead
+			// of letting the foreign key surface as a generic error. Only
+			// asked once the form is known to be current: a stale form is
+			// told to reload first, not to delete passages.
+			if (await RecordingPassages.BlockedMessageAsync(db, removed.Select(r => r.Id).ToList(), token)
+				is { } blocked)
+				return Results.Problem(statusCode: 409, title: blocked);
 
 			if (confirmation is null)
 			{
@@ -277,7 +278,7 @@ public static class ProgrammeConfirmationEndpoints
 			{
 				// A passage marked since the check keeps its occurrence: the
 				// foreign key held, so say why instead of "changed".
-				if (exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.ForeignKeyViolation })
+				if (exception is DbUpdateException update && RecordingPassages.IsPerformanceForeignKeyViolation(update))
 				{
 					var removedIds = removed.Select(r => r.Id).ToList();
 					db.ChangeTracker.Clear();

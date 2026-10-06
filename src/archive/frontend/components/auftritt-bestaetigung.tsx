@@ -34,6 +34,20 @@ import { ZeitmarkenVorhanden } from "@/lib/zeitmarken";
 
 const ersatzFehler = "Das hat nicht geklappt. Bitte erneut versuchen.";
 
+/**
+ * Warnung vor einer Auslassung oder Entfernung (ARC-032): Zeitmarken in
+ * Aufnahmen halten die Aufführung fest, bis sie dort entfernt sind.
+ */
+function zeitmarkenWarnung(
+  zahl: number,
+  folge: "ausgelassen" | "entfernt",
+): string {
+  const haengt = zahl === 1 ? "hängt 1 Zeitmarke" : `hängen ${zahl} Zeitmarken`;
+  const marken = zahl === 1 ? "die Zeitmarke" : "die Zeitmarken";
+  const ist = zahl === 1 ? "ist" : "sind";
+  return `An diesem Lied ${haengt} in Aufnahmen. Es kann erst ${folge} werden, wenn ${marken} in den Aufnahmen entfernt ${ist}.`;
+}
+
 const veralteterStand =
   "Die Bestätigung wurde zwischenzeitlich geändert. Bitte prüfe den aktuellen Stand und wiederhole deine Änderung.";
 
@@ -495,6 +509,20 @@ function Werkbank({
       )
     : [];
 
+  // ARC-032: Zeitmarken je Zugabe (nach Zeilenschlüssel) und Zugaben, die
+  // entfernt sind, obwohl Zeitmarken an ihnen hängen.
+  const zusatzMarken = new Map(
+    (pruefung?.additions ?? []).map((nachweis) => [
+      nachweis.id,
+      nachweis.passageCount ?? 0,
+    ]),
+  );
+  const entfernteMitMarken = (pruefung?.additions ?? []).filter(
+    (nachweis) =>
+      (nachweis.passageCount ?? 0) > 0 &&
+      !zusaetze.some((zeile) => zeile.performanceId === nachweis.id),
+  );
+
   const lied = (songId: string) => {
     const stand = lieder[songId];
     return stand && stand !== "fehler" ? stand : null;
@@ -645,7 +673,10 @@ function Werkbank({
                         {wert === "skipped" &&
                           (punkt.performance?.passageCount ?? 0) > 0 && (
                             <p className="feld-fehler">
-                              {`An diesem Lied hängen ${punkt.performance?.passageCount} Zeitmarken in Aufnahmen. Es kann erst ausgelassen werden, wenn sie in den Aufnahmen entfernt sind.`}
+                              {zeitmarkenWarnung(
+                                punkt.performance?.passageCount ?? 0,
+                                "ausgelassen",
+                              )}
                             </p>
                           )}
                         {wert === "skipped" &&
@@ -728,6 +759,11 @@ function Werkbank({
                 <p className="programm-fruehere-einleitung">
                   Zusätzlich gesungen (Zugaben)
                 </p>
+                {entfernteMitMarken.map((nachweis) => (
+                  <p className="feld-fehler" key={nachweis.id}>
+                    {`Zugabe „${nachweis.songTitle ?? "Ohne Titel"}“ ist entfernt, aber nicht gespeichert. ${zeitmarkenWarnung(nachweis.passageCount, "entfernt")}`}
+                  </p>
+                ))}
                 {zusaetze.length === 0 ? (
                   <p className="auftritt-leer">
                     Keine zusätzlichen Lieder erfasst.
@@ -781,6 +817,14 @@ function Werkbank({
                               Entfernen
                             </button>
                           </div>
+                          {(zusatzMarken.get(zeile.schluessel) ?? 0) > 0 && (
+                            <p className="feld-fehler">
+                              {zeitmarkenWarnung(
+                                zusatzMarken.get(zeile.schluessel) ?? 0,
+                                "entfernt",
+                              )}
+                            </p>
+                          )}
                           <p className="noten-info">
                             {zeile.musicalVersionId
                               ? `Fassung: ${liedStand?.arrangements.flatMap((a) => a.musicalVersions).find((v) => v.id === zeile.musicalVersionId)?.label ?? "gewählt"}`

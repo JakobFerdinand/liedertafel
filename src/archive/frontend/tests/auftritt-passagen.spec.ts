@@ -453,6 +453,13 @@ test("Verweis auf eine unbekannte oder zu prüfende Stelle öffnet am Anfang und
       "Diese Stelle gibt es nicht mehr. Die Aufnahme beginnt am Anfang.",
     ),
   ).toBeVisible();
+  // Die Aufnahme öffnet trotzdem, am Anfang und ohne Abschnitt.
+  const spieler = page.getByRole("region", {
+    name: "Video-Spieler · Gesamtmitschnitt Video",
+  });
+  await expect(spieler).toBeVisible();
+  await expect(spieler.getByText(/Abschnitt:/)).toHaveCount(0);
+  expect(await position(page)).toBeLessThan(0.5);
 });
 
 test("Mitglied ohne markierte Lieder sieht keine Liste und keine erfundene Aussage", async ({
@@ -579,6 +586,7 @@ test("Redaktion geht die Lieder der Reihe nach durch und setzt Anfang und Ende m
     performanceId: performanceA,
     startSeconds: 1.5,
     endSeconds: 3,
+    expectedPlaybackRevisionId: revisionId,
   });
   await expect(
     page.getByText("Zeitmarke für „Lied A“ gespeichert."),
@@ -606,7 +614,23 @@ test("Redaktion: ungültige Zeiten werden erklärt, ohne Anfrage und ohne die Ei
   await expect(alarm).toContainText(
     "Den Anfang bitte als Minuten:Sekunden angeben, zum Beispiel 12:30.",
   );
-  await expect(alarm.locator("p")).toBeFocused();
+  // Das beanstandete Feld ist markiert, beschrieben und hat den Fokus.
+  const anfangFeld = zeitmarken.getByLabel("Anfang „Lied A“");
+  await expect(anfangFeld).toBeFocused();
+  await expect(anfangFeld).toHaveAttribute("aria-invalid", "true");
+  const beschreibung =
+    (await anfangFeld.getAttribute("aria-describedby")) ?? "";
+  expect(beschreibung.split(" ")).toHaveLength(2);
+  await expect(
+    zeitmarken.locator(`[id="${beschreibung.split(" ")[0]}"]`),
+  ).toContainText("m:ss oder h:mm:ss");
+  await expect(
+    zeitmarken.locator(`[id="${beschreibung.split(" ")[1]}"]`),
+  ).toContainText("Den Anfang bitte als Minuten:Sekunden angeben");
+  await expect(zeitmarken.getByLabel("Ende „Lied A“")).not.toHaveAttribute(
+    "aria-invalid",
+    "true",
+  );
 
   await zeitmarken.getByLabel("Anfang „Lied A“").fill("1:00");
   await zeitmarken
@@ -619,6 +643,18 @@ test("Redaktion: ungültige Zeiten werden erklärt, ohne Anfrage und ohne die Ei
     .getByRole("button", { name: "Zeitmarke für „Lied A“ speichern" })
     .click();
   await expect(alarm).toContainText("Das Ende fehlt.");
+  await expect(zeitmarken.getByLabel("Ende „Lied A“")).toBeFocused();
+  await expect(zeitmarken.getByLabel("Ende „Lied A“")).toHaveAttribute(
+    "aria-invalid",
+    "true",
+  );
+  // Eine neue Eingabe nimmt die Markierung zurück.
+  await zeitmarken.getByLabel("Ende „Lied A“").fill("0:05");
+  await expect(zeitmarken.getByLabel("Ende „Lied A“")).not.toHaveAttribute(
+    "aria-invalid",
+    "true",
+  );
+  await zeitmarken.getByLabel("Ende „Lied A“").fill("");
 
   // Hinter dem Ende der Aufnahme (Dauer 0:06) wird schon vor dem Absenden erklärt.
   await zeitmarken.getByLabel("Anfang „Lied A“").fill("0:01");
@@ -740,7 +776,12 @@ test("Redaktion ändert und entfernt eine Zeitmarke mit dem Stand, den sie geseh
   expect(anfragen.gesendet[0]).toEqual({
     methode: "PATCH",
     pfad: "passage",
-    body: { startSeconds: 1, endSeconds: 2.5, expectedVersion: 4 },
+    body: {
+      startSeconds: 1,
+      endSeconds: 2.5,
+      expectedVersion: 4,
+      expectedPlaybackRevisionId: revisionId,
+    },
   });
   await expect(
     page.getByText("Zeitmarke für „Lied A“ gespeichert."),
@@ -815,7 +856,14 @@ test("Redaktion sieht zu prüfende Zeitmarken und bestätigt sie gegen die aktue
     })
     .click();
   await expect.poll(() => anfragen.gesendet.length).toBe(1);
-  expect(anfragen.gesendet[0].body).toEqual({});
+  // Genau die aufgelisteten Marken, mit ihrem Stand und der gesehenen Datei.
+  expect(anfragen.gesendet[0].body).toEqual({
+    expectedPlaybackRevisionId: revisionId,
+    passages: [
+      { id: passageA, expectedVersion: 1 },
+      { id: passageB, expectedVersion: 1 },
+    ],
+  });
   await expect(
     page.getByText("2 Zeitmarken für die aktuelle Datei bestätigt."),
   ).toBeVisible();
@@ -840,4 +888,337 @@ test("Redaktion: ohne bestätigte Aufführungen sagt die Liste, was fehlt", asyn
     ),
   ).toBeVisible();
   await expect(zeitmarken.getByRole("listitem")).toHaveCount(0);
+});
+
+test("Redaktion: gegen eine ersetzte Datei gespeichert lädt alles neu und lässt die Eingabe stehen (ARC-032)", async ({
+  page,
+}) => {
+  const stellen: Stelle[] = [];
+  const anfragen = await mockSeite(page, editorMe, stellen, {
+    redaktion: true,
+  });
+  let listenAbrufe = 0;
+  let stellenAbrufe = 0;
+  await page.route(`**/api/events/${eventId}/recordings`, (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    listenAbrufe += 1;
+    return route.fulfill(json({ eventId, recordings: [aufnahme(true)] }));
+  });
+  await page.route(`**/api/recordings/${videoId}/passages`, (route) => {
+    if (route.request().method() === "GET") {
+      stellenAbrufe += 1;
+      return route.fallback();
+    }
+    anfragen.gesendet.push({
+      methode: "POST",
+      pfad: "passages",
+      body: route.request().postDataJSON(),
+    });
+    return route.fulfill(
+      problem("Die Datei der Aufnahme wurde zwischenzeitlich ersetzt.", 409),
+    );
+  });
+  await page.goto(`/auftritt/?id=${eventId}`);
+  const zeitmarken = page.getByRole("group", {
+    name: "Zeitmarken · Gesamtmitschnitt Video",
+  });
+  await page
+    .getByRole("button", { name: "Gesamtmitschnitt Video ansehen" })
+    .click();
+  const spieler = page.getByRole("region", {
+    name: "Video-Spieler · Gesamtmitschnitt Video",
+  });
+  await expect(spieler).toBeVisible();
+  const listeVorher = listenAbrufe;
+  const stellenVorher = stellenAbrufe;
+
+  await zeitmarken.getByLabel("Anfang „Lied A“").fill("0:01");
+  await zeitmarken.getByLabel("Ende „Lied A“").fill("0:03");
+  await zeitmarken
+    .getByRole("button", { name: "Zeitmarke für „Lied A“ speichern" })
+    .click();
+
+  // Erklärt, nichts geschrieben, neu geladen, Spieler zu, Eingabe bleibt.
+  await expect(zeitmarken.getByRole("alert")).toContainText(
+    "Die Datei der Aufnahme wurde zwischenzeitlich ersetzt. Die Aufnahme, der Spieler und die Zeitmarken wurden neu geladen; deine Eingaben stehen noch da.",
+  );
+  await expect.poll(() => listenAbrufe).toBeGreaterThan(listeVorher);
+  await expect.poll(() => stellenAbrufe).toBeGreaterThan(stellenVorher);
+  await expect(spieler).toHaveCount(0);
+  await expect(zeitmarken.getByLabel("Anfang „Lied A“")).toHaveValue("0:01");
+  await expect(zeitmarken.getByLabel("Ende „Lied A“")).toHaveValue("0:03");
+  expect(anfragen.gesendet).toHaveLength(1);
+});
+
+test("Redaktion: Bestätigen gegen eine ersetzte Datei oder einen geänderten Stand erklärt und lädt neu (ARC-032)", async ({
+  page,
+}) => {
+  const stellen: Stelle[] = [{ ...stelleA, zustand: "needsReview" }];
+  const anfragen = await mockSeite(page, editorMe, stellen, {
+    redaktion: true,
+  });
+  let antwort = problem(
+    "Die Datei der Aufnahme wurde zwischenzeitlich ersetzt.",
+    409,
+  );
+  let stellenAbrufe = 0;
+  await page.route(`**/api/recordings/${videoId}/passages`, (route) => {
+    if (route.request().method() === "GET") stellenAbrufe += 1;
+    return route.fallback();
+  });
+  await page.route(`**/api/recordings/${videoId}/passages/review`, (route) => {
+    anfragen.gesendet.push({
+      methode: "POST",
+      pfad: "review",
+      body: route.request().postDataJSON(),
+    });
+    return route.fulfill(antwort);
+  });
+  await page.goto(`/auftritt/?id=${eventId}`);
+  const zeitmarken = page.getByRole("group", {
+    name: "Zeitmarken · Gesamtmitschnitt Video",
+  });
+  const bestaetigen = zeitmarken.getByRole("button", {
+    name: "Alle Zeitmarken für die aktuelle Datei bestätigen",
+  });
+  const vorher = stellenAbrufe;
+  await bestaetigen.click();
+  await expect(zeitmarken.getByRole("alert")).toContainText(
+    "Die Datei der Aufnahme wurde zwischenzeitlich ersetzt. Die Aufnahme, der Spieler und die Zeitmarken wurden neu geladen.",
+  );
+  await expect.poll(() => stellenAbrufe).toBeGreaterThan(vorher);
+
+  antwort = problem("Die Zeitmarke wurde zwischenzeitlich geändert.", 409);
+  const vorherZwei = stellenAbrufe;
+  await bestaetigen.click();
+  await expect(zeitmarken.getByRole("alert")).toContainText(
+    "Die Zeitmarke wurde zwischenzeitlich geändert. Der aktuelle Stand wurde geladen; bitte erneut prüfen und bestätigen.",
+  );
+  await expect.poll(() => stellenAbrufe).toBeGreaterThan(vorherZwei);
+  // Zwei Anfragen, beide mit der gesehenen Datei und der aufgelisteten Marke.
+  expect(anfragen.gesendet.map((a) => a.body)).toEqual([
+    {
+      expectedPlaybackRevisionId: revisionId,
+      passages: [{ id: passageA, expectedVersion: 1 }],
+    },
+    {
+      expectedPlaybackRevisionId: revisionId,
+      passages: [{ id: passageA, expectedVersion: 1 }],
+    },
+  ]);
+});
+
+test("Sprung bei geänderter Datei wendet keine gemerkten Zeiten an, sondern lädt neu (ARC-032)", async ({
+  page,
+}) => {
+  const anfragen = await mockSeite(page, memberMe, [stelleA, stelleB]);
+  // Das Ticket nennt eine andere Datei als die Liste; danach kennt der
+  // Server den neuen Stand: die Marke ist zu prüfen.
+  const neueRevision = "00000000-0000-0000-0000-00000000f321";
+  let neu = false;
+  let listenAbrufe = 0;
+  await page.route(`**/api/events/${eventId}/recordings`, (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    listenAbrufe += 1;
+    const liste = aufnahme(false);
+    if (neu) liste.playback.revisionId = neueRevision;
+    return route.fulfill(json({ eventId, recordings: [liste] }));
+  });
+  await page.route(`**/api/recordings/${videoId}/passages`, (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    return route.fulfill(
+      json(
+        stellenStand(
+          neu
+            ? [
+                { ...stelleA, zustand: "needsReview" },
+                { ...stelleB, zustand: "needsReview" },
+              ]
+            : [stelleA, stelleB],
+          false,
+        ),
+      ),
+    );
+  });
+  await page.route(`**/api/recordings/${videoId}/access`, (route) => {
+    anfragen.zugriffe += 1;
+    neu = true;
+    return route.fulfill(
+      json({
+        recordingId: videoId,
+        kind: "video",
+        playbackState: "ready",
+        source: "original",
+        revisionId: neueRevision,
+        contentType: "video/webm",
+        sizeBytes: 1048576,
+        durationSeconds: 6,
+        viewUrl: `https://speicher.test/neu-${anfragen.zugriffe}?ticket=ansicht`,
+        downloadEnabled: false,
+        downloadUrl: null,
+        expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+      }),
+    );
+  });
+  await page.goto(`/auftritt/?id=${eventId}`);
+  const liste = page.getByRole("region", { name: "Lieder in dieser Aufnahme" });
+  const vorher = listenAbrufe;
+  await liste.getByRole("button", { name: "Zu „Lied A“ springen" }).click();
+
+  await expect(
+    page.getByText(
+      "Die Datei dieser Aufnahme wurde ersetzt. Die Zeitmarken werden neu geladen; bitte danach erneut springen.",
+    ),
+  ).toBeVisible();
+  await expect.poll(() => listenAbrufe).toBeGreaterThan(vorher);
+  // Kein Abschnitt, keine Position aus dem Speicher der Seite; die Liste
+  // bietet für die nun zu prüfenden Marken keinen Sprung mehr an.
+  const spieler = page.getByRole("region", {
+    name: "Video-Spieler · Gesamtmitschnitt Video",
+  });
+  await expect(spieler.getByText(/Abschnitt:/)).toHaveCount(0);
+  await expect(
+    liste.getByRole("button", { name: "Zu „Lied A“ springen" }),
+  ).toHaveCount(0);
+  await expect(liste.getByText("Zeitmarke wird überprüft")).toHaveCount(2);
+  expect(await position(page)).toBeLessThan(0.5);
+});
+
+test("Nach dem Abschnittsende löscht Abspielen die Meldung; Suchen davor gibt den Halt frei (ARC-032)", async ({
+  page,
+}) => {
+  await mockSeite(page, memberMe, [stelleA, stelleB]);
+  await page.goto(`/auftritt/?id=${eventId}`);
+  const liste = page.getByRole("region", { name: "Lieder in dieser Aufnahme" });
+  await liste.getByRole("button", { name: "Zu „Lied A“ springen" }).click();
+  const spieler = page.getByRole("region", {
+    name: "Video-Spieler · Gesamtmitschnitt Video",
+  });
+  await spieler
+    .getByRole("button", { name: "Gesamtmitschnitt Video abspielen" })
+    .click();
+  await expect(
+    spieler.getByText("Ende des Abschnitts „Lied A“ erreicht."),
+  ).toBeVisible({ timeout: 10_000 });
+
+  // Der Hauptknopf spielt weiter: Meldung und ihre Knöpfe sind weg.
+  await spieler
+    .getByRole("button", { name: "Gesamtmitschnitt Video abspielen" })
+    .click();
+  await expect(
+    spieler.getByText("Ende des Abschnitts „Lied A“ erreicht."),
+  ).toHaveCount(0);
+  await expect(
+    spieler.getByText("Die ganze Aufnahme läuft weiter."),
+  ).toBeVisible();
+  await expect(
+    spieler.getByRole("button", { name: "Abschnitt wiederholen" }),
+  ).toHaveCount(0);
+  await expect.poll(() => position(page)).toBeGreaterThan(3.2);
+
+  await spieler
+    .getByRole("button", { name: "Gesamtmitschnitt Video pausieren" })
+    .click();
+  // Erneut in den Abschnitt springen, dann davor suchen und abspielen: der
+  // Halt am Abschnittsende gilt nicht mehr, die Aufnahme läuft durch.
+  await liste.getByRole("button", { name: "Zu „Lied A“ springen" }).click();
+  await expect(spieler.getByText(/Abschnitt: „Lied A“/)).toBeVisible();
+  await spieler.getByLabel("Position (Gesamtmitschnitt Video)").fill("0.2");
+  await expect.poll(() => position(page)).toBeLessThan(0.6);
+  await expect(
+    spieler.getByText("Die ganze Aufnahme läuft weiter."),
+  ).toBeVisible();
+  await spieler
+    .getByRole("button", { name: "Gesamtmitschnitt Video abspielen" })
+    .click();
+  await expect
+    .poll(() => position(page), { timeout: 10_000 })
+    .toBeGreaterThan(3.4);
+  expect(await pausiert(page)).toBe(false);
+  await expect(spieler.getByText(/Ende des Abschnitts/)).toHaveCount(0);
+});
+
+test("Liegt eine Marke hinter dem Ende der Datei (Dauer unbekannt), sagt der Spieler es und beginnt vorn (ARC-032)", async ({
+  page,
+}) => {
+  const weit: Stelle = { ...stelleA, start: 100, ende: 200 };
+  await mockSeite(page, memberMe, [weit], {
+    stand: () => stellenStand([weit], false),
+  });
+  await page.route(`**/api/events/${eventId}/recordings`, (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    return route.fulfill(
+      json({
+        eventId,
+        recordings: [{ ...aufnahme(false), durationSeconds: null }],
+      }),
+    );
+  });
+  await page.goto(`/auftritt/?id=${eventId}`);
+  await page
+    .getByRole("region", { name: "Lieder in dieser Aufnahme" })
+    .getByRole("button", { name: "Zu „Lied A“ springen" })
+    .click();
+  const spieler = page.getByRole("region", {
+    name: "Video-Spieler · Gesamtmitschnitt Video",
+  });
+  await expect(
+    spieler.getByText(
+      /Die Zeitmarke „Lied A“ \(ab 1:40\) liegt außerhalb der Datei \(Dauer 0:0[56]\)\. Die Aufnahme beginnt am Anfang\./,
+    ),
+  ).toBeVisible({ timeout: 10_000 });
+  await expect(spieler.getByText(/^Abschnitt:/)).toHaveCount(0);
+  expect(await position(page)).toBeLessThan(0.5);
+});
+
+test("Ticketerneuerung während eines Abschnitts behält Position und Halt am Abschnittsende (ARC-032)", async ({
+  page,
+}) => {
+  const lang: Stelle = { ...stelleA, start: 0.5, ende: 5.5 };
+  const anfragen = await mockSeite(page, memberMe, [lang]);
+  // Kurzlebige Tickets (30 s): der Spieler erneuert nach etwa fünf Sekunden.
+  let nummer = 0;
+  await page.route(`**/api/recordings/${videoId}/access`, (route) => {
+    anfragen.zugriffe += 1;
+    nummer += 1;
+    return route.fulfill(
+      json({
+        recordingId: videoId,
+        kind: "video",
+        playbackState: "ready",
+        source: "original",
+        revisionId,
+        contentType: "video/webm",
+        sizeBytes: 1048576,
+        durationSeconds: 6,
+        viewUrl: `https://speicher.test/kurz-${nummer}?ticket=ansicht`,
+        downloadEnabled: false,
+        downloadUrl: null,
+        expiresAt: new Date(Date.now() + 30_000).toISOString(),
+      }),
+    );
+  });
+  await page.goto(`/auftritt/?id=${eventId}`);
+  await page.getByRole("button", { name: "Zu „Lied A“ springen" }).click();
+  const spieler = page.getByRole("region", {
+    name: "Video-Spieler · Gesamtmitschnitt Video",
+  });
+  await expect(spieler.getByText(/Abschnitt: „Lied A“/)).toBeVisible();
+  await expect.poll(() => position(page)).toBeGreaterThanOrEqual(0.45);
+  await spieler
+    .getByRole("button", { name: "Gesamtmitschnitt Video abspielen" })
+    .click();
+  // Die Erneuerung geschieht mitten im Abschnitt …
+  await expect
+    .poll(() => anfragen.zugriffe, { timeout: 15_000 })
+    .toBeGreaterThanOrEqual(2);
+  expect(await position(page)).toBeGreaterThan(1);
+  // … und der Halt am Ende gilt danach noch.
+  await expect(
+    spieler.getByText("Ende des Abschnitts „Lied A“ erreicht."),
+  ).toBeVisible({ timeout: 15_000 });
+  const ende = await position(page);
+  expect(ende).toBeGreaterThanOrEqual(5.4);
+  expect(ende).toBeLessThan(6.1);
+  expect(await pausiert(page)).toBe(true);
 });

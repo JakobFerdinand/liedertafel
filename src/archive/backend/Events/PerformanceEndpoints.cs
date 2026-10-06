@@ -3,7 +3,6 @@ using Archive.Backend.Auth;
 using Archive.Backend.Catalogue;
 using Archive.Backend.Data;
 using Archive.Backend.Recordings;
-using Npgsql;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.EntityFrameworkCore;
 
@@ -326,8 +325,7 @@ public static class PerformanceEndpoints
 			{
 				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
 			}
-			catch (DbUpdateException exception)
-				when (exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.ForeignKeyViolation })
+			catch (DbUpdateException exception) when (RecordingPassages.IsPerformanceForeignKeyViolation(exception))
 			{
 				// A passage was marked between the check and the delete: the
 				// foreign key held, answer with the reason instead of a 500.

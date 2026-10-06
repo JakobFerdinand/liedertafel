@@ -758,10 +758,17 @@ every mutation, `no-store`, German ProblemDetails):
   404) and editors. Editors additionally get `occurrences` (the event's
   performances in programme order with their passage id: the marker list),
   `playbackRevisionId`, `durationSeconds` and `hasPublishedProgramme`.
-- `POST /api/recordings/{id}/passages` `{ performanceId, startSeconds, endSeconds }`,
-  `PATCH …/passages/{passageId}` `{ startSeconds?, endSeconds?, expectedVersion }`,
+- `POST /api/recordings/{id}/passages` `{ performanceId, startSeconds, endSeconds, expectedPlaybackRevisionId }`,
+  `PATCH …/passages/{passageId}` `{ startSeconds?, endSeconds?, expectedVersion, expectedPlaybackRevisionId }`,
   `POST …/passages/{passageId}/delete` `{ expectedVersion? }`,
-  `POST …/passages/review` `{ passageIds? }` — any editor. Ids are checked
+  `POST …/passages/review` `{ expectedPlaybackRevisionId, passages: [{ id, expectedVersion }] }` — any editor.
+  `expectedPlaybackRevisionId` is the `playbackRevisionId` of the editor GET
+  the form was built from and is required on create, patch and review: when
+  the file members play has changed since, the answer is the stale-state 409
+  "Die Datei der Aufnahme wurde zwischenzeitlich ersetzt." and nothing is
+  written. The review acts only on the listed passages (an empty or absent
+  list is a 400; a foreign id 404; any stale row token refuses the whole
+  review). A PATCH of a passage in need of review must state both bounds. Ids are checked
   against their stated parent (404 otherwise); times are validated in the
   API (ordering, a measured duration, two days at most); a recording without
   a playable file takes no passages (409). Two kinds of 409 stay distinct:

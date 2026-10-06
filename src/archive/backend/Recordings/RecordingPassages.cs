@@ -1,5 +1,6 @@
 using Archive.Backend.Data;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace Archive.Backend.Recordings;
 
@@ -49,6 +50,38 @@ public static class RecordingPassages
 
 	/// <summary>A recorded song chain visible to the caller, for the catalogue filter.</summary>
 	public sealed record RecordedChain(Guid SongId, Guid? ArrangementId, Guid? MusicalVersionId);
+
+	/// <summary>Constraint names as the migration created them; the violation mappings look at these.</summary>
+	public const string PerformanceForeignKey = "FK_recording_passages_performances_PerformanceId_EventId";
+
+	public const string UniquePerRecording = "IX_recording_passages_RecordingId_PerformanceId";
+
+	public const string RecordingForeignKey = "FK_recording_passages_recordings_RecordingId_EventId";
+
+	/// <summary>The foreign key from a passage to its occurrence held: a passage hangs on that performance.</summary>
+	public static bool IsPerformanceForeignKeyViolation(DbUpdateException exception) =>
+		exception.InnerException is PostgresException
+		{
+			SqlState: PostgresErrorCodes.ForeignKeyViolation,
+			ConstraintName: PerformanceForeignKey,
+		};
+
+	/// <summary>The unique key (recording, performance) held: that occurrence is marked in this recording already.</summary>
+	public static bool IsDuplicateViolation(DbUpdateException exception) =>
+		exception.InnerException is PostgresException
+		{
+			SqlState: PostgresErrorCodes.UniqueViolation,
+			ConstraintName: UniquePerRecording,
+		};
+
+	/// <summary>A passage's recording or occurrence was removed while it was being written.</summary>
+	public static bool IsParentGoneViolation(DbUpdateException exception) =>
+		IsPerformanceForeignKeyViolation(exception)
+		|| exception.InnerException is PostgresException
+		{
+			SqlState: PostgresErrorCodes.ForeignKeyViolation,
+			ConstraintName: RecordingForeignKey,
+		};
 
 	public static string StateOf(Guid playbackRevisionId, Guid? playable) =>
 		playable is { } current && current == playbackRevisionId ? Current : NeedsReview;

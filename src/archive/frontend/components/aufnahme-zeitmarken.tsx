@@ -19,6 +19,7 @@ import {
   patchZeitmarke,
   type Vorkommen,
   type Zeitmarke,
+  ZeitmarkeDateiErsetzt,
   type ZeitmarkenStand,
   ZeitmarkeVeraltet,
   zeitFormat,
@@ -152,6 +153,7 @@ export function ZeitmarkenRedaktion({
   leseposition,
   onSpringen,
   onGeaendert,
+  onDateiGewechselt,
   onMeldung,
 }: {
   aufnahme: Aufnahme;
@@ -162,6 +164,11 @@ export function ZeitmarkenRedaktion({
   onSpringen: (zeitmarke: Zeitmarke) => void;
   /** Lädt den Stand der Marken neu (nach jedem Schreiben und bei veraltetem Stand). */
   onGeaendert: () => Promise<void>;
+  /**
+   * Die Datei, die Mitglieder abspielen, wurde ersetzt, seit diese Ansicht
+   * gebaut wurde: Aufnahme, Spieler und Marken müssen neu geladen werden.
+   */
+  onDateiGewechselt: () => Promise<void>;
   onMeldung: (text: string) => void;
 }) {
   const [entwuerfe, setEntwuerfe] = useState<Record<string, Entwurf>>({});
@@ -169,9 +176,21 @@ export function ZeitmarkenRedaktion({
   const [busy, setBusy] = useState("");
   const [entfernenBereit, setEntfernenBereit] = useState<string | null>(null);
   const [fokusAuf, setFokusAuf] = useState<string | null>(null);
+  // Das Feld, dessen Eingabe die Meldung beanstandet: markiert und fokussiert.
+  const [ungueltig, setUngueltig] = useState<{
+    performanceId: string;
+    feld: "start" | "ende";
+  } | null>(null);
+  const [fokusFeld, setFokusFeld] = useState<{
+    performanceId: string;
+    feld: "start" | "ende";
+  } | null>(null);
   const fehlerRef = useRef<HTMLParagraphElement | null>(null);
   const fokusFehler = useRef(false);
   const startFelder = useRef(new Map<string, HTMLInputElement>());
+  const endeFelder = useRef(new Map<string, HTMLInputElement>());
+  const formatId = `zeitmarken-format-${aufnahme.id}`;
+  const fehlerId = `zeitmarken-fehler-${aufnahme.id}`;
 
   useEffect(() => {
     if (fehler && fokusFehler.current) {
@@ -179,6 +198,15 @@ export function ZeitmarkenRedaktion({
       fehlerRef.current?.focus();
     }
   }, [fehler]);
+
+  // Nach der Meldung (sie steht schon im Alarmbereich und ist über
+  // aria-describedby am Feld) geht der Fokus ins beanstandete Feld.
+  useEffect(() => {
+    if (!fokusFeld) return;
+    const felder = fokusFeld.feld === "start" ? startFelder : endeFelder;
+    felder.current.get(fokusFeld.performanceId)?.focus();
+    setFokusFeld(null);
+  }, [fokusFeld]);
 
   useEffect(() => {
     if (!fokusAuf) return;
@@ -206,6 +234,9 @@ export function ZeitmarkenRedaktion({
   }
 
   function aendern(eintrag: Vorkommen, teil: Partial<Entwurf>) {
+    setUngueltig((vorher) =>
+      vorher?.performanceId === eintrag.performanceId ? null : vorher,
+    );
     setEntwuerfe((vorher) => ({
       ...vorher,
       [eintrag.performanceId]: { ...wertVon(eintrag), ...teil },
@@ -227,9 +258,27 @@ export function ZeitmarkenRedaktion({
     if (busy) return;
     const titel = titelVon(eintrag);
     setFehler("");
+    setUngueltig(null);
     const ergebnis = pruefen(wertVon(eintrag), dauer);
     if (!ergebnis.ok) {
-      meldeFehler(`„${titel}“: ${ergebnis.meldung}`);
+      setFehler(`„${titel}“: ${ergebnis.meldung}`);
+      setUngueltig({
+        performanceId: eintrag.performanceId,
+        feld: ergebnis.feld,
+      });
+      setFokusFeld({
+        performanceId: eintrag.performanceId,
+        feld: ergebnis.feld,
+      });
+      return;
+    }
+    // Zeiten werden immer an der Datei festgehalten, die die Redaktion beim
+    // Bauen dieser Ansicht gesehen hat; ohne abspielbare Datei gibt es keine.
+    const revision = stand.playbackRevisionId ?? null;
+    if (revision === null) {
+      meldeFehler(
+        `„${titel}“: Die Aufnahme hat noch keine abspielbare Datei, an der sich Zeitmarken setzen lassen.`,
+      );
       return;
     }
     const marke = eintrag.passageId ? marken.get(eintrag.passageId) : undefined;
@@ -240,12 +289,14 @@ export function ZeitmarkenRedaktion({
           startSeconds: ergebnis.start,
           endSeconds: ergebnis.ende,
           expectedVersion: marke.editor.version,
+          expectedPlaybackRevisionId: revision,
         });
       } else {
         await createZeitmarke(aufnahme.id, {
           performanceId: eintrag.performanceId,
           startSeconds: ergebnis.start,
           endSeconds: ergebnis.ende,
+          expectedPlaybackRevisionId: revision,
         });
       }
       setEntwuerfe((vorher) => {
@@ -265,6 +316,18 @@ export function ZeitmarkenRedaktion({
     } catch (ursache) {
       const text = await problemTitel(ursache, SpeicherErsatz);
       if (
+        ursache instanceof Response &&
+        ursache.status === 409 &&
+        text === ZeitmarkeDateiErsetzt
+      ) {
+        // Die Datei hat gewechselt: Aufnahme, Spieler und Marken werden neu
+        // geladen. Die getippten Zeiten bleiben stehen; sie gelten der alten
+        // Datei und werden erst nach dem Prüfen erneut gespeichert.
+        meldeFehler(
+          `„${titel}“: ${text} Die Aufnahme, der Spieler und die Zeitmarken wurden neu geladen; deine Eingaben stehen noch da. Bitte öffne den Spieler neu und prüfe die Zeiten gegen die neue Datei, bevor du erneut speicherst.`,
+        );
+        await onDateiGewechselt();
+      } else if (
         ursache instanceof Response &&
         ursache.status === 409 &&
         text === ZeitmarkeVeraltet
@@ -327,18 +390,69 @@ export function ZeitmarkenRedaktion({
   async function allePruefen() {
     if (busy) return;
     setFehler("");
+    const revision = stand.playbackRevisionId ?? null;
+    if (revision === null) {
+      meldeFehler(
+        "Die Aufnahme hat noch keine abspielbare Datei, an der sich Zeitmarken bestätigen lassen.",
+      );
+      return;
+    }
     setBusy("pruefen");
     try {
-      await bestaetigeZeitmarken(aufnahme.id);
+      // Genau die Marken, die diese Ansicht als zu prüfen aufgelistet hat,
+      // mit dem Stand, den sie gesehen hat.
+      await bestaetigeZeitmarken(
+        aufnahme.id,
+        revision,
+        zuPruefen.flatMap((marke) =>
+          marke.editor
+            ? [{ id: marke.id, expectedVersion: marke.editor.version }]
+            : [],
+        ),
+      );
       onMeldung(
         `${anzahlText(zuPruefen.length, "Zeitmarke", "Zeitmarken")} für die aktuelle Datei bestätigt.`,
       );
       await onGeaendert();
     } catch (ursache) {
-      meldeFehler(await problemTitel(ursache, SpeicherErsatz));
+      const text = await problemTitel(ursache, SpeicherErsatz);
+      if (
+        ursache instanceof Response &&
+        ursache.status === 409 &&
+        text === ZeitmarkeDateiErsetzt
+      ) {
+        meldeFehler(
+          `${text} Die Aufnahme, der Spieler und die Zeitmarken wurden neu geladen. Bitte prüfe die Zeiten gegen die neue Datei, bevor du sie bestätigst.`,
+        );
+        await onDateiGewechselt();
+      } else if (
+        ursache instanceof Response &&
+        ursache.status === 409 &&
+        text === ZeitmarkeVeraltet
+      ) {
+        meldeFehler(
+          `${text} Der aktuelle Stand wurde geladen; bitte erneut prüfen und bestätigen.`,
+        );
+        await onGeaendert();
+      } else {
+        meldeFehler(text);
+      }
     } finally {
       setBusy("");
     }
+  }
+
+  function istUngueltig(eintrag: Vorkommen, feld: "start" | "ende"): boolean {
+    return (
+      ungueltig?.performanceId === eintrag.performanceId &&
+      ungueltig.feld === feld
+    );
+  }
+
+  // Das Formathinweis-Element beschreibt jedes Zeitfeld; ein beanstandetes
+  // Feld nennt zusätzlich die Meldung.
+  function beschreibung(eintrag: Vorkommen, feld: "start" | "ende"): string {
+    return istUngueltig(eintrag, feld) ? `${formatId} ${fehlerId}` : formatId;
   }
 
   // Überschneidungen sind ein Hinweis, kein Fehler: Zeiten werden oft in
@@ -397,6 +511,10 @@ export function ZeitmarkenRedaktion({
         </p>
       ) : (
         <>
+          <p className="noten-info" id={formatId}>
+            Zeit als m:ss oder h:mm:ss angeben, zum Beispiel 12:30 oder
+            1:02:03,5.
+          </p>
           {!spielerOffen && (
             <p className="noten-info">
               Zum Übernehmen der Position den Spieler dieser Aufnahme öffnen
@@ -453,6 +571,10 @@ export function ZeitmarkenRedaktion({
                         inputMode="text"
                         autoComplete="off"
                         placeholder="12:30"
+                        aria-describedby={beschreibung(eintrag, "start")}
+                        aria-invalid={
+                          istUngueltig(eintrag, "start") || undefined
+                        }
                         value={werte.start}
                         ref={(element) => {
                           if (element) {
@@ -489,6 +611,20 @@ export function ZeitmarkenRedaktion({
                         inputMode="text"
                         autoComplete="off"
                         placeholder="15:40"
+                        aria-describedby={beschreibung(eintrag, "ende")}
+                        aria-invalid={
+                          istUngueltig(eintrag, "ende") || undefined
+                        }
+                        ref={(element) => {
+                          if (element) {
+                            endeFelder.current.set(
+                              eintrag.performanceId,
+                              element,
+                            );
+                          } else {
+                            endeFelder.current.delete(eintrag.performanceId);
+                          }
+                        }}
                         value={werte.ende}
                         onChange={(ereignis) =>
                           aendern(eintrag, { ende: ereignis.target.value })
@@ -564,7 +700,12 @@ export function ZeitmarkenRedaktion({
       )}
       <div role="alert">
         {fehler && (
-          <p className="feld-fehler" tabIndex={-1} ref={fehlerRef}>
+          <p
+            className="feld-fehler"
+            id={fehlerId}
+            tabIndex={-1}
+            ref={fehlerRef}
+          >
             {fehler}
           </p>
         )}

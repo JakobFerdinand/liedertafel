@@ -230,3 +230,94 @@ Notes and limits of this verification:
 - ARC-046 (merge songs): a passage's song is its performance's song, so
   moving performances moves the passages; the unique key is per
   (recording, performance) and cannot collide when songs merge.
+
+## Review follow-up (2026-10-06)
+
+An independent review of `d88c3d9` found one blocking defect and eight
+findings; all are fixed in the follow-up commit. No migration (the pushed
+`20261006010744_RecordingPassages` is untouched).
+
+- **B1 (blocking)** Writes carry the file the editor looked at.
+  `expectedPlaybackRevisionId` (the `playbackRevisionId` of the editor GET) is
+  required on `POST`, `PATCH` and `…/review`; missing is a 400, a different
+  resolved playable file is the stale-state 409 "Die Datei der Aufnahme wurde
+  zwischenzeitlich ersetzt." and nothing is written. The review now takes
+  `passages: [{ id, expectedVersion }]` and acts only on those (empty/absent
+  is a 400, a foreign id a 404, a stale row token refuses the whole review).
+  A PATCH of a passage in need of review must state both bounds (400
+  otherwise), so an unseen bound is never re-anchored silently. Client: the
+  revision and the listed ids/tokens are sent; on the file-replaced 409 the
+  page reloads recording list, closes the player (ticket, position, segment)
+  and reloads the marks, keeps the typed values and explains.
+- **N1** The confirmation PUT asks for passages only after the token and
+  `knownOccurrences` stale checks, so an outdated form is told to reload.
+- **N2** A jump (and a deep link, and a ticket renewal) compares the access
+  response's `revisionId` with the list's `playback.revisionId`; on a
+  difference the cached segment/position is dropped, list and marks reload,
+  and the page says so instead of positioning.
+- **N3** "hängt 1 Zeitmarke … die Zeitmarke … ist" / "hängen n …" and the same
+  warning on an encore row and for an encore removed in the form.
+- **N4** An unknown `stelle` now opens the player at the start like its
+  sibling branches (the omission was real).
+- **N5** Time fields: visible hint ("m:ss oder h:mm:ss") wired with
+  `aria-describedby`, `aria-invalid` and the message id on the offending field,
+  focus moves to that field (server errors still focus the alert).
+- **N6** After the segment end the main play button clears the "Ende des
+  Abschnitts …" state and its buttons; seeking outside the segment releases
+  the stop.
+- **N7** The FK/unique mappings check `PostgresException.ConstraintName`
+  (`RecordingPassages.IsPerformanceForeignKeyViolation`,
+  `IsDuplicateViolation`, `IsParentGoneViolation`): the passages message only
+  for the passage→performance key, the duplicate message for the unique
+  (recording, performance) index; anything else follows the previous generic
+  handling. `IsConflict` is gone.
+- **N8** A mark whose start lies beyond the real file duration (unknown
+  duration at marking time, shorter file) is not shown as a segment: the player
+  says "Die Zeitmarke … liegt außerhalb der Datei (Dauer …). Die Aufnahme
+  beginnt am Anfang." The server still cannot check a null duration.
+- **N9** Tests for anonymous and antiforgery on PATCH/delete/review, restoring
+  an earlier file, losing the playable file, and ticket renewal during a
+  segment.
+
+### Follow-up verification
+
+| Command | Result |
+| --- | --- |
+| `dotnet build src/archive/Archive.slnx` | succeeded, 0 errors |
+| `dotnet ef migrations has-pending-model-changes --project backend` | "No changes have been made to the model since the last migration." |
+| `dotnet test tests/archive/backend` | 545 passed, 0 failed (538 + 7 new) |
+| `corepack pnpm run check`, `corepack pnpm run build` | passed |
+| `corepack pnpm exec playwright test tests/auftritt-passagen.spec.ts --workers=1` (static export) | 36 passed (18 scenarios, desktop + mobile; 6 new) |
+| same, `auftritt-aufnahmen`, `audio-wiedergabe`, `auftritt-bestaetigung`, `auftritt-belege`, `lied-historie`, `filter` | 134 passed, then `auftritt-aufnahmen` 36 passed again after a mock fix |
+| `dotnet test tests/archive/apphost --filter "FullyQualifiedName~ConcertRecording"` | 1 passed (2 m 57 s), flow updated for the required revision, a stale-file refusal and a bulk review |
+
+Seen failing first: backend — `OutdatedPlaybackRevisionIsRefused…`,
+`EditorWithTheCurrentRevision…`, `StaleConfirmationForm…`,
+`ChangedPlaybackFile…` (both-bounds rule) and the constraint-mapping test
+(against a stub that throws) failed; the antiforgery, restore and
+lost-playable tests passed on first run because they pin existing behaviour.
+Browser — the updated `auftritt-passagen.spec.ts` was run against the
+previous static export first: 10 of 18 desktop scenarios failed (the eight
+that passed are unchanged behaviour). `auftritt-bestaetigung.spec.ts` additions
+were written after the UI change without a separate red run.
+
+One existing browser mock was wrong and is fixed: `auftritt-aufnahmen.spec.ts`
+issued tickets whose `revisionId` differed from the list's for the audio
+recording; the page now compares them, so the helper pairs them as the real API
+does.
+
+## Further known weaknesses (recorded, deliberately left)
+
+- Members can see that a passage is under review (the song is listed, "Zeitmarke
+  wird überprüft") but never its times — a decision of this ticket, not a leak.
+- `IX_recording_passages_PerformanceId` and `IX_recording_passages_RecordingId_EventId`
+  are redundant next to other indexes; removing them needs a migration, not
+  worth it now.
+- The alternate keys make `Recording.EventId` and `Performance.EventId`
+  immutable in EF; a future "move to another event" needs a migration of the
+  keys.
+- The CHECK constraints accept NaN/Infinity at database level; the API rejects
+  them.
+- Unverified until pilot devices: precise jumps (the segment end rides on
+  `timeupdate`), fullscreen video with native controls, background-tab
+  throttling and H.264.

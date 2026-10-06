@@ -983,7 +983,7 @@ test("Zeitmarken an einer Aufführung warnen vor dem Auslassen und sperren ohne 
   await expect(zeilen.nth(1)).not.toContainText("Zeitmarken in Aufnahmen");
   await zeilen.nth(1).getByLabel("Nicht gesungen").check();
   await expect(zeilen.nth(1)).toContainText(
-    "An diesem Lied hängen 2 Zeitmarken in Aufnahmen. Es kann erst ausgelassen werden, wenn sie in den Aufnahmen entfernt sind.",
+    "An diesem Lied hängen 2 Zeitmarken in Aufnahmen. Es kann erst ausgelassen werden, wenn die Zeitmarken in den Aufnahmen entfernt sind.",
   );
   await expect(zeilen.nth(0)).not.toContainText("Zeitmarken in Aufnahmen");
 
@@ -998,4 +998,43 @@ test("Zeitmarken an einer Aufführung warnen vor dem Auslassen und sperren ohne 
   await expect(alarm).not.toContainText("Bitte prüfe den aktuellen Stand");
   await expect(zeilen.nth(1).getByLabel("Nicht gesungen")).toBeChecked();
   expect(anfragen.filter((a) => a.method === "GET")).toHaveLength(abrufeVorher);
+});
+
+test("Eine einzelne Zeitmarke steht im Singular, und auch eine entfernte Zugabe warnt (ARC-032)", async ({
+  page,
+}) => {
+  const markiert = {
+    ...offenerPunkt(punktA, 1, fassung1),
+    outcome: "sung",
+    performance: { ...nachweis("p1", fassung1, punktA), passageCount: 1 },
+  };
+  const unmarkiert = {
+    ...offenerPunkt(punktB, 2, fassung2),
+    outcome: "sung",
+    performance: { ...nachweis("p2", fassung2, punktB), passageCount: 0 },
+  };
+  const zugabe = {
+    ...nachweis("z1", fassung2, null),
+    passageCount: 2,
+  };
+  await werkbankOeffnen(page, () =>
+    json(pruefung(1, [markiert, unmarkiert], bestaetigungKopf, [zugabe])),
+  );
+  const zeilen = page.locator(".bestaetigung-zeile");
+  await zeilen.nth(0).getByLabel("Nicht gesungen").check();
+  await expect(zeilen.nth(0)).toContainText(
+    "An diesem Lied hängt 1 Zeitmarke in Aufnahmen. Es kann erst ausgelassen werden, wenn die Zeitmarke in den Aufnahmen entfernt ist.",
+  );
+
+  // Die Zugabe trägt ihre Warnung schon in der Zeile ...
+  const zusatz = page.locator(".bestaetigung-zusatz");
+  await expect(zusatz).toContainText(
+    "An diesem Lied hängen 2 Zeitmarken in Aufnahmen. Es kann erst entfernt werden, wenn die Zeitmarken in den Aufnahmen entfernt sind.",
+  );
+  // ... und bleibt als Warnung stehen, wenn man sie entfernt.
+  await zusatz.getByRole("button", { name: /entfernen/ }).click();
+  await expect(zusatz).toHaveCount(0);
+  await expect(page.locator(".bestaetigung-verwaltung")).toContainText(
+    "Zugabe „Zugabe-Lied“ ist entfernt, aber nicht gespeichert. An diesem Lied hängen 2 Zeitmarken in Aufnahmen. Es kann erst entfernt werden, wenn die Zeitmarken in den Aufnahmen entfernt sind.",
+  );
 });

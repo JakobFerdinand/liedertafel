@@ -1437,23 +1437,23 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
 
         var passagePath = $"/api/recordings/{videoId}/passages";
         using (var crossEvent = await PostJsonAsync(api, passagePath,
-            new { performanceId = foreignPerformanceId, startSeconds = 10, endSeconds = 20 }, editorSession, token))
+            new { performanceId = foreignPerformanceId, startSeconds = 10, endSeconds = 20, expectedPlaybackRevisionId = copyRevisionId }, editorSession, token))
             Assert.Equal(HttpStatusCode.NotFound, crossEvent.StatusCode);
         using (var beyondEnd = await PostJsonAsync(api, passagePath,
-            new { performanceId, startSeconds = 10, endSeconds = 9000 }, editorSession, token))
+            new { performanceId, startSeconds = 10, endSeconds = 9000, expectedPlaybackRevisionId = copyRevisionId }, editorSession, token))
             Assert.Equal(HttpStatusCode.BadRequest, beyondEnd.StatusCode);
         using var createPassage = await PostJsonAsync(api, passagePath,
-            new { performanceId, startSeconds = 12.5, endSeconds = 301.25 }, editorSession, token);
+            new { performanceId, startSeconds = 12.5, endSeconds = 301.25, expectedPlaybackRevisionId = copyRevisionId }, editorSession, token);
         Assert.Equal(HttpStatusCode.Created, createPassage.StatusCode);
         var passage = (await createPassage.Content.ReadFromJsonAsync<JsonElement>(token)).GetProperty("passage");
         Assert.Equal("ARC-032 Lied", passage.GetProperty("songTitle").GetString());
         Assert.Equal("current", passage.GetProperty("timestampState").GetString());
         // The same occurrence in a second recording; a repeat of the first is a duplicate.
         using (var secondRecording = await PostJsonAsync(api, $"/api/recordings/{audioId}/passages",
-            new { performanceId, startSeconds = 3, endSeconds = 200 }, editorSession, token))
+            new { performanceId, startSeconds = 3, endSeconds = 200, expectedPlaybackRevisionId = audioAccess.GetProperty("revisionId").GetString() }, editorSession, token))
             Assert.Equal(HttpStatusCode.Created, secondRecording.StatusCode);
         using (var duplicate = await PostJsonAsync(api, passagePath,
-            new { performanceId, startSeconds = 1, endSeconds = 2 }, editorSession, token))
+            new { performanceId, startSeconds = 1, endSeconds = 2, expectedPlaybackRevisionId = copyRevisionId }, editorSession, token))
             Assert.Equal(HttpStatusCode.Conflict, duplicate.StatusCode);
 
         using var memberPassages = await GetAsync(api, passagePath, memberSession, token);
@@ -1488,6 +1488,18 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         for (var i = 64; i < webmAgain.Length; i++) webmAgain[i] = (byte)(i % 239);
         await TransferAndFinalizeAsync(api, storage, editorSession, playbackAssetId, webmAgain, token,
             contentType: "video/webm");
+        // A form built against the old file can neither mark nor confirm.
+        using (var oldFile = await PostJsonAsync(api, passagePath,
+            new { performanceId, startSeconds = 1, endSeconds = 2, expectedPlaybackRevisionId = copyRevisionId },
+            editorSession, token))
+            Assert.Equal(HttpStatusCode.Conflict, oldFile.StatusCode);
+        using (var oldReview = await PostJsonAsync(api, $"{passagePath}/review",
+            new
+            {
+                expectedPlaybackRevisionId = copyRevisionId,
+                passages = new[] { new { id = passage.GetProperty("id").GetString(), expectedVersion = 1 } },
+            }, editorSession, token))
+            Assert.Equal(HttpStatusCode.Conflict, oldReview.StatusCode);
         using var flagged = await GetAsync(api, passagePath, memberSession, token);
         var flaggedPassage = (await flagged.Content.ReadFromJsonAsync<JsonElement>(token))
             .GetProperty("passages").EnumerateArray().Single();
@@ -1498,6 +1510,28 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
             // The audio recording's passage is still current.
             Assert.Equal(1, (await memberFilter.Content.ReadFromJsonAsync<JsonElement>(token)).GetProperty("total").GetInt32());
         }
+
+        // The editor confirms the flagged passage against the file they now see.
+        using var editorView = await GetAsync(api, passagePath, editorSession, token);
+        var editorBody = await editorView.Content.ReadFromJsonAsync<JsonElement>(token);
+        var flaggedForEditor = editorBody.GetProperty("passages").EnumerateArray().Single();
+        using (var review = await PostJsonAsync(api, $"{passagePath}/review",
+            new
+            {
+                expectedPlaybackRevisionId = editorBody.GetProperty("playbackRevisionId").GetString(),
+                passages = new[]
+                {
+                    new
+                    {
+                        id = flaggedForEditor.GetProperty("id").GetString(),
+                        expectedVersion = flaggedForEditor.GetProperty("editor").GetProperty("version").GetInt32(),
+                    },
+                },
+            }, editorSession, token))
+            Assert.Equal(HttpStatusCode.OK, review.StatusCode);
+        using var reviewed = await GetAsync(api, passagePath, memberSession, token);
+        Assert.Equal("current", (await reviewed.Content.ReadFromJsonAsync<JsonElement>(token))
+            .GetProperty("passages").EnumerateArray().Single().GetProperty("timestampState").GetString());
 
         async Task<JsonElement> CreateRecordingAsync(string label, string kind)
         {

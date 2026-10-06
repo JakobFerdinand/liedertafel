@@ -41,8 +41,11 @@ export type SpielerAbschnitt = {
   marke: number;
 };
 
-/** aktiv: Halt am Ende · ende: Halt erreicht · frei: die ganze Aufnahme läuft weiter. */
-type AbschnittZustand = "aktiv" | "ende" | "frei";
+/**
+ * aktiv: Halt am Ende · ende: Halt erreicht · frei: die ganze Aufnahme läuft
+ * weiter · ausserhalb: der Anfang liegt hinter dem Ende der Datei.
+ */
+type AbschnittZustand = "aktiv" | "ende" | "frei" | "ausserhalb";
 
 export type MedienSpielerProps<Zugriff extends SpielerZugriff> = {
   /** Eindeutig je Seite; bildet die Kennungen der Regler. */
@@ -223,6 +226,17 @@ export function MedienSpieler<Zugriff extends SpielerZugriff>({
     setAbschnittZustand("aktiv");
   }, [abschnittVon, abschnittBis, abschnittMarke]);
 
+  // Eine Marke hinter dem Ende der wirklichen Datei (Dauer unbekannt, als
+  // die Marke gesetzt wurde, oder kürzere Datei): nichts wird vorgetäuscht,
+  // die Wiedergabe beginnt vorn und die Meldung sagt es.
+  useEffect(() => {
+    void abschnittMarke;
+    if (dauer !== null && abschnittVon !== undefined && abschnittVon >= dauer) {
+      abschnittAktivRef.current = false;
+      setAbschnittZustand("ausserhalb");
+    }
+  }, [dauer, abschnittVon, abschnittMarke]);
+
   // Im Vollbild trägt der Browser die Bedienung; die eigenen Regler liegen
   // dann außerhalb des sichtbaren Bereichs.
   useEffect(() => {
@@ -253,6 +267,12 @@ export function MedienSpieler<Zugriff extends SpielerZugriff>({
   }, [aktiv]);
 
   function beiWiedergabeStart() {
+    // Wer nach dem Abschnittsende selbst weiterspielt, spielt die ganze
+    // Aufnahme: die Meldung zum Ende und ihre Knöpfe gelten nicht mehr.
+    if (abschnittZustand === "ende") {
+      abschnittAktivRef.current = false;
+      setAbschnittZustand("frei");
+    }
     wiedergabeRef.current = true;
     setWiedergabe(true);
     onAbspielen();
@@ -287,6 +307,21 @@ export function MedienSpieler<Zugriff extends SpielerZugriff>({
           setAbschnittZustand("frei");
         }
       }
+    }
+  }
+
+  // Wer aus dem Abschnitt heraus sucht (davor oder dahinter), will die ganze
+  // Aufnahme hören: der Halt am Abschnittsende wird freigegeben.
+  function beiGesprungen() {
+    const audio = audioRef.current;
+    if (!audio || !abschnitt || fortsetzenRef.current) return;
+    const stelle = audio.currentTime;
+    if (stelle < abschnitt.von - 0.5 || stelle > abschnitt.bis + 0.5) {
+      abschnittAktivRef.current = false;
+      letzteZeitRef.current = null;
+      setAbschnittZustand((vorher) =>
+        vorher === "ausserhalb" ? vorher : "frei",
+      );
     }
   }
 
@@ -393,6 +428,7 @@ export function MedienSpieler<Zugriff extends SpielerZugriff>({
     onPause: beiWiedergabeStopp,
     onEnded: beiWiedergabeStopp,
     onTimeUpdate: beiZeit,
+    onSeeked: beiGesprungen,
     onLoadedMetadata: beiMetadaten,
     onError: () => void beiFehler(),
   };
@@ -491,7 +527,9 @@ export function MedienSpieler<Zugriff extends SpielerZugriff>({
               ? `Abschnitt: „${abschnitt.titel}“ · ${bereichText(abschnitt.von, abschnitt.bis)}`
               : abschnittZustand === "ende"
                 ? `Ende des Abschnitts „${abschnitt.titel}“ erreicht.`
-                : "Die ganze Aufnahme läuft weiter."}
+                : abschnittZustand === "ausserhalb"
+                  ? `Die Zeitmarke „${abschnitt.titel}“ (ab ${zeitText(abschnitt.von)}) liegt außerhalb der Datei${dauer !== null ? ` (Dauer ${zeitText(dauer)})` : ""}. Die Aufnahme beginnt am Anfang.`
+                  : "Die ganze Aufnahme läuft weiter."}
           </output>
           {abschnittZustand === "ende" && (
             <div className="noten-aktionen">

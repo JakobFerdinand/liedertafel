@@ -191,7 +191,11 @@ function zugriff(
     kind: "video",
     playbackState: "ready",
     source: "original",
-    revisionId: "00000000-0000-0000-0000-00000000f030",
+    // Das Ticket nennt dieselbe Datei wie die Liste (die Seite vergleicht sie).
+    revisionId:
+      recordingId === tonId
+        ? "00000000-0000-0000-0000-00000000f032"
+        : "00000000-0000-0000-0000-00000000f030",
     contentType: "video/webm",
     sizeBytes: 1610612736,
     durationSeconds: 5412.5,

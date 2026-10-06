@@ -180,20 +180,44 @@ public sealed partial class RecordingPassageApiTests
 			if (!upload)
 				return id;
 			var assetId = Guid.Parse(recording.GetProperty("editor").GetProperty("original").GetProperty("assetId").GetString()!);
+			originalAssets[id] = assetId;
 			await UploadAsync(assetId, kind == "audio" ? Mp4(4096, "M4A ") : Mp4(4096), kind == "audio" ? "ton.m4a" : "bild.mp4");
 			if (duration is { } seconds)
 				await PatchRecordingAsync(id, new { durationSeconds = seconds });
 			return id;
 		}
 
-		public async Task ReplacePlaybackFileAsync(Guid recordingId)
+		private readonly Dictionary<Guid, Guid> originalAssets = [];
+
+		/// <summary>Replaces the original with a QuickTime file: preserved, but not playable.</summary>
+		public async Task ReplaceOriginalWithUnplayableAsync(Guid recordingId) =>
+			await UploadAsync(originalAssets[recordingId], Mp4(2048, "qt  "), "alt.mov");
+
+		/// <summary>The playback revision the editor's list was built against.</summary>
+		public async Task<Guid?> PlaybackRevisionAsync(Guid recordingId)
+		{
+			var view = await PassagesAsync(recordingId, EditorSession);
+			var revision = view.GetProperty("playbackRevisionId");
+			return revision.ValueKind is JsonValueKind.Null ? null : Guid.Parse(revision.GetString()!);
+		}
+
+		public async Task RestoreRevisionAsync(Guid assetId, Guid revisionId)
+		{
+			using var response = await SendAsync(HttpMethod.Post, $"/api/assets/{assetId}/current-revision",
+				new { revisionId }, EditorSession);
+			Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+		}
+
+		/// <summary>Replaces the playback copy; answers its asset and the new revision.</summary>
+		public async Task<(Guid AssetId, Guid RevisionId)> ReplacePlaybackFileAsync(Guid recordingId)
 		{
 			using var open = await SendAsync(HttpMethod.Post, $"/api/recordings/{recordingId}/playback", new { }, EditorSession);
 			Assert.Equal(HttpStatusCode.OK, open.StatusCode);
 			var recording = (await open.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("recording");
 			var assetId = Guid.Parse(recording.GetProperty("editor").GetProperty("playbackCopy").GetProperty("assetId").GetString()!);
 			var kind = recording.GetProperty("kind").GetString();
-			await UploadAsync(assetId, kind == "audio" ? Mp4(2048, "M4A ") : Mp4(2048), "kopie.mp4");
+			var revision = await UploadAsync(assetId, kind == "audio" ? Mp4(2048, "M4A ") : Mp4(2048), "kopie.mp4");
+			return (assetId, revision);
 		}
 
 		public async Task PublishRecordingAsync(Guid recordingId) => await PatchRecordingAsync(recordingId, new { isPublished = true });
@@ -204,7 +228,7 @@ public sealed partial class RecordingPassageApiTests
 			Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 		}
 
-		private async Task UploadAsync(Guid assetId, byte[] content, string fileName)
+		private async Task<Guid> UploadAsync(Guid assetId, byte[] content, string fileName)
 		{
 			using var start = await SendAsync(HttpMethod.Post, $"/api/assets/{assetId}/upload-session",
 				new { sizeBytes = content.LongLength, fileName }, EditorSession);
@@ -215,6 +239,7 @@ public sealed partial class RecordingPassageApiTests
 			using var finalize = await SendAsync(HttpMethod.Post, $"/api/upload-sessions/{sessionId}/finalize",
 				new { sizeBytes = content.LongLength, fileName }, EditorSession);
 			Assert.Equal(HttpStatusCode.OK, finalize.StatusCode);
+			return Guid.Parse((await finalize.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("revisionId").GetString()!);
 		}
 
 		private static byte[] Mp4(int size, string brand = "isom")
@@ -228,8 +253,9 @@ public sealed partial class RecordingPassageApiTests
 
 		public async Task<JsonElement> AddPassageAsync(Guid recordingId, string performanceId, double start, double end)
 		{
+			var revision = await PlaybackRevisionAsync(recordingId);
 			using var response = await SendAsync(HttpMethod.Post, $"/api/recordings/{recordingId}/passages",
-				new { performanceId, startSeconds = start, endSeconds = end }, EditorSession);
+				new { performanceId, startSeconds = start, endSeconds = end, expectedPlaybackRevisionId = revision }, EditorSession);
 			Assert.Equal(HttpStatusCode.Created, response.StatusCode);
 			return (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("passage").Clone();
 		}

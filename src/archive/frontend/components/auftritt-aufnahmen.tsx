@@ -249,6 +249,8 @@ export function AuftrittAufnahmen({
   >({});
   const zugriffeRef = useRef(zugriffe);
   zugriffeRef.current = zugriffe;
+  const aufnahmenRef = useRef(aufnahmen);
+  aufnahmenRef.current = aufnahmen;
   const sicherungen = useRef(new Set<string>());
   const naechsterVersuch = useRef(new Map<string, number>());
   const [takt, setTakt] = useState(0);
@@ -361,38 +363,102 @@ export function AuftrittAufnahmen({
     return () => window.clearTimeout(timer);
   }, [zugriffe, takt, sichern]);
 
-  const oeffnen = useCallback(async (id: string) => {
-    setBeschaeftigt(`oeffnen:${id}`);
-    setZugriffFehler((vorher) => ({ ...vorher, [id]: "" }));
-    try {
-      const zugriff = await holeSpielZugriff(id);
-      if (zugriff === null) {
+  // Die Datei, die Mitglieder abspielen, ist eine andere als die, für die
+  // die Zeitmarken im Speicher der Seite gelten (ein Ticket nennt ihre
+  // Revision). Dann gilt kein gemerkter Abschnitt und keine gemerkte Position
+  // mehr; Aufnahmeliste und Marken werden neu geladen, bevor etwas eingestellt
+  // wird. Gibt false zurück, wenn der Stand veraltet war.
+  const dateiPruefen = useCallback(
+    (id: string, revisionId: string): boolean => {
+      const bekannt = aufnahmenRef.current?.find(
+        (aufnahme) => aufnahme.id === id,
+      )?.playback.revisionId;
+      if (!bekannt || bekannt === revisionId) return true;
+      setAbschnitte((vorher) => {
+        const { [id]: _weg, ...rest } = vorher;
+        return rest;
+      });
+      setWiederaufnahme((vorher) => {
+        const { [id]: _weg, ...rest } = vorher;
+        return rest;
+      });
+      positionen.current.delete(id);
+      setMeldung(
+        "Die Datei dieser Aufnahme wurde ersetzt. Die Zeitmarken werden neu geladen; bitte danach erneut springen.",
+      );
+      void laden();
+      return false;
+    },
+    [laden],
+  );
+
+  // Öffnet den Spieler; die Antwort sagt, ob die Marken im Speicher der
+  // Seite zu der Datei gehören, die das Ticket nennt.
+  const oeffnen = useCallback(
+    async (id: string): Promise<{ aktuell: boolean } | null> => {
+      setBeschaeftigt(`oeffnen:${id}`);
+      setZugriffFehler((vorher) => ({ ...vorher, [id]: "" }));
+      try {
+        const zugriff = await holeSpielZugriff(id);
+        if (zugriff === null) {
+          setZugriffFehler((vorher) => ({
+            ...vorher,
+            [id]: "Für diese Aufnahme liegt noch keine im Browser abspielbare Fassung vor.",
+          }));
+          return null;
+        }
+        setZugriffe((vorher) => ({ ...vorher, [id]: zugriff }));
+        return { aktuell: dateiPruefen(id, zugriff.revisionId) };
+      } catch (ursache) {
         setZugriffFehler((vorher) => ({
           ...vorher,
-          [id]: "Für diese Aufnahme liegt noch keine im Browser abspielbare Fassung vor.",
+          [id]: zugriffsMeldung(ursache),
         }));
-        return;
+        return null;
+      } finally {
+        setBeschaeftigt("");
       }
-      setZugriffe((vorher) => ({ ...vorher, [id]: zugriff }));
-    } catch (ursache) {
-      setZugriffFehler((vorher) => ({
-        ...vorher,
-        [id]: zugriffsMeldung(ursache),
-      }));
-    } finally {
-      setBeschaeftigt("");
-    }
-  }, []);
+    },
+    [dateiPruefen],
+  );
+
+  // Die Redaktion hat gegen eine Datei gespeichert, die inzwischen ersetzt
+  // wurde: das Ticket und alles Gemerkte gilt der alten Datei, Aufnahme und
+  // Marken werden neu geladen.
+  const dateiGewechselt = useCallback(
+    async (id: string) => {
+      entfernen(id);
+      positionen.current.delete(id);
+      setWiederaufnahme((vorher) => {
+        const { [id]: _weg, ...rest } = vorher;
+        return rest;
+      });
+      setAbschnitte((vorher) => {
+        const { [id]: _weg, ...rest } = vorher;
+        return rest;
+      });
+      await laden();
+    },
+    [entfernen, laden],
+  );
 
   // Sprung an den Anfang einer markierten Stelle (ARC-032): öffnet den
   // Spieler bei Bedarf (frisches Ticket), stellt den Anfang ein und merkt
   // den Abschnitt, an dessen Ende der Spieler anhält. Gespielt wird erst auf
-  // Knopfdruck; die Meldung sagt es.
+  // Knopfdruck; die Meldung sagt es. Zeiten aus dem Speicher der Seite
+  // werden nie auf eine andere Datei angewandt.
   const springen = useCallback(
-    (aufnahme: Aufnahme, marke: Zeitmarke) => {
+    async (aufnahme: Aufnahme, marke: Zeitmarke) => {
       if (marke.startSeconds === null || marke.endSeconds === null) return;
       const von = marke.startSeconds;
       const bis = marke.endSeconds;
+      const gemerkt = zugriffeRef.current[aufnahme.id];
+      if (gemerkt) {
+        if (!dateiPruefen(aufnahme.id, gemerkt.revisionId)) return;
+      } else {
+        const geoeffnet = await oeffnen(aufnahme.id);
+        if (!geoeffnet?.aktuell) return;
+      }
       setAbschnitte((vorher) => ({
         ...vorher,
         [aufnahme.id]: {
@@ -409,12 +475,11 @@ export function AuftrittAufnahmen({
           marke: (vorher[aufnahme.id]?.marke ?? 0) + 1,
         },
       }));
-      if (!zugriffeRef.current[aufnahme.id]) void oeffnen(aufnahme.id);
       setMeldung(
         `Zu „${marke.songTitle}“ gesprungen (${bereichText(von, bis)}). Zum Hören den Spieler starten.`,
       );
     },
-    [oeffnen],
+    [oeffnen, dateiPruefen],
   );
 
   // Verweis auf eine markierte Stelle: erst wenn die Marken da sind. Eine
@@ -451,13 +516,14 @@ export function AuftrittAufnahmen({
       setMeldung(
         "Diese Stelle gibt es nicht mehr. Die Aufnahme beginnt am Anfang.",
       );
+      offnen();
     } else if (marke.timestampState !== "current") {
       setMeldung(
         "Die Zeitmarke dieser Stelle wird gerade überprüft. Die Aufnahme beginnt am Anfang.",
       );
       offnen();
     } else {
-      springen(ziel, marke);
+      void springen(ziel, marke);
     }
   }, [aufnahmen, stellen, startAufnahmeId, startStelleId, springen, oeffnen]);
 
@@ -855,13 +921,15 @@ export function AuftrittAufnahmen({
                     }}
                     aktiv={spielend === aufnahme.id}
                     onAbspielen={() => setSpielend(aufnahme.id)}
-                    onErneuert={(neu) =>
+                    onErneuert={(neu) => {
                       setZugriffe((vorher) =>
                         vorher[aufnahme.id]
                           ? { ...vorher, [aufnahme.id]: neu }
                           : vorher,
-                      )
-                    }
+                      );
+                      // Ein erneuertes Ticket kann eine andere Datei nennen.
+                      dateiPruefen(aufnahme.id, neu.revisionId);
+                    }}
                     ladeMeldung={LadeErsatz}
                     formatMeldung={
                       aufnahme.downloadEnabled
@@ -914,6 +982,7 @@ export function AuftrittAufnahmen({
                         }
                         onSpringen={(marke) => springen(aufnahme, marke)}
                         onGeaendert={() => ladeStellen(aufnahme.id)}
+                        onDateiGewechselt={() => dateiGewechselt(aufnahme.id)}
                         onMeldung={setMeldung}
                       />
                     )
