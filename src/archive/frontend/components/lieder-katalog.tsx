@@ -34,8 +34,7 @@ function fundstellen(lied: Lied): string[] {
 }
 
 // Freitextfilter der Katalogadresse (ARC-023) mit ihren Formularnamen; die
-// Materialwerte werden beim Abholen in die Materialarten übersetzt (ARC-032
-// ergänzt die Aufnahmen dort).
+// Materialwerte werden beim Abholen in die Materialarten übersetzt.
 const filterTextfelder = [
   ["stimmbesetzung", "Stimmverteilung"],
   ["begleitung", "Begleitung"],
@@ -49,6 +48,7 @@ const materialOptionen = [
   ["noten", "Noten"],
   ["audio", "Audio"],
   ["midi", "MIDI"],
+  ["aufnahme", "Aufnahme mit markierter Stelle"],
 ] as const;
 
 // Materialwerte der Adresse: kommagetrennt, beschnitten, ohne leere oder
@@ -110,13 +110,14 @@ export function LiederKatalog() {
         : [],
     ),
   ];
-  // Fassungsfilter (Stimmverteilung, Begleitung, Tonart, Material) lassen
-  // die Treffer die passende Fassung nennen; reine Liedfilter tun das nicht.
+  // Fassungsfilter (Stimmverteilung, Begleitung, Tonart, Dateiarten) lassen
+  // die Treffer die passende Fassung nennen; reine Liedfilter tun das nicht,
+  // und „Aufnahme“ allein ist ein Liedfilter (ARC-032).
   const hatFassungsFilter =
     stimmbesetzung.length > 0 ||
     begleitung.length > 0 ||
     tonart.length > 0 ||
-    materialWerte.length > 0;
+    materialWerte.some((wert) => wert !== "aufnahme");
 
   const [me, setMe] = useState<MeResponse | null>(null);
   const [ergebnis, setErgebnis] = useState<LiedSuchErgebnis | null>(null);
@@ -402,7 +403,6 @@ export function LiederKatalog() {
             <fieldset className="lieder-filter-material">
               <legend>Material</legend>
               <div className="lieder-filter-auswahl">
-                {/* Aufnahmen ergänzen hier ihre Materialwahl (ARC-032). */}
                 {materialOptionen.map(([wert, beschriftung]) => (
                   <label key={wert} htmlFor={`lieder-filter-material-${wert}`}>
                     <input

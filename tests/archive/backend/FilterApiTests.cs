@@ -368,10 +368,9 @@ public sealed class FilterApiTests
 
 	[Theory]
 	[InlineData("vinyl")]
-	[InlineData("recording")]
 	[InlineData("score,")]
 	[InlineData(",midi")]
-	[InlineData("score,recording")]
+	[InlineData("score,recording,vinyl")]
 	public async Task InvalidMaterialFiltersAreRejected(string material)
 	{
 		await using var factory = new AuthApiFactory();

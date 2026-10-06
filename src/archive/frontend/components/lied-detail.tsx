@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { FassungsFormular } from "@/components/fassungs-formular";
 import { FassungsWahl } from "@/components/fassungs-wahl";
+import { HistorieAufnahmen } from "@/components/historie-aufnahmen";
 import { LiedFormular } from "@/components/lied-formular";
 import { LiedHistorie } from "@/components/lied-historie";
 import { NotenBereich } from "@/components/noten-bereich";
@@ -283,7 +284,20 @@ export function LiedDetail() {
         />
       )}
 
-      <LiedHistorie key={lied.id} songId={lied.id} isEditor={editor === true} />
+      <LiedHistorie
+        key={lied.id}
+        songId={lied.id}
+        isEditor={editor === true}
+        erweiterung={(zeile) =>
+          zeile.recordings && zeile.recordings.length > 0 ? (
+            <HistorieAufnahmen
+              zeile={zeile}
+              liedTitel={lied.title}
+              isEditor={editor === true}
+            />
+          ) : null
+        }
+      />
 
       {editor && (
         <details

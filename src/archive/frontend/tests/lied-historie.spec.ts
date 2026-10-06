@@ -127,6 +127,7 @@ function zeile(
     possiblyDuplicate: false,
     possiblyDuplicateAtEvent: false,
     alsoConfirmedAtEvent: false,
+    recordings: [],
     ...extra,
   };
 }
@@ -590,4 +591,110 @@ test("Ein Ladefehler bleibt im Abschnitt und lässt sich wiederholen", async ({
   );
   await abschnitt.getByRole("button", { name: "Erneut versuchen" }).click();
   await expect(abschnitt.locator(".historie-eintrag")).toHaveCount(5);
+});
+
+test("Aufführungen mit markierter Stelle verweisen in die Aufnahme, andere bleiben ohne Aussage", async ({
+  page,
+}) => {
+  const aufnahmeId = "00000000-0000-0000-0000-00000000c321";
+  const zweiteId = "00000000-0000-0000-0000-00000000c322";
+  const stelleId = "00000000-0000-0000-0000-00000000e101";
+  const zweiteStelle = "00000000-0000-0000-0000-00000000e102";
+  const zeilen = [
+    zeile("p1", auftritt1, "Frühjahrskonzert", {
+      recordings: [
+        {
+          passageId: stelleId,
+          recordingId: aufnahmeId,
+          recordingLabel: "Video Kamera 1",
+          kind: "video",
+          isPublished: true,
+          startSeconds: 750,
+          endSeconds: 940.5,
+          timestampState: "current",
+        },
+        {
+          passageId: zweiteStelle,
+          recordingId: zweiteId,
+          recordingLabel: "Tonmitschnitt",
+          kind: "audio",
+          isPublished: true,
+          startSeconds: null,
+          endSeconds: null,
+          timestampState: "needsReview",
+        },
+      ],
+    }),
+    zeile("p2", auftritt2, "Sommerfest"),
+  ];
+  await mockSitzung(page, memberMe);
+  await mockHistorie(page, () => ({ body: historie(zeilen) }));
+  await page.goto(`/lied/?id=${liedId}`);
+
+  const erste = page.locator('[data-performance-id="p1"]');
+  const liste = erste.getByRole("list", {
+    name: "Aufnahmen dieser Aufführung",
+  });
+  await expect(liste.getByRole("listitem")).toHaveCount(2);
+  const sprung = liste.getByRole("link", {
+    name: "Zu „Das Wandern“ in „Video Kamera 1“ springen",
+  });
+  await expect(sprung).toHaveAttribute(
+    "href",
+    `/auftritt/?id=${auftritt1}&aufnahme=${aufnahmeId}&stelle=${stelleId}`,
+  );
+  await expect(liste).toContainText("Video „Video Kamera 1“ · 12:30 – 15:40,5");
+  // Zu prüfende Marke: nur die ganze Aufnahme, ohne Zeit und ohne Sprung.
+  await expect(liste).toContainText(
+    "Tonaufnahme „Tonmitschnitt“ · Zeitmarke wird überprüft",
+  );
+  await expect(
+    liste.getByRole("link", { name: "Aufnahme „Tonmitschnitt“ öffnen" }),
+  ).toHaveAttribute("href", `/auftritt/?id=${auftritt1}&aufnahme=${zweiteId}`);
+  await expect(
+    liste.getByRole("link", { name: /„Tonmitschnitt“ springen/ }),
+  ).toHaveCount(0);
+
+  // Ohne Markierung: kein Platz, keine „keine Aufnahmen“-Aussage.
+  const zweite = page.locator('[data-performance-id="p2"]');
+  await expect(zweite.getByRole("list", { name: /Aufnahmen/ })).toHaveCount(0);
+  await expect(page.getByText(/keine Aufnahme/i)).toHaveCount(0);
+});
+
+test("Redaktion sieht Entwurfsaufnahmen und darf eine ungeprüfte Marke anspringen", async ({
+  page,
+}) => {
+  const aufnahmeId = "00000000-0000-0000-0000-00000000c321";
+  const stelleId = "00000000-0000-0000-0000-00000000e101";
+  await mockSitzung(page, editorMe);
+  await mockHistorie(page, () => ({
+    body: historie([
+      zeile("p1", auftritt1, "Frühjahrskonzert", {
+        recordings: [
+          {
+            passageId: stelleId,
+            recordingId: aufnahmeId,
+            recordingLabel: "Rohschnitt",
+            kind: "video",
+            isPublished: false,
+            startSeconds: 60,
+            endSeconds: 200,
+            timestampState: "needsReview",
+          },
+        ],
+      }),
+    ]),
+  }));
+  await page.goto(`/lied/?id=${liedId}`);
+  const liste = page
+    .locator('[data-performance-id="p1"]')
+    .getByRole("list", { name: "Aufnahmen dieser Aufführung" });
+  await expect(liste).toContainText("Entwurf");
+  await expect(liste).toContainText("Zeitmarke zu prüfen");
+  await expect(liste).toContainText("1:00 – 3:20");
+  await expect(
+    liste.getByRole("link", {
+      name: "Zu „Das Wandern“ in „Rohschnitt“ springen",
+    }),
+  ).toBeVisible();
 });

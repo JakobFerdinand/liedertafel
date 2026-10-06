@@ -94,9 +94,9 @@ export type LiedDetails = Omit<
 };
 
 // ARC-023: Repertoire-Filter aus der deutschen Katalogadresse. Die
-// Materialwerte der Adresse (noten/audio/midi) werden beim Abholen in die
-// API-Arten (score/audio/midi) übersetzt; Aufnahmen (ARC-032) ergänzen
-// ihren Wert hier.
+// Materialwerte der Adresse (noten/audio/midi/aufnahme) werden beim Abholen
+// in die API-Arten (score/audio/midi/recording) übersetzt; „aufnahme“ meint
+// Lieder mit einer markierten Stelle in einer Aufnahme (ARC-032).
 export type LiedFilter = {
   stimmbesetzung: string;
   begleitung: string;
@@ -111,10 +111,10 @@ const materialArten: Record<string, string> = {
   noten: "score",
   audio: "audio",
   midi: "midi",
+  aufnahme: "recording",
 };
 
-// Adresswerte, die als Materialfilter gelten (ARC-032 ergänzt Aufnahmen
-// hier und in der Zuordnung).
+// Adresswerte, die als Materialfilter gelten.
 export const materialAdressWerte: string[] = Object.keys(materialArten);
 
 export function liedUrlPfad(

@@ -30,6 +30,7 @@ import {
   putBestaetigung,
 } from "@/lib/events";
 import { fetchSong, type LiedDetails } from "@/lib/songs";
+import { ZeitmarkenVorhanden } from "@/lib/zeitmarken";
 
 const ersatzFehler = "Das hat nicht geklappt. Bitte erneut versuchen.";
 
@@ -405,6 +406,13 @@ function Werkbank({
     } catch (ursache) {
       if (ursache instanceof Response && ursache.status === 409) {
         const titel = await problemTitel(ursache, veralteterStand);
+        if (titel.startsWith(ZeitmarkenVorhanden)) {
+          // Kein veralteter Stand, sondern eine Sperre dieses Zustands:
+          // Zeitmarken in Aufnahmen hängen an der Aufführung. Die Eingaben
+          // bleiben stehen; erst die Marken entfernen, dann erneut speichern.
+          setHinweis(titel);
+          return;
+        }
         let frisch: BestaetigungPruefung | null = null;
         try {
           frisch = await fetchBestaetigung(eventId);
@@ -634,6 +642,12 @@ function Werkbank({
                             .
                           </p>
                         )}
+                        {wert === "skipped" &&
+                          (punkt.performance?.passageCount ?? 0) > 0 && (
+                            <p className="feld-fehler">
+                              {`An diesem Lied hängen ${punkt.performance?.passageCount} Zeitmarken in Aufnahmen. Es kann erst ausgelassen werden, wenn sie in den Aufnahmen entfernt sind.`}
+                            </p>
+                          )}
                         {wert === "skipped" &&
                           punkt.performance?.sourceNote?.trim() && (
                             <p className="feld-fehler">

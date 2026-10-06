@@ -3007,3 +3007,102 @@ fieldset.programm-verwaltung {
 details.aufnahme-anlegen {
   margin-block: 1.4rem 0;
 }
+
+/* ─── Zeitmarken in Aufnahmen (ARC-032) ────────────────────────────────
+   Die Liste der Mitglieder liest sich wie die übrigen Listen des
+   Abschnitts; die Redaktionszeilen stapeln Titel, Zeitfelder und Aktionen
+   und brechen unter 540px auf eine Spalte um. Keine neuen Farben. */
+.audio-abschnitt {
+  margin-block: 0.4rem 0;
+  font-size: var(--schrift-neben);
+}
+.audio-abschnitt > output {
+  display: block;
+  font-weight: 600;
+}
+.aufnahme-zeitmarken {
+  margin-block: 0.8rem 0;
+}
+.aufnahme-zeitmarken > h5 {
+  margin: 0 0 0.3rem;
+  font-size: var(--schrift-neben);
+}
+.zeitmarken-liste,
+.zeitmarken-redaktion-liste {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.2rem;
+}
+.zeitmarke-eintrag {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.2rem 0.8rem;
+  min-height: 2.75rem;
+  border-bottom: 1px solid var(--rule);
+  font-size: var(--schrift-neben);
+}
+.zeitmarke-lied {
+  font-weight: 600;
+}
+.zeitmarke-zeit {
+  font-variant-numeric: tabular-nums;
+}
+.aufnahme-zeitmarken-redaktion {
+  border: 0;
+  border-top: 1px dashed var(--rule);
+  margin: 0.8rem 0 0;
+  padding: 0.6rem 0 0;
+  min-width: 0;
+}
+.aufnahme-zeitmarken-redaktion > legend {
+  padding: 0;
+  font-weight: 600;
+  font-size: var(--schrift-neben);
+}
+.zeitmarke-zeile {
+  border-bottom: 1px solid var(--rule);
+  padding-block: 0.5rem;
+}
+.zeitmarke-kopf {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.2rem 0.8rem;
+}
+.zeitmarke-pruefen {
+  font-size: var(--schrift-neben);
+  font-weight: 600;
+  text-decoration: underline;
+}
+.zeitmarke-felder {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.4rem 1rem;
+  margin-block: 0.4rem;
+}
+.zeitmarke-felder input {
+  width: 100%;
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 540px) {
+  .zeitmarke-felder {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.historie-aufnahmen {
+  list-style: none;
+  margin: 0.2rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.2rem;
+  font-size: var(--schrift-neben);
+}
+.historie-aufnahme {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.2rem 0.8rem;
+}

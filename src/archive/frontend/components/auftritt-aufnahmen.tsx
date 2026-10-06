@@ -9,7 +9,14 @@
 // folgen getrennt (ARC-032) und sind hier keine Voraussetzung.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { MedienSpieler } from "@/components/medien-spieler";
+import {
+  ZeitmarkenListe,
+  ZeitmarkenRedaktion,
+} from "@/components/aufnahme-zeitmarken";
+import {
+  MedienSpieler,
+  type SpielerAbschnitt,
+} from "@/components/medien-spieler";
 import {
   AbbruchFehler,
   cancelUploadSession,
@@ -42,6 +49,12 @@ import {
   oeffneAbspielfassung,
   patchAufnahme,
 } from "@/lib/aufnahmen";
+import {
+  bereichText,
+  fetchZeitmarken,
+  type Zeitmarke,
+  type ZeitmarkenStand,
+} from "@/lib/zeitmarken";
 
 /**
  * So lange vor dem Ablauf sorgt die Liste selbst für ein frisches Ticket,
@@ -148,12 +161,15 @@ export function AuftrittAufnahmen({
   isEditor,
   startAufnahmeId,
   startSekunden,
+  startStelleId,
 }: {
   auftrittId: string;
   isEditor: boolean;
   /** Verweis auf eine bestimmte Aufnahme (?aufnahme=…), optional mit Zeit (&t=…). */
   startAufnahmeId?: string | null;
   startSekunden?: number | null;
+  /** Verweis auf eine markierte Stelle (&stelle=…): hat Vorrang vor &t=…. */
+  startStelleId?: string | null;
 }) {
   const [aufnahmen, setAufnahmen] = useState<Aufnahme[] | null>(null);
   const [ladeFehler, setLadeFehler] = useState("");
@@ -169,8 +185,29 @@ export function AuftrittAufnahmen({
   >({});
   const abbrueche = useRef(new Map<string, AbortController>());
   const startErledigt = useRef(false);
+  const stelleErledigt = useRef(false);
+  // ARC-032: Zeitmarken je Aufnahme (null = lädt, "fehler" = nicht ladbar).
+  const [stellen, setStellen] = useState<
+    Record<string, ZeitmarkenStand | "fehler">
+  >({});
+  const [abschnitte, setAbschnitte] = useState<
+    Record<string, SpielerAbschnitt>
+  >({});
   const titelRefs = useRef(new Map<string, HTMLHeadingElement>());
   const [fokusZiel, setFokusZiel] = useState<string | null>(null);
+
+  // Marken einer Aufnahme neu holen; eine Aufnahme ohne ladbare Marken
+  // bleibt als Ganzes abspielbar.
+  const ladeStellen = useCallback(async (id: string, signal?: AbortSignal) => {
+    try {
+      const stand = await fetchZeitmarken(id, signal);
+      if (signal?.aborted) return;
+      setStellen((vorher) => ({ ...vorher, [id]: stand }));
+    } catch {
+      if (signal?.aborted) return;
+      setStellen((vorher) => ({ ...vorher, [id]: "fehler" }));
+    }
+  }, []);
 
   const laden = useCallback(
     async (signal?: AbortSignal) => {
@@ -179,6 +216,10 @@ export function AuftrittAufnahmen({
         if (signal?.aborted) return null;
         setAufnahmen(liste);
         setLadeFehler("");
+        // Auch nach einem Dateiwechsel stimmt der Stand der Marken wieder.
+        await Promise.all(
+          liste.map((eintrag) => ladeStellen(eintrag.id, signal)),
+        );
         return liste;
       } catch (ursache) {
         if (signal?.aborted) return null;
@@ -191,7 +232,7 @@ export function AuftrittAufnahmen({
         return null;
       }
     },
-    [auftrittId],
+    [auftrittId, ladeStellen],
   );
 
   useEffect(() => {
@@ -227,6 +268,10 @@ export function AuftrittAufnahmen({
       entfernen(id);
       positionen.current.delete(id);
       setWiederaufnahme((vorher) => {
+        const { [id]: _weg, ...rest } = vorher;
+        return rest;
+      });
+      setAbschnitte((vorher) => {
         const { [id]: _weg, ...rest } = vorher;
         return rest;
       });
@@ -339,6 +384,83 @@ export function AuftrittAufnahmen({
     }
   }, []);
 
+  // Sprung an den Anfang einer markierten Stelle (ARC-032): öffnet den
+  // Spieler bei Bedarf (frisches Ticket), stellt den Anfang ein und merkt
+  // den Abschnitt, an dessen Ende der Spieler anhält. Gespielt wird erst auf
+  // Knopfdruck; die Meldung sagt es.
+  const springen = useCallback(
+    (aufnahme: Aufnahme, marke: Zeitmarke) => {
+      if (marke.startSeconds === null || marke.endSeconds === null) return;
+      const von = marke.startSeconds;
+      const bis = marke.endSeconds;
+      setAbschnitte((vorher) => ({
+        ...vorher,
+        [aufnahme.id]: {
+          von,
+          bis,
+          titel: marke.songTitle,
+          marke: (vorher[aufnahme.id]?.marke ?? 0) + 1,
+        },
+      }));
+      setWiederaufnahme((vorher) => ({
+        ...vorher,
+        [aufnahme.id]: {
+          sekunden: von,
+          marke: (vorher[aufnahme.id]?.marke ?? 0) + 1,
+        },
+      }));
+      if (!zugriffeRef.current[aufnahme.id]) void oeffnen(aufnahme.id);
+      setMeldung(
+        `Zu „${marke.songTitle}“ gesprungen (${bereichText(von, bis)}). Zum Hören den Spieler starten.`,
+      );
+    },
+    [oeffnen],
+  );
+
+  // Verweis auf eine markierte Stelle: erst wenn die Marken da sind. Eine
+  // Marke, die es nicht mehr gibt oder die geprüft wird, öffnet die
+  // Aufnahme am Anfang und sagt warum; ein Wert t= wird daneben nicht erraten.
+  useEffect(() => {
+    if (
+      stelleErledigt.current ||
+      !startStelleId ||
+      !startAufnahmeId ||
+      aufnahmen === null
+    ) {
+      return;
+    }
+    const ziel = aufnahmen.find((aufnahme) => aufnahme.id === startAufnahmeId);
+    if (!ziel) return;
+    const stand = stellen[ziel.id];
+    if (stand === undefined) return;
+    stelleErledigt.current = true;
+    const offnen = () => {
+      if (ziel.playback.state === "ready") void oeffnen(ziel.id);
+    };
+    if (stand === "fehler") {
+      setMeldung(
+        "Die Zeitmarken konnten nicht geladen werden. Die Aufnahme beginnt am Anfang.",
+      );
+      offnen();
+      return;
+    }
+    const marke = stand.passages.find(
+      (eintrag) => eintrag.id === startStelleId,
+    );
+    if (!marke) {
+      setMeldung(
+        "Diese Stelle gibt es nicht mehr. Die Aufnahme beginnt am Anfang.",
+      );
+    } else if (marke.timestampState !== "current") {
+      setMeldung(
+        "Die Zeitmarke dieser Stelle wird gerade überprüft. Die Aufnahme beginnt am Anfang.",
+      );
+      offnen();
+    } else {
+      springen(ziel, marke);
+    }
+  }, [aufnahmen, stellen, startAufnahmeId, startStelleId, springen, oeffnen]);
+
   // Verweis auf eine bestimmte Aufnahme: einmal öffnen, nicht von selbst
   // abspielen; die Zeitangabe stellt der Spieler ein.
   useEffect(() => {
@@ -349,8 +471,11 @@ export function AuftrittAufnahmen({
     const ziel = aufnahmen.find((aufnahme) => aufnahme.id === startAufnahmeId);
     if (!ziel) return;
     setFokusZiel(ziel.id);
-    if (ziel.playback.state === "ready") void oeffnen(ziel.id);
-  }, [aufnahmen, startAufnahmeId, oeffnen]);
+    // Mit einer Stelle öffnet deren eigener Verweis-Pfad (nach dem Laden
+    // der Marken), damit nicht zwei Tickets angefordert werden.
+    if (ziel.playback.state === "ready" && !startStelleId)
+      void oeffnen(ziel.id);
+  }, [aufnahmen, startAufnahmeId, startStelleId, oeffnen]);
 
   useEffect(() => {
     if (!fokusZiel) return;
@@ -747,9 +872,11 @@ export function AuftrittAufnahmen({
                     onPosition={(sekunden) =>
                       positionen.current.set(aufnahme.id, sekunden)
                     }
+                    abschnitt={abschnitte[aufnahme.id]}
                     sprung={
                       wiederaufnahme[aufnahme.id] ??
                       (aufnahme.id === startAufnahmeId &&
+                      !startStelleId &&
                       startSekunden !== null &&
                       startSekunden !== undefined
                         ? { sekunden: startSekunden, marke: 0 }
@@ -757,6 +884,47 @@ export function AuftrittAufnahmen({
                     }
                   />
                 )}
+                {stellen[aufnahme.id] === "fehler" && (
+                  <div role="alert">
+                    <p className="feld-fehler">
+                      Die Zeitmarken konnten nicht geladen werden.
+                    </p>
+                    <div className="noten-aktionen">
+                      <button
+                        type="button"
+                        className="knopf-leise"
+                        onClick={() => void ladeStellen(aufnahme.id)}
+                      >
+                        Zeitmarken erneut laden
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {(() => {
+                  const stand = stellen[aufnahme.id];
+                  if (stand === undefined || stand === "fehler") return null;
+                  return isEditor ? (
+                    aufnahme.editor && (
+                      <ZeitmarkenRedaktion
+                        aufnahme={aufnahme}
+                        stand={stand}
+                        spielerOffen={zugriff !== undefined}
+                        leseposition={() =>
+                          positionen.current.get(aufnahme.id) ?? null
+                        }
+                        onSpringen={(marke) => springen(aufnahme, marke)}
+                        onGeaendert={() => ladeStellen(aufnahme.id)}
+                        onMeldung={setMeldung}
+                      />
+                    )
+                  ) : (
+                    <ZeitmarkenListe
+                      aufnahme={aufnahme}
+                      stand={stand}
+                      onSpringen={(marke) => springen(aufnahme, marke)}
+                    />
+                  );
+                })()}
                 {isEditor && aufnahme.editor && (
                   <AufnahmeRedaktion
                     aufnahme={aufnahme}

@@ -1,6 +1,8 @@
 using Archive.Backend.Auth;
 using Archive.Backend.Catalogue;
 using Archive.Backend.Data;
+using Archive.Backend.Recordings;
+using Npgsql;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.EntityFrameworkCore;
 
@@ -168,6 +170,12 @@ public static class ProgrammeConfirmationEndpoints
 			var now = time.GetUtcNow();
 			var changes = plan!.Entries.Where(e => e.NeedsWrite).ToList();
 			var removed = owned.Where(row => !plan.Claimed.Contains(row.Id)).ToList();
+			// ARC-032: skipping an entry or dropping an encore removes its
+			// occurrence; one that recordings mark is kept and named instead
+			// of letting the foreign key surface as a generic error.
+			if (await RecordingPassages.BlockedMessageAsync(db, removed.Select(r => r.Id).ToList(), token)
+				is { } blocked)
+				return Results.Problem(statusCode: 409, title: blocked);
 			var unchanged = changes.Count == 0 && removed.Count == 0
 				&& confirmation is not null && confirmation.RevisionId == revision.Id;
 			if (unchanged)
@@ -267,6 +275,15 @@ public static class ProgrammeConfirmationEndpoints
 			}
 			catch (Exception exception) when (exception is DbUpdateConcurrencyException or DbUpdateException)
 			{
+				// A passage marked since the check keeps its occurrence: the
+				// foreign key held, so say why instead of "changed".
+				if (exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.ForeignKeyViolation })
+				{
+					var removedIds = removed.Select(r => r.Id).ToList();
+					db.ChangeTracker.Clear();
+					if (await RecordingPassages.BlockedMessageAsync(db, removedIds, token) is { } nowBlocked)
+						return Results.Problem(statusCode: 409, title: nowBlocked);
+				}
 				// A competing confirmation won an optimistic token or one of
 				// the unique slots (planned entry, retry key, position).
 				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
@@ -384,7 +401,8 @@ public static class ProgrammeConfirmationEndpoints
 	/// (unowned) ARC-028 occurrences, with their song titles.
 	/// </summary>
 	private sealed record ConfirmationView(
-		List<Performance> Owned, List<Performance> Unowned, IReadOnlyDictionary<Guid, string> SongTitles);
+		List<Performance> Owned, List<Performance> Unowned, IReadOnlyDictionary<Guid, string> SongTitles,
+		IReadOnlyDictionary<Guid, int> PassageCounts);
 
 	private static async Task<ConfirmationView> LoadViewAsync(
 		ArchiveDbContext db, Guid eventId, ProgrammeConfirmation? confirmation, CancellationToken token)
@@ -405,7 +423,14 @@ public static class ProgrammeConfirmationEndpoints
 		var titles = await db.Songs.AsNoTracking()
 			.Where(s => songIds.Contains(s.Id))
 			.ToDictionaryAsync(s => s.Id, s => s.Title, token);
-		return new ConfirmationView(owned, unowned, titles);
+		// ARC-032: how many recording passages hang on each occurrence, so
+		// the review can warn before a skip that would be refused.
+		var passageCounts = (await db.RecordingPassages.AsNoTracking()
+			.Where(p => p.EventId == eventId)
+			.GroupBy(p => p.PerformanceId)
+			.Select(g => new { PerformanceId = g.Key, Count = g.Count() })
+			.ToListAsync(token)).ToDictionary(g => g.PerformanceId, g => g.Count);
+		return new ConfirmationView(owned, unowned, titles, passageCounts);
 	}
 
 	/// <summary>
@@ -524,6 +549,7 @@ public static class ProgrammeConfirmationEndpoints
 		sourceNote = row.SourceNote,
 		programmeItemId = row.ProgrammeItemId,
 		rowVersion = row.RowVersion,
+		passageCount = view.PassageCounts.GetValueOrDefault(row.Id),
 	};
 
 	/// <summary>One occurrence the request asks for.</summary>

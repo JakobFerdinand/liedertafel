@@ -28,6 +28,9 @@ public sealed class RecordingModelConfiguration : IEntityTypeConfiguration<Recor
 			.HasForeignKey(x => x.EventId)
 			.OnDelete(DeleteBehavior.Restrict);
 		builder.HasIndex(x => x.EventId);
+		// Target of the passages' composite key: a passage can only point at
+		// a recording of its own event (ARC-032).
+		builder.HasAlternateKey(x => new { x.Id, x.EventId });
 		// One asset fills exactly one slot of one recording.
 		builder.HasOne(x => x.OriginalAsset)
 			.WithOne()

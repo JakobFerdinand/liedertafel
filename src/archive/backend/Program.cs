@@ -281,6 +281,7 @@ app.MapProgrammeConfirmationEndpoints();
 app.MapChatEndpoints();
 app.MapAssetEndpoints();
 app.MapRecordingEndpoints();
+app.MapRecordingPassageEndpoints();
 app.MapExtractionEndpoints();
 app.MapDevelopmentDiagnostics();
 

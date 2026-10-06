@@ -5,6 +5,8 @@
 // unbestätigte Programmangaben bleiben getrennt, mögliche Doppelerfassungen
 // werden gekennzeichnet statt zusammengeführt.
 
+import type { HistorieAufnahme } from "@/lib/zeitmarken";
+
 export type HistorieSong = {
   id: string;
   title: string;
@@ -67,6 +69,9 @@ export type HistorieZeile = {
   // Obergrenze, keine gesicherte Wiederholung.
   possiblyDuplicateAtEvent: boolean;
   alsoConfirmedAtEvent: boolean;
+  // Aufnahmen mit einer markierten Stelle dieser Aufführung (ARC-032); leer,
+  // wo nichts markiert ist — kein Beleg dafür, dass es keine Aufnahme gibt.
+  recordings: HistorieAufnahme[];
   // Nur für die Redaktion.
   sourceNote?: string | null;
 };

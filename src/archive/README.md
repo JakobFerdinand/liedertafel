@@ -736,6 +736,93 @@ For later slices:
 - After applying the migration in a hosted database, run
   `infrastructure/neon/runtime-grants.sql` as usual.
 
+## ARC-032 passages in whole recordings
+
+Migration `20261006010744_RecordingPassages`: table `recording_passages`
+(`backend/Recordings/RecordingPassage.cs`) linking a recording to a
+performance occurrence with `StartSeconds`/`EndSeconds` and the playback file
+revision the two times were taken against. Database rules: `StartSeconds >= 0`,
+`EndSeconds > StartSeconds`, one passage per (recording, performance), all
+foreign keys `Restrict`, and event ownership as composite keys — the passage
+carries `EventId` and points at `recordings (Id, EventId)` and
+`performances (Id, EventId)` (both gained an alternate key), so a passage can
+never join a recording and an occurrence of different events. A second
+recording can mark the same occurrence; nothing here creates, changes or
+counts a performance.
+
+Endpoints (`backend/Recordings/RecordingPassageEndpoints.cs`, antiforgery on
+every mutation, `no-store`, German ProblemDetails):
+
+- `GET /api/recordings/{id}/passages` — members (published recording of a
+  published event, only published songs; anything else is the recording's
+  404) and editors. Editors additionally get `occurrences` (the event's
+  performances in programme order with their passage id: the marker list),
+  `playbackRevisionId`, `durationSeconds` and `hasPublishedProgramme`.
+- `POST /api/recordings/{id}/passages` `{ performanceId, startSeconds, endSeconds }`,
+  `PATCH …/passages/{passageId}` `{ startSeconds?, endSeconds?, expectedVersion }`,
+  `POST …/passages/{passageId}/delete` `{ expectedVersion? }`,
+  `POST …/passages/review` `{ passageIds? }` — any editor. Ids are checked
+  against their stated parent (404 otherwise); times are validated in the
+  API (ordering, a measured duration, two days at most); a recording without
+  a playable file takes no passages (409). Two kinds of 409 stay distinct:
+  "Die Zeitmarke wurde zwischenzeitlich geändert." (stale, reload) versus not
+  allowed in this state (duplicate passage, no playable file; keep the input).
+  A no-op PATCH does not move the version.
+- `GET /api/songs/{id}/performances` rows gain `recordings`
+  (`passageId`, `recordingId`, `recordingLabel`, `kind`, `isPublished`,
+  `startSeconds`, `endSeconds`, `timestampState`); empty where nothing is
+  marked, which is not a claim that no recording exists.
+- `GET /api/songs?material=recording` completes the ARC-023 extension point:
+  alone it is a song condition (a visible, trustworthy passage exists); next
+  to other arrangement conditions the same arrangement (with a key filter the
+  same version) must carry it. Editors count every passage, members only
+  member-visible ones whose times are current.
+
+Timestamp state: a passage is `current` only while its revision is the file
+members play now (`RecordingFiles.Resolve`), otherwise `needsReview`. It is
+computed on every read — not stored — so no hook is needed in
+`RevisionChanges.MakeCurrentAsync`, and restoring the earlier file makes the
+marks current again. Editors see values plus the state and re-anchor with an
+edit or `…/review`; members get the song in the recording but no times, no
+jump, and the filter does not count it.
+
+Deleting or skipping a performance that has passages is refused, not cascaded:
+`POST /api/performances/{id}/delete` and the programme-confirmation PUT answer
+409 `Zeitmarken vorhanden: „Lied“ in „Aufnahme“ … Entferne zuerst diese
+Zeitmarken in den Aufnahmen.` (names up to three; also when the foreign key
+catches a race on PostgreSQL). The confirmation review carries `passageCount`
+per occurrence so the UI warns before. The UI keeps its input on that 409.
+
+Frontend: `components/aufnahme-zeitmarken.tsx` (member list with
+"Zu „Lied“ springen"; editor marker list with "Position übernehmen" from the
+open player, per-row save/remove, "Alle Zeitmarken für die aktuelle Datei
+bestätigen"), `lib/zeitmarken.ts` (types, `m:ss`/`h:mm:ss` parsing and
+formatting), `components/historie-aufnahmen.tsx` (history rows, through the
+ARC-031 `erweiterung` slot), the catalogue checkbox "Aufnahme mit markierter
+Stelle" (`?material=aufnahme`). `MedienSpieler` takes `abschnitt` and pauses
+at the end of the segment ("Ende des Abschnitts … erreicht", repeat or play
+on). `/auftritt/?id=…&aufnahme=<id>&stelle=<passageId>` opens at the passage;
+an unknown or in-review passage opens the recording at the start and says so.
+The ticket's "prefill the marker list from the programme" is deterministic:
+the marker list is the event's occurrences in order, so the editor only sets
+times; a published but unconfirmed programme has no occurrences yet and the
+list points to the confirmation.
+
+For later slices:
+
+- ARC-022-1 (chat history tools): reuse `RecordingPassages.LinksByPerformanceAsync`
+  (one visibility and state rule); never state a position for `needsReview`.
+- ARC-035 (search): `RecordingPassages.RecordedChainsAsync` is the recorded
+  song/arrangement/version set; link with `stellenPfad`.
+- ARC-040 (event trash): passages and recordings are `Restrict`; trash must
+  remove or keep passages explicitly and extend
+  `RecordingVisibility.OfMemberVisible` / `EventVisibility`.
+- ARC-046 (merge songs): a passage's song is its performance's song; moving a
+  performance to another song moves its passages; the unique key is per
+  (recording, performance), so merging two songs never collides.
+- After applying the migration in a hosted database, run
+  `infrastructure/neon/runtime-grants.sql` as usual.
+
 ## Focused verification
 
 From the repository root:

@@ -39,6 +39,7 @@ import {
   publishedAtText,
 } from "@/lib/events";
 import { fetchSong, fetchSongSearch, type LiedDetails } from "@/lib/songs";
+import { ZeitmarkenVorhanden } from "@/lib/zeitmarken";
 
 // Deutsche Vertragstexte (Konstanten in PerformanceEndpoints.cs): die
 // Pflicht- und Längenregeln gelten hier wie dort — der Server prüft sie
@@ -717,8 +718,13 @@ function BelegZeile({
         // Der Server nennt den Grund selbst: ein Nachweis der Bestätigung
         // ist kein veralteter Stand.
         const titel = await problemTitel(ursache, veralteteAenderung);
+        // Die Sperren des Servers (Programmbestätigung, Zeitmarken in
+        // Aufnahmen) nennen ihren Grund selbst und sind kein veralteter Stand.
         setZeilenFehler(
-          titel === gehoertZurBestaetigung ? titel : veralteteAenderung,
+          titel === gehoertZurBestaetigung ||
+            titel.startsWith(ZeitmarkenVorhanden)
+            ? titel
+            : veralteteAenderung,
         );
         aktualisieren();
         return;

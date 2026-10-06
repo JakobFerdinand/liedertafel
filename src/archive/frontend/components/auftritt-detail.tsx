@@ -19,7 +19,8 @@ import {
 export function AuftrittDetail() {
   const suchParameter = useSearchParams();
   const id = suchParameter.get("id");
-  // Verweis in eine Aufnahme: ?aufnahme=<id>&t=<Sekunden>.
+  // Verweis in eine Aufnahme: ?aufnahme=<id>&t=<Sekunden> oder
+  // ?aufnahme=<id>&stelle=<Zeitmarke> (ARC-032).
   const zeitAngabe = suchParameter.get("t");
   const zeitWert =
     zeitAngabe === null || zeitAngabe.trim() === ""
@@ -335,6 +336,7 @@ export function AuftrittDetail() {
         isEditor={editor === true}
         startAufnahmeId={suchParameter.get("aufnahme")}
         startSekunden={startSekunden}
+        startStelleId={suchParameter.get("stelle")}
       />
     </div>
   );

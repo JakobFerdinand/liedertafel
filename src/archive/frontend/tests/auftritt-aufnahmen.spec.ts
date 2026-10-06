@@ -1,4 +1,5 @@
 import { expect, type Page, type Route, test } from "@playwright/test";
+import { mockLeerePassagen } from "./aufnahmen-mock";
 
 // ARC-030: ganze Aufnahmen am Auftritt. Die API ist im Browser nachgestellt;
 // die Antworten folgen Feld für Feld den Formen von
@@ -230,6 +231,7 @@ function wavBytes(dauerSekunden = 4, sampleRate = 8000) {
 }
 
 async function mockSeite(page: Page, me: unknown, liste: () => unknown[]) {
+  await mockLeerePassagen(page);
   await page.route("**/api/auth/me", (route) => route.fulfill(json(me)));
   await page.route("**/api/antiforgery", (route) =>
     route.fulfill(json({ token: "test" })),

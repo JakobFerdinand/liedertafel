@@ -579,6 +579,9 @@ export type BestaetigungNachweis = BestaetigungFassung & {
   sourceNote: string | null;
   programmeItemId: string | null;
   rowVersion: number;
+  // Zeitmarken in Aufnahmen, die an dieser Aufführung hängen (ARC-032):
+  // solange es welche gibt, kann sie weder ausgelassen noch gelöscht werden.
+  passageCount: number;
 };
 
 export type BestaetigungPunkt = BestaetigungFassung & {

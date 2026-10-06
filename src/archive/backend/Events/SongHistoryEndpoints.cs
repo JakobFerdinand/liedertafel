@@ -1,6 +1,7 @@
 using Archive.Backend.Auth;
 using Archive.Backend.Catalogue;
 using Archive.Backend.Data;
+using Archive.Backend.Recordings;
 using Microsoft.EntityFrameworkCore;
 
 namespace Archive.Backend.Events;
@@ -168,6 +169,10 @@ public static class SongHistoryEndpoints
 			var lastPage = Math.Max(1, (ordered.Count + PageSize - 1) / PageSize);
 			var requestedPage = Math.Min(page is null or < 1 ? 1 : page.Value, lastPage);
 			var pageRows = ordered.Skip((requestedPage - 1) * PageSize).Take(PageSize).ToList();
+			// ARC-032: recordings that document these occurrences (passages
+			// only; recordings never change a count above).
+			var recordingLinks = await RecordingPassages.LinksByPerformanceAsync(
+				db, isEditor, pageRows.Select(r => r.Id).ToList(), token);
 			return Results.Ok(new
 			{
 				song = new { id = song.Id, title = song.Title, published = song.PublishedAt is not null },
@@ -178,7 +183,8 @@ public static class SongHistoryEndpoints
 				arrangements,
 				unknownArrangement,
 				performances = pageRows.Select(row => Item(row, isEditor, arrangementLabels, versionLabels,
-					confirmedByEvent, PossiblyDuplicate(row), eventsWithPossibleDuplicate.Contains(row.EventId))),
+					confirmedByEvent, PossiblyDuplicate(row), eventsWithPossibleDuplicate.Contains(row.EventId),
+					recordingLinks.GetValueOrDefault(row.Id) ?? [])),
 			});
 		});
 	}
@@ -192,7 +198,8 @@ public static class SongHistoryEndpoints
 
 	private static Dictionary<string, object?> Item(Row row, bool isEditor,
 		IReadOnlyDictionary<Guid, string> arrangementLabels, IReadOnlyDictionary<Guid, string> versionLabels,
-		IReadOnlyDictionary<Guid, List<Row>> confirmedByEvent, bool possiblyDuplicate, bool eventHasPossibleDuplicate)
+		IReadOnlyDictionary<Guid, List<Row>> confirmedByEvent, bool possiblyDuplicate, bool eventHasPossibleDuplicate,
+		List<object> recordings)
 	{
 		var confirmed = IsConfirmed(row);
 		var siblings = confirmedByEvent.GetValueOrDefault(row.EventId);
@@ -238,6 +245,10 @@ public static class SongHistoryEndpoints
 			// A mention at an event where the song has a confirmed
 			// occurrence is most likely the same performance's programme entry.
 			["alsoConfirmedAtEvent"] = !confirmed && siblings is not null,
+			// Recordings with a marked passage of this occurrence the caller
+			// may use; empty when none is indexed (absence of indexing, not a
+			// claim that no recording exists).
+			["recordings"] = recordings,
 		};
 		if (isEditor)
 			item["sourceNote"] = row.SourceNote;

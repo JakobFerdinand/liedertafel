@@ -327,7 +327,8 @@ public static class RecordingEndpoints
 		});
 	}
 
-	private static IQueryable<Recording> WithFiles(IQueryable<Recording> recordings) => recordings
+	/// <summary>Both asset slots with their current revisions (<see cref="RecordingFiles.Resolve"/> needs them).</summary>
+	internal static IQueryable<Recording> WithFiles(IQueryable<Recording> recordings) => recordings
 		.Include(r => r.OriginalAsset).ThenInclude(a => a.CurrentRevision)
 		.Include(r => r.PlaybackAsset).ThenInclude(a => a!.CurrentRevision);
 

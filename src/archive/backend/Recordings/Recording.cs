@@ -86,4 +86,13 @@ public static class RecordingVisibility
 {
 	public static bool IsMemberVisible(Recording recording, ChoirEvent choirEvent) =>
 		EventVisibility.IsMemberVisible(choirEvent) && recording.PublishedAt is not null;
+
+	/// <summary>
+	/// The same decision as a query filter for passages (ARC-032): a passage
+	/// is member-visible with its recording. ARC-040 trash conditions extend
+	/// this and <see cref="EventVisibility"/>; the song's own publication is
+	/// applied where the song is read.
+	/// </summary>
+	public static IQueryable<RecordingPassage> OfMemberVisible(IQueryable<RecordingPassage> passages) =>
+		passages.Where(p => p.Recording.PublishedAt != null && p.Recording.Event.PublishedAt != null);
 }

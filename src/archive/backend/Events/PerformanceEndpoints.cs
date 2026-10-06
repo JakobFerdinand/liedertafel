@@ -2,6 +2,8 @@ using System.Text.Json;
 using Archive.Backend.Auth;
 using Archive.Backend.Catalogue;
 using Archive.Backend.Data;
+using Archive.Backend.Recordings;
+using Npgsql;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.EntityFrameworkCore;
 
@@ -308,6 +310,10 @@ public static class PerformanceEndpoints
 			// the confirmed outcome never shifts behind the review's back.
 			if (performance.ConfirmationId is not null)
 				return Results.Problem(statusCode: 409, title: ConfirmedOccurrenceMessage);
+			// ARC-032: an occurrence that recordings point at is never deleted
+			// behind their back; the message names the passages in the way.
+			if (await RecordingPassages.BlockedMessageAsync(db, [id], token) is { } blocked)
+				return Results.Problem(statusCode: 409, title: blocked);
 			// Plain delete without rowVersion (editable editor data, not
 			// frozen history); nothing else is written, the event row keeps
 			// its own stamps.
@@ -319,6 +325,15 @@ public static class PerformanceEndpoints
 			catch (DbUpdateConcurrencyException)
 			{
 				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
+			}
+			catch (DbUpdateException exception)
+				when (exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.ForeignKeyViolation })
+			{
+				// A passage was marked between the check and the delete: the
+				// foreign key held, answer with the reason instead of a 500.
+				db.ChangeTracker.Clear();
+				return Results.Problem(statusCode: 409,
+					title: await RecordingPassages.BlockedMessageAsync(db, [id], token) ?? ConcurrencyMessage);
 			}
 			return Results.NoContent();
 		}).DisableAntiforgery();

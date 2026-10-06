@@ -2,6 +2,7 @@ using Archive.Backend.Assets;
 using Archive.Backend.Auth;
 using Archive.Backend.Data;
 using Archive.Backend.Extraction;
+using Archive.Backend.Recordings;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.EntityFrameworkCore;
 
@@ -165,6 +166,20 @@ public static class CatalogueEndpoints
 					s.Lyrics, s.Language, s.Occasion))
 				.ToListAsync(token);
 			var visibleIds = visible.Select(s => s.Id).ToList();
+			// ARC-032: recorded songs/arrangements/versions the caller may use,
+			// read through the one passage visibility decision.
+			HashSet<Guid> recordedSongs = [];
+			HashSet<Guid> recordedArrangements = [];
+			HashSet<Guid> recordedVersions = [];
+			if (filter.RequiresRecording)
+			{
+				var chains = await RecordingPassages.RecordedChainsAsync(db, isEditor, token);
+				recordedSongs = chains.Select(c => c.SongId).ToHashSet();
+				recordedArrangements = chains.Where(c => c.ArrangementId is not null)
+					.Select(c => c.ArrangementId!.Value).ToHashSet();
+				recordedVersions = chains.Where(c => c.MusicalVersionId is not null)
+					.Select(c => c.MusicalVersionId!.Value).ToHashSet();
+			}
 			var alternateTitleMap = await LoadAlternateTitlesAsync(db, visibleIds, token);
 			var tagMap = filter.Tag is not null
 				? await LoadSongTagsAsync(db, visibleIds, token)
@@ -207,7 +222,8 @@ public static class CatalogueEndpoints
 						g => g.Select(v => new RepertoireVersionRow(v.MusicalKey,
 								assetTypesByVersion.TryGetValue(v.Id, out var assetTypes)
 									? assetTypes
-									: []))
+									: [],
+								recordedVersions.Contains(v.Id)))
 							.ToList());
 			}
 			var matches = new List<(FilterRow Song, int Rank, SortedSet<string> MatchedIn,
@@ -273,7 +289,8 @@ public static class CatalogueEndpoints
 				}
 				// Song-level conditions hold on the song itself.
 				if (allFound && !filter.MatchesSong(song.Language, song.Occasion,
-						tagMap.TryGetValue(song.Id, out var songTags) ? songTags : []))
+						tagMap.TryGetValue(song.Id, out var songTags) ? songTags : [],
+						recordedSongs.Contains(song.Id)))
 				{
 					allFound = false;
 				}
@@ -288,7 +305,8 @@ public static class CatalogueEndpoints
 						.Where(a => filter.MatchesArrangement(a.VoiceConfiguration, a.Accompaniment,
 							versionsByArrangement.TryGetValue(a.Id, out var versions_)
 								? versions_
-								: []))
+								: [],
+							recordedArrangements.Contains(a.Id)))
 						.Select(a => new ArrangementSummary(a.Id, a.Label, a.Arranger))
 						.ToList();
 					if (matchedArrangements.Count == 0)

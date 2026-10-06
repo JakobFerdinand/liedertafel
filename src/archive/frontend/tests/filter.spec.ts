@@ -480,6 +480,14 @@ test("Passende Fassung erscheint nur bei Fassungsfiltern", async ({ page }) => {
   // matchedArrangements geliefert würden.
   await page.goto("/lieder/?sprache=Deutsch");
   await expect(page.getByText(/Passende Fassung:/)).toHaveCount(0);
+  // „Aufnahme“ allein ist ein Liedfilter (ARC-032); neben einer Dateiart
+  // nennt der Treffer wieder seine Fassung.
+  await page.goto("/lieder/?material=aufnahme");
+  await expect(page.getByText(/Passende Fassung:/)).toHaveCount(0);
+  await page.goto("/lieder/?material=noten,aufnahme");
+  await expect(
+    page.getByText("Passende Fassung: „Satz für gemischten Chor“"),
+  ).toBeVisible();
   await page.goto("/lieder/?suche=Wandern");
   await expect(page.getByText(/Passende Fassung:/)).toHaveCount(0);
 
@@ -890,5 +898,50 @@ test("Lied bearbeiten zeigt Sprache, Anlass und Schlagwörter und räumt auf", a
   expect(patchKörper[0].occasion).toBe("");
   expect(patchKörper[0].tags).toEqual([]);
 
+  expect(errors).toEqual([]);
+});
+
+test("Aufnahmefilter übersetzt sich in die Materialart recording und bleibt in der Adresse", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await mockSitzung(page, memberMe);
+  const anfragen: string[] = [];
+  await page.route(suchRoute, (route) => {
+    anfragen.push(route.request().url());
+    return route.fulfill(json(suchErgebnis(null, 1, 1, [wanderlied])));
+  });
+
+  await page.goto("/lieder/");
+  await filterAufklappen(page);
+  await page
+    .getByRole("checkbox", { name: "Aufnahme mit markierter Stelle" })
+    .check();
+  await page.getByRole("button", { name: "Filtern", exact: true }).click();
+  await expect(page).toHaveURL(/\/lieder\/\?material=aufnahme&seite=1$/);
+  await expect
+    .poll(() => anfragen.length, { message: "Filteranfrage" })
+    .toBe(2);
+  expect(new URL(anfragen[1]).searchParams.get("material")).toBe("recording");
+  await expect(
+    page.getByRole("button", {
+      name: "Material: Aufnahme mit markierter Stelle entfernen",
+    }),
+  ).toBeVisible();
+
+  // Mit einer Dateiart kombiniert; Wiederherstellen aus der Adresse.
+  await page.goto("/lieder/?material=noten,aufnahme");
+  await filterAufklappen(page);
+  await expect(page.getByRole("checkbox", { name: "Noten" })).toBeChecked();
+  await expect(
+    page.getByRole("checkbox", { name: "Aufnahme mit markierter Stelle" }),
+  ).toBeChecked();
+  await expect
+    .poll(() => anfragen.length, { message: "Anfrage nach Aufruf" })
+    .toBe(3);
+  expect(new URL(anfragen[2]).searchParams.get("material")).toBe(
+    "score,recording",
+  );
   expect(errors).toEqual([]);
 });

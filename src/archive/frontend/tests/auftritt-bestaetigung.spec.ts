@@ -957,3 +957,45 @@ test("Eine Validierungsmeldung führt den Fokus zur Meldungsfläche", async ({
   ).toContainText("Bitte gib für jeden Programmpunkt an");
   await expect(page.locator(".bestaetigung-meldung")).toBeFocused();
 });
+
+test("Zeitmarken an einer Aufführung warnen vor dem Auslassen und sperren ohne Zurücksetzen (ARC-032)", async ({
+  page,
+}) => {
+  const sperre =
+    "Zeitmarken vorhanden: „Zweites Lied“ in „Video Kamera 1“. Entferne zuerst diese Zeitmarken in den Aufnahmen.";
+  const markiert = {
+    ...offenerPunkt(punktB, 2, fassung2),
+    outcome: "sung",
+    performance: { ...nachweis("p2", fassung2, punktB), passageCount: 2 },
+  };
+  const unmarkiert = {
+    ...offenerPunkt(punktA, 1, fassung1),
+    outcome: "sung",
+    performance: { ...nachweis("p1", fassung1, punktA), passageCount: 0 },
+  };
+  const anfragen = await werkbankOeffnen(page, (anfrage) =>
+    anfrage.method === "PUT"
+      ? problem(sperre, 409)
+      : json(pruefung(1, [unmarkiert, markiert], bestaetigungKopf)),
+  );
+  const zeilen = page.locator(".bestaetigung-zeile");
+  // Vor dem Auslassen: die Warnung nennt die Zahl; die andere Zeile bleibt still.
+  await expect(zeilen.nth(1)).not.toContainText("Zeitmarken in Aufnahmen");
+  await zeilen.nth(1).getByLabel("Nicht gesungen").check();
+  await expect(zeilen.nth(1)).toContainText(
+    "An diesem Lied hängen 2 Zeitmarken in Aufnahmen. Es kann erst ausgelassen werden, wenn sie in den Aufnahmen entfernt sind.",
+  );
+  await expect(zeilen.nth(0)).not.toContainText("Zeitmarken in Aufnahmen");
+
+  // Der Server verweigert das Auslassen mit dem Grund: kein veralteter Stand,
+  // also nichts wird neu geladen und die Eingabe bleibt stehen.
+  const abrufeVorher = anfragen.filter((a) => a.method === "GET").length;
+  await page.getByRole("button", { name: "Bestätigung speichern" }).click();
+  const alarm = page
+    .locator("details.bestaetigung-verwaltung")
+    .getByRole("alert");
+  await expect(alarm).toContainText(sperre);
+  await expect(alarm).not.toContainText("Bitte prüfe den aktuellen Stand");
+  await expect(zeilen.nth(1).getByLabel("Nicht gesungen")).toBeChecked();
+  expect(anfragen.filter((a) => a.method === "GET")).toHaveLength(abrufeVorher);
+});

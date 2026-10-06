@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { SpielerFehler } from "@/lib/assets";
 import { ladeFehlerAusUrsache, restlaufzeitMs, zeitText } from "@/lib/assets";
+import { bereichText } from "@/lib/zeitmarken";
 
 // Gemeinsamer Spieler für Stimmaufnahmen (ARC-018) und ganze
 // Konzertaufnahmen in Ton oder Bild (ARC-030): beschriftete Bedienelemente,
@@ -27,6 +28,21 @@ export type SpielerSprung = {
   sekunden: number;
   marke: number;
 };
+
+/**
+ * Ein markierter Abschnitt (ARC-032): der Spieler hält am Ende an, wenn die
+ * Wiedergabe in ihm läuft, und sagt es. `marke` unterscheidet wiederholte
+ * Sprünge in denselben Abschnitt.
+ */
+export type SpielerAbschnitt = {
+  von: number;
+  bis: number;
+  titel: string;
+  marke: number;
+};
+
+/** aktiv: Halt am Ende · ende: Halt erreicht · frei: die ganze Aufnahme läuft weiter. */
+type AbschnittZustand = "aktiv" | "ende" | "frei";
 
 export type MedienSpielerProps<Zugriff extends SpielerZugriff> = {
   /** Eindeutig je Seite; bildet die Kennungen der Regler. */
@@ -59,6 +75,11 @@ export type MedienSpielerProps<Zugriff extends SpielerZugriff> = {
   herunterladenErlaubt: boolean;
   /** Meldet die aktuelle Position, damit der Aufrufer sie sich merken kann. */
   onPosition?: (sekunden: number) => void;
+  /**
+   * Der Abschnitt, zu dem zuletzt gesprungen wurde (ARC-032): wird
+   * angezeigt, und die Wiedergabe hält an seinem Ende an.
+   */
+  abschnitt?: SpielerAbschnitt;
 };
 
 export function MedienSpieler<Zugriff extends SpielerZugriff>({
@@ -75,6 +96,7 @@ export function MedienSpieler<Zugriff extends SpielerZugriff>({
   sprung,
   herunterladenErlaubt,
   onPosition,
+  abschnitt,
 }: MedienSpielerProps<Zugriff>) {
   const LadeFehler: SpielerFehler = { art: "laden", meldung: ladeMeldung };
   const stimme = name;
@@ -99,6 +121,12 @@ export function MedienSpieler<Zugriff extends SpielerZugriff>({
   const offenerSprungRef = useRef<number | null>(null);
   const onPositionRef = useRef(onPosition);
   onPositionRef.current = onPosition;
+  // Abschnittsgrenze: nur wer innerhalb des Abschnitts spielt und sein Ende
+  // erreicht, wird angehalten; wer darüber hinaus sucht, wird nicht gebremst.
+  const abschnittAktivRef = useRef(false);
+  const letzteZeitRef = useRef<number | null>(null);
+  const [abschnittZustand, setAbschnittZustand] =
+    useState<AbschnittZustand>("aktiv");
   const [vollbild, setVollbild] = useState(false);
   const setzeMedium = useCallback((element: HTMLMediaElement | null) => {
     audioRef.current = element;
@@ -183,6 +211,18 @@ export function MedienSpieler<Zugriff extends SpielerZugriff>({
     }
   }, [sprungSekunden, sprungMarke, geheZu]);
 
+  // Ein neuer Abschnitt (oder ein erneuter Sprung) scharf stellen.
+  const abschnittVon = abschnitt?.von;
+  const abschnittBis = abschnitt?.bis;
+  const abschnittMarke = abschnitt?.marke;
+  useEffect(() => {
+    void abschnittMarke;
+    abschnittAktivRef.current =
+      abschnittVon !== undefined && abschnittBis !== undefined;
+    letzteZeitRef.current = null;
+    setAbschnittZustand("aktiv");
+  }, [abschnittVon, abschnittBis, abschnittMarke]);
+
   // Im Vollbild trägt der Browser die Bedienung; die eigenen Regler liegen
   // dann außerhalb des sichtbaren Bereichs.
   useEffect(() => {
@@ -230,6 +270,41 @@ export function MedienSpieler<Zugriff extends SpielerZugriff>({
     if (!audio || fortsetzenRef.current) return;
     setPosition(audio.currentTime);
     onPositionRef.current?.(audio.currentTime);
+    if (abschnitt && abschnittAktivRef.current) {
+      const jetzt = audio.currentTime;
+      const davor = letzteZeitRef.current;
+      letzteZeitRef.current = jetzt;
+      if (jetzt >= abschnitt.bis) {
+        abschnittAktivRef.current = false;
+        // Nur ein Ende, das beim Abspielen erreicht wurde, hält an; ein
+        // Sprung hinter das Ende gibt die Grenze frei.
+        if (davor !== null && davor < abschnitt.bis && jetzt - davor <= 2) {
+          audio.pause();
+          audio.currentTime = abschnitt.bis;
+          setPosition(abschnitt.bis);
+          setAbschnittZustand("ende");
+        } else {
+          setAbschnittZustand("frei");
+        }
+      }
+    }
+  }
+
+  function abschnittWiederholen() {
+    const audio = audioRef.current;
+    if (!audio || !abschnitt) return;
+    abschnittAktivRef.current = true;
+    letzteZeitRef.current = null;
+    setAbschnittZustand("aktiv");
+    geheZu(audio, abschnitt.von);
+    void audio.play().catch(() => {});
+  }
+
+  function ganzWeiterspielen() {
+    const audio = audioRef.current;
+    abschnittAktivRef.current = false;
+    setAbschnittZustand("frei");
+    void audio?.play().catch(() => {});
   }
 
   function beiMetadaten() {
@@ -409,6 +484,31 @@ export function MedienSpieler<Zugriff extends SpielerZugriff>({
       <output className="visually-hidden" aria-live="polite">
         {wiedergabe ? `${stimme} wird abgespielt` : `${stimme} pausiert`}
       </output>
+      {abschnitt && (
+        <div className="audio-abschnitt">
+          <output>
+            {abschnittZustand === "aktiv"
+              ? `Abschnitt: „${abschnitt.titel}“ · ${bereichText(abschnitt.von, abschnitt.bis)}`
+              : abschnittZustand === "ende"
+                ? `Ende des Abschnitts „${abschnitt.titel}“ erreicht.`
+                : "Die ganze Aufnahme läuft weiter."}
+          </output>
+          {abschnittZustand === "ende" && (
+            <div className="noten-aktionen">
+              <button type="button" onClick={abschnittWiederholen}>
+                Abschnitt wiederholen
+              </button>
+              <button
+                type="button"
+                className="knopf-leise"
+                onClick={ganzWeiterspielen}
+              >
+                In der ganzen Aufnahme weiterspielen
+              </button>
+            </div>
+          )}
+        </div>
+      )}
       {fehler && (
         <p role="alert" className="feld-fehler">
           {fehler.meldung}

@@ -23,6 +23,9 @@ public sealed class PerformanceModelConfiguration : IEntityTypeConfiguration<Per
 			.HasForeignKey(x => x.EventId)
 			.OnDelete(DeleteBehavior.Restrict);
 		builder.HasIndex(x => x.EventId);
+		// Target of the recording passages' composite key (ARC-032): a passage
+		// can only point at an occurrence of its recording's event.
+		builder.HasAlternateKey(x => new { x.Id, x.EventId });
 		/// <summary>
 		/// Catalogue references (ARC-028): Restrict keeps catalogue deletion
 		/// from cascading into historical evidence (the retained-reference
