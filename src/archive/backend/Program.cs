@@ -1,5 +1,6 @@
 using System.Diagnostics.Metrics;
 using System.Reflection;
+using Archive.Backend.Ai;
 using Archive.Backend.Assets;
 using Archive.Backend.Auth;
 using Archive.Backend.Catalogue;
@@ -169,18 +170,25 @@ builder.Services.AddHttpContextAccessor();
 // ARC-022: bounded archive chat configuration (availability gate and caps).
 builder.Services.AddOptions<ChatOptions>()
 	.BindConfiguration(ChatOptions.SectionName);
-// ARC-021 provider seam, implemented: when Archive:Chat selects
-// Provider=AzureOpenAI with Endpoint and DeploymentName, the real Azure
-// OpenAI client is registered — keyless via the hosted container's
-// user-assigned managed identity through AZURE_CLIENT_ID (set by Bicep),
-// or AzureCliCredential with az login on a developer machine. Without
-// that configuration, Development and all tests keep the deterministic
-// ScriptedChatClient; the Enabled gate keeps ordinary runs inert.
-if (AzureOpenAIChatClient.Create(builder.Configuration
-		.GetSection(ChatOptions.SectionName).Get<ChatOptions>() ?? new ChatOptions()) is { } azureChatClient)
+// ARC-021 provider seam: when Archive:Chat selects Provider=AzureOpenAI
+// with Endpoint and DeploymentName, the real Azure OpenAI client is
+// registered — keyless via the hosted container's user-assigned managed
+// identity through AZURE_CLIENT_ID (set by Bicep), or AzureCliCredential
+// with az login on a developer machine. Without that configuration,
+// Development and all tests keep the deterministic ScriptedChatClient; the
+// Enabled gate keeps ordinary runs inert.
+var chatConfiguration = builder.Configuration.GetSection(ChatOptions.SectionName).Get<ChatOptions>() ?? new ChatOptions();
+if (AzureOpenAIChatClient.Create(chatConfiguration) is { } azureChatClient)
 	builder.Services.AddSingleton<IChatClient>(azureChatClient);
 else
 	builder.Services.AddSingleton<IChatClient, ScriptedChatClient>();
+// ARC-022-3: nothing but the gateway consumes that provider client. Every
+// model call passes the budget middleware (hard monthly cap, usage ledger)
+// and is priced by its model key under Archive:Ai:Models.
+builder.Services.AddArchiveAi(new AiModels(
+	Chat: AzureOpenAIChatClient.IsConfigured(chatConfiguration)
+		? chatConfiguration.DeploymentName!.Trim()
+		: ScriptedChatClient.ModelKey));
 builder.Services.AddScoped<ArchiveChatService>();
 builder.Services.AddArchiveAuth(builder.Configuration, builder.Environment);
 // ARC-011: Container Apps terminates TLS at the front proxy and forwards

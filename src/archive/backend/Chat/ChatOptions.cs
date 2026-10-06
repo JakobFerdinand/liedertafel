@@ -1,13 +1,11 @@
 namespace Archive.Backend.Chat;
 
 /// <summary>
-/// Bounded archive chat configuration (ARC-022, decided in ARC-021).
-/// All bounds are app-enforced; the monthly budget is a reviewed amount, not
-/// an automatic cut-off: exceeding it raises a warning for the maintainer and
-/// requires the manual <see cref="Disabled"/> kill switch (the chat is never
-/// auto-disabled). <see cref="InputPricePerMillionEur"/> and
-/// <see cref="OutputPricePerMillionEur"/> are reference retail prices for the
-/// planned model (ARC-021 decision) and only drive the cost estimate.
+/// Bounded archive chat configuration (ARC-022, decided in ARC-021). All
+/// bounds are app-enforced. Money is not configured here: the hard monthly
+/// cap, the output bound per model call and the model prices belong to all
+/// AI features and live in <see cref="Ai.AiOptions"/> (ARC-022-3).
+/// <see cref="Disabled"/> stays the maintainer's manual kill switch.
 /// </summary>
 public sealed class ChatOptions
 {
@@ -23,10 +21,7 @@ public sealed class ChatOptions
 	/// </summary>
 	public bool Disabled { get; set; }
 
-	/// <summary>Monthly reference budget in EUR; a warning is logged when the estimated month exceeds it.</summary>
-	public decimal MonthlyBudgetEur { get; set; } = 5;
-
-	/// <summary>Maximum authorized tool calls per run.</summary>
+	/// <summary>Maximum model calls per run, the first one included; bounds the tool loop.</summary>
 	public int MaxToolCalls { get; set; } = 5;
 
 	/// <summary>Per-iteration abort when no model token arrives within this window.</summary>
@@ -41,12 +36,6 @@ public sealed class ChatOptions
 	/// <summary>Maximum persisted assistant answer length in characters.</summary>
 	public int MaxAnswerChars { get; set; } = 8000;
 
-	/// <summary>Reference input price per million tokens used for the cost estimate.</summary>
-	public decimal InputPricePerMillionEur { get; set; } = 0.83m;
-
-	/// <summary>Reference output price per million tokens used for the cost estimate.</summary>
-	public decimal OutputPricePerMillionEur { get; set; } = 4.95m;
-
 	/// <summary>
 	/// Model provider selection (ARC-021 seam): <c>AzureOpenAI</c> selects the
 	/// real Azure OpenAI client, but only when both <see cref="Endpoint"/> and
@@ -58,7 +47,11 @@ public sealed class ChatOptions
 	/// <summary>Azure OpenAI resource endpoint (https); used only with <c>Provider=AzureOpenAI</c>.</summary>
 	public string? Endpoint { get; set; }
 
-	/// <summary>Pinned deployment name under that endpoint; used only with <c>Provider=AzureOpenAI</c>.</summary>
+	/// <summary>
+	/// Pinned deployment name under that endpoint; used only with
+	/// <c>Provider=AzureOpenAI</c>. It is also the model key whose price must
+	/// exist under <c>Archive:Ai:Models</c>, otherwise every call is refused.
+	/// </summary>
 	public string? DeploymentName { get; set; }
 
 	/// <summary>Combined endpoint gate: available when explicitly enabled and not manually disabled.</summary>

@@ -17,6 +17,10 @@ public static class Extensions
 {
     public const string ActivitySourceName = "Liedertafel.Archive";
     public const string MeterName = "Liedertafel.Archive";
+    // ARC-022-3: agent runs, model calls and tool executions (GenAI semantic
+    // conventions) plus the AI budget instruments. Message content is not
+    // captured unless OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT is set.
+    public const string AiTelemetryName = "Liedertafel.Archive.Ai";
     public static readonly ActivitySource Activities = new(ActivitySourceName);
 
     public static TBuilder AddServiceDefaults<TBuilder>(this TBuilder builder)
@@ -34,12 +38,12 @@ public static class Extensions
         var telemetry = builder.Services.AddOpenTelemetry()
             .ConfigureResource(resource => resource.AddService(
                 builder.Configuration["OTEL_SERVICE_NAME"] ?? builder.Environment.ApplicationName))
-            .WithMetrics(metrics => metrics.AddMeter(MeterName)
+            .WithMetrics(metrics => metrics.AddMeter(MeterName, AiTelemetryName)
                 .AddAspNetCoreInstrumentation().AddHttpClientInstrumentation().AddRuntimeInstrumentation())
             .WithTracing(tracing =>
             {
                 if (builder.Environment.IsDevelopment()) tracing.SetSampler(new AlwaysOnSampler());
-                tracing.AddSource(ActivitySourceName, "Npgsql", "Azure.*")
+                tracing.AddSource(ActivitySourceName, AiTelemetryName, "Npgsql", "Azure.*")
                     .AddProcessor(new UrlRedactionProcessor())
                     .AddAspNetCoreInstrumentation(options => options.Filter = context =>
                         !context.Request.Path.StartsWithSegments("/alive") &&

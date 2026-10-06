@@ -75,6 +75,10 @@ public sealed class ChatEvaluationTests(ITestOutputHelper output)
 	/// <summary>Live rerun reporting extra: model/api version tag for the EVAL header line.</summary>
 	private const string LiveModelVersionEnvVar = "ARCHIVE_CHAT_MODEL_VERSION";
 
+	/// <summary>Optional EUR prices per million tokens for a deployment without an entry under Archive:Ai:Models.</summary>
+	private const string LiveInputPriceEnvVar = "ARCHIVE_CHAT_INPUT_PRICE_EUR";
+	private const string LiveOutputPriceEnvVar = "ARCHIVE_CHAT_OUTPUT_PRICE_EUR";
+
 	public static IEnumerable<object[]> Cases()
 	{
 		// Exact reported production question: empty search must browse real records.
@@ -253,13 +257,13 @@ public sealed class ChatEvaluationTests(ITestOutputHelper output)
 		// with observed tokens and a strictly positive cost.
 		using var scope = factory.Services.CreateScope();
 		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-		var entry = await db.ChatUsageEntries.SingleAsync();
+		var entry = await db.AiUsageEntries.SingleAsync();
 		Assert.True(entry.InputTokens > 0);
 		Assert.True(entry.OutputTokens > 0);
-		Assert.True(entry.EstimatedCostEurCents > 0);
+		Assert.True(entry.CostMicroEur > 0);
 
 		output.WriteLine(
-			$"EVAL {testCase.Question} → {entry.EstimatedCostEurCents} EUR-Cent, citations: {citations.Count}, result: passed-{testCase.Category}");
+			$"EVAL {testCase.Question} → {entry.CostMicroEur / 10000m:0.####} EUR-Cent, citations: {citations.Count}, result: passed-{testCase.Category}");
 	}
 
 	[Fact]
@@ -286,7 +290,7 @@ public sealed class ChatEvaluationTests(ITestOutputHelper output)
 		using var scope = factory.Services.CreateScope();
 		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
 		var memberBId = (await db.Users.SingleAsync(u => u.NormalizedEmail == MemberB.ToUpperInvariant())).Id;
-		Assert.DoesNotContain(await db.ChatUsageEntries.ToListAsync(), e => e.AccountId == memberBId);
+		Assert.DoesNotContain(await db.AiUsageEntries.ToListAsync(), e => e.AccountId == memberBId);
 		output.WriteLine("EVAL Die Waldfahrt (fremder Verlauf) → 0 EUR-Cent, citations: 0, result: forbidden-ownership");
 	}
 
@@ -309,7 +313,7 @@ public sealed class ChatEvaluationTests(ITestOutputHelper output)
 
 		using var scope = factory.Services.CreateScope();
 		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-		Assert.Empty(await db.ChatUsageEntries.ToListAsync());
+		Assert.Empty(await db.AiUsageEntries.ToListAsync());
 		output.WriteLine("EVAL Die Waldfahrt (entzogener Zugang) → 0 EUR-Cent, citations: 0, result: unauthorized-revoked");
 	}
 
@@ -332,7 +336,7 @@ public sealed class ChatEvaluationTests(ITestOutputHelper output)
 
 		using var scope = factory.Services.CreateScope();
 		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-		Assert.Empty(await db.ChatUsageEntries.ToListAsync());
+		Assert.Empty(await db.AiUsageEntries.ToListAsync());
 		output.WriteLine("EVAL <überlange Frage> → 0 EUR-Cent, citations: 0, result: rejected-too-long");
 	}
 
@@ -378,7 +382,24 @@ public sealed class ChatEvaluationTests(ITestOutputHelper output)
 				DeploymentName = deployment,
 			})
 			?? throw new InvalidOperationException("Die Live-Konfiguration wählt den AzureOpenAI-Provider nicht.");
-		await using var factory = EvaluationFactory(liveChatClient);
+		// ARC-022-3: the live calls pass the budget middleware like production
+		// calls. The deployment name is the model key in the ledger; its price
+		// comes from Archive:Ai:Models (appsettings.json knows gpt-5-4-mini) or,
+		// for another deployment, from the two optional price variables.
+		var liveSettings = new Dictionary<string, string?>
+		{
+			["Archive:Chat:Provider"] = AzureOpenAIChatClient.ProviderName,
+			["Archive:Chat:Endpoint"] = endpoint,
+			["Archive:Chat:DeploymentName"] = deployment,
+		};
+		var inputPrice = Environment.GetEnvironmentVariable(LiveInputPriceEnvVar);
+		var outputPrice = Environment.GetEnvironmentVariable(LiveOutputPriceEnvVar);
+		if (!string.IsNullOrWhiteSpace(inputPrice) && !string.IsNullOrWhiteSpace(outputPrice))
+		{
+			liveSettings[$"Archive:Ai:Models:{deployment.Trim()}:InputPricePerMillionEur"] = inputPrice;
+			liveSettings[$"Archive:Ai:Models:{deployment.Trim()}:OutputPricePerMillionEur"] = outputPrice;
+		}
+		await using var factory = EvaluationFactory(liveChatClient, liveSettings);
 		await SeedCorpusAsync(factory);
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
@@ -478,13 +499,13 @@ public sealed class ChatEvaluationTests(ITestOutputHelper output)
 			using (var scope = factory.Services.CreateScope())
 			{
 				var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-				var entry = await db.ChatUsageEntries
+				var entry = await db.AiUsageEntries
 					.OrderByDescending(e => e.CreatedAt).ThenByDescending(e => e.Id)
 					.FirstOrDefaultAsync();
 				var result = flags.Count == 0 ? "live-passed" : $"live-flag:{string.Join("|", flags)}";
 				output.WriteLine(entry is null
 					? $"EVAL {testCase.Question} → no ledger row (run aborted before usage), citations: {citations.Count}, result: live-flag:no-ledger-row|{result}-{testCase.Category}"
-					: $"EVAL {testCase.Question} → {entry.EstimatedCostEurCents} EUR-Cent (in {entry.InputTokens}/out {entry.OutputTokens} tokens), citations: {citations.Count}, result: {result}-{testCase.Category}");
+					: $"EVAL {testCase.Question} → {entry.CostMicroEur / 10000m:0.####} EUR-Cent (in {entry.InputTokens}/out {entry.OutputTokens} tokens), citations: {citations.Count}, result: {result}-{testCase.Category}");
 			}
 		}
 	}
@@ -685,8 +706,8 @@ public sealed class ChatEvaluationTests(ITestOutputHelper output)
 
 	// ---- harness (mirrors ChatApiTests) ----
 
-	private static AuthApiFactory EvaluationFactory(IChatClient? chatClient = null) => new("Development",
-		settings: new Dictionary<string, string?>
+	private static AuthApiFactory EvaluationFactory(IChatClient? chatClient = null, IDictionary<string, string?>? extra = null) => new("Development",
+		settings: new Dictionary<string, string?>(extra ?? new Dictionary<string, string?>())
 		{
 			["Archive:Chat:Enabled"] = "true",
 		}, chatClient: chatClient);

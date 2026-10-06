@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ChatAntwort } from "@/components/chat-antwort";
 import { fetchMe, type MeResponse } from "@/lib/auth";
 import {
+  budgetErreichtCode,
   type ChatNachricht,
   ladeChatVerlauf,
   ladeGespeicherteThreadId,
@@ -171,7 +172,7 @@ export function ChatBereich() {
             ),
           );
         },
-        onError: (titel) => {
+        onError: (titel, code) => {
           if (titel === "Anmeldung erforderlich.") {
             setMe({ authenticated: false });
             return;
@@ -189,7 +190,8 @@ export function ChatBereich() {
             return;
           }
           setFehler(titel);
-          setWiederholbar(true);
+          // Am Monatsbudget ändert ein erneuter Versuch nichts.
+          setWiederholbar(code !== budgetErreichtCode);
         },
       },
       abort.signal,

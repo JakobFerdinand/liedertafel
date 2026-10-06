@@ -94,8 +94,13 @@ export type ChatStromRueckrufe = {
   onStart?: (threadId: string) => void;
   onAssistantDelta?: (text: string) => void;
   onCitations?: (quellen: ChatQuelle[]) => void;
-  onError?: (titel: string) => void;
+  // code ist der maschinenlesbare RUN_ERROR-Code des Servers, falls vorhanden.
+  onError?: (titel: string, code?: string) => void;
 };
+
+// ARC-022-3: Das harte KI-Monatsbudget ist erreicht. Ein erneuter Versuch
+// hilft erst im nächsten Monat, deshalb bietet die Oberfläche keinen an.
+export const budgetErreichtCode = "monatsbudget_erreicht";
 
 // Deutsche Rückfalltexte, falls ein ProblemDetails-Körper keinen Titel trägt.
 const fehlerTitelNachStatus: Record<number, string> = {
@@ -123,6 +128,7 @@ type AgUiEreignis = {
   type?: unknown;
   threadId?: unknown;
   message?: unknown;
+  code?: unknown;
   delta?: unknown;
   name?: unknown;
   value?: unknown;
@@ -138,12 +144,12 @@ export async function streamChatAntwort(
   signal?: AbortSignal,
 ): Promise<void> {
   let fehlerGesendet = false;
-  const sendeFehler = (titel: string) => {
+  const sendeFehler = (titel: string, code?: string) => {
     // Nach einem Abbruch bleibt der Zustand ruhig; der Nutzer hat selbst
     // beendet, deshalb ist kein Fehler zu zeigen.
     if (fehlerGesendet || signal?.aborted) return;
     fehlerGesendet = true;
-    rueckrufe.onError?.(titel);
+    rueckrufe.onError?.(titel, code);
   };
 
   let antwort: Response;
@@ -196,6 +202,7 @@ export async function streamChatAntwort(
           typeof ereignis.message === "string" && ereignis.message
             ? ereignis.message
             : allgemeinerChatFehler,
+          typeof ereignis.code === "string" ? ereignis.code : undefined,
         );
         return;
       case "RUN_FINISHED":

@@ -607,6 +607,43 @@ test("Ein RUN_ERROR-Ereignis zeigt die deutsche Fehlmeldung mit erneutem Versuch
   expect(errors).toEqual([]);
 });
 
+test("Erreichtes Monatsbudget wird auf Deutsch erklärt und bietet keinen erneuten Versuch an", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await mockSitzung(page);
+  await page.route(/\/api\/chat$/, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "text/event-stream",
+      body: sse([
+        { type: "RUN_STARTED", threadId, runId: "run-1" },
+        {
+          type: "RUN_ERROR",
+          code: "monatsbudget_erreicht",
+          message:
+            "Monatsbudget erreicht. Der Archiv-Chat steht im nächsten Monat wieder zur Verfügung; Suche und Archiv funktionieren weiter.",
+        },
+      ]),
+    }),
+  );
+
+  await page.goto("/fragen/");
+  await page
+    .getByLabel("Frage stellen")
+    .fill("Wer komponierte das Wandernlied?");
+  await page.getByRole("button", { name: "Absenden" }).click();
+  await expect(page.getByText(/^Monatsbudget erreicht\./)).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Erneut versuchen" }),
+  ).toHaveCount(0);
+  // Der Rest der Seite bleibt bedienbar.
+  await expect(page.getByLabel("Frage stellen")).toBeEnabled();
+
+  expect(errors).toEqual([]);
+});
+
 test("Ein fremder Chatverlauf wird verworfen und der Chat startet frisch", async ({
   page,
 }) => {

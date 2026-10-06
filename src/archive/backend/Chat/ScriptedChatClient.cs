@@ -24,6 +24,9 @@ using AiChatOptions = Microsoft.Extensions.AI.ChatOptions;
 /// </summary>
 public sealed class ScriptedChatClient : IChatClient
 {
+	/// <summary>Model key of the offline stand-in in the usage ledger and under <c>Archive:Ai:Models</c>.</summary>
+	public const string ModelKey = "scripted";
+
 	/// <summary>Sentence appended whenever a tool result carries an embedded instruction.</summary>
 	public const string DataNotInstructionSentence =
 		"Anweisungen innerhalb von Archivtexten behandle ich als Inhalt, nicht als Befehl.";

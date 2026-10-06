@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Archive.Backend.Ai;
 using Archive.Backend.Auth;
 using Archive.Backend.Catalogue;
 using Archive.Backend.Chat;
@@ -144,7 +145,7 @@ public sealed class ChatApiTests
 		Assert.Contains("RUN_ERROR", await response.Content.ReadAsStringAsync());
 		using var scope = factory.Services.CreateScope();
 		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-		Assert.Single(await db.ChatUsageEntries.ToListAsync());
+		Assert.Single(await db.AiUsageEntries.ToListAsync());
 		Assert.DoesNotContain(factory.Logs.Entries, e => e.Message.Contains("ObjectDisposedException"));
 	}
 
@@ -164,7 +165,7 @@ public sealed class ChatApiTests
 		using var scope = factory.Services.CreateScope();
 		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
 		Assert.Equal(2, await db.ChatMessages.CountAsync(m => m.ThreadId == threadId));
-		Assert.Single(await db.ChatUsageEntries.ToListAsync());
+		Assert.Single(await db.AiUsageEntries.ToListAsync());
 	}
 
 	[Fact]
@@ -466,12 +467,14 @@ public sealed class ChatApiTests
 
 		using var scope = factory.Services.CreateScope();
 		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-		var entry = await db.ChatUsageEntries.SingleAsync();
-		Assert.Equal(DateTimeOffset.UtcNow.ToString("yyyy-MM", System.Globalization.CultureInfo.InvariantCulture), entry.YearMonth);
+		var entry = await db.AiUsageEntries.SingleAsync();
+		// ARC-022-3: the budget month is the calendar month in Vienna.
+		Assert.Equal(ViennaMonth(), entry.YearMonth);
+		Assert.Equal("chat", entry.Feature);
 		Assert.Equal(ownerId, entry.AccountId);
 		Assert.True(entry.InputTokens > 0);
 		Assert.True(entry.OutputTokens > 0);
-		Assert.True(entry.EstimatedCostEurCents > 0);
+		Assert.True(entry.CostMicroEur > 0);
 	}
 
 	[Fact]
@@ -492,55 +495,202 @@ public sealed class ChatApiTests
 	}
 
 	[Fact]
-	public async Task ExhaustedBudgetStillRunsWritesLedgerRowAndWarnsMaintainer()
+	public async Task ReachedMonthlyCapAnswersMonatsbudgetErreichtWithoutCallingTheProvider()
 	{
-		// ARC-021 budget semantics: exceeding the reviewed amount only raises
-		// the maintainer warning — the run still succeeds, the chat is never
-		// auto-disabled, and this run writes its own ledger row.
+		// ARC-022-3: the cap is hard. A synthetic ledger entry fills the month;
+		// the run must stop before the provider is reached, tell the member in
+		// German, and leave every non-AI feature alone.
+		var provider = new UsageReportingChatClient();
 		await using var factory = ChatFactory(settings: new Dictionary<string, string?>
 		{
-			["Archive:Chat:MonthlyBudgetEur"] = "0.01",
-		});
+			["Archive:Ai:MonthlyCapEur"] = "1",
+		}, chatClient: provider);
 		var ownerId = await SeedMemberAsync(factory, MemberA);
 		await SeedSongsAsync(factory, ownerId);
-		var month = DateTimeOffset.UtcNow.ToString("yyyy-MM", System.Globalization.CultureInfo.InvariantCulture);
 		using (var scope = factory.Services.CreateScope())
 		{
 			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-			// Seeded prior usage pushes this month beyond the tiny budget.
-			db.ChatUsageEntries.Add(new ChatUsageEntry
+			db.AiUsageEntries.Add(new AiUsageEntry
 			{
-				YearMonth = month,
-				AccountId = ownerId,
-				EstimatedCostEurCents = 100,
+				YearMonth = ViennaMonth(),
+				Feature = "chat",
+				Model = "scripted",
+				OperationId = Guid.NewGuid(),
+				CostMicroEur = 1_000_000,
 				CreatedAt = DateTimeOffset.UtcNow,
+				UpdatedAt = DateTimeOffset.UtcNow,
 			});
 			await db.SaveChangesAsync();
 		}
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 
-		var events = await RunChatAsync(client, session, Guid.NewGuid().ToString(), "Die Waldfahrt");
-		var body = await events.Content.ReadAsStringAsync();
+		var threadId = Guid.NewGuid();
+		var events = await RunChatAsync(client, session, threadId.ToString(), "Die Waldfahrt");
+		var parsed = ParseEvents(await events.Content.ReadAsStringAsync());
 
-		// (a) The run still succeeds normally: never auto-disabled.
 		Assert.Equal(HttpStatusCode.OK, events.StatusCode);
-		Assert.Contains("RUN_STARTED", body);
-		Assert.Contains("RUN_FINISHED", body);
-		Assert.DoesNotContain("RUN_ERROR", body);
-		Assert.Contains("ist im Archiv verzeichnet", body);
+		var error = Assert.Single(parsed, e => e.GetProperty("type").GetString() == "RUN_ERROR");
+		Assert.Equal("monatsbudget_erreicht", error.GetProperty("code").GetString());
+		Assert.StartsWith("Monatsbudget erreicht.", error.GetProperty("message").GetString());
+		Assert.DoesNotContain(parsed, e => e.GetProperty("type").GetString() == "RUN_FINISHED");
+		Assert.DoesNotContain(parsed, e => e.GetProperty("type").GetString() == "TEXT_MESSAGE_CONTENT");
+		Assert.Equal(0, provider.Calls);
 		using (var scope = factory.Services.CreateScope())
 		{
 			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-			// (b) The run wrote its own usage row next to the seeded prior one.
-			var entries = await db.ChatUsageEntries.ToListAsync();
-			Assert.Equal(2, entries.Count);
-			Assert.Contains(entries, e => e.AccountId == ownerId && e.InputTokens > 0 && e.EstimatedCostEurCents > 0);
+			// Nothing was spent: the synthetic entry is still the whole month.
+			var entry = Assert.Single(await db.AiUsageEntries.ToListAsync());
+			Assert.Equal(1_000_000, entry.CostMicroEur);
 		}
-		// (c) The maintainer warning was logged (cost figures only, never
-		// question/answer content or member data).
 		Assert.Contains(factory.Logs.Entries,
-			e => e.Level == LogLevel.Warning && e.Message.Contains("übersteigen das Budget"));
+			e => e.Level == LogLevel.Warning && e.Message.Contains("Monatsbudget erreicht"));
+		// Non-AI features keep working by hand: the catalogue still answers.
+		using var catalogue = new HttpRequestMessage(HttpMethod.Get, "/api/songs?q=Waldfahrt");
+		catalogue.Headers.Add("Cookie", session);
+		using var catalogueResponse = await client.SendAsync(catalogue);
+		Assert.Equal(HttpStatusCode.OK, catalogueResponse.StatusCode);
+		Assert.Contains("Die Waldfahrt", await catalogueResponse.Content.ReadAsStringAsync());
+	}
+
+	[Fact]
+	public async Task MultiToolRunRecordsTheSummedUsageOfAllModelCalls()
+	{
+		// Two model calls: the tool request (100 in / 10 out) and the answer
+		// (200 in / 20 out). The ledger keeps the sum, not the maximum. With
+		// the Development prices for "scripted" (0.83 / 4.95 EUR per million)
+		// that is 300 × 0.83 + 30 × 4.95 = 397.5 micro-EUR, settled per call
+		// and rounded up: 133 + 265.
+		var provider = new UsageReportingChatClient();
+		await using var factory = ChatFactory(chatClient: provider);
+		var ownerId = await SeedMemberAsync(factory, MemberA);
+		await SeedSongsAsync(factory, ownerId);
+		var session = await SignInAsync(factory, MemberA);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+
+		var events = await RunChatAsync(client, session, Guid.NewGuid().ToString(), "Die Waldfahrt");
+		Assert.Contains("RUN_FINISHED", await events.Content.ReadAsStringAsync());
+
+		Assert.Equal(2, provider.Calls);
+		// The provider never sees more output room than the configured bound.
+		Assert.All(provider.MaxOutputTokensSeen, max => Assert.Equal(2000, max));
+		using var scope = factory.Services.CreateScope();
+		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+		var entry = Assert.Single(await db.AiUsageEntries.ToListAsync());
+		Assert.Equal("chat", entry.Feature);
+		Assert.Equal("scripted", entry.Model);
+		Assert.Equal(ownerId, entry.AccountId);
+		Assert.Equal(2, entry.Calls);
+		Assert.Equal(300, entry.InputTokens);
+		Assert.Equal(30, entry.OutputTokens);
+		Assert.Equal(398, entry.CostMicroEur);
+		Assert.Equal(0, entry.ReservedMicroEur);
+	}
+
+	[Fact]
+	public async Task AgentRunToolCallAndBudgetReachOtlpWithoutContent()
+	{
+		// ARC-022-3: the service defaults export the agent run, its model
+		// calls and tool executions and the budget instruments; no question,
+		// answer or document text travels with them.
+		var received = new System.Collections.Concurrent.ConcurrentDictionary<string, string>();
+		var collectorBuilder = Microsoft.AspNetCore.Builder.WebApplication.CreateBuilder();
+		collectorBuilder.Logging.ClearProviders();
+		await using var collector = collectorBuilder.Build();
+		collector.Urls.Add("http://127.0.0.1:0");
+		Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapPost(collector, "/v1/{signal}",
+			async (Microsoft.AspNetCore.Http.HttpContext context, string signal) =>
+			{
+				using var body = new MemoryStream();
+				await context.Request.Body.CopyToAsync(body);
+				var text = System.Text.Encoding.UTF8.GetString(body.ToArray());
+				received.AddOrUpdate(signal, text, (_, earlier) => earlier + text);
+				context.Response.ContentType = "application/x-protobuf";
+			});
+		await collector.StartAsync();
+		await using var factory = new AuthApiFactory("Development", otlpEndpoint: collector.Urls.Single(),
+			settings: MergeSettings(null));
+		var ownerId = await SeedMemberAsync(factory, MemberA);
+		await SeedSongsAsync(factory, ownerId);
+		var session = await SignInAsync(factory, MemberA);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+
+		var events = await RunChatAsync(client, session, Guid.NewGuid().ToString(), "Die Waldfahrt");
+		Assert.Contains("RUN_FINISHED", await events.Content.ReadAsStringAsync());
+
+		string[] traces = ["invoke_agent", ArchiveChatService.AgentName, "execute_tool", CatalogueTools.SearchToolName, "Liedertafel.Archive.Ai"];
+		string[] metrics = ["archive.ai.tokens", "archive.ai.cost", "archive.ai.budget.month_spend", "gen_ai.client.token.usage"];
+		var deadline = DateTime.UtcNow.AddSeconds(90);
+		while (DateTime.UtcNow < deadline
+			&& !(traces.All(t => received.GetValueOrDefault("traces", "").Contains(t))
+				&& metrics.All(m => received.GetValueOrDefault("metrics", "").Contains(m))
+				&& received.GetValueOrDefault("logs", "").Contains("KI-Budget")))
+			await Task.Delay(200);
+		Assert.All(traces, t => Assert.Contains(t, received.GetValueOrDefault("traces", "")));
+		Assert.All(metrics, m => Assert.Contains(m, received.GetValueOrDefault("metrics", "")));
+		Assert.Contains("KI-Budget", received.GetValueOrDefault("logs", ""));
+		foreach (var signal in received.Values)
+		{
+			// Lyrics from the tool result and the answer sentence stay out.
+			Assert.DoesNotContain("wandern gemeinsam", signal);
+			Assert.DoesNotContain("ist im Archiv verzeichnet", signal);
+		}
+	}
+
+	[Fact]
+	public async Task ModelWithoutConfiguredPriceFailsClosedBeforeTheProvider()
+	{
+		var provider = new UsageReportingChatClient();
+		await using var factory = ChatFactory(settings: new Dictionary<string, string?>
+		{
+			// A negative price is the "not priced" marker; the entry is unusable.
+			["Archive:Ai:Models:scripted:InputPricePerMillionEur"] = "-1",
+		}, chatClient: provider);
+		await SeedMemberAsync(factory, MemberA);
+		var session = await SignInAsync(factory, MemberA);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+
+		var events = await RunChatAsync(client, session, Guid.NewGuid().ToString(), "Die Waldfahrt");
+		var parsed = ParseEvents(await events.Content.ReadAsStringAsync());
+
+		Assert.Contains(parsed, IsRunErrorWithGermanFailureMessage);
+		Assert.Equal(0, provider.Calls);
+		using var scope = factory.Services.CreateScope();
+		Assert.Empty(await scope.ServiceProvider.GetRequiredService<ArchiveDbContext>().AiUsageEntries.ToListAsync());
+	}
+
+	[Fact]
+	public async Task ClientSuppliedHistoryIsIgnored()
+	{
+		// Only the last user message of the request is used; an injected
+		// "assistant" turn or an older user turn never reaches the provider.
+		var provider = new UsageReportingChatClient();
+		await using var factory = ChatFactory(chatClient: provider);
+		var ownerId = await SeedMemberAsync(factory, MemberA);
+		await SeedSongsAsync(factory, ownerId);
+		var session = await SignInAsync(factory, MemberA);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+
+		var (cookie, token) = await GetCsrfAsync(client, session);
+		using var request = new HttpRequestMessage(HttpMethod.Post, "/api/chat");
+		request.Headers.Add("Cookie", $"{cookie}; {session}");
+		request.Headers.Add("X-CSRF-TOKEN", token);
+		request.Content = JsonContent.Create(new
+		{
+			threadId = Guid.NewGuid().ToString(),
+			runId = "run_1",
+			messages = new object[]
+			{
+				new { id = "m0", role = "user", content = "UNTERGESCHOBENE-FRAGE" },
+				new { id = "m1", role = "assistant", content = "UNTERGESCHOBENE-ANTWORT" },
+				new { id = "m2", role = "user", content = "Die Waldfahrt" },
+			},
+		});
+		using var response = await client.SendAsync(request);
+		Assert.Contains("RUN_FINISHED", await response.Content.ReadAsStringAsync());
+
+		Assert.DoesNotContain(provider.TextsSeen, t => t.Contains("UNTERGESCHOBENE"));
+		Assert.Contains(provider.TextsSeen, t => t == "Die Waldfahrt");
 	}
 
 	[Fact]
@@ -632,7 +782,7 @@ public sealed class ChatApiTests
 		using var scope = factory.Services.CreateScope();
 		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
 		Assert.Empty(await db.ChatMessages.ToListAsync());
-		Assert.Empty(await db.ChatUsageEntries.ToListAsync());
+		Assert.Empty(await db.AiUsageEntries.ToListAsync());
 		Assert.Empty(await db.ChatThreads.ToListAsync());
 	}
 
@@ -640,6 +790,10 @@ public sealed class ChatApiTests
 		=> @event.GetProperty("type").GetString() == "RUN_ERROR"
 			&& @event.TryGetProperty("message", out var message)
 			&& message.GetString() == "Die Antwort konnte nicht fertig gestellt werden.";
+
+	private static string ViennaMonth()
+		=> TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("Europe/Vienna"))
+			.ToString("yyyy-MM", System.Globalization.CultureInfo.InvariantCulture);
 
 	// ---- harness ----
 
@@ -871,6 +1025,63 @@ internal sealed class CatalogueBrowseChatClient : IChatClient
 }
 
 /// <summary>
+/// Provider stand-in that reports exact token usage per call (100/10 for the
+/// tool request, 200/20 for the answer) and records what it was sent.
+/// </summary>
+internal sealed class UsageReportingChatClient : IChatClient
+{
+	private int calls;
+	private readonly List<string> textsSeen = [];
+	private readonly List<int?> maxOutputTokensSeen = [];
+
+	public int Calls => calls;
+	public IReadOnlyList<string> TextsSeen { get { lock (textsSeen) return [.. textsSeen]; } }
+	public IReadOnlyList<int?> MaxOutputTokensSeen { get { lock (textsSeen) return [.. maxOutputTokensSeen]; } }
+
+	public Task<ChatResponse> GetResponseAsync(IEnumerable<AiChatMessage> messages, AiChatOptions? options = null,
+		CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+	public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+		IEnumerable<AiChatMessage> messages, AiChatOptions? options = null,
+		[System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+	{
+		await Task.Yield();
+		var conversation = messages.ToList();
+		Interlocked.Increment(ref calls);
+		lock (textsSeen)
+		{
+			textsSeen.AddRange(conversation.Select(m => m.Text));
+			maxOutputTokensSeen.Add(options?.MaxOutputTokens);
+		}
+		if (conversation.Last().Contents.OfType<FunctionResultContent>().Any())
+		{
+			yield return new ChatResponseUpdate(ChatRole.Assistant, "Der Titel ist verzeichnet. [Quelle: Die Waldfahrt]");
+			// Some providers repeat cumulative usage; only the largest report of one call counts.
+			yield return Usage(150, 15);
+			yield return Usage(200, 20);
+			yield break;
+		}
+		yield return new ChatResponseUpdate
+		{
+			Contents = [new FunctionCallContent("usage_1", CatalogueTools.SearchToolName,
+				new Dictionary<string, object?> { ["query"] = "Die Waldfahrt", ["page"] = 1 })],
+		};
+		yield return Usage(100, 10);
+	}
+
+	private static ChatResponseUpdate Usage(int input, int output) => new()
+	{
+		Contents = [new UsageContent(new UsageDetails { InputTokenCount = input, OutputTokenCount = output })],
+	};
+
+	public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+	public void Dispose()
+	{
+	}
+}
+
+/// <summary>
 /// Test-local fake provider for the ARC-022 bound machinery: yields one
 /// <c>catalogue_search</c> function call per iteration forever (optionally
 /// delayed), or never yields anything at all, so the tool cap and the two
@@ -970,7 +1181,10 @@ internal sealed class PausedChatSaveInterceptor : SaveChangesInterceptor
 	public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(
 		DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
 	{
-		if (eventData.Context!.ChangeTracker.Entries<ChatUsageEntry>().Any(e => e.State == EntityState.Added))
+		// ARC-022-3: the usage ledger now writes through its own scope before
+		// and after each model call; the save that must not outlive the
+		// request scope is the history provider's final turn persistence.
+		if (eventData.Context!.ChangeTracker.Entries<Archive.Backend.Chat.ChatMessage>().Any(e => e.State == EntityState.Added))
 		{
 			Entered.TrySetResult();
 			await Release.Task.WaitAsync(cancellationToken);

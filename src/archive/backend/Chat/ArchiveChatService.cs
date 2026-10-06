@@ -1,12 +1,13 @@
-using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Channels;
 using AGUI.Abstractions;
 using AGUI.Server;
+using Archive.Backend.Ai;
 using Archive.Backend.Auth;
 using Archive.Backend.Catalogue;
 using Archive.Backend.Data;
+using Microsoft.Agents.AI;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
@@ -23,26 +24,36 @@ using AiChatOptions = Microsoft.Extensions.AI.ChatOptions;
 public sealed record ChatRunResult(IResult? Error, IAsyncEnumerable<BaseEvent>? Events);
 
 /// <summary>
-/// The bounded archive chat agent (ARC-022). One run: authorize and resolve
-/// thread ownership, load the server-persisted thread history (authoritative
-/// grounding — client-provided older messages are ignored so the grounding
-/// context cannot be tampered), run the bounded tool-calling loop against the
-/// IChatClient seam with the authorized catalogue tools, stream the response
-/// as AG-UI events, then persist the turns and the monthly usage ledger.
+/// The member chat (ARC-022) on a Microsoft Agent Framework agent
+/// (ARC-022-3). One run: authorize and resolve thread ownership, then run the
+/// named agent <see cref="AgentName"/> with the authorized catalogue tools
+/// and stream its updates as AG-UI events. The pipeline below the agent is
+/// tool loop (bounded) → citation filter → per-call bounds → <see cref="AiGateway"/>
+/// (telemetry → budget → provider); thread history lives in the database
+/// behind <see cref="ChatThreadHistoryProvider"/>, so client-provided older
+/// messages are ignored and cannot tamper the grounding context.
 /// Bounds are app-enforced (ARC-021): overall and no-token timeouts, a
 /// tool-call cap, question/answer caps and client-disconnect cancellation.
-/// Exceeding the EUR budget only raises the maintainer warning — the chat is
-/// never auto-disabled. Question or answer content is never logged.
+/// At the monthly AI cap the run ends with the German budget state and no
+/// model call is made. Question or answer content is never logged.
 /// </summary>
 public sealed class ArchiveChatService(
-	IChatClient chatClient, ArchiveDbContext db, TimeProvider time,
-	IOptions<ChatOptions> optionsAccessor, ILogger<ArchiveChatService> logger)
+	AiGateway gateway, ArchiveDbContext db, TimeProvider time,
+	IOptions<ChatOptions> optionsAccessor, ILoggerFactory loggers, ILogger<ArchiveChatService> logger)
 {
+	/// <summary>The agent's name in telemetry and the feature name in the usage ledger.</summary>
+	public const string AgentName = "archive-chat";
+
+	public const string Feature = "chat";
+
+	/// <summary>AG-UI <c>RUN_ERROR.code</c> of the budget state; the client shows it without a retry.</summary>
+	public const string BudgetExhaustedCode = "monatsbudget_erreicht";
+
+	public const string BudgetExhaustedMessage =
+		"Monatsbudget erreicht. Der Archiv-Chat steht im nächsten Monat wieder zur Verfügung; Suche und Archiv funktionieren weiter.";
+
 	/// <summary>Thread history bound (ARC-021): the last 20 messages per thread.</summary>
 	public const int MessageHistoryLimit = 20;
-
-	/// <summary>Output token cap passed to the provider for every model call.</summary>
-	private const int MaxOutputTokens = 2000;
 
 	private const string RunFailureMessage = "Die Antwort konnte nicht fertig gestellt werden.";
 
@@ -106,21 +117,6 @@ public sealed class ArchiveChatService(
 		if (thread.Error is not null)
 			return new ChatRunResult(thread.Error, null);
 
-		// Thread history lives in the database, not in the request: the last
-		// ≤20 persisted turns are the only grounding, so a tampered client
-		// payload can never inject content.
-		var history = await RecentMessages(db, thread.Entity!.Id, MessageHistoryLimit, token);
-		var modelMessages = BuildModelMessages(history, question);
-		var callOptions = new AiChatOptions
-		{
-			MaxOutputTokens = MaxOutputTokens,
-			Tools =
-			[
-				CatalogueTools.CreateCatalogueSearchTool(db),
-				CatalogueTools.CreateSongDetailsTool(db),
-			],
-		};
-
 		// The run identifier and, for fresh threads, the generated thread id
 		// must be part of the RUN_STARTED event, so the input is rewritten
 		// before the AG-UI request context is built.
@@ -128,12 +124,12 @@ public sealed class ArchiveChatService(
 		input.ThreadId = resolved.Id.ToString();
 
 		var context = input.ToChatRequestContext(AguiJsonOptions);
-		var events = StreamRunAsync(context, resolved, modelMessages, callOptions, options, question, token);
+		var events = StreamRunAsync(context, resolved, options, question, token);
 		return new ChatRunResult(null, events);
 	}
 
 	private async IAsyncEnumerable<BaseEvent> StreamRunAsync(ChatRequestContext context, ChatThread thread,
-		List<AiChatMessage> modelMessages, AiChatOptions callOptions, ChatOptions options, string question,
+		ChatOptions options, string question,
 		[System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken token)
 	{
 		// Every model call and tool execution shares one overall budget linked
@@ -141,8 +137,7 @@ public sealed class ArchiveChatService(
 		using var overall = CancellationTokenSource.CreateLinkedTokenSource(token);
 		overall.CancelAfter(TimeSpan.FromSeconds(options.OverallSeconds));
 		var channel = Channel.CreateUnbounded<ChatResponseUpdate>();
-		var producer = RunPipelineAsync(channel.Writer, thread, modelMessages, callOptions, options,
-			question, overall, token);
+		var producer = RunAgentAsync(channel.Writer, thread, options, question, overall.Token, token);
 		try
 		{
 			await foreach (var @event in channel.Reader.ReadAllAsync(token).AsAGUIEventStreamAsync(context, token))
@@ -152,7 +147,7 @@ public sealed class ArchiveChatService(
 		{
 			// AG-UI stops reading on RUN_ERROR; a disconnect can also end the
 			// consumer early. Join the producer before ASP.NET disposes this
-			// request's scoped DbContext, including its final usage persistence.
+			// request's scoped DbContext, including its final turn persistence.
 			await overall.CancelAsync();
 			try
 			{
@@ -165,234 +160,148 @@ public sealed class ArchiveChatService(
 		}
 	}
 
-	private async Task RunPipelineAsync(ChannelWriter<ChatResponseUpdate> writer, ChatThread thread,
-		List<AiChatMessage> modelMessages, AiChatOptions callOptions, ChatOptions options,
-		string question, CancellationTokenSource overall, CancellationToken requestToken)
+	/// <summary>
+	/// Builds this run's agent. The agent and the parts above the gateway are
+	/// per run because they hold the request's database context (tools,
+	/// history) and the run state; the gateway below is shared.
+	/// </summary>
+	private AIAgent BuildAgent(ChatThread thread, ChatOptions options, ChatRunState state)
 	{
+		var bounded = new ModelCallBoundsChatClient(
+			gateway.ChatClient, state, TimeSpan.FromSeconds(options.NoTokenSeconds), logger);
+		var toolLoop = new FunctionInvokingChatClient(new CitationFilteringChatClient(bounded, state), loggers)
+		{
+			// The bound counts model calls, the first one included. When the
+			// last allowed call still asks for tools the loop returns them
+			// unanswered and the run ends in the German failure state.
+			MaximumIterationsPerRequest = Math.Max(1, options.MaxToolCalls),
+			FunctionInvoker = (invocation, cancellation) => InvokeToolAsync(invocation, state, cancellation),
+		};
+		var agent = new ChatClientAgent(toolLoop, new ChatClientAgentOptions
+		{
+			Name = AgentName,
+			Description = "Beantwortet Mitgliederfragen aus dem veröffentlichten Vereinsarchiv.",
+			ChatOptions = new AiChatOptions
+			{
+				Instructions = SystemPrompt,
+				// To add a chat tool (ARC-022-1): create it like the two below,
+				// with its authorization inside the tool, and list it here.
+				Tools =
+				[
+					CatalogueTools.CreateCatalogueSearchTool(db),
+					CatalogueTools.CreateSongDetailsTool(db),
+				],
+			},
+			ChatHistoryProvider = new ChatThreadHistoryProvider(db, thread, time, state, options.MaxAnswerChars),
+			// The tool loop above is this run's own; no default decorators.
+			UseProvidedChatClientAsIs = true,
+		}, loggers);
+		return agent.AsBuilder()
+			.UseOpenTelemetry(Microsoft.Extensions.Hosting.Extensions.AiTelemetryName)
+			.Build();
+	}
+
+	private async Task RunAgentAsync(ChannelWriter<ChatResponseUpdate> writer, ChatThread thread,
+		ChatOptions options, string question, CancellationToken overallToken, CancellationToken requestToken)
+	{
+		var state = new ChatRunState();
 		var answer = new StringBuilder();
-		var usage = new UsageLedger();
-		var toolSongs = new List<ToolSong>();
-		var citationText = new CitationTextFilter(title => toolSongs.Any(s => CatalogueText.Fold(s.Title) == CatalogueText.Fold(title)));
-		var aborted = false;
+		var agent = BuildAgent(thread, options, state);
 		try
 		{
-			for (var call = 1; call <= options.MaxToolCalls && !aborted; call++)
+			var runOptions = new AiChatOptions();
+			AiOperation.Start(Feature, thread.AccountId).AttachTo(runOptions);
+			var session = await agent.CreateSessionAsync(overallToken);
+			var updates = agent.RunStreamingAsync(
+				new AiChatMessage(ChatRole.User, question), session, new ChatClientAgentRunOptions(runOptions), overallToken);
+			await foreach (var agentUpdate in updates.WithCancellation(overallToken))
 			{
-				var outcome = await RunIterationAsync(writer, modelMessages, callOptions, options,
-					overall.Token, answer, usage, requestToken, call, citationText);
-				if (outcome.Aborted)
-				{
-					aborted = true;
-					break;
-				}
-				if (outcome.PendingCalls.Count == 0)
-					break;
-				// Pending tool calls on the last iteration exceed the cap: stop
-				// with the German failure state instead of another call.
-				if (call == options.MaxToolCalls)
-				{
-					aborted = true;
-					break;
-				}
-				await ExecuteToolCallsAsync(modelMessages, outcome.PendingCalls, callOptions, overall.Token, toolSongs);
+				var update = agentUpdate.AsChatResponseUpdate();
+				// Tool results stay on the server: the wire carries the tool
+				// call and the answer, as before.
+				if (update.Role == ChatRole.Tool || update.Contents.Any(c => c is FunctionResultContent))
+					continue;
+				answer.Append(update.Text);
+				await writer.WriteAsync(update, requestToken);
 			}
-			if (aborted)
+			if (state.ToolLimitReached)
 			{
-				await WriteRunErrorAsync(writer);
+				await WriteRunErrorAsync(writer, RunFailureMessage);
+				return;
 			}
-			else
-			{
-				var trailingText = citationText.Complete();
-				if (trailingText.Length > 0)
-				{
-					answer.Append(trailingText);
-					await writer.WriteAsync(new ChatResponseUpdate(ChatRole.Assistant, trailingText), requestToken);
-				}
-				// The citation contract lives at this service seam, so it
-				// survives any provider behind IChatClient: citations are
-				// derived from THIS run's tool results whose title the answer
-				// cites with an inline [Quelle: …] marker, already validated by
-				// the streaming filter against this same authorized result set.
-				var citations = BuildCitations(toolSongs, answer.ToString());
-				if (citations.Count > 0)
-					await writer.WriteAsync(BuildCitationsEvent(citations), CancellationToken.None);
-			}
-			await PersistRunAsync(thread, question, answer, usage, options, aborted);
+			// The citation contract lives at this service seam, so it
+			// survives any provider behind the gateway: citations are
+			// derived from THIS run's tool results whose title the answer
+			// cites with an inline [Quelle: …] marker, already validated by
+			// the citation filter against this same authorized result set.
+			var citations = BuildCitations(state.ToolSongs, answer.ToString());
+			if (citations.Count > 0)
+				await writer.WriteAsync(BuildCitationsEvent(citations), CancellationToken.None);
 		}
-		catch (Exception ex) when (ex is not OperationCanceledException)
+		catch (AiBudgetExceededException)
 		{
-			// Persistence or tool failures must not crash the stream; no content in logs.
+			// The ledger logged the refusal; the member gets the budget state.
+			await WriteRunErrorAsync(writer, BudgetExhaustedMessage, BudgetExhaustedCode);
+		}
+		catch (OperationCanceledException) when (requestToken.IsCancellationRequested)
+		{
+			// The client is gone; there is nobody to tell.
+			throw;
+		}
+		catch (OperationCanceledException)
+		{
+			// The no-token window or the overall bound fired.
+			await WriteRunErrorAsync(writer, RunFailureMessage);
+		}
+		catch (Exception ex)
+		{
+			// Provider, tool, ledger or persistence failures must not crash the
+			// stream, and the client never sees a fake success. Exception type
+			// only: provider messages may carry content or credentials.
 			logger.LogError("Archiv-Chat: Lauf konnte nicht abgeschlossen werden ({ExceptionType}).", ex.GetType().Name);
-			// A persistence failure stays visible: the client never sees a fake
-			// success, so a missing usage-ledger row is observable behaviour.
-			await WriteRunErrorAsync(writer);
+			await WriteRunErrorAsync(writer, RunFailureMessage);
 		}
 		finally
 		{
+			(agent.GetService<OpenTelemetryAgent>() as IDisposable)?.Dispose();
 			writer.TryComplete();
 		}
 	}
 
-	private static async Task WriteRunErrorAsync(ChannelWriter<ChatResponseUpdate> writer)
+	private static async Task WriteRunErrorAsync(ChannelWriter<ChatResponseUpdate> writer, string message, string? code = null)
 		=> await writer.WriteAsync(new ChatResponseUpdate
 		{
-			RawRepresentation = new RunErrorEvent { Message = RunFailureMessage },
+			RawRepresentation = new RunErrorEvent { Message = message, Code = code },
 		}, CancellationToken.None);
 
 	/// <summary>
-	/// Runs one model iteration with one bounded retry (ARC-021): the retry
-	/// only applies to transient provider errors before any token reached the
-	/// caller. On any failure after that, or on a no-token/overall timeout, the
-	/// iteration reports aborted and the loop emits the German failure state.
+	/// Runs one tool call of the loop. A failing tool answers empty so the
+	/// model can state the gap honestly instead of aborting the run; the
+	/// result's records become this run's citation candidates.
 	/// </summary>
-	private async Task<IterationOutcome> RunIterationAsync(ChannelWriter<ChatResponseUpdate> writer,
-		List<AiChatMessage> modelMessages, AiChatOptions callOptions, ChatOptions options,
-		CancellationToken token, StringBuilder answer, UsageLedger usage, CancellationToken requestToken, int call,
-		CitationTextFilter citationText)
+	private static async ValueTask<object?> InvokeToolAsync(
+		FunctionInvocationContext invocation, ChatRunState state, CancellationToken token)
 	{
-		var retried = false;
-		while (true)
-		{
-			try
-			{
-				var outcome = await ConsumeIterationAsync(writer, modelMessages, callOptions, options, token, answer, usage, requestToken, citationText);
-				return new IterationOutcome(false, outcome.PendingCalls);
-			}
-			catch (OperationCanceledException)
-			{
-				// The no-token window expired, the overall bound fired or the
-				// client disconnected: stop gracefully, never throw to the caller.
-				return new IterationOutcome(true, []);
-			}
-			catch (Exception ex) when (call == 1 && !retried && !usage.HasObservedTokens)
-			{
-				retried = true;
-				logger.LogError("Archiv-Chat: Modellanruf vor dem ersten Zeichen fehlgeschlagen ({ExceptionType}); einmaliger Wiederholungsversuch.", ex.GetType().Name);
-			}
-			catch (Exception ex)
-			{
-				// Exception type only: provider messages may carry content or credentials.
-				logger.LogError("Archiv-Chat: Modellanruf fehlgeschlagen ({ExceptionType}).", ex.GetType().Name);
-				return new IterationOutcome(true, []);
-			}
-		}
-	}
-
-	/// <summary>Consumes one model call, streaming updates through the channel while collecting them.</summary>
-	private async Task<IterationOutcome> ConsumeIterationAsync(ChannelWriter<ChatResponseUpdate> writer,
-		List<AiChatMessage> modelMessages, AiChatOptions callOptions, ChatOptions options,
-		CancellationToken token, StringBuilder answer, UsageLedger usage, CancellationToken requestToken,
-		CitationTextFilter citationText)
-	{
-		// No-token abort (ARC-021): the first update of every iteration must
-		// arrive within the window; afterwards the timer is disarmed for the
-		// rest of the iteration.
-		using var noToken = CancellationTokenSource.CreateLinkedTokenSource(token);
-		noToken.CancelAfter(TimeSpan.FromSeconds(options.NoTokenSeconds));
-		var stream = chatClient.GetStreamingResponseAsync(
-			modelMessages, callOptions, noToken.Token);
-		var pendingCalls = new List<FunctionCallContent>();
-		var first = true;
-		await foreach (var update in stream.WithCancellation(noToken.Token))
-		{
-			if (first)
-			{
-				first = false;
-				noToken.CancelAfter(Timeout.InfiniteTimeSpan);
-			}
-			// Hold only an unfinished citation marker across provider chunks. Never
-			// stream or persist a source label that this run did not retrieve.
-			for (var i = 0; i < update.Contents.Count; i++)
-			{
-				if (update.Contents[i] is TextContent text)
-					update.Contents[i] = new TextContent(citationText.Append(text.Text));
-			}
-			Collect(update, answer, usage);
-			pendingCalls.AddRange(update.Contents.OfType<FunctionCallContent>());
-			await writer.WriteAsync(update, requestToken);
-		}
-		return new IterationOutcome(false, pendingCalls);
-	}
-
-	private static void Collect(ChatResponseUpdate update, StringBuilder answer, UsageLedger usage)
-	{
-		foreach (var content in update.Contents)
-		{
-			if (content is TextContent { Text: { Length: > 0 } text })
-				answer.Append(text);
-			else if (content is UsageContent usageContent)
-				usage.Observe(usageContent.Details);
-		}
-	}
-
-	private static async Task ExecuteToolCallsAsync(List<AiChatMessage> modelMessages, List<FunctionCallContent> pendingCalls,
-		AiChatOptions callOptions, CancellationToken token, List<ToolSong> toolSongs)
-	{
-		foreach (var pending in pendingCalls)
-		{
-			var function = callOptions.Tools?.OfType<AIFunction>().FirstOrDefault(t => t.Name == pending.Name);
-			string resultJson;
-			if (function is null)
-			{
-				// Unknown functions answer empty instead of erroring the run.
-				resultJson = "{}";
-			}
-			else
-			{
-				try
-				{
-					var value = await function.InvokeAsync(new AIFunctionArguments(pending.Arguments), token);
-					resultJson = value switch
-					{
-						string text => text,
-						// AIFunctionFactory already serializes string returns into a
-						// JSON string element; keep the raw payload instead of
-						// serializing it a second time.
-						JsonElement { ValueKind: JsonValueKind.String } element => element.GetString() ?? string.Empty,
-						_ => JsonSerializer.Serialize(value, AguiJsonOptions),
-					};
-				}
-				catch
-				{
-					// Tool failures answer empty so the model can state the gap
-					// honestly rather than aborting the run (bounded by the
-					// overall token, which also caps tool execution).
-					resultJson = "{}";
-				}
-			}
-			CollectToolSongs(resultJson, toolSongs);
-			modelMessages.Add(new AiChatMessage(ChatRole.Assistant, string.Empty) { Contents = [pending] });
-			modelMessages.Add(new AiChatMessage(ChatRole.Tool, string.Empty)
-			{
-				Contents = [new FunctionResultContent(pending.CallId, resultJson)],
-			});
-		}
-	}
-
-	/// <summary>
-	/// Collects the (id, title) pairs a catalogue tool result carries; these
-	/// are the citation candidates for this run's answer.
-	/// </summary>
-	private static void CollectToolSongs(string resultJson, List<ToolSong> toolSongs)
-	{
+		string resultJson;
 		try
 		{
-			using var document = JsonDocument.Parse(resultJson);
-			if (!document.RootElement.TryGetProperty("songs", out var songsElement)
-				|| songsElement.ValueKind is not JsonValueKind.Array)
-				return;
-			foreach (var element in songsElement.EnumerateArray())
+			var value = await invocation.Function.InvokeAsync(invocation.Arguments, token);
+			resultJson = value switch
 			{
-				var id = element.TryGetProperty("id", out var idElement) ? idElement.GetString() : null;
-				var title = element.TryGetProperty("title", out var titleElement) ? titleElement.GetString() : null;
-				if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(title))
-					toolSongs.Add(new ToolSong(id, title));
-			}
+				string text => text,
+				// AIFunctionFactory already serializes string returns into a
+				// JSON string element; keep the raw payload instead of
+				// serializing it a second time.
+				JsonElement { ValueKind: JsonValueKind.String } element => element.GetString() ?? string.Empty,
+				_ => JsonSerializer.Serialize(value, AguiJsonOptions),
+			};
 		}
-		catch (JsonException)
+		catch (Exception ex) when (ex is not OperationCanceledException)
 		{
-			// Malformed tool output contributes no citation candidates.
+			resultJson = "{}";
 		}
+		state.CollectToolSongs(resultJson);
+		return resultJson;
 	}
 
 	/// <summary>
@@ -468,69 +377,6 @@ public sealed class ArchiveChatService(
 		return (existing, null);
 	}
 
-	/// <summary>Builds the model prompt: system instructions, authoritative server history, current question.</summary>
-	private static List<AiChatMessage> BuildModelMessages(List<ChatMessage> history, string question)
-	{
-		var messages = new List<AiChatMessage> { new(ChatRole.System, SystemPrompt) };
-		foreach (var entry in history)
-		{
-			if (entry.Role == "user")
-				messages.Add(new AiChatMessage(ChatRole.User, entry.Content));
-			else if (entry.Role == "assistant")
-				messages.Add(new AiChatMessage(ChatRole.Assistant, entry.Content));
-		}
-		messages.Add(new AiChatMessage(ChatRole.User, question));
-		return messages;
-	}
-
-	private async Task PersistRunAsync(ChatThread thread, string question, StringBuilder answer, UsageLedger usage,
-		ChatOptions options, bool aborted)
-	{
-		var now = time.GetUtcNow();
-		thread.UpdatedAt = now;
-		db.ChatMessages.Add(new ChatMessage { ThreadId = thread.Id, Role = "user", Content = question, CreatedAt = now });
-		if (!aborted)
-		{
-			var final = answer.ToString();
-			if (final.Length > options.MaxAnswerChars)
-				final = final[..options.MaxAnswerChars];
-			if (final.Length > 0)
-				// One tick later: the ordering key is (CreatedAt, Id) and Guid v7
-				// ids are not monotonic within a millisecond, so the question and
-				// the answer must not share one timestamp — otherwise the
-				// authoritative history order would be a coin flip.
-				db.ChatMessages.Add(new ChatMessage { ThreadId = thread.Id, Role = "assistant", Content = final, CreatedAt = now.AddTicks(1) });
-		}
-		var month = now.ToString("yyyy-MM", CultureInfo.InvariantCulture);
-		// Question, assistant answer and the usage-ledger row commit as ONE
-		// batch: a broken database can never persist an answer while losing
-		// its cost row — a failure surfaces as a visible run error instead.
-		db.ChatUsageEntries.Add(new ChatUsageEntry
-		{
-			YearMonth = month,
-			AccountId = thread.AccountId,
-			InputTokens = usage.InputTokens,
-			OutputTokens = usage.OutputTokens,
-			EstimatedCostEurCents = usage.EstimateEurCents(options),
-			CreatedAt = now,
-		});
-		await db.SaveChangesAsync(CancellationToken.None);
-		// The trim is its own bounded batch and runs after the turns/ledger.
-		await TrimThreadAsync(thread.Id);
-		await db.SaveChangesAsync(CancellationToken.None);
-		var monthCents = await db.ChatUsageEntries
-			.Where(e => e.YearMonth == month)
-			.SumAsync(e => e.EstimatedCostEurCents, CancellationToken.None);
-		if (monthCents > options.MonthlyBudgetEur * 100)
-		{
-			// ARC-021 budget semantics: exceeding the amount triggers review and
-			// manual disable by the maintainer; the chat stays available.
-			logger.LogWarning(
-				"Archiv-Chat: geschätzte Monatskosten {CostEur} EUR übersteigen das Budget {BudgetEur} EUR (monatlicher Abruf, manuelle Deaktivierung erforderlich).",
-				monthCents / 100m, options.MonthlyBudgetEur);
-		}
-	}
-
 	/// <summary>
 	/// Loads the last ≤<paramref name="bound"/> messages of a thread ordered
 	/// ascending by (CreatedAt, Id): the shared recent-window shape used for
@@ -545,54 +391,4 @@ public sealed class ArchiveChatService(
 			.ToListAsync(token);
 		return messages.Count > bound ? messages[^bound..] : messages;
 	}
-
-	private async Task TrimThreadAsync(Guid threadId)
-	{
-		// The keep-set is the shared recent window; everything outside it is
-		// removed in the same (CreatedAt, Id) order as before.
-		var keep = await RecentMessages(db, threadId, MessageHistoryLimit, CancellationToken.None);
-		if (keep.Count < MessageHistoryLimit)
-			return;
-		var keepIds = keep.Select(m => m.Id).ToHashSet();
-		var messages = await db.ChatMessages
-			.Where(m => m.ThreadId == threadId)
-			.OrderBy(m => m.CreatedAt).ThenBy(m => m.Id)
-			.ToListAsync(CancellationToken.None);
-		db.ChatMessages.RemoveRange(messages.Where(m => !keepIds.Contains(m.Id)));
-	}
-
-	/// <summary>Mutable accumulator for one run's observed usage and cost estimate.</summary>
-	private sealed class UsageLedger
-	{
-		public int InputTokens { get; private set; }
-
-		public int OutputTokens { get; private set; }
-
-		/// <summary>True when any UsageContent arrived; absent usage estimates zero.</summary>
-		public bool HasObservedTokens { get; private set; }
-
-		public void Observe(UsageDetails details)
-		{
-			HasObservedTokens = true;
-			if (details.InputTokenCount is { } input && input > InputTokens)
-				InputTokens = (int)Math.Min(input, int.MaxValue);
-			if (details.OutputTokenCount is { } output && output > OutputTokens)
-				OutputTokens = (int)Math.Min(output, int.MaxValue);
-		}
-
-		/// <summary>
-		/// Cost estimate in EUR cents, rounded up to the next cent so any
-		/// recorded usage also records a cost (the reference prices from
-		/// ARC-021 only feed this estimate).
-		/// </summary>
-		public int EstimateEurCents(ChatOptions options)
-			=> (int)Math.Ceiling(
-				InputTokens * (options.InputPricePerMillionEur / 1_000_000m)
-				+ OutputTokens * (options.OutputPricePerMillionEur / 1_000_000m));
-	}
-
-	private sealed record IterationOutcome(bool Aborted, List<FunctionCallContent> PendingCalls);
-
-	/// <summary>One citation candidate collected from this run's catalogue tool results.</summary>
-	private sealed record ToolSong(string Id, string Title);
 }

@@ -38,27 +38,3 @@ public sealed class ChatMessage
 
 	public DateTimeOffset CreatedAt { get; set; }
 }
-
-/// <summary>
-/// Monthly usage ledger entry (ARC-021 budget semantics): one row per run,
-/// summed per <see cref="YearMonth"/> after save to detect budget exceedance
-/// for the maintainer warning. Content is never recorded here.
-/// </summary>
-public sealed class ChatUsageEntry
-{
-	public Guid Id { get; set; } = Guid.CreateVersion7();
-
-	/// <summary>Calendar month in "yyyy-MM" form, UTC.</summary>
-	public required string YearMonth { get; set; }
-
-	public Guid AccountId { get; set; }
-
-	public int InputTokens { get; set; }
-
-	public int OutputTokens { get; set; }
-
-	/// <summary>Estimated cost in EUR cents, rounded.</summary>
-	public int EstimatedCostEurCents { get; set; }
-
-	public DateTimeOffset CreatedAt { get; set; }
-}

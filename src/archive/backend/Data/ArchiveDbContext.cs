@@ -77,7 +77,10 @@ public sealed class ArchiveDbContext(DbContextOptions<ArchiveDbContext> options)
 
 	public DbSet<Chat.ChatMessage> ChatMessages => Set<Chat.ChatMessage>();
 
-	public DbSet<Chat.ChatUsageEntry> ChatUsageEntries => Set<Chat.ChatUsageEntry>();
+	/// <summary>ARC-022-3: usage ledger of every AI call, the source of the monthly cap.</summary>
+	public DbSet<Ai.AiUsageEntry> AiUsageEntries => Set<Ai.AiUsageEntry>();
+
+	public DbSet<Ai.AiBudgetMonth> AiBudgetMonths => Set<Ai.AiBudgetMonth>();
 
 	protected override void OnModelCreating(ModelBuilder modelBuilder)
 	{

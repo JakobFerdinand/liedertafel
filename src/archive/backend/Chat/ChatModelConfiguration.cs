@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 namespace Archive.Backend.Chat;
 
 public sealed class ChatModelConfiguration
-	: IEntityTypeConfiguration<ChatThread>, IEntityTypeConfiguration<ChatMessage>, IEntityTypeConfiguration<ChatUsageEntry>
+	: IEntityTypeConfiguration<ChatThread>, IEntityTypeConfiguration<ChatMessage>
 {
 	public void Configure(EntityTypeBuilder<ChatThread> builder)
 	{
@@ -25,14 +25,5 @@ public sealed class ChatModelConfiguration
 		builder.Property(x => x.Role).HasMaxLength(20).IsRequired();
 		builder.Property(x => x.Content).HasMaxLength(8000).IsRequired();
 		builder.HasIndex(x => x.ThreadId);
-	}
-
-	public void Configure(EntityTypeBuilder<ChatUsageEntry> builder)
-	{
-		builder.ToTable("chat_usage_entries");
-		builder.HasKey(x => x.Id);
-		builder.Property(x => x.YearMonth).HasMaxLength(7).IsRequired();
-		builder.Property(x => x.AccountId).IsRequired();
-		builder.HasIndex(x => x.YearMonth);
 	}
 }
