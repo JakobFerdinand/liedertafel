@@ -1,12 +1,13 @@
 # Choir Archive — Implementation Issue Index
 
-Status: ARC-001, ARC-003, ARC-004, ARC-005, ARC-006, ARC-007, ARC-008, ARC-009, ARC-011, ARC-011-1, ARC-013, ARC-014, ARC-015, ARC-016, ARC-017, ARC-018, ARC-019, ARC-020, ARC-021, ARC-022, ARC-023, ARC-024, ARC-025, ARC-026, ARC-027, ARC-028, ARC-029, ARC-030, ARC-031, ARC-032, ARC-033 and ARC-034 completed; ARC-010, ARC-012, ARC-051 and ARC-022-3 are in progress (ARC-022-3 is implemented and verified offline; its live evaluation of 2026-10-08 failed at the first case — no citations on the catalogue question — and must be diagnosed and rerun before release); remaining implementation issues are planned. AI assistance was added to every open issue and as follow-up issues to completed ones on 2026-10-04.
+Status: ARC-001, ARC-003, ARC-004, ARC-005, ARC-006, ARC-007, ARC-008, ARC-009, ARC-011, ARC-011-1, ARC-013, ARC-014, ARC-015, ARC-016, ARC-017, ARC-018, ARC-019, ARC-020, ARC-021, ARC-022, ARC-023, ARC-024, ARC-025, ARC-026, ARC-027, ARC-028, ARC-029, ARC-030, ARC-031, ARC-032, ARC-033 and ARC-034 completed; ARC-010, ARC-012, ARC-051 and ARC-022-3 are in progress (ARC-022-3 is implemented and verified offline; its live evaluation of 2026-10-08 passes 13 of 14 cases; the generic catalogue question is answered without citations, which is a hard gate and unresolved — see the ticket); remaining implementation issues are planned. AI assistance was added to every open issue and as follow-up issues to completed ones on 2026-10-04.
 Date: 2026-10-04
 Sources: [PRD](prd.md) · [Architecture](architecture.md)
 
 **Start here to pick work:** [ARC-022-3] (chat on an Agent Framework agent
-under a hard monthly cap) is implemented; its live evaluation failed at the
-first case on 2026-10-08 and is the next thing to resolve (see the ticket). [ARC-013-1] (field provenance and the "Vorschläge"
+under a hard monthly cap) is implemented; its live evaluation passes 13 of
+14 cases; the catalogue question without citations is the open point (see the
+ticket). [ARC-013-1] (field provenance and the "Vorschläge"
 queue) is the next priority and can run in parallel with [ARC-021-1] (Luna)
 and [ARC-022-4] (AG-UI client and A2UI catalog), which build on [ARC-022-3]. The agreed order and technical design are
 in

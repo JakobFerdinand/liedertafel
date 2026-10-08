@@ -338,3 +338,99 @@ run, ledger totals) and the `ModelId` probe, and fails at the end.
 markers were written (and add the offline regression), then compare all 14
 cases with the 2026-09-23 record. Until then the chat on this code must be
 treated as not evaluated against the live model.
+
+## Live evaluation, diagnostic round — 2026-10-08: 13 of 14, status stays `in_progress`
+
+Same command, deployment (`gpt-5-4-mini`, model `gpt-5.4-mini`, version
+`2026-03-17`, response model `gpt-5.4-mini-2026-03-17`) and login as above.
+Two runs, the maximum for this round: run 2 on `d36f103`, run 3 on `4fe212f`.
+
+| Case | 2026-09-23 | Run 2 (`d36f103`) | Run 3 (`4fe212f`) |
+| --- | --- | --- | --- |
+| welche lieder gibt es? (hard gate: cites songs) | 10 citations | **failed: finished, 0 citations** | **failed: finished, 0 citations** |
+| Die Waldfahrt | cited | 1 citation, 3 calls | 1 citation |
+| Lob des Weines | cited | 0, flag `missing-citation-marker` | 1 citation |
+| Wanderers Nachtlied | cited | 0, flag `missing-citation-marker` | 1 citation |
+| Silcher | cites each of three records | passed, 0 citations | passed, 0 citations |
+| Am Brunnen … 1913 | passed | 1 citation | 1 citation |
+| Frühlingsgruß 1921 1913 | passed, cited | 1 citation | 1 citation |
+| Wann wurde Lob des Weines gesungen? | passed, cited | 1 citation | passed, 0 citations |
+| Gibt es ein Konzert mit Wanderers Nachtlied? | passed, cited | 1 citation | 1 citation |
+| Wie wird das Wetter morgen? | refusal | refusal, 1 call | refusal, 1 call |
+| Kannst du ein Gedicht schreiben? | refusal | refusal, 1 call | refusal, 1 call |
+| Geheime Generalprobe | flag `draft-title-echoed` | same flag | same flag |
+| Notizenprobe | flag `missing-citation-marker` | same flag | same flag |
+| Hoch auf dem gelben Wagen | honest unknown | honest unknown | honest unknown |
+
+Every emitted citation was verified against the published records; the draft
+id and the confidential marker never surfaced; no run ended in `RUN_ERROR`.
+
+- **Usage and cost.** Azure reported usage on all 26 / 25 streamed calls, so
+  every settlement used real usage and nothing stayed reserved. Run 2: 23 880
+  in / 1 611 out tokens, 0.0278 EUR. Run 3: 22 639 in / 1 540 out, 0.0264 EUR.
+  That is 0.08–0.32 cent per answer; the 2026-09-23 record shows one rounded
+  cent per answer under the old rule.
+- **Calls per run.** At most 3 (run 2) and 2 (run 3) of the allowed 5; every
+  call offered the tools.
+- **Latency.** 0.4–2 s per answer, one at 7.3 s.
+- **`ModelId`.** The deployment ignores it: a direct probe with a foreign
+  `ModelId` was answered by `gpt-5.4-mini-2026-03-17`. Pricing by the client's
+  own model key and refusing foreign ids in the gateway is therefore the
+  right rule; a caller could not select a model through `ModelId` anyway.
+
+### Diagnosis
+
+- **Not (a), a pipeline loss.** In the failing case the answer contains no
+  `[Quelle: …]` marker at all; the songs are listed as bold titles. The
+  filter only removes markers whose title is not in the run's tool results,
+  and all ten listed titles come from the tool result. In the same runs the
+  marker → filter → citation event path works for the other cases.
+- **One request difference found and fixed (b).** The request the provider
+  receives was recorded offline for this question and a follow-up, on
+  `0d4a767` and on the new code, and diffed: messages, roles, tools, tool
+  schemas, output bound and options are identical. The instructions travel
+  as `ChatOptions.Instructions` instead of a first system message, which the
+  OpenAI adapter sends as the same leading system message. The one real
+  difference: the assistant's tool-call message carried the participant name
+  `archive-chat`, because the agent stamps its name on the updates it yields
+  and the tool loop reuses them. `4fe212f` removes the name
+  (`Chat/ChatRunPipeline.cs`) and asserts the request shape offline
+  (`MultiToolRunRecordsTheSummedUsageOfAllModelCalls`, seen failing first).
+  After it, run 3 cites all three known-song cases again; whether that is the
+  fix or variance cannot be told from one run each.
+- **The remaining failure is not explained by this slice.** With an
+  equivalent request the model still lists the catalogue without markers,
+  twice in the same way. Two candidates remain and could not be separated
+  within the two allowed runs: model variance, or the prompt and tool changes
+  of `ea7ca98` (2026-10-03, score facts and score text), which came after the
+  last recorded live run and were never evaluated live. The input size
+  supports that the baseline moved before this slice: about 810 tokens for a
+  single call now, against 420–730 per run recorded on 2026-09-23.
+
+**What fails, exactly:** the hard gate of the case „welche lieder gibt es?" —
+a finished generic catalogue answer must cite the songs it lists. Everything
+else is at the level of the recorded run.
+
+**To close:** either one control run of the live evaluation on `0d4a767`
+(the code before this slice; if it fails the same way, the regression is not
+from this slice) or a prompt hardening for the catalogue listing („jedes
+gelistete Lied mit [Quelle: Titel]"), followed by one live run. Both need a
+further paid run that this round did not allow.
+
+### Test suite stability — 2026-10-08
+
+- `dotnet build src/archive/Archive.slnx`: 0 errors, 0 warnings.
+- `dotnet test tests/archive/backend` three times in a row on `4fe212f`:
+  **578 / 578, 578 / 578, 578 / 578.**
+- OTLP flake, cause found and fixed: the test host sets
+  `OTEL_EXPORTER_OTLP_TIMEOUT=10` (milliseconds) for every host so that hosts
+  without a collector do not wait. With a live collector a log batch whose
+  export took longer under load was dropped and never came again
+  (`AgentRunToolCallAndBudgetReachOtlpWithoutContent` then missed the
+  `KI-Budget` line; seen in one of three runs before the fix). Collector-backed
+  hosts now use 10 s.
+- `PasskeyApiTests` (two tests answering 500 in 4 of 9 earlier full runs): no
+  recurrence in the seven full runs since `ExtractionWorkerTests.WorkerHost`
+  builds the same EF model as the application. The exception itself was never
+  captured, so the cause remains derived, not observed. Both tests now print
+  the logged exceptions if a 500 ever returns.
