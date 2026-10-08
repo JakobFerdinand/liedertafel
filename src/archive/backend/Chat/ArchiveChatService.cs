@@ -26,10 +26,10 @@ public sealed record ChatRunResult(IResult? Error, IAsyncEnumerable<BaseEvent>? 
 /// <summary>
 /// The member chat (ARC-022) on a Microsoft Agent Framework agent
 /// (ARC-022-3). One run: authorize and resolve thread ownership, then run the
-/// named agent <see cref="AgentName"/> with the authorized catalogue tools
-/// and stream its updates as AG-UI events. The pipeline below the agent is
-/// tool loop (bounded) → citation filter → per-call bounds → <see cref="AiGateway"/>
-/// (telemetry → budget → provider); thread history lives in the database
+/// named agent (<see cref="ArchiveChatAgent"/>) with the authorized catalogue
+/// tools and stream its updates as AG-UI events. Below the agent each run
+/// stacks tool loop (bounded) → citation filter → per-call bounds on the
+/// gateway (telemetry → budget → provider); thread history lives in the database
 /// behind <see cref="ChatThreadHistoryProvider"/>, so client-provided older
 /// messages are ignored and cannot tamper the grounding context.
 /// Bounds are app-enforced (ARC-021): overall and no-token timeouts, a
@@ -38,12 +38,13 @@ public sealed record ChatRunResult(IResult? Error, IAsyncEnumerable<BaseEvent>? 
 /// model call is made. Question or answer content is never logged.
 /// </summary>
 public sealed class ArchiveChatService(
-	AiGateway gateway, ArchiveDbContext db, TimeProvider time,
+	ArchiveChatAgent chatAgent, ArchiveDbContext db, TimeProvider time,
 	IOptions<ChatOptions> optionsAccessor, ILoggerFactory loggers, ILogger<ArchiveChatService> logger)
 {
-	/// <summary>The agent's name in telemetry and the feature name in the usage ledger.</summary>
-	public const string AgentName = "archive-chat";
+	/// <summary>The agent's name in telemetry.</summary>
+	public const string AgentName = ArchiveChatAgent.Name;
 
+	/// <summary>The feature name in the usage ledger.</summary>
 	public const string Feature = "chat";
 
 	/// <summary>AG-UI <c>RUN_ERROR.code</c> of the budget state; the client shows it without a retry.</summary>
@@ -79,7 +80,7 @@ public sealed class ArchiveChatService(
 		return options;
 	}
 
-	private const string SystemPrompt = """
+	internal const string SystemPrompt = """
 		Du bist der Archiv-Assistent der Liedertafel Mining 1906. Antworte immer auf Deutsch und
 		ausschließlich auf Grundlage des Vereinsarchivs.
 		- Beantworte nur Fragen zum Vereinsarchiv; andere Fragen lehne höflich auf Deutsch ab.
@@ -161,44 +162,24 @@ public sealed class ArchiveChatService(
 	}
 
 	/// <summary>
-	/// Builds this run's agent. The agent and the parts above the gateway are
-	/// per run because they hold the request's database context (tools,
-	/// history) and the run state; the gateway below is shared.
+	/// The parts of the pipeline that belong to one run, stacked on the
+	/// agent's shared client (the gateway): they hold the run state and the
+	/// request's database context through the tools.
 	/// </summary>
-	private AIAgent BuildAgent(ChatThread thread, ChatOptions options, ChatRunState state)
+	private IChatClient BuildRunPipeline(IChatClient gatewayClient, ChatOptions options, ChatRunState state)
 	{
+		var maxModelCalls = Math.Max(1, options.MaxToolCalls);
 		var bounded = new ModelCallBoundsChatClient(
-			gateway.ChatClient, state, TimeSpan.FromSeconds(options.NoTokenSeconds), logger);
-		var toolLoop = new FunctionInvokingChatClient(new CitationFilteringChatClient(bounded, state), loggers)
+			gatewayClient, state, maxModelCalls, TimeSpan.FromSeconds(options.NoTokenSeconds), logger);
+		return new FunctionInvokingChatClient(new CitationFilteringChatClient(bounded, state), loggers)
 		{
-			// The bound counts model calls, the first one included. When the
-			// last allowed call still asks for tools the loop returns them
-			// unanswered and the run ends in the German failure state.
-			MaximumIterationsPerRequest = Math.Max(1, options.MaxToolCalls),
-			FunctionInvoker = (invocation, cancellation) => InvokeToolAsync(invocation, state, cancellation),
+			// The run's bound is enforced by InvokeToolAsync and the bounds
+			// client: at most maxModelCalls model calls, all with the tools
+			// offered. The loop's own limit lies above it and never applies
+			// (reaching it would add a call with the tools taken away).
+			MaximumIterationsPerRequest = maxModelCalls + 1,
+			FunctionInvoker = (invocation, cancellation) => InvokeToolAsync(invocation, state, maxModelCalls, cancellation),
 		};
-		var agent = new ChatClientAgent(toolLoop, new ChatClientAgentOptions
-		{
-			Name = AgentName,
-			Description = "Beantwortet Mitgliederfragen aus dem veröffentlichten Vereinsarchiv.",
-			ChatOptions = new AiChatOptions
-			{
-				Instructions = SystemPrompt,
-				// To add a chat tool (ARC-022-1): create it like the two below,
-				// with its authorization inside the tool, and list it here.
-				Tools =
-				[
-					CatalogueTools.CreateCatalogueSearchTool(db),
-					CatalogueTools.CreateSongDetailsTool(db),
-				],
-			},
-			ChatHistoryProvider = new ChatThreadHistoryProvider(db, thread, time, state, options.MaxAnswerChars),
-			// The tool loop above is this run's own; no default decorators.
-			UseProvidedChatClientAsIs = true,
-		}, loggers);
-		return agent.AsBuilder()
-			.UseOpenTelemetry(Microsoft.Extensions.Hosting.Extensions.AiTelemetryName)
-			.Build();
 	}
 
 	private async Task RunAgentAsync(ChannelWriter<ChatResponseUpdate> writer, ChatThread thread,
@@ -206,14 +187,32 @@ public sealed class ArchiveChatService(
 	{
 		var state = new ChatRunState();
 		var answer = new StringBuilder();
-		var agent = BuildAgent(thread, options, state);
 		try
 		{
-			var runOptions = new AiChatOptions();
+			var runOptions = new AiChatOptions
+			{
+				// To add a chat tool (ARC-022-1): create it like the two below,
+				// with its authorization inside the tool, and list it here.
+				Tools =
+				[
+					CatalogueTools.CreateCatalogueSearchTool(db),
+					CatalogueTools.CreateSongDetailsTool(db),
+				],
+				AdditionalProperties = [],
+			};
 			AiOperation.Start(Feature, thread.AccountId).AttachTo(runOptions);
+			// This run's history: the member's thread on the request's context.
+			runOptions.AdditionalProperties.Add<ChatHistoryProvider>(
+				new ChatThreadHistoryProvider(db, thread, time, state, options.MaxAnswerChars));
+			var agent = chatAgent.Agent;
 			var session = await agent.CreateSessionAsync(overallToken);
 			var updates = agent.RunStreamingAsync(
-				new AiChatMessage(ChatRole.User, question), session, new ChatClientAgentRunOptions(runOptions), overallToken);
+				new AiChatMessage(ChatRole.User, question), session,
+				new ChatClientAgentRunOptions(runOptions)
+				{
+					ChatClientFactory = gatewayClient => BuildRunPipeline(gatewayClient, options, state),
+				},
+				overallToken);
 			await foreach (var agentUpdate in updates.WithCancellation(overallToken))
 			{
 				var update = agentUpdate.AsChatResponseUpdate();
@@ -263,7 +262,6 @@ public sealed class ArchiveChatService(
 		}
 		finally
 		{
-			(agent.GetService<OpenTelemetryAgent>() as IDisposable)?.Dispose();
 			writer.TryComplete();
 		}
 	}
@@ -275,13 +273,22 @@ public sealed class ArchiveChatService(
 		}, CancellationToken.None);
 
 	/// <summary>
-	/// Runs one tool call of the loop. A failing tool answers empty so the
-	/// model can state the gap honestly instead of aborting the run; the
-	/// result's records become this run's citation candidates.
+	/// Runs one tool call of the loop. When the run's last allowed model call
+	/// still asks for a tool, nothing is executed and the loop ends: the run
+	/// stops in the German failure state instead of calling the model again.
+	/// A failing tool answers empty so the model can state the gap honestly
+	/// instead of aborting the run; the result's records become this run's
+	/// citation candidates.
 	/// </summary>
 	private static async ValueTask<object?> InvokeToolAsync(
-		FunctionInvocationContext invocation, ChatRunState state, CancellationToken token)
+		FunctionInvocationContext invocation, ChatRunState state, int maxModelCalls, CancellationToken token)
 	{
+		if (state.ModelCalls >= maxModelCalls)
+		{
+			state.ToolLimitReached = true;
+			invocation.Terminate = true;
+			return null;
+		}
 		string resultJson;
 		try
 		{

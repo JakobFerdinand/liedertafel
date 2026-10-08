@@ -1556,6 +1556,9 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
         timeout.CancelAfter(TimeSpan.FromSeconds(45));
         var chatToken = timeout.Token;
+        // ARC-022-3: the run below must reserve and settle in the AI usage
+        // ledger on real PostgreSQL after all migrations.
+        var ledgerBefore = await api.GetFromJsonAsync<JsonElement>("/api/dev/ai-budget", chatToken);
         var (cookie, csrfToken) = await GetCsrfAsync(api, memberSession, chatToken);
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/chat");
         request.Headers.Add("Cookie", $"{cookie}; {memberSession}");
@@ -1598,6 +1601,18 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         Assert.DoesNotContain(draftTitle, answer);
         Assert.DoesNotContain("nicht bekannt", answer, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("nicht verzeichnet", answer, StringComparison.OrdinalIgnoreCase);
+
+        // One ledger row for the run: both model calls (tool request and
+        // answer) admitted and settled, nothing left reserved, and the
+        // month's lock row exists. The scripted model costs real micro-EUR.
+        var ledger = await api.GetFromJsonAsync<JsonElement>("/api/dev/ai-budget", chatToken);
+        Assert.Equal(ledgerBefore.GetProperty("entries").GetInt32() + 1, ledger.GetProperty("entries").GetInt32());
+        Assert.Equal(ledgerBefore.GetProperty("calls").GetInt32() + 2, ledger.GetProperty("calls").GetInt32());
+        Assert.True(ledger.GetProperty("costMicroEur").GetInt64() > ledgerBefore.GetProperty("costMicroEur").GetInt64());
+        Assert.Equal(0, ledger.GetProperty("reservedMicroEur").GetInt64());
+        Assert.Equal(ledger.GetProperty("costMicroEur").GetInt64(), ledger.GetProperty("spentMicroEur").GetInt64());
+        Assert.Equal(1, ledger.GetProperty("monthRows").GetInt32());
+        Assert.Equal(15_000_000, ledger.GetProperty("capMicroEur").GetInt64());
         Assert.DoesNotContain("keine Lieder", answer, StringComparison.OrdinalIgnoreCase);
 
         var citationEvent = Assert.Single(events, e =>

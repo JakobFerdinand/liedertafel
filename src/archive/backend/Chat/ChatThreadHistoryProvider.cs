@@ -46,11 +46,8 @@ internal sealed class ChatThreadHistoryProvider(
 	protected override async ValueTask StoreChatHistoryAsync(InvokedContext context, CancellationToken cancellationToken = default)
 	{
 		var responses = context.ResponseMessages?.ToList() ?? [];
-		// The tool loop ended while the model still asked for tools: the
-		// bound was reached and there is no answer to keep.
-		var answered = responses.SelectMany(m => m.Contents).OfType<FunctionResultContent>().Select(r => r.CallId).ToHashSet();
-		state.ToolLimitReached = responses.SelectMany(m => m.Contents).OfType<FunctionCallContent>()
-			.Any(call => !answered.Contains(call.CallId));
+		// A run that stopped at the model-call bound while the model still
+		// asked for tools (ChatRunState.ToolLimitReached) has no answer to keep.
 		var answer = new StringBuilder();
 		foreach (var message in responses.Where(m => m.Role == ChatRole.Assistant))
 			answer.Append(message.Text);

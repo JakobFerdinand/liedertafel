@@ -20,6 +20,25 @@ public static class DiagnosticEndpoints
             return Results.Ok(new { connected = result == 1, pendingMigrations = pending });
         });
 
+        // ARC-022-3: the month's AI ledger at a glance, for the integration
+        // test that proves a chat run reserves and settles on PostgreSQL.
+        app.MapGet("/api/dev/ai-budget", async (ArchiveDbContext db, Ai.IAiBudget budget, CancellationToken token) =>
+        {
+            var status = await budget.GetStatusAsync(token);
+            var entries = await db.AiUsageEntries.AsNoTracking().Where(e => e.YearMonth == status.YearMonth).ToListAsync(token);
+            return Results.Ok(new
+            {
+                yearMonth = status.YearMonth,
+                spentMicroEur = status.SpentMicroEur,
+                capMicroEur = status.CapMicroEur,
+                entries = entries.Count,
+                calls = entries.Sum(e => e.Calls),
+                costMicroEur = entries.Sum(e => e.CostMicroEur),
+                reservedMicroEur = entries.Sum(e => e.ReservedMicroEur),
+                monthRows = await db.AiBudgetMonths.CountAsync(m => m.YearMonth == status.YearMonth, token),
+            });
+        });
+
         app.MapPost("/api/dev/exercise", async (HttpContext context, IAntiforgery antiforgery,
             LocalServices services, ILoggerFactory loggerFactory, CancellationToken token) =>
         {

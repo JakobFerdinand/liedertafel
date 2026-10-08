@@ -45,6 +45,7 @@ public static class Extensions
                 if (builder.Environment.IsDevelopment()) tracing.SetSampler(new AlwaysOnSampler());
                 tracing.AddSource(ActivitySourceName, AiTelemetryName, "Npgsql", "Azure.*")
                     .AddProcessor(new UrlRedactionProcessor())
+                    .AddProcessor(new AiExceptionRedactionProcessor())
                     .AddAspNetCoreInstrumentation(options => options.Filter = context =>
                         !context.Request.Path.StartsWithSegments("/alive") &&
                         !context.Request.Path.StartsWithSegments("/health"))
@@ -116,6 +117,28 @@ internal sealed class UrlRedactionProcessor : BaseProcessor<Activity>
             var query = value.IndexOf('?');
             if (key == "url.query") activity.SetTag(key, "[redacted]");
             else if (query >= 0) activity.SetTag(key, value[..query] + "?[redacted]");
+        }
+    }
+}
+
+// Model providers put request details into exception messages. Spans of the
+// AI source keep the exception type only: the GenAI instrumentation writes the
+// message into the span status and may add an exception event.
+internal sealed class AiExceptionRedactionProcessor : BaseProcessor<Activity>
+{
+    public override void OnEnd(Activity activity)
+    {
+        if (activity.Source.Name != Extensions.AiTelemetryName) return;
+        if (activity.Status == ActivityStatusCode.Error)
+            activity.SetStatus(ActivityStatusCode.Error, activity.GetTagItem("error.type") as string);
+        foreach (var key in new[] { "exception.message", "exception.stacktrace", "error.message" })
+            if (activity.GetTagItem(key) is not null) activity.SetTag(key, null);
+        foreach (var item in activity.Events)
+        {
+            // An event's tags are the collection it was created with.
+            if (item.Tags is not ActivityTagsCollection tags) continue;
+            tags.Remove("exception.message");
+            tags.Remove("exception.stacktrace");
         }
     }
 }

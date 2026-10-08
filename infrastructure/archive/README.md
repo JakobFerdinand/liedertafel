@@ -288,8 +288,15 @@ the pin until the provider expires the version). `id-archive-app` receives
 `Cognitive Services OpenAI User` on the account (`deployRoleAssignments`
 guarded), so the app talks to the endpoint keylessly via
 `Archive__Chat__*` env entries — chat enabled from first deploy (maintainer
-decision 2026-09-23; sole production user pre-release, EUR 5 alert +
-manual-disable semantics unchanged). A group budget backstop (EUR 10/month,
+decision 2026-09-23; sole production user pre-release). Since ARC-022-3
+the application enforces a hard EUR 15 monthly cap for all AI calls
+(`Archive:Ai`, see `src/archive/README.md`); the earlier EUR 5 alert with
+manual disable no longer exists, `Archive__Chat__Disabled=true` remains the
+manual kill switch. Model prices are application settings: if
+`aiChatDeploymentName` is ever overridden, both
+`Archive__Ai__Models__<deployment>__InputPricePerMillionEur` and
+`…__OutputPricePerMillionEur` must be set on the app, otherwise every chat
+run is refused (`unpriced_model`). A group budget backstop (EUR 10/month,
 alert-only, ARC-004 review trigger) is intentionally NOT in Bicep: the
 Consumption budgets API rejects programmatic creation on this subscription
 with 401 even for the subscription Owner (finding recorded in ARC-043,
@@ -445,6 +452,23 @@ no-op — an applied migration never runs twice.
   schema-compatible (additive changes). There is deliberately no database
   restore/export and no backup job; editor trash and revision history
   remain the ordinary recovery path.
+- **Deliberate exception, ARC-022-3 (owner decision 2026-10-06):** the
+  release carrying migration `20261006111010_AiUsageLedger` renames
+  `chat_usage_entries` to `ai_usage_entries` in place, in one release,
+  instead of splitting the rename into an additive and a cleanup release.
+  A short chat downtime during that release is accepted. Consequences:
+  a code-only rollback to the previous image **breaks the chat** (the old
+  image writes `chat_usage_entries`, which no longer exists; every run ends
+  in the failure state — everything else keeps working), so this release is
+  fix-forward only for chat. After the release the operator must
+  1. run `infrastructure/neon/runtime-grants.sql` as `archive_migrator`
+     (new table `ai_budget_months`, renamed `ai_usage_entries`);
+  2. check that the runtime role can use the lock table, for example
+     `SELECT has_table_privilege('archive_runtime', 'ai_budget_months', 'SELECT, INSERT, UPDATE')`
+     (a reservation inserts the month row and locks it with
+     `SELECT … FOR UPDATE`, which needs `UPDATE`);
+  3. smoke one chat run as a member and confirm a row in `ai_usage_entries`
+     for the current month with `"ReservedMicroEur" = 0`.
 
 ### Job contract (handoff to ARC-032/035)
 

@@ -20,13 +20,23 @@ public interface IAiBudget
 	Task<AiReservation> ReserveAsync(AiCall call, CancellationToken cancellationToken);
 
 	/// <summary>
-	/// Replaces a reservation by the real usage. Call it exactly once per
-	/// reservation, also when the call failed or was cancelled; it is not
-	/// cancellable and never throws.
+	/// Replaces a reservation by the real usage, or by the full reservation
+	/// when the provider reported none (<see cref="AiUsage.Unreported"/>).
+	/// Call it exactly once per reservation, also when the call failed or was
+	/// cancelled; it is not cancellable and never throws. A settlement that
+	/// cannot be written after retries is logged at error and counted.
 	/// </summary>
 	Task SettleAsync(AiReservation reservation, AiUsage usage);
 
-	/// <summary>The current month's spend against the cap, for jobs that wait for budget and for operators.</summary>
+	/// <summary>
+	/// Whether a call of this worst case would be admitted right now. Queued
+	/// work that waits for budget asks this before it is re-enqueued, so a
+	/// nearly full month does not wake work that is refused again. False also
+	/// when the model has no price or the ledger cannot be read.
+	/// </summary>
+	Task<bool> WouldAdmitAsync(AiCall call, CancellationToken cancellationToken);
+
+	/// <summary>The current month's spend (settled plus reserved) against the cap, for operators.</summary>
 	Task<AiBudgetStatus> GetStatusAsync(CancellationToken cancellationToken);
 }
 
@@ -41,14 +51,25 @@ public sealed record AiCall(
 	string Feature, Guid OperationId, Guid? AccountId, string Model, long EstimatedInputTokens, int MaxOutputTokens);
 
 /// <summary>An admitted call; hand it back to <see cref="IAiBudget.SettleAsync"/>.</summary>
-public sealed record AiReservation(Guid EntryId, string YearMonth, string Feature, string Model, long ReservedMicroEur);
+public sealed record AiReservation(
+	Guid EntryId, string YearMonth, string Feature, string Model, long ReservedMicroEur,
+	long EstimatedInputTokens, int MaxOutputTokens);
 
 /// <summary>Tokens a call really used (or the best estimate when the provider reported none).</summary>
-public sealed record AiUsage(long InputTokens, long OutputTokens);
+public sealed record AiUsage(long InputTokens, long OutputTokens)
+{
+	/// <summary>
+	/// The call ended without a usage report from the provider (failure,
+	/// cancellation, abandoned stream). It is settled at its full reservation.
+	/// </summary>
+	public static AiUsage Unreported { get; } = new(-1, -1);
+
+	public bool IsReported => !ReferenceEquals(this, Unreported);
+}
 
 public sealed record AiBudgetStatus(string YearMonth, long SpentMicroEur, long CapMicroEur)
 {
-	public bool IsExhausted => SpentMicroEur >= CapMicroEur;
+	public long RemainingMicroEur => Math.Max(0, CapMicroEur - SpentMicroEur);
 }
 
 /// <summary>The monthly cap is reached; the call was not made.</summary>

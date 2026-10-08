@@ -22,6 +22,5 @@ public sealed class AiModelConfiguration
 		builder.ToTable("ai_budget_months");
 		builder.HasKey(x => x.YearMonth);
 		builder.Property(x => x.YearMonth).HasMaxLength(7);
-		builder.Property(x => x.Version).IsConcurrencyToken();
 	}
 }

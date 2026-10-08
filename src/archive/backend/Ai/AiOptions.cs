@@ -15,9 +15,11 @@ public sealed class AiOptions
 	public decimal MonthlyCapEur { get; set; } = 15m;
 
 	/// <summary>
-	/// Upper bound for the output tokens of one model call. It is sent to the
-	/// provider and is the output part of every reservation, so the cost of a
-	/// call in flight is bounded before it starts.
+	/// Hard ceiling for the output tokens of one model call. A feature may
+	/// ask for less through <see cref="AiOperation.MaxOutputTokens"/>, never
+	/// for more. The bound is sent to the provider and is the output part of
+	/// every reservation, so the cost of a call in flight is bounded before
+	/// it starts.
 	/// </summary>
 	public int MaxOutputTokensPerCall { get; set; } = 2000;
 
@@ -33,23 +35,31 @@ public sealed class AiOptions
 		foreach (var (key, price) in Models)
 		{
 			if (string.Equals(key, model, StringComparison.OrdinalIgnoreCase))
-				return price is { InputPricePerMillionEur: >= 0, OutputPricePerMillionEur: >= 0 } ? price : null;
+				return price is { InputPricePerMillionEur: > 0, OutputPricePerMillionEur: > 0 } ? price : null;
 		}
 		return null;
 	}
 }
 
-/// <summary>Price of one model in EUR per one million tokens. Both values are required.</summary>
+/// <summary>Price of one model in EUR per one million tokens. Both values are required and must be above zero.</summary>
 public sealed class AiModelPrice
 {
-	public decimal InputPricePerMillionEur { get; set; } = -1;
+	public decimal InputPricePerMillionEur { get; set; }
 
-	public decimal OutputPricePerMillionEur { get; set; } = -1;
+	public decimal OutputPricePerMillionEur { get; set; }
 }
 
 /// <summary>
-/// The model keys the archive's AI features use. ARC-021-1 switches the chat
-/// model by configuration (<c>Archive:Chat:DeploymentName</c> plus a price
-/// entry); later slices add their own member, for example an embedding model.
+/// The model keys the archive's AI features use; each needs a price entry.
+/// ARC-021-1 switches the chat model by configuration
+/// (<c>Archive:Chat:DeploymentName</c>). A later slice adds its own property
+/// here (ARC-052 sets <see cref="Embedding"/>) without touching other code.
 /// </summary>
-public sealed record AiModels(string Chat);
+public sealed class AiModels
+{
+	/// <summary>Model key of the member chat and, until decided otherwise, of every chat-client agent.</summary>
+	public required string Chat { get; init; }
+
+	/// <summary>Model key of the embedding generator; null until ARC-052 registers one.</summary>
+	public string? Embedding { get; init; }
+}

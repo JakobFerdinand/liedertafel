@@ -17,10 +17,10 @@ internal sealed class ChatRunState
 	/// <summary>Records the authorized tools returned in this run: the only citable sources.</summary>
 	public List<ToolSong> ToolSongs { get; } = [];
 
-	/// <summary>Model calls started in this run, including a retried first call.</summary>
+	/// <summary>Model calls of this run; a repeated first call counts once.</summary>
 	public int ModelCalls { get; set; }
 
-	/// <summary>The model still asked for tools when the tool-call bound was reached.</summary>
+	/// <summary>The model still asked for tools after the run's last allowed model call.</summary>
 	public bool ToolLimitReached { get; set; }
 
 	public bool IsCitable(string title)
@@ -98,26 +98,34 @@ internal sealed class CitationFilteringChatClient(IChatClient inner, ChatRunStat
 }
 
 /// <summary>
-/// The per-call bounds of a chat run (ARC-021): the first update of every
-/// model call must arrive within the no-token window, and the run's first
-/// call is repeated once when the provider fails before any update arrived.
-/// Each attempt passes the budget below, so a repeated call is charged too.
+/// The bounds of a chat run's model calls (ARC-021): a run makes at most
+/// <c>maxModelCalls</c> calls, the first update of every call must arrive
+/// within the no-token window, and the run's first call is repeated once
+/// when the provider fails before any update arrived. Each attempt passes
+/// the budget below, so a repeated call is charged too.
 /// </summary>
 internal sealed class ModelCallBoundsChatClient(
-	IChatClient inner, ChatRunState state, TimeSpan noTokenWindow, ILogger logger) : DelegatingChatClient(inner)
+	IChatClient inner, ChatRunState state, int maxModelCalls, TimeSpan noTokenWindow, ILogger logger) : DelegatingChatClient(inner)
 {
 	public override async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
 		IEnumerable<AiChatMessage> messages, AiChatOptions? options = null,
 		[EnumeratorCancellation] CancellationToken cancellationToken = default)
 	{
+		// The tool loop stops itself at the bound (see InvokeToolAsync); a
+		// further call would be a defect and never reaches the provider.
+		if (state.ModelCalls >= maxModelCalls)
+		{
+			state.ToolLimitReached = true;
+			throw new InvalidOperationException("The chat run exceeded its model-call bound.");
+		}
 		var firstCallOfRun = state.ModelCalls == 0;
+		state.ModelCalls++;
 		var list = messages as IReadOnlyList<AiChatMessage> ?? [.. messages];
 		CancellationTokenSource noToken;
 		IAsyncEnumerator<ChatResponseUpdate> updates;
 		bool hasUpdate;
 		for (var attempt = 1; ; attempt++)
 		{
-			state.ModelCalls++;
 			noToken = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 			noToken.CancelAfter(noTokenWindow);
 			updates = base.GetStreamingResponseAsync(list, options, noToken.Token).GetAsyncEnumerator(noToken.Token);

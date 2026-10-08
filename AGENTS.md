@@ -37,7 +37,7 @@ Use this guide when editing or extending the codebase.
 - Archive backend tests: `dotnet test tests/archive/backend`
 - Archive focused xUnit test: `dotnet test tests/archive/backend --filter FullyQualifiedName~TelemetryTests`
 - Archive live chat evaluation (keyless via az login; skips when unconfigured): `dotnet test tests/archive/backend --filter "Category=ChatEvaluationLive" --logger "console;verbosity=detailed"` with `ARCHIVE_CHAT_ENDPOINT`, `ARCHIVE_CHAT_DEPLOYMENT_NAME` and optional `ARCHIVE_CHAT_MODEL_VERSION` set; a deployment without a price under `Archive:Ai:Models` also needs `ARCHIVE_CHAT_INPUT_PRICE_EUR` and `ARCHIVE_CHAT_OUTPUT_PRICE_EUR` (EUR per million tokens), otherwise every call is refused
-- Archive AI budget race on real PostgreSQL (skips when unconfigured): `dotnet test tests/archive/backend --filter "Category=PostgresLedger"` with `ARCHIVE_TEST_POSTGRES` set to a connection string for an empty throwaway database
+- Archive AI ledger on real PostgreSQL (the production SQL; the PostgreSQL-only cases skip when unconfigured): `dotnet test tests/archive/backend --filter "FullyQualifiedName~AiBudgetLedgerTests"` with `ARCHIVE_TEST_POSTGRES` set to a connection string for a throwaway server whose user may create databases (each test creates, migrates and drops its own)
 - Archive integration test: `dotnet test tests/archive/apphost` (fresh containers; stop a running archive AppHost first).
 - Archive frontend deps/check/build: from `src/archive/frontend`, `pnpm install --frozen-lockfile`, `pnpm run check`, `pnpm run build`.
 - Archive browsers: from `src/archive/frontend`, `pnpm exec playwright install chromium`, then `ARCHIVE_BASE_URL=http://localhost:<frontend-port> pnpm run test:browser`. Single test: `pnpm run test:browser -- --grep "German deep link"`.
@@ -130,8 +130,11 @@ uses its generated Next.js/Biome conventions and local `AGENTS.md`.
 - EF migrations are explicit (`archive-migrate` / `--migrate`), never API startup.
   Schema lives under `backend/Data/Migrations`; each feature adds its own entities.
 - Every model call goes through `Ai/AiGateway` (telemetry → budget → provider)
-  and carries an `AiOperation`; never inject the provider `IChatClient`
-  elsewhere. The EUR 15 monthly cap, prices and limits are `Archive:Ai` settings.
+  and carries an `AiOperation`. Raw provider clients are registered only under
+  the key `AiGateway.ProviderKey`; a host registers everything with
+  `AddArchiveAi(configuration)`. The EUR 15 monthly cap, prices and limits are
+  `Archive:Ai` settings. The ledger store is PostgreSQL SQL; tests on EF
+  InMemory use `InMemoryAiLedgerStore`.
 - Keep liveness dependency-free. Local diagnostics/mail/storage operations are
   Development-only; no production credentials are needed for ordinary startup.
 - Root SDK now selects .NET 10 with latest-feature roll-forward. Existing Azure

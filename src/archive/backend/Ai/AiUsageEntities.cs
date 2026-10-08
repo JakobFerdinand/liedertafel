@@ -52,15 +52,13 @@ public sealed class AiUsageEntry
 
 /// <summary>
 /// One row per budget month. It holds no amount: the ledger rows are the only
-/// source of truth. Every ledger write of a month increments
-/// <see cref="Version"/> as an optimistic concurrency token, so two requests
-/// (also on two replicas) can never both pass the cap check on the same sum.
+/// source of truth. A reservation locks the month's row for its transaction,
+/// so reservations of one month queue (also across replicas) and none can
+/// pass the cap check on a sum another one is about to change.
 /// </summary>
 public sealed class AiBudgetMonth
 {
 	public required string YearMonth { get; set; }
-
-	public long Version { get; set; }
 }
 
 /// <summary>The budget month of an instant: the calendar month in Europe/Vienna.</summary>

@@ -783,14 +783,17 @@ internal sealed class AuthApiFactory : WebApplicationFactory<Program>
 			services.RemoveAll<IAssetStorageAdapter>();
 			services.RemoveAll<BlobAssetStorageAdapter>();
 			services.AddSingleton<IAssetStorageAdapter>(storageOverride ?? Storage);
-			// Program registers the deterministic ScriptedChatClient behind the
-			// IChatClient seam; a per-test override (ARC-022 bound checks) must
-			// replace that single descriptor exactly like the mail fake.
-			services.RemoveAll<IChatClient>();
-			if (chatClientOverride is not null)
-				services.AddSingleton<IChatClient>(chatClientOverride);
-			else
-				services.AddSingleton<IChatClient, Archive.Backend.Chat.ScriptedChatClient>();
+			// The provider client is registered under the gateway's service key
+			// (ARC-022-3); a per-test override replaces exactly that descriptor,
+			// so it always sits below the budget middleware.
+			// ARC-022-3: the production ledger store is PostgreSQL SQL; on the
+			// in-memory database its stand-in writes the same rows.
+			services.RemoveAll<Archive.Backend.Ai.IAiLedgerStore>();
+			services.AddSingleton<Archive.Backend.Ai.IAiLedgerStore>(sp =>
+				new InMemoryAiLedgerStore(sp.GetRequiredService<IServiceScopeFactory>()));
+			services.RemoveAllKeyed<IChatClient>(Archive.Backend.Ai.AiGateway.ProviderKey);
+			services.AddKeyedSingleton<IChatClient>(Archive.Backend.Ai.AiGateway.ProviderKey,
+				chatClientOverride ?? new Archive.Backend.Chat.ScriptedChatClient());
 			// Capturing provider so chat tests can assert maintainer warnings
 			// without touching log content beyond the searched phrase.
 			services.AddSingleton<ILoggerProvider>(Logs);

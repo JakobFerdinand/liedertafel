@@ -593,21 +593,8 @@ public sealed class ChatApiTests
 		// ARC-022-3: the service defaults export the agent run, its model
 		// calls and tool executions and the budget instruments; no question,
 		// answer or document text travels with them.
-		var received = new System.Collections.Concurrent.ConcurrentDictionary<string, string>();
-		var collectorBuilder = Microsoft.AspNetCore.Builder.WebApplication.CreateBuilder();
-		collectorBuilder.Logging.ClearProviders();
-		await using var collector = collectorBuilder.Build();
-		collector.Urls.Add("http://127.0.0.1:0");
-		Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapPost(collector, "/v1/{signal}",
-			async (Microsoft.AspNetCore.Http.HttpContext context, string signal) =>
-			{
-				using var body = new MemoryStream();
-				await context.Request.Body.CopyToAsync(body);
-				var text = System.Text.Encoding.UTF8.GetString(body.ToArray());
-				received.AddOrUpdate(signal, text, (_, earlier) => earlier + text);
-				context.Response.ContentType = "application/x-protobuf";
-			});
-		await collector.StartAsync();
+		var (collector, received) = await StartOtlpCollectorAsync();
+		await using var _ = collector;
 		await using var factory = new AuthApiFactory("Development", otlpEndpoint: collector.Urls.Single(),
 			settings: MergeSettings(null));
 		var ownerId = await SeedMemberAsync(factory, MemberA);
@@ -693,13 +680,20 @@ public sealed class ChatApiTests
 		Assert.Contains(provider.TextsSeen, t => t == "Die Waldfahrt");
 	}
 
-	[Fact]
-	public async Task ToolCapExceededEndsWithRunErrorAndNoAssistantMessage()
+	[Theory]
+	[InlineData(1)]
+	[InlineData(2)]
+	[InlineData(5)]
+	public async Task ToolCapExceededEndsWithRunErrorAndNoAssistantMessage(int maxModelCalls)
 	{
+		// The provider asks for a tool on every call that offers tools. The
+		// run may reach it exactly maxModelCalls times, never once more with
+		// the tools taken away, and ends in the German failure state.
+		var provider = new LoopingChatClient();
 		await using var factory = ChatFactory(settings: new Dictionary<string, string?>
 		{
-			["Archive:Chat:MaxToolCalls"] = "2",
-		}, chatClient: new LoopingChatClient());
+			["Archive:Chat:MaxToolCalls"] = maxModelCalls.ToString(System.Globalization.CultureInfo.InvariantCulture),
+		}, chatClient: provider);
 		await SeedMemberAsync(factory, MemberA);
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
@@ -709,14 +703,17 @@ public sealed class ChatApiTests
 		var parsed = ParseEvents(await events.Content.ReadAsStringAsync());
 
 		Assert.Equal(HttpStatusCode.OK, events.StatusCode);
+		Assert.Equal(maxModelCalls, provider.ProviderCalls);
 		Assert.Contains(parsed, IsRunErrorWithGermanFailureMessage);
 		Assert.DoesNotContain(parsed, e => e.GetProperty("type").GetString() == "RUN_FINISHED");
+		Assert.DoesNotContain(parsed, e => e.GetProperty("type").GetString() == "TEXT_MESSAGE_CONTENT");
 		using var scope = factory.Services.CreateScope();
 		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
 		var messages = await db.ChatMessages.Where(m => m.ThreadId == threadId).ToListAsync();
 		// The user turn persists; the aborted run never produces an answer.
 		var message = Assert.Single(messages);
 		Assert.Equal("user", message.Role);
+		Assert.Equal(maxModelCalls, Assert.Single(await db.AiUsageEntries.ToListAsync()).Calls);
 	}
 
 	[Fact]
@@ -760,12 +757,13 @@ public sealed class ChatApiTests
 	}
 
 	[Fact]
-	public async Task PersistenceFailureStaysVisibleAsRunErrorWithoutLedgerRow()
+	public async Task UnwritableLedgerEndsAsRunErrorBeforeTheProviderIsCalled()
 	{
-		// A broken database must never end as a fake success: the run emits the
-		// German failure state and nothing (turns, ledger) gets persisted.
+		// With every save failing the first thing to fail is the ledger
+		// reservation: the provider is not called and nothing is persisted.
 		var gate = new[] { false };
-		await using var factory = ChatFactory(saveChanges: new GatedFailSaveInterceptor(gate));
+		var provider = new UsageReportingChatClient();
+		await using var factory = ChatFactory(chatClient: provider, saveChanges: new GatedFailSaveInterceptor(gate));
 		await SeedMemberAsync(factory, MemberA);
 		await SeedSongsAsync(factory, Guid.NewGuid());
 		var session = await SignInAsync(factory, MemberA);
@@ -779,11 +777,115 @@ public sealed class ChatApiTests
 		Assert.Equal(HttpStatusCode.OK, events.StatusCode);
 		Assert.Contains(parsed, IsRunErrorWithGermanFailureMessage);
 		Assert.DoesNotContain(parsed, e => e.GetProperty("type").GetString() == "RUN_FINISHED");
+		Assert.Equal(0, provider.Calls);
 		using var scope = factory.Services.CreateScope();
 		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
 		Assert.Empty(await db.ChatMessages.ToListAsync());
 		Assert.Empty(await db.AiUsageEntries.ToListAsync());
 		Assert.Empty(await db.ChatThreads.ToListAsync());
+	}
+
+	[Fact]
+	public async Task HistorySaveFailureAfterAPaidAnswerStaysVisibleAndIsChargedOnce()
+	{
+		// The provider answered and was paid; then storing the turn fails. The
+		// member sees the failure state (never a fake success), the ledger
+		// keeps the real cost exactly once, and the failed save is not
+		// attempted a second time through the framework's failure path.
+		var save = new FailChatMessageSaveInterceptor();
+		var provider = new UsageReportingChatClient();
+		await using var factory = ChatFactory(chatClient: provider, saveChanges: save);
+		var ownerId = await SeedMemberAsync(factory, MemberA);
+		await SeedSongsAsync(factory, ownerId);
+		var session = await SignInAsync(factory, MemberA);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+
+		var events = await RunChatAsync(client, session, Guid.NewGuid().ToString(), "Die Waldfahrt");
+		var parsed = ParseEvents(await events.Content.ReadAsStringAsync());
+
+		Assert.Contains(parsed, IsRunErrorWithGermanFailureMessage);
+		Assert.DoesNotContain(parsed, e => e.GetProperty("type").GetString() == "RUN_FINISHED");
+		Assert.Equal(2, provider.Calls);
+		Assert.Equal(1, save.Attempts);
+		using var scope = factory.Services.CreateScope();
+		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+		Assert.Empty(await db.ChatMessages.ToListAsync());
+		var entry = Assert.Single(await db.AiUsageEntries.ToListAsync());
+		Assert.Equal((2, 300L, 30L, 398L, 0L),
+			(entry.Calls, entry.InputTokens, entry.OutputTokens, entry.CostMicroEur, entry.ReservedMicroEur));
+	}
+
+	[Fact]
+	public async Task ProviderFailureExportsOnlyTheExceptionType()
+	{
+		// Provider messages may carry content or credentials: spans, metrics
+		// and logs name the exception type and nothing of its message.
+		const string secret = "geheime-provider-meldung-4711";
+		var (collector, received) = await StartOtlpCollectorAsync();
+		await using var _ = collector;
+		await using var factory = new AuthApiFactory("Development", otlpEndpoint: collector.Urls.Single(),
+			settings: MergeSettings(null), chatClient: new ThrowingChatClient(new InvalidOperationException(secret)));
+		await SeedMemberAsync(factory, MemberA);
+		var session = await SignInAsync(factory, MemberA);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+
+		var events = await RunChatAsync(client, session, Guid.NewGuid().ToString(), "Die Waldfahrt");
+		var body = await events.Content.ReadAsStringAsync();
+		Assert.Contains(ParseEvents(body), IsRunErrorWithGermanFailureMessage);
+		Assert.DoesNotContain(secret, body);
+
+		var deadline = DateTime.UtcNow.AddSeconds(90);
+		while (DateTime.UtcNow < deadline
+			&& !(received.GetValueOrDefault("traces", "").Contains("invoke_agent")
+				&& received.GetValueOrDefault("traces", "").Contains("InvalidOperationException")
+				&& received.GetValueOrDefault("logs", "").Contains("Lauf konnte nicht abgeschlossen werden")))
+			await Task.Delay(200);
+		// One more export interval so late batches are in.
+		await Task.Delay(2500);
+		Assert.Contains("InvalidOperationException", received.GetValueOrDefault("traces", ""));
+		Assert.Contains("invoke_agent", received.GetValueOrDefault("traces", ""));
+		foreach (var (name, payload) in received)
+		{
+			var at = payload.IndexOf(secret, StringComparison.Ordinal);
+			Assert.True(at < 0, at < 0 ? "" : $"{name} exports the provider message near: {System.Text.RegularExpressions.Regex.Replace(payload[Math.Max(0, at - 700)..at], @"[^\x20-\x7E]+", " ")}");
+		}
+	}
+
+	[Fact]
+	public async Task OnlyTheBudgetedClientIsResolvableAsChatClient()
+	{
+		// ARC-022-3: whoever injects IChatClient gets the gateway's budgeted
+		// pipeline; the raw provider has no plain registration to inject.
+		await using var factory = ChatFactory();
+		var services = factory.Services;
+
+		var clients = services.GetServices<IChatClient>().ToList();
+		Assert.NotEmpty(clients);
+		Assert.All(clients, c => Assert.NotNull(c.GetService(typeof(BudgetedChatClient))));
+		Assert.Same(services.GetRequiredService<AiGateway>().ChatClient, services.GetRequiredService<IChatClient>());
+		Assert.Null(services.GetService<ScriptedChatClient>());
+		Assert.Null(services.GetService<Microsoft.Extensions.AI.IEmbeddingGenerator<string, Microsoft.Extensions.AI.Embedding<float>>>());
+	}
+
+	private static async Task<(Microsoft.AspNetCore.Builder.WebApplication Collector,
+		System.Collections.Concurrent.ConcurrentDictionary<string, string> Received)> StartOtlpCollectorAsync()
+	{
+		var received = new System.Collections.Concurrent.ConcurrentDictionary<string, string>();
+		var collectorBuilder = Microsoft.AspNetCore.Builder.WebApplication.CreateBuilder();
+		collectorBuilder.Logging.ClearProviders();
+		var collector = collectorBuilder.Build();
+		collector.Urls.Add("http://127.0.0.1:0");
+		Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapPost(collector, "/v1/{signal}",
+			async (Microsoft.AspNetCore.Http.HttpContext context, string signal) =>
+			{
+				using var body = new MemoryStream();
+				await context.Request.Body.CopyToAsync(body);
+				var text = System.Text.Encoding.UTF8.GetString(body.ToArray());
+				received.AddOrUpdate(signal, text, (_, earlier) => earlier + text);
+				context.Response.ContentType = "application/x-protobuf";
+			});
+		await collector.StartAsync();
+		return (collector, received);
 	}
 
 	private static bool IsRunErrorWithGermanFailureMessage(JsonElement @event)
@@ -1096,6 +1198,10 @@ internal sealed class LoopingChatClient : IChatClient
 	public int IterationDelayMs { get; init; }
 
 	private int calls;
+	private int providerCalls;
+
+	/// <summary>Model calls that reached this provider.</summary>
+	public int ProviderCalls => providerCalls;
 
 	public async Task<ChatResponse> GetResponseAsync(
 		IEnumerable<AiChatMessage> messages, AiChatOptions? options = null, CancellationToken cancellationToken = default)
@@ -1110,8 +1216,15 @@ internal sealed class LoopingChatClient : IChatClient
 		IEnumerable<AiChatMessage> messages, AiChatOptions? options = null,
 		[System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
 	{
+		Interlocked.Increment(ref providerCalls);
 		if (IterationDelayMs > 0)
 			await Task.Delay(IterationDelayMs, cancellationToken);
+		// Like a real provider: without offered tools there is nothing to call.
+		if (!NeverYields && options?.Tools is not { Count: > 0 })
+		{
+			yield return new ChatResponseUpdate(ChatRole.Assistant, "Ohne Werkzeug kann ich nichts nachschlagen.");
+			yield break;
+		}
 		if (NeverYields)
 		{
 			// The bound machinery (no-token or overall) must abort this run.
@@ -1129,6 +1242,48 @@ internal sealed class LoopingChatClient : IChatClient
 
 	public void Dispose()
 	{
+	}
+}
+
+/// <summary>Provider stand-in that fails every call with the given exception.</summary>
+internal sealed class ThrowingChatClient(Exception failure) : IChatClient
+{
+	public Task<ChatResponse> GetResponseAsync(IEnumerable<AiChatMessage> messages, AiChatOptions? options = null,
+		CancellationToken cancellationToken = default) => throw failure;
+
+	public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+		IEnumerable<AiChatMessage> messages, AiChatOptions? options = null,
+		[System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+	{
+		await Task.Yield();
+		if (failure is not null)
+			throw failure;
+		yield break;
+	}
+
+	public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+	public void Dispose()
+	{
+	}
+}
+
+/// <summary>Fails exactly the saves that add a chat message and counts them.</summary>
+internal sealed class FailChatMessageSaveInterceptor : SaveChangesInterceptor
+{
+	private int attempts;
+
+	public int Attempts => attempts;
+
+	public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+		DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
+	{
+		if (eventData.Context!.ChangeTracker.Entries<Archive.Backend.Chat.ChatMessage>().Any(e => e.State == EntityState.Added))
+		{
+			Interlocked.Increment(ref attempts);
+			throw new InvalidOperationException("Test: Verlauf konnte nicht gespeichert werden.");
+		}
+		return ValueTask.FromResult(result);
 	}
 }
 

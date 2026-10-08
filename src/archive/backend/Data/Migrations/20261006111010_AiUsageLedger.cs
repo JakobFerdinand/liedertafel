@@ -93,8 +93,7 @@ namespace Archive.Backend.Data.Migrations
                 name: "ai_budget_months",
                 columns: table => new
                 {
-                    YearMonth = table.Column<string>(type: "character varying(7)", maxLength: 7, nullable: false),
-                    Version = table.Column<long>(type: "bigint", nullable: false)
+                    YearMonth = table.Column<string>(type: "character varying(7)", maxLength: 7, nullable: false)
                 },
                 constraints: table =>
                 {

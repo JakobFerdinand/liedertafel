@@ -66,17 +66,16 @@ public sealed class BudgetedChatClientTests
 		var sent = Assert.Single(provider.OptionsSeen);
 		Assert.Equal(700, sent!.MaxOutputTokens);
 		// The marker stays inside the application.
-		Assert.Null(AiOperation.From(sent));
 		Assert.Null(sent.AdditionalProperties);
 		// The caller's options are not modified.
 		Assert.Equal(50_000, options.MaxOutputTokens);
 	}
 
 	[Fact]
-	public async Task CallThatFailsMidwayIsStillCharged()
+	public async Task CallThatFailsMidwayIsSettledAtItsFullReservation()
 	{
-		// 30 characters arrived before the failure and no usage report: the
-		// call is charged its input estimate and 10 output tokens (3 chars each).
+		// Text arrived, then the connection broke and no usage was reported.
+		// What the provider billed is unknown, so the reservation is the cost.
 		var provider = new StubProvider
 		{
 			Updates = [new ChatResponseUpdate(ChatRole.Assistant, new string('x', 30))],
@@ -86,13 +85,11 @@ public sealed class BudgetedChatClientTests
 
 		await Assert.ThrowsAsync<HttpRequestException>(() => DrainAsync(Client(provider, budget), Options()));
 
-		var settled = Assert.Single(budget.Settled);
-		Assert.Equal(Assert.Single(budget.Reserved).EstimatedInputTokens, settled.InputTokens);
-		Assert.Equal(10, settled.OutputTokens);
+		Assert.Same(AiUsage.Unreported, Assert.Single(budget.Settled));
 	}
 
 	[Fact]
-	public async Task AbandonedStreamIsStillCharged()
+	public async Task AbandonedStreamIsSettledAtItsFullReservation()
 	{
 		// A disconnected client stops reading after the first update.
 		var provider = new StubProvider
@@ -109,7 +106,7 @@ public sealed class BudgetedChatClientTests
 		await foreach (var _ in client.GetStreamingResponseAsync([new AiChatMessage(ChatRole.User, "Frage")], Options()))
 			break;
 
-		Assert.Equal(1, Assert.Single(budget.Settled).OutputTokens);
+		Assert.Same(AiUsage.Unreported, Assert.Single(budget.Settled));
 	}
 
 	[Fact]
@@ -121,7 +118,116 @@ public sealed class BudgetedChatClientTests
 
 		await Assert.ThrowsAnyAsync<OperationCanceledException>(() => DrainAsync(Client(provider, budget), Options(), cancel.Token));
 
-		Assert.Single(budget.Settled);
+		Assert.Same(AiUsage.Unreported, Assert.Single(budget.Settled));
+	}
+
+	[Fact]
+	public async Task ForeignModelIdIsRefusedAndTheOwnModelIsNeverLeftToTheCaller()
+	{
+		// The client is bound to one deployment. A caller naming another model
+		// could otherwise be priced as that model while this one runs.
+		var provider = new StubProvider();
+		var budget = new RecordingBudget();
+		var client = Client(provider, budget);
+		var foreign = Options();
+		foreign.ModelId = "billiges-modell";
+
+		await Assert.ThrowsAsync<AiBudgetUnavailableException>(() => DrainAsync(client, foreign));
+		Assert.Equal(0, provider.Calls);
+		Assert.Empty(budget.Reserved);
+
+		var own = Options();
+		own.ModelId = "STUB-model";
+		await DrainAsync(client, own);
+		Assert.Equal("stub-model", Assert.Single(budget.Reserved).Model);
+		// The provider client decides the model; no id is passed down.
+		Assert.Null(Assert.Single(provider.OptionsSeen)!.ModelId);
+	}
+
+	[Fact]
+	public async Task AFeatureCanLowerItsOutputBoundButNeverRaiseItAboveTheCeiling()
+	{
+		foreach (var (asked, expected) in new[] { (300, 300), (9000, 700) })
+		{
+			var provider = new StubProvider();
+			var budget = new RecordingBudget();
+			var options = new AiChatOptions();
+			(AiOperation.Start("scan", null) with { MaxOutputTokens = asked }).AttachTo(options);
+
+			await DrainAsync(Client(provider, budget, maxOutput: 700), options);
+
+			Assert.Equal(expected, Assert.Single(budget.Reserved).MaxOutputTokens);
+			Assert.Equal(expected, Assert.Single(provider.OptionsSeen)!.MaxOutputTokens);
+		}
+	}
+
+	[Fact]
+	public async Task NonTextInputNeedsTheFeaturesOwnEstimate()
+	{
+		AiChatMessage[] withImage =
+		[
+			new(ChatRole.User, [new TextContent("abc"), new DataContent(new byte[] { 1, 2, 3 }, "image/png")]),
+		];
+		var provider = new StubProvider();
+		var budget = new RecordingBudget();
+		var client = Client(provider, budget);
+
+		// Without an estimate nothing bounds the cost of the image: refused.
+		await Assert.ThrowsAsync<AiBudgetUnavailableException>(async () =>
+		{
+			await foreach (var _ in client.GetStreamingResponseAsync(withImage, Options()))
+			{
+			}
+		});
+		Assert.Equal(0, provider.Calls);
+
+		// "abc" is one token and the message overhead eight; the image adds the stated 5 000.
+		var estimated = new AiChatOptions();
+		(AiOperation.Start("scan", null) with { NonTextInputTokens = 5000 }).AttachTo(estimated);
+		await foreach (var _ in client.GetStreamingResponseAsync(withImage, estimated))
+		{
+		}
+		Assert.Equal(5009, Assert.Single(budget.Reserved).EstimatedInputTokens);
+	}
+
+	[Fact]
+	public async Task EmbeddingsPassTheSameBudget()
+	{
+		var provider = new StubEmbeddings();
+		var generator = new BudgetedEmbeddingGenerator(provider, new RecordingBudget { Refuse = new AiBudgetExceededException("2026-10") }, "embed-model");
+		var options = new EmbeddingGenerationOptions();
+		AiOperation.Start("search", null).AttachTo(options);
+
+		await Assert.ThrowsAsync<AiBudgetExceededException>(() => generator.GenerateAsync(["abcdef"], options));
+		await Assert.ThrowsAsync<AiBudgetUnavailableException>(() => generator.GenerateAsync(["abcdef"], new EmbeddingGenerationOptions()));
+		Assert.Equal(0, provider.Calls);
+
+		var budget = new RecordingBudget();
+		await new BudgetedEmbeddingGenerator(provider, budget, "embed-model").GenerateAsync(["abcdef"], options);
+		var call = Assert.Single(budget.Reserved);
+		Assert.Equal(("search", "embed-model", 2L, 0), (call.Feature, call.Model, call.EstimatedInputTokens, call.MaxOutputTokens));
+		Assert.Equal(new AiUsage(7, 0), Assert.Single(budget.Settled));
+	}
+
+	private sealed class StubEmbeddings : IEmbeddingGenerator<string, Embedding<float>>
+	{
+		public int Calls { get; private set; }
+
+		public Task<GeneratedEmbeddings<Embedding<float>>> GenerateAsync(IEnumerable<string> values,
+			EmbeddingGenerationOptions? options = null, CancellationToken cancellationToken = default)
+		{
+			Calls++;
+			return Task.FromResult(new GeneratedEmbeddings<Embedding<float>>([new Embedding<float>(new float[] { 1f })])
+			{
+				Usage = new UsageDetails { InputTokenCount = 7 },
+			});
+		}
+
+		public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+		public void Dispose()
+		{
+		}
 	}
 
 	[Fact]
@@ -144,9 +250,11 @@ public sealed class BudgetedChatClientTests
 	public void OnlyTheGatewayTakesTheRawProviderClient()
 	{
 		var offenders = typeof(AiGateway).Assembly.GetTypes()
-			.Where(t => t != typeof(AiGateway) && t != typeof(BudgetedChatClient) && !typeof(IChatClient).IsAssignableFrom(t))
+			.Where(t => t != typeof(AiGateway) && !typeof(IChatClient).IsAssignableFrom(t)
+				&& !typeof(IEmbeddingGenerator<string, Embedding<float>>).IsAssignableFrom(t))
 			.Where(t => t.GetConstructors(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
-				.Any(c => c.GetParameters().Any(p => p.ParameterType == typeof(IChatClient))))
+				.Any(c => c.GetParameters().Any(p => p.ParameterType == typeof(IChatClient)
+					|| p.ParameterType == typeof(IEmbeddingGenerator<string, Embedding<float>>))))
 			.Select(t => t.FullName)
 			.ToList();
 		Assert.Empty(offenders);
@@ -192,7 +300,7 @@ public sealed class BudgetedChatClientTests
 			if (Refuse is not null)
 				throw Refuse;
 			Reserved.Add(call);
-			return Task.FromResult(new AiReservation(Guid.NewGuid(), "2026-10", call.Feature, call.Model, 1));
+			return Task.FromResult(new AiReservation(Guid.NewGuid(), "2026-10", call.Feature, call.Model, 1, call.EstimatedInputTokens, call.MaxOutputTokens));
 		}
 
 		public Task SettleAsync(AiReservation reservation, AiUsage usage)
@@ -200,6 +308,8 @@ public sealed class BudgetedChatClientTests
 			Settled.Add(usage);
 			return Task.CompletedTask;
 		}
+
+		public Task<bool> WouldAdmitAsync(AiCall call, CancellationToken cancellationToken) => throw new NotSupportedException();
 
 		public Task<AiBudgetStatus> GetStatusAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
 	}

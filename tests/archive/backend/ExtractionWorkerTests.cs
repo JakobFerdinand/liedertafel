@@ -1146,6 +1146,15 @@ public sealed class ExtractionWorkerTests
 			DbOptions = new DbContextOptionsBuilder<ArchiveDbContext>()
 				.UseInMemoryDatabase($"extraction-worker-{Guid.NewGuid():N}", new InMemoryDatabaseRoot())
 				.ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning))
+				// EF shares one cached model between in-memory contexts with the
+				// same options, so every context must build the same model as the
+				// application: Identity schema version 3 (passkey tables). Without
+				// this, a WorkerHost that builds the model first breaks passkey
+				// endpoints in unrelated test hosts.
+				.UseApplicationServiceProvider(new ServiceCollection()
+					.Configure<Microsoft.AspNetCore.Identity.IdentityOptions>(o =>
+						o.Stores.SchemaVersion = Microsoft.AspNetCore.Identity.IdentitySchemaVersions.Version3)
+					.BuildServiceProvider())
 				.Options;
 			Db = new ArchiveDbContext(DbOptions);
 			Storage = new WrapperStorage();
