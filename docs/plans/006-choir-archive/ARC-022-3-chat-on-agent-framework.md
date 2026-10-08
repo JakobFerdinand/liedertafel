@@ -237,4 +237,45 @@ exception and the operator steps are recorded next to the rule and in
 
 ## Verification — 2026-10-06
 
-Recorded with the follow-up commit below.
+- `dotnet build src/archive/Archive.slnx`: 0 errors, 0 warnings.
+- `dotnet test tests/archive/backend`: **578 passed, 0 failed** on the
+  committed code (545 before this slice). The PostgreSQL-only and live cases
+  return early with their "skipped" line when unconfigured.
+- A flake surfaced while verifying and is fixed: in several full runs two
+  `PasskeyApiTests` answered 500. `ExtractionWorkerTests.WorkerHost` built an
+  in-memory context without the Identity schema version; EF shares one cached
+  model between in-memory contexts with equal options, so when that context
+  built the model first the passkey tables were missing in other test hosts.
+  The worker host now supplies the same Identity options. The cause was
+  derived from the code (both failing tests are the ones that read passkeys),
+  not captured from a failing run; after the fix the full suite passed.
+- Seen failing first in the follow-up: on `postgres:17.6` against the first
+  implementation the contention test gave **114 of 320 refused, 18
+  settlements lost, 16 200 micro-EUR stranded**; the zero-price,
+  unreported-usage and broken-store ledger tests; the tool bound for 1, 2 and
+  5 calls; the foreign `ModelId`; the container resolution test; the
+  exception-message export (logs and, with the processor removed, traces).
+  The two history-failure tests (N6) passed against the existing code.
+- Ledger on real PostgreSQL (`postgres:17.6`, every test on its own migrated
+  database, production store), 12 of 12 passed in four consecutive runs:
+  contention 32 workers × 10 rounds of reserve → 0–30 ms → settle:
+  **0 refused, 320 rows, 0 settlements lost, reserved 0, cost 28 800
+  micro-EUR (exact)** in about 7 s; cap race 24 callers on a 5 000 micro-EUR
+  cap: **5 admitted, 19 refused at the cap**, second replica refused; two
+  replicas opening a month: 8 of 8 admitted, one month row; settlement after
+  the month rolled over charged October, November stayed empty.
+- Migration (amended, unpushed) on the same server with two pre-existing
+  `chat_usage_entries` rows: up (months `2026-10` / `2026-09` in Vienna time,
+  10 000 / 20 000 micro-EUR, `ai_budget_months` with one column), down (the
+  original rows), up again. `dotnet ef migrations has-pending-model-changes`:
+  no changes.
+- `dotnet test tests/archive/apphost --filter "FullyQualifiedName~WalkingSkeleton"`:
+  **5 passed**. The member chat run there now also asserts the ledger on
+  PostgreSQL after all migrations through `GET /api/dev/ai-budget`: one new
+  row, two calls, cost above zero, nothing reserved, spend equal to cost, one
+  month row, cap 15 000 000 micro-EUR.
+- Frontend: unchanged in the follow-up. From the first commit:
+  `corepack pnpm run check` clean, `corepack pnpm run build` exports
+  statically, `chat.spec.ts` with `--workers=1` 46 passed.
+- The container image was not built on this machine; a Release
+  `dotnet publish` of the backend succeeded with the first commit.

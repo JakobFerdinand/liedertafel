@@ -399,7 +399,10 @@ public sealed class ChatEvaluationTests(ITestOutputHelper output)
 			liveSettings[$"Archive:Ai:Models:{deployment.Trim()}:InputPricePerMillionEur"] = inputPrice;
 			liveSettings[$"Archive:Ai:Models:{deployment.Trim()}:OutputPricePerMillionEur"] = outputPrice;
 		}
-		await using var factory = EvaluationFactory(liveChatClient, liveSettings);
+		// Test-only observer below the gateway: what each provider call was
+		// sent and what came back (never content).
+		var observed = new ObservingChatClient(liveChatClient);
+		await using var factory = EvaluationFactory(observed, liveSettings);
 		await SeedCorpusAsync(factory);
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
@@ -412,8 +415,11 @@ public sealed class ChatEvaluationTests(ITestOutputHelper output)
 		foreach (var testCase in Cases().Select(caseRow => (EvaluationCase)caseRow[0]))
 		{
 			var threadId = Guid.NewGuid();
+			var callsBefore = observed.Calls.Count;
+			var clock = System.Diagnostics.Stopwatch.StartNew();
 			using var events = await RunChatAsync(client, session, threadId.ToString(), testCase.Question);
 			var body = await events.Content.ReadAsStringAsync();
+			clock.Stop();
 			var parsed = ParseEvents(body);
 			var text = string.Join("", CollectTextDeltas(body));
 			var citations = CollectLiveCitations(parsed);
@@ -505,7 +511,63 @@ public sealed class ChatEvaluationTests(ITestOutputHelper output)
 				var result = flags.Count == 0 ? "live-passed" : $"live-flag:{string.Join("|", flags)}";
 				output.WriteLine(entry is null
 					? $"EVAL {testCase.Question} → no ledger row (run aborted before usage), citations: {citations.Count}, result: live-flag:no-ledger-row|{result}-{testCase.Category}"
-					: $"EVAL {testCase.Question} → {entry.CostMicroEur / 10000m:0.####} EUR-Cent (in {entry.InputTokens}/out {entry.OutputTokens} tokens), citations: {citations.Count}, result: {result}-{testCase.Category}");
+					: $"EVAL {testCase.Question} → {entry.CostMicroEur / 10000m:0.####} EUR-Cent (in {entry.InputTokens}/out {entry.OutputTokens} tokens, reserved left {entry.ReservedMicroEur}), provider calls: {observed.Calls.Count - callsBefore}, {clock.ElapsedMilliseconds} ms, citations: {citations.Count}, result: {result}-{testCase.Category}");
+			}
+			// ARC-022 bound: at most five model calls per run (one more only
+			// when the run's first call was repeated).
+			Assert.True(observed.Calls.Count - callsBefore <= 6, "A run exceeded its model-call bound.");
+		}
+
+		var calls = observed.Calls.ToList();
+		output.WriteLine($"EVAL summary: {calls.Count} provider calls; usage reported on {calls.Count(c => c.UsageReported)}; "
+			+ $"without tools offered: {calls.Count(c => c.ToolsOffered == 0)}; ModelId sent by the gateway: {string.Join(",", calls.Select(c => c.ModelIdSent ?? "none").Distinct())}; "
+			+ $"response models: {string.Join(",", calls.Select(c => c.ResponseModel ?? "none").Distinct())}; max output bound sent: {calls.Max(c => c.MaxOutputTokens)}.");
+		using (var scope = factory.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			var rows = await db.AiUsageEntries.ToListAsync();
+			output.WriteLine($"EVAL ledger: {rows.Count} rows, {rows.Sum(r => r.Calls)} calls, {rows.Sum(r => r.InputTokens)} in / {rows.Sum(r => r.OutputTokens)} out tokens, "
+				+ $"{rows.Sum(r => r.CostMicroEur) / 1_000_000m:0.######} EUR settled, {rows.Sum(r => r.ReservedMicroEur)} micro-EUR still reserved, max calls per run {rows.Max(r => r.Calls)}.");
+		}
+
+		// One direct provider call, outside the gateway, to learn whether the
+		// deployment honours ChatOptions.ModelId (the gateway never sends one).
+		try
+		{
+			var probe = await liveChatClient.GetResponseAsync(
+				[new Microsoft.Extensions.AI.ChatMessage(ChatRole.User, "Antworte nur mit OK.")],
+				new Microsoft.Extensions.AI.ChatOptions { ModelId = "modell-das-es-nicht-gibt", MaxOutputTokens = 16 });
+			output.WriteLine($"EVAL ModelId probe: a foreign ModelId was answered by model '{probe.ModelId}' (usage in {probe.Usage?.InputTokenCount}/out {probe.Usage?.OutputTokenCount}).");
+		}
+		catch (Exception ex)
+		{
+			output.WriteLine($"EVAL ModelId probe: a foreign ModelId was rejected by the provider ({ex.GetType().Name}).");
+		}
+	}
+
+	/// <summary>Records metadata of every provider call of the live evaluation.</summary>
+	private sealed class ObservingChatClient(IChatClient inner) : DelegatingChatClient(inner)
+	{
+		public System.Collections.Concurrent.ConcurrentQueue<(bool UsageReported, int ToolsOffered, string? ModelIdSent, string? ResponseModel, int? MaxOutputTokens)> Calls { get; } = new();
+
+		public override async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+			IEnumerable<Microsoft.Extensions.AI.ChatMessage> messages, Microsoft.Extensions.AI.ChatOptions? options = null,
+			[System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+		{
+			var usage = false;
+			string? model = null;
+			try
+			{
+				await foreach (var update in base.GetStreamingResponseAsync(messages, options, cancellationToken))
+				{
+					usage |= update.Contents.Any(c => c is UsageContent);
+					model ??= update.ModelId;
+					yield return update;
+				}
+			}
+			finally
+			{
+				Calls.Enqueue((usage, options?.Tools?.Count ?? 0, options?.ModelId, model, options?.MaxOutputTokens));
 			}
 		}
 	}
