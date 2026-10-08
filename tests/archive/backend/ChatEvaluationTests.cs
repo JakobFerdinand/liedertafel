@@ -412,8 +412,13 @@ public sealed class ChatEvaluationTests(ITestOutputHelper output)
 
 		var versionSuffix = string.IsNullOrWhiteSpace(modelVersion) ? string.Empty : $" ({modelVersion})";
 		output.WriteLine($"EVAL live rerun start: pinned deployment {deployment}{versionSuffix}.");
+		var hardFailures = new List<string>();
 		foreach (var testCase in Cases().Select(caseRow => (EvaluationCase)caseRow[0]))
 		{
+			var lastAnswer = string.Empty;
+			var lastBody = string.Empty;
+			try
+			{
 			var threadId = Guid.NewGuid();
 			var callsBefore = observed.Calls.Count;
 			var clock = System.Diagnostics.Stopwatch.StartNew();
@@ -422,6 +427,8 @@ public sealed class ChatEvaluationTests(ITestOutputHelper output)
 			clock.Stop();
 			var parsed = ParseEvents(body);
 			var text = string.Join("", CollectTextDeltas(body));
+			lastAnswer = text;
+			lastBody = body;
 			var citations = CollectLiveCitations(parsed);
 			var finished = events.StatusCode == HttpStatusCode.OK
 				&& parsed.Any(e => e.GetProperty("type").GetString() == "RUN_FINISHED");
@@ -516,6 +523,15 @@ public sealed class ChatEvaluationTests(ITestOutputHelper output)
 			// ARC-022 bound: at most five model calls per run (one more only
 			// when the run's first call was repeated).
 			Assert.True(observed.Calls.Count - callsBefore <= 6, "A run exceeded its model-call bound.");
+			}
+			catch (Xunit.Sdk.XunitException failure)
+			{
+				// One paid run must yield the whole picture: record the hard
+				// failure with the answer (synthetic corpus only) and go on.
+				hardFailures.Add(testCase.Question);
+				var eventTypes = string.Join(",", ParseEvents(lastBody).Select(e => e.GetProperty("type").GetString()).Distinct());
+				output.WriteLine($"EVAL {testCase.Question} → HARD FAILURE-{testCase.Category}: {failure.Message.ReplaceLineEndings(" ")} | events: {eventTypes} | answer: {lastAnswer.ReplaceLineEndings(" ")}");
+			}
 		}
 
 		var calls = observed.Calls.ToList();
@@ -543,6 +559,7 @@ public sealed class ChatEvaluationTests(ITestOutputHelper output)
 		{
 			output.WriteLine($"EVAL ModelId probe: a foreign ModelId was rejected by the provider ({ex.GetType().Name}).");
 		}
+		Assert.True(hardFailures.Count == 0, $"Hard evaluation gates failed for: {string.Join("; ", hardFailures)}");
 	}
 
 	/// <summary>Records metadata of every provider call of the live evaluation.</summary>

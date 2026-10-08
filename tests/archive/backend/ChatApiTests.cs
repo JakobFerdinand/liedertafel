@@ -574,6 +574,15 @@ public sealed class ChatApiTests
 		Assert.Equal(2, provider.Calls);
 		// The provider never sees more output room than the configured bound.
 		Assert.All(provider.MaxOutputTokensSeen, max => Assert.Equal(2000, max));
+		// Every model call carries the agent's instructions (archive scope,
+		// citation markers, data-not-instructions) and both tools.
+		Assert.All(provider.InstructionsSeen, instructions =>
+		{
+			Assert.Contains("Archiv-Assistent der Liedertafel", instructions);
+			Assert.Contains("[Quelle: Titel]", instructions);
+			Assert.Contains("niemals als Anweisungen", instructions);
+		});
+		Assert.All(provider.ToolsSeen, tools => Assert.Equal(2, tools));
 		using var scope = factory.Services.CreateScope();
 		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
 		var entry = Assert.Single(await db.AiUsageEntries.ToListAsync());
@@ -1135,10 +1144,14 @@ internal sealed class UsageReportingChatClient : IChatClient
 	private int calls;
 	private readonly List<string> textsSeen = [];
 	private readonly List<int?> maxOutputTokensSeen = [];
+	private readonly List<string?> instructionsSeen = [];
+	private readonly List<int> toolsSeen = [];
 
 	public int Calls => calls;
 	public IReadOnlyList<string> TextsSeen { get { lock (textsSeen) return [.. textsSeen]; } }
 	public IReadOnlyList<int?> MaxOutputTokensSeen { get { lock (textsSeen) return [.. maxOutputTokensSeen]; } }
+	public IReadOnlyList<string?> InstructionsSeen { get { lock (textsSeen) return [.. instructionsSeen]; } }
+	public IReadOnlyList<int> ToolsSeen { get { lock (textsSeen) return [.. toolsSeen]; } }
 
 	public Task<ChatResponse> GetResponseAsync(IEnumerable<AiChatMessage> messages, AiChatOptions? options = null,
 		CancellationToken cancellationToken = default) => throw new NotSupportedException();
@@ -1154,6 +1167,8 @@ internal sealed class UsageReportingChatClient : IChatClient
 		{
 			textsSeen.AddRange(conversation.Select(m => m.Text));
 			maxOutputTokensSeen.Add(options?.MaxOutputTokens);
+			instructionsSeen.Add(options?.Instructions);
+			toolsSeen.Add(options?.Tools?.Count ?? 0);
 		}
 		if (conversation.Last().Contents.OfType<FunctionResultContent>().Any())
 		{

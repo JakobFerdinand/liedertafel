@@ -279,3 +279,62 @@ exception and the operator steps are recorded next to the rule and in
   statically, `chat.spec.ts` with `--workers=1` 46 passed.
 - The container image was not built on this machine; a Release
   `dotnet publish` of the backend succeeded with the first commit.
+
+## Live evaluation — 2026-10-08: not passed, status stays `in_progress`
+
+Run once on commit `6451efd` (the code that ships), keyless through the
+existing `az login`:
+
+```
+ARCHIVE_CHAT_ENDPOINT="https://aoai-liedertafel-archive.openai.azure.com/" \
+ARCHIVE_CHAT_DEPLOYMENT_NAME="gpt-5-4-mini" \
+ARCHIVE_CHAT_MODEL_VERSION="gpt-5.4-mini 2026-03-17" \
+dotnet test tests/archive/backend --no-build --filter "Category=ChatEvaluationLive" --logger "console;verbosity=detailed"
+```
+
+Deployment `gpt-5-4-mini` on `aoai-liedertafel-archive` (model `gpt-5.4-mini`,
+version `2026-03-17`, DataZoneStandard, capacity 30), read with
+`az cognitiveservices account show` and `… account deployment list`.
+
+**Result: failed at the first case after 22 s.** „welche lieder gibt es?"
+finished (`RUN_FINISHED`, `TOOL_CALL_START` present) but carried **no
+citations**, which is that case's hard gate (`Assert.NotEmpty(citations)`).
+The test then aborted at this assertion, so the other 13 cases did not run.
+The last recorded run (ARC-021 / ARC-022, 2026-09-23) passed 14 of 14 with 10
+authorized citations for this question.
+
+What the one run does show:
+
+- Azure reports token usage on streamed responses. Both model calls were
+  settled from reported usage (log `Verbrauch gemeldet: True`): 812 in / 20
+  out (0.000773 EUR) and 1 725 in / 263 out (0.002734 EUR), together 0.35
+  cent. The 2026-09-23 run recorded 1 570 in / 256 out for this question
+  under the old maximum-per-run rule and one rounded cent.
+- The run made two model calls, within the bound of five.
+- Whether the provider honours `ChatOptions.ModelId` was not determined: the
+  probe sits at the end of the test and was not reached. The gateway never
+  sends a `ModelId`.
+
+What is not known: why the citations are missing. Either the model wrote no
+`[Quelle: …]` markers this time, or the new pipeline lost them with the real
+provider. The answer text was not captured. Checked offline afterwards: the
+agent's instructions (including the citation rule) and both tools reach the
+provider on every call (now asserted in
+`MultiToolRunRecordsTheSummedUsageOfAllModelCalls`). The output length (263
+tokens, 256 in the passing run) suggests the markers were written and then
+removed by the citation filter or not turned into the citation event, which
+would be a defect in this slice with a real provider; that is a suspicion,
+not a finding.
+
+No second run was made (the run was not interrupted by anything
+environmental). The live test is changed so that the next single run settles
+it: it no longer aborts at the first hard failure, prints the answer and the
+event types of a failing case (synthetic corpus only), reports provider calls
+and latency per case, a summary (usage reported, response model, calls per
+run, ledger totals) and the `ModelId` probe, and fails at the end.
+
+**To close this ticket:** rerun the command above once, read the
+`HARD FAILURE` line of the first case, fix the pipeline if the answer shows
+markers were written (and add the offline regression), then compare all 14
+cases with the 2026-09-23 record. Until then the chat on this code must be
+treated as not evaluated against the live model.
