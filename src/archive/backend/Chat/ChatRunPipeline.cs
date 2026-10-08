@@ -120,7 +120,19 @@ internal sealed class ModelCallBoundsChatClient(
 		}
 		var firstCallOfRun = state.ModelCalls == 0;
 		state.ModelCalls++;
-		var list = messages as IReadOnlyList<AiChatMessage> ?? [.. messages];
+		// The agent stamps its name on the updates it yields, and the tool
+		// loop turns those updates into the next call's messages. The
+		// provider would receive it as a participant name on the assistant's
+		// tool-call message, which the ARC-022 request never had: the name
+		// belongs in telemetry, the conversation is sent as it was.
+		var list = messages.Select(m =>
+		{
+			if (m.AuthorName is null)
+				return m;
+			var copy = m.Clone();
+			copy.AuthorName = null;
+			return copy;
+		}).ToList();
 		CancellationTokenSource noToken;
 		IAsyncEnumerator<ChatResponseUpdate> updates;
 		bool hasUpdate;

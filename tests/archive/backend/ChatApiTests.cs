@@ -583,6 +583,10 @@ public sealed class ChatApiTests
 			Assert.Contains("niemals als Anweisungen", instructions);
 		});
 		Assert.All(provider.ToolsSeen, tools => Assert.Equal(2, tools));
+		// The provider gets the same conversation the ARC-022 loop sent:
+		// question, then question + tool call + tool result, and no message
+		// carries a participant name (the agent's name stays in telemetry).
+		Assert.Equal(["user", "user,assistant,tool"], provider.MessageShapesSeen);
 		using var scope = factory.Services.CreateScope();
 		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
 		var entry = Assert.Single(await db.AiUsageEntries.ToListAsync());
@@ -1146,12 +1150,16 @@ internal sealed class UsageReportingChatClient : IChatClient
 	private readonly List<int?> maxOutputTokensSeen = [];
 	private readonly List<string?> instructionsSeen = [];
 	private readonly List<int> toolsSeen = [];
+	private readonly List<string> messageShapesSeen = [];
 
 	public int Calls => calls;
 	public IReadOnlyList<string> TextsSeen { get { lock (textsSeen) return [.. textsSeen]; } }
 	public IReadOnlyList<int?> MaxOutputTokensSeen { get { lock (textsSeen) return [.. maxOutputTokensSeen]; } }
 	public IReadOnlyList<string?> InstructionsSeen { get { lock (textsSeen) return [.. instructionsSeen]; } }
 	public IReadOnlyList<int> ToolsSeen { get { lock (textsSeen) return [.. toolsSeen]; } }
+
+	/// <summary>Per call: every message as "role" or "role(name)" when it carries an author name.</summary>
+	public IReadOnlyList<string> MessageShapesSeen { get { lock (textsSeen) return [.. messageShapesSeen]; } }
 
 	public Task<ChatResponse> GetResponseAsync(IEnumerable<AiChatMessage> messages, AiChatOptions? options = null,
 		CancellationToken cancellationToken = default) => throw new NotSupportedException();
@@ -1169,6 +1177,8 @@ internal sealed class UsageReportingChatClient : IChatClient
 			maxOutputTokensSeen.Add(options?.MaxOutputTokens);
 			instructionsSeen.Add(options?.Instructions);
 			toolsSeen.Add(options?.Tools?.Count ?? 0);
+			messageShapesSeen.Add(string.Join(",", conversation.Select(m =>
+				m.AuthorName is null ? m.Role.Value : $"{m.Role.Value}({m.AuthorName})")));
 		}
 		if (conversation.Last().Contents.OfType<FunctionResultContent>().Any())
 		{
@@ -1309,6 +1319,13 @@ internal sealed class FailChatMessageSaveInterceptor : SaveChangesInterceptor
 internal sealed class CapturingLogProvider : ILoggerProvider
 {
 	private readonly List<(LogLevel Level, string Message)> entries = [];
+	private readonly List<string> failures = [];
+
+	/// <summary>Type and message of every logged exception, for diagnosing an unexpected 500 in a test.</summary>
+	public IReadOnlyList<string> Failures
+	{
+		get { lock (gate) return [.. failures]; }
+	}
 	private readonly object gate = new();
 
 	public IReadOnlyList<(LogLevel Level, string Message)> Entries
@@ -1322,9 +1339,14 @@ internal sealed class CapturingLogProvider : ILoggerProvider
 	{
 	}
 
-	private void Add(LogLevel level, string message)
+	private void Add(LogLevel level, string message, Exception? exception)
 	{
-		lock (gate) entries.Add((level, message));
+		lock (gate)
+		{
+			entries.Add((level, message));
+			if (exception is not null)
+				failures.Add($"{exception.GetType().Name}: {exception.Message}");
+		}
 	}
 
 	private sealed class CapturingLogger(CapturingLogProvider provider) : ILogger
@@ -1335,7 +1357,7 @@ internal sealed class CapturingLogProvider : ILoggerProvider
 
 		public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
 			Func<TState, Exception?, string> formatter)
-			=> provider.Add(logLevel, formatter(state, exception));
+			=> provider.Add(logLevel, formatter(state, exception), exception);
 	}
 }
 

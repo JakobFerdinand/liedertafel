@@ -108,7 +108,8 @@ public sealed class PasskeyApiTests
 		using var options = AuthedPost("/api/auth/passkeys/register/options", new { }, csrfCookie, token);
 		options.Headers.Add("Cookie", $"{csrfCookie}; {session}");
 		using var optionsResponse = await client.SendAsync(options);
-		Assert.Equal(HttpStatusCode.OK, optionsResponse.StatusCode);
+		Assert.True(HttpStatusCode.OK == optionsResponse.StatusCode,
+			$"{(int)optionsResponse.StatusCode}; logged exceptions: {string.Join(" | ", factory.Logs.Failures)}");
 		var body = await optionsResponse.Content.ReadFromJsonAsync<JsonElement>();
 		var creationOptions = body.GetProperty("creationOptions").GetString();
 		using var parsed = JsonDocument.Parse(creationOptions!);
@@ -131,7 +132,8 @@ public sealed class PasskeyApiTests
 
 		using var list = HeaderedGet("/api/auth/passkeys", session);
 		using var listResponse = await client.SendAsync(list);
-		Assert.Equal(HttpStatusCode.OK, listResponse.StatusCode);
+		Assert.True(HttpStatusCode.OK == listResponse.StatusCode,
+			$"{(int)listResponse.StatusCode}; logged exceptions: {string.Join(" | ", factory.Logs.Failures)}");
 		var listBody = await listResponse.Content.ReadFromJsonAsync<JsonElement>();
 		Assert.Empty(listBody.GetProperty("passkeys").EnumerateArray());
 

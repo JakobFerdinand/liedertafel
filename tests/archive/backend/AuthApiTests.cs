@@ -742,7 +742,12 @@ internal sealed class AuthApiFactory : WebApplicationFactory<Program>
 		{
 			// A live test collector: short export intervals so the test
 			// observes all three signals without waiting a minute.
+			// The default above (10 ms) only keeps hosts without a collector
+			// from waiting on a dead endpoint. With a live collector it drops
+			// any batch whose export takes longer under load, and a dropped
+			// log batch never comes again.
 			builder
+				.UseSetting("OTEL_EXPORTER_OTLP_TIMEOUT", "10000")
 				.UseSetting("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
 				.UseSetting("OTEL_BSP_SCHEDULE_DELAY", "500")
 				.UseSetting("OTEL_BLRP_SCHEDULE_DELAY", "500")
