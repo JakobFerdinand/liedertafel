@@ -1,6 +1,6 @@
 ---
 id: ARC-022-3
-status: in_progress
+status: done
 phase: core
 kind: enabler
 depends_on: ["ARC-022"]
@@ -434,3 +434,90 @@ further paid run that this round did not allow.
   builds the same EF model as the application. The exception itself was never
   captured, so the cause remains derived, not observed. Both tests now print
   the logged exceptions if a 500 ever returns.
+
+## Live evaluation, control and confirmation — 2026-10-09: 14 of 14, status `done`
+
+Same command, deployment (`gpt-5-4-mini`, model `gpt-5.4-mini`, version
+`2026-03-17`) and keyless `az login` as above. Two runs, as planned.
+
+**Run 4, control, on `0d4a767` (the code before this slice).** Checked out in
+a temporary git worktree; only the worktree's test file was changed so that
+the old live test reports every case and prints the answer instead of
+aborting at the first failure. Result: **13 of 14, the same failure.** „welche
+lieder gibt es?" finished with a tool call and 0 citations; the answer lists
+the same ten songs as bold titles („- **Abendglocken** — Anna Weber /
+Friedrich Rückert, 1918 …") without a single `[Quelle: …]` marker.
+
+**The regression therefore predates ARC-022-3.** It came in between the
+2026-09-23 run and `0d4a767`; the prompt and tool changes of `ea7ca98`
+(2026-10-03) are the only change under `backend/Chat` dated after 2026-09-23,
+but no run isolates them from model variance. The archive released from `d88c3d9` answers this
+question without citation chips today.
+
+**Fix.** `ArchiveChatService.SystemPrompt` now states the rule for listings in
+so many words: the catalogue bullet demands that every list line ends with
+the song's marker („- Titel (Komponist, Jahr) [Quelle: Titel]"), and the
+citation rule says that it also holds for lists and enumerations, that bold
+type does not replace the marker and that a song without a marker counts as
+not cited. The example uses the placeholder „Titel", not a real title. Before
+it, the prompt said „Liste die gelieferten Lieder mit ihren Quellen auf" and
+asked for markers on „Aussagen über einzelne Lieder", which the model did not
+read as covering a list. Offline regression, seen failing first:
+`ChatApiTests.InstructionsDemandAMarkerForEverySongOfAListing` asserts that
+the rule reaches the provider on every model call. It cannot assert the
+model's behaviour; that is what the live evaluation is for. The citation
+filter, the injection and the authorization tests are unchanged and green.
+
+**Run 5, confirmation, on the fixed code** (working tree on `f685d17`,
+committed afterwards without further changes to the backend):
+
+| Case | 2026-09-23 | Run 4 (`0d4a767`) | Run 5 (fixed) |
+| --- | --- | --- | --- |
+| welche lieder gibt es? (hard gate: cites songs) | 10 citations | **failed: finished, 0 citations** | **10 citations** |
+| Die Waldfahrt | cited | 1 citation | 1 citation |
+| Lob des Weines | cited | 1 citation | 1 citation |
+| Wanderers Nachtlied | cited | 0, flag `missing-citation-marker` | 1 citation |
+| Silcher | cites each of three records | passed, 0 citations | 3 citations |
+| Am Brunnen … 1913 | passed | 1 citation | 1 citation |
+| Frühlingsgruß 1921 1913 | passed, cited | 1 citation | 1 citation |
+| Wann wurde Lob des Weines gesungen? | passed, cited | 1 citation | 1 citation |
+| Gibt es ein Konzert mit Wanderers Nachtlied? | passed, cited | 1 citation | 1 citation |
+| Wie wird das Wetter morgen? | refusal | refusal | refusal, 1 call |
+| Kannst du ein Gedicht schreiben? | refusal | refusal | refusal, 1 call |
+| Geheime Generalprobe | flag `draft-title-echoed` | same flag | same flag |
+| Notizenprobe | flag `missing-citation-marker` | same flag | same flag |
+| Hoch auf dem gelben Wagen | honest unknown | honest unknown | honest unknown |
+
+Run 5 is at the level of the 2026-09-23 record in every case, including the
+two soft flags that record already carried. It is also the first run since
+then in which the composer question cites all three records. No hard
+invariant failed in either run: every citation named a published record, the
+draft id and the confidential marker never surfaced, no run ended in
+`RUN_ERROR`.
+
+- **Usage and cost, run 5.** 25 provider calls, usage reported on all 25,
+  nothing left reserved: 25 060 in / 1 258 out tokens, **0.0270 EUR**, 0.09–0.37
+  cent per answer, at most 2 calls per run, 0.5–1.3 s per answer and 7.7 s for
+  the catalogue listing. The longer prompt costs about 90 input tokens per
+  call (902 against 812 for a single-call answer).
+- **Usage, run 4.** The old code records the maximum of one run and one
+  rounded cent per answer: 808–1 142 input and 40–123 output tokens per
+  recorded row; the failing case wrote no EVAL usage line.
+- **`ModelId`.** As before: a foreign `ModelId` is answered by
+  `gpt-5.4-mini-2026-03-17`. In run 5 the streamed updates carried no model
+  id (the summary's „response models" is empty); the model is known from the
+  probe and the deployment.
+
+One run each is the evidence: the fix was confirmed once, not measured for
+variance. If the catalogue case ever fails again with this prompt, the next
+step is a deterministic one (deriving the chips of a listing from the tool
+result), not a further rewording.
+
+### Verification — 2026-10-09
+
+- `dotnet build src/archive/Archive.slnx`: 0 errors, 0 warnings.
+- `dotnet test tests/archive/backend`: **579 passed, 0 failed** (578 plus the new
+  instruction test); no flake.
+- The prompt change touches neither the wire format nor the frontend, so the
+  frontend checks were not rerun.
+
