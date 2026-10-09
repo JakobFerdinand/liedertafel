@@ -554,6 +554,34 @@ public sealed class ChatApiTests
 	}
 
 	[Fact]
+	public async Task InstructionsDemandAMarkerForEverySongOfAListing()
+	{
+		// Live evaluation 2026-10-09: the model listed the catalogue as bold
+		// titles without any [Quelle: …] marker, so the answer had no
+		// citations. The instructions must state the rule for listings in so
+		// many words; the general rule for "Aussagen über einzelne Lieder" was
+		// not read as covering a list.
+		var provider = new UsageReportingChatClient();
+		await using var factory = ChatFactory(chatClient: provider);
+		var ownerId = await SeedMemberAsync(factory, MemberA);
+		await SeedSongsAsync(factory, ownerId);
+		var session = await SignInAsync(factory, MemberA);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+
+		var events = await RunChatAsync(client, session, Guid.NewGuid().ToString(), "welche lieder gibt es?");
+		Assert.Contains("RUN_FINISHED", await events.Content.ReadAsStringAsync());
+
+		Assert.NotEmpty(provider.InstructionsSeen);
+		Assert.All(provider.InstructionsSeen, instructions =>
+		{
+			Assert.Contains("jede Listenzeile", instructions);
+			Assert.Contains("Fettdruck ersetzt den Marker nicht", instructions);
+			// The rule names no real title: an example title would be cited.
+			Assert.DoesNotContain("[Quelle: Die Waldfahrt]", instructions);
+		});
+	}
+
+	[Fact]
 	public async Task MultiToolRunRecordsTheSummedUsageOfAllModelCalls()
 	{
 		// Two model calls: the tool request (100 in / 10 out) and the answer
