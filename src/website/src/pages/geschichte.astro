@@ -70,7 +70,7 @@ if (historyGroupConfigs.length > 1) {
 
 const timelineEntries = await Promise.all(
 	historyEntries
-		.sort((first: (typeof historyEntries)[number], second: (typeof historyEntries)[number]) => second.data.date.localeCompare(first.data.date))
+		.sort((first: (typeof historyEntries)[number], second: (typeof historyEntries)[number]) => first.data.date.localeCompare(second.data.date))
 		.map(async (entry) => {
 			const { Content } = await render(entry);
 
@@ -110,7 +110,7 @@ if (timelineEntries.length > 0) {
 		return {
 			...group,
 			to,
-			rangeLabel: to ? `${rangeStart}-${to}` : `ab ${rangeStart}`,
+			rangeLabel: to ? `${rangeStart}–${to}` : `ab ${rangeStart}`,
 			entries: [],
 		};
 	});
@@ -123,8 +123,12 @@ if (timelineEntries.length > 0) {
 		targetGroup?.entries.push(entry);
 	});
 
-	visibleTimelineGroups.push(...timelineGroups.filter((group) => group.entries.length > 0).reverse());
+	visibleTimelineGroups.push(...timelineGroups.filter((group) => group.entries.length > 0));
 }
+
+const chapterNumerals = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
+
+let zigzagIndex = 0;
 ---
 
 <Layout>
@@ -132,64 +136,69 @@ if (timelineEntries.length > 0) {
 		<p class="history-hero__eyebrow">Vereinschronik</p>
 		<h1>Geschichte der Liedertafel Mining</h1>
 		<p>Stationen unseres Chors - von der Gründung bis heute.</p>
+		<div class="history-hero__rule" aria-hidden="true"></div>
 	</section>
 
-	<section class="timeline" aria-labelledby="timeline-heading">
-		<h2 class="timeline-heading" id="timeline-heading">Zeitleiste</h2>
+	<section class="zigzag" aria-labelledby="timeline-heading">
+		<h2 id="timeline-heading">Zeitleiste</h2>
 		{visibleTimelineGroups.length > 0 ? (
-			<ul class="timeline-list timeline-list--grouped">
-				{
-					visibleTimelineGroups.map((group) => (
-						<li class="timeline-group-item" aria-labelledby={`timeline-group-${group.from}`}>
-							<details class="timeline-group__details">
-								<summary class="timeline-group__header">
-									<h3 class="timeline-group__title" id={`timeline-group-${group.from}`}>{group.title}</h3>
-									<p class="timeline-group__range">{group.rangeLabel}</p>
-									<p class="timeline-group__count">
-										{group.entries.length} {group.entries.length === 1 ? "Eintrag" : "Einträge"}
-									</p>
-								</summary>
-								{group.message && (
-									<p class="timeline-group__message">{group.message}</p>
-								)}
-								<ul class="timeline-list timeline-group__entries">
-									{group.entries.map((entry) => (
-										<li class="timeline-item" id={entry.id}>
-											<details class="timeline-details" data-history-entry={entry.id} open={false}>
-												<summary>
-													<span class="timeline-date">{entry.formattedDate}</span>
-													<div class="timeline-header">
-														<h4>{entry.title}</h4>
-														{entry.subtitle && <p>{entry.subtitle}</p>}
+			visibleTimelineGroups.map((group, groupIndex) => (
+				<section class="era" aria-labelledby={`era-${group.from}`}>
+					<header class="era__banner">
+						<span class="era__chapter" aria-hidden="true">Kapitel {chapterNumerals[groupIndex] ?? ""}</span>
+						<p class="era__range">{group.rangeLabel}</p>
+						<h3 class="era__title" id={`era-${group.from}`}>{group.title}</h3>
+						<p class="era__count">
+							{group.entries.length} {group.entries.length === 1 ? "Eintrag" : "Einträge"}
+						</p>
+						{group.message && <p class="era__message">{group.message}</p>}
+					</header>
+					<ol class="era__entries">
+						{
+							group.entries.map((entry) => {
+								const side = zigzagIndex % 2 === 0 ? "left" : "right";
+								zigzagIndex += 1;
+
+								return (
+									<li class="entry" id={entry.id} data-side={side}>
+										<article class="entry__card">
+											<p class="entry__date">{entry.formattedDate}</p>
+											<h4 class="entry__title">{entry.title}</h4>
+											{entry.subtitle && <p class="entry__subtitle">{entry.subtitle}</p>}
+											{entry.image && (
+												<figure class="entry__figure">
+													<button
+														type="button"
+														class="entry-image-trigger"
+														data-image-src={entry.image.src}
+														data-image-alt={`Bild zu ${entry.title}`}
+														aria-label={`Bild zu ${entry.title} vergrößern`}
+													>
+														<Image src={entry.image} alt={`Bild zu ${entry.title}`} loading="lazy" />
+													</button>
+												</figure>
+											)}
+											{entry.hasContent && (
+												<details class="entry__details">
+													<summary>
+														<span class="entry__details-label">Mehr lesen</span>
+														<span class="entry__details-icon" aria-hidden="true"></span>
+													</summary>
+													<div class="entry__content">
+														<entry.Content />
 													</div>
-												</summary>
-												{(entry.image || entry.hasContent) && (
-													<div class="timeline-content">
-														{entry.image && (
-															<button
-																type="button"
-																class="timeline-image-trigger"
-																data-image-src={entry.image.src}
-																data-image-alt={`Bild zu ${entry.title}`}
-																aria-label={`Bild zu ${entry.title} vergrößern`}
-															>
-																<Image src={entry.image} alt={`Bild zu ${entry.title}`} loading="lazy" />
-															</button>
-														)}
-														{entry.hasContent && <entry.Content />}
-													</div>
-												)}
-											</details>
-										</li>
-									))}
-								</ul>
-							</details>
-						</li>
-					))
-				}
-			</ul>
+												</details>
+											)}
+										</article>
+									</li>
+								);
+							})
+						}
+					</ol>
+				</section>
+			))
 		) : (
-			<p class="timeline-empty">Noch keine Chronik-Einträge vorhanden.</p>
+			<p class="zigzag-empty">Noch keine Chronik-Einträge vorhanden.</p>
 		)}
 	</section>
 
@@ -217,65 +226,9 @@ if (timelineEntries.length > 0) {
 	const closeButton = lightbox?.querySelector<HTMLButtonElement>(".lightbox-close");
 	const previousButton = lightbox?.querySelector<HTMLButtonElement>(".lightbox-nav--prev");
 	const nextButton = lightbox?.querySelector<HTMLButtonElement>(".lightbox-nav--next");
-	const triggers = document.querySelectorAll<HTMLButtonElement>(".timeline-image-trigger");
-	const markdownImages = document.querySelectorAll<HTMLImageElement>(".timeline-content img");
-	const timelineContents = document.querySelectorAll<HTMLElement>(".timeline-content");
-	const historyDetails = document.querySelectorAll<HTMLDetailsElement>(".timeline-details[data-history-entry]");
-
-	const updateHistoryHash = (entryId?: string) => {
-		const url = new URL(window.location.href);
-
-		if (entryId) {
-			url.hash = entryId;
-			history.pushState(null, "", url);
-			return;
-		}
-
-		if (!url.hash) {
-			return;
-		}
-
-		url.hash = "";
-		history.pushState(null, "", url);
-	};
-
-	const openHistoryEntry = (entryId: string, shouldScroll = true) => {
-		const entry = document.getElementById(entryId);
-		const details = document.querySelector<HTMLDetailsElement>(`[data-history-entry="${CSS.escape(entryId)}"]`);
-
-		if (!entry || !details) {
-			return;
-		}
-
-		// Also open the parent group if it is collapsed
-		const groupDetails = details.closest<HTMLDetailsElement>(".timeline-group__details");
-		if (groupDetails && !groupDetails.open) {
-			groupDetails.open = true;
-		}
-
-		if (!details.open) {
-			details.open = true;
-		}
-
-		if (shouldScroll) {
-			requestAnimationFrame(() => {
-				entry.scrollIntoView({
-					behavior: "smooth",
-					block: "start",
-				});
-			});
-		}
-	};
-
-	const syncHistoryEntryFromHash = () => {
-		const entryId = decodeURIComponent(window.location.hash.slice(1));
-
-		if (!entryId) {
-			return;
-		}
-
-		openHistoryEntry(entryId);
-	};
+	const triggers = document.querySelectorAll<HTMLButtonElement>(".entry-image-trigger");
+	const markdownImages = document.querySelectorAll<HTMLImageElement>(".entry__content img");
+	const entryCards = document.querySelectorAll<HTMLElement>("li.entry");
 
 	type LightboxItem = {
 		trigger: HTMLElement;
@@ -364,10 +317,10 @@ if (timelineEntries.length > 0) {
 		}
 	};
 
-	timelineContents.forEach((content) => {
+	entryCards.forEach((card) => {
 		const items: LightboxItem[] = [];
 
-		const trigger = content.querySelector<HTMLButtonElement>(".timeline-image-trigger");
+		const trigger = card.querySelector<HTMLButtonElement>(".entry-image-trigger");
 		if (trigger) {
 			items.push({
 				trigger,
@@ -376,8 +329,8 @@ if (timelineEntries.length > 0) {
 			});
 		}
 
-		content.querySelectorAll<HTMLImageElement>("img").forEach((image) => {
-			if (image.closest(".timeline-image-trigger")) {
+		card.querySelectorAll<HTMLImageElement>("img").forEach((image) => {
+			if (image.closest(".entry-image-trigger")) {
 				return;
 			}
 
@@ -394,25 +347,6 @@ if (timelineEntries.length > 0) {
 		});
 	});
 
-	historyDetails.forEach((details) => {
-		const entryId = details.dataset.historyEntry;
-
-		if (!entryId) {
-			return;
-		}
-
-		details.addEventListener("toggle", () => {
-			if (details.open) {
-				updateHistoryHash(entryId);
-				return;
-			}
-
-			if (decodeURIComponent(window.location.hash.slice(1)) === entryId) {
-				updateHistoryHash();
-			}
-		});
-	});
-
 	triggers.forEach((trigger) => {
 		trigger.addEventListener("click", () => {
 			openLightbox(trigger);
@@ -420,11 +354,11 @@ if (timelineEntries.length > 0) {
 	});
 
 	markdownImages.forEach((image) => {
-		if (image.closest(".timeline-image-trigger")) {
+		if (image.closest(".entry-image-trigger")) {
 			return;
 		}
 
-		image.classList.add("timeline-markdown-image");
+		image.classList.add("entry-markdown-image");
 		image.setAttribute("role", "button");
 		image.setAttribute("tabindex", "0");
 		image.setAttribute("aria-label", `${image.alt || "Bild"} vergrößern`);
@@ -469,15 +403,13 @@ if (timelineEntries.length > 0) {
 			showNextImage();
 		}
 	});
-
-	window.addEventListener("hashchange", syncHistoryEntryFromHash);
-	syncHistoryEntryFromHash();
 </script>
 
 <style>
 	.history-hero {
 		display: flex;
 		flex-direction: column;
+		align-items: center;
 		gap: 0.75rem;
 		text-align: center;
 	}
@@ -495,315 +427,380 @@ if (timelineEntries.length > 0) {
 		margin: 0;
 		line-height: 1.6;
 		opacity: 0.9;
+		max-width: 44rem;
 	}
 
-	.timeline {
-		display: flex;
-		flex-direction: column;
-		gap: 1.5rem;
-	}
-
-	.timeline-list {
-		--timeline-gap: 1rem;
-		--timeline-dot-top: 1.575rem;
-		list-style: none;
-		margin: 0;
-		padding: 0;
-		display: flex;
-		flex-direction: column;
-		gap: var(--timeline-gap);
-	}
-
-	.timeline-list > li {
+	.history-hero__rule {
 		position: relative;
-		--timeline-item-padding-left: 2rem;
-		--timeline-marker-x: 0.5rem;
-		padding-left: var(--timeline-item-padding-left);
+		width: 5.5rem;
+		height: 2px;
+		background: rgba(255, 255, 255, 0.5);
+		margin-top: 0.5rem;
 	}
 
-	.timeline-list > li::before {
+	.history-hero__rule::after {
 		content: "";
 		position: absolute;
-		left: var(--timeline-marker-x);
-		top: 0;
-		bottom: calc(-1 * var(--timeline-gap));
-		width: 2px;
-		background: rgba(255, 255, 255, 0.3);
-		transform: translateX(-50%);
+		top: 50%;
+		left: 50%;
+		width: 0.55rem;
+		height: 0.55rem;
+		background: #ffffff;
+		transform: translate(-50%, -50%) rotate(45deg);
 	}
 
-	.timeline-list > li:last-child::before {
-		bottom: calc(100% - var(--timeline-dot-top));
-	}
-
-	.timeline-group__details {
-		width: 100%;
-	}
-
-	.timeline-group__details > summary {
-		list-style: none;
-		cursor: pointer;
-	}
-
-	.timeline-group__details > summary::-webkit-details-marker {
-		display: none;
-	}
-
-	.timeline-group__entries {
-		--timeline-gap: 1rem;
-		--timeline-dot-top: 1.575rem;
-		list-style: none;
-		margin: 0;
-		padding: 0;
+	.zigzag {
+		max-width: 1100px;
+		padding-left: 2rem;
+		padding-right: 2rem;
 		display: flex;
 		flex-direction: column;
-		gap: var(--timeline-gap);
-		margin-top: var(--timeline-gap);
+		gap: 4.5rem;
 	}
 
-	.timeline-group__entries > li {
-		position: relative;
-		--timeline-item-padding-left: 2rem;
-		--timeline-marker-x: 0.5rem;
-		padding-left: var(--timeline-item-padding-left);
-	}
-
-	.timeline-group__entries > li::before {
-		content: "";
-		position: absolute;
-		left: var(--timeline-marker-x);
-		top: 0;
-		bottom: calc(-1 * var(--timeline-gap));
-		width: 2px;
-		background: rgba(255, 255, 255, 0.3);
-		transform: translateX(-50%);
-	}
-
-	.timeline-group__entries > li:last-child::before {
-		bottom: calc(100% - var(--timeline-dot-top));
-	}
-
-	.timeline-heading {
-		margin: 0;
-		font-size: 1.6rem;
-		text-align: left;
-	}
-
-	.timeline-empty {
+	.zigzag-empty {
 		margin: 0;
 		line-height: 1.6;
 		opacity: 0.9;
+		text-align: center;
 	}
 
-	.timeline-group-item {
+	.era {
+		display: flex;
+		flex-direction: column;
+	}
+
+	.era__banner {
 		position: relative;
-		--timeline-dot-top: 1.7rem;
+		overflow: hidden;
+		text-align: center;
+		padding: 2.75rem 1.5rem 2.5rem;
+		margin-bottom: 3rem;
+		border-top: 1px solid rgba(255, 255, 255, 0.4);
+		border-bottom: 1px solid rgba(255, 255, 255, 0.4);
+		background: linear-gradient(180deg, rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.1));
 	}
 
-	.timeline-group-item::after {
+	.era__chapter {
+		position: absolute;
+		top: 50%;
+		right: 1.75rem;
+		transform: translateY(-50%);
+		font-family: var(--font-heading);
+		font-size: 7.5rem;
+		line-height: 1;
+		opacity: 0.09;
+		pointer-events: none;
+	}
+
+	.era__range {
+		margin: 0;
+		font-size: 0.82rem;
+		font-weight: 600;
+		letter-spacing: 0.28em;
+		text-transform: uppercase;
+		opacity: 0.8;
+	}
+
+	.era__title {
+		margin: 0.6rem 0 0;
+		font-size: 2.1rem;
+		line-height: 1.15;
+	}
+
+	.era__count {
+		display: inline-flex;
+		align-items: center;
+		margin: 1rem 0 0;
+		padding: 0.3rem 1rem;
+		border: 1px solid rgba(255, 255, 255, 0.45);
+		border-radius: 999px;
+		font-size: 0.78rem;
+		font-weight: 600;
+		letter-spacing: 0.18em;
+		text-transform: uppercase;
+	}
+
+	.era__message {
+		margin: 1rem auto 0;
+		max-width: 44rem;
+		line-height: 1.65;
+		font-style: italic;
+		opacity: 0.88;
+	}
+
+	.era__entries {
+		position: relative;
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 3.5rem;
+	}
+
+	.era__entries::before {
 		content: "";
 		position: absolute;
-		left: var(--timeline-marker-x);
-		top: var(--timeline-dot-top);
-		width: 0.95rem;
-		height: 0.95rem;
+		left: 50%;
+		top: -3rem;
+		bottom: 0;
+		width: 2px;
+		background: rgba(255, 255, 255, 0.32);
+		transform: translateX(-50%);
+	}
+
+	.era:last-child .era__entries::before {
+		bottom: -2.35rem;
+	}
+
+	.era:last-child .era__entries::after {
+		content: "";
+		position: absolute;
+		left: 50%;
+		bottom: -2.75rem;
+		width: 0.7rem;
+		height: 0.7rem;
+		background: rgba(255, 255, 255, 0.85);
+		transform: translateX(-50%) rotate(45deg);
+	}
+
+	.entry {
+		position: relative;
+		width: calc(50% - 3rem);
+	}
+
+	.entry[data-side="left"] {
+		margin-right: auto;
+	}
+
+	.entry[data-side="right"] {
+		margin-left: auto;
+	}
+
+	.entry::before {
+		content: "";
+		position: absolute;
+		top: 2.2rem;
+		width: 1rem;
+		height: 1rem;
 		border-radius: 999px;
-		border: 2px solid rgba(255, 255, 255, 0.78);
-		background: rgba(255, 255, 255, 0.12);
-		box-shadow: 0 0 0 0.35rem rgba(255, 255, 255, 0.06);
-		transform: translate(-50%, -50%);
+		background: #ffffff;
+		box-shadow: 0 0 0 0.4rem rgba(255, 255, 255, 0.08);
 	}
 
-	.timeline-group__header {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr) auto;
-		gap: 0.9rem;
-		align-items: start;
-		padding: 0.8rem 0 0.35rem 1.35rem;
+	.entry[data-side="left"]::before {
+		right: -3.5rem;
 	}
 
-	.timeline-group__title {
+	.entry[data-side="right"]::before {
+		left: -3.5rem;
+	}
+
+	.entry::after {
+		content: "";
+		position: absolute;
+		top: 2.2rem;
+		width: 3rem;
+		height: 2px;
+		background: rgba(255, 255, 255, 0.32);
+	}
+
+	.entry[data-side="left"]::after {
+		right: -3rem;
+	}
+
+	.entry[data-side="right"]::after {
+		left: -3rem;
+	}
+
+	.entry__card {
+		position: relative;
+		padding: 1.5rem 1.5rem 1.25rem;
+		border: 1px solid rgba(255, 255, 255, 0.24);
+		border-top: 3px solid rgba(255, 255, 255, 0.62);
+		border-radius: 4px;
+		background: linear-gradient(135deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.05));
+		box-shadow: 0 14px 30px rgba(0, 0, 0, 0.18);
+		transition: transform 0.25s ease, border-color 0.25s ease;
+	}
+
+	.entry__card:hover {
+		transform: translateY(-3px);
+		border-color: rgba(255, 255, 255, 0.42);
+	}
+
+	.entry__date {
 		display: flex;
 		align-items: center;
-		padding: 0.35rem 0.8rem;
-		border: 1px solid rgba(255, 255, 255, 0.28);
-		background: rgba(255, 255, 255, 0.08);
-		grid-column: 1 / -1;
-		grid-row: 1;
-		width: 100%;
-	}
-
-	.timeline-group__header h3 {
+		gap: 0.6rem;
 		margin: 0;
-		text-align: left;
-		font-size: 1.55rem;
-	}
-
-	.timeline-group__range,
-	.timeline-group__count {
-		margin: 0;
-	}
-
-	.timeline-group__message {
-		margin: 0 0 1rem calc(-1 * var(--timeline-item-padding-left) + var(--timeline-marker-x) - 1px);
-		padding: 0.9rem 1.35rem 0.9rem calc(var(--timeline-item-padding-left) - var(--timeline-marker-x) + 1px);
-		line-height: 1.65;
-		opacity: 0.9;
-		border-left: 2px solid rgba(255, 255, 255, 0.3);
-		white-space: pre-line;
-	}
-
-	.timeline-group__range {
-		grid-column: 1;
-		grid-row: 2;
-		font-size: 0.8rem;
+		font-size: 0.82rem;
 		font-weight: 600;
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
-		white-space: nowrap;
-	}
-
-	.timeline-group__count {
-		grid-column: 2;
-		grid-row: 2;
-		align-self: start;
-		font-size: 0.95rem;
-		opacity: 0.75;
-		text-align: right;
-		white-space: nowrap;
-	}
-
-	.timeline-item {
-		--timeline-dot-top: 1.575rem;
-	}
-
-	.timeline-details {
-		background: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.04) 100%);
-		border: 1px solid rgba(255, 255, 255, 0.2);
-		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
-	}
-
-	.timeline-details summary {
-		list-style: none;
-		cursor: pointer;
-		padding: 1.2rem 1.2rem 1.2rem 1.35rem;
-		display: grid;
-		grid-template-columns: auto minmax(0, 1fr);
-		gap: 0.9rem;
-		align-items: start;
-		position: relative;
-	}
-
-	.timeline-details summary::-webkit-details-marker {
-		display: none;
-	}
-
-	.timeline-details summary::before {
-		content: "";
-		position: absolute;
-		left: calc(var(--timeline-marker-x) - var(--timeline-item-padding-left));
-		top: var(--timeline-dot-top);
-		width: 0.75rem;
-		height: 0.75rem;
-		border-radius: 999px;
-		border: 2px solid rgba(255, 255, 255, 0.78);
-		background: var(--color-brand);
-		transform: translate(-50%, -50%);
-	}
-
-	.timeline-date {
-		font-size: 0.85rem;
-		font-weight: 600;
-		letter-spacing: 0.08em;
+		letter-spacing: 0.14em;
 		text-transform: uppercase;
 		opacity: 0.85;
-		white-space: nowrap;
-		width: 10rem;
+	}
+
+	.entry__date::before {
+		content: "";
+		width: 0.45rem;
+		height: 0.45rem;
 		flex-shrink: 0;
-	}
-
-	.timeline-header h4 {
-		font-family: var(--font-heading);
-		font-size: 1.3rem;
-		font-weight: 500;
-		margin: 0;
-		letter-spacing: 0.01em;
-		line-height: 1.3;
-	}
-
-	.timeline-header p {
-		margin: 0.45rem 0 0;
+		background: #ffffff;
 		opacity: 0.9;
-		line-height: 1.5;
+		transform: rotate(45deg);
 	}
 
-	.timeline-content {
-		padding: 0 1.2rem 1.2rem 1.35rem;
-		border-top: 1px solid rgba(255, 255, 255, 0.12);
+	.entry__title {
+		margin: 0.6rem 0 0;
+		font-size: 1.45rem;
+		line-height: 1.25;
+		letter-spacing: 0.01em;
 	}
 
-	.timeline-content :global(p) {
-		margin: 1rem 0 0;
-		line-height: 1.65;
-		opacity: 0.95;
+	.entry__subtitle {
+		margin: 0.5rem 0 0;
+		line-height: 1.55;
+		opacity: 0.92;
 	}
 
-	.timeline-content :global(blockquote) {
-		position: relative;
-		margin: 1.35rem 0 0;
-		padding: 1.15rem 1.35rem 1.15rem 3.4rem;
-		border-left: 3px solid rgba(255, 255, 255, 0.72);
-		background: linear-gradient(135deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.055));
-		box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+	.entry__figure {
+		margin: 1.1rem 0 0;
 	}
 
-	.timeline-content :global(blockquote::before) {
-		content: "\201C";
-		position: absolute;
-		top: 0.55rem;
-		left: 1rem;
-		font-family: var(--font-heading);
-		font-size: 3.1rem;
-		line-height: 1;
-		color: rgba(255, 255, 255, 0.68);
-	}
-
-	.timeline-content :global(blockquote p) {
-		margin: 0;
-		font-style: italic;
-		line-height: 1.72;
-		opacity: 1;
-	}
-
-	.timeline-content :global(blockquote p + p) {
-		margin-top: 0.65rem;
-	}
-
-	.timeline-image-trigger img {
+	.entry__figure img {
 		display: block;
 		width: 100%;
-		max-height: 280px;
-		object-fit: contain;
-		margin-top: 0;
-	}
-
-	.timeline-content :global(img.timeline-markdown-image) {
-		display: block;
-		width: auto;
-		max-width: 100%;
 		height: auto;
-		margin-top: 1rem;
-		cursor: zoom-in;
+		border-radius: 3px;
 	}
 
-	.timeline-image-trigger {
+	.entry-image-trigger {
 		display: block;
 		width: 100%;
-		margin: 1rem 0 0;
+		margin: 0;
 		padding: 0;
 		border: 0;
 		background: transparent;
 		cursor: zoom-in;
+	}
+
+	.entry__content :global(img.entry-markdown-image) {
+		cursor: zoom-in;
+	}
+
+	.entry__details {
+		margin-top: 1.1rem;
+		border-top: 1px solid rgba(255, 255, 255, 0.16);
+	}
+
+	.entry__details > summary {
+		list-style: none;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		padding: 0.95rem 0 0.1rem;
+	}
+
+	.entry__details > summary::-webkit-details-marker {
+		display: none;
+	}
+
+	.entry__details > summary:focus-visible {
+		outline: 2px solid rgba(255, 255, 255, 0.8);
+		outline-offset: 4px;
+		border-radius: 2px;
+	}
+
+	.entry__details-label {
+		font-size: 0.82rem;
+		font-weight: 600;
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
+		opacity: 0.9;
+	}
+
+	.entry__details-icon {
+		position: relative;
+		width: 1.6rem;
+		height: 1.6rem;
+		flex-shrink: 0;
+		border: 1px solid rgba(255, 255, 255, 0.5);
+		border-radius: 999px;
+		transition: transform 0.3s ease, border-color 0.3s ease;
+	}
+
+	.entry__details-icon::before,
+	.entry__details-icon::after {
+		content: "";
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		background: #ffffff;
+		transform: translate(-50%, -50%);
+	}
+
+	.entry__details-icon::before {
+		width: 0.6rem;
+		height: 2px;
+	}
+
+	.entry__details-icon::after {
+		width: 2px;
+		height: 0.6rem;
+	}
+
+	.entry__details[open] .entry__details-icon {
+		transform: rotate(45deg);
+		border-color: rgba(255, 255, 255, 0.9);
+	}
+
+	.entry__details:hover .entry__details-icon {
+		border-color: rgba(255, 255, 255, 0.85);
+	}
+
+	.entry__content {
+		padding-top: 0.25rem;
+	}
+
+	.entry__content :global(p) {
+		margin: 0.9rem 0 0;
+		line-height: 1.7;
+		opacity: 0.95;
+	}
+
+	.entry__content :global(p:first-child) {
+		margin-top: 0;
+	}
+
+	.entry__content :global(img) {
+		display: block;
+		max-width: 100%;
+		height: auto;
+		margin-top: 1rem;
+		border: 1px solid rgba(255, 255, 255, 0.2);
+		border-radius: 3px;
+	}
+
+	.entry__content :global(blockquote) {
+		margin: 1.2rem 0 0;
+		padding: 0.95rem 1.2rem;
+		border-left: 3px solid rgba(255, 255, 255, 0.65);
+		background: rgba(255, 255, 255, 0.07);
+		font-style: italic;
+		line-height: 1.7;
+	}
+
+	.entry__content :global(blockquote p) {
+		margin: 0;
+		opacity: 1;
+	}
+
+	.entry__content :global(blockquote p + p) {
+		margin-top: 0.6rem;
 	}
 
 	.image-lightbox {
@@ -904,54 +901,78 @@ if (timelineEntries.length > 0) {
 		right: 1rem;
 	}
 
-	@media (max-width: 600px) {
-		.timeline {
-			padding: 0 1rem;
+	@media (max-width: 899px) {
+		.zigzag {
+			gap: 3.5rem;
 		}
 
-		.timeline-list > li,
-		.timeline-group__entries > li {
-			--timeline-item-padding-left: 1.5rem;
-			--timeline-marker-x: 0.35rem;
+		.era__banner {
+			padding: 2.4rem 1rem 2.2rem;
 		}
 
-		.timeline-list {
-			--timeline-dot-top: 1.375rem;
+		.era__chapter {
+			right: 0.75rem;
+			font-size: 5rem;
 		}
 
-		.timeline-group__entries {
-			--timeline-dot-top: 1.375rem;
+		.era__entries {
+			gap: 2.5rem;
 		}
 
-		.timeline-group-item {
-			--timeline-dot-top: 1.45rem;
-		}
-
-		.timeline-group__header {
-			padding-left: 1rem;
-		}
-
-		.timeline-details summary {
-			grid-template-columns: 1fr;
-			padding: 1rem;
-			gap: 0.45rem;
-		}
-
-		.timeline-date {
-			width: auto;
-		}
-
-		.timeline-content {
-			padding: 0 1rem 1rem;
-		}
-
-		.timeline-content :global(blockquote) {
-			padding: 1rem 1rem 1rem 2.75rem;
-		}
-
-		.timeline-content :global(blockquote::before) {
+		.era__entries::before {
 			left: 0.75rem;
-			font-size: 2.6rem;
+			top: 0;
+			transform: none;
+		}
+
+		.era:last-child .era__entries::before {
+			bottom: 0;
+		}
+
+		.era:last-child .era__entries::after {
+			left: 0.75rem;
+		}
+
+		.entry,
+		.entry[data-side="left"],
+		.entry[data-side="right"] {
+			width: 100%;
+			margin-left: 0;
+			margin-right: 0;
+			padding-left: 2.25rem;
+		}
+
+		.entry::before,
+		.entry[data-side="left"]::before,
+		.entry[data-side="right"]::before {
+			top: 1.75rem;
+			left: 0.75rem;
+			right: auto;
+			transform: translateX(-50%);
+		}
+
+		.entry::after,
+		.entry[data-side="left"]::after,
+		.entry[data-side="right"]::after {
+			display: none;
+		}
+
+		.entry__card {
+			padding: 1.3rem 1.15rem 1.1rem;
+		}
+	}
+
+	@media (max-width: 600px) {
+		.era__title {
+			font-size: 1.65rem;
+		}
+
+		.era__message {
+			font-size: 0.95rem;
+		}
+
+		.entry__title {
+			font-size: 1.25rem;
 		}
 
 		.lightbox-nav {
