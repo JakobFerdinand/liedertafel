@@ -3,8 +3,8 @@ using System.Globalization;
 using System.Net;
 using System.Text.Json;
 using Azure.Data.Tables;
-using DashboardApi.Shared.Entities;
 using Microsoft.Azure.Functions.Worker.Http;
+using PageViewStorage;
 
 namespace DashboardApi.Features.PageViews;
 
@@ -47,7 +47,7 @@ public static class InsightValues
 		var value = host?.Trim().ToLowerInvariant();
 		return string.IsNullOrEmpty(value) || value is "liedertafel-mining.at" or "www.liedertafel-mining.at" or "dashboard.liedertafel-mining.at" or "liedertafel.at" or "www.liedertafel.at" || value.EndsWith(".azurestaticapps.net", StringComparison.Ordinal) ? null : value;
 	}
-	public static bool Classified(PageViewEntity row) => row.NavigationType is "navigate" or "reload" or "back_forward";
+	public static bool Classified(PageViewEntity row) => NavigationTypes.IsKnown(row.NavigationType);
 	public static string Mask(string? id) => string.IsNullOrWhiteSpace(id) ? "unbekannt" : id[..Math.Min(8, id.Length / 2)] + "…";
 	public static IOrderedEnumerable<PageViewEntity> Ordered(IEnumerable<PageViewEntity> rows) => rows.OrderBy(r => r.Timestamp).ThenBy(r => r.PartitionKey, StringComparer.Ordinal).ThenBy(r => r.RowKey, StringComparer.Ordinal);
 }
@@ -85,17 +85,15 @@ public sealed class TableInsightReader(TableServiceClient client) : IInsightRead
 		budget.CancelAfter(TimeSpan.FromSeconds(30));
 		var utcStart = range.UtcStart;
 		var utcEnd = range.UtcEnd;
-		var start = $"Pv|{utcStart:yyyy-MM-dd}";
-		var end = $"Pv|{utcEnd.AddTicks(-1):yyyy-MM-dd}";
-		var filter = TableClient.CreateQueryFilter($"PartitionKey ge {start} and PartitionKey le {end}");
+		var filter = PageViewTable.RangeFilter(utcStart, utcEnd);
 		var rows = new List<PageViewEntity>();
 		var scanned = 0;
 		try
 		{
-			await foreach (var row in client.GetTableClient("pageviews").QueryAsync<PageViewEntity>(filter, maxPerPage: 1000, cancellationToken: budget.Token).WithCancellation(budget.Token))
+			await foreach (var row in PageViewTable.Client(client).QueryAsync<PageViewEntity>(filter, maxPerPage: 1000, cancellationToken: budget.Token).WithCancellation(budget.Token))
 			{
 				if (++scanned > RowCap) return new(rows, true);
-				if (row.Timestamp >= utcStart && row.Timestamp < utcEnd) rows.Add(row);
+				if (row.IsWithin(utcStart, utcEnd)) rows.Add(row);
 			}
 		}
 		catch (OperationCanceledException) when (!ct.IsCancellationRequested) { return new(rows, true); }

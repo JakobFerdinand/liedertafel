@@ -15,4 +15,7 @@
     <PackageReference Include="Microsoft.Azure.Functions.Worker.Sdk" Version="2.1.0" />
     <PackageReference Include="Azure.Data.Tables" Version="12.11.0" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../pageview-storage/PageViewStorage.csproj" />
+  </ItemGroup>
 </Project>

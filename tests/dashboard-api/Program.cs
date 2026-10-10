@@ -4,10 +4,13 @@ using System.Security.Claims;
 using System.Text.Json;
 using Azure;
 using Azure.Data.Tables;
+using Azure.Data.Tables.Models;
 using DashboardApi.Features.PageViews;
-using DashboardApi.Shared.Entities;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
+using Microsoft.Extensions.Logging.Abstractions;
+using PageViewStorage;
+using WebsiteApi.Features.PageViews;
 
 var checks = 0;
 void Check(bool condition, string name)
@@ -25,10 +28,13 @@ Check((spring.UtcEnd - spring.UtcStart).TotalHours == 23, "Vienna spring DST day
 Check((autumn.UtcEnd - autumn.UtcStart).TotalHours == 25, "Vienna autumn DST day has 25 hours");
 Check(range.Previous.Days == 7 && range.Previous.End == range.Start.AddDays(-1), "previous period is adjacent and equal length");
 
-PageViewEntity Row(string session, string path, DateTimeOffset time, string key, string? nav = "navigate", int width = 1200, string? origin = null, string visitor = "visitor-abcdefgh") => new()
+PageViewEntity Row(string session, string path, DateTimeOffset time, string key, string? nav = "navigate", int width = 1200, string? origin = null, string visitor = "visitor-abcdefgh")
 {
-	SessionId = session, VisitorId = visitor, Path = path, Timestamp = time, RowKey = key, PartitionKey = $"Pv|{time:yyyy-MM-dd}", NavigationType = nav, ViewportWidth = width, ReferrerHost = origin,
-};
+	var row = PageViewEntity.Create(time, path, origin, width, session, visitor, nav);
+	row.RowKey = key;
+	row.Timestamp = time;
+	return row;
+}
 var rows = new List<PageViewEntity>
 {
 	Row("session-abcdefgh", "/last", range.UtcEnd.AddMinutes(-1), "a", "reload", 1200, "example.com"),
@@ -111,6 +117,36 @@ foreach (var invalid in new[] { "limit=101", "device=invalid", "hasReload=maybe"
 	var failure = await Read(sessions.Run(new Request($"sessions?{query}&{invalid}"), default));
 	Check(failure.Status == HttpStatusCode.BadRequest, $"session validation rejects {invalid}");
 }
+// Writer/reader round trip: the real website-api handler and store write into an in-memory table,
+// the real dashboard-api reader scans it. Both only agree through the shared PageViewStorage module.
+var service = new InMemoryTableService();
+service.Table.Seed(new TableEntity("Pv|2000-01-01", "expired"));
+var writer = new PageView.Handler(new PageView.TablePageViewStore(service, NullLogger<PageView.TablePageViewStore>.Instance));
+var written = new PageView.Payload("/round-trip", "example.com", 1200, "round-trip-session", "round-trip-visitor", "reload");
+Check(writer.Validate(written) is null, "writer accepts the round-trip payload");
+await writer.SaveAsync(written, default);
+var roundTrip = await new TableInsightReader(service).ReadAsync(new(today, today), default);
+var stored = roundTrip.Rows.SingleOrDefault(r => r.SessionId == "round-trip-session");
+Check(stored is not null && !roundTrip.Truncated, "reader finds the row the writer stored");
+Check(stored!.Path == "/round-trip" && stored.ReferrerHost == "example.com" && stored.ViewportWidth == 1200 && stored.VisitorId == "round-trip-visitor" && stored.NavigationType == "reload", "round trip preserves every stored property");
+Check(stored.PartitionKey == $"Pv|{DateTime.UtcNow:yyyy-MM-dd}" && Guid.TryParse(stored.RowKey, out _), "writer stores a UTC-day partition and a GUID row key");
+Check(service.Table.Contains("Cleanup", "last") && !service.Table.Contains("Pv|2000-01-01", "expired") && service.Table.Contains(stored.PartitionKey, stored.RowKey), "retention removes expired partitions and keeps the cleanup marker and fresh rows");
+var roundTripStats = await Read(new GetPageViewStats(new TableInsightReader(service)).Run(new Request($"stats?start={today:yyyy-MM-dd}&end={today:yyyy-MM-dd}&compare=none"), default));
+Check(roundTripStats.Body.GetProperty("current").GetProperty("total").GetInt32() == 1 && roundTripStats.Body.GetProperty("current").GetProperty("reloads").GetInt32() == 1, "stats endpoint reports the stored row");
+foreach (var type in NavigationTypes.All) Check(writer.Validate(written with { NavigationType = type }) is null && InsightValues.Classified(Row("s", "/", DateTimeOffset.UtcNow, "k", type)), $"navigation type {type} is accepted and classified");
+Check(writer.Validate(written with { NavigationType = "prerender" }) is { } navigationError && navigationError.Contains("'navigate', 'reload', 'back_forward'") && !InsightValues.Classified(Row("s", "/", DateTimeOffset.UtcNow, "k", "prerender")), "unknown navigation types are rejected and unclassified");
+foreach (var day in new[] { spring, autumn })
+{
+	var edge = new InMemoryTableService();
+	foreach (var (label, instant) in new[] { ("before", day.UtcStart.AddTicks(-1)), ("start", day.UtcStart), ("last", day.UtcEnd.AddTicks(-1)), ("after", day.UtcEnd) })
+	{
+		var entity = PageViewEntity.Create(instant, "/" + label, null, 1200, "edge-" + label, null, null);
+		entity.Timestamp = instant;
+		await PageViewTable.Client(edge).AddEntityAsync(entity);
+	}
+	var edgeRows = (await new TableInsightReader(edge).ReadAsync(day, default)).Rows;
+	Check(edgeRows.Select(r => r.Path).Order().SequenceEqual(["/last", "/start"]), $"reader scans the UTC partitions covering Vienna day {day.Start:yyyy-MM-dd}");
+}
 if (args.Contains("--fixtures"))
 {
 	var index = Array.IndexOf(args, "--fixtures");
@@ -127,11 +163,17 @@ if (args.Contains("--azurite"))
 	var client = new TableServiceClient("UseDevelopmentStorage=true");
 	var table = client.GetTableClient("pageviews");
 	await table.CreateIfNotExistsAsync();
-	var partition = $"Pv|{DateTimeOffset.UtcNow:yyyy-MM-dd}";
+	var partition = PageViewTable.PartitionKey(DateTimeOffset.UtcNow);
 	var rowKey = "insights-check-" + Guid.NewGuid().ToString("N");
+	var storedSession = "azurite-" + Guid.NewGuid().ToString("N");
 	await table.AddEntityAsync(new PageViewEntity { PartitionKey = partition, RowKey = rowKey, Path = "/insights-check", SessionId = "test-session" });
 	try
 	{
+		await new PageView.Handler(new PageView.TablePageViewStore(client, NullLogger<PageView.TablePageViewStore>.Instance)).SaveAsync(new("/azurite-round-trip", null, 800, storedSession, null, "navigate"), default);
+		var azuriteRows = (await new TableInsightReader(client).ReadAsync(new(today, today), default)).Rows;
+		var azuriteStored = azuriteRows.SingleOrDefault(r => r.SessionId == storedSession);
+		Check(azuriteStored is { Path: "/azurite-round-trip", ViewportWidth: 800, NavigationType: "navigate" }, "Azurite round trip: website-api store writes what the dashboard reader reads");
+		await table.DeleteEntityAsync(azuriteStored!.PartitionKey, azuriteStored.RowKey, ETag.All);
 		var scanned = await new TableInsightReader(client).ReadAsync(new(today, today), default);
 		Check(scanned.Rows.Any(r => r.RowKey == rowKey) && !scanned.Truncated, "Azurite query reads real table timestamps and Vienna partition range");
 		try { await new TableInsightReader(client).ReadAsync(range, cancelled.Token); throw new Exception("Expected cancellation"); }
@@ -148,7 +190,7 @@ sealed class FakeReader(IReadOnlyList<PageViewEntity> rows) : IInsightReader
 	public Task<ScanResult> ReadAsync(InsightRange range, CancellationToken ct)
 	{
 		ct.ThrowIfCancellationRequested(); Calls++;
-		return Task.FromResult(new ScanResult(rows.Where(r => r.Timestamp >= range.UtcStart && r.Timestamp < range.UtcEnd).ToList(), Truncated));
+		return Task.FromResult(new ScanResult(rows.Where(r => r.IsWithin(range.UtcStart, range.UtcEnd)).ToList(), Truncated));
 	}
 }
 sealed class Request(string route) : HttpRequestData(new TestContext())
@@ -192,5 +234,48 @@ sealed class CappedTable(PageViewEntity row) : TableClient
 	 var values = Enumerable.Repeat((T)(object)row, 1000).ToArray();
 	 var pages = Enumerable.Range(0, 201).Select(i => Page<T>.FromValues(values, i < 200 ? "next" : null, null!));
 	 return AsyncPageable<T>.FromPages(pages);
+	}
+}
+
+sealed class InMemoryTableService : TableServiceClient
+{
+	public InMemoryTable Table { get; } = new();
+	public override TableClient GetTableClient(string tableName) => tableName == PageViewTable.Name ? Table : throw new InvalidOperationException($"Unexpected table {tableName}");
+}
+sealed class InMemoryTable : TableClient
+{
+	private readonly List<ITableEntity> entities = [];
+	public void Seed(ITableEntity entity) => entities.Add(entity);
+	public bool Contains(string partitionKey, string rowKey) => entities.Any(e => e.PartitionKey == partitionKey && e.RowKey == rowKey);
+	public override Task<Azure.Response<TableItem>> CreateIfNotExistsAsync(CancellationToken cancellationToken = default) => Task.FromResult<Azure.Response<TableItem>>(null!);
+	public override Task<Azure.Response> AddEntityAsync<T>(T entity, CancellationToken cancellationToken = default)
+	{
+		entity.Timestamp ??= DateTimeOffset.UtcNow;
+		entities.Add(entity);
+		return Task.FromResult<Azure.Response>(null!);
+	}
+	public override Task<Azure.Response> UpsertEntityAsync<T>(T entity, TableUpdateMode mode = TableUpdateMode.Merge, CancellationToken cancellationToken = default)
+	{
+		entities.RemoveAll(e => e.PartitionKey == entity.PartitionKey && e.RowKey == entity.RowKey);
+		entity.Timestamp = DateTimeOffset.UtcNow;
+		entities.Add(entity);
+		return Task.FromResult<Azure.Response>(null!);
+	}
+	public override Task<Azure.Response<T>> GetEntityAsync<T>(string partitionKey, string rowKey, IEnumerable<string>? select = null, CancellationToken cancellationToken = default) =>
+		entities.OfType<T>().FirstOrDefault(e => e.PartitionKey == partitionKey && e.RowKey == rowKey) is { } found
+			? Task.FromResult(Azure.Response.FromValue(found, null!))
+			: throw new RequestFailedException(404, "Entity not found.");
+	public override Task<Azure.Response<IReadOnlyList<Azure.Response>>> SubmitTransactionAsync(IEnumerable<TableTransactionAction> transactionActions, CancellationToken cancellationToken = default)
+	{
+		foreach (var action in transactionActions) entities.RemoveAll(e => e.PartitionKey == action.Entity.PartitionKey && e.RowKey == action.Entity.RowKey);
+		return Task.FromResult<Azure.Response<IReadOnlyList<Azure.Response>>>(null!);
+	}
+	public override AsyncPageable<T> QueryAsync<T>(string? filter = null, int? maxPerPage = null, IEnumerable<string>? select = null, CancellationToken cancellationToken = default)
+	{
+		// Understands only the partition-key bounds the pageview module generates.
+		var bounds = System.Text.RegularExpressions.Regex.Matches(filter ?? "", @"PartitionKey (ge|gt|le|lt) '([^']*)'");
+		bool Matches(string partitionKey) => bounds.All(b => (b.Groups[1].Value, string.CompareOrdinal(partitionKey, b.Groups[2].Value)) is ("ge", >= 0) or ("gt", > 0) or ("le", <= 0) or ("lt", < 0));
+		var values = entities.OfType<T>().Where(e => Matches(e.PartitionKey)).ToArray();
+		return AsyncPageable<T>.FromPages([Page<T>.FromValues(values, null, null!)]);
 	}
 }

@@ -5,7 +5,7 @@ using Azure.Data.Tables;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
-using WebsiteApi.Shared.Entities;
+using PageViewStorage;
 
 namespace WebsiteApi.Features.PageViews;
 
@@ -92,10 +92,9 @@ public class PageView(PageView.Handler handler)
 				return $"Field 'visitorId' must not exceed {MaxVisitorIdLength} characters.";
 			}
 
-			if (!string.IsNullOrEmpty(payload.NavigationType)
-				&& payload.NavigationType is not ("navigate" or "reload" or "back_forward"))
+			if (!string.IsNullOrEmpty(payload.NavigationType) && !NavigationTypes.IsKnown(payload.NavigationType))
 			{
-				return "Field 'navigationType' must be one of 'navigate', 'reload', 'back_forward'.";
+				return $"Field 'navigationType' must be one of {string.Join(", ", NavigationTypes.All.Select(type => $"'{type}'"))}.";
 			}
 
 			return null;
@@ -103,17 +102,14 @@ public class PageView(PageView.Handler handler)
 
 		public async Task SaveAsync(Payload payload, CancellationToken ct)
 		{
-			var entity = new PageViewEntity
-			{
-				PartitionKey = $"Pv|{DateTime.UtcNow:yyyy-MM-dd}",
-				RowKey = Guid.NewGuid().ToString(),
-				Path = payload.Path!,
-				ReferrerHost = payload.ReferrerHost,
-				ViewportWidth = payload.ViewportWidth ?? 0,
-				SessionId = payload.SessionId,
-				VisitorId = payload.VisitorId,
-				NavigationType = payload.NavigationType,
-			};
+			var entity = PageViewEntity.Create(
+				DateTimeOffset.UtcNow,
+				payload.Path!,
+				payload.ReferrerHost,
+				payload.ViewportWidth ?? 0,
+				payload.SessionId,
+				payload.VisitorId,
+				payload.NavigationType);
 			await store.SaveAsync(entity, ct);
 		}
 	}
@@ -130,7 +126,7 @@ public class PageView(PageView.Handler handler)
 
 		public async Task SaveAsync(PageViewEntity entity, CancellationToken ct)
 		{
-			var table = client.GetTableClient("pageviews");
+			var table = PageViewTable.Client(client);
 			await table.CreateIfNotExistsAsync(ct);
 			await table.AddEntityAsync(entity, ct);
 			await TryCleanupAsync(table, ct);
@@ -143,7 +139,7 @@ public class PageView(PageView.Handler handler)
 				var cleanupDue = true;
 				try
 				{
-					var marker = await table.GetEntityAsync<TableEntity>("Cleanup", "last", cancellationToken: ct);
+					var marker = await table.GetEntityAsync<TableEntity>(PageViewTable.CleanupPartitionKey, PageViewTable.CleanupRowKey, cancellationToken: ct);
 					if (marker.Value.Timestamp is { } ts && DateTimeOffset.UtcNow - ts < CleanupInterval)
 					{
 						cleanupDue = false;
@@ -159,10 +155,9 @@ public class PageView(PageView.Handler handler)
 					return;
 				}
 
-				await table.UpsertEntityAsync(new TableEntity("Cleanup", "last"), TableUpdateMode.Replace, ct);
+				await table.UpsertEntityAsync(new TableEntity(PageViewTable.CleanupPartitionKey, PageViewTable.CleanupRowKey), TableUpdateMode.Replace, ct);
 
-				var cutoffKey = $"Pv|{DateTime.UtcNow.Date.AddMonths(-RetentionMonths):yyyy-MM-dd}";
-				var filter = $"PartitionKey ge 'Pv|' and PartitionKey lt '{cutoffKey}'";
+				var filter = PageViewTable.RetentionFilter(DateTimeOffset.UtcNow, RetentionMonths);
 
 				while (true)
 				{

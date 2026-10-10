@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/website-api/website-api.csproj" />
     <Project Path="src/dashboard-api/dashboard-api.csproj" />
+    <Project Path="src/pageview-storage/PageViewStorage.csproj" />
   </Folder>
   <Folder Name="/src/archive/" />
   <Folder Name="/src/archive/apphost/">

@@ -1,6 +1,6 @@
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
-using DashboardApi.Shared.Entities;
+using PageViewStorage;
 
 namespace DashboardApi.Features.PageViews;
 
