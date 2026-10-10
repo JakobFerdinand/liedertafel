@@ -11,6 +11,10 @@ actual function endpoints with in-memory HTTP requests and storage fixtures,
 and exercises the real reader against a synthetic SDK page stream for the
 200,000-row cap. A failed assertion exits with a nonzero status.
 
+The harness also round-trips a row: the real website-api handler/store writes into
+an in-memory table and the real dashboard reader scans it, so both sides are
+checked against the shared `src/pageview-storage` module.
+
 Coverage includes Vienna daylight-saving boundaries, inclusive calendar ranges,
 Monday buckets, comparison validation, zero filling, unknown classifications,
 masked IDs, range-bound handles, filter semantics, cached pagination, expired
@@ -22,8 +26,8 @@ With Azurite Table Storage running on the standard loopback port 10002:
 dotnet run --project tests/dashboard-api -- --azurite
 ```
 
-This additional check uses only `UseDevelopmentStorage=true`, creates a uniquely
-named fixture row, reads it through the actual Azure SDK, and deletes that row
+This additional check uses only `UseDevelopmentStorage=true`, creates uniquely
+named fixture rows (one written through the website-api store), reads it through the actual Azure SDK, and deletes that row
 in a `finally` block. It never connects to production storage.
 
 To export synthetic endpoint responses for browser smoke checks:

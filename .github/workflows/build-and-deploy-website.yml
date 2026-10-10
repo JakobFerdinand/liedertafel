@@ -7,6 +7,7 @@ on:
     paths:
       - 'src/website/**'
       - 'src/website-api/**'
+      - 'src/pageview-storage/**'
       - '.github/workflows/build-and-deploy-website.yml'
   pull_request:
     types: [opened, synchronize, reopened, closed]
@@ -15,6 +16,7 @@ on:
     paths:
       - 'src/website/**'
       - 'src/website-api/**'
+      - 'src/pageview-storage/**'
       - '.github/workflows/build-and-deploy-website.yml'
 
 permissions:

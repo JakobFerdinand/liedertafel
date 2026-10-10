@@ -1,26 +1,8 @@
 ---
 import { getCollection } from "astro:content";
+import { formatEventDate, today, selectUpcoming } from "../lib/events";
 
-const today = new Date();
-const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-
-const allEvents = await getCollection("events");
-
-const upcomingEvents = allEvents
-	.map((entry) => {
-		const [year, month, day] = entry.data.date.split("-").map(Number);
-		const eventDate = new Date(year, month - 1, day);
-		return { ...entry.data, slug: entry.id, eventDate };
-	})
-	.filter((event) => event.eventDate >= todayStart)
-	.sort((a, b) => a.eventDate.getTime() - b.eventDate.getTime());
-
-const dateFormatter = new Intl.DateTimeFormat("de-AT", {
-	weekday: "short",
-	year: "numeric",
-	month: "long",
-	day: "numeric",
-});
+const upcomingEvents = selectUpcoming(await getCollection("events"), today());
 
 const hasMoreThanMobileDefault = upcomingEvents.length > 3;
 ---
@@ -34,12 +16,12 @@ const hasMoreThanMobileDefault = upcomingEvents.length > 3;
 				upcomingEvents.map((event, index) => (
 					<li
 						class={`event-card${index >= 3 ? " event-card--hidden-mobile" : ""}${index >= 4 ? " event-card--hidden-desktop" : ""}`}
-						id={event.slug}
+						id={event.id}
 					>
-						<a href={`/termine/${event.slug}`} class="event-card__link" aria-label={`Details zu ${event.name}`}>
-							<p class="event-date">{dateFormatter.format(event.eventDate)}</p>
-							<h3>{event.name}</h3>
-							<p class="event-location">{event.location}</p>
+						<a href={`/termine/${event.id}`} class="event-card__link" aria-label={`Details zu ${event.data.name}`}>
+							<p class="event-date">{formatEventDate(event.data.date, "short")}</p>
+							<h3>{event.data.name}</h3>
+							<p class="event-location">{event.data.location}</p>
 						</a>
 					</li>
 				))

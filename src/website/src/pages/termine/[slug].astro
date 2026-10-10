@@ -2,6 +2,7 @@
 import { getCollection, render } from "astro:content";
 import Layout from "../../layouts/Layout.astro";
 import Footer from "../../components/Footer.astro";
+import { formatEventDate, resolveEventPdf } from "../../lib/events";
 
 export async function getStaticPaths() {
 	const allEvents = await getCollection("events");
@@ -14,35 +15,12 @@ export async function getStaticPaths() {
 const { entry } = Astro.props;
 const { Content } = await render(entry);
 
-const pdfFiles = import.meta.glob("../../content/events/assets/*.pdf", {
-	eager: true,
-	query: "?url",
-	import: "default",
-});
-const pdfPath = entry.data.pdf
-	? `../../content/events/${entry.data.pdf.replace(/^\.\//, "")}`
-	: undefined;
-const pdfUrl = pdfPath ? (pdfFiles[pdfPath] as string | undefined) : undefined;
+const pdfUrl = resolveEventPdf(entry);
 const pdfEmbedUrl = pdfUrl
 	? `${pdfUrl}#view=Fit&toolbar=0&navpanes=0&scrollbar=0`
 	: undefined;
 
-if (pdfPath && !pdfUrl) {
-	throw new Error(`PDF für Termin "${entry.id}" wurde nicht gefunden: ${entry.data.pdf}`);
-}
-
-const [year, month, day] = entry.data.date.split("-").map(Number);
-const eventDate = new Date(Date.UTC(year, month - 1, day));
-
-const dateFormatter = new Intl.DateTimeFormat("de-AT", {
-	weekday: "long",
-	day: "numeric",
-	month: "long",
-	year: "numeric",
-	timeZone: "UTC",
-});
-
-const formattedDate = dateFormatter.format(eventDate);
+const formattedDate = formatEventDate(entry.data.date, "long");
 ---
 
 <Layout>
