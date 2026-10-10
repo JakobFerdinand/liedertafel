@@ -124,7 +124,7 @@ currency columns defaulting to 0). No pushed migration was touched.
 Verification commands and results (all green):
 
 - `dotnet build src/archive/Archive.slnx` — succeeded.
-- `dotnet test tests/archive/backend` — 607 passed
+- `dotnet test tests/archive/backend` — 595 passed, 0 failed (re-run after the slice)
   (incl. 12 new `ProvenanceProposalTests`: apply above threshold with
   provenance, below-threshold proposal + accept flow, human lock survives
   reruns, revert restores and locks, stale song PATCH 409 without change,

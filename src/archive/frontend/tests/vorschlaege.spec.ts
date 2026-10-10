@@ -58,10 +58,7 @@ function herkunft(
 }
 
 /** Detailantwort der Redaktion mit gespeicherter KI-Herkunft. */
-function detail(
-  herkunftZeilen: unknown[],
-  options?: { tonartHerkunft?: boolean },
-) {
+function detail(herkunftZeilen: unknown[]) {
   return {
     song: {
       id: songId,
