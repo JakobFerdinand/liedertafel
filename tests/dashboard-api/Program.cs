@@ -57,13 +57,20 @@ async Task<(HttpStatusCode Status, JsonElement Body, HttpResponseData Response)>
 }
 var result = await Read(stats.Run(new Request($"stats?{query}"), default));
 Check(result.Status == HttpStatusCode.OK, "stats endpoint returns success");
-var current = result.Body.GetProperty("current");
-Check(current.GetProperty("total").GetInt32() == 4 && current.GetProperty("withoutSessionId").GetInt32() == 1, "stats includes missing session IDs visibly");
-Check(current.GetProperty("series").GetArrayLength() == 7 && current.GetProperty("series")[6].GetProperty("partial").GetBoolean(), "daily series zero-filled and today partial");
-Check(current.GetProperty("devices")[0].GetProperty("device").GetString() == "Unbekannt" && current.GetProperty("devices")[0].GetProperty("count").GetInt32() == 2, "zero screen widths are unknown");
-Check(current.GetProperty("classifiedViews").GetInt32() == 2 && current.GetProperty("reloads").GetInt32() == 1, "reload denominators preserve unclassified rows");
-Check(current.GetProperty("origins").GetArrayLength() == 1, "internal origins excluded");
-Check(current.GetProperty("pagesPerSession").GetDouble() == 1.5, "pages per session excludes missing IDs");
+var wire = result.Body.GetProperty("current");
+Check(wire.EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal).SequenceEqual(["classifiedViews", "deviceSeries", "devices", "originSeries", "origins", "pagesPerSession", "pathSeries", "range", "reloads", "series", "sessions", "topPaths", "total", "uniquePaths", "uniqueVisitors", "visitorSeries", "withoutSessionId"]), "stats wire format exposes the property names the dashboard client expects");
+Check(wire.GetProperty("range").EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal).SequenceEqual(["end", "start", "timezone"]) && wire.GetProperty("series")[0].EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal).SequenceEqual(["bucketStart", "count", "pagesPerSession", "partial", "reloads", "sessions", "uniquePaths", "uniqueVisitors"]), "stats wire format names range and series fields");
+Check(wire.GetProperty("topPaths")[0].EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal).SequenceEqual(["count", "path"]) && wire.GetProperty("devices")[0].GetProperty("device").GetString() == "Unbekannt" && wire.GetProperty("origins")[0].GetProperty("origin").GetString() == "example.com", "stats wire format names path, device and origin counts");
+Check(wire.GetProperty("pathSeries")[0].EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal).SequenceEqual(["bucketStart", "count", "partial", "path"]) && wire.GetProperty("deviceSeries")[0].TryGetProperty("device", out _) && wire.GetProperty("originSeries")[0].TryGetProperty("origin", out _) && wire.GetProperty("visitorSeries")[0].EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal).SequenceEqual(["bucketStart", "category", "count", "partial"]), "stats wire format names the segment and visitor series fields");
+Check(wire.GetProperty("series")[0].GetProperty("bucketStart").GetString() == range.Start.ToString("yyyy-MM-dd") && wire.GetProperty("range").GetProperty("timezone").GetString() == "Europe/Vienna", "stats wire format writes dates as ISO strings");
+var current = InsightStatistics.Compute(rows, range, Granularity.Day);
+Check(current.Total == 4 && current.WithoutSessionId == 1, "stats includes missing session IDs visibly");
+Check(current.Series.Count == 7 && current.Series[6].Partial, "daily series zero-filled and today partial");
+Check(current.Devices[0] == new DeviceCount("Unbekannt", 2), "zero screen widths are unknown");
+Check(current.ClassifiedViews == 2 && current.Reloads == 1, "reload denominators preserve unclassified rows");
+Check(current.Origins.Count == 1, "internal origins excluded");
+Check(current.PagesPerSession == 1.5, "pages per session excludes missing IDs");
+Check(JsonSerializer.SerializeToElement(current, new JsonSerializerOptions(JsonSerializerDefaults.Web)).GetProperty("total").GetInt32() == wire.GetProperty("total").GetInt32(), "endpoint serialises the typed statistics");
 foreach (var invalid in new[] { "days=7", $"start={today:yyyy-MM-dd}&end={today.AddDays(-1):yyyy-MM-dd}", query + "&granularity=month", query + "&compare=invalid", $"start={today.AddDays(-92):yyyy-MM-dd}&end={today:yyyy-MM-dd}", $"start={today.AddMonths(-36):yyyy-MM-dd}&end={today.AddMonths(-36):yyyy-MM-dd}" })
 {
 	var failure = await Read(stats.Run(new Request($"stats?{invalid}"), default));
@@ -110,8 +117,34 @@ Check(capped.Truncated && capped.Rows.Count == TableInsightReader.RowCap, "real 
 var weekResult = await Read(stats.Run(new Request($"stats?{query}&granularity=week&compare=none"), default));
 Check(weekResult.Body.GetProperty("current").GetProperty("series").EnumerateArray().All(p => DateOnly.Parse(p.GetProperty("bucketStart").GetString()!).DayOfWeek == DayOfWeek.Monday), "weekly buckets start Monday in Vienna");
 var boundaryRows = new[] { Row("edge-one", "/at-start", range.UtcStart, "edge1"), Row("edge-two", "/before-start", range.UtcStart.AddTicks(-1), "edge2"), Row("edge-three", "/at-end", range.UtcEnd, "edge3") };
-var boundaryStats = JsonSerializer.SerializeToElement(GetPageViewStats.Aggregate(boundaryRows, range, "day"), new JsonSerializerOptions(JsonSerializerDefaults.Web));
-Check(boundaryStats.GetProperty("total").GetInt32() == 1, "Vienna window includes exact start and excludes exact next midnight");
+Check(InsightStatistics.Compute(boundaryRows, range, Granularity.Day).Total == 1, "Vienna window includes exact start and excludes exact next midnight");
+// Counting semantics of the statistics module, one metric at a time.
+var statKey = 0;
+PageViewEntity View(string? session, string path, string? visitor = "v-default", string? origin = null, int width = 1200, string? nav = "navigate", int day = 0, int hour = 12) =>
+	Row(session!, path, new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(range.Start.AddDays(day).ToDateTime(new TimeOnly(hour, 0)), InsightRange.Zone), TimeSpan.Zero), $"stat{statKey++}", nav, width, origin, visitor!);
+var identity = InsightStatistics.Compute([View("s1", "/a", "v1"), View("s1", "/b", "v1"), View("s1", "/c", "v1"), View("s2", "/a", "v2"), View("", "/a", "", day: 1), View("  ", "/a", " ", day: 1), View(null, "/a", null, day: 2)], range, Granularity.Day);
+Check(identity.Sessions == 2 && identity.UniqueVisitors == 2, "empty, whitespace and missing ids are neither sessions nor visitors");
+Check(identity.WithoutSessionId == 3 && identity.Total == 7, "views without a session id are counted separately");
+Check(identity.PagesPerSession == 2 && identity.Series[0].PagesPerSession == 2 && identity.Series[1].PagesPerSession == 0 && identity.Series[1].Sessions == 0 && identity.Series[1].UniqueVisitors == 0 && identity.Series[1].Count == 2, "pages per session divides session views by sessions and is zero without sessions");
+var uneven = InsightStatistics.Compute([View("s1", "/a"), View("s1", "/a"), View("s1", "/a"), View("s2", "/a"), View("s3", "/a"), View("s3", "/b"), View("s3", "/c"), View("s3", "/d")], range, Granularity.Day);
+Check(uneven.Sessions == 3 && uneven.PagesPerSession == 2.7 && uneven.Series[0].UniquePaths == 4, "pages per session rounds to one decimal and counts distinct paths");
+var manyPaths = Enumerable.Range(1, 8).SelectMany(n => Enumerable.Range(0, 9 - n).Select(_ => View("s", $"/p{n}"))).Append(View("s", "")).ToList();
+var pathStats = InsightStatistics.Compute(manyPaths, range, Granularity.Day);
+Check(pathStats.UniquePaths == 9 && pathStats.TopPaths.Count == 9 && pathStats.TopPaths[0] == new PathCount("/p1", 8) && pathStats.TopPaths[7] == new PathCount("(unbekannt)", 1) && pathStats.TopPaths[8] == new PathCount("/p8", 1), "top paths rank by views, ties ordered, unknown path named");
+var firstDay = pathStats.PathSeries.Where(p => p.BucketStart == range.Start).ToList();
+Check(firstDay.Select(p => p.Path).SequenceEqual(["/p1", "/p2", "/p3", "/p4", "/p5", "/p6", InsightStatistics.Other]) && firstDay[^1].Count == 2 + 1 + 1 && pathStats.PathSeries.Count == 7 * 7, "path series keeps the top 6 paths and folds the rest into Übrige for every bucket");
+Check(pathStats.PathSeries.Sum(p => p.Count) == pathStats.Total, "path series accounts for every view exactly once");
+var manyOrigins = Enumerable.Range(1, 8).SelectMany(n => Enumerable.Range(0, 9 - n).Select(_ => View("s", "/", origin: $"o{n}.example"))).Concat([View("s", "/", origin: "www.liedertafel.at"), View("s", "/", origin: null), View("s", "/", origin: "O1.EXAMPLE ")]).ToList();
+var originStats = InsightStatistics.Compute(manyOrigins, range, Granularity.Day);
+Check(originStats.Origins.Select(o => o.Origin).SequenceEqual(["o1.example", "o2.example", "o3.example", "o4.example", "o5.example", "o6.example"]) && originStats.Origins[0].Count == 9, "origins list the top 6, normalised, without internal or missing hosts");
+Check(originStats.OriginSeries.Select(o => o.Origin).Distinct().SequenceEqual(["o1.example", "o2.example", "o3.example", "o4.example", "o5.example", "o6.example", InsightStatistics.Other]) && originStats.OriginSeries.Where(o => o.Origin == InsightStatistics.Other).Sum(o => o.Count) == 2 + 1, "origin series folds the rest into Übrige");
+Check(originStats.OriginSeries.Sum(o => o.Count) == originStats.Total - 2, "origin series leaves out views without an external origin");
+var visitors = InsightStatistics.Compute([View("s1", "/", "v1"), View("s2", "/", "v2"), View("s1", "/", "v1", day: 1), View("s3", "/", "v3", day: 1), View("s4", "/", "", day: 1)], range, Granularity.Day);
+Check(visitors.VisitorSeries.Where(v => v.BucketStart == range.Start).Select(v => (v.Category, v.Count)).SequenceEqual([(InsightStatistics.NewVisitors, 2), (InsightStatistics.ReturningVisitors, 0)]) && visitors.VisitorSeries.Where(v => v.BucketStart == range.Start.AddDays(1)).Select(v => (v.Category, v.Count)).SequenceEqual([(InsightStatistics.NewVisitors, 1), (InsightStatistics.ReturningVisitors, 1)]), "visitor series separates first-time from returning visitors within the range");
+var weekly = InsightStatistics.Compute([View("s1", "/", "v1", day: 0), View("s1", "/", "v1", day: 6)], range, Granularity.Week);
+Check(weekly.Series.All(p => p.BucketStart.DayOfWeek == DayOfWeek.Monday) && weekly.Series.Sum(p => p.Count) == 2 && weekly.Series.First().Partial && weekly.Series.Last().Partial, "weekly statistics bucket on Mondays and mark the cut-off edge weeks partial");
+Check(InsightStatistics.Compute([], range, Granularity.Day) is { Total: 0, Sessions: 0, PagesPerSession: 0, UniquePaths: 0 } empty && empty.Series.Count == 7 && empty.Devices.Count == InsightValues.Devices.Length && empty.PathSeries.All(p => p is { Path: InsightStatistics.Other, Count: 0 }), "empty ranges produce zero-filled series");
+Check(InsightStatistics.Compute(rows, range.Previous, Granularity.Day).Total == 0 && InsightStatistics.Compute(rows, range.Previous, Granularity.Day).Range.End == range.Start.AddDays(-1), "statistics only count the requested range");
 foreach (var invalid in new[] { "limit=101", "device=invalid", "hasReload=maybe", "minViews=0", "cursor=bad-token" })
 {
 	var failure = await Read(sessions.Run(new Request($"sessions?{query}&{invalid}"), default));

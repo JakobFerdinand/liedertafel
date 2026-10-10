@@ -20,7 +20,7 @@ public sealed record InsightRange(DateOnly Start, DateOnly End)
 	public int Days => End.DayNumber - Start.DayNumber + 1;
 	public DateTimeOffset UtcStart => Midnight(Start);
 	public DateTimeOffset UtcEnd => Midnight(End.AddDays(1));
-	public object Metadata => new { start = Start, end = End, timezone = Zone.Id };
+	public RangeMetadata Metadata => new(Start, End, Zone.Id);
 	public InsightRange Previous => new(Start.AddDays(-Days), Start.AddDays(-1));
 	public static DateOnly LocalDate(DateTimeOffset time) => DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(time, Zone).DateTime);
 	private static DateTimeOffset Midnight(DateOnly date) => new(TimeZoneInfo.ConvertTimeToUtc(date.ToDateTime(TimeOnly.MinValue), Zone));
