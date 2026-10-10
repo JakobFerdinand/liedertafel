@@ -1,10 +1,36 @@
 "use client";
 
 import { useState } from "react";
+import { feldHerkunft, KiAbzeichen } from "@/components/ki-abzeichen";
 import { patchAuth, postAuth } from "@/lib/auth";
-import type { Lied } from "@/lib/songs";
+import type { FeldHerkunft, Lied, LiedDetails } from "@/lib/songs";
 
 type ListenZeile = { schluessel: number; wert: string };
+
+/** Eine Abzeichenzeile, nur wenn das Feld eine automatische Herkunft trägt. */
+function FeldAbzeichenRow({
+  herkunft,
+  feldbezeichnung,
+  zurueckgeholt,
+  meldungsziel,
+}: {
+  herkunft?: FeldHerkunft;
+  feldbezeichnung: string;
+  zurueckgeholt?: () => void;
+  meldungsziel?: (text: string) => void;
+}) {
+  if (!herkunft) return null;
+  return (
+    <div className="feld-abzeichen">
+      <KiAbzeichen
+        herkunft={herkunft}
+        feldbezeichnung={feldbezeichnung}
+        zurueckgeholt={zurueckgeholt}
+        meldungsziel={meldungsziel}
+      />
+    </div>
+  );
+}
 
 type LiedFormularWerte = {
   title: string;
@@ -36,6 +62,8 @@ export function LiedFormular({
   lied,
   absendenText,
   onSuccess,
+  neuLaden,
+  meldungsziel,
 }: {
   lied?:
     | (Lied & {
@@ -43,10 +71,17 @@ export function LiedFormular({
         language?: string | null;
         occasion?: string | null;
         tags?: string[];
+        rowVersion?: number;
+        provenance?: FeldHerkunft[];
       })
+    | LiedDetails
     | null;
   absendenText: string;
   onSuccess: (lied: Lied, meldung: string) => void;
+  /** ARC-013-1: lädt die Detailansicht neu, z. B. nach dem Zurückholen. */
+  neuLaden?: () => void;
+  /** Statusregion für Zurückholen-Meldungen. */
+  meldungsziel?: (text: string) => void;
 }) {
   const idPraefix = lied ? `lied-${lied.id}` : "lied";
   // Nur die Detailansicht liefert den bisherigen Liedtext mit; im Katalog
@@ -57,6 +92,9 @@ export function LiedFormular({
   const kenntSprache = lied?.language !== undefined;
   const kenntAnlass = lied?.occasion !== undefined;
   const kenntSchlagwoerter = lied?.tags !== undefined;
+  // ARC-013-1: die gespeicherte Feldherkunft der Detailansicht; im Katalog
+  // gibt es keine Herkunft und damit kein Abzeichen.
+  const herkunft = lied?.provenance;
   const [werte, setWerte] = useState<LiedFormularWerte>(
     lied
       ? {
@@ -89,6 +127,8 @@ export function LiedFormular({
   const [schlagwortFehler, setSchlagwortFehler] = useState("");
   const [hinweis, setHinweis] = useState("");
   const [busy, setBusy] = useState(false);
+  // Zurückholen-Meldungen landen in der Statusregion des Formulars.
+  const melde = meldungsziel ?? setHinweis;
 
   function setzen(feld: keyof LiedFormularWerte, wert: string) {
     setWerte((bisher) => ({ ...bisher, [feld]: wert }));
@@ -202,6 +242,9 @@ export function LiedFormular({
       if (lied && (kenntAnlass || anlass)) body.occasion = anlass;
       if (lied && (kenntSchlagwoerter || schlagwoerter.length > 0))
         body.tags = schlagwoerter;
+      // ARC-013-1: der optimistische Zeiger nummeriert den Stand der Reise.
+      if (lied && lied.rowVersion !== undefined)
+        body.rowVersion = lied.rowVersion;
       const response = lied
         ? await patchAuth(`/api/songs/${encodeURIComponent(lied.id)}`, body)
         : await postAuth("/api/songs", body);
@@ -234,6 +277,14 @@ export function LiedFormular({
   return (
     <form onSubmit={speichern} noValidate>
       <label htmlFor={`${idPraefix}-titel`}>Titel</label>
+      {lied && (
+        <FeldAbzeichenRow
+          herkunft={feldHerkunft(herkunft, "song", lied.id, "title")}
+          feldbezeichnung="Titel"
+          zurueckgeholt={neuLaden}
+          meldungsziel={melde}
+        />
+      )}
       <input
         id={`${idPraefix}-titel`}
         type="text"
@@ -254,6 +305,14 @@ export function LiedFormular({
         </p>
       )}
       <label htmlFor={`${idPraefix}-komponist`}>Komponist (optional)</label>
+      {lied && (
+        <FeldAbzeichenRow
+          herkunft={feldHerkunft(herkunft, "song", lied.id, "composer")}
+          feldbezeichnung="Komponist"
+          zurueckgeholt={neuLaden}
+          meldungsziel={melde}
+        />
+      )}
       <input
         id={`${idPraefix}-komponist`}
         type="text"
@@ -262,6 +321,14 @@ export function LiedFormular({
         onChange={(event) => setzen("composer", event.target.value)}
       />
       <label htmlFor={`${idPraefix}-texter`}>Textdichter (optional)</label>
+      {lied && (
+        <FeldAbzeichenRow
+          herkunft={feldHerkunft(herkunft, "song", lied.id, "lyricist")}
+          feldbezeichnung="Textdichter"
+          zurueckgeholt={neuLaden}
+          meldungsziel={melde}
+        />
+      )}
       <input
         id={`${idPraefix}-texter`}
         type="text"
@@ -270,6 +337,14 @@ export function LiedFormular({
         onChange={(event) => setzen("lyricist", event.target.value)}
       />
       <label htmlFor={`${idPraefix}-sprache`}>Sprache (optional)</label>
+      {lied && (
+        <FeldAbzeichenRow
+          herkunft={feldHerkunft(herkunft, "song", lied.id, "language")}
+          feldbezeichnung="Sprache"
+          zurueckgeholt={neuLaden}
+          meldungsziel={melde}
+        />
+      )}
       <input
         id={`${idPraefix}-sprache`}
         type="text"
@@ -289,6 +364,14 @@ export function LiedFormular({
         </p>
       )}
       <label htmlFor={`${idPraefix}-anlass`}>Anlass (optional)</label>
+      {lied && (
+        <FeldAbzeichenRow
+          herkunft={feldHerkunft(herkunft, "song", lied.id, "occasion")}
+          feldbezeichnung="Anlass"
+          zurueckgeholt={neuLaden}
+          meldungsziel={melde}
+        />
+      )}
       <input
         id={`${idPraefix}-anlass`}
         type="text"
@@ -310,6 +393,14 @@ export function LiedFormular({
       {lied ? (
         <>
           <label htmlFor={`${idPraefix}-liedtext`}>Liedtext (optional)</label>
+          {lied && (
+            <FeldAbzeichenRow
+              herkunft={feldHerkunft(herkunft, "song", lied.id, "lyrics")}
+              feldbezeichnung="Liedtext"
+              zurueckgeholt={neuLaden}
+              meldungsziel={melde}
+            />
+          )}
           <textarea
             id={`${idPraefix}-liedtext`}
             rows={4}

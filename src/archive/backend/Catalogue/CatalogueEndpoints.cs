@@ -2,6 +2,7 @@ using Archive.Backend.Assets;
 using Archive.Backend.Auth;
 using Archive.Backend.Data;
 using Archive.Backend.Extraction;
+using Archive.Backend.Provenance;
 using Archive.Backend.Recordings;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.EntityFrameworkCore;
@@ -10,15 +11,15 @@ namespace Archive.Backend.Catalogue;
 
 public sealed record CreateSongRequest(string? Title, string? Composer, string? Lyricist, string? ArrangementLabel, string? VersionLabel, string? Language, string? Occasion, List<string?>? Tags);
 
-public sealed record PatchSongRequest(string? Title, string? Composer, string? Lyricist, string? Lyrics, List<string?>? AlternateTitles, string? Language, string? Occasion, List<string?>? Tags);
+public sealed record PatchSongRequest(string? Title, string? Composer, string? Lyricist, string? Lyrics, List<string?>? AlternateTitles, string? Language, string? Occasion, List<string?>? Tags, uint? RowVersion);
 
 public sealed record CreateArrangementRequest(string? Label, string? Arranger, string? VoiceConfiguration, string? Accompaniment);
 
-public sealed record PatchArrangementRequest(string? Label, string? Arranger, string? VoiceConfiguration, string? Accompaniment);
+public sealed record PatchArrangementRequest(string? Label, string? Arranger, string? VoiceConfiguration, string? Accompaniment, uint? RowVersion);
 
 public sealed record CreateMusicalVersionRequest(string? Label, string? Creator, string? MusicalKey);
 
-public sealed record PatchMusicalVersionRequest(string? Label, string? Creator, string? MusicalKey);
+public sealed record PatchMusicalVersionRequest(string? Label, string? Creator, string? MusicalKey, uint? RowVersion);
 
 /// <summary>
 /// Member catalogue API (ARC-013). Reads use the shared database decision:
@@ -389,12 +390,16 @@ public static class CatalogueEndpoints
 				.Select(v => v.Id)
 				.ToList();
 			var versionAssets = await LoadVersionAssetsAsync(db, versionIds, token);
-			return Results.Ok(new { song = SongDetail(song, versionAssets) });
+			// ARC-013-1: editors receive the latest per-field provenance for
+			// the "KI" badges; members never receive it.
+			var provenance = isEditor ? await LoadEditorProvenanceAsync(db, id, token) : null;
+			return Results.Ok(new { song = SongDetail(song, versionAssets, provenance) });
 		});
 
 		app.MapPost("/api/songs", async (
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
-			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time, CancellationToken token,
+			ArchiveAccessService access, ArchiveDbContext db, CatalogueWriteService writes,
+			TimeProvider time, CancellationToken token,
 			CreateSongRequest? body) =>
 		{
 			try { await antiforgery.ValidateRequestAsync(context); }
@@ -406,83 +411,20 @@ public static class CatalogueEndpoints
 			var (decision, error) = await RequireEditorAsync(context, accessor, access);
 			if (error is not null)
 				return error;
-			if (!TryValidateTitle(body?.Title, out var title, out var titleError))
-				return titleError;
-			var composer = CleanOptional(body?.Composer, "Der Komponist ist zu lang.", out var composerError);
-			if (composerError is not null)
-				return composerError;
-			var lyricist = CleanOptional(body?.Lyricist, "Der Textdichter ist zu lang.", out var lyricistError);
-			if (lyricistError is not null)
-				return lyricistError;
-			var arrangementLabel = CleanOptional(body?.ArrangementLabel, "Die Bezeichnung ist zu lang.", out var arrangementError);
-			if (arrangementError is not null)
-				return arrangementError;
-			var versionLabel = CleanOptional(body?.VersionLabel, "Die Bezeichnung ist zu lang.", out var versionError);
-			if (versionError is not null)
-				return versionError;
-			var language = CleanOptional(body?.Language, LanguageTooLongMessage, out var languageError);
-			if (languageError is not null)
-				return languageError;
-			var occasion = CleanOptional(body?.Occasion, OccasionTooLongMessage, out var occasionError);
-			if (occasionError is not null)
-				return occasionError;
-			if (body?.Tags is not null)
-			{
-				var tagValidationError = ValidateEntryList(body.Tags, TagTooManyMessage, TagEmptyMessage, TagTooLongMessage, TagMaxLength);
-				if (tagValidationError is not null)
-					return tagValidationError;
-			}
-			var now = time.GetUtcNow();
-			var song = new Song
-			{
-				Title = title,
-				Composer = composer,
-				Lyricist = lyricist,
-				Language = language,
-				Occasion = occasion,
-				CreatedAt = now,
-				CreatedByAccountId = decision!.AccountId,
-				UpdatedAt = now,
-				UpdatedByAccountId = decision.AccountId,
-			};
-			if (body?.Tags is not null)
-			{
-				for (var position = 0; position < body.Tags.Count; position++)
-				{
-					song.Tags.Add(new SongTag
-					{
-						Song = song,
-						Value = body.Tags[position]!.Trim(),
-						Position = position,
-						CreatedAt = now,
-						CreatedByAccountId = decision.AccountId,
-					});
-				}
-			}
-			song.Arrangements.Add(new Arrangement
-			{
-				Song = song,
-				Label = arrangementLabel ?? DefaultLabel,
-				CreatedAt = now,
-				CreatedByAccountId = decision.AccountId,
-				MusicalVersions =
-				[
-					new MusicalVersion
-					{
-						Label = versionLabel ?? DefaultLabel,
-						CreatedAt = now,
-						CreatedByAccountId = decision.AccountId,
-					},
-				],
-			});
-			db.Songs.Add(song);
-			await db.SaveChangesAsync(token);
-			return Results.Created($"/api/songs/{song.Id}", new { song = SongDetail(song) });
+			// ARC-013-1: creation moved into the shared write service so
+			// proposal handlers and the endpoints use one validated path.
+			var actor = new WriteActor(decision!.AccountId, time.GetUtcNow());
+			var (outcome, song) = await writes.CreateSongAsync(
+				body ?? new CreateSongRequest(null, null, null, null, null, null, null, null), actor, token);
+			if (!outcome.IsSaved)
+				return Results.Problem(statusCode: outcome.HttpCode, title: outcome.Title);
+			return Results.Created($"/api/songs/{song!.Id}", new { song = SongDetail(song) });
 		}).DisableAntiforgery();
 
 		app.MapPatch("/api/songs/{id}", async (
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
-			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time, Guid id, CancellationToken token,
+			ArchiveAccessService access, ArchiveDbContext db, CatalogueWriteService writes,
+			TimeProvider time, Guid id, CancellationToken token,
 			PatchSongRequest? body) =>
 		{
 			try { await antiforgery.ValidateRequestAsync(context); }
@@ -494,114 +436,27 @@ public static class CatalogueEndpoints
 			var (decision, error) = await RequireEditorAsync(context, accessor, access);
 			if (error is not null)
 				return error;
-			if (body?.Title is not null && !TryValidateTitle(body.Title, out _, out var titleError))
-				return titleError;
-			var composer = PatchOptional(body?.Composer, "Der Komponist ist zu lang.", out var composerError);
-			if (composerError is not null)
-				return composerError;
-			var lyricist = PatchOptional(body?.Lyricist, "Der Textdichter ist zu lang.", out var lyricistError);
-			if (lyricistError is not null)
-				return lyricistError;
-			var language = PatchOptional(body?.Language, LanguageTooLongMessage, out var languageError);
-			if (languageError is not null)
-				return languageError;
-			var occasion = PatchOptional(body?.Occasion, OccasionTooLongMessage, out var occasionError);
-			if (occasionError is not null)
-				return occasionError;
-			string? lyrics = null;
-			if (body?.Lyrics is not null)
-			{
-				var trimmedLyrics = body.Lyrics.Trim();
-				if (trimmedLyrics.Length > 5000)
-					return Results.Problem(statusCode: 400, title: LyricsTooLongMessage);
-				lyrics = trimmedLyrics.Length == 0 ? null : trimmedLyrics;
-			}
-			if (body?.AlternateTitles is not null)
-			{
-				var alternateError = ValidateEntryList(body.AlternateTitles, AlternateTitleTooManyMessage, AlternateTitleEmptyMessage, AlternateTitleTooLongMessage, MaxTitleListEntryLength);
-				if (alternateError is not null)
-					return alternateError;
-			}
-			if (body?.Tags is not null)
-			{
-				var tagValidationError = ValidateEntryList(body.Tags, TagTooManyMessage, TagEmptyMessage, TagTooLongMessage, TagMaxLength);
-				if (tagValidationError is not null)
-					return tagValidationError;
-			}
 			var song = await db.Songs
 				.Include(s => s.AlternateTitles)
 				.Include(s => s.Tags)
 				.FirstOrDefaultAsync(s => s.Id == id, token);
 			if (song is null)
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
-			if (body?.Title is not null)
-				song.Title = body.Title.Trim();
-			if (body?.Composer is not null)
-				song.Composer = composer;
-			if (body?.Lyricist is not null)
-				song.Lyricist = lyricist;
-			if (body?.Lyrics is not null)
-				song.Lyrics = lyrics;
-			if (body?.Language is not null)
-				song.Language = language;
-			if (body?.Occasion is not null)
-				song.Occasion = occasion;
-			if (body?.AlternateTitles is not null)
-			{
-				// Full replacement: delete the existing rows and re-add them in
-				// list order with fresh attribution and an explicit position
-				// (Guid v7 IDs share the same millisecond within this save).
-				db.SongTitles.RemoveRange(song.AlternateTitles);
-				var now_ = time.GetUtcNow();
-				for (var position = 0; position < body.AlternateTitles.Count; position++)
-				{
-					db.SongTitles.Add(new SongTitle
-					{
-						SongId = song.Id,
-						Value = body.AlternateTitles[position]!.Trim(),
-						Position = position,
-						CreatedAt = now_,
-						CreatedByAccountId = decision!.AccountId,
-					});
-				}
-			}
-			if (body?.Tags is not null)
-			{
-				// Full replacement: delete the existing rows and re-add them in
-				// list order with fresh attribution and an explicit position
-				// (Guid v7 IDs share the same millisecond within this save).
-				db.SongTags.RemoveRange(song.Tags);
-				var now_ = time.GetUtcNow();
-				for (var position = 0; position < body.Tags.Count; position++)
-				{
-					db.SongTags.Add(new SongTag
-					{
-						SongId = song.Id,
-						Value = body.Tags[position]!.Trim(),
-						Position = position,
-						CreatedAt = now_,
-						CreatedByAccountId = decision!.AccountId,
-					});
-				}
-			}
-			var now = time.GetUtcNow();
-			song.UpdatedAt = now;
-			song.UpdatedByAccountId = decision!.AccountId;
-			song.RowVersion++;
-			try
-			{
-				await db.SaveChangesAsync(token);
-			}
-			catch (DbUpdateConcurrencyException)
-			{
-				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
-			}
-			return Results.Ok(new { song = SongDetail((await LoadDetailAsync(db, id, token))!) });
+			// ARC-013-1: patch moved into the shared write service; the human
+			// edit locks every changed field against later automated runs.
+			var actor = new WriteActor(decision!.AccountId, time.GetUtcNow());
+			var outcome = await writes.PatchSongAsync(song, body ?? new(null, null, null, null, null, null, null, null, null),
+				body?.RowVersion, actor, null, token);
+			if (!outcome.IsSaved)
+				return Results.Problem(statusCode: outcome.HttpCode, title: outcome.Title);
+			var provenance = await LoadEditorProvenanceAsync(db, id, token);
+			return Results.Ok(new { song = SongDetail((await LoadDetailAsync(db, id, token))!, provenance: provenance) });
 		}).DisableAntiforgery();
 
 		app.MapPost("/api/songs/{id}/publish", async (
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
-			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time, Guid id, CancellationToken token) =>
+			ArchiveAccessService access, ArchiveDbContext db, CatalogueWriteService writes,
+			TimeProvider time, Guid id, CancellationToken token) =>
 		{
 			try { await antiforgery.ValidateRequestAsync(context); }
 			catch (AntiforgeryValidationException)
@@ -615,19 +470,19 @@ public static class CatalogueEndpoints
 			var song = await db.Songs.FirstOrDefaultAsync(s => s.Id == id, token);
 			if (song is null)
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
-			if (song.PublishedAt is null)
-			{
-				song.PublishedAt = time.GetUtcNow();
-				song.PublishedByAccountId = decision!.AccountId;
-				song.RowVersion++;
-				await db.SaveChangesAsync(token);
-			}
-			return Results.Ok(new { song = SongDetail((await LoadDetailAsync(db, id, token))!) });
+			// Publication is a visibility change: it stays human-confirmed
+			// here and is never written automatically (proposal only).
+			var outcome = await writes.PublishSongAsync(song, new WriteActor(decision!.AccountId, time.GetUtcNow()), null, token);
+			if (!outcome.IsSaved)
+				return Results.Problem(statusCode: outcome.HttpCode, title: outcome.Title);
+			var provenance = await LoadEditorProvenanceAsync(db, id, token);
+			return Results.Ok(new { song = SongDetail((await LoadDetailAsync(db, id, token))!, provenance: provenance) });
 		}).DisableAntiforgery();
 
 		app.MapPost("/api/songs/{id}/unpublish", async (
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
-			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time, Guid id, CancellationToken token) =>
+			ArchiveAccessService access, ArchiveDbContext db, CatalogueWriteService writes,
+			TimeProvider time, Guid id, CancellationToken token) =>
 		{
 			try { await antiforgery.ValidateRequestAsync(context); }
 			catch (AntiforgeryValidationException)
@@ -641,19 +496,16 @@ public static class CatalogueEndpoints
 			var song = await db.Songs.FirstOrDefaultAsync(s => s.Id == id, token);
 			if (song is null)
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
-			if (song.PublishedAt is not null)
-			{
-				song.PublishedAt = null;
-				song.PublishedByAccountId = null;
-				song.RowVersion++;
-				await db.SaveChangesAsync(token);
-			}
+			var outcome = await writes.UnpublishSongAsync(song, new WriteActor(decision!.AccountId, time.GetUtcNow()), null, token);
+			if (!outcome.IsSaved)
+				return Results.Problem(statusCode: outcome.HttpCode, title: outcome.Title);
 			return Results.Ok(new { song = SongDetail((await LoadDetailAsync(db, id, token))!) });
 		}).DisableAntiforgery();
 
 		app.MapPost("/api/songs/{id}/arrangements", async (
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
-			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time, Guid id, CancellationToken token,
+			ArchiveAccessService access, ArchiveDbContext db, CatalogueWriteService writes,
+			TimeProvider time, Guid id, CancellationToken token,
 			CreateArrangementRequest? body) =>
 		{
 			try { await antiforgery.ValidateRequestAsync(context); }
@@ -665,49 +517,21 @@ public static class CatalogueEndpoints
 			var (decision, error) = await RequireEditorAsync(context, accessor, access);
 			if (error is not null)
 				return error;
-			if (!TryValidateLabel(body?.Label, out var label, out var labelError))
-				return labelError;
-			var arranger = CleanOptional(body?.Arranger, "Der Arrangeur ist zu lang.", out var arrangerError);
-			if (arrangerError is not null)
-				return arrangerError;
-			var voiceConfiguration = CleanOptional(body?.VoiceConfiguration, "Die Stimmverteilung ist zu lang.", out var voiceError);
-			if (voiceError is not null)
-				return voiceError;
-			var accompaniment = CleanOptional(body?.Accompaniment, AccompanimentTooLongMessage, out var accompanimentError);
-			if (accompanimentError is not null)
-				return accompanimentError;
 			var song = await db.Songs.FirstOrDefaultAsync(s => s.Id == id, token);
 			if (song is null)
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
-		var now = time.GetUtcNow();
-		var arrangement = new Arrangement
-		{
-			SongId = song.Id,
-			Label = label,
-			Arranger = arranger,
-			VoiceConfiguration = voiceConfiguration,
-			Accompaniment = accompaniment,
-			CreatedAt = now,
-			CreatedByAccountId = decision!.AccountId,
-		};
-		db.Arrangements.Add(arrangement);
-		song.UpdatedAt = now;
-			song.UpdatedByAccountId = decision.AccountId;
-			song.RowVersion++;
-			try
-			{
-				await db.SaveChangesAsync(token);
-			}
-			catch (DbUpdateConcurrencyException)
-			{
-				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
-			}
+			var actor = new WriteActor(decision!.AccountId, time.GetUtcNow());
+			var outcome = await writes.CreateArrangementAsync(song,
+				body ?? new CreateArrangementRequest(null, null, null, null), actor, token);
+			if (!outcome.IsSaved)
+				return Results.Problem(statusCode: outcome.HttpCode, title: outcome.Title);
 			return Results.Created($"/api/songs/{song.Id}", new { song = SongDetail((await LoadDetailAsync(db, song.Id, token))!) });
 		}).DisableAntiforgery();
 
 		app.MapPatch("/api/arrangements/{id}", async (
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
-			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time, Guid id, CancellationToken token,
+			ArchiveAccessService access, ArchiveDbContext db, CatalogueWriteService writes,
+			TimeProvider time, Guid id, CancellationToken token,
 			PatchArrangementRequest? body) =>
 		{
 			try { await antiforgery.ValidateRequestAsync(context); }
@@ -719,47 +543,23 @@ public static class CatalogueEndpoints
 			var (decision, error) = await RequireEditorAsync(context, accessor, access);
 			if (error is not null)
 				return error;
-			if (body?.Label is not null && !TryValidateLabel(body.Label, out _, out var labelError))
-				return labelError;
-			var arranger = PatchOptional(body?.Arranger, "Der Arrangeur ist zu lang.", out var arrangerError);
-			if (arrangerError is not null)
-				return arrangerError;
-			var voiceConfiguration = PatchOptional(body?.VoiceConfiguration, "Die Stimmverteilung ist zu lang.", out var voiceError);
-			if (voiceError is not null)
-				return voiceError;
-			var accompaniment = PatchOptional(body?.Accompaniment, AccompanimentTooLongMessage, out var accompanimentError);
-			if (accompanimentError is not null)
-				return accompanimentError;
 			var arrangement = await db.Arrangements.Include(a => a.Song)
 				.FirstOrDefaultAsync(a => a.Id == id, token);
 			if (arrangement is null || arrangement.Song is null)
 				return Results.Problem(statusCode: 404, title: ArrangementNotFoundMessage);
-			if (body?.Label is not null)
-				arrangement.Label = body.Label.Trim();
-			if (body?.Arranger is not null)
-				arrangement.Arranger = arranger;
-			if (body?.VoiceConfiguration is not null)
-				arrangement.VoiceConfiguration = voiceConfiguration;
-			if (body?.Accompaniment is not null)
-				arrangement.Accompaniment = accompaniment;
-			var now = time.GetUtcNow();
-			arrangement.Song.UpdatedAt = now;
-			arrangement.Song.UpdatedByAccountId = decision!.AccountId;
-			arrangement.Song.RowVersion++;
-			try
-			{
-				await db.SaveChangesAsync(token);
-			}
-			catch (DbUpdateConcurrencyException)
-			{
-				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
-			}
-			return Results.Ok(new { song = SongDetail((await LoadDetailAsync(db, arrangement.Song.Id, token))!) });
+			var actor = new WriteActor(decision!.AccountId, time.GetUtcNow());
+			var outcome = await writes.PatchArrangementAsync(arrangement,
+				body ?? new(null, null, null, null, null), body?.RowVersion, actor, null, token);
+			if (!outcome.IsSaved)
+				return Results.Problem(statusCode: outcome.HttpCode, title: outcome.Title);
+			var provenance = await LoadEditorProvenanceAsync(db, arrangement.Song.Id, token);
+			return Results.Ok(new { song = SongDetail((await LoadDetailAsync(db, arrangement.Song.Id, token))!, provenance: provenance) });
 		}).DisableAntiforgery();
 
 		app.MapPost("/api/arrangements/{id}/versions", async (
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
-			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time, Guid id, CancellationToken token,
+			ArchiveAccessService access, ArchiveDbContext db, CatalogueWriteService writes,
+			TimeProvider time, Guid id, CancellationToken token,
 			CreateMusicalVersionRequest? body) =>
 		{
 			try { await antiforgery.ValidateRequestAsync(context); }
@@ -771,46 +571,22 @@ public static class CatalogueEndpoints
 			var (decision, error) = await RequireEditorAsync(context, accessor, access);
 			if (error is not null)
 				return error;
-			if (!TryValidateLabel(body?.Label, out var label, out var labelError))
-				return labelError;
-			var creator = CleanOptional(body?.Creator, "Der Ersteller ist zu lang.", out var creatorError);
-			if (creatorError is not null)
-				return creatorError;
-			var musicalKey = CleanOptional(body?.MusicalKey, "Die Tonart ist zu lang.", out var keyError);
-			if (keyError is not null)
-				return keyError;
 			var arrangement = await db.Arrangements.Include(a => a.Song)
 				.FirstOrDefaultAsync(a => a.Id == id, token);
 			if (arrangement is null || arrangement.Song is null)
 				return Results.Problem(statusCode: 404, title: ArrangementNotFoundMessage);
-			var now = time.GetUtcNow();
-			var version = new MusicalVersion
-			{
-				ArrangementId = arrangement.Id,
-				Label = label,
-				Creator = creator,
-				MusicalKey = musicalKey,
-				CreatedAt = now,
-				CreatedByAccountId = decision!.AccountId,
-			};
-			db.MusicalVersions.Add(version);
-			arrangement.Song.UpdatedAt = now;
-			arrangement.Song.UpdatedByAccountId = decision.AccountId;
-			arrangement.Song.RowVersion++;
-			try
-			{
-				await db.SaveChangesAsync(token);
-			}
-			catch (DbUpdateConcurrencyException)
-			{
-				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
-			}
+			var actor = new WriteActor(decision!.AccountId, time.GetUtcNow());
+			var outcome = await writes.CreateMusicalVersionAsync(arrangement,
+				body ?? new CreateMusicalVersionRequest(null, null, null), actor, token);
+			if (!outcome.IsSaved)
+				return Results.Problem(statusCode: outcome.HttpCode, title: outcome.Title);
 			return Results.Created($"/api/songs/{arrangement.Song.Id}", new { song = SongDetail((await LoadDetailAsync(db, arrangement.Song.Id, token))!) });
 		}).DisableAntiforgery();
 
 		app.MapPatch("/api/musical-versions/{id}", async (
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
-			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time, Guid id, CancellationToken token,
+			ArchiveAccessService access, ArchiveDbContext db, CatalogueWriteService writes,
+			TimeProvider time, Guid id, CancellationToken token,
 			PatchMusicalVersionRequest? body) =>
 		{
 			try { await antiforgery.ValidateRequestAsync(context); }
@@ -822,38 +598,18 @@ public static class CatalogueEndpoints
 			var (decision, error) = await RequireEditorAsync(context, accessor, access);
 			if (error is not null)
 				return error;
-			if (body?.Label is not null && !TryValidateLabel(body.Label, out _, out var labelError))
-				return labelError;
-			var creator = PatchOptional(body?.Creator, "Der Ersteller ist zu lang.", out var creatorError);
-			if (creatorError is not null)
-				return creatorError;
-			var musicalKey = PatchOptional(body?.MusicalKey, "Die Tonart ist zu lang.", out var keyError);
-			if (keyError is not null)
-				return keyError;
 			var version = await db.MusicalVersions
 				.Include(v => v.Arrangement).ThenInclude(a => a.Song)
 				.FirstOrDefaultAsync(v => v.Id == id, token);
 			if (version is null || version.Arrangement?.Song is null)
 				return Results.Problem(statusCode: 404, title: ArrangementNotFoundMessage);
-			if (body?.Label is not null)
-				version.Label = body.Label.Trim();
-			if (body?.Creator is not null)
-				version.Creator = creator;
-			if (body?.MusicalKey is not null)
-				version.MusicalKey = musicalKey;
-			var now = time.GetUtcNow();
-			version.Arrangement.Song.UpdatedAt = now;
-			version.Arrangement.Song.UpdatedByAccountId = decision!.AccountId;
-			version.Arrangement.Song.RowVersion++;
-			try
-			{
-				await db.SaveChangesAsync(token);
-			}
-			catch (DbUpdateConcurrencyException)
-			{
-				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
-			}
-			return Results.Ok(new { song = SongDetail((await LoadDetailAsync(db, version.Arrangement.Song.Id, token))!) });
+			var actor = new WriteActor(decision!.AccountId, time.GetUtcNow());
+			var outcome = await writes.PatchMusicalVersionAsync(version,
+				body ?? new(null, null, null, null), body?.RowVersion, actor, null, token);
+			if (!outcome.IsSaved)
+				return Results.Problem(statusCode: outcome.HttpCode, title: outcome.Title);
+			var provenance = await LoadEditorProvenanceAsync(db, version.Arrangement.Song.Id, token);
+			return Results.Ok(new { song = SongDetail((await LoadDetailAsync(db, version.Arrangement.Song.Id, token))!, provenance: provenance) });
 		}).DisableAntiforgery();
 	}
 
@@ -935,7 +691,7 @@ public static class CatalogueEndpoints
 		return texts.ToDictionary(t => t.RevisionId, t => ScoreTextAnalyzer.Analyze(t.Text).Facts);
 	}
 
-	private static object SongDetail(Song song, List<(Guid VersionId, List<object> Assets)>? versionAssets = null)
+	private static object SongDetail(Song song, List<(Guid VersionId, List<object> Assets)>? versionAssets = null, object? provenance = null)
 	{
 		var assetMap = versionAssets?.ToDictionary(entry => entry.VersionId, entry => entry.Assets);
 		return new
@@ -948,9 +704,11 @@ public static class CatalogueEndpoints
 			publishedAt = song.PublishedAt,
 			createdAt = song.CreatedAt,
 			updatedAt = song.UpdatedAt,
+			rowVersion = song.RowVersion,
 			lyrics = song.Lyrics,
 			language = song.Language,
 			occasion = song.Occasion,
+			provenance,
 			tags = song.Tags
 				.OrderBy(t => t.Position).ThenBy(t => t.Id)
 				.Select(t => t.Value),
@@ -964,18 +722,61 @@ public static class CatalogueEndpoints
 				arranger = a.Arranger,
 				voiceConfiguration = a.VoiceConfiguration,
 				accompaniment = a.Accompaniment,
+				rowVersion = a.RowVersion,
 				musicalVersions = a.MusicalVersions.OrderBy(v => v.Id).Select(v => new
 				{
 					id = v.Id,
 					label = v.Label,
 					creator = v.Creator,
 					musicalKey = v.MusicalKey,
+					rowVersion = v.RowVersion,
 					assets = assetMap is not null && assetMap.TryGetValue(v.Id, out var assets)
 						? assets
 						: (List<object>)[],
 				}),
 			}),
 		};
+	}
+
+	/// <summary>
+	/// ARC-013-1: loads the latest provenance rows of one song and its
+	/// arrangements and versions as a flat list, keyed by entity type, id and
+	/// field. Only editors call this; members never get a provenance field.
+	/// </summary>
+	public static async Task<List<object>> LoadEditorProvenanceAsync(ArchiveDbContext db, Guid songId, CancellationToken token)
+	{
+		var song = await db.Songs.AsNoTracking()
+			.Include(s => s.Arrangements).ThenInclude(a => a.MusicalVersions)
+			.FirstOrDefaultAsync(s => s.Id == songId, token);
+		if (song is null)
+			return [];
+		var arrangementIds = song.Arrangements.Select(a => a.Id).ToList();
+		var versionIds = song.Arrangements
+			.SelectMany(a => a.MusicalVersions).Select(v => v.Id).ToList();
+		var entityIds = new List<Guid> { song.Id };
+		entityIds.AddRange(arrangementIds);
+		entityIds.AddRange(versionIds);
+		var rows = await db.FieldProvenance.AsNoTracking()
+			.Where(p => entityIds.Contains(p.EntityId)
+				&& (p.EntityType == FieldCatalog.EntityTypeSong
+					|| p.EntityType == FieldCatalog.EntityTypeArrangement
+					|| p.EntityType == FieldCatalog.EntityTypeMusicalVersion))
+			.OrderBy(p => p.EntityType).ThenBy(p => p.Field)
+			.ToListAsync(token);
+		return rows.Select(p => (object)new
+		{
+			entityType = p.EntityType,
+			entityId = p.EntityId,
+			field = p.Field,
+			fieldLabel = FieldCatalog.Display(p.EntityType, p.Field),
+			source = p.Source.ToString(),
+			confidence = p.Confidence.ToString(),
+			model = p.Model,
+			promptVersion = p.PromptVersion,
+			changedAt = p.ChangedAt,
+			locked = p.Locked,
+			canRevert = true,
+		}).ToList();
 	}
 
 	private static bool TryValidateTitle(string? raw, out string title, out IResult? error)

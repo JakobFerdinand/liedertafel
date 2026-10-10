@@ -1,6 +1,7 @@
 using Archive.Backend.Assets;
 using Archive.Backend.Auth;
 using Archive.Backend.Data;
+using Archive.Backend.Provenance;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.EntityFrameworkCore;
 
@@ -8,7 +9,7 @@ namespace Archive.Backend.Events;
 
 public sealed record CreateEventRequest(string? Kind, string? Title, string? Venue, int? DateYear, int? DateMonth, int? DateDay, bool DateApproximate, string? StartTime, string? Notes, string? SourceNote);
 
-public sealed record PatchEventRequest(string? Kind, string? Title, string? Venue, EventDatePatch? Date, string? StartTime, string? Notes, string? SourceNote);
+public sealed record PatchEventRequest(string? Kind, string? Title, string? Venue, EventDatePatch? Date, string? StartTime, string? Notes, string? SourceNote, uint? ExpectedRowVersion);
 
 /// <summary>Explicit full replacement of the date block; absent values mean "unknown part".</summary>
 public sealed record EventDatePatch(int? Year, int? Month, int? Day, bool Approximate);
@@ -199,7 +200,8 @@ public static class EventEndpoints
 
 		app.MapPatch("/api/events/{id}", async (
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
-			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time, Guid id, CancellationToken token,
+			ArchiveAccessService access, ArchiveDbContext db, CatalogueWriteService writes,
+			TimeProvider time, Guid id, CancellationToken token,
 			PatchEventRequest? body) =>
 		{
 			try { await antiforgery.ValidateRequestAsync(context); }
@@ -211,69 +213,17 @@ public static class EventEndpoints
 			var (decision, error) = await RequireEditorAsync(context, accessor, access);
 			if (error is not null)
 				return error;
-			if (body?.Title is not null && !TryValidateTitle(body.Title, out _, out var titleError))
-				return titleError;
-			if (body?.Kind is not null && !TryValidateKind(body.Kind, out _, out var kindError))
-				return kindError;
-			var venue = CleanOptional(body?.Venue, VenueMaxLength, VenueTooLongMessage, out var venueError);
-			if (venueError is not null)
-				return venueError;
-			var notes = CleanOptional(body?.Notes, NotesMaxLength, NotesTooLongMessage, out var notesError);
-			if (notesError is not null)
-				return notesError;
-			var sourceNote = CleanOptional(body?.SourceNote, SourceNoteMaxLength, SourceNoteTooLongMessage, out var sourceNoteError);
-			if (sourceNoteError is not null)
-				return sourceNoteError;
-			if (body?.StartTime is not null && !TryValidateStartTime(body.StartTime, out _, out var startTimeError))
-				return startTimeError;
-			var date = body?.Date;
-			if (date is not null)
-			{
-				var dateError = ValidateDate(date.Year, date.Month, date.Day);
-				if (dateError is not null)
-					return dateError;
-			}
 			var choirEvent = await db.Events
 				.FirstOrDefaultAsync(e => e.Id == id, token);
 			if (choirEvent is null)
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
-			if (body?.Title is not null)
-				choirEvent.Title = body.Title.Trim();
-			if (body?.Kind is not null)
-				choirEvent.Kind = body.Kind.Trim();
-			if (body?.Venue is not null)
-				choirEvent.Venue = venue;
-			if (body?.StartTime is not null)
-			{
-				// Present but empty clears the optional time.
-				var trimmedStartTime = body.StartTime.Trim();
-				choirEvent.StartTime = trimmedStartTime.Length == 0 ? null : trimmedStartTime;
-			}
-			if (body?.Notes is not null)
-				choirEvent.Notes = notes;
-			if (body?.SourceNote is not null)
-				choirEvent.SourceNote = sourceNote;
-			if (date is not null)
-			{
-				// The nested date object is an explicit full replacement of
-				// the date block; a null year means unknown date.
-				choirEvent.DateYear = date.Year;
-				choirEvent.DateMonth = date.Month;
-				choirEvent.DateDay = date.Day;
-				choirEvent.DateApproximate = date.Approximate;
-			}
-			var now = time.GetUtcNow();
-			choirEvent.UpdatedAt = now;
-			choirEvent.UpdatedByAccountId = decision!.AccountId;
-			choirEvent.RowVersion++;
-			try
-			{
-				await db.SaveChangesAsync(token);
-			}
-			catch (DbUpdateConcurrencyException)
-			{
-				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
-			}
+			// ARC-013-1: the event patch moved into the shared write service
+			// (validation, attribution and the notes/sourceNote provenance).
+			var outcome = await writes.PatchEventAsync(choirEvent,
+				body ?? new(null, null, null, null, null, null, null, null),
+				new WriteActor(decision!.AccountId, time.GetUtcNow()), null, token);
+			if (!outcome.IsSaved)
+				return Results.Problem(statusCode: outcome.HttpCode, title: outcome.Title);
 			var documents = await LoadEventDocumentsAsync(db, IsEditor(decision), id, token);
 			var programme = await ProgrammeEndpoints.LoadDetailEmbedAsync(db, IsEditor(decision), id, token);
 			var performances = await PerformanceEndpoints.LoadEventPerformancesAsync(db, IsEditor(decision), id, token);
@@ -282,7 +232,8 @@ public static class EventEndpoints
 
 		app.MapPost("/api/events/{id}/publish", async (
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
-			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time, Guid id, CancellationToken token) =>
+			ArchiveAccessService access, ArchiveDbContext db, CatalogueWriteService writes,
+			TimeProvider time, Guid id, CancellationToken token) =>
 		{
 			try { await antiforgery.ValidateRequestAsync(context); }
 			catch (AntiforgeryValidationException)
@@ -296,13 +247,11 @@ public static class EventEndpoints
 			var choirEvent = await db.Events.FirstOrDefaultAsync(e => e.Id == id, token);
 			if (choirEvent is null)
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
-			if (choirEvent.PublishedAt is null)
-			{
-				choirEvent.PublishedAt = time.GetUtcNow();
-				choirEvent.PublishedByAccountId = decision!.AccountId;
-				choirEvent.RowVersion++;
-				await db.SaveChangesAsync(token);
-			}
+			// Publication is proposal-only for automated writers; the human
+			// endpoint keeps idempotent first-publication semantics.
+			var outcome = await writes.PublishEventAsync(choirEvent, new WriteActor(decision!.AccountId, time.GetUtcNow()), null, token);
+			if (!outcome.IsSaved)
+				return Results.Problem(statusCode: outcome.HttpCode, title: outcome.Title);
 			var publishDocuments = await LoadEventDocumentsAsync(db, IsEditor(decision!), id, token);
 			var publishProgramme = await ProgrammeEndpoints.LoadDetailEmbedAsync(db, IsEditor(decision!), id, token);
 			var publishPerformances = await PerformanceEndpoints.LoadEventPerformancesAsync(db, IsEditor(decision!), id, token);
@@ -311,7 +260,8 @@ public static class EventEndpoints
 
 		app.MapPost("/api/events/{id}/unpublish", async (
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
-			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time, Guid id, CancellationToken token) =>
+			ArchiveAccessService access, ArchiveDbContext db, CatalogueWriteService writes,
+			TimeProvider time, Guid id, CancellationToken token) =>
 		{
 			try { await antiforgery.ValidateRequestAsync(context); }
 			catch (AntiforgeryValidationException)
@@ -325,13 +275,9 @@ public static class EventEndpoints
 			var choirEvent = await db.Events.FirstOrDefaultAsync(e => e.Id == id, token);
 			if (choirEvent is null)
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
-			if (choirEvent.PublishedAt is not null)
-			{
-				choirEvent.PublishedAt = null;
-				choirEvent.PublishedByAccountId = null;
-				choirEvent.RowVersion++;
-				await db.SaveChangesAsync(token);
-			}
+			var outcome = await writes.UnpublishEventAsync(choirEvent, new WriteActor(decision!.AccountId, time.GetUtcNow()), null, token);
+			if (!outcome.IsSaved)
+				return Results.Problem(statusCode: outcome.HttpCode, title: outcome.Title);
 			var unpublishDocuments = await LoadEventDocumentsAsync(db, IsEditor(decision!), id, token);
 			var unpublishProgramme = await ProgrammeEndpoints.LoadDetailEmbedAsync(db, IsEditor(decision!), id, token);
 			var unpublishPerformances = await PerformanceEndpoints.LoadEventPerformancesAsync(db, IsEditor(decision!), id, token);
@@ -393,6 +339,7 @@ public static class EventEndpoints
 		documents = documents ?? [],
 		programme,
 		performances = performances ?? [],
+		rowVersion = e.RowVersion,
 		createdAt = e.CreatedAt,
 		updatedAt = e.UpdatedAt,
 		publishedAt = e.PublishedAt,

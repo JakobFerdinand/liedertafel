@@ -82,6 +82,12 @@ public sealed class ArchiveDbContext(DbContextOptions<ArchiveDbContext> options)
 
 	public DbSet<Ai.AiBudgetMonth> AiBudgetMonths => Set<Ai.AiBudgetMonth>();
 
+	/// <summary>ARC-013-1: latest per-field provenance of the catalogued fields.</summary>
+	public DbSet<Provenance.FieldProvenance> FieldProvenance => Set<Provenance.FieldProvenance>();
+
+	/// <summary>ARC-013-1: one open machine suggestion awaiting an editor decision.</summary>
+	public DbSet<Provenance.Proposal> Proposals => Set<Provenance.Proposal>();
+
 	protected override void OnModelCreating(ModelBuilder modelBuilder)
 	{
 		base.OnModelCreating(modelBuilder);

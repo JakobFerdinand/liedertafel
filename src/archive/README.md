@@ -845,6 +845,66 @@ For later slices:
 - After applying the migration in a hosted database, run
   `infrastructure/neon/runtime-grants.sql` as usual.
 
+## ARC-013-1 field provenance and proposals
+
+Every catalogued field a machine wrote carries provenance, every human edit
+locks its field, and everything a model or regex run may not apply by itself
+waits in one "Vorschläge" queue — ordinary React over stored state, working
+while AI is paused.
+
+Data (migration `20261010174016_FieldProvenanceAndProposals`): table
+`field_provenance` with the latest write per (entity type, id, field) —
+source `Human`/`Regex`/`Ai`, confidence `sicher`/`unsicher`, model, prompt
+version, previous value, time, actor and the `Locked` flag — and table
+`proposals` (kind, target, JSON payload, German reason, confidence, source,
+model, prompt version, source description, target row version, open/accepted/
+rejected, attribution; `CK_proposals_kind` / `CK_proposals_status`).
+Arrangements and musical versions gained their own `RowVersion` concurrency
+columns; song/arrangement/version PATCHes carry it and a stale edit answers
+409 "Die Fassung wurde zwischenzeitlich geändert." without touching the row.
+Song detail responses carry `rowVersion` on song, arrangement and version,
+and — editors only — a flat `provenance` list; members never receive it.
+
+The shared write path is `Provenance/WriteService.cs`
+(`CatalogueWriteService`): song/arrangement/musical-version/event/asset
+field patches plus song creation, arrangement/version creation and
+publish/unpublish of song and event, all with validated German Problem
+titles, attribution, row-version bumps and per-field provenance in one
+save; endpoint lambdas keep antiforgery, role checks and responses, so
+endpoint handlers, proposal handlers and automated writers cannot drift.
+`AutomatedFieldWriter` is the one automated path: an unchanged value is a
+no-op; a locked field or a value below
+`Archive:Provenance:AutoApplyConfidence` (default `sicher`; `unsicher`
+applies both steps, `never` proposes everything) becomes an open
+`FieldSuggestion` proposal with the target's row version at proposal time;
+above the threshold it applies itself and records `Regex`/`Ai` provenance.
+`POST /api/dev/provenance-write` (Development) drives it for local checks.
+
+The editor queue lives at `/verwaltung/vorschlaege/`
+(`GET /api/proposals`, accept/reject/refresh, editor-only, members 403),
+listing open proposals grouped by German kind label. Accepting applies the
+change through the typed handler and the shared write service; if the
+target row version changed since the proposal, accept answers 409 with
+`currentValue`, `proposedValue` and `currentRowVersion`, the queue shows
+both values side by side and "Auf den aktuellen Stand bringen"
+(`POST …/refresh`) re-bases the proposal. Accepted values keep their
+automated provenance (the badge stays revertible); reverts run through
+`POST /api/provenance/revert` and lock the field like a human edit.
+The "KI" (or "Auswertung" for regex runs) badge with its "Zurückholen"
+button renders in the song and Fassung editor forms
+(`components/ki-abzeichen.tsx`). Identity and
+visibility stay outside the field vocabulary entirely, so new songs,
+merges, publication, deletion and member administration can only ever
+arrive as proposals; deletion/merge/member-administration handlers are not
+registered yet (their slices register them).
+
+Handoff: ARC-034-1, ARC-036, ARC-025-1, ARC-046, ARC-047 and ARC-031 write
+through `AutomatedFieldWriter`; tests live in
+`tests/archive/backend/ProvenanceProposalTests.cs` (InMemory) and
+`ProvenancePostgresLiveTests.cs` (real PostgreSQL via
+`ARCHIVE_TEST_POSTGRES`), with the browser journey in
+`frontend/tests/vorschlaege.spec.ts`.
+
 ## Focused verification
 
 From the repository root:

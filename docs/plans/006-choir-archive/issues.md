@@ -1,14 +1,16 @@
 # Choir Archive — Implementation Issue Index
 
-Status: ARC-001, ARC-003, ARC-004, ARC-005, ARC-006, ARC-007, ARC-008, ARC-009, ARC-011, ARC-011-1, ARC-013, ARC-014, ARC-015, ARC-016, ARC-017, ARC-018, ARC-019, ARC-020, ARC-021, ARC-022, ARC-023, ARC-024, ARC-025, ARC-026, ARC-027, ARC-028, ARC-029, ARC-030, ARC-031, ARC-032, ARC-033, ARC-034 and ARC-022-3 completed (ARC-022-3: live evaluation 14 of 14 on 2026-10-09 after a prompt fix for catalogue listings; the missing citations predated the slice — see the ticket); ARC-010, ARC-012 and ARC-051 are in progress; remaining implementation issues are planned. AI assistance was added to every open issue and as follow-up issues to completed ones on 2026-10-04.
+Status: ARC-001, ARC-003, ARC-004, ARC-005, ARC-006, ARC-007, ARC-008, ARC-009, ARC-011, ARC-011-1, ARC-013, ARC-014, ARC-015, ARC-016, ARC-017, ARC-018, ARC-019, ARC-020, ARC-021, ARC-022, ARC-023, ARC-024, ARC-025, ARC-026, ARC-027, ARC-028, ARC-029, ARC-030, ARC-031, ARC-032, ARC-033, ARC-034, ARC-022-3 and ARC-013-1 completed (ARC-022-3: live evaluation 14 of 14 on 2026-10-09 after a prompt fix for catalogue listings; the missing citations predated the slice — see the ticket; ARC-013-1: field provenance, automated write path and the "Vorschläge" queue implemented on 2026-10-10); ARC-010, ARC-012 and ARC-051 are in progress; remaining implementation issues are planned. AI assistance was added to every open issue and as follow-up issues to completed ones on 2026-10-04.
 Date: 2026-10-04
 Sources: [PRD](prd.md) · [Architecture](architecture.md)
 
 **Start here to pick work:** [ARC-022-3] (chat on an Agent Framework agent
 under a hard monthly cap) is done; its live evaluation passes 14 of 14 cases
 since 2026-10-09. [ARC-013-1] (field provenance and the "Vorschläge"
-queue) is the next priority and can run in parallel with [ARC-021-1] (Luna)
-and [ARC-022-4] (AG-UI client and A2UI catalog), which build on [ARC-022-3]. The agreed order and technical design are
+queue) is done since 2026-10-10, so [ARC-034-1] and [ARC-052] (after
+[ARC-021-1]) and [ARC-036] can take up their next prerequisites;
+[ARC-021-1] (Luna) and [ARC-022-4] (AG-UI client and A2UI catalog) are the
+next open priorities and build on [ARC-022-3]. The agreed order and technical design are
 in
 [architecture §14](architecture.md#14-ai-assistance). Beyond them, [ARC-002]
 has no implementation dependencies and can start in parallel, subject to its
@@ -120,11 +122,10 @@ issues in an earlier row. External inputs and shared edits still apply.
 | 10 | [ARC-045] |
 
 The layers above predate the AI assistance issues and do not place them.
-[ARC-013-1] is ready now, and so are [ARC-021-1] and [ARC-022-4] on top of the
-implemented [ARC-022-3]; [ARC-034-1] follows [ARC-021-1] and [ARC-013-1];
-[ARC-052] follows [ARC-021-1]; [ARC-036] now also waits for [ARC-013-1],
-[ARC-021-1] and [ARC-052], which moves the import chain and the launch gates
-behind them.
+[ARC-021-1] and [ARC-022-4] are ready now on top of the implemented
+[ARC-022-3]; with [ARC-013-1] also done, [ARC-034-1] only waits for
+[ARC-021-1] and [ARC-036] for [ARC-021-1] and [ARC-052], which keeps the
+import chain and the launch gates behind them.
 
 ### Coordination that is not a dependency
 

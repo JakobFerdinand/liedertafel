@@ -10,6 +10,7 @@ using Archive.Backend.Development;
 using Archive.Backend.Events;
 using Archive.Backend.Extraction;
 using Archive.Backend.Maintenance;
+using Archive.Backend.Provenance;
 using Archive.Backend.Recordings;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.DataProtection;
@@ -172,6 +173,19 @@ builder.Services.AddOptions<ChatOptions>()
 // ARC-022-3: provider selection, model keys, usage ledger, hard monthly cap
 // and the gateway. Whatever injects IChatClient gets the budgeted pipeline.
 builder.Services.AddArchiveAi(builder.Configuration);
+// ARC-013-1: the shared write path with per-field provenance and proposals.
+builder.Services.AddOptions<ProvenanceOptions>()
+	.BindConfiguration(ProvenanceOptions.SectionName);
+builder.Services.AddScoped<CatalogueWriteService>();
+builder.Services.AddScoped<AutomatedFieldWriter>();
+builder.Services.AddScoped<IProposalHandler, FieldSuggestionHandler>();
+builder.Services.AddScoped<IProposalHandler, SongCreationHandler>();
+builder.Services.AddScoped<IProposalHandler, SongPublicationHandler>();
+builder.Services.AddScoped<FieldSuggestionHandler>();
+builder.Services.AddScoped<SongCreationHandler>();
+builder.Services.AddScoped<SongPublicationHandler>();
+builder.Services.AddScoped<ProposalHandlers>();
+builder.Services.AddScoped<ProposalDecisions>();
 builder.Services.AddSingleton<ArchiveChatAgent>();
 builder.Services.AddScoped<ArchiveChatService>();
 builder.Services.AddArchiveAuth(builder.Configuration, builder.Environment);
@@ -229,6 +243,7 @@ app.UseStatusCodePages(async context =>
         await Results.Problem(statusCode: context.HttpContext.Response.StatusCode).ExecuteAsync(context.HttpContext);
 });
 // Resolve exported route directories before endpoint routing, but never serve
+
 // a file from the reserved API namespace.
 app.UseWhen(context => !context.Request.Path.StartsWithSegments("/api"), frontend =>
 {
@@ -275,6 +290,7 @@ app.MapAssetEndpoints();
 app.MapRecordingEndpoints();
 app.MapRecordingPassageEndpoints();
 app.MapExtractionEndpoints();
+app.MapProvenanceEndpoints();
 app.MapDevelopmentDiagnostics();
 
 // A specific fallback reserves the entire API namespace, including missing files.

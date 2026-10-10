@@ -30,6 +30,7 @@ public sealed class CatalogueModelConfiguration
 		builder.Property(x => x.Arranger).HasMaxLength(200);
 		builder.Property(x => x.VoiceConfiguration).HasMaxLength(200);
 		builder.Property(x => x.Accompaniment).HasMaxLength(200);
+		builder.Property(x => x.RowVersion).IsConcurrencyToken().HasDefaultValue(0u);
 		builder.HasOne(x => x.Song)
 			.WithMany(s => s.Arrangements)
 			.HasForeignKey(x => x.SongId)
@@ -44,6 +45,7 @@ public sealed class CatalogueModelConfiguration
 		builder.Property(x => x.Label).HasMaxLength(200).IsRequired();
 		builder.Property(x => x.Creator).HasMaxLength(200);
 		builder.Property(x => x.MusicalKey).HasMaxLength(200);
+		builder.Property(x => x.RowVersion).IsConcurrencyToken().HasDefaultValue(0u);
 		builder.HasOne(x => x.Arrangement)
 			.WithMany(a => a.MusicalVersions)
 			.HasForeignKey(x => x.ArrangementId)

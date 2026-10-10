@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { feldHerkunft, KiAbzeichen } from "@/components/ki-abzeichen";
 import { patchAuth, postAuth } from "@/lib/auth";
-import type { LiedDetails } from "@/lib/songs";
+import type { FeldHerkunft, LiedDetails } from "@/lib/songs";
 
 type FassungsFormularAnfang = {
   label: string;
@@ -19,6 +20,12 @@ type FassungsFormularProps = {
   anfang?: FassungsFormularAnfang;
   absendenText: string;
   onSuccess: (lied: LiedDetails, meldung: string) => void;
+  /** ARC-013-1: gespeicherte Feldherkunft, Zeilenstand und Ziel (nur
+   * Änderungen; Anlegen schreibt nichts Automatisches). */
+  feldHerkunftListe?: FeldHerkunft[];
+  zielId?: string;
+  rowVersion?: number;
+  neuLaden?: () => void;
 };
 
 export function FassungsFormular({
@@ -29,6 +36,10 @@ export function FassungsFormular({
   anfang,
   absendenText,
   onSuccess,
+  feldHerkunftListe,
+  zielId,
+  rowVersion,
+  neuLaden,
 }: FassungsFormularProps) {
   const [label, setLabel] = useState(anfang?.label ?? "");
   const [person, setPerson] = useState(anfang?.person ?? "");
@@ -47,6 +58,15 @@ export function FassungsFormular({
     variante === "arrangement"
       ? "Stimmkonfiguration (optional)"
       : "Tonart (optional)";
+  const herkunftTyp =
+    variante === "arrangement"
+      ? ("arrangement" as const)
+      : ("musical_version" as const);
+  // ARC-013-1: Herkunftszeile pro Feld, nur bei einer Änderung.
+  const herkunft = (feld: string) =>
+    methode === "patch" && zielId
+      ? feldHerkunft(feldHerkunftListe, herkunftTyp, zielId, feld)
+      : undefined;
 
   async function speichern(event: React.FormEvent) {
     event.preventDefault();
@@ -67,6 +87,9 @@ export function FassungsFormular({
       // Begleitung gibt es nur am Arrangement (ARC-023).
       if (variante === "arrangement")
         body.accompaniment = begleitung.trim() ? begleitung.trim() : null;
+      // ARC-013-1: der optimistische Zeiger der bearbeiteten Zeile.
+      if (methode === "patch" && rowVersion !== undefined)
+        body.rowVersion = rowVersion;
       const response =
         methode === "patch"
           ? await patchAuth(pfad, body)
@@ -105,6 +128,16 @@ export function FassungsFormular({
   return (
     <form onSubmit={speichern} noValidate>
       <label htmlFor={`${idPraefix}-label`}>Bezeichnung</label>
+      {herkunft("label") && (
+        <div className="feld-abzeichen">
+          <KiAbzeichen
+            herkunft={herkunft("label")}
+            feldbezeichnung="Bezeichnung"
+            zurueckgeholt={neuLaden}
+            meldungsziel={setHinweis}
+          />
+        </div>
+      )}
       <input
         id={`${idPraefix}-label`}
         type="text"
@@ -125,6 +158,20 @@ export function FassungsFormular({
         </p>
       )}
       <label htmlFor={`${idPraefix}-person`}>{personLabel}</label>
+      {herkunft(personFeld === "arranger" ? "arranger" : "creator") && (
+        <div className="feld-abzeichen">
+          <KiAbzeichen
+            herkunft={herkunft(
+              personFeld === "arranger" ? "arranger" : "creator",
+            )}
+            feldbezeichnung={
+              variante === "arrangement" ? "Bearbeiter" : "Urheber"
+            }
+            zurueckgeholt={neuLaden}
+            meldungsziel={setHinweis}
+          />
+        </div>
+      )}
       <input
         id={`${idPraefix}-person`}
         type="text"
@@ -133,6 +180,26 @@ export function FassungsFormular({
         onChange={(event) => setPerson(event.target.value)}
       />
       <label htmlFor={`${idPraefix}-zusatz`}>{zusatzLabel}</label>
+      {herkunft(
+        zusatzFeld === "voiceConfiguration"
+          ? "voice_configuration"
+          : "musical_key",
+      ) && (
+        <div className="feld-abzeichen">
+          <KiAbzeichen
+            herkunft={herkunft(
+              zusatzFeld === "voiceConfiguration"
+                ? "voice_configuration"
+                : "musical_key",
+            )}
+            feldbezeichnung={
+              variante === "arrangement" ? "Stimmkonfiguration" : "Tonart"
+            }
+            zurueckgeholt={neuLaden}
+            meldungsziel={setHinweis}
+          />
+        </div>
+      )}
       <input
         id={`${idPraefix}-zusatz`}
         type="text"
@@ -145,6 +212,16 @@ export function FassungsFormular({
           <label htmlFor={`${idPraefix}-begleitung`}>
             Begleitung (optional)
           </label>
+          {herkunft("accompaniment") && (
+            <div className="feld-abzeichen">
+              <KiAbzeichen
+                herkunft={herkunft("accompaniment")}
+                feldbezeichnung="Begleitung"
+                zurueckgeholt={neuLaden}
+                meldungsziel={setHinweis}
+              />
+            </div>
+          )}
           <input
             id={`${idPraefix}-begleitung`}
             type="text"

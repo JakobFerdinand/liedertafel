@@ -1,4 +1,4 @@
-import { MitgliederVerwaltung } from "@/components/mitglieder-verwaltung";
+import { VerwaltungStart } from "@/components/verwaltung-start";
 
 export default function VerwaltungSeite() {
   return (
@@ -7,13 +7,9 @@ export default function VerwaltungSeite() {
         className="introduction compact"
         aria-labelledby="verwaltung-titel"
       >
-        <h1 id="verwaltung-titel">
-          Mitglieder
-          <wbr />
-          verwaltung
-        </h1>
+        <h1 id="verwaltung-titel">Mitgliederverwaltung</h1>
       </section>
-      <MitgliederVerwaltung />
+      <VerwaltungStart />
     </>
   );
 }

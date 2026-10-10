@@ -25,5 +25,12 @@ public sealed class Arrangement
 
 	public Guid CreatedByAccountId { get; set; }
 
+	/// <summary>
+	/// ARC-013-1: application-bumped optimistic-concurrency token of the
+	/// arrangement itself; arrangement PATCHes carry it and a stale edit
+	/// answers 409 without touching the entity.
+	/// </summary>
+	public uint RowVersion { get; set; }
+
 	public List<MusicalVersion> MusicalVersions { get; set; } = [];
 }

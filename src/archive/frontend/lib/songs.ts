@@ -63,21 +63,39 @@ export type LiedAsset = {
   currentRevision: LiedRevision | null;
 };
 
-export type LiedMusicalVersion = {
-  id: string;
-  label: string;
-  creator: string | null;
-  musicalKey: string | null;
-  assets: LiedAsset[];
-};
-
 export type LiedArrangement = {
   id: string;
   label: string;
   arranger: string | null;
   voiceConfiguration: string | null;
   accompaniment: string | null;
+  /** ARC-013-1: Optimistischer Zeiger der Arrangement-Zeile. */
+  rowVersion?: number;
   musicalVersions: LiedMusicalVersion[];
+};
+
+export type LiedMusicalVersion = {
+  id: string;
+  label: string;
+  creator: string | null;
+  musicalKey: string | null;
+  /** ARC-013-1: Optimistischer Zeiger der Fassungs-Zeile. */
+  rowVersion?: number;
+  assets: LiedAsset[];
+};
+
+/** ARC-013-1: neueste Herkunft eines Einzelfeldes (nur Redaktion). */
+export type FeldHerkunft = {
+  entityType: "song" | "arrangement" | "musical_version" | "asset" | "event";
+  entityId: string;
+  field: string;
+  fieldLabel: string;
+  source: "Human" | "Regex" | "Ai";
+  confidence: "Sicher" | "Unsicher";
+  model: string | null;
+  promptVersion: string | null;
+  changedAt: string;
+  locked: boolean;
 };
 
 export type LiedDetails = Omit<
@@ -90,6 +108,10 @@ export type LiedDetails = Omit<
   language: string | null;
   occasion: string | null;
   tags: string[];
+  /** ARC-013-1: Optimistischer Zeiger der Lied-Zeile. */
+  rowVersion?: number;
+  /** ARC-013-1: Feldherkunft der Redaktion; Mitglieder erhalten kein Feld. */
+  provenance?: FeldHerkunft[];
   arrangements: LiedArrangement[];
 };
 

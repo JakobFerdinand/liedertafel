@@ -3106,3 +3106,84 @@ details.aufnahme-anlegen {
   align-items: center;
   gap: 0.2rem 0.8rem;
 }
+/* ARC-013-1: KI-Abzeichen und "Vorschläge"-Verwaltung. */
+.feld-abzeichen {
+  display: flex;
+  margin-block: 0.15rem;
+}
+.ki-abzeichen {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: var(--schrift-neben);
+}
+.ki-abzeichen-marke {
+  display: inline-block;
+  border: 1px solid var(--rule);
+  border-radius: 0.3rem;
+  font-weight: 700;
+  font-size: var(--schrift-neben);
+  padding: 0.05rem 0.35rem;
+  letter-spacing: 0.04em;
+}
+.ki-abzeichen-auswertung {
+  font-weight: 600;
+  font-style: italic;
+}
+.ki-zurueckholen {
+  font-size: var(--schrift-neben);
+  text-decoration: underline;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.vorschlaege-bereich {
+  display: grid;
+  gap: 1.2rem;
+  padding-block: 1rem 3rem;
+}
+.vorschlaege-gruppe {
+  display: grid;
+  gap: 0.6rem;
+}
+.vorschlaege-eintrag {
+  border: 1px solid var(--rule);
+  border-radius: 0.5rem;
+  padding: 0.7rem 0.9rem;
+  display: grid;
+  gap: 0.3rem;
+}
+.vorschlaege-eintrag .vorschlaege-ziel {
+  margin: 0;
+  font-weight: 600;
+}
+.vorschlaege-herkunft,
+.vorschlaege-begruendung {
+  margin: 0;
+  font-size: var(--schrift-neben);
+}
+.vorschlaege-abgelaufen {
+  border: 1px dashed var(--rule);
+  border-radius: 0.4rem;
+  padding: 0.4rem 0.6rem;
+  font-size: var(--schrift-neben);
+}
+.vorschlaege-abgelaufen p {
+  margin: 0.15rem 0;
+}
+.vorschlaege-aktionen {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.verwaltung-werkzeuge ul {
+  list-style: none;
+  margin: 0 0 1.2rem;
+  padding: 0;
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.verwaltung-werkzeuge a {
+  text-decoration: underline;
+}
