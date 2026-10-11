@@ -66,7 +66,14 @@ if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" o
         using var scope = host.Services.CreateScope();
         var provider = scope.ServiceProvider;
         if (command == "--migrate")
-            await provider.GetRequiredService<ArchiveDbContext>().Database.MigrateAsync(token);
+        {
+            var migrationDb = provider.GetRequiredService<ArchiveDbContext>();
+            await migrationDb.Database.MigrateAsync(token);
+            // Hosted releases connect as archive_migrator; the runtime role's
+            // privileges are part of the same maintenance window.
+            await RuntimeGrants.ApplyAsync(migrationDb,
+                provider.GetRequiredService<ILoggerFactory>().CreateLogger("Archive.Migrate"), token);
+        }
         else if (command == "--initialize-local-storage")
             await provider.GetRequiredService<LocalServices>().InitializeAsync(token);
         else if (command == "--worker-smoke")

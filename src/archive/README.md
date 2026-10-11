@@ -905,6 +905,27 @@ through `AutomatedFieldWriter`; tests live in
 `ARCHIVE_TEST_POSTGRES`), with the browser journey in
 `frontend/tests/vorschlaege.spec.ts`.
 
+## Runtime grants during `--migrate`
+
+The release's `--migrate` step applies the runtime role's privileges itself:
+after `MigrateAsync`, `Data/RuntimeGrants.cs` runs the embedded
+`Data/runtime-grants.sql` (a byte-identical copy of
+`infrastructure/neon/runtime-grants.sql`; `RuntimeGrantsTests` fails if they
+drift, so change both together). It runs only when the connection is
+`archive_migrator` and logs "Runtime grants skipped" for any other role, so
+local Aspire runs are unaffected. It reuses the migration connection the job
+already has: no extra secret, no `psql`. The script is idempotent and
+transactional; a failure fails the step and leaves the maintenance window
+active like a failed migration. The manual `psql` run remains a fallback and
+the "run `runtime-grants.sql` as usual" notes above no longer apply to a
+normal release.
+
+Check: `dotnet test tests/archive/backend --filter "FullyQualifiedName~RuntimeGrantsTests"`;
+with `ARCHIVE_TEST_POSTGRES` set to a throwaway superuser connection the live
+case creates the fixed roles and an `archive` database, migrates as
+`archive_migrator`, and asserts the privileges (runtime can use the new tables
+and later tables, never `__EFMigrationsHistory`; an admin connection skips).
+
 ## Focused verification
 
 From the repository root:

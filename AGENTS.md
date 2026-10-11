@@ -14,8 +14,10 @@ Use this guide when editing or extending the codebase.
 - infrastructure: Azure Bicep templates for the RG-Liedertafel estate.
 - infrastructure/neon: archive Neon CLI/API setup runbook and SQL role/grant
   bootstrap. Follow its README for private credential handling; run
-  `bootstrap-roles.sql` once as admin and `runtime-grants.sql` as migrator after
-  each explicit EF migration. OpenTofu was trialled but is not adopted.
+  `bootstrap-roles.sql` once as admin. `runtime-grants.sql` runs automatically
+  inside the release's `--migrate` as `archive_migrator` (embedded copy at
+  `src/archive/backend/Data/runtime-grants.sql`, kept identical by a test);
+  run it by hand only as a fallback. OpenTofu was trialled but is not adopted.
 - docs/plans: tracked planning documents.
 - liedertafel.slnx: .NET solution that opens all API projects together; global.json pins the .NET SDK.
 

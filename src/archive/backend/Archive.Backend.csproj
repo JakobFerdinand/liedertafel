@@ -34,6 +34,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
+  <!-- Release-time grants for the runtime role; a test keeps this equal to infrastructure/neon/runtime-grants.sql. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Data\runtime-grants.sql" LogicalName="runtime-grants.sql" />
+  </ItemGroup>
+
   <!-- The ARC-034 finite-job gate is internal; the xUnit project verifies its command matrix. -->
   <ItemGroup>
     <InternalsVisibleTo Include="Archive.Backend.Tests" />
