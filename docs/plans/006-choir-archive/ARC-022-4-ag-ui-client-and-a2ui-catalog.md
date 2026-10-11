@@ -163,7 +163,11 @@ soft flag, because the model may choose not to show one).
   `outcome: interrupt` and `resume` in `RunAgentParameters`; the `HttpAgent` is
   created per question in `streamChatAntwort`, so a panel with state or resume
   wants its own agent instance next to it. Events must keep the null-free wire
-  form.
+  form. Review finding for this slice's `VorschlagKarte`: after a 409 (stale
+  proposal) the card only shows the server's text and lets the user press
+  Annehmen again, which loops; ARC-022-2 should offer the refresh
+  (`POST /api/proposals/{id}/refresh`, as the queue does) and show current beside
+  proposed value when it gives the card to editors.
 - **Every new AG-UI event or custom event** must pass the strict client: a
   Playwright mock built with `tests/chat-mock.ts` is the check.
 
@@ -213,3 +217,36 @@ Not done: the live model was not asked (no credentials were used), so
 whether Luna calls `zeige_oberflaeche` is not shown; `shell.spec.ts` was not
 run (needs a real backend); the hosted check after the release applied the
 migration is the maintainer's.
+
+## Review of `7274bed` and follow-up — 2026-10-11
+
+An independent review approved the slice with no blockers. Fixed in the
+follow-up commit, each new test seen failing against the code without the fix:
+
+- The catalog rule "a component takes only its own id" (`UsesOnly`) had no
+  test of its own: removing it left every API test green, because the one case
+  that exercised it followed a valid card for the same record. New
+  `AnEntryCarryingAnIdItsComponentDoesNotTake…` (three rows, no earlier card)
+  fails with the check removed.
+- The tool result told the model "Die Oberfläche erscheint unter deiner
+  Antwort" even when nothing was shown. It now says no surface was shown and to
+  answer in text (`TheModelIsOnlyToldASurfaceAppearsWhenOneWasShown`, failed
+  against the old text).
+- The PostgreSQL re-check ran on the in-memory string; it now stores the answer
+  in `chat_messages`, reads it back from the `jsonb` column in a fresh context
+  and re-checks that text (this strengthens the test; it passed first time, so
+  no mutation was possible beyond the earlier ones).
+- The Playwright song mock now has the full member shape
+  (`liedDetailAntwort` in `tests/chat-mock.ts`, field for field from
+  `CatalogueEndpoints.SongDetail`); `hatOberflaechen` is memoised per message;
+  the `Category=PostgresA2ui` command is in the root `AGENTS.md`.
+
+**Still owed before `done`:** an end-to-end smoke on a real stack (the AppHost
+with the real frontend): ask for a card, reload, unpublish the song, reload;
+plus the live model run described above. Both need a person or credentials.
+
+Re-run after the follow-up: `dotnet test tests/archive/backend` 635 passed, 0
+failed; `Category=PostgresA2ui` on a throwaway `postgres:17.6`: 2 passed (the
+re-check now on text read back from `jsonb`); `has-pending-model-changes`: no
+changes; frontend `check` and `build` clean; Playwright `chat`, `a2ui`,
+`a2ui-katalog` with `--workers=1`: 130 passed.

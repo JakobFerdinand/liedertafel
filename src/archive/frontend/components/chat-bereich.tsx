@@ -25,8 +25,19 @@ const A2uiOberflaechen = dynamic(
 
 // Nur Oberflächen, die dem Katalog des Archivs entsprechen, zählen als Inhalt
 // einer Antwort (lib/a2ui.ts); alles andere wird gar nicht erst geladen.
-const hatOberflaechen = (nachricht: ChatNachricht) =>
-  leseA2uiOberflaechen(nachricht.oberflaechen).length > 0;
+// Gelesen wird je Nachricht nur einmal; der Verlauf rendert bei jedem Zeichen
+// der Antwort neu.
+const oberflaechenGelesen = new WeakMap<object, boolean>();
+const hatOberflaechen = (nachricht: ChatNachricht) => {
+  const roh = nachricht.oberflaechen;
+  if (typeof roh !== "object" || roh === null) return false;
+  let gelesen = oberflaechenGelesen.get(roh);
+  if (gelesen === undefined) {
+    gelesen = leseA2uiOberflaechen(roh).length > 0;
+    oberflaechenGelesen.set(roh, gelesen);
+  }
+  return gelesen;
+};
 
 const maximaleFrageLänge = 2000;
 const vorschlaege = [

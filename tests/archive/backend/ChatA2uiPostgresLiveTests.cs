@@ -131,11 +131,34 @@ public sealed class ChatA2uiPostgresLiveTests(ITestOutputHelper output)
 			.First(c => c?["component"]?.GetValue<string>() == "Quellen")!["quellen"]!.AsArray();
 		Assert.Equal([published.Id.ToString(), other.Id.ToString()], sources.Select(q => q!["liedId"]!.GetValue<string>()).ToArray());
 
+		// Store the whole answer like the history provider does, then read it
+		// back from the jsonb column in a fresh context: the re-check must work
+		// on what PostgreSQL returns (normalised key order, escaping), not on
+		// the in-memory string.
+		var thread = new ChatThread { AccountId = owner, CreatedAt = October, UpdatedAt = October };
+		db.ChatThreads.Add(thread);
+		db.ChatMessages.Add(new ChatMessage
+		{
+			ThreadId = thread.Id,
+			Role = "assistant",
+			Content = "Antwort mit Karten.",
+			CreatedAt = October,
+			A2uiJson = shown,
+		});
+		await db.SaveChangesAsync();
+		await using var readScope = database.Services.CreateAsyncScope();
+		var readDb = readScope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+		var storedText = (await readDb.ChatMessages.AsNoTracking().SingleAsync(m => m.ThreadId == thread.Id)).A2uiJson!;
+		Assert.NotNull(storedText);
+		var viaDatabase = await A2uiCatalog.RecheckAsync(readDb, storedText, CancellationToken.None);
+		Assert.Equal(6, viaDatabase.Count);
+		Assert.Contains(viaDatabase, m => m["updateComponents"]?["components"]?[0]?["titel"]?.GetValue<string>() == "Die Waldfahrt");
+
 		// The stored form re-checks against today's visibility on load.
 		published.PublishedAt = null;
 		concert.PublishedAt = null;
 		await db.SaveChangesAsync();
-		var restored = await A2uiCatalog.RecheckAsync(db, shown, CancellationToken.None);
+		var restored = await A2uiCatalog.RecheckAsync(readDb, storedText, CancellationToken.None);
 		var remaining = JsonNode.Parse(new JsonArray(restored.ToArray<JsonNode?>()).ToJsonString())!.AsArray()
 			.Select(m => m!["updateComponents"]?["components"]?[0]).Where(c => c is not null).ToList();
 		var only = Assert.Single(remaining);

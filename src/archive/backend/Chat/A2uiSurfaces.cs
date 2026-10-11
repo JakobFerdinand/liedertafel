@@ -107,7 +107,11 @@ public static class A2uiCatalog
 		{
 			angezeigt = shown,
 			verworfen = dropped,
-			hinweis = "Die Oberfläche erscheint unter deiner Antwort. Beschreibe sie kurz im Text und wiederhole nicht ihren Inhalt.",
+			// Never promise a surface that does not exist: the model would
+			// describe a card the member cannot see.
+			hinweis = shown.Count > 0
+				? "Die Oberfläche erscheint unter deiner Antwort. Beschreibe sie kurz im Text und wiederhole nicht ihren Inhalt."
+				: "Es wurde keine Oberfläche angezeigt. Antworte nur mit Text und erwähne keine Karte.",
 		});
 	}
 

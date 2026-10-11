@@ -320,6 +320,53 @@ public sealed partial class ChatApiTests
 		Assert.Null((await db.ChatMessages.SingleAsync(m => m.ThreadId == threadId && m.Role == "assistant")).A2uiJson);
 	}
 
+	[Theory]
+	[InlineData("liedId", "auftrittId")]
+	[InlineData("liedId", "vorschlagId")]
+	[InlineData("liedId", "liedIds")]
+	public async Task AnEntryCarryingAnIdItsComponentDoesNotTakeIsDroppedEvenForAVisibleRecord(string own, string foreign)
+	{
+		// No earlier valid card for this record exists, so only the catalog's
+		// rule about which id a component takes can drop it.
+		var provider = new ShowSurfaceChatClient();
+		await using var factory = ChatFactory(chatClient: provider);
+		var ownerId = await SeedMemberAsync(factory, MemberA);
+		var (publishedId, _, _) = await SeedSongsAsync(factory, ownerId);
+		var session = await SignInAsync(factory, MemberA);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		var foreignValue = foreign == "liedIds" ? $"[\"{publishedId}\"]" : $"\"{Guid.NewGuid()}\"";
+		provider.Request = $$"""[{"komponente":"LiedKarte","{{own}}":"{{publishedId}}","{{foreign}}":{{foreignValue}}}]""";
+
+		using var response = await RunChatAsync(client, session, Guid.NewGuid().ToString(), "Zeige etwas");
+		var body = await response.Content.ReadAsStringAsync();
+
+		Assert.DoesNotContain(A2uiEventName, body);
+		Assert.Contains("\"verworfen\":1", provider.ToolResult);
+		Assert.Contains("RUN_FINISHED", body);
+	}
+
+	[Fact]
+	public async Task TheModelIsOnlyToldASurfaceAppearsWhenOneWasShown()
+	{
+		var provider = new ShowSurfaceChatClient();
+		await using var factory = ChatFactory(chatClient: provider);
+		var ownerId = await SeedMemberAsync(factory, MemberA);
+		var (publishedId, draftId, _) = await SeedSongsAsync(factory, ownerId);
+		var session = await SignInAsync(factory, MemberA);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+
+		provider.Request = $$"""[{"komponente":"LiedKarte","liedId":"{{draftId}}"}]""";
+		using (await RunChatAsync(client, session, Guid.NewGuid().ToString(), "Zeige etwas")) { }
+		Assert.Contains("\"angezeigt\":[]", provider.ToolResult);
+		Assert.Contains("Antworte nur mit Text", provider.ToolResult);
+		Assert.DoesNotContain("erscheint unter deiner Antwort", provider.ToolResult);
+
+		provider.Request = $$"""[{"komponente":"LiedKarte","liedId":"{{publishedId}}"}]""";
+		using (await RunChatAsync(client, session, Guid.NewGuid().ToString(), "Zeige etwas")) { }
+		Assert.Contains("erscheint unter deiner Antwort", provider.ToolResult);
+		Assert.DoesNotContain("Antworte nur mit Text", provider.ToolResult);
+	}
+
 	[Fact]
 	public async Task UnusedFieldsLeftEmptyDoNotMakeARequestInvalid()
 	{

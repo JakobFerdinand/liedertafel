@@ -1,5 +1,11 @@
 import { expect, type Page, type Route, test } from "@playwright/test";
-import { antwortStrom, json, mockSitzung, oberflaeche } from "./chat-mock";
+import {
+  antwortStrom,
+  json,
+  liedDetailAntwort,
+  mockSitzung,
+  oberflaeche,
+} from "./chat-mock";
 
 // ARC-022-4: Antworten des Chats zeigen Karten aus dem Katalog des Archivs.
 // Der Browser rendert nur, was der Server geprüft schickt und was dem Katalog
@@ -24,24 +30,16 @@ const frage = "Zeige mir das Wandernlied als Karte";
 
 async function mockArchiv(page: Page) {
   await mockSitzung(page);
-  const lied = {
-    id: liedId,
-    title: titel,
-    composer: "Carl Friedrich Zöllner",
-    lyricist: "Wilhelm Müller",
-    published: true,
-    publishedAt: "2026-09-01T10:00:00.000Z",
-  };
   await page.route(`**/api/songs/${liedId}`, (route) =>
     route.fulfill(
-      json({
-        song: {
-          ...lied,
-          createdAt: "2026-08-20T08:00:00.000Z",
-          updatedAt: "2026-09-01T10:00:00.000Z",
-          arrangements: [],
-        },
-      }),
+      json(
+        liedDetailAntwort({
+          id: liedId,
+          title: titel,
+          composer: "Carl Friedrich Zöllner",
+          lyricist: "Wilhelm Müller",
+        }),
+      ),
     ),
   );
 }
