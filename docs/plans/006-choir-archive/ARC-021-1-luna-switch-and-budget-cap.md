@@ -136,7 +136,24 @@ Tests (written first, seen failing for the right reason):
   `aiChatDeploymentName` is a priced model key and the chat deployment
   resource is named by that parameter.
 
-Results on 2026-10-11 are at the end of this section.
+Results on 2026-10-11:
+
+- `dotnet build src/archive/Archive.slnx`: 0 warnings, 0 errors, at stage A and
+  at stage B.
+- Stage A alone (`main.bicep` unchanged): the focused tests
+  (`AzureOpenAIChatClient`, `AiBudget`, `BudgetedChatClient`, `ChatApi`,
+  `ChatEvaluation`, `RuntimeGrants`) pass, 87 of 87.
+- Stage B (the full tree), `dotnet test tests/archive/backend`: **605 passed,
+  1 failed of 606** (598 before this slice; 8 new tests). The failure,
+  `ExtractionWorkerTests.DeadlineExpiryNeverRewritesANewerLeaseOrReleasedRow`
+  (a wall-clock assertion, expected 1:00, actual 0:30), is unrelated and
+  passed on rerun together with the rest of its class (55 of 55 with
+  `InfrastructureDeploymentTests`). The ledger tests ran on the in-memory
+  store; the PostgreSQL cases were not run (`ARCHIVE_TEST_POSTGRES` unset).
+- `az bicep build --file infrastructure/archive/main.bicep --stdout`: succeeds;
+  the compiled container app `dependsOn` the chat deployment resource. No
+  what-if or deployment was run.
+- No EF model change, so no migration check; the frontend is untouched.
 
 ## Two stages and what a push does
 

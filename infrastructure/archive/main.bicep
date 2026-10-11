@@ -98,8 +98,8 @@ param aiLocation string = 'germanywestcentral'
 param aiAccountName string = 'aoai-liedertafel-archive'
 
 
-@description('Azure OpenAI chat deployment name. The host app configuration references the model by this name.')
-param aiChatDeploymentName string = 'gpt-5-4-mini'
+@description('Azure OpenAI chat deployment name. The host app configuration references the model by this name, and `Archive:Ai:Models` must price exactly this key (a test keeps the two in step). ARC-021-1: GPT-6 Luna.')
+param aiChatDeploymentName string = 'gpt-6-luna'
 
 
 resource workspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
@@ -308,8 +308,18 @@ resource aoaiAccount 'Microsoft.CognitiveServices/accounts@2026-07-01' = {
 // pin in place until the provider expires that version — no silent upgrade
 // while the pin is live, but the expiry transition itself is automatic and
 // still needs that re-run (version expiry is an ARC-043 maintenance check).
-// DataZoneStandard at 30k TPM is far above the ≤5-member app's needs and
-// stays regional within the EU Data Zone.
+// ARC-021-1: GPT-6 Luna (`gpt-6-luna`, version 2026-09-22, Microsoft Foundry
+// model catalogue), the one model for all AI work. The deployment is a NEW
+// resource named after the model; the former `gpt-5-4-mini` deployment is no
+// longer declared but is never deleted by this template (incremental mode), so
+// the what-if stays Create-only and the old deployment remains a rollback path
+// until the maintainer deletes it after the hosted verification.
+// DataZoneStandard stays inside the EU Data Zone. Capacity 30 = 30k tokens per
+// minute: a burst limiter behind the application's EUR 15 monthly cap, not a
+// spending control by itself. At the EU Data Zone rates (0.1056 / 0.528 EUR per
+// million input / output tokens) a saturated minute costs at most ~0.016 EUR,
+// so a runaway loop is bounded to about 1 EUR per hour while the application
+// ledger refuses every call beyond the cap. Far above the <=5-member app's needs.
 // Inference endpoint: derived once from the unique custom subdomain and
 // shared by the Container App env entry and the `aiEndpoint` output.
 var aiEndpointUri = 'https://${aoaiAccount.properties.customSubDomainName}.openai.azure.com/'
@@ -324,8 +334,8 @@ resource aoaiChatDeployment 'Microsoft.CognitiveServices/accounts/deployments@20
   properties: {
     model: {
       format: 'OpenAI'
-      name: 'gpt-5.4-mini'
-      version: '2026-03-17'
+      name: 'gpt-6-luna'
+      version: '2026-09-22'
     }
     versionUpgradeOption: 'OnceCurrentVersionExpired'
   }
@@ -624,8 +634,9 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
             // ARC-021: maintained chat path, keyless via the runtime identity
             // (Cognitive Services OpenAI User on the account; no API key).
             // Chat is enabled from the first deploy by maintainer decision
-            // 2026-09-23 (sole production user pre-release); the ARC-021
-            // EUR 5 alert + manual-disable semantics stay unchanged. The
+            // 2026-09-23 (sole production user pre-release). Spending is held
+            // by the application's hard EUR 15 monthly cap (ARC-022-3);
+            // Archive__Chat__Disabled=true stays the manual kill switch. The
             // model is pinned to the dated deployment below the account, so
             // upgrades require the evaluation/pricing re-check, and the
             // endpoint builds from the account's unique custom subdomain.
@@ -639,7 +650,9 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
             }
             {
               name: 'Archive__Chat__DeploymentName'
-              value: aiChatDeploymentName
+              // The deployment's own name: the app revision that points at
+              // Luna is only created after the deployment exists.
+              value: aoaiChatDeployment.name
             }
             {
               name: 'Archive__Chat__Enabled'

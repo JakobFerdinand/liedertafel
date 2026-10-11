@@ -271,8 +271,12 @@ release (ARC-049 acceptance).
 
 `main.bicep` additionally owns Azure OpenAI account `aoai-liedertafel-archive`
 (kind `AIServices`, custom subdomain = account name, system-assigned identity,
-`disableLocalAuth` so no API key exists) and chat deployment `gpt-5-4-mini`
-(`gpt-5.4-mini`, version `2026-03-17`, `DataZoneStandard`, 30k TPM). The
+`disableLocalAuth` so no API key exists) and chat deployment `gpt-6-luna`
+(`gpt-6-luna`, version `2026-09-22`, `DataZoneStandard`, 30k TPM; ARC-021-1,
+replacing `gpt-5-4-mini` / `gpt-5.4-mini` `2026-03-17`). The 30k TPM limit is
+a burst backstop behind the application's EUR 15 cap, not a spending control:
+saturated, it costs about 1 EUR per hour at the EU Data Zone rates
+(0.1056 / 0.528 EUR per million input / output tokens). The
 Foundry project `liedertafel-archive` (future tooling only; inference happens
 at the account-level deployments) is created by the deploy workflow's
 "Create Foundry project (CLI path)" step — the ARM child-resource path from
@@ -296,7 +300,26 @@ manual kill switch. Model prices are application settings: if
 `aiChatDeploymentName` is ever overridden, both
 `Archive__Ai__Models__<deployment>__InputPricePerMillionEur` and
 `…__OutputPricePerMillionEur` must be set on the app, otherwise every chat
-run is refused (`unpriced_model`). A group budget backstop (EUR 10/month,
+run is refused (`unpriced_model`). A test keeps the `aiChatDeploymentName`
+default and the shipped `Archive:Ai:Models` keys in step.
+
+**Switching to Luna (ARC-021-1).** The Luna deployment is a new resource;
+incremental mode leaves the old `gpt-5-4-mini` deployment in place (a rollback
+path, and its quota stays used). `Archive__Chat__DeploymentName` is the
+deployment resource's own name, so the container app depends on the deployment
+in the compiled template. A push of this template starts
+`infra-deploy-archive.yml` and switches the app to `gpt-6-luna`, so the image
+that prices `gpt-6-luna` (stage A, `src/archive/**`) must already be released:
+never push both changes together, the infrastructure workflow would run first
+and the old image would refuse every chat run (`unpriced_model`). Order: stage A
+push (after one `ChatEvaluationLive` against the existing deployment, see the
+ARC-021-1 ticket), check `OpenAI.DataZoneStandard.gpt-6-luna` quota in
+`germanywestcentral`, stage B push (what-if: Create the deployment, Modify the
+app; no Delete/Replace), live evaluation on Luna (exact commands in the ticket),
+then delete the old deployment with
+`az cognitiveservices account deployment delete -g RG-Liedertafel-Archive
+-n aoai-liedertafel-archive --deployment-name gpt-5-4-mini` and its price
+entry. A group budget backstop (EUR 10/month,
 alert-only, ARC-004 review trigger) is intentionally NOT in Bicep: the
 Consumption budgets API rejects programmatic creation on this subscription
 with 401 even for the subscription Owner (finding recorded in ARC-043,
