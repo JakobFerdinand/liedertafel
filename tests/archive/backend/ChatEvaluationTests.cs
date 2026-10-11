@@ -29,7 +29,8 @@ namespace Archive.Backend.Tests;
 /// result set, zero unsupported factual claims, honest "unknown" behaviour
 /// and a recorded EUR-per-answer cost estimate. The scripted model keeps
 /// every run reproducible offline; the live-provider rerun against the
-/// pinned GPT-5.4-mini runs the same case set behind the same
+/// pinned deployment (GPT-6 Luna since ARC-021-1; GPT-5.4-mini before) runs
+/// the same case set behind the same
 /// <c>IChatClient</c> seam (ARC-021 provider step, implemented with
 /// ARC-022) and lives behind the <c>ChatEvaluationLive</c> trait: it is
 /// invoked explicitly with
@@ -384,7 +385,7 @@ public sealed class ChatEvaluationTests(ITestOutputHelper output)
 			?? throw new InvalidOperationException("Die Live-Konfiguration wählt den AzureOpenAI-Provider nicht.");
 		// ARC-022-3: the live calls pass the budget middleware like production
 		// calls. The deployment name is the model key in the ledger; its price
-		// comes from Archive:Ai:Models (appsettings.json knows gpt-5-4-mini) or,
+		// comes from Archive:Ai:Models (appsettings.json knows gpt-6-luna and gpt-5-4-mini) or,
 		// for another deployment, from the two optional price variables.
 		var liveSettings = new Dictionary<string, string?>
 		{

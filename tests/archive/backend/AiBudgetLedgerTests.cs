@@ -100,6 +100,24 @@ public sealed class AiBudgetLedgerTests(ITestOutputHelper output)
 	}
 
 	[Fact]
+	public async Task TheShippedConfigurationAdmitsLunaAndRefusesAnyOtherDeployment()
+	{
+		// ARC-021-1: the prices the application ships with, not test prices.
+		var shipped = ShippedConfiguration.Prices();
+		await using var harness = await LedgerHarness.CreateAsync(models: shipped.Models, capEur: shipped.MonthlyCapEur);
+
+		// One million input tokens at 0.1056 EUR and one million output tokens at 0.528 EUR: 633,600 micro-EUR.
+		var reservation = await harness.Budget.ReserveAsync(
+			Call(Guid.NewGuid(), null, 1_000_000, 1_000_000) with { Model = "gpt-6-luna" }, CancellationToken.None);
+		Assert.Equal(633_600, (await harness.EntriesAsync()).Sum(e => e.ReservedMicroEur));
+		Assert.NotNull(reservation);
+
+		await Assert.ThrowsAsync<AiBudgetUnavailableException>(() =>
+			harness.Budget.ReserveAsync(Call(Guid.NewGuid(), null) with { Model = "gpt-6-sol" }, CancellationToken.None));
+		Assert.Single(await harness.EntriesAsync());
+	}
+
+	[Fact]
 	public async Task ABrokenLedgerStoreRefusesTheCall()
 	{
 		// On PostgreSQL the store points at a port nobody listens on.
@@ -318,7 +336,8 @@ public sealed class AiBudgetLedgerTests(ITestOutputHelper output)
 
 		public static async Task<LedgerHarness> CreateAsync(decimal capEur = 15m, DateTimeOffset? now = null,
 			ISaveChangesInterceptor? interceptor = null, LedgerHarness? sameDatabaseAs = null,
-			decimal inputPrice = 1m, decimal outputPrice = 4m, bool brokenStore = false)
+			decimal inputPrice = 1m, decimal outputPrice = 4m, bool brokenStore = false,
+			IReadOnlyDictionary<string, AiModelPrice>? models = null)
 		{
 			string? connection = sameDatabaseAs?.connection, owned = null;
 			if (Server is not null && brokenStore)
@@ -334,7 +353,7 @@ public sealed class AiBudgetLedgerTests(ITestOutputHelper output)
 				}
 				connection = new Npgsql.NpgsqlConnectionStringBuilder(Server) { Database = owned, MaxPoolSize = 20 }.ConnectionString;
 			}
-			var harness = new LedgerHarness(capEur, now, interceptor, connection, owned, inputPrice, outputPrice, brokenStore);
+			var harness = new LedgerHarness(capEur, now, interceptor, connection, owned, inputPrice, outputPrice, brokenStore, models);
 			if (owned is not null)
 			{
 				await using var scope = harness.services.CreateAsyncScope();
@@ -344,7 +363,8 @@ public sealed class AiBudgetLedgerTests(ITestOutputHelper output)
 		}
 
 		private LedgerHarness(decimal capEur, DateTimeOffset? now, ISaveChangesInterceptor? interceptor,
-			string? connection, string? ownedDatabase, decimal inputPrice, decimal outputPrice, bool brokenStore)
+			string? connection, string? ownedDatabase, decimal inputPrice, decimal outputPrice, bool brokenStore,
+			IReadOnlyDictionary<string, AiModelPrice>? models)
 		{
 			this.connection = connection;
 			this.ownedDatabase = ownedDatabase;
@@ -368,7 +388,11 @@ public sealed class AiBudgetLedgerTests(ITestOutputHelper output)
 			collection.Configure<AiOptions>(o =>
 			{
 				o.MonthlyCapEur = capEur;
-				o.Models[Model] = new AiModelPrice { InputPricePerMillionEur = inputPrice, OutputPricePerMillionEur = outputPrice };
+				if (models is null)
+					o.Models[Model] = new AiModelPrice { InputPricePerMillionEur = inputPrice, OutputPricePerMillionEur = outputPrice };
+				else
+					foreach (var (key, price) in models)
+						o.Models[key] = price;
 			});
 			ConfigureLedger(collection, connection is not null, brokenStore);
 			services = collection.BuildServiceProvider();

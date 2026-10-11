@@ -42,16 +42,37 @@ public static class AzureOpenAIChatClient
 	/// deployment, or null when the configuration does not select the
 	/// provider (the scripted stand-in stays).
 	/// </summary>
-	public static IChatClient? Create(ChatOptions options)
+	public static IChatClient? Create(ChatOptions options) => Create(options, credential: null, clientOptions: null);
+
+	/// <summary>
+	/// Seam for tests: a fake credential and a recording transport let a test
+	/// read the exact request the provider would receive without any Azure
+	/// traffic. Production passes neither.
+	/// </summary>
+	internal static IChatClient? Create(ChatOptions options, TokenCredential? credential, AzureOpenAIClientOptions? clientOptions)
 	{
 		if (!IsConfigured(options))
 			return null;
-		var clientId = Environment.GetEnvironmentVariable("AZURE_CLIENT_ID");
-		TokenCredential credential = string.IsNullOrWhiteSpace(clientId)
-			? new AzureCliCredential()
-			: new ManagedIdentityCredential(ManagedIdentityId.FromUserAssignedClientId(clientId.Trim()));
-		return new AzureOpenAIClient(new Uri(options.Endpoint!.Trim()), credential)
+		if (credential is null)
+		{
+			var clientId = Environment.GetEnvironmentVariable("AZURE_CLIENT_ID");
+			credential = string.IsNullOrWhiteSpace(clientId)
+				? new AzureCliCredential()
+				: new ManagedIdentityCredential(ManagedIdentityId.FromUserAssignedClientId(clientId.Trim()));
+		}
+		var provider = new AzureOpenAIClient(new Uri(options.Endpoint!.Trim()), credential, clientOptions)
 			.GetChatClient(options.DeploymentName!.Trim())
 			.AsIChatClient();
+		// ARC-021-1: GPT-6 Luna rejects function tools on Chat Completions
+		// while it reasons, so every provider request asks for no reasoning
+		// unless the calling feature chose an effort itself. The options the
+		// caller passed in are cloned by the middleware, never modified.
+		return new ChatClientBuilder(provider)
+			.ConfigureOptions(o => o.Reasoning = new ReasoningOptions
+			{
+				Effort = o.Reasoning?.Effort ?? ReasoningEffort.None,
+				Output = o.Reasoning?.Output,
+			})
+			.Build();
 	}
 }
