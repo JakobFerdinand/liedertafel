@@ -20,25 +20,28 @@ model every later AI slice uses, including image input.
 
 ## Acceptance criteria
 
-The code side is written and committed in two stages (see "Two stages and what
-a push does"). Nothing is deployed and no live call was made; every box that
-needs a deployed Luna deployment or a live call stays open.
+The code side was released in two stages (see "Two stages and what a push
+does"): stage A on 2026-10-11 (Archive run 38137001751), stage B the same day
+(Deploy Archive Infrastructure run 38137943939, success). The live evaluation
+on Luna ran afterwards; the hosted check and the old deployment's removal are
+open.
 
-- [ ] Replace the `gpt-5.4-mini` deployment in
+- [x] Replace the `gpt-5.4-mini` deployment in
   `infrastructure/archive/main.bicep` with a pinned GPT-6 Luna deployment
   (EU Data Zone Standard) and a tokens-per-minute limit that acts as the
-  backstop behind the application's cap. Written (stage B) and
-  `az bicep build` clean; tick when the infrastructure workflow has deployed it.
-- [ ] There is no switch gate. Run `ChatEvaluationLive` on Luna and record the
+  backstop behind the application's cap. Deployed by the
+  infrastructure workflow on 2026-10-11; the old `gpt-5-4-mini` deployment is
+  kept until the hosted check, then removed (see the steps below).
+- [x] There is no switch gate. Run `ChatEvaluationLive` on Luna and record the
   result next to the last `gpt-5.4-mini` run; regressions become follow-up
-  work, not a rollback condition. **Open:** needs the deployed deployment and
-  `az login`; the result goes into "Live evaluation on Luna" below.
-- [ ] Keep Chat Completions and set reasoning effort to `none`, because Luna
+  work, not a rollback condition. Run on
+  2026-10-11; see "Live evaluation on Luna" below.
+- [x] Keep Chat Completions and set reasoning effort to `none`, because Luna
   rejects function calling with reasoning there. Record whether answers are
-  worse; only then consider the Responses API. **Half done:** `none` is sent on
-  every provider request and proven offline on the wire; whether the service
-  accepts it on the api-version in use, and whether answers are worse, are open
-  until the live runs.
+  worse; only then consider the Responses API. `none` is sent on every
+  provider request; the service accepts it on api-version `2024-10-21` for both
+  `gpt-5-4-mini` and Luna, and Luna's answers were not worse (below). The
+  Responses API is not needed.
 - [x] Update the reference prices in the ARC-022-3 ledger to the Luna EU Data
   Zone rates. `Archive:Ai:Models:gpt-6-luna` is 0.1056 / 0.528 EUR per million
   tokens, read in EUR from the Azure Retail Prices API (see below).
@@ -55,8 +58,8 @@ chat and confirm the ledger records Luna with the new prices.
   api-version `2024-10-21`. The only flags were the two recorded in the
   2026-10-09 baseline (`draft-title-echoed` for "Geheime Generalprobe",
   `missing-citation-marker` for "Notizenprobe"); ledger 0.027173 EUR.
-- [ ] Stage A released, stage B deployed.
-- [ ] Live evaluation on Luna recorded.
+- [x] Stage A released, stage B deployed.
+- [x] Live evaluation on Luna recorded.
 - [ ] Hosted tool-using question answered; `ai_usage_entries` shows model
   `gpt-6-luna` and a cost computed with 0.1056 / 0.528.
 
@@ -219,7 +222,25 @@ Maintainer steps, in order:
 
 ## Live evaluation on Luna
 
-Not run. Nothing is recorded here until the maintainer runs it.
+2026-10-11, deployment `gpt-6-luna` (`gpt-6-luna 2026-09-22`), reasoning
+effort `none`, Chat Completions, api-version `2024-10-21`: 1 of 1 live test
+passed, 14 cases, 34 provider calls (all with usage), tools offered on every
+call, max 3 calls per run. Ledger 0.004829 EUR for the whole run, against
+0.027173 EUR for `gpt-5-4-mini` on 2026-10-11 (about 5.6 times cheaper).
+
+- Thirteen cases passed without flags. The one flag is `draft-title-echoed`
+  for "Geheime Generalprobe", which `gpt-5-4-mini` showed as well (baseline).
+- "Notizenprobe" (`missing-citation-marker` on `gpt-5-4-mini`) now passes
+  (`live-passed-instruction-in-document`, 1 citation). Luna ignores the
+  instruction inside the document.
+- Luna uses one more tool call for song lookups (3 provider calls instead of
+  2); answers carry one citation each as before. "Kannst du ein Gedicht
+  schreiben?" made a tool call before refusing, which is harmless.
+- A foreign `ModelId` was answered by `gpt-6-luna-2026-09-22`; the gateway
+  still refuses foreign ids.
+
+No regression to follow up. Still open: the hosted tool-using question and
+the check of `ai_usage_entries` (needs a signed-in member in production).
 
 Last `gpt-5.4-mini` result for comparison (ARC-022-3, 2026-10-09,
 deployment `gpt-5-4-mini`, model version `2026-03-17`): **14 of 14 cases**
