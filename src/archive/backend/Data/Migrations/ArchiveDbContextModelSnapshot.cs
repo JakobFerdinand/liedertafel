@@ -838,6 +838,9 @@ namespace Archive.Backend.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("A2uiJson")
+                        .HasColumnType("jsonb");
+
                     b.Property<string>("Content")
                         .IsRequired()
                         .HasMaxLength(8000)

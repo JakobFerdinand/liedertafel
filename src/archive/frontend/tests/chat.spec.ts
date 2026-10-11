@@ -1,24 +1,21 @@
 import { expect, type Page, test } from "@playwright/test";
-
-const memberMe = {
-  authenticated: true,
-  accountId: "00000000-0000-0000-0000-000000000002",
-  email: "mitglied@liedertafel.test",
-  displayName: "Testmitglied",
-  roles: ["Member"],
-  verifiedAt: new Date().toISOString(),
-};
+import {
+  antwortStrom,
+  json,
+  laufBeendet,
+  laufFehler,
+  laufGestartet,
+  mockSitzung,
+  quellenEreignis,
+  sse,
+  textBeginn,
+  textEnde,
+  textTeil,
+  werkzeugAufruf,
+} from "./chat-mock";
 
 const threadId = "00000000-0000-0000-0000-00000000c0de";
 const wandernId = "00000000-0000-0000-0000-0000000002a1";
-
-function json(body: unknown, status = 200) {
-  return {
-    status,
-    contentType: "application/json",
-    body: JSON.stringify(body),
-  };
-}
 
 function problem(title: string, status: number) {
   return {
@@ -26,20 +23,6 @@ function problem(title: string, status: number) {
     contentType: "application/problem+json",
     body: JSON.stringify({ title }),
   };
-}
-
-// AG-UI-Ereignisstrom als Text: ein JSON-Objekt je data:-Zeile (ARC-022).
-function sse(ereignisse: Array<Record<string, unknown>>): string {
-  return ereignisse
-    .map((ereignis) => `data: ${JSON.stringify(ereignis)}\n\n`)
-    .join("");
-}
-
-async function mockSitzung(page: Page) {
-  await page.route("**/api/auth/me", (route) => route.fulfill(json(memberMe)));
-  await page.route("**/api/antiforgery", (route) =>
-    route.fulfill(json({ token: "test" })),
-  );
 }
 
 async function mockArchiv(page: Page) {
@@ -81,45 +64,17 @@ type ChatAnfrage = {
 };
 
 function erfolgreicheAntwort(label: string) {
-  return sse([
-    { type: "RUN_STARTED", threadId, runId: "run-1" },
+  return antwortStrom(
+    threadId,
+    ["Das Lied stammt ", `von Carl Friedrich Zöllner. (${label})`],
     {
-      type: "TOOL_CALL_START",
-      threadId,
-      runId: "run-1",
-      toolCallId: "tool-1",
-      toolCallName: "archiv_recherche",
+      werkzeug: werkzeugAufruf("tool-1", "catalogue_search", {
+        query: "Wandern",
+        page: 1,
+      }),
+      quellen: [{ id: wandernId, label: "Das Wandern ist des Müllers Lust" }],
     },
-    {
-      type: "TOOL_CALL_ARGS",
-      toolCallId: "tool-1",
-      delta: '{"titel":"Wandern"}',
-    },
-    { type: "TOOL_CALL_END", toolCallId: "tool-1" },
-    { type: "TEXT_MESSAGE_START", threadId, runId: "run-1", messageId: "m1" },
-    {
-      type: "TEXT_MESSAGE_CONTENT",
-      messageId: "m1",
-      delta: "Das Lied stammt ",
-    },
-    {
-      type: "TEXT_MESSAGE_CONTENT",
-      messageId: "m1",
-      delta: `von Carl Friedrich Zöllner. (${label})`,
-    },
-    { type: "TEXT_MESSAGE_END", messageId: "m1" },
-    {
-      type: "CUSTOM",
-      name: "archive.citations",
-      value: [{ id: wandernId, label: "Das Wandern ist des Müllers Lust" }],
-    },
-    {
-      type: "RUN_FINISHED",
-      threadId,
-      runId: "run-1",
-      usage: { inputTokens: 12, outputTokens: 34 },
-    },
-  ]);
+  );
 }
 
 test("Frage wird beantwortet und nennt das zitierte Lied als Quelle", async ({
@@ -311,9 +266,11 @@ test("Nur belegte Quellenmarker werden verlinkt; Modelltext bleibt sicherer Text
       status: 200,
       contentType: "text/event-stream",
       body: sse([
-        { type: "RUN_STARTED", threadId },
+        laufGestartet(threadId),
+        textBeginn(),
         {
           type: "TEXT_MESSAGE_CONTENT",
+          messageId: "msg-1",
           delta:
             "Im Bestand:\n\n- **Das Wandern** [Quelle: Das Wandern ist des Müllers Lust]\n- Unbelegter Hinweis [Quelle: erfunden]\n\n<img src=x onerror=alert(1)> [Externe Seite](javascript:alert(1))",
         },
@@ -331,7 +288,8 @@ test("Nur belegte Quellenmarker werden verlinkt; Modelltext bleibt sicherer Text
             },
           ],
         },
-        { type: "RUN_FINISHED", threadId },
+        textEnde(),
+        laufBeendet(threadId),
       ]),
     }),
   );
@@ -372,14 +330,17 @@ test("Belegte Quellen mit Anführungszeichen, Umlauten und Klammern werden volls
       status: 200,
       contentType: "text/event-stream",
       body: sse([
-        { type: "RUN_STARTED", threadId },
+        laufGestartet(threadId),
+        textBeginn(),
         {
           type: "TEXT_MESSAGE_CONTENT",
+          messageId: "msg-1",
           delta:
             "Die Auswahl: [Quelle: „Die Waldfahrt“] [Quelle: Abendlied [SATB]] [Quelle: Mueller's Wander Lied].\n\nUnbelegt: [Quelle: Abendlied [Unbekannt]] [Quelle: „Fremdes Lied“].",
         },
-        { type: "CUSTOM", name: "archive.citations", value: quellen },
-        { type: "RUN_FINISHED", threadId },
+        quellenEreignis(quellen),
+        textEnde(),
+        laufBeendet(threadId),
       ]),
     }),
   );
@@ -503,12 +464,10 @@ test("Wiederholen einer Teilantwort ersetzt den Versuch ohne doppelte Frage", as
       body:
         versuche === 1
           ? sse([
-              { type: "RUN_STARTED", threadId },
-              { type: "TEXT_MESSAGE_CONTENT", delta: "Unvollständige Antwort" },
-              {
-                type: "RUN_ERROR",
-                message: "Die Antwort konnte nicht fertig gestellt werden.",
-              },
+              laufGestartet(threadId),
+              textBeginn(),
+              textTeil("Unvollständige Antwort"),
+              laufFehler("Die Antwort konnte nicht fertig gestellt werden."),
             ])
           : erfolgreicheAntwort("Wiederholt"),
     });
@@ -583,11 +542,8 @@ test("Ein RUN_ERROR-Ereignis zeigt die deutsche Fehlmeldung mit erneutem Versuch
       status: 200,
       contentType: "text/event-stream",
       body: sse([
-        { type: "RUN_STARTED", threadId, runId: "run-1" },
-        {
-          type: "RUN_ERROR",
-          message: "Die Antwort konnte nicht fertig gestellt werden.",
-        },
+        laufGestartet(threadId),
+        laufFehler("Die Antwort konnte nicht fertig gestellt werden."),
       ]),
     }),
   );
@@ -618,13 +574,11 @@ test("Erreichtes Monatsbudget wird auf Deutsch erklärt und bietet keinen erneut
       status: 200,
       contentType: "text/event-stream",
       body: sse([
-        { type: "RUN_STARTED", threadId, runId: "run-1" },
-        {
-          type: "RUN_ERROR",
-          code: "monatsbudget_erreicht",
-          message:
-            "Monatsbudget erreicht. Der Archiv-Chat steht im nächsten Monat wieder zur Verfügung; Suche und Archiv funktionieren weiter.",
-        },
+        laufGestartet(threadId),
+        laufFehler(
+          "Monatsbudget erreicht. Der Archiv-Chat steht im nächsten Monat wieder zur Verfügung; Suche und Archiv funktionieren weiter.",
+          "monatsbudget_erreicht",
+        ),
       ]),
     }),
   );
@@ -1061,20 +1015,16 @@ for (const quellenLink of ["Quelle", "Quelle öffnen"]) {
         status: 200,
         contentType: "text/event-stream",
         body: sse([
-          { type: "RUN_STARTED", threadId },
-          {
-            type: "TEXT_MESSAGE_CONTENT",
-            delta:
-              "Das Lied stammt von Carl Friedrich Zöllner. [Quelle: Das Wandern ist des Müllers Lust]",
-          },
-          {
-            type: "CUSTOM",
-            name: "archive.citations",
-            value: [
-              { id: wandernId, label: "Das Wandern ist des Müllers Lust" },
-            ],
-          },
-          { type: "RUN_FINISHED", threadId },
+          laufGestartet(threadId),
+          textBeginn(),
+          textTeil(
+            "Das Lied stammt von Carl Friedrich Zöllner. [Quelle: Das Wandern ist des Müllers Lust]",
+          ),
+          quellenEreignis([
+            { id: wandernId, label: "Das Wandern ist des Müllers Lust" },
+          ]),
+          textEnde(),
+          laufBeendet(threadId),
         ]),
       });
     });

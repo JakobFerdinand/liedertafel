@@ -37,4 +37,12 @@ public sealed class ChatMessage
 	public required string Content { get; set; }
 
 	public DateTimeOffset CreatedAt { get; set; }
+
+	/// <summary>
+	/// The validated A2UI messages the run showed with this assistant answer
+	/// (ARC-022-4), as a JSON array, or null. Stored so a card survives a
+	/// reload, but never trusted on load: every record it names is
+	/// re-resolved against what a member may see now.
+	/// </summary>
+	public string? A2uiJson { get; set; }
 }

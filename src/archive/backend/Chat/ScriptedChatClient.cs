@@ -79,6 +79,29 @@ public sealed class ScriptedChatClient : IChatClient
 		// complied with.
 		if (last?.Contents.OfType<FunctionResultContent>().LastOrDefault() is { } result)
 		{
+			var askedQuestion = conversation.LastOrDefault(m => m.Role == ChatRole.User)?.Text ?? string.Empty;
+			var offersCards = options?.Tools?.Any(t => t.Name == A2uiCatalog.ToolName) == true;
+			// A question that asks for a card: after the search, show the first
+			// song found, then answer from the search result as usual.
+			if (offersCards && AsksForCard(askedQuestion) && CalledTool(conversation, result) == SearchToolName
+				&& ParseSongs(result.Result) is [{ } first, ..])
+			{
+				yield return new ChatResponseUpdate
+				{
+					MessageId = MessageId,
+					Contents = [new FunctionCallContent($"call_{conversation.Count(HasFunctionCall) + 1}", A2uiCatalog.ToolName,
+						new Dictionary<string, object?>
+						{
+							["komponenten"] = JsonDocument.Parse(
+								JsonSerializer.Serialize(new[] { new { komponente = "LiedKarte", liedId = first.Id } })).RootElement.Clone(),
+						})],
+				};
+				yield break;
+			}
+			// After the surface: the answer is built from the search result.
+			if (CalledTool(conversation, result) == A2uiCatalog.ToolName)
+				result = conversation.SelectMany(m => m.Contents.OfType<FunctionResultContent>())
+					.LastOrDefault(r => CalledTool(conversation, r) == SearchToolName) ?? result;
 			foreach (var update in AnswerFromToolResults(result))
 				yield return update;
 			yield break;
@@ -232,7 +255,23 @@ public sealed class ScriptedChatClient : IChatClient
 
 	private static string CatalogueQuery(string question) =>
 		ContainsAny(question, "welche lieder gibt es", "welche lieder sind", "liste alle lieder", "zeige alle lieder")
-			? string.Empty : question;
+			? string.Empty
+			: AsksForCard(question) ? WithoutCardWords(question) : question;
+
+	/// <summary>A question that asks for the song "als Karte" (ARC-022-4).</summary>
+	private static bool AsksForCard(string question) => ContainsAny(question, " als karte");
+
+	private static string WithoutCardWords(string question) => string.Join(' ',
+		question.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+			.Where(word => !word.Equals("zeige", StringComparison.OrdinalIgnoreCase)
+				&& !word.Equals("mir", StringComparison.OrdinalIgnoreCase)
+				&& !word.Equals("als", StringComparison.OrdinalIgnoreCase)
+				&& !word.Equals("karte", StringComparison.OrdinalIgnoreCase)));
+
+	/// <summary>The name of the tool a result answers, found through its call id.</summary>
+	private static string? CalledTool(List<AiChatMessage> conversation, FunctionResultContent result)
+		=> conversation.SelectMany(m => m.Contents.OfType<FunctionCallContent>())
+			.LastOrDefault(call => call.CallId == result.CallId)?.Name;
 
 	private static bool HasFunctionCall(AiChatMessage message)
 		=> message.Contents.OfType<FunctionCallContent>().Any();

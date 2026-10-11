@@ -25,7 +25,8 @@ internal sealed class ChatThreadHistoryProvider(
 	{
 		var history = await ArchiveChatService.RecentMessages(db, thread.Id, ArchiveChatService.MessageHistoryLimit, cancellationToken);
 		return history
-			.Where(m => m.Role is "user" or "assistant")
+			// A card-only answer stores no text; it is not a turn the model can read.
+			.Where(m => (m.Role is "user" or "assistant") && m.Content.Length > 0)
 			.Select(m => new AiChatMessage(m.Role == "user" ? ChatRole.User : ChatRole.Assistant, m.Content))
 			.ToList();
 	}
@@ -60,15 +61,17 @@ internal sealed class ChatThreadHistoryProvider(
 		thread.UpdatedAt = now;
 		foreach (var question in requestMessages.Where(m => m.Role == ChatRole.User))
 			db.ChatMessages.Add(new ChatMessage { ThreadId = thread.Id, Role = "user", Content = question.Text, CreatedAt = now });
-		if (answer is { Length: > 0 })
+		var surfaces = answer is null ? null : state.SurfacesJson;
+		if (answer is { Length: > 0 } || surfaces is not null)
 		{
+			answer ??= string.Empty;
 			if (answer.Length > maxAnswerChars)
 				answer = answer[..maxAnswerChars];
 			// One tick later: the ordering key is (CreatedAt, Id) and Guid v7
 			// ids are not monotonic within a millisecond, so the question and
 			// the answer must not share one timestamp — otherwise the
 			// authoritative history order would be a coin flip.
-			db.ChatMessages.Add(new ChatMessage { ThreadId = thread.Id, Role = "assistant", Content = answer, CreatedAt = now.AddTicks(1) });
+			db.ChatMessages.Add(new ChatMessage { ThreadId = thread.Id, Role = "assistant", Content = answer, CreatedAt = now.AddTicks(1), A2uiJson = surfaces });
 		}
 		// A new thread and its turns commit as one batch; the request may
 		// already be cancelled, the turn is stored regardless.

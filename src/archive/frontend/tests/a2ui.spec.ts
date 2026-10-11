@@ -1,0 +1,480 @@
+import { expect, type Page, type Route, test } from "@playwright/test";
+import { antwortStrom, json, mockSitzung, oberflaeche } from "./chat-mock";
+
+// ARC-022-4: Antworten des Chats zeigen Karten aus dem Katalog des Archivs.
+// Der Browser rendert nur, was der Server geprüft schickt und was dem Katalog
+// ganz entspricht; ein falscher Client sendet hier Kaputtes und Fremdes.
+
+const threadId = "00000000-0000-0000-0000-00000000c0de";
+const liedId = "00000000-0000-0000-0000-0000000002a1";
+const auftrittId = "00000000-0000-0000-0000-0000000003b1";
+const vorschlagId = "00000000-0000-0000-0000-0000000004c1";
+const titel = "Das Wandern ist des Müllers Lust";
+
+const liedKarte = {
+  component: "LiedKarte",
+  liedId,
+  titel,
+  komponist: "Carl Friedrich Zöllner",
+  textdichter: "Wilhelm Müller",
+  textanfang: "Das Wandern ist des Müllers Lust, / das Wandern!",
+};
+
+const frage = "Zeige mir das Wandernlied als Karte";
+
+async function mockArchiv(page: Page) {
+  await mockSitzung(page);
+  const lied = {
+    id: liedId,
+    title: titel,
+    composer: "Carl Friedrich Zöllner",
+    lyricist: "Wilhelm Müller",
+    published: true,
+    publishedAt: "2026-09-01T10:00:00.000Z",
+  };
+  await page.route(`**/api/songs/${liedId}`, (route) =>
+    route.fulfill(
+      json({
+        song: {
+          ...lied,
+          createdAt: "2026-08-20T08:00:00.000Z",
+          updatedAt: "2026-09-01T10:00:00.000Z",
+          arrangements: [],
+        },
+      }),
+    ),
+  );
+}
+
+function mockLauf(page: Page, body: string) {
+  return page.route(/\/api\/chat$/, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "text/event-stream",
+      body,
+    }),
+  );
+}
+
+async function stelleFrage(page: Page, text = frage) {
+  await page.goto("/fragen/");
+  await page.getByLabel("Frage stellen").fill(text);
+  await page.getByRole("button", { name: "Absenden" }).click();
+}
+
+test("Eine Liedkarte erscheint zur Antwort, führt ins Archiv und bleibt nach dem Neuladen", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await mockArchiv(page);
+  await mockLauf(
+    page,
+    antwortStrom(threadId, [`Hier ist das Lied. [Quelle: ${titel}]`], {
+      oberflaechen: oberflaeche(liedKarte),
+      quellen: [{ id: liedId, label: titel }],
+    }),
+  );
+  // So antwortet der Server beim Laden: Frage, Antwort und die erneut
+  // geprüfte Karte.
+  await page.route(/\/api\/chat\/thread\/[0-9a-f-]+$/, (route) =>
+    route.fulfill(
+      json({
+        threadId,
+        messages: [
+          { role: "user", content: frage },
+          {
+            role: "assistant",
+            content: `Hier ist das Lied. [Quelle: ${titel}]`,
+            a2ui: oberflaeche(liedKarte),
+          },
+        ],
+      }),
+    ),
+  );
+
+  await stelleFrage(page);
+
+  const karte = page.getByRole("article", { name: `Lied: ${titel}` });
+  await expect(karte).toBeVisible();
+  await expect(karte.getByRole("heading", { name: titel })).toBeVisible();
+  await expect(karte.getByText("Carl Friedrich Zöllner")).toBeVisible();
+  await expect(karte.getByText("Wilhelm Müller")).toBeVisible();
+  await expect(
+    karte.getByText("Das Wandern ist des Müllers Lust, /"),
+  ).toBeVisible();
+  const verweis = karte.getByRole("link", {
+    name: `Lied im Archiv öffnen: ${titel}`,
+  });
+  // Der Verweis stammt aus der ID, nicht aus Text des Servers oder Modells.
+  await expect(verweis).toHaveAttribute("href", `/lied/?id=${liedId}`);
+  // Die Quellenverweise des Servers bleiben daneben bestehen.
+  await expect(
+    page.getByRole("link", { name: `Quelle: ${titel}` }),
+  ).toBeVisible();
+
+  // Nach dem Neuladen holt der Browser den Verlauf und zeigt die Karte wieder.
+  await page.reload();
+  await expect(
+    page.getByRole("article", { name: `Lied: ${titel}` }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("article", { name: `Lied: ${titel}` })
+      .getByText("Carl Friedrich Zöllner"),
+  ).toBeVisible();
+
+  // Der Klick ruft keine Chat-Schnittstelle auf, sondern öffnet die Seite des
+  // Archivs, die ihre Daten selbst von /api/songs holt.
+  const chatAnfragen: string[] = [];
+  page.on("request", (anfrage) => {
+    if (/\/api\/chat$/.test(anfrage.url())) chatAnfragen.push(anfrage.url());
+  });
+  await page
+    .getByRole("link", { name: `Lied im Archiv öffnen: ${titel}` })
+    .click();
+  await expect(page).toHaveURL(new RegExp(`/lied/\\?id=${liedId}`));
+  await expect(
+    page.getByRole("heading", { name: titel }).first(),
+  ).toBeVisible();
+  expect(chatAnfragen).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
+test("Nach einer Entscheidung des Servers ohne Karte bleibt nur der Text", async ({
+  page,
+}) => {
+  // Das Lied wurde inzwischen zurückgezogen: der Server schickt beim Laden
+  // keine Karte mehr, und der Browser erfindet keine.
+  await mockArchiv(page);
+  await page.addInitScript(
+    ([id]) => window.localStorage.setItem("arc-chat-thread", id),
+    [threadId],
+  );
+  await page.route(/\/api\/chat\/thread\/[0-9a-f-]+$/, (route) =>
+    route.fulfill(
+      json({
+        threadId,
+        messages: [
+          { role: "user", content: frage },
+          { role: "assistant", content: "Das Lied war verzeichnet." },
+        ],
+      }),
+    ),
+  );
+
+  await page.goto("/fragen/");
+
+  await expect(page.getByText("Das Lied war verzeichnet.")).toBeVisible();
+  await expect(page.getByRole("article", { name: /^Lied:/ })).toHaveCount(0);
+});
+
+const kaputteOberflaechen: Array<{ fall: string; nachrichten: unknown }> = [
+  {
+    fall: "unbekannte Komponente Button",
+    nachrichten: oberflaeche({
+      component: "Button",
+      text: "Jetzt klicken",
+      action: { event: { name: "boese" } },
+    }),
+  },
+  {
+    fall: "Komponente des Basis-Katalogs",
+    nachrichten: oberflaeche({ component: "Text", text: "Basis-Text" }),
+  },
+  {
+    fall: "zusätzliche Eigenschaft mit Adresse",
+    nachrichten: oberflaeche({
+      ...liedKarte,
+      href: "https://boese.example/lied",
+    }),
+  },
+  {
+    fall: "Adresse statt Datensatz-ID",
+    nachrichten: oberflaeche({
+      ...liedKarte,
+      liedId: "https://boese.example/lied",
+    }),
+  },
+  {
+    fall: "fremder Katalog",
+    nachrichten: [
+      {
+        version: "v0.9",
+        createSurface: {
+          surfaceId: "s1",
+          catalogId: "https://a2ui.org/specification/v0_9/basic_catalog.json",
+        },
+      },
+      {
+        version: "v0.9",
+        updateComponents: {
+          surfaceId: "s1",
+          components: [{ id: "root", ...liedKarte }],
+        },
+      },
+    ],
+  },
+  { fall: "keine Nachrichten, sondern ein Text", nachrichten: "Karte bitte" },
+  { fall: "Nachrichten ohne Aufbau", nachrichten: [null, 7, "x", {}, []] },
+];
+
+for (const { fall, nachrichten } of kaputteOberflaechen) {
+  test(`Ein falscher Client sendet ${fall}: nichts davon wird gezeigt`, async ({
+    page,
+  }) => {
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await mockArchiv(page);
+    await mockLauf(
+      page,
+      antwortStrom(threadId, ["Antwort ohne Karte."], {
+        oberflaechen: nachrichten,
+      }),
+    );
+
+    await stelleFrage(page);
+
+    await expect(page.getByText("Antwort ohne Karte.")).toBeVisible();
+    await expect(page.locator(".a2ui-oberflaechen")).toHaveCount(0);
+    await expect(page.getByRole("article", { name: /^Lied:/ })).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Jetzt klicken" }),
+    ).toHaveCount(0);
+    await expect(page.getByText("Basis-Text")).toHaveCount(0);
+    await expect(page.getByRole("link", { name: /boese/ })).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+}
+
+test("Gemischt gesendet erscheint nur die gültige Karte", async ({ page }) => {
+  await mockArchiv(page);
+  await mockLauf(
+    page,
+    antwortStrom(threadId, ["Eine gute, eine schlechte."], {
+      oberflaechen: [
+        ...oberflaeche({ component: "Button", text: "Jetzt klicken" }, "s1"),
+        ...oberflaeche(liedKarte, "s2"),
+      ],
+    }),
+  );
+
+  await stelleFrage(page);
+
+  await expect(
+    page.getByRole("article", { name: `Lied: ${titel}` }),
+  ).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Jetzt klicken" })).toHaveCount(
+    0,
+  );
+});
+
+test("Eine Antwort nur aus Karte ohne Text zeigt die Karte", async ({
+  page,
+}) => {
+  await mockArchiv(page);
+  const strom = antwortStrom(threadId, [], {
+    oberflaechen: oberflaeche(liedKarte),
+  }).replace(
+    /data: \{"type":"TEXT_MESSAGE_START".*\n\n|data: \{"type":"TEXT_MESSAGE_END".*\n\n/g,
+    "",
+  );
+  await mockLauf(page, strom);
+
+  await stelleFrage(page);
+
+  await expect(
+    page.getByRole("article", { name: `Lied: ${titel}` }),
+  ).toBeVisible();
+  await expect(page.getByText("Das Archiv wird durchsucht")).toHaveCount(0);
+});
+
+test("Die übrigen Komponenten des Katalogs zeigen ihre Angaben und Verweise", async ({
+  page,
+}) => {
+  await mockArchiv(page);
+  await mockLauf(
+    page,
+    antwortStrom(threadId, ["Mehrere Karten."], {
+      oberflaechen: [
+        ...oberflaeche(
+          {
+            component: "AuftrittKarte",
+            auftrittId,
+            titel: "Frühlingskonzert 1932",
+            art: "concert",
+            datum: "Mai 1932",
+            ort: "Festsaal",
+          },
+          "s1",
+        ),
+        ...oberflaeche(
+          {
+            component: "ProgrammListe",
+            auftrittId,
+            titel: "Frühlingskonzert 1932",
+            punkte: [
+              { position: 1, liedId, titel },
+              { position: 2, liedId, titel: "Zweiter Satz", notiz: "Zugabe" },
+            ],
+          },
+          "s2",
+        ),
+        ...oberflaeche(
+          {
+            component: "Quellen",
+            quellen: [{ liedId, titel, komponist: "Carl Friedrich Zöllner" }],
+          },
+          "s3",
+        ),
+        ...oberflaeche(
+          {
+            component: "AenderungsVorschau",
+            vorschlagId,
+            titel: "Komponist ergänzen",
+            aenderungen: [
+              { feld: "Komponist", neu: "Friedrich Silcher" },
+              { feld: "Tonart", bisher: "C-Dur", neu: "D-Dur" },
+            ],
+          },
+          "s4",
+        ),
+      ],
+    }),
+  );
+
+  await stelleFrage(page);
+
+  const auftritt = page.getByRole("article", {
+    name: "Auftritt: Frühlingskonzert 1932",
+  });
+  await expect(auftritt.getByText("Konzert", { exact: true })).toBeVisible();
+  await expect(auftritt.getByText("Mai 1932")).toBeVisible();
+  await expect(auftritt.getByText("Festsaal")).toBeVisible();
+  await expect(
+    auftritt.getByRole("link", {
+      name: "Auftritt im Archiv öffnen: Frühlingskonzert 1932",
+    }),
+  ).toHaveAttribute("href", `/auftritt/?id=${auftrittId}`);
+  const programm = page.getByRole("region", {
+    name: "Programm: Frühlingskonzert 1932",
+  });
+  await expect(programm.getByRole("listitem")).toHaveCount(2);
+  await expect(
+    programm.getByRole("link", { name: "Zweiter Satz" }),
+  ).toHaveAttribute("href", `/lied/?id=${liedId}`);
+  const quellen = page.getByRole("region", { name: "Lieder im Archiv" });
+  await expect(
+    quellen.getByRole("link", { name: `Lied im Archiv öffnen: ${titel}` }),
+  ).toHaveAttribute("href", `/lied/?id=${liedId}`);
+  const vorschau = page.getByRole("region", {
+    name: "Änderungsvorschau: Komponist ergänzen",
+  });
+  // Die Karten entstehen erst nach dem Nachladen der Bibliothek; der Verlauf
+  // wandert mit, sodass die letzte Karte nicht unter dem Rand verschwindet.
+  await expect(vorschau).toBeInViewport({ ratio: 0.5 });
+  await expect(vorschau.getByRole("row")).toHaveCount(3);
+  await expect(vorschau.getByText("D-Dur")).toBeVisible();
+  await expect(vorschau.getByText("leer")).toBeVisible();
+});
+
+async function zeigeVorschlag(page: Page) {
+  await mockArchiv(page);
+  await mockLauf(
+    page,
+    antwortStrom(threadId, ["Ein Vorschlag."], {
+      oberflaechen: oberflaeche({
+        component: "VorschlagKarte",
+        vorschlagId,
+        titel: "Komponist ergänzen",
+        grund: "Der Notentext nennt Friedrich Silcher.",
+        vertrauen: "Sicher",
+      }),
+    }),
+  );
+  await stelleFrage(page);
+  await expect(
+    page.getByRole("article", { name: "Vorschlag: Komponist ergänzen" }),
+  ).toBeVisible();
+}
+
+test("Annehmen in einer Vorschlagskarte ruft die REST-Schnittstelle der Vorschläge auf", async ({
+  page,
+}) => {
+  const aufrufe: Array<{ pfad: string; token: string | undefined }> = [];
+  await page.route(`**/api/proposals/${vorschlagId}/accept`, (route: Route) => {
+    aufrufe.push({
+      pfad: new URL(route.request().url()).pathname,
+      token: route.request().headers()["x-csrf-token"],
+    });
+    return route.fulfill(json({ status: "Accepted" }));
+  });
+  await zeigeVorschlag(page);
+
+  await page
+    .getByRole("button", { name: "Vorschlag annehmen: Komponist ergänzen" })
+    .click();
+
+  await expect(page.getByText("Vorschlag angenommen.")).toBeVisible();
+  expect(aufrufe).toEqual([
+    { pfad: `/api/proposals/${vorschlagId}/accept`, token: "test" },
+  ]);
+  await expect(
+    page.getByRole("button", {
+      name: "Vorschlag annehmen: Komponist ergänzen",
+    }),
+  ).toBeDisabled();
+  await expect(
+    page.getByRole("button", {
+      name: "Vorschlag ablehnen: Komponist ergänzen",
+    }),
+  ).toBeDisabled();
+});
+
+test("Ein veralteter Vorschlag zeigt den Hinweis des Servers und bleibt bedienbar", async ({
+  page,
+}) => {
+  await page.route(`**/api/proposals/${vorschlagId}/accept`, (route) =>
+    route.fulfill({
+      status: 409,
+      contentType: "application/problem+json",
+      body: JSON.stringify({
+        title: "Der Vorschlag ist veraltet; bitte neu prüfen.",
+        currentValue: "Silcher",
+        proposedValue: "Zöllner",
+      }),
+    }),
+  );
+  await zeigeVorschlag(page);
+
+  await page
+    .getByRole("button", { name: "Vorschlag annehmen: Komponist ergänzen" })
+    .click();
+
+  await expect(
+    page.getByText("Der Vorschlag ist veraltet; bitte neu prüfen."),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", {
+      name: "Vorschlag annehmen: Komponist ergänzen",
+    }),
+  ).toBeEnabled();
+});
+
+test("Ablehnen in einer Vorschlagskarte ruft die Ablehnen-Schnittstelle auf", async ({
+  page,
+}) => {
+  let abgelehnt = 0;
+  await page.route(`**/api/proposals/${vorschlagId}/reject`, (route) => {
+    abgelehnt += 1;
+    return route.fulfill(json({ status: "Rejected" }));
+  });
+  await zeigeVorschlag(page);
+
+  await page
+    .getByRole("button", { name: "Vorschlag ablehnen: Komponist ergänzen" })
+    .click();
+
+  await expect(page.getByText("Vorschlag abgelehnt.")).toBeVisible();
+  expect(abgelehnt).toBe(1);
+});

@@ -1,8 +1,10 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChatAntwort } from "@/components/chat-antwort";
+import { leseA2uiOberflaechen } from "@/lib/a2ui";
 import { fetchMe, type MeResponse } from "@/lib/auth";
 import {
   budgetErreichtCode,
@@ -13,6 +15,18 @@ import {
   streamChatAntwort,
   vergesseThread,
 } from "@/lib/chat";
+
+// Die A2UI-Bibliothek wird erst geladen, wenn eine Antwort Oberflächen trägt,
+// und läuft nur im Browser (statischer Export, kein Server-Rendering).
+const A2uiOberflaechen = dynamic(
+  () => import("@/components/a2ui-oberflaechen"),
+  { ssr: false },
+);
+
+// Nur Oberflächen, die dem Katalog des Archivs entsprechen, zählen als Inhalt
+// einer Antwort (lib/a2ui.ts); alles andere wird gar nicht erst geladen.
+const hatOberflaechen = (nachricht: ChatNachricht) =>
+  leseA2uiOberflaechen(nachricht.oberflaechen).length > 0;
 
 const maximaleFrageLänge = 2000;
 const vorschlaege = [
@@ -42,6 +56,21 @@ export function ChatBereich() {
   const eingabeFeld = useRef<HTMLTextAreaElement | null>(null);
   const verlaufFeld = useRef<HTMLDivElement | null>(null);
   const folgtAntwort = useRef(true);
+
+  // Die A2UI-Oberflächen erscheinen erst nach dem Nachladen der Bibliothek und
+  // machen den Verlauf danach höher. Wer vorher am Ende las, liest weiter am
+  // Ende; wer hochgescrollt hat, bleibt dort. Maßgeblich ist die Lage vor dem
+  // Wachsen, nicht das Scroll-Ereignis, das erst nach dem Wachsen eintrifft.
+  const folgeAntwort = useCallback((zuwachs: number) => {
+    const feld = verlaufFeld.current;
+    if (!feld || zuwachs <= 0) return;
+    const abstandVorher =
+      feld.scrollHeight - zuwachs - feld.scrollTop - feld.clientHeight;
+    if (abstandVorher < 64) {
+      feld.scrollTop = feld.scrollHeight;
+      folgtAntwort.current = true;
+    }
+  }, []);
 
   const verlaufLaden = useCallback(async (signal?: AbortSignal) => {
     const antwort = await fetchMe(signal);
@@ -172,6 +201,16 @@ export function ChatBereich() {
             ),
           );
         },
+        onOberflaechen: (oberflaechen) => {
+          if (abort.signal.aborted) return;
+          setNachrichten((bisher) =>
+            bisher.map((eintrag) =>
+              eintrag.id === antwortNachricht.id
+                ? { ...eintrag, oberflaechen }
+                : eintrag,
+            ),
+          );
+        },
         onError: (titel, code) => {
           if (titel === "Anmeldung erforderlich.") {
             setMe({ authenticated: false });
@@ -203,7 +242,9 @@ export function ChatBereich() {
     setNachrichten((bisher) =>
       bisher.filter(
         (eintrag) =>
-          eintrag.id !== antwortNachricht.id || eintrag.inhalt !== "",
+          eintrag.id !== antwortNachricht.id ||
+          eintrag.inhalt !== "" ||
+          hatOberflaechen(eintrag),
       ),
     );
   }
@@ -225,7 +266,9 @@ export function ChatBereich() {
     laufAbbruch.current?.abort();
     laufAbbruch.current = null;
     setNachrichten((bisher) =>
-      bisher.filter((eintrag) => eintrag.inhalt !== ""),
+      bisher.filter(
+        (eintrag) => eintrag.inhalt !== "" || hatOberflaechen(eintrag),
+      ),
     );
     setSchreibt(false);
     setAbgebrochen(true);
@@ -363,11 +406,17 @@ export function ChatBereich() {
                   inhalt={nachricht.inhalt}
                   quellen={nachricht.quellen}
                 />
-              ) : (
+              ) : !hatOberflaechen(nachricht) ? (
                 <p className="chat-sucht">
                   <span aria-hidden="true" />
                   Das Archiv wird durchsucht …
                 </p>
+              ) : null}
+              {hatOberflaechen(nachricht) && (
+                <A2uiOberflaechen
+                  nachrichten={nachricht.oberflaechen}
+                  beiAnzeige={folgeAntwort}
+                />
               )}
               {nachricht.quellen && nachricht.quellen.length > 0 && (
                 <div className="chat-quellen-bereich">

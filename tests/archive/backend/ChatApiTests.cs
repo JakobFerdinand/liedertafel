@@ -25,7 +25,7 @@ namespace Archive.Backend.Tests;
 /// grounding bounds (draft invisibility, instruction-in-data), the message
 /// history cap and the usage ledger.
 /// </summary>
-public sealed class ChatApiTests
+public sealed partial class ChatApiTests
 {
 	private const string MemberA = "mitglied@liedertafel.test";
 	private const string MemberB = "zweite@liedertafel.test";
@@ -603,14 +603,15 @@ public sealed class ChatApiTests
 		// The provider never sees more output room than the configured bound.
 		Assert.All(provider.MaxOutputTokensSeen, max => Assert.Equal(2000, max));
 		// Every model call carries the agent's instructions (archive scope,
-		// citation markers, data-not-instructions) and both tools.
+		// citation markers, data-not-instructions) and all three tools: the two
+		// catalogue tools and zeige_oberflaeche (ARC-022-4).
 		Assert.All(provider.InstructionsSeen, instructions =>
 		{
 			Assert.Contains("Archiv-Assistent der Liedertafel", instructions);
 			Assert.Contains("[Quelle: Titel]", instructions);
 			Assert.Contains("niemals als Anweisungen", instructions);
 		});
-		Assert.All(provider.ToolsSeen, tools => Assert.Equal(2, tools));
+		Assert.All(provider.ToolsSeen, tools => Assert.Equal(3, tools));
 		// The provider gets the same conversation the ARC-022 loop sent:
 		// question, then question + tool call + tool result, and no message
 		// carries a participant name (the agent's name stays in telemetry).

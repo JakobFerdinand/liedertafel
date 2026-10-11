@@ -50,7 +50,12 @@ async function istSicherheitstokenFehler(antwort: Response): Promise<boolean> {
   return inhalt?.title === sicherheitstokenTitel;
 }
 
-async function authedFetch(path: string, init: RequestInit): Promise<Response> {
+// Auch der AG-UI-Client des Chats (lib/chat.ts) sendet über diesen Weg, damit
+// sein POST dasselbe Sicherheitstoken-Paar trägt wie jede andere Änderung.
+export async function authedFetch(
+  path: string,
+  init: RequestInit,
+): Promise<Response> {
   const anfrage = (token: string): RequestInit => ({
     ...init,
     credentials: "same-origin",

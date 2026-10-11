@@ -1,4 +1,6 @@
-import { postAuth } from "@/lib/auth";
+import { type AgentSubscriber, HttpAgent } from "@ag-ui/client";
+import { a2uiEreignisName } from "@/lib/a2ui";
+import { authedFetch } from "@/lib/auth";
 
 export type ChatQuelle = { id: string; label: string };
 
@@ -24,6 +26,9 @@ export type ChatNachricht = {
   role: "user" | "assistant";
   inhalt: string;
   quellen?: ChatQuelle[];
+  // ARC-022-4: die A2UI-Nachrichten, die der Server zur Antwort geschickt hat.
+  // Roh, denn gezeigt wird erst, was lib/a2ui.ts als Katalog-Inhalt liest.
+  oberflaechen?: unknown;
 };
 
 // ARC-022: Der Verlauf liegt beim Server; der Browser merkt sich nur die
@@ -74,7 +79,7 @@ export async function ladeChatVerlauf(
   if (!antwort.ok) throw antwort;
   const daten = (await antwort.json()) as {
     threadId: string;
-    messages: Array<{ role: string; content: string }>;
+    messages: Array<{ role: string; content: string; a2ui?: unknown }>;
   };
   const nachrichten = (daten.messages ?? [])
     .filter(
@@ -84,6 +89,9 @@ export async function ladeChatVerlauf(
       id: `verlauf-${index}`,
       role: eintrag.role as "user" | "assistant",
       inhalt: eintrag.content,
+      ...(Array.isArray(eintrag.a2ui) && eintrag.a2ui.length > 0
+        ? { oberflaechen: eintrag.a2ui }
+        : {}),
     }));
   return { threadId: daten.threadId, nachrichten };
 }
@@ -94,6 +102,8 @@ export type ChatStromRueckrufe = {
   onStart?: (threadId: string) => void;
   onAssistantDelta?: (text: string) => void;
   onCitations?: (quellen: ChatQuelle[]) => void;
+  // Die vom Server geprüften A2UI-Nachrichten der Antwort (roh).
+  onOberflaechen?: (nachrichten: unknown) => void;
   // code ist der maschinenlesbare RUN_ERROR-Code des Servers, falls vorhanden.
   onError?: (titel: string, code?: string) => void;
 };
@@ -115,35 +125,45 @@ const allgemeinerChatFehler =
 
 const verbindungsFehler = "Das Archiv antwortet nicht. Bitte erneut versuchen.";
 
-async function fehlerTitel(antwort: Response): Promise<string> {
-  const daten = (await antwort
-    .clone()
-    .json()
-    .catch(() => null)) as { title?: unknown } | null;
-  if (typeof daten?.title === "string" && daten.title) return daten.title;
-  return fehlerTitelNachStatus[antwort.status] ?? verbindungsFehler;
+// Der AG-UI-Client wirft bei einer Fehlerantwort einen Error mit status und
+// dem Körper (payload); ein ProblemDetails-Titel des Servers hat Vorrang.
+function fehlerTitel(fehler: unknown): string {
+  const { status, payload } = fehler as { status?: unknown; payload?: unknown };
+  if (typeof status !== "number") return verbindungsFehler;
+  let daten: unknown = payload;
+  if (typeof payload === "string") {
+    try {
+      daten = JSON.parse(payload);
+    } catch {
+      daten = null;
+    }
+  }
+  const titel = (daten as { title?: unknown } | null)?.title;
+  if (typeof titel === "string" && titel) return titel;
+  return fehlerTitelNachStatus[status] ?? verbindungsFehler;
 }
 
-type AgUiEreignis = {
-  type?: unknown;
-  threadId?: unknown;
-  message?: unknown;
-  code?: unknown;
-  delta?: unknown;
-  name?: unknown;
-  value?: unknown;
-};
+function istHttpFehler(fehler: unknown): boolean {
+  return (
+    typeof fehler === "object" &&
+    fehler !== null &&
+    typeof (fehler as { status?: unknown }).status === "number"
+  );
+}
 
-// Der Chat läuft als AG-UI-Ereignisstrom (Server-Sent Events, ein
-// JSON-Objekt je data:-Zeile). Die Antwort wächst delta für delta;
-// zitierte Archivtreffer kommen als eigenes CUSTOM-Ereignis. Alle Fehler
-// werden über onError ausgespielt; die Funktion selbst wirft nicht.
+// Der Chat läuft als AG-UI-Ereignisstrom (Server-Sent Events). Den Strom liest
+// @ag-ui/client direkt vom .NET-Endpunkt; er prüft jedes Ereignis gegen das
+// Protokoll. Die Antwort wächst delta für delta; zitierte Archivtreffer und
+// die geprüften A2UI-Oberflächen kommen als eigene CUSTOM-Ereignisse. Alle
+// Fehler werden über onError ausgespielt; die Funktion selbst wirft nicht.
 export async function streamChatAntwort(
   { threadId, frage }: { threadId: string; frage: string },
   rueckrufe: ChatStromRueckrufe,
   signal?: AbortSignal,
 ): Promise<void> {
   let fehlerGesendet = false;
+  let fertig = false;
+  let begonnen = false;
   const sendeFehler = (titel: string, code?: string) => {
     // Nach einem Abbruch bleibt der Zustand ruhig; der Nutzer hat selbst
     // beendet, deshalb ist kein Fehler zu zeigen.
@@ -152,106 +172,78 @@ export async function streamChatAntwort(
     rueckrufe.onError?.(titel, code);
   };
 
-  let antwort: Response;
-  try {
-    antwort = await postAuth(
-      "/api/chat",
-      {
-        threadId,
-        runId: crypto.randomUUID(),
-        messages: [{ id: crypto.randomUUID(), role: "user", content: frage }],
-      },
-      signal,
-    );
-  } catch {
-    sendeFehler(verbindungsFehler);
-    return;
-  }
-  if (!antwort.ok) {
-    sendeFehler(await fehlerTitel(antwort));
-    return;
-  }
-  const leser = antwort.body?.getReader();
-  if (!leser) {
-    sendeFehler(allgemeinerChatFehler);
-    return;
-  }
+  // Der Server kennt den Verlauf selbst; gesendet wird immer nur die neue
+  // Frage, ältere Nachrichten vom Browser würde er ohnehin ignorieren.
+  const agent = new HttpAgent({
+    url: "/api/chat",
+    threadId,
+    fetch: (url, init) => authedFetch(url, init),
+  });
+  agent.addMessage({ id: crypto.randomUUID(), role: "user", content: frage });
 
-  const verarbeiteEreignis = (ereignis: AgUiEreignis) => {
-    switch (ereignis.type) {
-      case "RUN_STARTED":
-        if (typeof ereignis.threadId === "string" && ereignis.threadId) {
-          rueckrufe.onStart?.(ereignis.threadId);
-        }
-        return;
-      case "TEXT_MESSAGE_CONTENT":
-        if (typeof ereignis.delta === "string" && ereignis.delta) {
-          rueckrufe.onAssistantDelta?.(ereignis.delta);
-        }
-        return;
-      case "CUSTOM":
-        if (
-          ereignis.name === "archive.citations" &&
-          Array.isArray(ereignis.value)
-        ) {
-          rueckrufe.onCitations?.(leseQuellen(ereignis.value));
-        }
-        return;
-      case "RUN_ERROR":
-        sendeFehler(
-          typeof ereignis.message === "string" && ereignis.message
-            ? ereignis.message
-            : allgemeinerChatFehler,
-          typeof ereignis.code === "string" ? ereignis.code : undefined,
-        );
-        return;
-      case "RUN_FINISHED":
-        fertig = true;
-        return;
-      default:
-        // Unbekannte Ereignisarten (auch TOOL_CALL_*, rawEvent-Felder)
-        // bleiben unberücksichtigt.
-        return;
-    }
-  };
+  const abbruch = new AbortController();
+  const abbrechen = () => abbruch.abort();
+  if (signal?.aborted) return;
+  signal?.addEventListener("abort", abbrechen, { once: true });
 
-  const verarbeiteZeile = (roh: string) => {
-    const zeile = roh.replace(/\r$/, "");
-    if (!zeile.startsWith("data:")) return;
-    const text = zeile.slice(5).trimStart();
-    if (!text) return;
-    try {
-      verarbeiteEreignis(JSON.parse(text) as AgUiEreignis);
-    } catch {
-      // Unverständliche Zeile überspringen statt den ganzen Lauf abzubrechen.
-    }
-  };
-
-  const dekodierer = new TextDecoder();
-  let puffer = "";
-  let fertig = false;
-  try {
-    for (;;) {
-      const { done, value } = await leser.read();
-      if (done) break;
-      puffer += dekodierer.decode(value, { stream: true });
-      let trennung = puffer.indexOf("\n");
-      while (trennung !== -1) {
-        verarbeiteZeile(puffer.slice(0, trennung));
-        puffer = puffer.slice(trennung + 1);
-        trennung = puffer.indexOf("\n");
+  const abonnent: AgentSubscriber = {
+    onRunStartedEvent: ({ event }) => {
+      begonnen = true;
+      if (event.threadId) rueckrufe.onStart?.(event.threadId);
+    },
+    onTextMessageContentEvent: ({ event }) => {
+      if (event.delta) rueckrufe.onAssistantDelta?.(event.delta);
+    },
+    onCustomEvent: ({ event }) => {
+      if (event.name === "archive.citations" && Array.isArray(event.value)) {
+        rueckrufe.onCitations?.(leseQuellen(event.value));
+      } else if (
+        event.name === a2uiEreignisName &&
+        Array.isArray(event.value)
+      ) {
+        rueckrufe.onOberflaechen?.(event.value);
       }
-    }
-    puffer += dekodierer.decode();
-    if (puffer) verarbeiteZeile(puffer);
-  } catch {
-    if (!signal?.aborted) sendeFehler(allgemeinerChatFehler);
+    },
+    onRunErrorEvent: ({ event }) => {
+      sendeFehler(event.message || allgemeinerChatFehler, event.code);
+    },
+    onRunFinishedEvent: () => {
+      fertig = true;
+    },
+    onRunFailed: ({ error }) => {
+      sendeFehler(
+        istHttpFehler(error)
+          ? fehlerTitel(error)
+          : fehlerTitelOhneStatus(error, begonnen),
+      );
+    },
+  };
+
+  try {
+    await agent.runAgent(
+      { runId: crypto.randomUUID(), abortController: abbruch },
+      abonnent,
+    );
+  } catch (fehler) {
+    sendeFehler(
+      istHttpFehler(fehler)
+        ? fehlerTitel(fehler)
+        : fehlerTitelOhneStatus(fehler, begonnen),
+    );
   } finally {
-    leser.releaseLock();
+    signal?.removeEventListener("abort", abbrechen);
   }
   if (!fertig && !fehlerGesendet && !signal?.aborted) {
     // Ein Strom ohne RUN_FINISHED/RUN_ERROR wurde abgebrochen oder halb
     // abgegeben; das behandeln wir wie eine fehlgeschlagene Antwort.
     sendeFehler(allgemeinerChatFehler);
   }
+}
+
+// Ohne HTTP-Status ist die Verbindung selbst gescheitert, bevor der Lauf
+// begann (kein Netz), oder der Strom brach ab oder verletzte das Protokoll.
+function fehlerTitelOhneStatus(fehler: unknown, begonnen: boolean): string {
+  return !begonnen && fehler instanceof TypeError
+    ? verbindungsFehler
+    : allgemeinerChatFehler;
 }

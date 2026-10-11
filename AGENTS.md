@@ -138,6 +138,14 @@ uses its generated Next.js/Biome conventions and local `AGENTS.md`.
   `AddArchiveAi(configuration)`. The EUR 15 monthly cap, prices and limits are
   `Archive:Ai` settings. The ledger store is PostgreSQL SQL; tests on EF
   InMemory use `InMemoryAiLedgerStore`.
+- Agent-made UI is A2UI with the archive catalog only (`frontend/lib/a2ui.ts`,
+  `backend/Chat/A2uiSurfaces.cs`): the model passes record ids to
+  `zeige_oberflaeche`, the server resolves them against what the audience may
+  see and builds the messages, stores them with the chat message and rebuilds
+  them on load. Never accept text or URLs from the model; never register the
+  basic catalog. AG-UI events leave the server without null properties (the
+  strict `@ag-ui/client` refuses explicit nulls); Playwright chat mocks use
+  `tests/chat-mock.ts`.
 - Keep liveness dependency-free. Local diagnostics/mail/storage operations are
   Development-only; no production credentials are needed for ordinary startup.
 - Root SDK now selects .NET 10 with latest-feature roll-forward. Existing Azure

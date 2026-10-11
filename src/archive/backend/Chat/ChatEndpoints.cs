@@ -83,19 +83,38 @@ public static class ChatEndpoints
 			if (thread is null)
 				return Results.Problem(statusCode: 404, title: ThreadNotFoundMessage);
 			var messages = await ArchiveChatService.RecentMessages(db, id, ArchiveChatService.MessageHistoryLimit, token);
-			return Results.Ok(new
+			// A stored card is never trusted as stored: it is rebuilt from the
+			// records it names, so one a member may no longer see is gone.
+			var restored = new List<object>();
+			foreach (var m in messages)
 			{
-				threadId = id,
-				messages = messages.Select(m => new { role = m.Role, content = m.Content, createdAt = m.CreatedAt }),
-			});
+				var surfaces = m.A2uiJson is null ? null : await A2uiCatalog.RecheckAsync(db, m.A2uiJson, token);
+				// An answer that was only a card is nothing once its card is gone.
+				if (m.Content.Length == 0 && surfaces is not { Count: > 0 })
+					continue;
+				restored.Add(new { role = m.Role, content = m.Content, createdAt = m.CreatedAt, a2ui = surfaces is { Count: > 0 } ? surfaces : null });
+			}
+			return Results.Ok(new { threadId = id, messages = restored });
 		});
 	}
 
-	private static async IAsyncEnumerable<SseItem<BaseEvent>> WrapAsSseItems(
+	/// <summary>
+	/// The wire form of AG-UI events: properties that are null are left out.
+	/// The server library writes protocol fields it does not use as explicit
+	/// nulls (<c>parentRunId</c>, <c>usage[].model</c>, …), which a strict
+	/// AG-UI client (<c>@ag-ui/client</c>, ARC-022-4) refuses as a schema
+	/// violation; the protocol means "absent" by them.
+	/// </summary>
+	private static readonly JsonSerializerOptions WireJson = new(ArchiveChatService.AguiJsonOptions)
+	{
+		DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+	};
+
+	private static async IAsyncEnumerable<SseItem<JsonElement>> WrapAsSseItems(
 		IAsyncEnumerable<BaseEvent> events, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken token)
 	{
 		await foreach (var @event in events.WithCancellation(token))
-			yield return new SseItem<BaseEvent>(@event);
+			yield return new SseItem<JsonElement>(JsonSerializer.SerializeToElement<BaseEvent>(@event, WireJson));
 	}
 
 	private static async Task<(ArchiveAccessDecision? Decision, IResult? Error)> RequireMemberAsync(

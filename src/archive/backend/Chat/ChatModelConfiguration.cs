@@ -24,6 +24,7 @@ public sealed class ChatModelConfiguration
 		builder.HasKey(x => x.Id);
 		builder.Property(x => x.Role).HasMaxLength(20).IsRequired();
 		builder.Property(x => x.Content).HasMaxLength(8000).IsRequired();
+		builder.Property(x => x.A2uiJson).HasColumnType("jsonb");
 		builder.HasIndex(x => x.ThreadId);
 	}
 }

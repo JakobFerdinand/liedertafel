@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Archive.Backend.Catalogue;
 using Microsoft.Extensions.AI;
 
@@ -22,6 +23,25 @@ internal sealed class ChatRunState
 
 	/// <summary>The model still asked for tools after the run's last allowed model call.</summary>
 	public bool ToolLimitReached { get; set; }
+
+	/// <summary>The A2UI messages this run validated, in the order they were shown.</summary>
+	public List<JsonObject> Surfaces { get; } = [];
+
+	/// <summary>Surfaces shown so far in this run (ARC-022-4).</summary>
+	public int SurfaceCount { get; private set; }
+
+	/// <summary>Keys of the components shown, so the same record is shown once.</summary>
+	public HashSet<string> ShownKeys { get; } = [];
+
+	public void AddSurface((JsonObject Create, JsonObject Update) surface)
+	{
+		Surfaces.Add(surface.Create);
+		Surfaces.Add(surface.Update);
+		SurfaceCount++;
+	}
+
+	/// <summary>The messages as the JSON array stored with the answer, or null when nothing was shown.</summary>
+	public string? SurfacesJson => Surfaces.Count == 0 ? null : new JsonArray(Surfaces.Select(s => s.DeepClone()).ToArray()).ToJsonString();
 
 	public bool IsCitable(string title)
 	{
