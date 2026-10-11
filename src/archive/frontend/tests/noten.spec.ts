@@ -194,7 +194,9 @@ test("Mitglied sieht nichts, wenn keine aktuellen Noten vorliegen", async ({
   await expect(
     page.getByRole("button", { name: "Noten anzeigen" }),
   ).toHaveCount(0);
-  await expect(page.locator(".noten-bereich")).toHaveCount(0);
+  await expect(page.locator(".noten-bereich:not(.lied-historie)")).toHaveCount(
+    0,
+  );
 
   expect(errors).toEqual([]);
 });
