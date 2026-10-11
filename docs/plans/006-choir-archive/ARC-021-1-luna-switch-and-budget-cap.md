@@ -48,9 +48,13 @@ needs a deployed Luna deployment or a live call stays open.
 Deploy, run the live chat evaluation, ask a tool-using question in the hosted
 chat and confirm the ledger records Luna with the new prices.
 
-- [ ] Gate before stage A is pushed: `ChatEvaluationLive` (or one equivalent
+- [x] Gate before stage A is pushed: `ChatEvaluationLive` (or one equivalent
   call) against the **existing** `gpt-5-4-mini` deployment accepted
-  `reasoning_effort: none`.
+  `reasoning_effort: none`. Run on 2026-10-11 with the stage A code: 1 of 1
+  passed, 25 provider calls all answered with usage, no HTTP 400 on
+  api-version `2024-10-21`. The only flags were the two recorded in the
+  2026-10-09 baseline (`draft-title-echoed` for "Geheime Generalprobe",
+  `missing-citation-marker` for "Notizenprobe"); ledger 0.027173 EUR.
 - [ ] Stage A released, stage B deployed.
 - [ ] Live evaluation on Luna recorded.
 - [ ] Hosted tool-using question answered; `ai_usage_entries` shows model
