@@ -768,6 +768,15 @@ public sealed class CatalogueWriteService(ArchiveDbContext db)
 
 		var descriptionBefore = asset.Description;
 		var voiceBefore = asset.VoiceLabel;
+		// A request that changes nothing (no field, no asset type) is not a
+		// write: no new row version (open proposals on the asset would turn
+		// stale for nothing) and no provenance.
+		var typeChanged = db.Entry(asset).Property(a => a.AssetType).IsModified;
+		var changed = typeChanged
+			|| (patch.Description is not null && description != descriptionBefore)
+			|| (patch.VoiceLabel is not null && voiceLabel != voiceBefore);
+		if (!changed)
+			return WriteOutcome.Saved();
 		if (patch.Description is not null)
 			asset.Description = description;
 		if (patch.VoiceLabel is not null)

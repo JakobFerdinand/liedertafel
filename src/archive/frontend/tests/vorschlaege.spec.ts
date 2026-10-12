@@ -397,10 +397,10 @@ test("Die vom Scan gelesene Stimme trägt das KI-Abzeichen und lässt sich zurü
   await expect(eintrag.locator(".material-stimme")).toContainText("Tenor 1");
   await expect(eintrag.locator(".ki-abzeichen-marke")).toHaveText("KI");
   await eintrag
-    .getByRole("button", { name: "KI-Wert für Stimme zurückholen" })
+    .getByRole("button", { name: "KI-Wert für Stimme Tenor 1 zurückholen" })
     .click();
   await expect(
-    page.getByText("Früheren Wert für „Stimme“ zurückgeholt."),
+    page.getByText("Früheren Wert für „Stimme Tenor 1“ zurückgeholt."),
   ).toBeVisible();
   expect(antraege).toEqual([
     { entityType: "asset", entityId: assetId, field: "voice_label" },

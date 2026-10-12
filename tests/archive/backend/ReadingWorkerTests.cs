@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Archive.Backend.Ai;
 using Archive.Backend.Assets;
+using Archive.Backend.Data;
 using Archive.Backend.Extraction;
 using Archive.Backend.Provenance;
 using Archive.Backend.Reading;
@@ -206,6 +207,152 @@ public sealed class ReadingWorkerTests
 		// model's three readings are all proposals.
 		var reading = await host.ReadingAsync(score.Revision.Id);
 		Assert.Equal((2, 3), (reading.FieldsApplied, reading.FieldsProposed));
+	}
+
+	private const string PlainScanText =
+		"Waldfahrt\nVon Franz Schubert\nWorte Anna Beispiel\nChorstimme links\nIm Wald da singen die Vögel\nUnd alle stimmen mit ein";
+
+	private static ProposalDecisions Decisions(ArchiveDbContext db)
+		=> new(db, new ProposalHandlers([new FieldSuggestionHandler(new CatalogueWriteService(db))]), TimeProvider.System);
+
+	[Fact]
+	public async Task AProposalMadeBeforeAnAppliedValueOnTheSameSongCanStillBeAccepted()
+	{
+		// composer is only a proposal, lyricist is applied afterwards: the
+		// apply moves the song's row version, so a proposal that kept the old
+		// one would answer 409 on its first accept.
+		var host = new ReadingTestHost();
+		host.Model.FieldsJson = Fields(
+			Field("composer", "Franz Schubert", "unsicher", "Von Franz Schubert"),
+			Field("lyricist", "Anna Beispiel", "sicher", "Worte Anna Beispiel"));
+		var score = host.SeedScore(ScanFixtures.TextPdf("Text"), embeddedText: PlainScanText);
+
+		await host.RunAsync(score.Revision.Id);
+
+		var song = await host.SongAsync(score.Song.Id);
+		Assert.Equal((null, "Anna Beispiel"), (song.Composer, song.Lyricist));
+		var proposal = Assert.Single(await host.ProposalsAsync());
+		Assert.Equal(song.RowVersion, proposal.TargetRowVersion);
+		await using var db = new ArchiveDbContext(host.DbOptions);
+		var result = await Decisions(db).AcceptAsync(proposal.Id, Guid.CreateVersion7(), CancellationToken.None);
+		Assert.True(result.Ok, result.Title);
+		Assert.Equal("Franz Schubert", (await host.SongAsync(score.Song.Id)).Composer);
+	}
+
+	[Fact]
+	public async Task ARealFirstLineDoesNotVouchForAnInventedStanza()
+	{
+		var host = new ReadingTestHost();
+		host.Model.FieldsJson = Fields(
+			Field("lyrics", "Im Wald da singen die Vögel\nEine ganz erfundene zweite Strophe", "sicher", "Im Wald da singen die Vögel"));
+		var score = host.SeedScore(ScanFixtures.TextPdf("Text"), embeddedText: PlainScanText);
+
+		await host.RunAsync(score.Revision.Id);
+
+		Assert.Null((await host.SongAsync(score.Song.Id)).Lyrics);
+		var proposal = Assert.Single(await host.ProposalsAsync());
+		Assert.Equal(ScoreFieldPrefill.UnverifiedReason, proposal.Reason);
+	}
+
+	[Fact]
+	public async Task AVoiceOrKeyThatIsNotInItsQuoteIsOnlyAProposal()
+	{
+		var host = new ReadingTestHost();
+		host.Model.FieldsJson = Fields(
+			// Real quotes, but neither names the value.
+			Field("voice_label", "Tenor 1", "sicher", "Chorstimme links"),
+			Field("musical_key", "G-Dur", "sicher", "Im Wald da singen die Vögel"));
+		var score = host.SeedScore(ScanFixtures.TextPdf("Text"), embeddedText: PlainScanText);
+
+		await host.RunAsync(score.Revision.Id);
+
+		await using var db = new ArchiveDbContext(host.DbOptions);
+		Assert.Null((await db.Assets.AsNoTracking().SingleAsync()).VoiceLabel);
+		Assert.Null((await db.MusicalVersions.AsNoTracking().SingleAsync()).MusicalKey);
+		Assert.Equal(2, (await host.ProposalsAsync()).Count);
+	}
+
+	[Fact]
+	public async Task AVoiceThatStandsInItsQuoteIsApplied()
+	{
+		var host = new ReadingTestHost();
+		host.Model.FieldsJson = Fields(Field("voice_label", "Partitur", "sicher", "Partitur Chorsatz"));
+		var score = host.SeedScore(ScanFixtures.TextPdf("Text"),
+			embeddedText: "Waldfahrt\nPartitur Chorsatz\nIm Wald da singen die Vögel");
+
+		await host.RunAsync(score.Revision.Id);
+
+		await using var check = new ArchiveDbContext(host.DbOptions);
+		Assert.Equal("Partitur", (await check.Assets.AsNoTracking().SingleAsync()).VoiceLabel);
+		Assert.Empty(await host.ProposalsAsync());
+	}
+
+	[Fact]
+	public async Task ARejectedProposalIsNotOfferedAgainByARerun()
+	{
+		var host = new ReadingTestHost();
+		host.Model.FieldsJson = Fields(Field("composer", "Franz Schubert", "unsicher", "Von Franz Schubert"));
+		var score = host.SeedScore(ScanFixtures.TextPdf("Text"), embeddedText: PlainScanText);
+		await host.RunAsync(score.Revision.Id);
+		var first = Assert.Single(await host.ProposalsAsync());
+		await using (var db = new ArchiveDbContext(host.DbOptions))
+			Assert.True((await Decisions(db).RejectAsync(first.Id, Guid.CreateVersion7(), CancellationToken.None)).Ok);
+
+		// "Rest lesen" asks for the fields again.
+		await using (var db = new ArchiveDbContext(host.DbOptions))
+		{
+			var job = await db.ReadingJobs.SingleAsync();
+			job.Status = ReadingStatus.Queued;
+			job.FieldsDone = false;
+			job.AttemptCount = 0;
+			job.RowVersion++;
+			await db.SaveChangesAsync();
+		}
+		await host.RunAsync(score.Revision.Id);
+
+		var proposal = Assert.Single(await host.ProposalsAsync());
+		Assert.Equal(ProposalStatus.Rejected, proposal.Status);
+	}
+
+	[Fact]
+	public async Task ARefusedWriteLeavesNothingBehindAndTheRunFinishesWithoutAPaidRepeat()
+	{
+		var interceptor = new FailFirstSongSave();
+		var host = new ReadingTestHost(interceptor: interceptor);
+		host.Model.FieldsJson = Fields(
+			Field("composer", "Franz Schubert", "sicher", "Von Franz Schubert"),
+			Field("lyricist", "Anna Beispiel", "sicher", "Worte Anna Beispiel"));
+		var score = host.SeedScore(ScanFixtures.TextPdf("Text"), embeddedText: PlainScanText);
+
+		await host.RunAsync(score.Revision.Id);
+
+		Assert.True(interceptor.Fired);
+		// The composer save lost its race: the abandoned edit must not ride
+		// along with the lyricist's save.
+		var song = await host.SongAsync(score.Song.Id);
+		Assert.Equal((null, "Anna Beispiel"), (song.Composer, song.Lyricist));
+		Assert.Null(await host.ProvenanceAsync("song", song.Id, "composer"));
+		var reading = await host.ReadingAsync(score.Revision.Id);
+		Assert.Equal((ReadingStatus.Completed, 1, 1), (reading.Status, reading.AttemptCount, reading.FieldsApplied));
+		Assert.Single(host.Model.FieldCalls);
+	}
+
+	private sealed class FailFirstSongSave : Microsoft.EntityFrameworkCore.Diagnostics.SaveChangesInterceptor
+	{
+		public bool Fired { get; private set; }
+
+		public override ValueTask<Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int>> SavingChangesAsync(
+			Microsoft.EntityFrameworkCore.Diagnostics.DbContextEventData eventData,
+			Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int> result, CancellationToken cancellationToken = default)
+		{
+			if (!Fired && eventData.Context!.ChangeTracker.Entries<Archive.Backend.Catalogue.Song>()
+				.Any(e => e.State == EntityState.Modified))
+			{
+				Fired = true;
+				throw new DbUpdateConcurrencyException("Test: the song changed meanwhile.");
+			}
+			return base.SavingChangesAsync(eventData, result, cancellationToken);
+		}
 	}
 
 	[Fact]
@@ -530,10 +677,32 @@ public sealed class ReadingWorkerTests
 	[Fact]
 	public async Task TheExtractionJobHandsEveryScoreOverAndNothingElse()
 	{
+		var (host, queue, scan, text, rows) = await RunHandoffAsync(enabled: true);
+		Assert.Equal(new[] { scan.Revision.Id, text.Revision.Id }.Order(), rows.Select(r => r.RevisionId).Order());
+		Assert.All(rows, row => Assert.Equal(ReadingStatus.Queued, row.Status));
+		Assert.Equal(new[] { scan.Revision.Id, text.Revision.Id }.Order(), queue.Attempts.Order());
+		Assert.All(rows, row => Assert.NotNull(row.LastEnqueuedAt));
+		Assert.Empty(host.Model.Calls);
+	}
+
+	[Fact]
+	public async Task WhileReadingIsNotEnabledTheExtractionJobHandsNothingOver()
+	{
+		// No hosted reading job exists yet in production: no row, no message,
+		// nothing that would wait for a worker that never runs.
+		var (host, queue, _, _, rows) = await RunHandoffAsync(enabled: false);
+		Assert.Empty(rows);
+		Assert.Empty(queue.Attempts);
+		Assert.Empty(host.Model.Calls);
+	}
+
+	private static async Task<(ReadingTestHost Host, FakeReadingQueue Queue, SeededScore Scan, SeededScore Text, List<ReadingJob> Rows)>
+		RunHandoffAsync(bool enabled)
+	{
 		// The extraction job itself stays model-free; it only leaves the
 		// reading row (outbox) and a queue message behind.
 		var queue = new FakeReadingQueue();
-		var host = new ReadingTestHost();
+		var host = new ReadingTestHost(configure: o => o.Enabled = enabled);
 		var scan = host.SeedScore(ScanFixtures.ScanPdf(["1"]));
 		var text = host.SeedScore(ScanFixtures.TextPdf("Waldfahrt Musik: Franz Schubert"));
 		var document = host.SeedScore(ScanFixtures.TextPdf("Programm"));
@@ -562,12 +731,7 @@ public sealed class ReadingWorkerTests
 		}
 
 		await using var check = new Archive.Backend.Data.ArchiveDbContext(host.DbOptions);
-		var rows = await check.ReadingJobs.AsNoTracking().ToListAsync();
-		Assert.Equal(new[] { scan.Revision.Id, text.Revision.Id }.Order(), rows.Select(r => r.RevisionId).Order());
-		Assert.All(rows, row => Assert.Equal(ReadingStatus.Queued, row.Status));
-		Assert.Equal(new[] { scan.Revision.Id, text.Revision.Id }.Order(), queue.Attempts.Order());
-		Assert.All(rows, row => Assert.NotNull(row.LastEnqueuedAt));
-		Assert.Empty(host.Model.Calls);
+		return (host, queue, scan, text, await check.ReadingJobs.AsNoTracking().ToListAsync());
 	}
 
 	[Fact]

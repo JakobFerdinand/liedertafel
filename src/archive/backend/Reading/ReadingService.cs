@@ -28,6 +28,13 @@ public static class ReadingService
 		UpdatedAt = now,
 	};
 
+	/// <summary>
+	/// True when the revision's text already fills the persisted bound: more
+	/// pages could not add a character, so "Rest lesen" would loop for nothing.
+	/// </summary>
+	public static bool TextIsFull(ExtractionJob extraction, int maxTextCharacters)
+		=> (extraction.Text?.Length ?? 0) >= maxTextCharacters;
+
 	public static bool HasStaleLease(ReadingJob job, DateTimeOffset now, ReadingOptions options)
 		=> job.LastAttemptAt is null || job.LastAttemptAt < now - options.StaleRunningAfter;
 

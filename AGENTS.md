@@ -150,12 +150,15 @@ uses its generated Next.js/Biome conventions and local `AGENTS.md`.
   strict `@ag-ui/client` refuses explicit nulls); Playwright chat mocks use
   `tests/chat-mock.ts`.
 - The AI reading job (ARC-034-1, `--read-queue` / `--dispatch-reading`, `backend/Reading`)
-  is the only finite job that registers `AddArchiveAi`. It reads page images
-  (PDFium through the `PDFtoImage` package, native libraries ship in the
-  package) and text, and writes catalogue fields only through
+  reads page images (PDFium through the `PDFtoImage` package, native libraries
+  ship in the package) and text, and writes catalogue fields only through
   `AutomatedFieldWriter`: only certain, quote-verified values are applied,
   everything else is a proposal. Keep input per call below
-  `Archive:Ai:MaxInputTokensPerCall` (Luna's long-context tier).
+  `Archive:Ai:MaxInputTokensPerCall` (Luna's long-context tier). Every finite
+  command registers `AddArchiveAi`; what differs is the identity the hosted job
+  runs under. It stays switched off (`Archive:Reading:Enabled`, false in
+  `appsettings.json`, true in Development) until its Azure job, identity and
+  scheduled `--dispatch-reading` exist.
 - Keep liveness dependency-free. Local diagnostics/mail/storage operations are
   Development-only; no production credentials are needed for ordinary startup.
 - Root SDK now selects .NET 10 with latest-feature roll-forward. Existing Azure

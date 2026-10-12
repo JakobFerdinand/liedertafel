@@ -19,9 +19,14 @@ public static partial class ScriptedScanReader
 	public static bool IsTranscription(IReadOnlyList<ChatMessage> messages)
 		=> messages.Any(m => m.Contents.Any(c => c is DataContent));
 
-	/// <summary>True for the field request (the prompt carries the text between the NOTENTEXT marks).</summary>
-	public static bool IsFieldRequest(IReadOnlyList<ChatMessage> messages)
-		=> messages.Any(m => m.Text.Contains("NOTENTEXT-ANFANG", StringComparison.Ordinal));
+	/// <summary>
+	/// True for the field request: the agent's own instructions (never a chat
+	/// message a member could write) name the NOTENTEXT marks, and the prompt
+	/// carries the text between them.
+	/// </summary>
+	public static bool IsFieldRequest(IReadOnlyList<ChatMessage> messages, ChatOptions? options)
+		=> options?.Instructions?.Contains("NOTENTEXT-ANFANG", StringComparison.Ordinal) == true
+			|| messages.Any(m => m.Role == ChatRole.System && m.Text.Contains("NOTENTEXT-ANFANG", StringComparison.Ordinal));
 
 	public static string Transcribe(IReadOnlyList<ChatMessage> messages)
 	{

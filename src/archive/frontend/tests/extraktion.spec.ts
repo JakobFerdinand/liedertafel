@@ -196,6 +196,7 @@ function auswertung(
     text: "Erste Strophe: Das Wandern ist des Müllers Lust.",
     cleanText: null,
     facts: null,
+    readingEnabled: false,
     reading: null,
     failureReason: null,
     attemptCount: 1,
@@ -994,6 +995,7 @@ function scan(overwrite: Record<string, unknown> = {}) {
   return auswertung(notenRevisionId, notenAssetId, {
     status: "noText",
     text: null,
+    readingEnabled: true,
     ...overwrite,
   });
 }
@@ -1116,6 +1118,8 @@ test("Teilweise gelesene Datei bietet Rest lesen an und stößt es einmal an", a
     "KI-Lesen wartet …",
   );
   await expect(rest).toHaveCount(0);
+  // Der Knopf ist weg: der Fokus wandert in die Statuszeile.
+  await expect(zeile.locator(".extraktion-lesen")).toBeFocused();
   expect(antraege).toEqual([{}]);
 });
 
@@ -1307,4 +1311,50 @@ test("Mitglieder sehen weder KI-Lesen noch Knöpfe dafür", async ({ page }) => 
   await expect(page.locator(".extraktion-status")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /KI|lesen/i })).toHaveCount(0);
   expect(extraktionAbrufe).toBe(0);
+});
+
+test("Ohne eingerichtetes KI-Lesen bleibt die Zeile bei der Textauswertung", async ({
+  page,
+}) => {
+  await mockNoten(page);
+  let abrufe = 0;
+  await page.route("**/api/revisions/extraction*", (route) => {
+    abrufe += 1;
+    return route.fulfill(
+      json({ results: [scan({ readingEnabled: false, reading: null })] }),
+    );
+  });
+
+  await page.goto(`/lied/?id=${songId}`);
+  const zeile = page.locator(".extraktion-status");
+  await expect(zeile.locator(".extraktion-stand")).toHaveText(
+    "Kein Text gefunden — vermutlich eingescannt.",
+  );
+  await expect(zeile.locator(".extraktion-lesen")).toHaveCount(0);
+  await expect(zeile.getByRole("button", { name: /von der KI/ })).toHaveCount(
+    0,
+  );
+  const nachErstem = abrufe;
+  await page.waitForTimeout(4500);
+  expect(abrufe).toBe(nachErstem);
+});
+
+test("Eine einzelne Seite steht in der Einzahl", async ({ page }) => {
+  await mockNoten(page);
+  await page.route("**/api/revisions/extraction*", (route) =>
+    route.fulfill(
+      json({
+        results: [
+          scan({
+            reading: lesen({ status: "running", pagesTotal: 1, pagesRead: 0 }),
+          }),
+        ],
+      }),
+    ),
+  );
+
+  await page.goto(`/lied/?id=${songId}`);
+  await expect(page.locator(".extraktion-lesen")).toHaveText(
+    "KI liest die Seiten … (0 von 1 Seite)",
+  );
 });

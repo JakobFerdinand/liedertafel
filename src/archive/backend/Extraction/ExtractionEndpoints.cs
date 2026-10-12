@@ -34,7 +34,8 @@ public static class ExtractionEndpoints
 	{
 		app.MapGet("/api/revisions/extraction", async (
 			HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access,
-			ArchiveDbContext db, CancellationToken token) =>
+			ArchiveDbContext db, IOptions<ReadingOptions> readingOptions, IOptions<ExtractionOptions> extractionOptions,
+			CancellationToken token) =>
 		{
 			context.Response.Headers.CacheControl = "no-store";
 			var (_, error) = await RequireEditorAsync(context, accessor, access);
@@ -54,7 +55,9 @@ public static class ExtractionEndpoints
 			var byRevision = jobs.ToDictionary(j => j.RevisionId);
 			// ARC-034-1: the AI reading state travels with the extraction row,
 			// so one poll serves the whole list.
-			var readings = ids.Count == 0
+			var readingEnabled = readingOptions.Value.Enabled;
+			var textCap = extractionOptions.Value.MaxTextCharacters;
+			var readings = ids.Count == 0 || !readingEnabled
 				? new Dictionary<Guid, ReadingJob>()
 				: await db.ReadingJobs.AsNoTracking()
 					.Where(j => ids.Contains(j.RevisionId))
@@ -63,7 +66,7 @@ public static class ExtractionEndpoints
 			{
 				// Request order with unknown ids silently skipped.
 				results = ids.Where(byRevision.ContainsKey)
-					.Select(revisionId => StatusPayload(byRevision[revisionId], readings.GetValueOrDefault(revisionId)))
+					.Select(revisionId => StatusPayload(byRevision[revisionId], readings.GetValueOrDefault(revisionId), readingEnabled, textCap))
 					.ToList(),
 			});
 		});
@@ -72,7 +75,7 @@ public static class ExtractionEndpoints
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
 			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time,
 			ILoggerFactory loggerFactory, IExtractionQueue queue, IOptions<ExtractionOptions> options,
-			Guid id, CancellationToken token) =>
+			IOptions<ReadingOptions> readingOptions, Guid id, CancellationToken token) =>
 		{
 			context.Response.Headers.CacheControl = "no-store";
 			try { await antiforgery.ValidateRequestAsync(context); }
@@ -113,7 +116,7 @@ public static class ExtractionEndpoints
 				else if (job.Status is ExtractionStatus.Completed or ExtractionStatus.NoText)
 				{
 					// Terminal results are idempotent replies: no new work, no enqueue.
-					return Results.Ok(StatusPayload(job));
+					return Results.Ok(await StatusWithReadingAsync(db, job, readingOptions.Value, options.Value, token));
 				}
 				else if (job.Status is ExtractionStatus.Failed or ExtractionStatus.Running)
 				{
@@ -154,14 +157,25 @@ public static class ExtractionEndpoints
 					// Quiet: a send failure leaves the Queued row for the dispatch sweep.
 					await ExtractionService.TryEnqueueAsync(db, queue, loggerFactory.CreateLogger("Archive.Extraction"), id, time, token);
 				}
-				return Results.Ok(StatusPayload(job));
+				return Results.Ok(await StatusWithReadingAsync(db, job, readingOptions.Value, options.Value, token));
 			}
 			return Results.Problem(statusCode: 409, title: AssetEndpoints.ConcurrencyMessage);
 		}).DisableAntiforgery();
 	}
 
+	/// <summary>The status item of one job with its reading state, like the batch query serves it.</summary>
+	private static async Task<object> StatusWithReadingAsync(
+		ArchiveDbContext db, ExtractionJob job, ReadingOptions readingOptions, ExtractionOptions extractionOptions,
+		CancellationToken token)
+	{
+		var reading = readingOptions.Enabled
+			? await db.ReadingJobs.AsNoTracking().FirstOrDefaultAsync(r => r.RevisionId == job.RevisionId, token)
+			: null;
+		return StatusPayload(job, reading, readingOptions.Enabled, extractionOptions.MaxTextCharacters);
+	}
+
 	/// <summary>Single status item, shared by the batch query and the retry reply.</summary>
-	private static object StatusPayload(ExtractionJob job, ReadingJob? reading = null)
+	private static object StatusPayload(ExtractionJob job, ReadingJob? reading = null, bool readingEnabled = false, int textCap = 0)
 	{
 		var analysis = job.Status == ExtractionStatus.Completed ? ScoreTextAnalyzer.Analyze(job.Text) : null;
 		return new
@@ -171,7 +185,10 @@ public static class ExtractionEndpoints
 			revisionNumber = job.Revision.RevisionNumber,
 			status = ToStatusString(job.Status),
 			textSource = job.TextSource == ExtractionTextSource.Reading ? "reading" : "embedded",
-			reading = reading is null ? null : ReadingEndpoints.ReadingPayload(reading),
+			// ARC-034-1: false until the hosted reading job exists; the page then
+			// shows and offers nothing of it.
+			readingEnabled,
+			reading = reading is null ? null : ReadingEndpoints.ReadingPayload(reading, ReadingService.TextIsFull(job, textCap)),
 			text = job.Text,
 			// Readable text and facts are derived on read from the stored text.
 			cleanText = analysis?.CleanText,

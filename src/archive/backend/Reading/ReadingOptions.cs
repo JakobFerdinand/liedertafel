@@ -12,6 +12,16 @@ public sealed class ReadingOptions
 
 	public const string DefaultQueueName = "archive-reading";
 
+	/// <summary>
+	/// Whether AI reading is switched on. Off by default: the hosted queue,
+	/// job, identity and schedule must exist before it is turned on, otherwise
+	/// every new score would wait for a job that never runs. While off, the
+	/// extraction job hands nothing over, no reading row is created, the
+	/// editor actions answer 409 and the status payload hides the reading.
+	/// Development turns it on (appsettings.Development.json).
+	/// </summary>
+	public bool Enabled { get; set; }
+
 	public string QueueName
 	{
 		get => queueName;

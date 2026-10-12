@@ -307,10 +307,13 @@ public sealed class ExtractionWorker(
 		return await RetryAsync(job, revisionId, message, job.AttemptCount, parentToken);
 	}
 
-	/// <summary>Adds the Queued reading row of a finished score extraction; false when it exists or the material is not a score.</summary>
+	/// <summary>Adds the Queued reading row of a finished score extraction; false when reading is off, the row exists or the material is not a score.</summary>
 	private async Task<bool> AddReadingHandoffAsync(FileRevision revision, ExtractionJob job, DateTimeOffset now, CancellationToken token)
 	{
-		if (!ReadingService.IsReadable(revision.Asset.AssetType)
+		// Off until the hosted reading job exists (Archive:Reading:Enabled): no
+		// row, no message, nothing waiting for a worker that never runs.
+		if (readingOptions?.Value.Enabled != true
+			|| !ReadingService.IsReadable(revision.Asset.AssetType)
 			|| await db.ReadingJobs.AnyAsync(r => r.RevisionId == revision.Id, token))
 			return false;
 		db.ReadingJobs.Add(ReadingService.CreateForRevision(revision, job.TriggeredByAccountId,

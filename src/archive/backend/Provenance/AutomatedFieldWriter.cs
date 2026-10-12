@@ -115,6 +115,53 @@ public sealed class AutomatedFieldWriter(
 		return new(AutomatedWriteResult.Applied, null, null, request.Value, null);
 	}
 
+	/// <summary>
+	/// Re-bases open proposals a caller created earlier in the same run onto
+	/// the targets' current row versions. A run that proposes one field and
+	/// applies another on the same song would otherwise leave the proposal
+	/// stale at once (the apply moved the version). A proposal whose field was
+	/// filled since is left alone: it is genuinely stale.
+	/// </summary>
+	public async Task RebaseProposalsAsync(IReadOnlyCollection<Guid> proposalIds, CancellationToken token)
+	{
+		if (proposalIds.Count == 0)
+			return;
+		var proposals = await db.Proposals
+			.Where(p => proposalIds.Contains(p.Id) && p.Status == ProposalStatus.Open)
+			.ToListAsync(token);
+		var changed = false;
+		foreach (var proposal in proposals)
+		{
+			if (proposal.TargetEntityType is null || proposal.TargetEntityId is null)
+				continue;
+			var entity = await writes.LoadEntityAsync(proposal.TargetEntityType, proposal.TargetEntityId.Value, token);
+			if (entity is null)
+				continue;
+			var field = FieldOf(proposal);
+			if (field is null || !string.IsNullOrWhiteSpace(CatalogueWriteService.CurrentFieldValue(entity, field)))
+				continue;
+			proposal.TargetRowVersion = CatalogueWriteService.RowVersionOf(entity);
+			changed = true;
+		}
+		if (changed)
+			await db.SaveChangesAsync(token);
+	}
+
+	private static string? FieldOf(Proposal proposal)
+	{
+		try
+		{
+			using var document = JsonDocument.Parse(proposal.Payload);
+			return document.RootElement.TryGetProperty("field", out var field) && field.ValueKind is JsonValueKind.String
+				? field.GetString()
+				: null;
+		}
+		catch (JsonException)
+		{
+			return null;
+		}
+	}
+
 	private static Guid entityActorFallback(object entity) => entity switch
 	{
 		Catalogue.Song song => song.CreatedByAccountId,

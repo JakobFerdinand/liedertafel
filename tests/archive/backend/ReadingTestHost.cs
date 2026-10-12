@@ -122,11 +122,13 @@ internal sealed class ReadingTestHost
 	public const string ModelKey = "stub-model";
 
 	public ReadingTestHost(IChatClient? provider = null, decimal capEur = 15m, Action<ReadingOptions>? configure = null,
-		string autoApply = "sicher", bool maintenance = false, string modelKey = ModelKey, AiModelPrice? price = null)
+		string autoApply = "sicher", bool maintenance = false, string modelKey = ModelKey, AiModelPrice? price = null,
+		ISaveChangesInterceptor? interceptor = null)
 	{
 		DbOptions = new DbContextOptionsBuilder<ArchiveDbContext>()
 			.UseInMemoryDatabase($"reading-{Guid.NewGuid():N}", new InMemoryDatabaseRoot())
 			.ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning))
+			.AddInterceptors(interceptor is null ? [] : [interceptor])
 			.UseApplicationServiceProvider(new ServiceCollection()
 				.Configure<Microsoft.AspNetCore.Identity.IdentityOptions>(o =>
 					o.Stores.SchemaVersion = Microsoft.AspNetCore.Identity.IdentitySchemaVersions.Version3)

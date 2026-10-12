@@ -106,6 +106,16 @@ export function ExtraktionStatus({
     }
   }, [leseStand, revisionId, onErkannt]);
 
+  const lesenRef = useRef<HTMLOutputElement>(null);
+  const [fokusLesen, setFokusLesen] = useState(false);
+  // Die Statuszeile erscheint erst mit der Antwort: dann geht der Fokus hinein.
+  const lesenDa = info?.readingEnabled === true && Boolean(info.reading);
+  useEffect(() => {
+    if (fokusLesen && lesenDa && lesenRef.current) {
+      lesenRef.current.focus();
+      setFokusLesen(false);
+    }
+  }, [fokusLesen, lesenDa]);
   async function lesenAnstossen(aktion: "retry" | "continue") {
     if (abbruchRef.current) return;
     const abbruch = new AbortController();
@@ -122,6 +132,8 @@ export function ExtraktionStatus({
       );
       if (abbruch.signal.aborted) return;
       if (info) setzeExtraktion({ ...info, reading });
+      // Der Knopf verschwindet: der Fokus geht in die Statuszeile.
+      setFokusLesen(true);
       aktualisiereExtraktion();
     } catch (ursache) {
       if (abbruch.signal.aborted) return;
@@ -205,7 +217,10 @@ export function ExtraktionStatus({
   const grund =
     info?.status === "failed" ? (info.failureReason?.trim() ?? "") : "";
   const vorschauId = `extraktion-vorschau-${revisionId}`;
-  const lesen = info?.reading ?? null;
+  // Ist das KI-Lesen auf dem Server nicht eingerichtet, bleibt die Zeile bei
+  // der Textauswertung: weder Stand noch Knöpfe.
+  const lesenAn = info?.readingEnabled === true;
+  const lesen = lesenAn ? (info?.reading ?? null) : null;
   const lesenGrund =
     lesen?.status === "failed" ? (lesen.failureReason?.trim() ?? "") : "";
   // Eine fertige Auswertung ohne Lesezeile (Datei aus der Zeit davor) kann
@@ -213,6 +228,7 @@ export function ExtraktionStatus({
   // für die noch leeren Felder.
   const lesenAngebot =
     kannLesen &&
+    lesenAn &&
     !fehler &&
     info &&
     !lesen &&
@@ -226,9 +242,9 @@ export function ExtraktionStatus({
           {grund ? <span className="extraktion-grund"> — {grund}</span> : null}
         </output>
       )}
-      {info && (
-        <output className="extraktion-lesen">
-          {lesen ? leseStatusText(lesen) : ""}
+      {lesen && (
+        <output className="extraktion-lesen" ref={lesenRef} tabIndex={-1}>
+          {leseStatusText(lesen)}
           {lesenGrund ? (
             <span className="extraktion-grund"> — {lesenGrund}</span>
           ) : null}

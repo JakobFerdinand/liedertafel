@@ -210,6 +210,11 @@ public sealed class ProposalDecisions(ArchiveDbContext db, ProposalHandlers hand
 		var handler = handlers.Resolve(proposal.Kind);
 		if (handler is null)
 			return new(false, 409, NoHandlerMessage);
+		// The owner rule of the asset's own edit applies to an accepted
+		// proposal too: only the creating editor changes a material's fields.
+		if (proposal.TargetEntityType == FieldCatalog.EntityTypeAsset && proposal.TargetEntityId is { } assetId
+			&& await AssetOwnerRule.IsOtherEditorAsync(db, assetId, editorId, token))
+			return new(false, 403, AssetEndpoints.AssetOwnerMessage);
 		ProposalTargetState? target = null;
 		if (proposal.TargetEntityId is not null && proposal.TargetEntityType is not null)
 		{
@@ -288,6 +293,24 @@ public sealed class ProposalDecisions(ArchiveDbContext db, ProposalHandlers hand
 		{
 			return null;
 		}
+	}
+}
+
+/// <summary>
+/// The material's owner rule for automated and confirmed field changes: the
+/// asset PATCH is creator-only, so reverting or accepting a change on an
+/// asset's fields (the voice label read from a scan) is too. A missing asset
+/// is not "another editor's": the caller's normal not-found answer applies.
+/// </summary>
+public static class AssetOwnerRule
+{
+	public static async Task<bool> IsOtherEditorAsync(ArchiveDbContext db, Guid assetId, Guid accountId, CancellationToken token)
+	{
+		var owner = await db.Assets.AsNoTracking()
+			.Where(a => a.Id == assetId)
+			.Select(a => (Guid?)a.CreatedByAccountId)
+			.FirstOrDefaultAsync(token);
+		return owner is not null && owner != accountId;
 	}
 }
 

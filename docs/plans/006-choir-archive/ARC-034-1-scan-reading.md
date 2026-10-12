@@ -139,6 +139,38 @@ Scripted model: `Reading/ScriptedScanReader.cs` backs `ScriptedChatClient` for
 reading requests, so Development, CI and the AppHost run the whole job offline.
 It cannot see images; it returns a fixed German sample page.
 
+### Review follow-up (2026-10-12, after the independent review)
+
+Fixed, each with a test that failed before the fix (checked by running the new
+tests against the unfixed sources):
+
+1. **Production strand:** `Archive:Reading:Enabled` (false in `appsettings.json`,
+   true in Development). Off: the extraction job hands nothing over, the
+   endpoints answer 409, status items carry `readingEnabled: false` and
+   `reading: null`, the page hides the reading and does not poll for it.
+2. **Stale same-run proposals:** proposals created in a run are re-based on the
+   targets' final row versions (`AutomatedFieldWriter.RebaseProposalsAsync`).
+3. **Quote ties value to text:** every lyrics line must stand in the text; a
+   voice's first word and the key must stand in their quote.
+4. **No-op asset PATCH** keeps the row version (and open proposals fresh).
+5. **Accessible names:** "KI-Wert für Stimme <Stimme> zurückholen" (and the same
+   in the success message).
+6. **Race on the new row:** only `PK_reading_jobs` is treated as a concurrent
+   insert (one idempotent second pass); any other save failure surfaces.
+7. **Owner rule:** reverting or accepting a change on an asset's field is
+   creator-only like the asset PATCH (`AssetOwnerRule`, 403).
+
+Nits fixed: AGENTS.md wording; `FieldsApplied`/`FieldsProposed` comment (they sum
+over all field steps of the file); rejected proposals are not proposed again for
+the same value; a refused write drops its half-made change (no poisoned save, no
+second paid field call); "Rest lesen" is not offered or accepted when the stored
+text is full; "1 Seite" singular; focus moves to the status line when a reading
+button disappears; maintainer step 4 reworded; the scripted client recognises
+the field request only by the agent's own instructions; explicit 401/403 tests
+for the reading endpoints (a revoked cookie is anonymous, so its antiforgery
+token must be the anonymous one). Skipped: the image-size work (publish with
+`-r linux-x64 --self-contained false`), noted as maintainer follow-up 5.
+
 ### Verification (2026-10-12)
 
 All on the maintainer's Raspberry Pi, local PostgreSQL 17.6 in Docker, no provider calls:
@@ -153,6 +185,14 @@ All on the maintainer's Raspberry Pi, local PostgreSQL 17.6 in Docker, no provid
 Not run: the Docker image build with the native PDFium/Skia libraries (the disk of the
 build machine was full; only `dotnet publish` was attempted and interrupted), the
 live evaluation on real scans, anything against Azure.
+
+Re-run after the review follow-up (same machine and commands as above):
+`dotnet build`: 0 warnings, 0 errors; `ARCHIVE_TEST_POSTGRES=... dotnet test tests/archive/backend`:
+**698 passed**, 0 failed; `dotnet ef migrations has-pending-model-changes`: no
+changes (no migration in the follow-up); `dotnet test tests/archive/apphost`:
+**6 passed** (it runs in Development, where reading is enabled, and covers the
+scripted client change); frontend `pnpm run check` and `pnpm run build` clean;
+the seven Playwright specs with `--workers=1`: **154 passed**.
 
 ### For the maintainer
 
@@ -187,12 +227,19 @@ live evaluation on real scans, anything against Azure.
    `api-version=2024-10-21`, (b) image input through `DataContent` on Luna, (c)
    quota (TPM) for ten-image requests against the 30k TPM deployment — if (c)
    throttles, lower `Archive:Reading:ImagesPerCall`.
+3b. **Switch it on last.** `Archive:Reading:Enabled` is `false` in production (`appsettings.json`) until items 1 and 2 exist: while off, no reading row or queue message is created and the editors see nothing of it (otherwise every new score would show "KI-Lesen wartet …" forever). After the Azure job, identity and schedule are in place, set `Archive__Reading__Enabled=true` on the app and on the extraction job, then do the hosted check below.
 4. **Hosted checks:** the hosted database applied `ScanReading` (use the release
    `--migrate`), then upload a scanned PDF as an editor, wait for the extraction
    line to show "Kein Text gefunden", confirm the reading starts, the text and
-   "KI" badges appear, a hand-edited field survives "Erneut lesen" and an
-   uncertain field lands in "Vorschläge". Then set this ticket to `done`.
-5. Not verified here: the native PDFium/Skia libraries inside the real release
+   "KI" badges appear and an uncertain field lands in "Vorschläge". Check the
+   lock with a second score of a song whose composer was typed by hand first:
+   after "Seiten von der KI lesen" on that score the composer is unchanged (a
+   completed reading itself cannot be rerun, only continued with "Rest lesen").
+   Then set this ticket to `done`.
+5. Follow-up, not done: the image grows by PDFium, Skia and their native
+   libraries for every runtime; publishing with `-r linux-x64 --self-contained false`
+   would drop the other platforms' copies. Measure the image before and after.
+6. Not verified here: the native PDFium/Skia libraries inside the real release
    image on linux-x64 (see the verification record for what was checked).
 
 ### Handoff

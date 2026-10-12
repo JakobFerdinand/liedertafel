@@ -48,6 +48,8 @@ export type ExtraktionsInfo = {
   status: ExtraktionsStatus;
   /** Woher der Text stammt: eingebettet oder von der KI aus dem Scan gelesen. */
   textSource?: "embedded" | "reading";
+  /** Ist das KI-Lesen auf dem Server eingerichtet (sonst gibt es nichts anzuzeigen)? */
+  readingEnabled?: boolean;
   /** KI-Lesen der Seiten; null, solange es keine Zeile dafür gibt. */
   reading?: LeseInfo | null;
   text: string | null;
@@ -144,7 +146,7 @@ function mehrzahl(anzahl: number, einzahl: string, mehr: string): string {
 export function leseStatusText(info: LeseInfo): string {
   const seiten =
     info.pagesTotal !== null
-      ? ` (${info.pagesRead} von ${info.pagesTotal} Seiten)`
+      ? ` (${info.pagesRead} von ${info.pagesTotal} ${info.pagesTotal === 1 ? "Seite" : "Seiten"})`
       : "";
   switch (info.status) {
     case "queued":

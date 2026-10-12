@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Archive.Backend.Assets;
 using Archive.Backend.Auth;
 using Archive.Backend.Data;
 using Archive.Backend.Provenance;
@@ -158,6 +159,9 @@ public static class ProvenanceEndpoints
 				return Results.Problem(statusCode: 400, title: "Das Feld wurde nicht angegeben.");
 			if (!FieldCatalog.IsEntityType(body.EntityType))
 				return Results.Problem(statusCode: 400, title: UnknownEntityTypeMessage);
+			if (body.EntityType == FieldCatalog.EntityTypeAsset
+				&& await AssetOwnerRule.IsOtherEditorAsync(db, body.EntityId, decision!.AccountId, token))
+				return Results.Problem(statusCode: 403, title: AssetEndpoints.AssetOwnerMessage);
 			var actor = new WriteActor(decision!.AccountId, time.GetUtcNow());
 			var outcome = await writes.RevertFieldAsync(body.EntityType, body.EntityId, body.Field, actor, token);
 			if (outcome.Outcome.Status == WriteOutcomeStatus.Invalid)

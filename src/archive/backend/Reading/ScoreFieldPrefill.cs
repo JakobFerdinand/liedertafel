@@ -81,6 +81,8 @@ public sealed class ScoreFieldPrefill(
 
 		var description = SourceDescription(revision);
 
+		var created = new List<Guid>();
+
 		// 1. Deterministic: what the analyzer reads, written as regex facts.
 		var facts = ScoreTextAnalyzer.Analyze(text).Facts;
 		foreach (var (field, value) in RegexFacts(facts))
@@ -92,10 +94,14 @@ public sealed class ScoreFieldPrefill(
 				target.EntityType, target.EntityId, field, value, ProvenanceSource.Regex, ProvenanceConfidence.Sicher,
 				Model: null, PromptVersion: null, RegexReason, description, ProposalOnly: false), accountId, token);
 			open.Remove(field);
-			Count(outcome, progress);
+			Count(outcome, progress, created);
+			ForgetRefusedWrite(outcome);
 		}
 		if (open.Count == 0)
+		{
+			await writer.RebaseProposalsAsync(created, token);
 			return;
+		}
 
 		// 2. The agent, for the fields that are still empty and unlocked.
 		var wanted = FieldOrder.Where(open.Contains).ToList();
@@ -113,7 +119,7 @@ public sealed class ScoreFieldPrefill(
 			var verified = QuoteIsVerified(read, value, text);
 			var certain = string.Equals(read.Certainty?.Trim(), "sicher", StringComparison.OrdinalIgnoreCase);
 			var target = targets[read.Field];
-			if (await HasOpenProposalAsync(target, read.Field, token))
+			if (await AlreadyProposedAsync(target, read.Field, value, token))
 				continue;
 			var apply = certain && verified;
 			var reason = apply
@@ -125,11 +131,15 @@ public sealed class ScoreFieldPrefill(
 				target.EntityType, target.EntityId, read.Field, value, ProvenanceSource.Ai,
 				apply ? ProvenanceConfidence.Sicher : ProvenanceConfidence.Unsicher,
 				model.Model, ScanPrompts.FieldsVersion, reason, description, ProposalOnly: !apply), accountId, token);
-			Count(outcome, progress);
+			Count(outcome, progress, created);
+			ForgetRefusedWrite(outcome);
 		}
+		// Proposals made before a later apply on the same song would be stale
+		// at once: re-base them on the final row versions.
+		await writer.RebaseProposalsAsync(created, token);
 	}
 
-	private static void Count(AutomatedFieldWriter.AutomatedWriteOutcome outcome, PrefillProgress progress)
+	private static void Count(AutomatedFieldWriter.AutomatedWriteOutcome outcome, PrefillProgress progress, List<Guid> proposals)
 	{
 		switch (outcome.Result)
 		{
@@ -138,7 +148,29 @@ public sealed class ScoreFieldPrefill(
 				break;
 			case AutomatedFieldWriter.AutomatedWriteResult.Proposed:
 				progress.Proposed++;
+				if (outcome.ProposalId is { } id)
+					proposals.Add(id);
 				break;
+		}
+	}
+
+	/// <summary>
+	/// A refused write (a lost save race, say) leaves its half-made change in
+	/// the tracker; the next save would throw on it again and the run would
+	/// pay for the field call twice. Drop the abandoned edits so the next
+	/// field starts from what is stored.
+	/// </summary>
+	private void ForgetRefusedWrite(AutomatedFieldWriter.AutomatedWriteOutcome outcome)
+	{
+		if (outcome.Result != AutomatedFieldWriter.AutomatedWriteResult.Refused)
+			return;
+		foreach (var entry in db.ChangeTracker.Entries().ToList())
+		{
+			var abandoned = entry.State == EntityState.Modified
+					&& entry.Entity is Catalogue.Song or Catalogue.Arrangement or Catalogue.MusicalVersion or ArchiveAsset
+				|| entry.State == EntityState.Added && entry.Entity is FieldProvenance;
+			if (abandoned)
+				entry.State = EntityState.Detached;
 		}
 	}
 
@@ -173,16 +205,29 @@ public sealed class ScoreFieldPrefill(
 			.ToHashSet(StringComparer.Ordinal);
 	}
 
-	private async Task<bool> HasOpenProposalAsync(Target target, string field, CancellationToken token)
+	/// <summary>
+	/// True when the editor queue already has this field of the target: any
+	/// open proposal (a retry never doubles it) or a rejected one for the very
+	/// same value (an editor's "no" is not asked again by "Rest lesen").
+	/// </summary>
+	private async Task<bool> AlreadyProposedAsync(Target target, string field, string value, CancellationToken token)
 	{
-		var open = await db.Proposals.AsNoTracking()
-			.Where(p => p.Kind == ProposalKind.FieldSuggestion && p.Status == ProposalStatus.Open
+		var stored = await db.Proposals.AsNoTracking()
+			.Where(p => p.Kind == ProposalKind.FieldSuggestion
+				&& (p.Status == ProposalStatus.Open || p.Status == ProposalStatus.Rejected)
 				&& p.TargetEntityId == target.EntityId && p.TargetEntityType == target.EntityType)
-			.Select(p => p.Payload)
+			.Select(p => new { p.Status, p.Payload })
 			.ToListAsync(token);
-		return open.Any(payload =>
+		return stored.Any(proposal =>
 		{
-			try { return JsonDocument.Parse(payload).RootElement.GetProperty("field").GetString() == field; }
+			try
+			{
+				var root = JsonDocument.Parse(proposal.Payload).RootElement;
+				if (root.GetProperty("field").GetString() != field)
+					return false;
+				return proposal.Status == ProposalStatus.Open
+					|| root.TryGetProperty("value", out var proposed) && proposed.GetString() == value;
+			}
 			catch (Exception exception) when (exception is JsonException or KeyNotFoundException or InvalidOperationException) { return false; }
 		});
 	}
@@ -200,18 +245,38 @@ public sealed class ScoreFieldPrefill(
 
 	/// <summary>
 	/// The quote must stand in the text (ignoring case, line breaks and
-	/// repeated blanks); a name must also stand in its quote, so the model
-	/// cannot attach an invented name to a real sentence.
+	/// repeated blanks), and the quote must tie the value to the text: a name
+	/// stands in its quote; every line of the lyrics stands in the text (a
+	/// real first line cannot vouch for an invented stanza); the voice's
+	/// first word and the key stand in their quote.
 	/// </summary>
 	public static bool QuoteIsVerified(ReadField read, string value, string text)
 	{
+		var normalizedText = Normalize(text);
 		var quote = Normalize(read.Quote);
 		var minimum = read.Field == "lyrics" ? MinLyricsQuoteLength : MinQuoteLength;
-		if (quote.Length < minimum || !Normalize(text).Contains(quote, StringComparison.Ordinal))
+		if (quote.Length < minimum || !normalizedText.Contains(quote, StringComparison.Ordinal))
 			return false;
-		return read.Field is not ("composer" or "lyricist" or "arranger")
-			|| quote.Contains(Normalize(value), StringComparison.Ordinal);
+		switch (read.Field)
+		{
+			case "composer" or "lyricist" or "arranger":
+				return quote.Contains(Normalize(value), StringComparison.Ordinal);
+			case "lyrics":
+				return value.Replace("\r\n", "\n").Split('\n').Select(Normalize)
+					.Where(line => line.Length > 0)
+					.All(line => normalizedText.Contains(line, StringComparison.Ordinal));
+			case "voice_label":
+				var head = Regex.Match(value, @"^\p{L}+").Value.ToLowerInvariant();
+				return head.Length > 0 && quote.Contains(head, StringComparison.Ordinal);
+			case "musical_key":
+				var key = Compact(value);
+				return key.Length > 0 && Compact(quote).Contains(key, StringComparison.Ordinal);
+			default:
+				return true;
+		}
 	}
+
+	private static string Compact(string value) => Regex.Replace(Normalize(value), @"[^\p{L}\p{N}]", string.Empty);
 
 	private static string Normalize(string? value)
 		=> string.IsNullOrWhiteSpace(value)

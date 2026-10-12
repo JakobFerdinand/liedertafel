@@ -950,12 +950,20 @@ same save plus a message on the `archive-reading` queue. `archive-read` /
    for what is still empty: the six fields `composer`, `lyricist`, `arranger`,
    `musical_key`, `voice_label` and `lyrics`. Each answer carries `sicher` or
    `unsicher` and a verbatim quote. Code verifies that the quote stands in the
-   text (case, blanks and line breaks ignored; a name must also stand in its
-   quote). Only `sicher` with a verified quote is applied (source `ai`, model,
+   text (case, blanks and line breaks ignored) and that the quote ties the value
+   to it: a name stands in its quote, **every line of the lyrics stands in the
+   text** (a real first line cannot vouch for an invented stanza), the first
+   word of a voice and the key (hyphens and blanks ignored) stand in their
+   quote. Only `sicher` with a verified quote is applied (source `ai`, model,
    prompt version `scan-fields-v1`, badge "KI"); everything else becomes an
    open "Vorschläge" proposal, **whatever `Archive:Provenance:AutoApplyConfidence`
    says** (`FieldWriteRequest.ProposalOnly`). Unknown or unrequested fields,
-   repeated fields and over-long values in the answer are ignored. No song
+   repeated fields and over-long values in the answer are ignored; a value an
+   editor already rejected is not proposed again. Proposals made in a run are
+   re-based on the targets' final row versions at its end (an apply on the same
+   song moves the version), so the first Accept does not answer 409. A refused
+   write (a lost save race) drops its half-made change instead of poisoning the
+   next save. No song
    identity is ever created, published or changed here; the job writes only
    through `AutomatedFieldWriter`.
 
@@ -981,7 +989,7 @@ long-context price tier (about 272,000 tokens), and `MaxOutputTokensPerCall` is
 now 6,000 (the chat keeps its own 2,000). Text in a scan is data: both agents
 are told so, and code, not the model, decides what is written.
 
-UI: the extraction line of every score (`components/extraktion-status.tsx`)
+UI: when reading is enabled, the extraction line of every score (`components/extraktion-status.tsx`)
 shows the reading state ("KI liest die Seiten … (2 von 3 Seiten)", the counts of
 applied fields and proposals, "Vorschläge ansehen", "Rest lesen", "Erneut
 lesen"); the list keeps polling only while reading is queued or running. The
@@ -996,6 +1004,25 @@ cannot see images, it returns a fixed German sample page and picks fields out of
 text by keyword), so the whole journey runs without credentials.
 `dotnet run --project src/archive/apphost`, upload a scanned PDF, start
 `archive-extract`, then `archive-read`.
+
+**Switch.** `Archive:Reading:Enabled` is `false` in `appsettings.json` and `true`
+in `appsettings.Development.json` (local AppHost, tests). While off, the
+extraction job leaves no reading row and sends no message, the editor actions
+answer 409 ("Das Lesen durch die KI ist noch nicht eingerichtet."), and every
+extraction status item carries `readingEnabled: false` and `reading: null`, so
+the page shows and offers nothing of the reading and does not poll for it. The
+maintainer turns it on (`Archive__Reading__Enabled=true`) only after the Azure
+job, its identity and the scheduled `--dispatch-reading` below exist; scores
+extracted while it was off are read on demand ("Seiten von der KI lesen").
+
+Owner rule: the asset's own edit is creator-only, so reverting or accepting a
+change on an asset's field (the voice label) is too (`AssetOwnerRule`, 403
+"Nur die anlegendende Person kann das Material bearbeiten."). A PATCH that
+changes nothing no longer bumps the asset's row version. "Rest lesen" is not
+offered (and answers 409) once the revision's stored text has reached
+`Archive:Extraction:MaxTextCharacters`, since more pages could add nothing. A
+concurrent first "Erneut lesen" collides only on `PK_reading_jobs`; that case is
+re-run once idempotently, every other save failure surfaces.
 
 Production needs what `infrastructure/**` has not been given yet (this slice did
 not touch it): a Container Apps Job `ja-archive-read` running this image with

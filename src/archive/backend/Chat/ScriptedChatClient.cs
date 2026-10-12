@@ -75,7 +75,7 @@ public sealed class ScriptedChatClient : IChatClient
 
 		// ARC-034-1: scan reading is not a chat; the offline stand-in answers
 		// its two requests (page images, text for fields) from a small script.
-		if (Reading.ScriptedScanReader.IsTranscription(conversation) || Reading.ScriptedScanReader.IsFieldRequest(conversation))
+		if (Reading.ScriptedScanReader.IsTranscription(conversation) || Reading.ScriptedScanReader.IsFieldRequest(conversation, options))
 		{
 			var transcription = Reading.ScriptedScanReader.IsTranscription(conversation);
 			var answer = transcription ? Reading.ScriptedScanReader.Transcribe(conversation) : Reading.ScriptedScanReader.Fields(conversation);

@@ -131,7 +131,8 @@ export function ExtraktionUebersichtProvider({
         !stand?.fehler &&
         (stand?.info?.status === "queued" ||
           stand?.info?.status === "running" ||
-          leseLaeuft(stand?.info?.reading))
+          (stand?.info?.readingEnabled === true &&
+            leseLaeuft(stand?.info?.reading)))
       );
     });
     if (!laufend) return;

@@ -589,7 +589,7 @@ export function NotenBereich({
                                 asset.id,
                                 "voice_label",
                               )}
-                              feldbezeichnung="Stimme"
+                              feldbezeichnung={`Stimme ${stimme}`}
                               zurueckgeholt={aktualisieren}
                               meldungsziel={setBearbeitenErfolg}
                             />
