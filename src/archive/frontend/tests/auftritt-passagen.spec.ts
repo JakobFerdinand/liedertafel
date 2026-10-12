@@ -1212,7 +1212,13 @@ test("Ticketerneuerung während eines Abschnitts behält Position und Halt am Ab
   await expect
     .poll(() => anfragen.zugriffe, { timeout: 15_000 })
     .toBeGreaterThanOrEqual(2);
-  expect(await position(page)).toBeGreaterThan(1);
+  // Mit der neuen Adresse springt das Element kurz auf 0, bis die Metadaten
+  // da sind und die gemerkte Position greift; auf einem langsamen Läufer
+  // fällt die erste Messung in dieses Fenster. Die Position muss
+  // zurückkehren, nicht schon im Augenblick der Anfrage stimmen.
+  await expect
+    .poll(() => position(page), { timeout: 10_000 })
+    .toBeGreaterThan(1);
   // … und der Halt am Ende gilt danach noch.
   await expect(
     spieler.getByText("Ende des Abschnitts „Lied A“ erreicht."),
