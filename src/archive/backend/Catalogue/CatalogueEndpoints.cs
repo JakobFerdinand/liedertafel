@@ -753,14 +753,21 @@ public static class CatalogueEndpoints
 		var arrangementIds = song.Arrangements.Select(a => a.Id).ToList();
 		var versionIds = song.Arrangements
 			.SelectMany(a => a.MusicalVersions).Select(v => v.Id).ToList();
+		// ARC-034-1: the materials' own fields (the voice a scan reading wrote).
+		var assetIds = await db.Assets.AsNoTracking()
+			.Where(a => a.MusicalVersionId != null && versionIds.Contains(a.MusicalVersionId.Value))
+			.Select(a => a.Id)
+			.ToListAsync(token);
 		var entityIds = new List<Guid> { song.Id };
 		entityIds.AddRange(arrangementIds);
 		entityIds.AddRange(versionIds);
+		entityIds.AddRange(assetIds);
 		var rows = await db.FieldProvenance.AsNoTracking()
 			.Where(p => entityIds.Contains(p.EntityId)
 				&& (p.EntityType == FieldCatalog.EntityTypeSong
 					|| p.EntityType == FieldCatalog.EntityTypeArrangement
-					|| p.EntityType == FieldCatalog.EntityTypeMusicalVersion))
+					|| p.EntityType == FieldCatalog.EntityTypeMusicalVersion
+					|| p.EntityType == FieldCatalog.EntityTypeAsset))
 			.OrderBy(p => p.EntityType).ThenBy(p => p.Field)
 			.ToListAsync(token);
 		return rows.Select(p => (object)new

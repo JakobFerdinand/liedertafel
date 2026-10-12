@@ -15,13 +15,23 @@ public sealed class AiOptions
 	public decimal MonthlyCapEur { get; set; } = 15m;
 
 	/// <summary>
-	/// Hard ceiling for the output tokens of one model call. A feature may
+	/// Hard ceiling for the output tokens of one model call (a feature such as
+	/// the chat states its own, lower bound through the operation). A feature may
 	/// ask for less through <see cref="AiOperation.MaxOutputTokens"/>, never
 	/// for more. The bound is sent to the provider and is the output part of
 	/// every reservation, so the cost of a call in flight is bounded before
 	/// it starts.
 	/// </summary>
-	public int MaxOutputTokensPerCall { get; set; } = 2000;
+	public int MaxOutputTokensPerCall { get; set; } = 6000;
+
+	/// <summary>
+	/// Hard ceiling for the estimated input of one model call (text and
+	/// non-text). GPT-6 Luna bills roughly twice the rates above about
+	/// 272 000 input tokens while the ledger holds one price pair, so a call
+	/// beyond the tier would be under-reserved. A larger call is refused
+	/// before the budget (ARC-034-1); features split their input instead.
+	/// </summary>
+	public int MaxInputTokensPerCall { get; set; } = 200_000;
 
 	/// <summary>
 	/// Prices per model key (the deployment name for Azure OpenAI), in EUR per

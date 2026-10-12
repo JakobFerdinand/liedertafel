@@ -16,12 +16,40 @@ export type ExtraktionsStatus =
   | "noText"
   | "failed";
 
+/** Zustände des KI-Lesens der Seiten (Vertrag ReadingEndpoints.ReadingPayload). */
+export type LeseStatus =
+  | "queued"
+  | "running"
+  | "waitingForBudget"
+  | "completed"
+  | "failed";
+
+/** ARC-034-1: Stand des KI-Lesens einer Notendatei. */
+export type LeseInfo = {
+  status: LeseStatus;
+  pagesTotal: number | null;
+  pagesRead: number;
+  /** „teilweise gelesen“: die Datei hat mehr Seiten als bisher gelesen wurden. */
+  partial: boolean;
+  fieldsApplied: number;
+  fieldsProposed: number;
+  failureReason: string | null;
+  attemptCount: number;
+  completedAt: string | null;
+  updatedAt: string | null;
+  rowVersion: number;
+};
+
 /** Eine Auswertungszeile des Stapelabrufs (Vertrag StatusPayload). */
 export type ExtraktionsInfo = {
   revisionId: string;
   assetId: string;
   revisionNumber: number;
   status: ExtraktionsStatus;
+  /** Woher der Text stammt: eingebettet oder von der KI aus dem Scan gelesen. */
+  textSource?: "embedded" | "reading";
+  /** KI-Lesen der Seiten; null, solange es keine Zeile dafür gibt. */
+  reading?: LeseInfo | null;
   text: string | null;
   /** Lesbarer Text ohne Notenzeichen, Silben zu Wörtern verbunden. */
   cleanText?: string | null;
@@ -77,6 +105,69 @@ export async function starteExtraktionErneut(
   );
   if (!response.ok) throw response;
   return (await response.json()) as ExtraktionsInfo;
+}
+
+async function lesenAnstossen(
+  revisionId: string,
+  aktion: "retry" | "continue",
+  signal?: AbortSignal,
+): Promise<LeseInfo> {
+  const response = await postAuth(
+    `/api/revisions/${encodeURIComponent(revisionId)}/reading/${aktion}`,
+    {},
+    signal,
+  );
+  if (!response.ok) throw response;
+  return ((await response.json()) as { reading: LeseInfo }).reading;
+}
+
+/** Startet das KI-Lesen erneut (oder legt die fehlende Zeile an). */
+export function starteLesenErneut(revisionId: string, signal?: AbortSignal) {
+  return lesenAnstossen(revisionId, "retry", signal);
+}
+
+/** „Rest lesen“: die nächsten Seiten einer teilweise gelesenen Datei. */
+export function leseRest(revisionId: string, signal?: AbortSignal) {
+  return lesenAnstossen(revisionId, "continue", signal);
+}
+
+/** Läuft das KI-Lesen noch (die Liste fragt dann weiter nach)? */
+export function leseLaeuft(info?: LeseInfo | null): boolean {
+  return info?.status === "queued" || info?.status === "running";
+}
+
+function mehrzahl(anzahl: number, einzahl: string, mehr: string): string {
+  return `${anzahl} ${anzahl === 1 ? einzahl : mehr}`;
+}
+
+/** Deutsche Zustandszeile des KI-Lesens; null, wenn es nichts zu sagen gibt. */
+export function leseStatusText(info: LeseInfo): string {
+  const seiten =
+    info.pagesTotal !== null
+      ? ` (${info.pagesRead} von ${info.pagesTotal} Seiten)`
+      : "";
+  switch (info.status) {
+    case "queued":
+      return "KI-Lesen wartet …";
+    case "running":
+      return `KI liest die Seiten …${seiten}`;
+    case "waitingForBudget":
+      return "Das KI-Monatsbudget ist erreicht. Das Lesen wartet bis zum nächsten Monat oder bis das Budget erhöht wird. Die Angaben können weiter von Hand eingetragen werden.";
+    case "failed":
+      return "KI-Lesen gescheitert";
+    case "completed": {
+      const teile = [
+        info.partial
+          ? `Teilweise gelesen${seiten}`
+          : info.pagesTotal !== null
+            ? `Alle ${info.pagesTotal} ${info.pagesTotal === 1 ? "Seite" : "Seiten"} gelesen`
+            : "Angaben aus dem Text geprüft",
+        mehrzahl(info.fieldsApplied, "Angabe übernommen", "Angaben übernommen"),
+        mehrzahl(info.fieldsProposed, "Vorschlag", "Vorschläge"),
+      ];
+      return teile.join(" · ");
+    }
+  }
 }
 
 /** Deutsche Zustandszeile für die Oberfläche. */

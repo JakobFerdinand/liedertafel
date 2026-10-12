@@ -704,9 +704,12 @@ internal sealed class AuthApiFactory : WebApplicationFactory<Program>
 	/// <summary>ARC-034: per-test extraction queue; default tests never touch Azure config.</summary>
 	private readonly IExtractionQueue? queueOverride;
 
+	/// <summary>ARC-034-1: per-test reading queue; without one nothing is sent.</summary>
+	private readonly Archive.Backend.Reading.IReadingQueue? readingQueueOverride;
+
 	private readonly IDictionary<string, string?>? extraSettings;
 
-	public AuthApiFactory(string environment = "Development", InMemoryDatabaseRoot? root = null, string? keysPath = null, string? databaseName = null, string? otlpEndpoint = null, TimeSpan? freshVerificationWindow = null, IDictionary<string, string?>? settings = null, IAssetStorageAdapter? storage = null, IChatClient? chatClient = null, ISaveChangesInterceptor? saveChangesInterceptor = null, IExtractionQueue? queue = null)
+	public AuthApiFactory(string environment = "Development", InMemoryDatabaseRoot? root = null, string? keysPath = null, string? databaseName = null, string? otlpEndpoint = null, TimeSpan? freshVerificationWindow = null, IDictionary<string, string?>? settings = null, IAssetStorageAdapter? storage = null, IChatClient? chatClient = null, ISaveChangesInterceptor? saveChangesInterceptor = null, IExtractionQueue? queue = null, Archive.Backend.Reading.IReadingQueue? readingQueue = null)
 	{
 		this.environment = environment;
 		sharedRoot = root ?? new InMemoryDatabaseRoot();
@@ -719,6 +722,7 @@ internal sealed class AuthApiFactory : WebApplicationFactory<Program>
 		chatClientOverride = chatClient;
 		this.saveChangesInterceptor = saveChangesInterceptor;
 		queueOverride = queue;
+		readingQueueOverride = readingQueue;
 		Directory.CreateDirectory(Path.Combine(this.root, "system/status"));
 		File.WriteAllText(Path.Combine(this.root, "index.html"), "<html lang=de><h1>frontend-fixture</h1></html>");
 		File.WriteAllText(Path.Combine(this.root, "system/status/index.html"), "<html lang=de><h1>frontend-fixture status</h1></html>");
@@ -782,6 +786,8 @@ internal sealed class AuthApiFactory : WebApplicationFactory<Program>
 			// NullExtractionQueue), so no real account is contacted.
 			services.RemoveAll<IExtractionQueue>();
 			services.AddSingleton<IExtractionQueue>(queueOverride ?? new NullExtractionQueue());
+			services.RemoveAll<Archive.Backend.Reading.IReadingQueue>();
+			services.AddSingleton<Archive.Backend.Reading.IReadingQueue>(readingQueueOverride ?? new Archive.Backend.Reading.NullReadingQueue());
 			// Program registers both the concrete adapter and a forwarding
 			// interface registration; both must go before the fake replaces
 			// the real Blob storage path (no network, no credentials).

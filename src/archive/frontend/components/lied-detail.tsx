@@ -293,6 +293,7 @@ export function LiedDetail() {
           }
           assets={ausgewaehlteFassung.assets ?? []}
           isEditor={editor === true}
+          herkunft={lied.provenance}
           aktualisieren={() => void notenAktualisieren()}
         />
       )}

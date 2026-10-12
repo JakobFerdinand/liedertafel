@@ -79,6 +79,17 @@ builder.AddProject<Projects.Archive_Backend>("archive-extract", launchProfileNam
     .WaitForCompletion(initialize)
     .WithExplicitStart();
 
+// ARC-034-1: finite AI reading job — its own queue (archive-reading), size and
+// timeout. Locally it runs the offline scripted model (no provider
+// credentials); production runs the same image with --read-queue under its own
+// identity. The same run first wakes work that waited for budget.
+builder.AddProject<Projects.Archive_Backend>("archive-read", launchProfileName: null)
+    .WithArgs("--read-queue")
+    .WithArchiveTelemetry()
+    .WithArchiveDependencies(dependencies, mailSource)
+    .WaitForCompletion(initialize)
+    .WithExplicitStart();
+
 builder.AddJavaScriptApp("archive-frontend", "../frontend")
     .WithPnpm()
     .WithHttpEndpoint(env: "PORT")

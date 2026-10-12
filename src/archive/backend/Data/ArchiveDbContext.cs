@@ -73,6 +73,8 @@ public sealed class ArchiveDbContext(DbContextOptions<ArchiveDbContext> options)
 	/// <summary>ARC-034: revision-keyed text extraction work, one row per FileRevision.</summary>
 	public DbSet<ExtractionJob> ExtractionJobs => Set<ExtractionJob>();
 
+	public DbSet<Reading.ReadingJob> ReadingJobs => Set<Reading.ReadingJob>();
+
 	public DbSet<Chat.ChatThread> ChatThreads => Set<Chat.ChatThread>();
 
 	public DbSet<Chat.ChatMessage> ChatMessages => Set<Chat.ChatMessage>();

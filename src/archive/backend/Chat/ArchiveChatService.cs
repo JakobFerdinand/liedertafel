@@ -47,6 +47,13 @@ public sealed class ArchiveChatService(
 	/// <summary>The feature name in the usage ledger.</summary>
 	public const string Feature = "chat";
 
+	/// <summary>
+	/// The chat keeps its own output bound per model call; the shared ceiling
+	/// (<c>Archive:Ai:MaxOutputTokensPerCall</c>) is higher since scan reading
+	/// (ARC-034-1) transcribes pages.
+	/// </summary>
+	public const int MaxOutputTokensPerCall = 2000;
+
 	/// <summary>AG-UI <c>RUN_ERROR.code</c> of the budget state; the client shows it without a retry.</summary>
 	public const string BudgetExhaustedCode = "monatsbudget_erreicht";
 
@@ -208,7 +215,7 @@ public sealed class ArchiveChatService(
 				],
 				AdditionalProperties = [],
 			};
-			AiOperation.Start(Feature, thread.AccountId).AttachTo(runOptions);
+			(AiOperation.Start(Feature, thread.AccountId) with { MaxOutputTokens = MaxOutputTokensPerCall }).AttachTo(runOptions);
 			// This run's history: the member's thread on the request's context.
 			runOptions.AdditionalProperties.Add<ChatHistoryProvider>(
 				new ChatThreadHistoryProvider(db, thread, time, state, options.MaxAnswerChars));

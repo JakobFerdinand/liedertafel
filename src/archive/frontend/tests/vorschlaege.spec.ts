@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
+import { mockLeereAufnahmen } from "./aufnahmen-mock";
 
 // ARC-013-1: die "KI"-Abzeichen im Liedformular mit Zurückholen und die
 // "Vorschläge"-Verwaltung. Beides läuft auf gespeicherten Angaben; die
@@ -346,6 +347,66 @@ test("Ein veraltetes Ziel zeigt beiden Werte und lässt sich auffrischen", async
       "Vorschlag auf den aktuellen Stand gebracht. Bitte noch einmal prüfen.",
     ),
   ).toBeVisible();
+
+  expect(errors).toEqual([]);
+});
+
+test("Die vom Scan gelesene Stimme trägt das KI-Abzeichen und lässt sich zurückholen", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await mockLeereAufnahmen(page);
+  await mockSitzung(page, editorMe);
+  const assetId = "00000000-0000-0000-0000-00000000e0a1";
+  const revisionId = "00000000-0000-0000-0000-00000000f0a1";
+  const mitStimme = detail([herkunft("asset", assetId, "voice_label", "Ai")]);
+  mitStimme.song.arrangements[0].musicalVersions[0].assets = [
+    {
+      id: assetId,
+      assetType: "score",
+      voiceLabel: "Tenor 1",
+      description: null,
+      currentRevision: {
+        revisionId,
+        revisionNumber: 1,
+        contentType: "application/pdf",
+        sizeBytes: 419430,
+        createdAt: "2026-10-12T09:00:00.000Z",
+      },
+    },
+  ] as never;
+  let zurueckgeholt = false;
+  await page.route(`**/api/songs/${songId}`, (route) => {
+    const antwort = structuredClone(mitStimme);
+    if (zurueckgeholt) antwort.song.provenance = [];
+    return route.fulfill(json(antwort));
+  });
+  await page.route("**/api/revisions/extraction*", (route) =>
+    route.fulfill(json({ results: [] })),
+  );
+  const antraege: unknown[] = [];
+  await page.route("**/api/provenance/revert", (route) => {
+    antraege.push(route.request().postDataJSON());
+    zurueckgeholt = true;
+    return route.fulfill(json({ reverted: true }));
+  });
+
+  await page.goto(`/lied/?id=${songId}`);
+  const eintrag = page.locator(".material-eintrag");
+  await expect(eintrag.locator(".material-stimme")).toContainText("Tenor 1");
+  await expect(eintrag.locator(".ki-abzeichen-marke")).toHaveText("KI");
+  await eintrag
+    .getByRole("button", { name: "KI-Wert für Stimme zurückholen" })
+    .click();
+  await expect(
+    page.getByText("Früheren Wert für „Stimme“ zurückgeholt."),
+  ).toBeVisible();
+  expect(antraege).toEqual([
+    { entityType: "asset", entityId: assetId, field: "voice_label" },
+  ]);
+  // Danach zeigt die frische Ansicht kein Abzeichen mehr.
+  await expect(eintrag.locator(".ki-abzeichen-marke")).toHaveCount(0);
 
   expect(errors).toEqual([]);
 });

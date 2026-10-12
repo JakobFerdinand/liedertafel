@@ -1,6 +1,7 @@
 using Archive.Backend.Assets;
 using Archive.Backend.Auth;
 using Archive.Backend.Data;
+using Archive.Backend.Reading;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -51,11 +52,18 @@ public static class ExtractionEndpoints
 					.ToListAsync(token);
 			}
 			var byRevision = jobs.ToDictionary(j => j.RevisionId);
+			// ARC-034-1: the AI reading state travels with the extraction row,
+			// so one poll serves the whole list.
+			var readings = ids.Count == 0
+				? new Dictionary<Guid, ReadingJob>()
+				: await db.ReadingJobs.AsNoTracking()
+					.Where(j => ids.Contains(j.RevisionId))
+					.ToDictionaryAsync(j => j.RevisionId, token);
 			return Results.Ok(new
 			{
 				// Request order with unknown ids silently skipped.
 				results = ids.Where(byRevision.ContainsKey)
-					.Select(revisionId => StatusPayload(byRevision[revisionId]))
+					.Select(revisionId => StatusPayload(byRevision[revisionId], readings.GetValueOrDefault(revisionId)))
 					.ToList(),
 			});
 		});
@@ -153,7 +161,7 @@ public static class ExtractionEndpoints
 	}
 
 	/// <summary>Single status item, shared by the batch query and the retry reply.</summary>
-	private static object StatusPayload(ExtractionJob job)
+	private static object StatusPayload(ExtractionJob job, ReadingJob? reading = null)
 	{
 		var analysis = job.Status == ExtractionStatus.Completed ? ScoreTextAnalyzer.Analyze(job.Text) : null;
 		return new
@@ -162,6 +170,8 @@ public static class ExtractionEndpoints
 			assetId = job.AssetId,
 			revisionNumber = job.Revision.RevisionNumber,
 			status = ToStatusString(job.Status),
+			textSource = job.TextSource == ExtractionTextSource.Reading ? "reading" : "embedded",
+			reading = reading is null ? null : ReadingEndpoints.ReadingPayload(reading),
 			text = job.Text,
 			// Readable text and facts are derived on read from the stored text.
 			cleanText = analysis?.CleanText,
@@ -217,10 +227,10 @@ public static class ExtractionEndpoints
 		return ids;
 	}
 
-	private static bool IsEditor(ArchiveAccessDecision decision)
+	internal static bool IsEditor(ArchiveAccessDecision decision)
 		=> decision.IsAdministrator || decision.Roles.Contains(ArchiveRoles.Editor);
 
-	private static async Task<(ArchiveAccessDecision? Decision, IResult? Error)> RequireEditorAsync(
+	internal static async Task<(ArchiveAccessDecision? Decision, IResult? Error)> RequireEditorAsync(
 		HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access)
 	{
 		if (accessor.Current is null)

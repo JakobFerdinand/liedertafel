@@ -82,3 +82,10 @@ public sealed class AiBudgetExceededException(string yearMonth)
 /// <summary>The budget could not be checked (unpriced model or ledger failure); the call was not made.</summary>
 public sealed class AiBudgetUnavailableException(string reason, Exception? inner = null)
 	: Exception(reason, inner);
+
+/// <summary>
+/// The call's input is larger than <see cref="AiOptions.MaxInputTokensPerCall"/>
+/// (the long-context price tier is not modelled). The call was not made.
+/// </summary>
+public sealed class AiInputTooLargeException(long estimatedTokens, int maxTokens)
+	: Exception($"The estimated input of {estimatedTokens} tokens exceeds the bound of {maxTokens}.");

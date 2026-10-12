@@ -11,6 +11,7 @@ using Archive.Backend.Events;
 using Archive.Backend.Extraction;
 using Archive.Backend.Maintenance;
 using Archive.Backend.Provenance;
+using Archive.Backend.Reading;
 using Archive.Backend.Recordings;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.DataProtection;
@@ -22,7 +23,7 @@ using Microsoft.Extensions.Options;
 using ChatOptions = Archive.Backend.Chat.ChatOptions;
 
 var command = args.FirstOrDefault();
-if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" or "--bootstrap-admin" or "--repair-admin" or "--seed-dev-auth" or "--send-test-mail" or "--cleanup-uploads" or "--extract-queue" or "--dispatch-extraction")
+if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" or "--bootstrap-admin" or "--repair-admin" or "--seed-dev-auth" or "--send-test-mail" or "--cleanup-uploads" or "--extract-queue" or "--dispatch-extraction" or "--read-queue" or "--dispatch-reading")
 {
     var jobs = Host.CreateApplicationBuilder(args.Skip(1).ToArray());
     jobs.AddServiceDefaults();
@@ -53,6 +54,32 @@ if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" o
         return new AzureExtractionMessageSource(queueClient, sp.GetRequiredService<IOptions<ExtractionOptions>>());
     });
     jobs.Services.AddScoped<ExtractionWorker>();
+    // ARC-034-1: the AI reading job. Its own queue, bounds and (in
+    // production) identity; it is the only finite job that registers the
+    // model gateway. Field writes go through the shared automated writer.
+    jobs.Services.AddOptions<ReadingOptions>().BindConfiguration(ReadingOptions.SectionName);
+    jobs.Services.AddSingleton<IReadingQueue>(ReadingQueue.Create(jobs.Configuration));
+    jobs.Services.AddSingleton<IReadingMessageSource>(sp =>
+    {
+        var readingOptions = sp.GetRequiredService<IOptions<ReadingOptions>>();
+        var queueClient = ReadingQueue.Client(jobs.Configuration, readingOptions.Value)
+            ?? throw new InvalidOperationException("Kein Warteschlangen-Endpunkt für das Lesen der Noten konfiguriert.");
+        return new AzureReadingMessageSource(queueClient, readingOptions);
+    });
+    jobs.Services.AddSingleton<IPdfPageRenderer, PdfiumPageRenderer>();
+    jobs.Services.AddArchiveAi(jobs.Configuration);
+    jobs.Services.AddOptions<ProvenanceOptions>().BindConfiguration(ProvenanceOptions.SectionName);
+    jobs.Services.AddScoped<CatalogueWriteService>();
+    jobs.Services.AddScoped<AutomatedFieldWriter>();
+    jobs.Services.AddSingleton<ScanReadingModel>();
+    jobs.Services.AddScoped<ScoreFieldPrefill>();
+    jobs.Services.AddScoped<ReadingWorker>();
+    jobs.Services.AddSingleton<ReadingPump>(sp => new ReadingPump(
+        sp.GetRequiredService<IReadingMessageSource>(),
+        () => sp.GetRequiredService<IServiceScopeFactory>().CreateAsyncScope(),
+        sp.GetRequiredService<IOptions<ReadingOptions>>(),
+        sp.GetRequiredService<IConfiguration>(), sp.GetRequiredService<TimeProvider>(),
+        sp.GetRequiredService<ILogger<ReadingPump>>()));
     jobs.Services.AddSingleton<ExtractionPump>(sp => new ExtractionPump(
         sp.GetRequiredService<IExtractionMessageSource>(),
         () => sp.GetRequiredService<IServiceScopeFactory>().CreateAsyncScope(),
@@ -145,6 +172,58 @@ if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" o
                 dispatchLogger, token);
             dispatchLogger.LogInformation("Extraction dispatch handed {Dispatched} rows to the queue", dispatched);
         }
+        else if (command == "--read-queue")
+        {
+            // ARC-034-1: like --extract-queue, a paused run touches nothing
+            // and exits 0; the queue scale rule re-triggers it later.
+            var readingLogger = provider.GetRequiredService<ILoggerFactory>().CreateLogger("Archive.Reading");
+            if (MaintenanceConfiguration.IsEnabled(host.Services.GetRequiredService<IConfiguration>()))
+            {
+                readingLogger.LogInformation("Reading worker paused: maintenance mode is enabled");
+                return;
+            }
+            await ReadingQueue.EnsureQueueAsync(host.Services.GetRequiredService<IConfiguration>(), token);
+            // Piggyback sweep first: parked work wakes when the budget admits
+            // it again, un-enqueued rows reach the queue; then drain.
+            int resumed;
+            using (var sweepScope = host.Services.CreateScope())
+            {
+                resumed = await ReadingDispatcher.DispatchPendingAsync(
+                    sweepScope.ServiceProvider.GetRequiredService<ArchiveDbContext>(),
+                    sweepScope.ServiceProvider.GetRequiredService<IReadingQueue>(),
+                    sweepScope.ServiceProvider.GetRequiredService<IAiBudget>(),
+                    sweepScope.ServiceProvider.GetRequiredService<ScanReadingModel>(),
+                    sweepScope.ServiceProvider.GetRequiredService<IOptions<ReadingOptions>>(),
+                    sweepScope.ServiceProvider.GetRequiredService<TimeProvider>(),
+                    readingLogger, token);
+            }
+            var read = await provider.GetRequiredService<ReadingPump>().DrainAsync(token);
+            readingLogger.LogInformation(
+                "Reading worker dispatched {Dispatched} rows and processed {Processed} messages", resumed, read);
+        }
+        else if (command == "--dispatch-reading")
+        {
+            // The sweep alone: wakes work that waits for budget (new month or
+            // raised cap) and hands un-enqueued rows to the queue. A scheduled
+            // run of this command is what resumes parked work, since parked
+            // rows have no queue message to start the job.
+            var sweepLogger = provider.GetRequiredService<ILoggerFactory>().CreateLogger("Archive.Reading");
+            if (MaintenanceConfiguration.IsEnabled(host.Services.GetRequiredService<IConfiguration>()))
+            {
+                sweepLogger.LogInformation("Reading dispatch paused: maintenance mode is enabled");
+                return;
+            }
+            await ReadingQueue.EnsureQueueAsync(provider.GetRequiredService<IConfiguration>(), token);
+            var handed = await ReadingDispatcher.DispatchPendingAsync(
+                provider.GetRequiredService<ArchiveDbContext>(),
+                provider.GetRequiredService<IReadingQueue>(),
+                provider.GetRequiredService<IAiBudget>(),
+                provider.GetRequiredService<ScanReadingModel>(),
+                provider.GetRequiredService<IOptions<ReadingOptions>>(),
+                provider.GetRequiredService<TimeProvider>(),
+                sweepLogger, token);
+            sweepLogger.LogInformation("Reading dispatch handed {Dispatched} rows to the queue", handed);
+        }
         else if (command == "--seed-dev-auth")
             await OperatorConfiguration.SeedDevAuthAsync(provider, token);
         else if (command == "--bootstrap-admin")
@@ -172,6 +251,10 @@ builder.Services.AddSingleton<IAssetStorageAdapter>(sp => sp.GetRequiredService<
 builder.Services.AddOptions<ExtractionOptions>()
 	.BindConfiguration(ExtractionOptions.SectionName);
 builder.Services.AddSingleton<IExtractionQueue>(ExtractionQueue.Create(builder.Configuration));
+// ARC-034-1: the editor's reading actions send to the reading queue; the
+// reading itself runs only in the finite job.
+builder.Services.AddOptions<ReadingOptions>().BindConfiguration(ReadingOptions.SectionName);
+builder.Services.AddSingleton<IReadingQueue>(ReadingQueue.Create(builder.Configuration));
 builder.Services.AddScoped<UploadSessionCleaner>();
 builder.Services.AddHttpContextAccessor();
 // ARC-022: bounded archive chat configuration (availability gate and caps).
@@ -297,6 +380,7 @@ app.MapAssetEndpoints();
 app.MapRecordingEndpoints();
 app.MapRecordingPassageEndpoints();
 app.MapExtractionEndpoints();
+app.MapReadingEndpoints();
 app.MapProvenanceEndpoints();
 app.MapDevelopmentDiagnostics();
 

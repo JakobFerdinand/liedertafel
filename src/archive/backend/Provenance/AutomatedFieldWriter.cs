@@ -66,7 +66,8 @@ public sealed class AutomatedFieldWriter(
 		string? Model,
 		string? PromptVersion,
 		string Reason,
-		string? SourceDescription);
+		string? SourceDescription,
+		bool ProposalOnly = false);
 
 	public sealed record AutomatedWriteOutcome(
 		AutomatedWriteResult Result,
@@ -100,7 +101,10 @@ public sealed class AutomatedFieldWriter(
 		var provenance = await db.FieldProvenance
 			.FirstOrDefaultAsync(p => p.EntityType == request.EntityType
 				&& p.EntityId == request.EntityId && p.Field == request.Field, token);
-		if (provenance?.Locked is true
+		// ProposalOnly is for a caller that must never apply a value itself
+		// (ARC-034-1 offers every uncertain reading to an editor, whatever the
+		// configured threshold says).
+		if (provenance?.Locked is true || request.ProposalOnly
 			|| !options.Value.AutoApplies(request.Confidence))
 			return await ProposeFieldSuggestionAsync(request, automationActorAccountId, CatalogueWriteService.RowVersionOf(entity), token);
 		var actor = new WriteActor(automationActorAccountId ?? entityActorFallback(entity), time.GetUtcNow());

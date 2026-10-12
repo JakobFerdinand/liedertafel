@@ -42,13 +42,14 @@ certificates. Production cookies are Secure; local cookies use SameAsRequest.
 | `archive-blobs` | Injects `ConnectionStrings__archive-blobs` |
 | `archive-queues` | Injects `ConnectionStrings__archive-queues` |
 | `archive-mail` | Mailpit 1.27.8, HTTP inbox and SMTP; injects `Mail__Host` / `Mail__Port` |
-| `archive-storage-init` | Automatic finite local command; creates private `archive-assets` container and the configured extraction queue (`archive-extraction`) |
+| `archive-storage-init` | Automatic finite local command; creates private `archive-assets` container and the configured extraction and reading queues (`archive-extraction`, `archive-reading`) |
 | `archive-api` | HTTP `/api/*`, process-only `/alive`; waits for dependencies and successful storage setup |
 | `archive-frontend` | Next.js/Turbopack; waits for API; receives `PORT` and server-only `ARCHIVE_API_URL` |
 | `archive-migrate` | **Explicit Start**; only resource receiving `ConnectionStrings__archive-migrations` |
 | `archive-worker-smoke` | **Explicit Start**; finite Blob/queue/mail verification with correlated producer/consumer tracing |
 | `archive-mail-test` | **Explicit Start**; ARC-010 integration run with Aspire telemetry: sends the marked German test message through the real Azure sender. Requires `Mail:Provider=Azure` plus `Archive:MailTestRecipient` in AppHost configuration and refuses otherwise |
 | `archive-extract` | **Explicit Start**; ARC-034 finite queue worker — dispatch sweep + drain of the extraction queue, then exit (production runs the same command as a queue-triggered job) |
+| `archive-read` | **Explicit Start**; ARC-034-1 finite AI reading worker — wakes work parked for budget, drains the `archive-reading` queue with the offline scripted model locally, then exits |
 
 `WithArchiveDependencies` owns reference injection and readiness for local C#
 workers. Use `WithExplicitStart()` for operator-triggered work, and
@@ -388,7 +389,7 @@ The chat runs on a Microsoft Agent Framework agent (`Microsoft.Agents.AI` 1.23.0
 - **Ledger:** `ai_usage_entries` (renamed from `chat_usage_entries` by migration `20261006111010_AiUsageLedger`): one row per operation and model with feature, model, summed tokens of all its calls, settled cost and open reservation in micro-EUR. The month's spend is the sum over its rows; nothing is cached in memory. `ai_budget_months` holds one row per month as a lock: a reservation runs in one transaction that takes `SELECT … FOR UPDATE` on it, so reservations of a month queue on every replica (5 s lock timeout, then refused). A settlement is one relative `UPDATE` of its own row, retried three times, then logged at error and counted. `Ai/PostgresAiLedgerStore` is SQL; tests on the EF in-memory provider use `tests/archive/backend/InMemoryAiLedgerStore.cs` behind `IAiLedgerStore`.
 - **Fail closed:** no price or a price of 0 for the model, a `ModelId` other than the client's own model, non-text input without an estimate, a ledger that cannot be reached, or a missing `AiOperation` all stop the call before the provider.
 - **Member state at the cap:** the run ends with AG-UI `RUN_ERROR`, `code: "monatsbudget_erreicht"` and a message starting „Monatsbudget erreicht."; the chat page shows it without a retry button. Nothing else changes behaviour. Because a call reserves its worst case, the chat stops when the remainder no longer covers one worst-case call, slightly before EUR 15.00 is settled. `Archive:Chat:Disabled=true` remains the manual kill switch (503).
-- **Configuration (`Archive:Ai`):** `MonthlyCapEur` (15), `MaxOutputTokensPerCall` (2000, the ceiling a feature can only lower), `Models:<model key>:InputPricePerMillionEur` / `OutputPricePerMillionEur` (both above 0). The chat's model key is `Archive:Chat:DeploymentName` with the Azure provider, otherwise `scripted`. `appsettings.json` prices `gpt-6-luna` (0.1056 / 0.528 EUR, the EU Data Zone Standard short-context meters from the Azure Retail Prices API in EUR, ARC-021-1) and, until its deployment is deleted, `gpt-5-4-mini` (0.83 / 4.95, the ARC-021 reference retail values, recorded there in USD); Luna's long-context tier (about twice the rates above roughly 272,000 input tokens) is not in the ledger, so large image/OCR inputs need a guard first; `appsettings.Development.json` prices `scripted`, so the offline client is refused outside Development. `Archive:Chat:MonthlyBudgetEur` and the two `Archive:Chat:*PricePerMillionEur` keys no longer exist. To switch the model, change the deployment name and add its price entry. The Azure client sends `reasoning_effort: none` on every request unless a feature sets `ChatOptions.Reasoning` itself (Luna rejects function tools with reasoning on Chat Completions).
+- **Configuration (`Archive:Ai`):** `MonthlyCapEur` (15), `MaxOutputTokensPerCall` (6000, the ceiling a feature can only lower; the chat states 2000 itself), `MaxInputTokensPerCall` (200000: a call whose estimated input is larger is refused before the budget, below Luna's long-context tier), `Models:<model key>:InputPricePerMillionEur` / `OutputPricePerMillionEur` (both above 0). The chat's model key is `Archive:Chat:DeploymentName` with the Azure provider, otherwise `scripted`. `appsettings.json` prices `gpt-6-luna` (0.1056 / 0.528 EUR, the EU Data Zone Standard short-context meters from the Azure Retail Prices API in EUR, ARC-021-1) and, until its deployment is deleted, `gpt-5-4-mini` (0.83 / 4.95, the ARC-021 reference retail values, recorded there in USD); Luna's long-context tier (about twice the rates above roughly 272,000 input tokens) is not in the ledger: `MaxInputTokensPerCall` keeps every call below it (ARC-034-1); `appsettings.Development.json` prices `scripted`, so the offline client is refused outside Development. `Archive:Chat:MonthlyBudgetEur` and the two `Archive:Chat:*PricePerMillionEur` keys no longer exist. To switch the model, change the deployment name and add its price entry. The Azure client sends `reasoning_effort: none` on every request unless a feature sets `ChatOptions.Reasoning` itself (Luna rejects function tools with reasoning on Chat Completions).
 - **Telemetry** (source and meter `Liedertafel.Archive.Ai`, registered in the service defaults): spans `invoke_agent archive-chat`, `chat <model>` and `execute_tool <tool>` with the GenAI metrics (`gen_ai.client.token.usage`, `gen_ai.client.operation.duration`); budget instruments `archive.ai.tokens`, `archive.ai.cost`, `archive.ai.budget.refusals` (reason `cap`, `unpriced_model`, `ledger_unavailable`), `archive.ai.budget.settlement_failures`, `archive.ai.budget.month_spend`, `archive.ai.budget.month_cap`. Logs: `KI-Budget: … verbucht` (information, per settled call), `KI-Budget: Monatsbudget erreicht …` (warning), ledger, price and settlement failures (error). Message content is not exported, and failed spans carry the exception type only (`AiExceptionRedactionProcessor`). Never set `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT`: it would export questions, answers and document text.
 - **Checks:** `dotnet test tests/archive/backend --filter "FullyQualifiedName~AiBudget|FullyQualifiedName~BudgetedChatClient|FullyQualifiedName~ChatApi"`. The ledger's SQL needs real PostgreSQL: start `docker run --rm -d -e POSTGRES_PASSWORD=pw -p 55432:5432 postgres:17.6 -c max_connections=300` and run `ARCHIVE_TEST_POSTGRES="Host=localhost;Port=55432;Database=postgres;Username=postgres;Password=pw" dotnet test tests/archive/backend --filter "FullyQualifiedName~AiBudgetLedgerTests"` — every test then creates, migrates and drops its own database and runs the production store (cap race, 32-worker contention, two replicas opening a month, settlement after the month rolled over). The Aspire walking skeleton asserts one chat run's ledger row on PostgreSQL through the Development-only `GET /api/dev/ai-budget`. The live evaluation command is unchanged (`Category=ChatEvaluationLive`, see the root `AGENTS.md`; for Luna: `ARCHIVE_CHAT_ENDPOINT="https://aoai-liedertafel-archive.openai.azure.com/" ARCHIVE_CHAT_DEPLOYMENT_NAME="gpt-6-luna" ARCHIVE_CHAT_MODEL_VERSION="gpt-6-luna 2026-09-22"`); it returns immediately when the first two are unset, and its calls are charged to the ledger of the test's in-memory database, not to production. Result and open steps: `docs/plans/006-choir-archive/ARC-021-1-luna-switch-and-budget-cap.md`.
 - **Release of the ledger migration (owner decision 2026-10-06):** the rename ships in one release, against the split-rename compatibility rule. A code-only rollback to the previous image breaks the chat (it writes `chat_usage_entries`); this release is fix-forward only for chat. After the release: run `infrastructure/neon/runtime-grants.sql` as migrator, check the runtime role's privileges on `ai_budget_months`, smoke one chat run. Details and the exact checks: `infrastructure/archive/README.md`, "Rollback". If `aiChatDeploymentName` is overridden, set both `Archive__Ai__Models__<deployment>__…PricePerMillionEur` entries or every run is refused.
@@ -917,6 +918,108 @@ through `AutomatedFieldWriter`; tests live in
 `ProvenancePostgresLiveTests.cs` (real PostgreSQL via
 `ARCHIVE_TEST_POSTGRES`), with the browser journey in
 `frontend/tests/vorschlaege.spec.ts`.
+
+## ARC-034-1 reading scanned scores
+
+A score PDF whose extraction found no text ("Kein Text gefunden") is no longer
+a dead end: the finite **AI reading** job renders its pages, has a named agent
+transcribe them into the revision's text and fills the empty catalogue fields
+of the score. Text PDFs go through the same second step with the regex analyzer
+first, so a text PDF makes no model call for what the analyzer already found.
+
+The journey: an editor uploads a score; the extraction job (model-free,
+unchanged) finishes and, for every score, leaves a `reading_jobs` row in the
+same save plus a message on the `archive-reading` queue. `archive-read` /
+`--read-queue` (`Reading/ReadingWorker.cs`) then runs:
+
+1. **Pages to text** (only for a `NoText` revision): PDFium renders at most 10
+   pages per request (long side 1600 px, JPEG) and at most 20 pages per
+   request of the editor (`Archive:Reading`). The agent `archive-scan-transcriber`
+   answers with the page text; it becomes the revision's text
+   (`extraction_jobs.Text`, `TextSource = Reading`, status `NoText` → `Completed`),
+   so search, chat and the analyzer read it like embedded text. Progress is
+   saved after every request: a retry or a resume after the cap never pays for
+   a page twice. A longer scan ends "teilweise gelesen (20 von 35 Seiten)"; the
+   editor's "Rest lesen" (`POST /api/revisions/{id}/reading/continue`) raises
+   the page limit by another 20 and requeues the row.
+2. **Text to fields** (`Reading/ScoreFieldPrefill.cs`): only fields that are
+   empty and not locked by a human edit, only while the revision is still the
+   asset's current file. `ScoreTextAnalyzer` runs first; its facts are written
+   with source `regex` (composer, lyricist, arranger, key, voice). The agent
+   `archive-score-fields` (text only, no tools, structured output) is asked only
+   for what is still empty: the six fields `composer`, `lyricist`, `arranger`,
+   `musical_key`, `voice_label` and `lyrics`. Each answer carries `sicher` or
+   `unsicher` and a verbatim quote. Code verifies that the quote stands in the
+   text (case, blanks and line breaks ignored; a name must also stand in its
+   quote). Only `sicher` with a verified quote is applied (source `ai`, model,
+   prompt version `scan-fields-v1`, badge "KI"); everything else becomes an
+   open "Vorschläge" proposal, **whatever `Archive:Provenance:AutoApplyConfidence`
+   says** (`FieldWriteRequest.ProposalOnly`). Unknown or unrequested fields,
+   repeated fields and over-long values in the answer are ignored. No song
+   identity is ever created, published or changed here; the job writes only
+   through `AutomatedFieldWriter`.
+
+State and budget: `ReadingStatus` is `Queued → Running → Completed | Failed`, plus
+`WaitingForBudget`. When the monthly cap refuses a call the row becomes
+`WaitingForBudget`, the attempt is not used up and the queue message is
+acknowledged (deleted). Parked rows have no message, so something must wake
+them: the dispatch sweep (`ReadingDispatcher`, run first by `--read-queue` and
+alone by `--dispatch-reading`) asks `IAiBudget.WouldAdmitAsync` for a worst-case
+transcription call and re-queues the parked rows only when it is admitted (new
+month, raised cap). The editor sees "Das KI-Monatsbudget ist erreicht …"; manual
+entry is never blocked. Other failures retry with backoff up to
+`MaxAttempts` (4), then `Failed` with a German reason and an "Erneut lesen" button
+(`POST /api/revisions/{id}/reading/retry`, which also creates the row for scans
+extracted before this slice).
+
+Bounds: own queue `archive-reading`, PDF up to 32 MiB, 8 minutes per message,
+visibility 20 minutes, two messages per receive round. Every model call carries
+an `AiOperation` with its own output bound and the image-token estimate
+(`EstimatedTokensPerImage` per page); `Archive:Ai:MaxInputTokensPerCall`
+(200,000) refuses any call whose estimated input would reach Luna's
+long-context price tier (about 272,000 tokens), and `MaxOutputTokensPerCall` is
+now 6,000 (the chat keeps its own 2,000). Text in a scan is data: both agents
+are told so, and code, not the model, decides what is written.
+
+UI: the extraction line of every score (`components/extraktion-status.tsx`)
+shows the reading state ("KI liest die Seiten … (2 von 3 Seiten)", the counts of
+applied fields and proposals, "Vorschläge ansehen", "Rest lesen", "Erneut
+lesen"); the list keeps polling only while reading is queued or running. The
+voice a reading wrote carries the "KI" badge with "Zurückholen" in the material
+list; editing the voice or description of a material by hand now goes through the
+shared write service and locks the field like every other human edit.
+
+Local run: `archive-read` is an explicit-start Aspire resource beside
+`archive-extract`; without provider configuration the offline
+`ScriptedChatClient` answers both requests (`Reading/ScriptedScanReader.cs`: it
+cannot see images, it returns a fixed German sample page and picks fields out of
+text by keyword), so the whole journey runs without credentials.
+`dotnet run --project src/archive/apphost`, upload a scanned PDF, start
+`archive-extract`, then `archive-read`.
+
+Production needs what `infrastructure/**` has not been given yet (this slice did
+not touch it): a Container Apps Job `ja-archive-read` running this image with
+`--read-queue` (queue scale rule on `archive-reading`), its own identity
+(Storage Queue Data Contributor and Blob Data Reader on the assets account plus
+the Azure OpenAI user role; the only job identity with it) and the settings
+`Archive__Chat__Provider`, `Archive__Chat__Endpoint`, `Archive__Chat__DeploymentName`,
+`Archive__Reading__QueueServiceUri`, the database connection and the maintenance
+flag; plus a scheduled run of `--dispatch-reading` (daily is enough) that wakes
+work parked for budget. See the ticket for the full list.
+
+Evaluation: `Category=ScanReadingEvaluation` runs generated scans through the
+whole job with the scripted client (pass rate and cost per document, never a
+provider call). `Category=ScanReadingEvaluationLive` reads the maintainer's
+private scans from `ARCHIVE_SCAN_EVAL_DIR` (PDFs plus `expected.json`) and skips
+unless it, `ARCHIVE_CHAT_ENDPOINT` and `ARCHIVE_CHAT_DEPLOYMENT_NAME` are set; the
+format and the command are in the ticket.
+
+Checks: `dotnet test tests/archive/backend --filter "FullyQualifiedName~Reading|FullyQualifiedName~PdfPageRenderer|FullyQualifiedName~ScanReadingEvaluation"`;
+real PostgreSQL (migration over existing rows, constraints, the sweep, real ledger
+SQL): `ARCHIVE_TEST_POSTGRES=… dotnet test tests/archive/backend --filter "Category=PostgresReading"`;
+browser: `ARCHIVE_BASE_URL=… corepack pnpm exec playwright test tests/extraktion.spec.ts tests/vorschlaege.spec.ts --workers=1`.
+Migration `20261012052810_ScanReading` is additive: `extraction_jobs."TextSource"`
+(default 0 = embedded) and table `reading_jobs`.
 
 ## Runtime grants during `--migrate`
 

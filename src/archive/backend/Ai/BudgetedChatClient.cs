@@ -81,6 +81,9 @@ public sealed class BudgetedChatClient(
 		if (operation.NonTextInputTokens is null && AiTokenEstimate.HasNonTextInput(list))
 			throw new AiBudgetUnavailableException("The call has non-text input but its AiOperation gives no estimate for it.");
 		var estimate = AiTokenEstimate.TextInput(list, callOptions) + Math.Max(0, operation.NonTextInputTokens ?? 0);
+		var inputBound = Math.Max(1, options.CurrentValue.MaxInputTokensPerCall);
+		if (estimate > inputBound)
+			throw new AiInputTooLargeException(estimate, inputBound);
 		var reservation = await budget.ReserveAsync(
 			new AiCall(operation.Feature, operation.OperationId, operation.AccountId, model, estimate, callOptions.MaxOutputTokens.Value),
 			cancellationToken);

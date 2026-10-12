@@ -1,0 +1,177 @@
+using Archive.Backend.Assets;
+using Archive.Backend.Auth;
+using Archive.Backend.Data;
+using Archive.Backend.Extraction;
+using Microsoft.AspNetCore.Antiforgery;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+
+namespace Archive.Backend.Reading;
+
+/// <summary>
+/// ARC-034-1 editor surface of the AI reading: restart it for a score and ask
+/// for the pages beyond the first request ("Rest lesen"). The state itself
+/// rides on the extraction batch query (<c>reading</c> in every result), so
+/// the lists keep their one poll. Both actions are editor-only with
+/// antiforgery, no-store and German ProblemDetails, like the extraction
+/// retry; members never reach them.
+/// </summary>
+public static class ReadingEndpoints
+{
+	public const string NotScoreMessage = "Nur Noten werden von der KI gelesen.";
+
+	public const string ExtractionNotFinishedMessage = "Die Textauswertung ist noch nicht abgeschlossen.";
+
+	public const string ReadingRunningMessage = "Die Seiten werden gerade gelesen.";
+
+	public const string NothingMoreToReadMessage = "Es gibt keine weiteren Seiten zu lesen.";
+
+	public static void MapReadingEndpoints(this IEndpointRouteBuilder app)
+	{
+		app.MapPost("/api/revisions/{id}/reading/retry", (
+			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
+			ArchiveDbContext db, TimeProvider time, ILoggerFactory loggers, IReadingQueue queue,
+			IOptions<ReadingOptions> options, Guid id, CancellationToken token)
+			=> ActAsync(context, antiforgery, accessor, access, db, time, loggers, queue, options, id, restart: true, token))
+			.DisableAntiforgery();
+
+		app.MapPost("/api/revisions/{id}/reading/continue", (
+			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
+			ArchiveDbContext db, TimeProvider time, ILoggerFactory loggers, IReadingQueue queue,
+			IOptions<ReadingOptions> options, Guid id, CancellationToken token)
+			=> ActAsync(context, antiforgery, accessor, access, db, time, loggers, queue, options, id, restart: false, token))
+			.DisableAntiforgery();
+	}
+
+	private static async Task<IResult> ActAsync(
+		HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
+		ArchiveDbContext db, TimeProvider time, ILoggerFactory loggers, IReadingQueue queue,
+		IOptions<ReadingOptions> options, Guid id, bool restart, CancellationToken token)
+	{
+		context.Response.Headers.CacheControl = "no-store";
+		try { await antiforgery.ValidateRequestAsync(context); }
+		catch (AntiforgeryValidationException)
+		{
+			return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
+		}
+		var (decision, error) = await ExtractionEndpoints.RequireEditorAsync(context, accessor, access);
+		if (error is not null)
+			return error;
+		var revision = await db.FileRevisions.Include(r => r.Asset).FirstOrDefaultAsync(r => r.Id == id, token);
+		if (revision is null)
+			return Results.Problem(statusCode: 404, title: ExtractionEndpoints.RevisionNotFoundMessage);
+		if (!ReadingService.IsReadable(revision.Asset.AssetType))
+			return Results.Problem(statusCode: 422, title: NotScoreMessage);
+		var extraction = await db.ExtractionJobs.AsNoTracking().FirstOrDefaultAsync(j => j.RevisionId == id, token);
+		if (extraction is null || extraction.Status is not (ExtractionStatus.Completed or ExtractionStatus.NoText))
+			return Results.Problem(statusCode: 409, title: ExtractionNotFinishedMessage);
+
+		var now = time.GetUtcNow();
+		var job = await db.ReadingJobs.FirstOrDefaultAsync(j => j.RevisionId == id, token);
+		var enqueue = false;
+		if (job is null)
+		{
+			if (!restart)
+				return Results.Problem(statusCode: 409, title: NothingMoreToReadMessage);
+			// Revisions extracted before ARC-034-1 gain their row here.
+			job = ReadingService.CreateForRevision(revision, decision!.AccountId, options.Value.MaxPagesPerRequest, now);
+			db.ReadingJobs.Add(job);
+			enqueue = true;
+		}
+		else if (job.Status == ReadingStatus.Running && !ReadingService.HasStaleLease(job, now, options.Value))
+		{
+			return Results.Problem(statusCode: 409, title: ReadingRunningMessage);
+		}
+		else if (!restart)
+		{
+			if (job.Status == ReadingStatus.Completed && job.IsPartial)
+			{
+				// "Rest lesen": the next pages, and the fields again for what is still empty.
+				job.PageLimit = job.PagesRead + options.Value.MaxPagesPerRequest;
+				job.FieldsDone = false;
+				job.AttemptCount = 0;
+				job.CompletedAt = null;
+				Requeue(job, now);
+				enqueue = true;
+			}
+			else if (job.Status is ReadingStatus.Queued or ReadingStatus.WaitingForBudget or ReadingStatus.Running)
+			{
+				// Already on its way: an idempotent answer.
+				return Results.Ok(new { reading = ReadingPayload(job) });
+			}
+			else
+			{
+				return Results.Problem(statusCode: 409, title: NothingMoreToReadMessage);
+			}
+		}
+		else if (job.Status is ReadingStatus.Failed or ReadingStatus.Running)
+		{
+			// A failed reading that read nothing of a longer scan asks for the next pages too.
+			if (job.FailureReason == ReadingWorker.NothingReadReason && job.IsPartial)
+				job.PageLimit = job.PagesRead + options.Value.MaxPagesPerRequest;
+			job.AttemptCount = 0;
+			job.FailureReason = null;
+			Requeue(job, now);
+			enqueue = true;
+		}
+		else if (job.Status == ReadingStatus.Queued && job.LastEnqueuedAt is null)
+		{
+			enqueue = true;
+		}
+		else
+		{
+			// Completed, waiting for budget or already queued: nothing new to start.
+			return Results.Ok(new { reading = ReadingPayload(job) });
+		}
+
+		try
+		{
+			await db.SaveChangesAsync(token);
+		}
+		catch (DbUpdateConcurrencyException)
+		{
+			return Results.Problem(statusCode: 409, title: AssetEndpoints.ConcurrencyMessage);
+		}
+		catch (DbUpdateException)
+		{
+			// A concurrent request inserted the same primary key.
+			return Results.Problem(statusCode: 409, title: AssetEndpoints.ConcurrencyMessage);
+		}
+		if (enqueue)
+			await ReadingService.TryEnqueueAsync(db, queue, loggers.CreateLogger("Archive.Reading"), id, time, token);
+		return Results.Ok(new { reading = ReadingPayload(job) });
+	}
+
+	private static void Requeue(ReadingJob job, DateTimeOffset now)
+	{
+		job.Status = ReadingStatus.Queued;
+		job.LastAttemptAt = null;
+		job.LastEnqueuedAt = null;
+		job.UpdatedAt = now;
+		job.RowVersion++;
+	}
+
+	/// <summary>Wire shape of the reading state, shared by the batch query and the actions.</summary>
+	public static object ReadingPayload(ReadingJob job) => new
+	{
+		status = job.Status switch
+		{
+			ReadingStatus.Queued => "queued",
+			ReadingStatus.Running => "running",
+			ReadingStatus.WaitingForBudget => "waitingForBudget",
+			ReadingStatus.Completed => "completed",
+			ReadingStatus.Failed => "failed",
+			_ => job.Status.ToString().ToLowerInvariant(),
+		},
+		pagesTotal = job.PagesTotal,
+		pagesRead = job.PagesRead,
+		partial = job.IsPartial,
+		fieldsApplied = job.FieldsApplied,
+		fieldsProposed = job.FieldsProposed,
+		failureReason = job.FailureReason,
+		attemptCount = job.AttemptCount,
+		completedAt = job.CompletedAt,
+		updatedAt = job.UpdatedAt,
+		rowVersion = job.RowVersion,
+	};
+}

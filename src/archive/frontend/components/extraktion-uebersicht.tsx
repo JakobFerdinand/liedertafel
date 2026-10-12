@@ -9,7 +9,11 @@ import {
   useRef,
   useState,
 } from "react";
-import { type ExtraktionsInfo, holeExtraktionStatus } from "@/lib/extraktion";
+import {
+  type ExtraktionsInfo,
+  holeExtraktionStatus,
+  leseLaeuft,
+} from "@/lib/extraktion";
 
 type Stand = {
   info?: ExtraktionsInfo;
@@ -125,7 +129,9 @@ export function ExtraktionUebersichtProvider({
       const stand = staende[id];
       return (
         !stand?.fehler &&
-        (stand?.info?.status === "queued" || stand?.info?.status === "running")
+        (stand?.info?.status === "queued" ||
+          stand?.info?.status === "running" ||
+          leseLaeuft(stand?.info?.reading))
       );
     });
     if (!laufend) return;

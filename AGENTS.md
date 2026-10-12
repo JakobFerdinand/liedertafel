@@ -41,6 +41,8 @@ Use this guide when editing or extending the codebase.
 - Archive focused xUnit test: `dotnet test tests/archive/backend --filter FullyQualifiedName~TelemetryTests`
 - Archive live chat evaluation (keyless via az login; skips when unconfigured): `dotnet test tests/archive/backend --filter "Category=ChatEvaluationLive" --logger "console;verbosity=detailed"` with `ARCHIVE_CHAT_ENDPOINT`, `ARCHIVE_CHAT_DEPLOYMENT_NAME` and optional `ARCHIVE_CHAT_MODEL_VERSION` set; a deployment without a price under `Archive:Ai:Models` also needs `ARCHIVE_CHAT_INPUT_PRICE_EUR` and `ARCHIVE_CHAT_OUTPUT_PRICE_EUR` (EUR per million tokens), otherwise every call is refused
 - Archive AI ledger on real PostgreSQL (the production SQL; the PostgreSQL-only cases skip when unconfigured): `dotnet test tests/archive/backend --filter "FullyQualifiedName~AiBudgetLedgerTests"` with `ARCHIVE_TEST_POSTGRES` set to a connection string for a throwaway server whose user may create databases (each test creates, migrates and drops its own)
+- Archive scan reading (ARC-034-1) evaluation: `dotnet test tests/archive/backend --filter "Category=ScanReadingEvaluation"` runs generated scans through the whole reading job with the scripted client (no provider). `--filter "Category=ScanReadingEvaluationLive"` reads the maintainer's private scans (`ARCHIVE_SCAN_EVAL_DIR` with the PDFs and an `expected.json`, optional `ARCHIVE_SCAN_EVAL_REPORT`) with `ARCHIVE_CHAT_ENDPOINT` and `ARCHIVE_CHAT_DEPLOYMENT_NAME` set (az login) and skips when unconfigured; it costs a few cents per document.
+- Archive scan reading on real PostgreSQL (migration over existing extraction rows, constraints, the budget sweep, real ledger SQL; skip when unconfigured): `dotnet test tests/archive/backend --filter "Category=PostgresReading"` with `ARCHIVE_TEST_POSTGRES` set as for the AI ledger
 - Archive A2UI cards on real PostgreSQL (migration with existing rows, jsonb round trip, resolvers and load-time re-check as real SQL; skip when unconfigured): `dotnet test tests/archive/backend --filter "Category=PostgresA2ui"` with `ARCHIVE_TEST_POSTGRES` set as for the AI ledger
 - Archive integration test: `dotnet test tests/archive/apphost` (fresh containers; stop a running archive AppHost first).
 - Archive frontend deps/check/build: from `src/archive/frontend`, `pnpm install --frozen-lockfile`, `pnpm run check`, `pnpm run build`.
@@ -147,6 +149,13 @@ uses its generated Next.js/Biome conventions and local `AGENTS.md`.
   basic catalog. AG-UI events leave the server without null properties (the
   strict `@ag-ui/client` refuses explicit nulls); Playwright chat mocks use
   `tests/chat-mock.ts`.
+- The AI reading job (ARC-034-1, `--read-queue` / `--dispatch-reading`, `backend/Reading`)
+  is the only finite job that registers `AddArchiveAi`. It reads page images
+  (PDFium through the `PDFtoImage` package, native libraries ship in the
+  package) and text, and writes catalogue fields only through
+  `AutomatedFieldWriter`: only certain, quote-verified values are applied,
+  everything else is a proposal. Keep input per call below
+  `Archive:Ai:MaxInputTokensPerCall` (Luna's long-context tier).
 - Keep liveness dependency-free. Local diagnostics/mail/storage operations are
   Development-only; no production credentials are needed for ordinary startup.
 - Root SDK now selects .NET 10 with latest-feature roll-forward. Existing Azure

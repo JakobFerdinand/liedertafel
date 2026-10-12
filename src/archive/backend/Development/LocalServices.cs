@@ -11,7 +11,8 @@ using MimeKit;
 
 namespace Archive.Backend.Development;
 
-public sealed class LocalServices(IConfiguration configuration, IOptions<ExtractionOptions> extractionOptions)
+public sealed class LocalServices(IConfiguration configuration, IOptions<ExtractionOptions> extractionOptions,
+    IOptions<Archive.Backend.Reading.ReadingOptions> readingOptions)
 {
     public const string ContainerName = "archive-assets";
 
@@ -27,6 +28,9 @@ public sealed class LocalServices(IConfiguration configuration, IOptions<Extract
         // configured name; the smoke diagnostics below still use unique
         // scratch queues so parallel runs never touch real work.
         await Queues.GetQueueClient(extractionOptions.Value.QueueName)
+            .CreateIfNotExistsAsync(cancellationToken: cancellationToken);
+        // ARC-034-1: and the AI reading queue.
+        await Queues.GetQueueClient(readingOptions.Value.QueueName)
             .CreateIfNotExistsAsync(cancellationToken: cancellationToken);
         await AssetStorageEmulatorBootstrap.EnsureEmulatorCorsAsync(Blobs, cancellationToken);
     }

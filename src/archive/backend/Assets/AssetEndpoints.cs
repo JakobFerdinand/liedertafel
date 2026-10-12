@@ -3,6 +3,7 @@ using Archive.Backend.Catalogue;
 using Archive.Backend.Data;
 using Archive.Backend.Events;
 using Archive.Backend.Extraction;
+using Archive.Backend.Provenance;
 using Archive.Backend.Recordings;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.EntityFrameworkCore;
@@ -362,8 +363,8 @@ public static class AssetEndpoints
 
 		app.MapPatch("/api/assets/{id}", async (
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
-			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time, Guid id, CancellationToken token,
-			PatchAssetRequest? body) =>
+			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time, CatalogueWriteService writes,
+			Guid id, CancellationToken token, PatchAssetRequest? body) =>
 		{
 			try { await antiforgery.ValidateRequestAsync(context); }
 			catch (AntiforgeryValidationException)
@@ -401,18 +402,13 @@ public static class AssetEndpoints
 				return descriptionError;
 			if (assetType is not null)
 				asset.AssetType = assetType;
-			if (body?.VoiceLabel is not null)
-				asset.VoiceLabel = voiceLabel;
-			if (body?.Description is not null)
-				asset.Description = description;
-			try
-			{
-				await db.SaveChangesAsync(token);
-			}
-			catch (DbUpdateConcurrencyException)
-			{
-				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
-			}
+			// ARC-034-1: the voice label and the description go through the
+			// shared write path, so a human edit is recorded as such and locks
+			// the field against the automatic reading of scans.
+			var write = await writes.PatchAssetAsync(asset, new AssetFieldPatch(body?.Description, body?.VoiceLabel),
+				new WriteActor(decision.AccountId, time.GetUtcNow()), null, token);
+			if (!write.IsSaved)
+				return Results.Problem(statusCode: write.HttpCode, title: write.Title);
 			return Results.Ok(new
 			{
 				id = asset.Id,

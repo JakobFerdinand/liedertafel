@@ -191,6 +191,49 @@ public sealed class BudgetedChatClientTests
 	}
 
 	[Fact]
+	public async Task InputAboveTheLongContextBoundIsRefusedBeforeTheBudget()
+	{
+		// ARC-034-1: Luna bills about twice the rate above roughly 272 000
+		// input tokens while the ledger holds one price pair, so a call that
+		// large would be under-reserved. The gateway refuses it outright.
+		AiChatMessage[] withImages =
+		[
+			new(ChatRole.User, [new TextContent("abc"), new DataContent(new byte[] { 1, 2, 3 }, "image/jpeg")]),
+		];
+		var provider = new StubProvider();
+		var budget = new RecordingBudget();
+		var client = new BudgetedChatClient(provider, budget,
+			new StaticOptions(new AiOptions { MaxInputTokensPerCall = 20_000 }), "stub-model");
+		var tooLarge = new AiChatOptions();
+		(AiOperation.Start("scan", null) with { NonTextInputTokens = 20_000 }).AttachTo(tooLarge);
+
+		await Assert.ThrowsAsync<AiInputTooLargeException>(async () =>
+		{
+			await foreach (var _ in client.GetStreamingResponseAsync(withImages, tooLarge))
+			{
+			}
+		});
+		Assert.Equal(0, provider.Calls);
+		Assert.Empty(budget.Reserved);
+
+		var fits = new AiChatOptions();
+		(AiOperation.Start("scan", null) with { NonTextInputTokens = 19_000 }).AttachTo(fits);
+		await foreach (var _ in client.GetStreamingResponseAsync(withImages, fits))
+		{
+		}
+		Assert.Equal(1, provider.Calls);
+	}
+
+	[Fact]
+	public void TheShippedBoundStaysBelowTheLongContextTier()
+	{
+		var shipped = ShippedConfiguration.Prices();
+
+		Assert.InRange(shipped.MaxInputTokensPerCall, 1, 272_000);
+		Assert.Equal(new AiOptions().MaxInputTokensPerCall, shipped.MaxInputTokensPerCall);
+	}
+
+	[Fact]
 	public async Task EmbeddingsPassTheSameBudget()
 	{
 		var provider = new StubEmbeddings();

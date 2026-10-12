@@ -3,6 +3,7 @@ using System.Text.Json;
 using Archive.Backend.Assets;
 using Archive.Backend.Data;
 using Archive.Backend.Maintenance;
+using Archive.Backend.Reading;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -43,7 +44,9 @@ public sealed class ExtractionWorker(
 	IOptions<ExtractionOptions> options,
 	IConfiguration configuration,
 	TimeProvider time,
-	ILogger<ExtractionWorker> logger)
+	ILogger<ExtractionWorker> logger,
+	IReadingQueue? readingQueue = null,
+	IOptions<ReadingOptions>? readingOptions = null)
 {
 	/// <summary>ARC-034: larger documents fail with an honest German reason without opening the blob.</summary>
 	public const string TooLargeReason = PdfTextExtractor.TooLargeReason;
@@ -291,10 +294,28 @@ public sealed class ExtractionWorker(
 			job.FailureReason = null;
 			job.CompletedAt = completedAt;
 			logger.LogInformation("Extraction completed for revision {RevisionId} with status {Status}", revisionId, job.Status);
-			return await SaveAndConcludeAsync(job, revisionId, MessageDisposition.Delete, token);
+			// ARC-034-1: this job stays model-free and hands every score over to
+			// the AI reading job — scans (no text) and texts with gaps alike. The
+			// row rides this save (outbox); the queue send follows the commit.
+			var handoff = await AddReadingHandoffAsync(revision, job, completedAt, token);
+			var disposition = await SaveAndConcludeAsync(job, revisionId, MessageDisposition.Delete, token);
+			if (handoff && readingQueue is not null)
+				await ReadingService.TryEnqueueAsync(db, readingQueue, logger, revisionId, time, parentToken);
+			return disposition;
 		}
 
 		return await RetryAsync(job, revisionId, message, job.AttemptCount, parentToken);
+	}
+
+	/// <summary>Adds the Queued reading row of a finished score extraction; false when it exists or the material is not a score.</summary>
+	private async Task<bool> AddReadingHandoffAsync(FileRevision revision, ExtractionJob job, DateTimeOffset now, CancellationToken token)
+	{
+		if (!ReadingService.IsReadable(revision.Asset.AssetType)
+			|| await db.ReadingJobs.AnyAsync(r => r.RevisionId == revision.Id, token))
+			return false;
+		db.ReadingJobs.Add(ReadingService.CreateForRevision(revision, job.TriggeredByAccountId,
+			(readingOptions?.Value ?? new ReadingOptions()).MaxPagesPerRequest, now));
+		return true;
 	}
 
 	private async Task<MessageDisposition> RetryAsync(ExtractionJob job, Guid revisionId,

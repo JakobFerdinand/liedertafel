@@ -192,7 +192,11 @@ function auswertung(
     assetId,
     revisionNumber: 1,
     status: "completed",
+    textSource: "embedded",
     text: "Erste Strophe: Das Wandern ist des Müllers Lust.",
+    cleanText: null,
+    facts: null,
+    reading: null,
     failureReason: null,
     attemptCount: 1,
     completedAt: "2026-09-24T11:00:00.000Z",
@@ -964,4 +968,343 @@ test("Erkannte Angaben benennen die Noten, und die Vorschau nutzt die Breite", a
   ]);
   expect(breiten[0]).toBeGreaterThan(breiten[1] - 2);
   await vorschau.screenshot({ path: test.info().outputPath("vorschau.png") });
+});
+
+// ARC-034-1: KI-Lesen der Seiten. Der Stand kommt mit der Auswertungszeile
+// ("reading"), in der Form des Vertrags ReadingEndpoints.ReadingPayload.
+
+function lesen(overwrite: Record<string, unknown> = {}) {
+  return {
+    status: "completed",
+    pagesTotal: 3,
+    pagesRead: 3,
+    partial: false,
+    fieldsApplied: 4,
+    fieldsProposed: 0,
+    failureReason: null,
+    attemptCount: 1,
+    completedAt: "2026-10-12T09:30:00.000Z",
+    updatedAt: "2026-10-12T09:30:00.000Z",
+    rowVersion: 2,
+    ...overwrite,
+  };
+}
+
+function scan(overwrite: Record<string, unknown> = {}) {
+  return auswertung(notenRevisionId, notenAssetId, {
+    status: "noText",
+    text: null,
+    ...overwrite,
+  });
+}
+
+async function mockNoten(page: Page) {
+  await mockSitzung(page, editorMe);
+  await page.route(`**/api/songs/${songId}`, (route) =>
+    route.fulfill(json(liedDetail([notenEintrag()]))),
+  );
+}
+
+test("Das KI-Lesen läuft sichtbar und meldet am Ende, was übernommen wurde", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await mockNoten(page);
+  const staende = [
+    scan({
+      reading: lesen({ status: "queued", pagesTotal: null, pagesRead: 0 }),
+    }),
+    scan({ reading: lesen({ status: "running", pagesRead: 2 }) }),
+    scan({
+      status: "completed",
+      textSource: "reading",
+      text: "Waldfahrt Musik: Franz Schubert",
+      reading: lesen({ fieldsApplied: 1, fieldsProposed: 2 }),
+    }),
+  ];
+  let abrufe = 0;
+  await page.route("**/api/revisions/extraction*", (route) => {
+    const stand = staende[Math.min(abrufe, staende.length - 1)];
+    abrufe += 1;
+    return route.fulfill(json({ results: [stand] }));
+  });
+
+  await page.goto(`/lied/?id=${songId}`);
+  const zeile = page.locator(".extraktion-status");
+  const lesenZeile = zeile.locator(".extraktion-lesen");
+  await expect(lesenZeile).toHaveText("KI-Lesen wartet …");
+  await expect(lesenZeile).toHaveText("KI liest die Seiten … (2 von 3 Seiten)");
+  await expect(lesenZeile).toHaveText(
+    "Alle 3 Seiten gelesen · 1 Angabe übernommen · 2 Vorschläge",
+    { timeout: 15000 },
+  );
+  await expect(
+    zeile.getByRole("link", { name: "Vorschläge ansehen" }),
+  ).toHaveAttribute("href", "/verwaltung/vorschlaege/");
+  await expect(zeile.locator(".extraktion-stand")).toHaveText(
+    "Text ausgelesen",
+  );
+  await zeile.getByRole("button", { name: "Textvorschau" }).click();
+  await expect(zeile.locator(".extraktion-vorschau")).toContainText(
+    "Von der KI aus den Seiten des Scans gelesen.",
+  );
+  // Fertig gelesen: die Liste fragt nicht weiter nach.
+  const nachFertig = abrufe;
+  await page.waitForTimeout(4500);
+  expect(abrufe).toBe(nachFertig);
+
+  expect(errors).toEqual([]);
+});
+
+test("Teilweise gelesene Datei bietet Rest lesen an und stößt es einmal an", async ({
+  page,
+}) => {
+  await mockNoten(page);
+  let angefordert = false;
+  const teilweise = scan({
+    status: "completed",
+    textSource: "reading",
+    text: "Seiten eins bis zwanzig",
+    reading: lesen({ pagesTotal: 35, pagesRead: 20, partial: true }),
+  });
+  const weiter = scan({
+    status: "completed",
+    textSource: "reading",
+    text: "Seiten eins bis zwanzig",
+    reading: lesen({
+      status: "queued",
+      pagesTotal: 35,
+      pagesRead: 20,
+      partial: true,
+    }),
+  });
+  await page.route("**/api/revisions/extraction*", (route) =>
+    route.fulfill(json({ results: [angefordert ? weiter : teilweise] })),
+  );
+  const antraege: unknown[] = [];
+  await page.route(
+    `**/api/revisions/${notenRevisionId}/reading/continue`,
+    async (route) => {
+      expect(route.request().method()).toBe("POST");
+      antraege.push(route.request().postDataJSON());
+      angefordert = true;
+      await route.fulfill(
+        json({
+          reading: lesen({
+            status: "queued",
+            pagesTotal: 35,
+            pagesRead: 20,
+            partial: true,
+          }),
+        }),
+      );
+    },
+  );
+
+  await page.goto(`/lied/?id=${songId}`);
+  const zeile = page.locator(".extraktion-status");
+  await expect(zeile.locator(".extraktion-lesen")).toHaveText(
+    "Teilweise gelesen (20 von 35 Seiten) · 4 Angaben übernommen · 0 Vorschläge",
+  );
+  const rest = zeile.getByRole("button", {
+    name: /^Rest lesen: restliche Seiten von /,
+  });
+  await expect(rest).toHaveText("Rest lesen");
+  await rest.click();
+  await expect(zeile.locator(".extraktion-lesen")).toHaveText(
+    "KI-Lesen wartet …",
+  );
+  await expect(rest).toHaveCount(0);
+  expect(antraege).toEqual([{}]);
+});
+
+test("Gescheitertes KI-Lesen nennt den Grund und läuft nach erneutem Lesen weiter", async ({
+  page,
+}) => {
+  await mockNoten(page);
+  let erneut = false;
+  await page.route("**/api/revisions/extraction*", (route) =>
+    route.fulfill(
+      json({
+        results: [
+          scan({
+            reading: erneut
+              ? lesen({ status: "queued", pagesRead: 0 })
+              : lesen({
+                  status: "failed",
+                  pagesRead: 0,
+                  failureReason:
+                    "Das Dokument konnte nicht als Bilder gelesen werden.",
+                  fieldsApplied: 0,
+                }),
+          }),
+        ],
+      }),
+    ),
+  );
+  await page.route(
+    `**/api/revisions/${notenRevisionId}/reading/retry`,
+    async (route) => {
+      erneut = true;
+      await route.fulfill(
+        json({ reading: lesen({ status: "queued", pagesRead: 0 }) }),
+      );
+    },
+  );
+
+  await page.goto(`/lied/?id=${songId}`);
+  const zeile = page.locator(".extraktion-status");
+  await expect(zeile.locator(".extraktion-lesen")).toHaveText(
+    "KI-Lesen gescheitert — Das Dokument konnte nicht als Bilder gelesen werden.",
+  );
+  await zeile
+    .getByRole("button", {
+      name: /^Erneut lesen: .* von der KI$/,
+    })
+    .click();
+  await expect(zeile.locator(".extraktion-lesen")).toHaveText(
+    "KI-Lesen wartet …",
+  );
+});
+
+test("Erreichtes Monatsbudget wird erklärt, ohne dass etwas blockiert", async ({
+  page,
+}) => {
+  await mockNoten(page);
+  let abrufe = 0;
+  await page.route("**/api/revisions/extraction*", (route) => {
+    abrufe += 1;
+    return route.fulfill(
+      json({
+        results: [
+          scan({
+            reading: lesen({
+              status: "waitingForBudget",
+              pagesRead: 0,
+              fieldsApplied: 0,
+            }),
+          }),
+        ],
+      }),
+    );
+  });
+
+  await page.goto(`/lied/?id=${songId}`);
+  await expect(page.locator(".extraktion-lesen")).toHaveText(
+    "Das KI-Monatsbudget ist erreicht. Das Lesen wartet bis zum nächsten Monat oder bis das Budget erhöht wird. Die Angaben können weiter von Hand eingetragen werden.",
+  );
+  // Wartende Arbeit hat keine Eile: kein Dauerabruf.
+  const nachErstem = abrufe;
+  await page.waitForTimeout(4500);
+  expect(abrufe).toBe(nachErstem);
+  // Die Eingabe von Hand bleibt möglich.
+  await expect(
+    page.getByRole("button", { name: /Bearbeiten|Stimme/ }).first(),
+  ).toBeVisible();
+});
+
+test("Ein Scan aus der Zeit vor dem KI-Lesen lässt sich von der KI lesen", async ({
+  page,
+}) => {
+  await mockNoten(page);
+  let gestartet = false;
+  await page.route("**/api/revisions/extraction*", (route) =>
+    route.fulfill(
+      json({
+        results: [
+          scan({
+            reading: gestartet
+              ? lesen({ status: "queued", pagesTotal: null, pagesRead: 0 })
+              : null,
+          }),
+        ],
+      }),
+    ),
+  );
+  await page.route(
+    `**/api/revisions/${notenRevisionId}/reading/retry`,
+    async (route) => {
+      gestartet = true;
+      await route.fulfill(
+        json({
+          reading: lesen({ status: "queued", pagesTotal: null, pagesRead: 0 }),
+        }),
+      );
+    },
+  );
+
+  await page.goto(`/lied/?id=${songId}`);
+  const zeile = page.locator(".extraktion-status");
+  await expect(zeile.locator(".extraktion-stand")).toHaveText(
+    "Kein Text gefunden — vermutlich eingescannt.",
+  );
+  await zeile
+    .getByRole("button", { name: /^Seiten von der KI lesen: / })
+    .click();
+  await expect(zeile.locator(".extraktion-lesen")).toHaveText(
+    "KI-Lesen wartet …",
+  );
+  await expect(
+    zeile.getByRole("button", { name: /^Seiten von der KI lesen: / }),
+  ).toHaveCount(0);
+});
+
+test("Ein Fehler beim Anstoßen erklärt sich und lässt den Knopf stehen", async ({
+  page,
+}) => {
+  await mockNoten(page);
+  await page.route("**/api/revisions/extraction*", (route) =>
+    route.fulfill(
+      json({
+        results: [
+          scan({
+            reading: lesen({
+              status: "failed",
+              pagesRead: 0,
+              failureReason: "Gescheitert.",
+              fieldsApplied: 0,
+            }),
+          }),
+        ],
+      }),
+    ),
+  );
+  await page.route(
+    `**/api/revisions/${notenRevisionId}/reading/retry`,
+    (route) => route.fulfill(problem("Die Seiten werden gerade gelesen.", 409)),
+  );
+
+  await page.goto(`/lied/?id=${songId}`);
+  await page
+    .getByRole("button", {
+      name: /^Erneut lesen: .* von der KI$/,
+    })
+    .click();
+  await expect(
+    page.locator(".extraktion-status").getByRole("alert"),
+  ).toHaveText("Die Seiten werden gerade gelesen.");
+  await expect(
+    page.getByRole("button", {
+      name: /^Erneut lesen: .* von der KI$/,
+    }),
+  ).toBeEnabled();
+});
+
+test("Mitglieder sehen weder KI-Lesen noch Knöpfe dafür", async ({ page }) => {
+  await mockSitzung(page, memberMe);
+  await page.route(`**/api/songs/${songId}`, (route) =>
+    route.fulfill(json(liedDetail([notenEintrag()]))),
+  );
+  let extraktionAbrufe = 0;
+  await page.route("**/api/revisions/extraction*", (route) => {
+    extraktionAbrufe += 1;
+    return route.fulfill(json({ results: [] }));
+  });
+
+  await page.goto(`/lied/?id=${songId}`);
+  await expect(page.locator(".material-eintrag")).toHaveCount(1);
+  await expect(page.locator(".extraktion-status")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /KI|lesen/i })).toHaveCount(0);
+  expect(extraktionAbrufe).toBe(0);
 });

@@ -21,6 +21,16 @@ public enum ExtractionStatus
 	Failed = 4,
 }
 
+/// <summary>Where a revision's stored text came from.</summary>
+public enum ExtractionTextSource
+{
+	/// <summary>Embedded PDF text, read by the model-free extraction job.</summary>
+	Embedded = 0,
+
+	/// <summary>Transcribed from page images by the AI reading job (ARC-034-1).</summary>
+	Reading = 1,
+}
+
 /// <summary>
 /// One persisted extraction work item per <see cref="FileRevision"/>
 /// (ARC-034). Rows are keyed by revision, which is the versioning and
@@ -49,6 +59,13 @@ public sealed class ExtractionJob
 	/// unbounded (<c>text</c> column).
 	/// </summary>
 	public string? Text { get; set; }
+
+	/// <summary>
+	/// Embedded text, or text the AI reading job transcribed from a scan
+	/// (ARC-034-1): the reading job turns a <see cref="ExtractionStatus.NoText"/>
+	/// row into <see cref="ExtractionStatus.Completed"/> with this set.
+	/// </summary>
+	public ExtractionTextSource TextSource { get; set; }
 
 	/// <summary>German reason; null unless <see cref="Status"/> is <see cref="ExtractionStatus.Failed"/>.</summary>
 	public string? FailureReason { get; set; }

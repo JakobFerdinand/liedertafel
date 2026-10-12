@@ -16,6 +16,8 @@ public sealed class FiniteJobsTests
 	[InlineData("--repair-admin", false)]
 	[InlineData("--extract-queue", false)]
 	[InlineData("--dispatch-extraction", false)]
+	[InlineData("--read-queue", false)]
+	[InlineData("--dispatch-reading", false)]
 	[InlineData("--worker-smoke", true)]
 	[InlineData("--cleanup-uploads", true)]
 	[InlineData("--initialize-local-storage", true)]

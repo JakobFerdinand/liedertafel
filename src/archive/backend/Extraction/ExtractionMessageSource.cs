@@ -41,12 +41,19 @@ public interface IExtractionMessageSource
 internal static class ExtractionQueueClient
 {
 	public static QueueServiceClient? Create(IConfiguration configuration, ExtractionOptions options)
+		=> Create(configuration, options.QueueServiceUri);
+
+	/// <summary>
+	/// Same factory for any queue of the storage account (the AI reading
+	/// queue shares it): the connection string wins, the service URI uses Entra.
+	/// </summary>
+	public static QueueServiceClient? Create(IConfiguration configuration, string? queueServiceUri)
 	{
 		var connectionString = configuration.GetConnectionString("archive-queues");
 		if (!string.IsNullOrWhiteSpace(connectionString))
 			return new QueueServiceClient(connectionString, BoundedRetryOptions());
-		if (!string.IsNullOrWhiteSpace(options.QueueServiceUri))
-			return new QueueServiceClient(new Uri(options.QueueServiceUri), new DefaultAzureCredential(),
+		if (!string.IsNullOrWhiteSpace(queueServiceUri))
+			return new QueueServiceClient(new Uri(queueServiceUri), new DefaultAzureCredential(),
 				BoundedRetryOptions());
 		return null;
 	}
@@ -83,17 +90,31 @@ internal static class ExtractionQueueClient
 /// shared client factory so connection-string (Azurite) and Entra token modes
 /// behave exactly like the sender. Message bodies are never logged.
 /// </summary>
-public sealed class AzureExtractionMessageSource(QueueServiceClient client, IOptions<ExtractionOptions> options)
-	: IExtractionMessageSource
+public sealed class AzureExtractionMessageSource : IExtractionMessageSource
 {
+	private readonly QueueServiceClient client;
+	private readonly Func<(string QueueName, TimeSpan ReceiveVisibility)> settings;
 	private QueueClient? queueClient;
 
-	private QueueClient Queue => queueClient ??= client.GetQueueClient(options.Value.QueueName);
+	public AzureExtractionMessageSource(QueueServiceClient client, IOptions<ExtractionOptions> options)
+	{
+		this.client = client;
+		settings = () => (options.Value.QueueName, options.Value.ReceiveVisibility);
+	}
+
+	/// <summary>The same receive seam for another queue of the account (ARC-034-1's reading queue).</summary>
+	public AzureExtractionMessageSource(QueueServiceClient client, string queueName, TimeSpan receiveVisibility)
+	{
+		this.client = client;
+		settings = () => (queueName, receiveVisibility);
+	}
+
+	private QueueClient Queue => queueClient ??= client.GetQueueClient(settings().QueueName);
 
 	public async Task<IReadOnlyList<ExtractionMessage>> ReceiveBatchAsync(int maxMessages, CancellationToken token)
 	{
 		var response = await Queue.ReceiveMessagesAsync(
-			Math.Min(maxMessages, ExtractionOptions.MaxReceiveBatch), options.Value.ReceiveVisibility, token);
+			Math.Min(maxMessages, ExtractionOptions.MaxReceiveBatch), settings().ReceiveVisibility, token);
 		return response.Value
 			.Select(message => new ExtractionMessage(
 				message.MessageId, message.PopReceipt, message.MessageText, message.DequeueCount))

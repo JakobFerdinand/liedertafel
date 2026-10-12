@@ -148,6 +148,35 @@ public sealed class ExtractionRoundtripTests(ITestOutputHelper output)
         Assert.Equal("completed", duplicateHandled.GetProperty("status").GetString());
         Assert.Equal(completedText, duplicateHandled.GetProperty("text").GetString()!);
         Assert.Equal(1, duplicateHandled.GetProperty("attemptCount").GetInt32());
+
+        // ARC-034-1: the extraction job handed both scores to the AI reading
+        // job (row in the same save, message on the real reading queue). The
+        // explicitly started finite job drains that queue with the offline
+        // scripted model: the scan's pages become its text and the song's
+        // empty fields are prefilled; the text PDF reads nothing it must pay for.
+        var scanHandoff = (await GetStatusItemAsync(api, editorSession, scannedRevisionId, token)).GetProperty("reading");
+        Assert.Equal("queued", scanHandoff.GetProperty("status").GetString());
+        await RunFiniteAsync(app, "archive-read", token);
+
+        var read = await GetStatusItemAsync(api, editorSession, scannedRevisionId, token);
+        var reading = read.GetProperty("reading");
+        Assert.Equal("completed", reading.GetProperty("status").GetString());
+        Assert.Equal(1, reading.GetProperty("pagesRead").GetInt32());
+        Assert.False(reading.GetProperty("partial").GetBoolean());
+        Assert.True(reading.GetProperty("fieldsApplied").GetInt32() >= 4);
+        Assert.Equal("reading", read.GetProperty("textSource").GetString());
+        Assert.Equal("completed", read.GetProperty("status").GetString());
+        Assert.Contains("Im Wald da singen die Vögel", read.GetProperty("text").GetString());
+        var textReading = (await GetStatusItemAsync(api, editorSession, textRevisionId, token)).GetProperty("reading");
+        Assert.Equal("completed", textReading.GetProperty("status").GetString());
+
+        using var readSong = await GetAsync(api, $"/api/songs/{songId}", editorSession, token);
+        readSong.EnsureSuccessStatusCode();
+        var prefilled = (await readSong.Content.ReadFromJsonAsync<JsonElement>(token)).GetProperty("song");
+        Assert.Equal("Franz Schubert", prefilled.GetProperty("composer").GetString());
+        Assert.Equal("Anna Beispiel", prefilled.GetProperty("lyricist").GetString());
+        Assert.Contains(prefilled.GetProperty("provenance").EnumerateArray(), entry =>
+            entry.GetProperty("field").GetString() == "composer" && entry.GetProperty("source").GetString() == "Regex");
     }
 
     /// <summary>

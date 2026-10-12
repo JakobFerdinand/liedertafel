@@ -25,6 +25,7 @@
     <PackageReference Include="Microsoft.Extensions.AI" Version="10.10.0" />
     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.10.0" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
+    <PackageReference Include="PDFtoImage" Version="5.4.0" />
     <PackageReference Include="PdfPig" Version="0.1.16" />
   </ItemGroup>
 

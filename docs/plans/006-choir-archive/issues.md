@@ -1,6 +1,6 @@
 # Choir Archive — Implementation Issue Index
 
-Status: ARC-001, ARC-003, ARC-004, ARC-005, ARC-006, ARC-007, ARC-008, ARC-009, ARC-011, ARC-011-1, ARC-013, ARC-014, ARC-015, ARC-016, ARC-017, ARC-018, ARC-019, ARC-020, ARC-021, ARC-022, ARC-023, ARC-024, ARC-025, ARC-026, ARC-027, ARC-028, ARC-029, ARC-030, ARC-031, ARC-032, ARC-033, ARC-034, ARC-022-3 and ARC-013-1 completed (ARC-022-3: live evaluation 14 of 14 on 2026-10-09 after a prompt fix for catalogue listings; the missing citations predated the slice — see the ticket; ARC-013-1: field provenance, automated write path and the "Vorschläge" queue implemented on 2026-10-10); ARC-010, ARC-012, ARC-021-1, ARC-022-4 and ARC-051 are in progress (ARC-022-4: AG-UI client, A2UI catalog, `zeige_oberflaeche` and the stored, re-checked cards are implemented on 2026-10-11 with scripted-client and browser tests; the live model was not asked yet, see the ticket; ARC-021-1: Luna deployment, prices and reasoning effort `none` are implemented on 2026-10-11; deployed and evaluated live on Luna on 2026-10-11; the hosted tool-using check and removing the old deployment are the maintainer's, see the ticket); remaining implementation issues are planned. AI assistance was added to every open issue and as follow-up issues to completed ones on 2026-10-04.
+Status: ARC-001, ARC-003, ARC-004, ARC-005, ARC-006, ARC-007, ARC-008, ARC-009, ARC-011, ARC-011-1, ARC-013, ARC-014, ARC-015, ARC-016, ARC-017, ARC-018, ARC-019, ARC-020, ARC-021, ARC-022, ARC-023, ARC-024, ARC-025, ARC-026, ARC-027, ARC-028, ARC-029, ARC-030, ARC-031, ARC-032, ARC-033, ARC-034, ARC-022-3 and ARC-013-1 completed (ARC-022-3: live evaluation 14 of 14 on 2026-10-09 after a prompt fix for catalogue listings; the missing citations predated the slice — see the ticket; ARC-013-1: field provenance, automated write path and the "Vorschläge" queue implemented on 2026-10-10); ARC-010, ARC-012, ARC-021-1, ARC-022-4, ARC-034-1 and ARC-051 are in progress (ARC-034-1: the AI reading job, its field prefill, budget parking, the UI and the evaluation harness are implemented on 2026-10-12 and tested without a provider; the Azure job and identity, the scheduled sweep and the live evaluation on real scans are the maintainer's, see the ticket; ARC-022-4: AG-UI client, A2UI catalog, `zeige_oberflaeche` and the stored, re-checked cards are implemented on 2026-10-11 with scripted-client and browser tests; the live model was not asked yet, see the ticket; ARC-021-1: Luna deployment, prices and reasoning effort `none` are implemented on 2026-10-11; deployed and evaluated live on Luna on 2026-10-11; the hosted tool-using check and removing the old deployment are the maintainer's, see the ticket); remaining implementation issues are planned. AI assistance was added to every open issue and as follow-up issues to completed ones on 2026-10-04.
 Date: 2026-10-04
 Sources: [PRD](prd.md) · [Architecture](architecture.md)
 
@@ -124,8 +124,8 @@ issues in an earlier row. External inputs and shared edits still apply.
 
 The layers above predate the AI assistance issues and do not place them.
 [ARC-021-1] and [ARC-022-4] are ready now on top of the implemented
-[ARC-022-3]; with [ARC-013-1] also done, [ARC-034-1] only waits for
-[ARC-021-1] and [ARC-036] for [ARC-021-1] and [ARC-052], which keeps the
+[ARC-022-3]; with [ARC-013-1] also done, [ARC-034-1] is implemented (waiting for its hosted
+job and a live evaluation) and [ARC-036] for [ARC-021-1] and [ARC-052], which keeps the
 import chain and the launch gates behind them.
 
 ### Coordination that is not a dependency

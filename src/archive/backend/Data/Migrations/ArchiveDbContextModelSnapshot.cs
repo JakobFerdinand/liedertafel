@@ -1222,6 +1222,11 @@ namespace Archive.Backend.Data.Migrations
                     b.Property<string>("Text")
                         .HasColumnType("text");
 
+                    b.Property<int>("TextSource")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
                     b.Property<Guid>("TriggeredByAccountId")
                         .HasColumnType("uuid");
 
@@ -1368,6 +1373,76 @@ namespace Archive.Backend.Data.Migrations
                             t.HasCheckConstraint("CK_proposals_kind", "\"Kind\" IN ('FieldSuggestion', 'SongCreation', 'SongPublication', 'SongDeletion', 'SongMerge', 'MemberAdministration', 'EventPublication', 'EventDeletion')");
 
                             t.HasCheckConstraint("CK_proposals_status", "\"Status\" IN ('Open', 'Accepted', 'Rejected')");
+                        });
+                });
+
+            modelBuilder.Entity("Archive.Backend.Reading.ReadingJob", b =>
+                {
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AssetId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FailureReason")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<int>("FieldsApplied")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("FieldsDone")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("FieldsProposed")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("LastAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("LastEnqueuedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("PageLimit")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("PagesRead")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("PagesTotal")
+                        .HasColumnType("integer");
+
+                    b.Property<long>("RowVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("TriggeredByAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("RevisionId");
+
+                    b.HasIndex("Status");
+
+                    b.ToTable("reading_jobs", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_reading_jobs_pages", "\"PagesRead\" >= 0 AND \"PageLimit\" >= 0");
+
+                            t.HasCheckConstraint("CK_reading_jobs_status", "\"Status\" IN (0, 1, 2, 3, 4)");
                         });
                 });
 
@@ -1896,6 +1971,17 @@ namespace Archive.Backend.Data.Migrations
                 });
 
             modelBuilder.Entity("Archive.Backend.Extraction.ExtractionJob", b =>
+                {
+                    b.HasOne("Archive.Backend.Assets.FileRevision", "Revision")
+                        .WithMany()
+                        .HasForeignKey("RevisionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Revision");
+                });
+
+            modelBuilder.Entity("Archive.Backend.Reading.ReadingJob", b =>
                 {
                     b.HasOne("Archive.Backend.Assets.FileRevision", "Revision")
                         .WithMany()

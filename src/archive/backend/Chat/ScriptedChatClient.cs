@@ -73,6 +73,17 @@ public sealed class ScriptedChatClient : IChatClient
 			conversation.Add(message);
 		var last = conversation.Count == 0 ? null : conversation[^1];
 
+		// ARC-034-1: scan reading is not a chat; the offline stand-in answers
+		// its two requests (page images, text for fields) from a small script.
+		if (Reading.ScriptedScanReader.IsTranscription(conversation) || Reading.ScriptedScanReader.IsFieldRequest(conversation))
+		{
+			var transcription = Reading.ScriptedScanReader.IsTranscription(conversation);
+			var answer = transcription ? Reading.ScriptedScanReader.Transcribe(conversation) : Reading.ScriptedScanReader.Fields(conversation);
+			yield return Text(answer);
+			yield return Usage(string.Join(' ', conversation.Select(m => m.Text)) + (transcription ? new string('x', 4000) : ""), answer);
+			yield break;
+		}
+
 		// Tool results arrived: build the cited German answer from the data
 		// only. Result text is treated as data: an embedded instruction in an
 		// excerpt triggers the data-not-instruction sentence and is never

@@ -91,7 +91,7 @@ export function KiAbzeichen({
 /** Findet die automatische Herkunft eines Einzelfeldes in den gespeicherten Zeilen. */
 export function feldHerkunft(
   herkunft: FeldHerkunft[] | undefined,
-  entityType: "song" | "arrangement" | "musical_version",
+  entityType: "song" | "arrangement" | "musical_version" | "asset",
   entityId: string,
   field: string,
 ): FeldHerkunft | undefined {

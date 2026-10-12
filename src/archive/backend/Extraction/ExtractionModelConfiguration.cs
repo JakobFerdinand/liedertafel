@@ -15,6 +15,8 @@ public sealed class ExtractionModelConfiguration : IEntityTypeConfiguration<Extr
 		// The app bounds the extracted text (ExtractionOptions), so the
 		// schema keeps an unbounded text column.
 		builder.Property(x => x.FailureReason).HasMaxLength(300);
+		// ARC-034-1: 0 = embedded PDF text, 1 = transcribed from a scan.
+		builder.Property(x => x.TextSource).HasDefaultValue(ExtractionTextSource.Embedded);
 		builder.Property(x => x.RowVersion).IsConcurrencyToken();
 		/// <summary>
 		/// The revision is immutable and deletion flows through the

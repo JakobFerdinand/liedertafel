@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { AudioSpieler } from "@/components/audio-spieler";
 import { ExtraktionStatus } from "@/components/extraktion-status";
 import { ExtraktionUebersichtProvider } from "@/components/extraktion-uebersicht";
+import { feldHerkunft, KiAbzeichen } from "@/components/ki-abzeichen";
 import { MidiSpieler } from "@/components/midi-spieler";
 import { NotenVerlauf } from "@/components/noten-verlauf";
 import {
@@ -28,7 +29,12 @@ import {
   stimmenVorschlaege,
   uebertrageDatei,
 } from "@/lib/assets";
-import { type LiedAsset, materialStimme, notenAngabenTeile } from "@/lib/songs";
+import {
+  type FeldHerkunft,
+  type LiedAsset,
+  materialStimme,
+  notenAngabenTeile,
+} from "@/lib/songs";
 
 type MaterialStatus =
   | "warten"
@@ -63,6 +69,8 @@ type NotenBereichProps = {
   stimmenKonfiguration: string | null;
   assets: LiedAsset[];
   isEditor: boolean;
+  /** ARC-034-1: Feldherkunft der Redaktion (Stimme aus dem Scan gelesen). */
+  herkunft?: FeldHerkunft[];
   aktualisieren: () => void;
 };
 
@@ -116,6 +124,7 @@ export function NotenBereich({
   stimmenKonfiguration,
   assets,
   isEditor,
+  herkunft,
   aktualisieren,
 }: NotenBereichProps) {
   const eingabeRef = useRef<HTMLInputElement>(null);
@@ -570,7 +579,22 @@ export function NotenBereich({
                           stimme === titel ? titel : `${titel} · ${stimme}`
                         }
                       >
-                        <p className="material-stimme">{stimme}</p>
+                        <p className="material-stimme">
+                          {stimme}
+                          {isEditor && (
+                            <KiAbzeichen
+                              herkunft={feldHerkunft(
+                                herkunft,
+                                "asset",
+                                asset.id,
+                                "voice_label",
+                              )}
+                              feldbezeichnung="Stimme"
+                              zurueckgeholt={aktualisieren}
+                              meldungsziel={setBearbeitenErfolg}
+                            />
+                          )}
+                        </p>
                         <p className="noten-info">
                           {titel} · Dateistand {revision.revisionNumber} ·{" "}
                           {groesseText(revision.sizeBytes)} ·{" "}
@@ -769,6 +793,8 @@ export function NotenBereich({
                               revisionId={revision.revisionId}
                               isEditor={isEditor}
                               angabenBekannt={erkannt !== null}
+                              kannLesen
+                              bezeichnung={stimme}
                               onErkannt={aktualisieren}
                             />
                           )}

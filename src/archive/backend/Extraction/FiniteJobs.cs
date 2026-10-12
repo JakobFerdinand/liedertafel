@@ -4,7 +4,8 @@ namespace Archive.Backend.Extraction;
 /// Development gate for the finite host commands (ARC-034). The extraction
 /// worker and the dispatch sweep are production jobs — the Container Apps Job
 /// executes the same backend image with <c>--extract-queue</c>, and the
-/// maintainer runs <c>--dispatch-extraction</c> there too — so they join the
+/// maintainer runs <c>--dispatch-extraction</c> there too (ARC-034-1 adds the
+/// AI reading pair <c>--read-queue</c> / <c>--dispatch-reading</c>) — so they join the
 /// migrate/admin commands outside the Development-only local services.
 /// </summary>
 internal static class FiniteJobs
@@ -13,7 +14,8 @@ internal static class FiniteJobs
 	public static bool IsDevelopmentRequired(string? command) => command switch
 	{
 		"--migrate" or "--bootstrap-admin" or "--repair-admin"
-			or "--extract-queue" or "--dispatch-extraction" => false,
+			or "--extract-queue" or "--dispatch-extraction"
+			or "--read-queue" or "--dispatch-reading" => false,
 		_ => true,
 	};
 }
