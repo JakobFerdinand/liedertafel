@@ -1011,9 +1011,11 @@ extraction job leaves no reading row and sends no message, the editor actions
 answer 409 ("Das Lesen durch die KI ist noch nicht eingerichtet."), and every
 extraction status item carries `readingEnabled: false` and `reading: null`, so
 the page shows and offers nothing of the reading and does not poll for it. The
-maintainer turns it on (`Archive__Reading__Enabled=true`) only after the Azure
-job, its identity and the scheduled `--dispatch-reading` below exist; scores
-extracted while it was off are read on demand ("Seiten von der KI lesen").
+Bicep parameter `readingEnabled` (default `true`) sets `Archive__Reading__Enabled`
+on the app and the three jobs in the same deployment that creates the Azure job,
+its identity and the scheduled `--dispatch-reading` below; set it `false` and
+redeploy to switch the feature off. Scores extracted while it was off are read on
+demand ("Seiten von der KI lesen").
 
 Owner rule: the asset's own edit is creator-only, so reverting or accepting a
 change on an asset's field (the voice label) is too (`AssetOwnerRule`, 403
@@ -1024,15 +1026,17 @@ offered (and answers 409) once the revision's stored text has reached
 concurrent first "Erneut lesen" collides only on `PK_reading_jobs`; that case is
 re-run once idempotently, every other save failure surfaces.
 
-Production needs what `infrastructure/**` has not been given yet (this slice did
-not touch it): a Container Apps Job `ja-archive-read` running this image with
+Production runs it through `infrastructure/archive/main.bicep` (written, applied by
+the infrastructure workflow; see `infrastructure/archive/README.md`, "AI reading
+path"): a Container Apps Job `ja-archive-read` running this image with
 `--read-queue` (queue scale rule on `archive-reading`), its own identity
 (Storage Queue Data Contributor and Blob Data Reader on the assets account plus
 the Azure OpenAI user role; the only job identity with it) and the settings
 `Archive__Chat__Provider`, `Archive__Chat__Endpoint`, `Archive__Chat__DeploymentName`,
 `Archive__Reading__QueueServiceUri`, the database connection and the maintenance
 flag; plus a scheduled run of `--dispatch-reading` (daily is enough) that wakes
-work parked for budget. See the ticket for the full list.
+work parked for budget (`ja-archive-read-dispatch`, own identity with the queue role
+only). See the ticket for the full list.
 
 Evaluation: `Category=ScanReadingEvaluation` runs generated scans through the
 whole job with the scripted client (pass rate and cost per document, never a

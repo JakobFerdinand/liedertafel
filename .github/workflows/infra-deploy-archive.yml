@@ -2,10 +2,10 @@ name: Deploy Archive Infrastructure
 
 # ARC-009: topology only. This workflow never selects the running image: it
 # reads the currently deployed image and passes it through (to the app and
-# the extraction job, which share the same containerImage parameter), so
-# sequential infrastructure re-runs preserve the deployed image. The deploy
-# job shares archive.yml's serialization group so it cannot interleave a
-# release. Releases happen exclusively through archive.yml.
+# the extraction job and the AI reading jobs, which all share the same
+# containerImage parameter), so sequential infrastructure re-runs preserve the
+# deployed image. The deploy job shares archive.yml's serialization group so it
+# cannot interleave a release. Releases happen exclusively through archive.yml.
 
 on:
   push:

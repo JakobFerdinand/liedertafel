@@ -7,7 +7,7 @@ through an explicit release run, by immutable digest.
 | File | Purpose |
 | --- | --- |
 | `subscription.bicep` | Subscription scope: creates `RG-Liedertafel-Archive` (idempotent) |
-| `main.bicep` | Group scope: logs, environment, app (0–2 replicas), queue-triggered extraction job (ARC-034), vault, identities, optional managed certificate |
+| `main.bicep` | Group scope: logs, environment, app (0–2 replicas), queue-triggered extraction job (ARC-034), queue-triggered AI reading job and its scheduled dispatch sweep (ARC-034-1), vault, identities, optional managed certificate |
 | `main.bicepparam` | Non-secret defaults; image + pull credential are injected per run |
 
 `../../../.github/workflows/infra-deploy-archive.yml` owns topology (what-if
@@ -409,6 +409,90 @@ triggering during the window never launches new database work. After
 migration and pre-open checks, both flags clear and visible messages
 re-trigger processing; failures before reopening keep maintenance active.
 
+## AI reading path (ARC-034-1)
+
+Scanned scores are read by a second finite job. Everything is declared in
+`main.bicep`; there is no maintainer creation step apart from the
+verification at the end.
+
+| Resource | Purpose |
+| --- | --- |
+| queue `archive-reading` | same storage account as `archive-extraction`; the extraction job hands each finished score over here, the editor's actions send here too |
+| `id-archive-read` | reading job identity |
+| `ja-archive-read` | event job, same image parameter, `--read-queue` |
+| `id-archive-read-dispatch` | identity of the dispatch sweep |
+| `ja-archive-read-dispatch` | cron job (daily 03:17 UTC, `readingDispatchCron`), same image parameter, `--dispatch-reading` |
+
+`ja-archive-read` follows the extraction job: KEDA `azure-queue` rule on
+`archive-reading` (`visibleonly`, queue length 1, min 0, at most 3
+executions), authenticated as its own identity through the rule's `identity`
+property; platform retries 0; the runtime identity is attached with lifecycle
+`None` only to resolve the Key Vault `archive-db-connection` secret. It
+differs in three ways: memory 2 Gi and 1 vCPU (the PDF, up to 32 MiB, is read
+into memory and rendered by native PDFium/Skia); replica timeout 40 minutes
+(the worker's drain budget is 30 minutes and caps every message to it, the
+rest is shutdown headroom); and the model settings
+`Archive__Chat__Provider=AzureOpenAI`, `Archive__Chat__Endpoint` and
+`Archive__Chat__DeploymentName=gpt-6-luna` (the same values the app gets; the
+deployment name is the key priced under `Archive:Ai:Models`). Further
+settings: `Archive__Reading__QueueServiceUri` (the extraction queue endpoint,
+same account), `Archive__Assets__ServiceUri` (PDF reads), the database
+secret, `Archive__MaintenanceMode` and `AZURE_CLIENT_ID`. At most 3
+executions, because the deployment's 30k tokens-per-minute limit would only
+throttle more.
+
+| Identity | Role | Scope | Purpose |
+| --- | --- | --- | --- |
+| `id-archive-read` | `Storage Queue Data Contributor` | assets account | same reasons as the extraction job: receive/process/delete, the run's own sweep sends, KEDA's `queues/read` poll |
+| `id-archive-read` | `Storage Blob Data Reader` | assets account | bounded PDF reads |
+| `id-archive-read` | `Cognitive Services OpenAI User` | `aoai-liedertafel-archive` | the model calls (declared like the runtime identity's role); the ONLY job identity that holds it |
+| `id-archive-read-dispatch` | `Storage Queue Data Contributor` | assets account | the sweep creates the queue when missing (needs the write action, which Message Sender lacks) and sends |
+
+The extraction job already holds Queue Data Contributor on the account, so it
+can send the hand-over message to `archive-reading` with no new role, and the
+runtime identity's Message Sender covers the editor's actions. Both fall back
+to `Archive__Extraction__QueueServiceUri` for the endpoint.
+
+The dispatch sweep has its own minimal identity instead of reusing
+`id-archive-read`: it needs the queue role only. It never reads a PDF or
+calls the model, so sharing the reading identity would give a daily cron job
+read access to every member file and the OpenAI role for nothing. It does
+carry the same `Archive__Chat__*` settings as configuration (not rights):
+the sweep prices the worst case of a reading request against the configured
+deployment name to decide whether parked work fits the budget again, and
+without a matching model key no price is found and no parked row would ever
+wake. Parked rows (`WaitingForBudget`) have no queue message, so this daily
+run (or the next `--read-queue` run, which sweeps first) is what resumes them
+after the month changes or the cap is raised.
+
+The switch: the bicep parameter `readingEnabled` (default `true`) sets
+`Archive__Reading__Enabled` on the app, the extraction job and both reading
+jobs. It is `false` in `appsettings.json`, so production only reads scans
+because this template says so. To switch the feature off again set
+`readingEnabled` to `false` (parameter file or `--parameters`) and run the
+infrastructure workflow: nothing is handed over, the editor actions answer
+409 and the pages hide the reading; rows already queued stay queued. Check
+the live value with `az containerapp show -n ca-liedertafel-archive -g
+RG-Liedertafel-Archive --query "properties.template.containers[0].env[?name=='Archive__Reading__Enabled']"`.
+
+Release: `archive.yml` pins `ja-archive-read` and `ja-archive-read-dispatch`
+to the same digest as the app and the extraction job, sets
+`Archive__MaintenanceMode` on them around a migration, and stops their running
+executions before it (a reading run may be minutes into a model call; the
+stale-lease ladder recovers it). Jobs that do not exist yet are skipped with
+a warning, so a release that runs before the first infrastructure deploy
+cannot break halfway through a maintenance window; run the infrastructure
+workflow first. Infrastructure re-runs pass the app's deployed image and
+maintenance flag to the reading jobs through the same parameters.
+
+Verification after the first deploy (read-only): `az containerapp job list
+-g RG-Liedertafel-Archive -o table` shows the three jobs; `az role assignment
+list --all --scope $(az cognitiveservices account show -n
+aoai-liedertafel-archive -g RG-Liedertafel-Archive --query id -o tsv)` shows
+`id-archive-app` and `id-archive-read` as the only OpenAI users. The hosted
+journey check (upload a scan, watch the reading) is in
+`docs/plans/006-choir-archive/ARC-034-1-scan-reading.md`.
+
 ## Controlled database releases (ARC-012)
 
 Releases carrying a schema change run inside a maintenance window owned by
@@ -433,13 +517,13 @@ window; push-triggered runs always migrate.
    discarded after the window.
 3. Run `archive.yml` (`workflow_dispatch`, inputs `version` plus
    `run_migration=true`). The workflow then:
-   enters maintenance on the app AND extraction job
+   enters maintenance on the app, the extraction job AND the reading jobs
    (`Archive__MaintenanceMode=true`, members see the German banner/`/wartung/`,
-   conflicting API work answers 503), stops in-flight extraction executions
+   conflicting API work answers 503), stops in-flight extraction and reading executions
    and confirms quiescence (new executions exit 0 before database work), runs the
    selected image's `--migrate` exactly once with the migration role,
-   deploys the digest to app and job, proves the window on the new revision,
-   clears maintenance on both to reopen access and extraction, and
+   deploys the digest to app and jobs, proves the window on the new revision,
+   clears maintenance everywhere to reopen access and the jobs, and
    smoke-checks (`/alive`, `/api/build`,
    `/api/maintenance:false`, `/system/status/`, `/wartung/`,
    `/api/antiforgery:200`, dev-absence, unknown-API 404).
@@ -503,3 +587,4 @@ executions before migration because their configuration is immutable.
 Future import jobs must receive and check the same flag before conflicting
 work and quiesce existing executions while `maintenance` is true. Probes plus
 `/api/build` and `/api/maintenance` always stay available for observers.
+The reading jobs (ARC-034-1) follow the same rule.

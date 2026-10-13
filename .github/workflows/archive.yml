@@ -4,9 +4,10 @@ name: Archive
 # the full regression suite and builds the production image exactly once; the
 # release job reuses that exact image from the run artifact (never rebuilds),
 # pushes it to private GHCR and deploys it by immutable digest — to the app
-# AND the queue-triggered extraction job (ARC-034), which must never drift
-# apart. Infrastructure runs (infra-deploy-archive.yml) can never revert the
-# selection.
+# AND the queue-triggered extraction job (ARC-034) and the AI reading jobs
+# (ARC-034-1: queue-triggered reading, scheduled dispatch sweep), which must
+# never drift apart. Infrastructure runs (infra-deploy-archive.yml) can never
+# revert the selection.
 #
 # ARC-012: releases carrying a database change run inside a maintenance
 # window. The sequence is: enter maintenance (members see the German
@@ -95,6 +96,10 @@ env:
   # ARC-034: the queue-triggered extraction job runs the same backend image
   # and is pinned to the same digest as the app on every release.
   EXTRACT_JOB_NAME: ja-archive-extract
+  # ARC-034-1: the AI reading job and its scheduled dispatch sweep run the same
+  # image too; they are paused, stopped and pinned together with the extraction
+  # job (skipped with a warning while infrastructure has not created them yet).
+  READING_JOB_NAMES: ja-archive-read ja-archive-read-dispatch
   VAULT_NAME: kv-liedertafel-archive
 
 jobs:
@@ -279,6 +284,26 @@ jobs:
             --query "properties.configuration.ingress.fqdn" -o tsv)
           echo "fqdn=$FQDN" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve reading jobs
+        id: reading
+        run: |
+          # ARC-034-1: the reading jobs are created by infra-deploy-archive.yml.
+          # A release that runs before that must not fail halfway through the
+          # maintenance window, so only jobs that exist take part; any other
+          # lookup failure stops the release before maintenance starts.
+          EXISTING=""
+          for JOB in $READING_JOB_NAMES; do
+            if ERR=$(az containerapp job show --name "$JOB" --resource-group "$RESOURCE_GROUP" --query name -o tsv 2>&1 >/dev/null); then
+              EXISTING="$EXISTING $JOB"
+            elif echo "$ERR" | grep -qiE "ResourceNotFound|could not be found|not found"; then
+              echo "::warning::Job $JOB does not exist yet; skipped (run infra-deploy-archive.yml, then the next release pins it)."
+            else
+              echo "::error::Could not look up job $JOB: $ERR"
+              exit 1
+            fi
+          done
+          echo "names=${EXISTING# }" >> "$GITHUB_OUTPUT"
+
       - name: Enter maintenance window
         id: maintenance
         run: |
@@ -301,6 +326,12 @@ jobs:
             --name "$EXTRACT_JOB_NAME" \
             --resource-group "$RESOURCE_GROUP" \
             --set-env-vars Archive__MaintenanceMode=true >/dev/null
+          for JOB in ${{ steps.reading.outputs.names }}; do
+            az containerapp job update \
+              --name "$JOB" \
+              --resource-group "$RESOURCE_GROUP" \
+              --set-env-vars Archive__MaintenanceMode=true >/dev/null
+          done
           FQDN="${{ steps.endpoint.outputs.fqdn }}"
           echo "Waiting for /api/maintenance to report the window (cold start up to ~60 s is expected)"
           for attempt in $(seq 1 30); do
@@ -318,44 +349,48 @@ jobs:
             sleep 10
           done
 
-      - name: Quiesce extraction executions
+      - name: Quiesce extraction and reading executions
         if: steps.maintenance.outputs.run_migration == 'true'
         run: |
           # New executions see maintenance and exit before touching Neon.
           # Existing executions retain their old env; stop them explicitly.
           # No --yes is needed/supported. Never hide an operational failure:
           # a failed stop is tolerated only if the running set is now empty.
-          running_extractions() {
+          # ARC-034-1: the reading job (minutes-long model calls) and its
+          # dispatch sweep are quiesced the same way.
+          running_executions() {
             az containerapp job execution list \
-              --name "$EXTRACT_JOB_NAME" \
+              --name "$1" \
               --resource-group "$RESOURCE_GROUP" \
               --query "length([?properties.status=='Running'])" -o tsv
           }
-          RUNNING=$(running_extractions)
-          if [ "$RUNNING" != "0" ]; then
-            if ! az containerapp job stop \
-              --name "$EXTRACT_JOB_NAME" \
-              --resource-group "$RESOURCE_GROUP" >/dev/null; then
-              RUNNING=$(running_extractions)
-              if [ "$RUNNING" != "0" ]; then
-                echo "::error::Extraction stop failed with running executions; maintenance stays ACTIVE."
-                exit 1
+          for JOB in "$EXTRACT_JOB_NAME" ${{ steps.reading.outputs.names }}; do
+            RUNNING=$(running_executions "$JOB")
+            if [ "$RUNNING" != "0" ]; then
+              if ! az containerapp job stop \
+                --name "$JOB" \
+                --resource-group "$RESOURCE_GROUP" >/dev/null; then
+                RUNNING=$(running_executions "$JOB")
+                if [ "$RUNNING" != "0" ]; then
+                  echo "::error::Stop of $JOB failed with running executions; maintenance stays ACTIVE."
+                  exit 1
+                fi
               fi
             fi
-          fi
-          # Stop is a blocking ARM operation; confirm no execution remains
-          # running before migration, bounded by the worker's drain budget.
-          for attempt in $(seq 1 60); do
-            RUNNING=$(running_extractions)
-            if [ "$RUNNING" = "0" ]; then
-              echo "- extraction quiesced under maintenance; interrupted leases recover through the stale-lease ladder" >> "$GITHUB_STEP_SUMMARY"
-              exit 0
-            fi
-            if [ "$attempt" = "60" ]; then
-              echo "::error::Extraction did not quiesce within 10 minutes; maintenance stays ACTIVE, refusing to migrate."
-              exit 1
-            fi
-            sleep 10
+            # Stop is a blocking ARM operation; confirm no execution remains
+            # running before migration, bounded by the worker's drain budget.
+            for attempt in $(seq 1 60); do
+              RUNNING=$(running_executions "$JOB")
+              if [ "$RUNNING" = "0" ]; then
+                echo "- $JOB quiesced under maintenance; interrupted leases recover through the stale-lease ladder" >> "$GITHUB_STEP_SUMMARY"
+                break
+              fi
+              if [ "$attempt" = "60" ]; then
+                echo "::error::$JOB did not quiesce within 10 minutes; maintenance stays ACTIVE, refusing to migrate."
+                exit 1
+              fi
+              sleep 10
+            done
           done
 
       - name: Run reviewed migration once
@@ -406,6 +441,21 @@ jobs:
             --resource-group "$RESOURCE_GROUP" \
             --image "${{ steps.image.outputs.digest }}"
           echo "- extraction job pinned to ${{ steps.image.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Deploy reading job images
+        if: steps.reading.outputs.names != ''
+        # ARC-034-1: the AI reading job and its dispatch sweep run the SAME
+        # digest as the app and the extraction job; the reading envelope and
+        # the stored reading rows are shared code. Unconditional like the
+        # extraction pin (also on run_migration=false code-only releases).
+        run: |
+          for JOB in ${{ steps.reading.outputs.names }}; do
+            az containerapp job update \
+              --name "$JOB" \
+              --resource-group "$RESOURCE_GROUP" \
+              --image "${{ steps.image.outputs.digest }}"
+            echo "- $JOB pinned to ${{ steps.image.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
+          done
 
       - name: Wait for the new revision to serve traffic
         run: |
@@ -458,6 +508,12 @@ jobs:
             --name "$EXTRACT_JOB_NAME" \
             --resource-group "$RESOURCE_GROUP" \
             --set-env-vars Archive__MaintenanceMode=false >/dev/null
+          for JOB in ${{ steps.reading.outputs.names }}; do
+            az containerapp job update \
+              --name "$JOB" \
+              --resource-group "$RESOURCE_GROUP" \
+              --set-env-vars Archive__MaintenanceMode=false >/dev/null
+          done
           FQDN="${{ steps.endpoint.outputs.fqdn }}"
           for attempt in $(seq 1 30); do
             if MAINT=$(curl --fail --silent --max-time 10 "https://$FQDN/api/maintenance"); then

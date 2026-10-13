@@ -10,11 +10,12 @@
 //   release workflow supplies containerImage by immutable digest, and the
 //   infra workflow passes the currently deployed image through so an
 //   infrastructure re-run cannot revert a release. The app and the
-//   extraction job (ARC-034) run the same image parameter.
+//   extraction job (ARC-034) and the AI reading jobs (ARC-034-1) run the
+//   same image parameter.
 // - No Neon or email resources here. The storage account below is the only
 //   storage integration in this template and now carries the extraction
-//   queue (ARC-034) next to the key-ring and member-file blobs; the queue
-//   is declared in this template as well.
+//   queue (ARC-034) and the reading queue (ARC-034-1) next to the key-ring
+//   and member-file blobs; both queues are declared in this template.
 //   Hosted sign-in is ARC-011, real email ARC-010.
 // - No database connection is baked in: the Neon runtime connection arrives
 //   as a Key Vault reference (secret `archive-db-connection`, placed by the
@@ -41,6 +42,24 @@ param extractionIdentityName string = 'id-archive-extract'
 
 @description('Queue-triggered extraction job name (ARC-034). Runs the same backend image with --extract-queue as a finite run.')
 param extractionJobName string = 'ja-archive-extract'
+
+@description('AI reading job identity name (ARC-034-1). The ONLY job identity holding the Azure OpenAI user role; also queue contributor plus blob reader on the assets storage account, nothing else.')
+param readingIdentityName string = 'id-archive-read'
+
+@description('Queue-triggered AI reading job name (ARC-034-1). Runs the same backend image with --read-queue as a finite run.')
+param readingJobName string = 'ja-archive-read'
+
+@description('Identity of the scheduled reading dispatch sweep (ARC-034-1). Queue contributor on the assets storage account only: no blob, no Azure OpenAI role.')
+param readingDispatchIdentityName string = 'id-archive-read-dispatch'
+
+@description('Scheduled reading dispatch job name (ARC-034-1). Runs the same backend image with --dispatch-reading, which wakes work parked for budget.')
+param readingDispatchJobName string = 'ja-archive-read-dispatch'
+
+@description('Cron expression (UTC) of the reading dispatch sweep. Daily is enough: parked work only has to wake when a new month starts or the cap is raised.')
+param readingDispatchCron string = '17 3 * * *'
+
+@description('Archive:Reading:Enabled (ARC-034-1). True lets the extraction job hand scores to the AI reading job and shows the reading to editors. Set false (and redeploy) to switch the feature off again: nothing is handed over, the editor actions answer 409 and the pages hide the reading.')
+param readingEnabled bool = true
 
 @description('Key Vault name (RBAC model). Holds the GHCR pull credential lifecycle; runtime secrets arrive in ARC-011.')
 param vaultName string = 'kv-liedertafel-archive'
@@ -127,6 +146,24 @@ resource runtimeIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-
 // vault, key-ring, mail or chat roles.
 resource extractionIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
   name: extractionIdentityName
+  location: location
+}
+
+// ARC-034-1 — identity of the queue-triggered AI reading job. It is the only
+// job identity that may call the model: queue contributor and blob reader on
+// the assets account plus the Azure OpenAI user role on the AI account. It
+// holds no vault, key-ring, mail or write-to-blob roles.
+resource readingIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: readingIdentityName
+  location: location
+}
+
+// ARC-034-1 — identity of the scheduled dispatch sweep. The sweep only reads
+// and updates `reading_jobs` rows and sends queue messages (it asks the
+// budget ledger in the database, it never calls the model), so it gets the
+// queue role alone: no blob access and no Azure OpenAI role.
+resource readingDispatchIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: readingDispatchIdentityName
   location: location
 }
 
@@ -267,6 +304,19 @@ resource extractionQueue 'Microsoft.Storage/storageAccounts/queueServices/queues
 }
 
 var extractionQueueUri = 'https://${storage.name}.queue.${az.environment().suffixes.storage}'
+
+// ARC-034-1: the AI reading queue, same account and same reasoning as the
+// extraction queue (declared here so KEDA can poll it before any worker
+// ran). The name must match ReadingOptions.DefaultQueueName. Reading code
+// falls back to the extraction queue service URI (same account), so the app
+// and the extraction job (which holds queue contributor on the account, and
+// sends the hand-over message) need no extra setting.
+var readingQueueName = 'archive-reading'
+
+resource readingQueue 'Microsoft.Storage/storageAccounts/queueServices/queues@2023-05-01' = {
+  parent: queueService
+  name: readingQueueName
+}
 
 // ARC-021 — Azure OpenAI (Microsoft Foundry) chat path. The account carries
 // the stateless keyless inference surface: deployments live at account level,
@@ -444,6 +494,70 @@ resource extractionBlobReader 'Microsoft.Authorization/roleAssignments@2022-04-0
       '2a2b9908-6ea1-4ae2-8e65-a410df84e7d1'
     )
     principalId: extractionIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// ARC-034-1: AI reading job identity. Same three scopes as the extraction
+// job, plus the model: Queue Data Contributor (receive/process/delete, the
+// worker's self-provisioning and the sweep's send, and KEDA's `queues/read`
+// poll), Blob Data Reader (bounded PDF reads) and Azure OpenAI user on the
+// AI account. Skipped in PR what-if like the other RBAC assignments.
+resource readingQueueContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployRoleAssignments) {
+  name: guid(storage.id, readingIdentity.id, 'queue-data-contributor')
+  scope: storage
+  properties: {
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      '974c5e8b-45b9-4653-ba55-5f855dd0fb88'
+    )
+    principalId: readingIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource readingBlobReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployRoleAssignments) {
+  name: guid(storage.id, readingIdentity.id, 'blob-data-reader')
+  scope: storage
+  properties: {
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      '2a2b9908-6ea1-4ae2-8e65-a410df84e7d1'
+    )
+    principalId: readingIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// Cognitive Services OpenAI User, declared exactly like the runtime
+// identity's `aoaiOpenAIUser`. The reading job is the only job identity that
+// holds it; the extraction job and the dispatch sweep stay model-free.
+resource readingOpenAIUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployRoleAssignments) {
+  name: guid(aoaiAccount.id, readingIdentity.id, 'AoaiOpenAIUser')
+  scope: aoaiAccount
+  properties: {
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd'
+    )
+    principalId: readingIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// ARC-034-1: dispatch sweep identity. The sweep creates the queue when
+// missing (a CreateIfNotExists call needs the write action, which Message
+// Sender lacks) and sends, so Queue Data Contributor is the narrowest
+// built-in role that covers it. Skipped in PR what-if.
+resource readingDispatchQueueContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployRoleAssignments) {
+  name: guid(storage.id, readingDispatchIdentity.id, 'queue-data-contributor')
+  scope: storage
+  properties: {
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      '974c5e8b-45b9-4653-ba55-5f855dd0fb88'
+    )
+    principalId: readingDispatchIdentity.properties.principalId
     principalType: 'ServicePrincipal'
   }
 }
@@ -658,6 +772,13 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
               name: 'Archive__Chat__Enabled'
               value: 'true'
             }
+            // ARC-034-1: reading is off in appsettings.json until the reading
+            // job, its identity and the dispatch sweep exist; this template
+            // declares them, so the switch follows `readingEnabled`.
+            {
+              name: 'Archive__Reading__Enabled'
+              value: readingEnabled ? 'true' : 'false'
+            }
           ]
           probes: [
             {
@@ -857,6 +978,280 @@ resource extractJob 'Microsoft.App/jobs@2025-01-01' = {
               name: 'Archive__MaintenanceMode'
               value: maintenanceMode ? 'true' : 'false'
             }
+            // ARC-034-1: the hand-over to the reading queue is made here, so
+            // the extraction job needs the same switch as the app. The queue
+            // URI falls back to Archive__Extraction__QueueServiceUri.
+            {
+              name: 'Archive__Reading__Enabled'
+              value: readingEnabled ? 'true' : 'false'
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
+
+// ARC-034-1 — queue-triggered AI reading job. Same shape as the extraction
+// job (same image parameter, finite run, event trigger on a visible-only
+// azure-queue rule authenticated through the job's own identity, Key Vault
+// database secret resolved by the runtime identity that is attached with
+// lifecycle None), with these differences:
+// - it runs `--read-queue`, which first sweeps (wakes parked work, hands
+//   un-enqueued rows over) and then drains the `archive-reading` queue;
+// - its identity is the only job identity with the Azure OpenAI user role,
+//   and the chat provider settings below point it at the pinned deployment
+//   (the deployment name is the model key priced under Archive:Ai:Models);
+// - memory 2 Gi: the PDF (up to 32 MiB) is read into memory and rendered by
+//   native PDFium/Skia; an OOM kill resolves through the stale-lease ladder;
+// - replicaTimeout 2400 s (40 min): the drain budget is 30 minutes, every
+//   message is capped to that deadline, so a run ends on its own before the
+//   platform timeout; the extra 10 minutes cover shutdown and the flush.
+//   Platform retries stay off like the extraction job's: retries are the
+//   worker's own bounded attempt ladder.
+// Queue length 1 per execution, up to 3 executions: reading is paid model
+// work behind the EUR 15 cap and the deployment has a 30k tokens-per-minute
+// limit, so parallel runs would only throttle each other.
+resource readJob 'Microsoft.App/jobs@2025-01-01' = {
+  name: readingJobName
+  location: location
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${readingIdentity.id}': {}
+      // Resolves the Key Vault-referenced database secret only; lifecycle
+      // None keeps it (and its blob-contributor/key-ring rights) unavailable
+      // inside the container, exactly like the extraction job.
+      '${runtimeIdentity.id}': {}
+    }
+  }
+  properties: {
+    environmentId: environment.id
+    workloadProfileName: 'Consumption'
+    configuration: {
+      identitySettings: [
+        {
+          identity: runtimeIdentity.id
+          lifecycle: 'None'
+        }
+        {
+          identity: readingIdentity.id
+          lifecycle: 'All'
+        }
+      ]
+      registries: [
+        {
+          server: 'ghcr.io'
+          username: ghcrUsername
+          passwordSecretRef: 'ghcr-password'
+        }
+      ]
+      secrets: [
+        {
+          name: 'ghcr-password'
+          value: ghcrPassword
+        }
+        {
+          name: 'archive-db-connection'
+          keyVaultUrl: '${vault.properties.vaultUri}secrets/archive-db-connection'
+          identity: runtimeIdentity.id
+        }
+      ]
+      replicaTimeout: 2400
+      replicaRetryLimit: 0
+      triggerType: 'Event'
+      eventTriggerConfig: {
+        replicaCompletionCount: 1
+        parallelism: 1
+        scale: {
+          minExecutions: 0
+          maxExecutions: 3
+          pollingInterval: 30
+          rules: [
+            {
+              name: 'reading-queue'
+              type: 'azure-queue'
+              // Same scaler contract as the extraction rule: Entra-only
+              // account, so the rule authenticates as the reading identity;
+              // queueName must match ReadingOptions.DefaultQueueName.
+              metadata: {
+                queueName: readingQueue.name
+                queueLength: '1'
+                queueLengthStrategy: 'visibleonly'
+                accountName: storage.name
+              }
+              identity: readingIdentity.id
+            }
+          ]
+        }
+      }
+    }
+    template: {
+      containers: [
+        {
+          name: 'read'
+          image: containerImage
+          args: [
+            '--read-queue'
+          ]
+          resources: {
+            cpu: json('1')
+            memory: '2Gi'
+          }
+          env: [
+            {
+              name: 'ConnectionStrings__archive-db'
+              secretRef: 'archive-db-connection'
+            }
+            {
+              name: 'AZURE_CLIENT_ID'
+              value: readingIdentity.properties.clientId
+            }
+            {
+              name: 'Archive__Assets__ServiceUri'
+              value: 'https://${storage.name}.blob.${az.environment().suffixes.storage}'
+            }
+            {
+              name: 'Archive__Reading__QueueServiceUri'
+              value: extractionQueueUri
+            }
+            {
+              name: 'Archive__Reading__Enabled'
+              value: readingEnabled ? 'true' : 'false'
+            }
+            // Same model settings as the app (keyless via AZURE_CLIENT_ID,
+            // the reading identity holds the OpenAI user role).
+            {
+              name: 'Archive__Chat__Provider'
+              value: 'AzureOpenAI'
+            }
+            {
+              name: 'Archive__Chat__Endpoint'
+              value: aiEndpointUri
+            }
+            {
+              name: 'Archive__Chat__DeploymentName'
+              value: aoaiChatDeployment.name
+            }
+            {
+              name: 'Archive__MaintenanceMode'
+              value: maintenanceMode ? 'true' : 'false'
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
+
+// ARC-034-1 — scheduled reading dispatch sweep. Rows parked for budget
+// (`WaitingForBudget`) have no queue message, so nothing would start the
+// reading job for them when a new month begins or the cap is raised; this
+// daily run of `--dispatch-reading` wakes them (and hands un-enqueued rows
+// to the queue). It runs the same image parameter, but with its own minimal
+// identity (queue contributor only). It never calls the model — the budget
+// check reads the ledger in the database — but it prices the worst case
+// against the configured deployment name, so it carries the same
+// provider/endpoint/deployment settings as the reading job (configuration,
+// not rights; without them the model key would not match a price and no
+// parked row would ever wake). Maintenance mode makes a run exit before
+// touching the database.
+resource readDispatchJob 'Microsoft.App/jobs@2025-01-01' = {
+  name: readingDispatchJobName
+  location: location
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${readingDispatchIdentity.id}': {}
+      '${runtimeIdentity.id}': {}
+    }
+  }
+  properties: {
+    environmentId: environment.id
+    workloadProfileName: 'Consumption'
+    configuration: {
+      identitySettings: [
+        {
+          identity: runtimeIdentity.id
+          lifecycle: 'None'
+        }
+        {
+          identity: readingDispatchIdentity.id
+          lifecycle: 'All'
+        }
+      ]
+      registries: [
+        {
+          server: 'ghcr.io'
+          username: ghcrUsername
+          passwordSecretRef: 'ghcr-password'
+        }
+      ]
+      secrets: [
+        {
+          name: 'ghcr-password'
+          value: ghcrPassword
+        }
+        {
+          name: 'archive-db-connection'
+          keyVaultUrl: '${vault.properties.vaultUri}secrets/archive-db-connection'
+          identity: runtimeIdentity.id
+        }
+      ]
+      replicaTimeout: 900
+      replicaRetryLimit: 0
+      triggerType: 'Schedule'
+      scheduleTriggerConfig: {
+        cronExpression: readingDispatchCron
+        parallelism: 1
+        replicaCompletionCount: 1
+      }
+    }
+    template: {
+      containers: [
+        {
+          name: 'read-dispatch'
+          image: containerImage
+          args: [
+            '--dispatch-reading'
+          ]
+          resources: {
+            cpu: json('0.25')
+            memory: '0.5Gi'
+          }
+          env: [
+            {
+              name: 'ConnectionStrings__archive-db'
+              secretRef: 'archive-db-connection'
+            }
+            {
+              name: 'AZURE_CLIENT_ID'
+              value: readingDispatchIdentity.properties.clientId
+            }
+            {
+              name: 'Archive__Reading__QueueServiceUri'
+              value: extractionQueueUri
+            }
+            {
+              name: 'Archive__Reading__Enabled'
+              value: readingEnabled ? 'true' : 'false'
+            }
+            {
+              name: 'Archive__Chat__Provider'
+              value: 'AzureOpenAI'
+            }
+            {
+              name: 'Archive__Chat__Endpoint'
+              value: aiEndpointUri
+            }
+            {
+              name: 'Archive__Chat__DeploymentName'
+              value: aoaiChatDeployment.name
+            }
+            {
+              name: 'Archive__MaintenanceMode'
+              value: maintenanceMode ? 'true' : 'false'
+            }
           ]
         }
       ]
@@ -895,6 +1290,9 @@ output assetsServiceUri string = 'https://${storage.name}.blob.${az.environment(
 // receives it as `Archive__Extraction__QueueServiceUri`, and ARC-037's
 // import job reuses this output, mirroring the ARC-051 assets pattern.
 output assetsQueueServiceUri string = extractionQueueUri
+// ARC-034-1: reading queue name on the same account (the reading code falls
+// back to the extraction queue service URI for the endpoint).
+output readingQueueName string = readingQueue.name
 // ARC-021: Azure OpenAI inference endpoint (custom subdomain of the AI
 // account), same value the app receives as `Archive__Chat__Endpoint`.
 output aiEndpoint string = aiEndpointUri

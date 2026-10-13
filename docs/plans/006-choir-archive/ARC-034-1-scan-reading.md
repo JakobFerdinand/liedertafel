@@ -25,8 +25,9 @@ creators, voice, key and lyrics already filled in, marked "KI" and revertible.
   job identity with the OpenAI role), queue, size and timeout. The extraction
   job stays model-free and hands work over; `NoText` is no longer terminal.
   *Done in code (own command `--read-queue`, queue `archive-reading`, 32 MiB,
-  8 minutes, hand-off from the extraction job, local AppHost resource); the
-  Azure job and its identity are not created, see "For the maintainer".*
+  8 minutes, hand-off from the extraction job, local AppHost resource) and in
+  Bicep (`infrastructure/archive/main.bicep`: queue, identity, `ja-archive-read`);
+  created in Azure by the next infrastructure deploy, see "For the maintainer".*
 - [x] Step one, for `NoText` revisions: render pages in the job with a
   PDFium-based package that ships its native library, and have a named agent
   transcribe them. Up to 20 pages per document in requests of up to 10 images
@@ -47,7 +48,8 @@ creators, voice, key and lyrics already filled in, marked "KI" and revertible.
   message is acknowledged, and the dispatch sweep re-enqueues it when the month
   changes or the cap is raised. The editor sees that status; manual entry is
   never blocked. *Done in code and tested; the scheduled `--dispatch-reading`
-  run that wakes parked rows is not deployed, see "For the maintainer".*
+  run that wakes parked rows is declared in Bicep (`ja-archive-read-dispatch`,
+  daily) and runs once the infrastructure deploy has applied it.*
 - [ ] A fixed regression set of real scans with expected fields, run on demand
   with pass rate and cost per document recorded. CI uses a scripted stand-in
   and never calls the provider. *The harness and the scripted CI run exist; the
@@ -196,7 +198,9 @@ the seven Playwright specs with `--workers=1`: **154 passed**.
 
 ### For the maintainer
 
-1. **Azure job and identity (not done: `infrastructure/**` was off limits).** Add
+1. **Azure job and identity (done in code, pending deploy).**
+   `infrastructure/archive/main.bicep` now declares (written, validated with
+   `az bicep build` and a read-only what-if: Create/Modify only; not applied):
    a Container Apps Job `ja-archive-read` running the archive image with
    `--read-queue`, triggered by an `azure-queue` scale rule on `archive-reading`
    (visible-only, like `ja-archive-extract`), with its own user-assigned identity:
@@ -208,12 +212,22 @@ the seven Playwright specs with `--workers=1`: **154 passed**.
    back), the database connection secret, `Archive__MaintenanceMode`,
    `AZURE_CLIENT_ID`; 8-minute message budget means a replica timeout of at least
    30 minutes, memory 2 Gi (the PDF is read into memory, 32 MiB cap). The release
-   workflow must pause and pin this job like the extraction job. The runtime
-   identity already holds Queue Data Message Sender for the editor's actions.
-2. **Wake-up of parked work.** Rows in `WaitingForBudget` have no queue message.
+   workflow pauses, stops and pins this job like the extraction job (done in
+   `archive.yml`; a job that does not exist yet is skipped with a warning). The
+   runtime identity already holds Queue Data Message Sender for the editor's
+   actions. Deviations from this list: the job also gets `Archive__Assets__ServiceUri`
+   (it reads the PDF), `Archive__Reading__Enabled`, a 40 minute replica timeout
+   (the drain budget is 30 minutes), 1 vCPU, and at most 3 executions.
+   To apply: run `infra-deploy-archive.yml` (push to `main` or
+   `workflow_dispatch`); see `infrastructure/archive/README.md`, "AI reading path".
+2. **Wake-up of parked work (done in code, pending deploy).** Rows in `WaitingForBudget` have no queue message.
    Schedule `--dispatch-reading` (a cron Container Apps Job, daily is enough) or
    rely on the next queue-triggered `--read-queue` run, which sweeps first. Without
    one of them a row parked at month end waits until the next reading message.
+   Bicep declares `ja-archive-read-dispatch` (cron `17 3 * * *` UTC, own identity
+   with the queue role only; it carries the `Archive__Chat__*` settings as
+   configuration because the sweep prices the worst case against the deployment
+   name, but it holds no OpenAI role).
 3. **Live evaluation on real scans.** Put 10 to 20 representative PDFs (a clean
    scan, a poor handwritten scan, text PDFs, a long scan) into a private folder
    with `expected.json`:
@@ -227,7 +241,7 @@ the seven Playwright specs with `--workers=1`: **154 passed**.
    `api-version=2024-10-21`, (b) image input through `DataContent` on Luna, (c)
    quota (TPM) for ten-image requests against the 30k TPM deployment — if (c)
    throttles, lower `Archive:Reading:ImagesPerCall`.
-3b. **Switch it on last.** `Archive:Reading:Enabled` is `false` in production (`appsettings.json`) until items 1 and 2 exist: while off, no reading row or queue message is created and the editors see nothing of it (otherwise every new score would show "KI-Lesen wartet …" forever). After the Azure job, identity and schedule are in place, set `Archive__Reading__Enabled=true` on the app and on the extraction job, then do the hosted check below.
+3b. **Switch it on last (done in code, pending deploy).** `Archive:Reading:Enabled` is `false` in production (`appsettings.json`) until items 1 and 2 exist: while off, no reading row or queue message is created and the editors see nothing of it (otherwise every new score would show "KI-Lesen wartet …" forever). Bicep now sets `Archive__Reading__Enabled` on the app, the extraction job and both reading jobs from the parameter `readingEnabled` (default `true`; set it `false` and redeploy to switch off again). It takes effect with the same infrastructure deploy that creates the jobs, so the order is safe. Then do the hosted check below.
 4. **Hosted checks:** the hosted database applied `ScanReading` (use the release
    `--migrate`), then upload a scanned PDF as an editor, wait for the extraction
    line to show "Kein Text gefunden", confirm the reading starts, the text and
