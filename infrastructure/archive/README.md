@@ -485,19 +485,30 @@ the start of each `--read-queue` run), keep calling the model. To stop the
 spending itself use one of these (both are reversible):
 
 - Pause the jobs: set `Archive__MaintenanceMode=true` on both reading jobs.
-  New runs then exit 0 before touching the database or the queue, and a run
-  in progress stops starting new messages. `az containerapp job update -n
-  ja-archive-read -g RG-Liedertafel-Archive --set-env-vars
-  Archive__MaintenanceMode=true` and the same for `ja-archive-read-dispatch`;
-  stop a running execution with `az containerapp job stop -n ja-archive-read
-  -g RG-Liedertafel-Archive`. Undo with `...=false`. The next infrastructure
-  deploy resets this value to the app's live maintenance flag, so do it
-  again afterwards, or set `maintenanceMode` for a real maintenance window.
+  Executions that start afterwards exit 0 before touching the database or
+  the queue. A running execution is NOT affected: it keeps the environment it
+  started with, so stop it with `az containerapp job stop -n ja-archive-read
+  -g RG-Liedertafel-Archive` (and the same for `ja-archive-read-dispatch`).
+  `az containerapp job update -n ja-archive-read -g RG-Liedertafel-Archive
+  --set-env-vars Archive__MaintenanceMode=true` and the same for
+  `ja-archive-read-dispatch`. Undo with `...=false`. The pause is reset by
+  the next infrastructure deploy (it applies the app's live maintenance flag)
+  and by every migrating release (`archive.yml` "Open member access" sets
+  `Archive__MaintenanceMode=false` on both jobs, and every push to
+  `src/archive/**` migrates), so set it again afterwards. While paused, visible
+  queue messages still make KEDA start a no-op execution every polling
+  interval (30 s); messages stay queued.
+  Queued work survives this route.
 - Remove the model right: delete the role assignment of `id-archive-read` on
   `aoai-liedertafel-archive` (`az role assignment delete --assignee
   <principalId of id-archive-read> --role "Cognitive Services OpenAI User"
   --scope <account id>`). Every model call of the job is then refused by the
-  account (403). Re-running the infrastructure workflow restores the role.
+  account (403). This route spends nothing but fails pending work: the worker
+  classifies a 403 as transient, so queued and woken readings are retried and
+  end up `Failed` after `MaxAttempts` (4) with "Das Lesen ist nach mehreren
+  Versuchen fehlgeschlagen" (editors can start them again). Prefer the
+  maintenance route when the work should survive. Re-running the infrastructure
+  workflow restores the role.
 
 Check the live value with `az containerapp show -n ca-liedertafel-archive -g
 RG-Liedertafel-Archive --query "properties.template.containers[0].env[?name=='Archive__Reading__Enabled']"`.

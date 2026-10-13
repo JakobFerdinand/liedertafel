@@ -1017,8 +1017,10 @@ its identity and the scheduled `--dispatch-reading` below; set it `false` and
 redeploy to stop new hand-overs, the editor actions and the UI. The flag is not
 checked by `ReadingWorker`, `--read-queue` or `--dispatch-reading`, so already
 queued messages and the sweeps keep calling the model; to stop spending set
-`Archive__MaintenanceMode=true` on both reading jobs or remove `id-archive-read`'s
-OpenAI role (`infrastructure/archive/README.md`). Scores extracted while it was off are read on
+`Archive__MaintenanceMode=true` on both reading jobs (running executions must be
+stopped separately; infra deploys and migrating releases reset it) or remove
+`id-archive-read`'s OpenAI role, which fails pending readings
+(`infrastructure/archive/README.md`). Scores extracted while it was off are read on
 demand ("Seiten von der KI lesen").
 
 Owner rule: the asset's own edit is creator-only, so reverting or accepting a
