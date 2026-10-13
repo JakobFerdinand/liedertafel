@@ -364,6 +364,7 @@ jobs:
               --resource-group "$RESOURCE_GROUP" \
               --query "length([?properties.status=='Running'])" -o tsv
           }
+          WAITED=0
           for JOB in "$EXTRACT_JOB_NAME" ${{ steps.reading.outputs.names }}; do
             RUNNING=$(running_executions "$JOB")
             if [ "$RUNNING" != "0" ]; then
@@ -378,15 +379,18 @@ jobs:
               fi
             fi
             # Stop is a blocking ARM operation; confirm no execution remains
-            # running before migration, bounded by the worker's drain budget.
-            for attempt in $(seq 1 60); do
+            # running before migration. The 5 minute wait budget is shared
+            # across all jobs (fail-closed), so the step stays inside the
+            # release timeout together with the other waits.
+            while true; do
               RUNNING=$(running_executions "$JOB")
               if [ "$RUNNING" = "0" ]; then
                 echo "- $JOB quiesced under maintenance; interrupted leases recover through the stale-lease ladder" >> "$GITHUB_STEP_SUMMARY"
                 break
               fi
-              if [ "$attempt" = "60" ]; then
-                echo "::error::$JOB did not quiesce within 10 minutes; maintenance stays ACTIVE, refusing to migrate."
+              WAITED=$((WAITED + 1))
+              if [ "$WAITED" -gt 30 ]; then
+                echo "::error::$JOB did not quiesce within the shared 5 minute budget; maintenance stays ACTIVE, refusing to migrate."
                 exit 1
               fi
               sleep 10

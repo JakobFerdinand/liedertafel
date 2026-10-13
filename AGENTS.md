@@ -186,7 +186,10 @@ uses its generated Next.js/Biome conventions and local `AGENTS.md`.
   `infrastructure/archive/README.md`. Jobs `ja-archive-extract`,
   `ja-archive-read` (ARC-034-1, the only job identity with the OpenAI role) and
   the cron `ja-archive-read-dispatch` run the same image parameter; the release
-  pauses, stops and pins all of them, and `readingEnabled` switches the feature.
+  pauses, stops and pins all of them. `readingEnabled=false` only stops new
+  hand-overs, endpoints and UI; to stop model spending set
+  `Archive__MaintenanceMode=true` on the reading jobs or drop the reading
+  identity's OpenAI role.
   - `az bicep build --file infrastructure/archive/main.bicep --stdout`
   - `az deployment sub what-if --location austriaeast --template-file infrastructure/archive/subscription.bicep --parameters archiveResourceGroupName=RG-Liedertafel-Archive --parameters resourceGroupLocation=austriaeast`
 - The dashboard SWA is auth-gated (GitHub EasyAuth, roles `admin`/`collaborator`);

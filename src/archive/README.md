@@ -1014,7 +1014,11 @@ the page shows and offers nothing of the reading and does not poll for it. The
 Bicep parameter `readingEnabled` (default `true`) sets `Archive__Reading__Enabled`
 on the app and the three jobs in the same deployment that creates the Azure job,
 its identity and the scheduled `--dispatch-reading` below; set it `false` and
-redeploy to switch the feature off. Scores extracted while it was off are read on
+redeploy to stop new hand-overs, the editor actions and the UI. The flag is not
+checked by `ReadingWorker`, `--read-queue` or `--dispatch-reading`, so already
+queued messages and the sweeps keep calling the model; to stop spending set
+`Archive__MaintenanceMode=true` on both reading jobs or remove `id-archive-read`'s
+OpenAI role (`infrastructure/archive/README.md`). Scores extracted while it was off are read on
 demand ("Seiten von der KI lesen").
 
 Owner rule: the asset's own edit is creator-only, so reverting or accepting a

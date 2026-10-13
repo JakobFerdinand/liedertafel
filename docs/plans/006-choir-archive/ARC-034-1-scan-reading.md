@@ -216,8 +216,10 @@ the seven Playwright specs with `--workers=1`: **154 passed**.
    `archive.yml`; a job that does not exist yet is skipped with a warning). The
    runtime identity already holds Queue Data Message Sender for the editor's
    actions. Deviations from this list: the job also gets `Archive__Assets__ServiceUri`
-   (it reads the PDF), `Archive__Reading__Enabled`, a 40 minute replica timeout
-   (the drain budget is 30 minutes), 1 vCPU, and at most 3 executions.
+   (it reads the PDF), `Archive__Reading__Enabled`, a 50 minute replica timeout
+   (30 minute drain budget checked only before each message, plus a last
+   8 minute message, plus startup and flush), 1 vCPU, and at most 1 execution
+   (a ten-image call already uses most of the 30k TPM).
    To apply: run `infra-deploy-archive.yml` (push to `main` or
    `workflow_dispatch`); see `infrastructure/archive/README.md`, "AI reading path".
 2. **Wake-up of parked work (done in code, pending deploy).** Rows in `WaitingForBudget` have no queue message.
@@ -241,7 +243,7 @@ the seven Playwright specs with `--workers=1`: **154 passed**.
    `api-version=2024-10-21`, (b) image input through `DataContent` on Luna, (c)
    quota (TPM) for ten-image requests against the 30k TPM deployment — if (c)
    throttles, lower `Archive:Reading:ImagesPerCall`.
-3b. **Switch it on last (done in code, pending deploy).** `Archive:Reading:Enabled` is `false` in production (`appsettings.json`) until items 1 and 2 exist: while off, no reading row or queue message is created and the editors see nothing of it (otherwise every new score would show "KI-Lesen wartet …" forever). Bicep now sets `Archive__Reading__Enabled` on the app, the extraction job and both reading jobs from the parameter `readingEnabled` (default `true`; set it `false` and redeploy to switch off again). It takes effect with the same infrastructure deploy that creates the jobs, so the order is safe. Then do the hosted check below.
+3b. **Switch it on last (done in code, pending deploy).** `Archive:Reading:Enabled` is `false` in production (`appsettings.json`) until items 1 and 2 exist: while off, no reading row or queue message is created and the editors see nothing of it (otherwise every new score would show "KI-Lesen wartet …" forever). Bicep now sets `Archive__Reading__Enabled` on the app, the extraction job and both reading jobs from the parameter `readingEnabled` (default `true`; set it `false` and redeploy to stop new hand-overs, the editor actions and the UI; it does not stop queued messages or the sweeps, which never check the flag. To stop spending, set `Archive__MaintenanceMode=true` on both reading jobs or remove `id-archive-read`'s OpenAI role, see `infrastructure/archive/README.md`). It takes effect with the same infrastructure deploy that creates the jobs, so the order is safe. Then do the hosted check below.
 4. **Hosted checks:** the hosted database applied `ScanReading` (use the release
    `--migrate`), then upload a scanned PDF as an editor, wait for the extraction
    line to show "Kein Text gefunden", confirm the reading starts, the text and

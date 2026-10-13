@@ -424,22 +424,26 @@ verification at the end.
 | `ja-archive-read-dispatch` | cron job (daily 03:17 UTC, `readingDispatchCron`), same image parameter, `--dispatch-reading` |
 
 `ja-archive-read` follows the extraction job: KEDA `azure-queue` rule on
-`archive-reading` (`visibleonly`, queue length 1, min 0, at most 3
-executions), authenticated as its own identity through the rule's `identity`
+`archive-reading` (`visibleonly`, queue length 1, min 0, at most 1
+execution), authenticated as its own identity through the rule's `identity`
 property; platform retries 0; the runtime identity is attached with lifecycle
 `None` only to resolve the Key Vault `archive-db-connection` secret. It
 differs in three ways: memory 2 Gi and 1 vCPU (the PDF, up to 32 MiB, is read
-into memory and rendered by native PDFium/Skia); replica timeout 40 minutes
-(the worker's drain budget is 30 minutes and caps every message to it, the
-rest is shutdown headroom); and the model settings
+into memory and rendered by native PDFium/Skia); replica timeout 50 minutes
+(the drain loop checks its 30 minute budget only before starting a message,
+and a message gets min(8 minutes, the batch's 20 minute receive visibility),
+not the drain deadline: worst case is about 40 minutes with cold start,
+sweep, a last 8 minute message and the telemetry flush); and the model settings
 `Archive__Chat__Provider=AzureOpenAI`, `Archive__Chat__Endpoint` and
 `Archive__Chat__DeploymentName=gpt-6-luna` (the same values the app gets; the
 deployment name is the key priced under `Archive:Ai:Models`). Further
 settings: `Archive__Reading__QueueServiceUri` (the extraction queue endpoint,
 same account), `Archive__Assets__ServiceUri` (PDF reads), the database
-secret, `Archive__MaintenanceMode` and `AZURE_CLIENT_ID`. At most 3
-executions, because the deployment's 30k tokens-per-minute limit would only
-throttle more.
+secret, `Archive__MaintenanceMode` and `AZURE_CLIENT_ID`. At most 1
+execution at a time, because a ten-image call already uses most of the
+deployment's 30k tokens-per-minute limit: parallel runs, or a run next to
+member chat, would only cause 429s and spurious failed readings. One run
+still handles many messages in a row.
 
 | Identity | Role | Scope | Purpose |
 | --- | --- | --- | --- |
@@ -447,6 +451,8 @@ throttle more.
 | `id-archive-read` | `Storage Blob Data Reader` | assets account | bounded PDF reads |
 | `id-archive-read` | `Cognitive Services OpenAI User` | `aoai-liedertafel-archive` | the model calls (declared like the runtime identity's role); the ONLY job identity that holds it |
 | `id-archive-read-dispatch` | `Storage Queue Data Contributor` | assets account | the sweep creates the queue when missing (needs the write action, which Message Sender lacks) and sends |
+
+The account-scoped queue and blob roles mirror the extraction job's.
 
 The extraction job already holds Queue Data Contributor on the account, so it
 can send the hand-over message to `archive-reading` with no new role, and the
@@ -468,11 +474,32 @@ after the month changes or the cap is raised.
 The switch: the bicep parameter `readingEnabled` (default `true`) sets
 `Archive__Reading__Enabled` on the app, the extraction job and both reading
 jobs. It is `false` in `appsettings.json`, so production only reads scans
-because this template says so. To switch the feature off again set
-`readingEnabled` to `false` (parameter file or `--parameters`) and run the
-infrastructure workflow: nothing is handed over, the editor actions answer
-409 and the pages hide the reading; rows already queued stay queued. Check
-the live value with `az containerapp show -n ca-liedertafel-archive -g
+because this template says so. Setting
+`readingEnabled` to `false` (parameter file or `--parameters`) and running
+the infrastructure workflow stops only NEW work: the extraction job hands
+nothing over, the editor actions answer 409 and the pages hide the reading.
+It does NOT stop spending: `ReadingWorker`, `--read-queue` and
+`--dispatch-reading` never check `Archive:Reading:Enabled`, so messages that
+are already queued, and both sweeps (the daily cron and the piggyback sweep at
+the start of each `--read-queue` run), keep calling the model. To stop the
+spending itself use one of these (both are reversible):
+
+- Pause the jobs: set `Archive__MaintenanceMode=true` on both reading jobs.
+  New runs then exit 0 before touching the database or the queue, and a run
+  in progress stops starting new messages. `az containerapp job update -n
+  ja-archive-read -g RG-Liedertafel-Archive --set-env-vars
+  Archive__MaintenanceMode=true` and the same for `ja-archive-read-dispatch`;
+  stop a running execution with `az containerapp job stop -n ja-archive-read
+  -g RG-Liedertafel-Archive`. Undo with `...=false`. The next infrastructure
+  deploy resets this value to the app's live maintenance flag, so do it
+  again afterwards, or set `maintenanceMode` for a real maintenance window.
+- Remove the model right: delete the role assignment of `id-archive-read` on
+  `aoai-liedertafel-archive` (`az role assignment delete --assignee
+  <principalId of id-archive-read> --role "Cognitive Services OpenAI User"
+  --scope <account id>`). Every model call of the job is then refused by the
+  account (403). Re-running the infrastructure workflow restores the role.
+
+Check the live value with `az containerapp show -n ca-liedertafel-archive -g
 RG-Liedertafel-Archive --query "properties.template.containers[0].env[?name=='Archive__Reading__Enabled']"`.
 
 Release: `archive.yml` pins `ja-archive-read` and `ja-archive-read-dispatch`
@@ -487,7 +514,7 @@ maintenance flag to the reading jobs through the same parameters.
 
 Verification after the first deploy (read-only): `az containerapp job list
 -g RG-Liedertafel-Archive -o table` shows the three jobs; `az role assignment
-list --all --scope $(az cognitiveservices account show -n
+list --scope $(az cognitiveservices account show -n
 aoai-liedertafel-archive -g RG-Liedertafel-Archive --query id -o tsv)` shows
 `id-archive-app` and `id-archive-read` as the only OpenAI users. The hosted
 journey check (upload a scan, watch the reading) is in

@@ -1004,14 +1004,19 @@ resource extractJob 'Microsoft.App/jobs@2025-01-01' = {
 //   (the deployment name is the model key priced under Archive:Ai:Models);
 // - memory 2 Gi: the PDF (up to 32 MiB) is read into memory and rendered by
 //   native PDFium/Skia; an OOM kill resolves through the stale-lease ladder;
-// - replicaTimeout 2400 s (40 min): the drain budget is 30 minutes, every
-//   message is capped to that deadline, so a run ends on its own before the
-//   platform timeout; the extra 10 minutes cover shutdown and the flush.
+// - replicaTimeout 3000 s (50 min): the drain loop checks its 30 minute
+//   drain budget only before it starts a message, and a message gets
+//   min(8 minutes, the 20 minute receive visibility of its batch), not the
+//   drain deadline. Worst case: cold start and sweep, 30 minutes of drain,
+//   one last 8 minute message started just before the budget ran out, then
+//   the OTLP flush: about 40 minutes, so 50 leaves headroom.
 //   Platform retries stay off like the extraction job's: retries are the
 //   worker's own bounded attempt ladder.
-// Queue length 1 per execution, up to 3 executions: reading is paid model
-// work behind the EUR 15 cap and the deployment has a 30k tokens-per-minute
-// limit, so parallel runs would only throttle each other.
+// Queue length 1 per execution, at most ONE execution at a time: reading is
+// paid model work behind the EUR 15 cap, and the deployment has a 30k
+// tokens-per-minute limit that one ten-image call already uses most of, so
+// parallel runs (or a run next to member chat) would only cause 429s and
+// spurious failed readings. One run still handles many messages in a row.
 resource readJob 'Microsoft.App/jobs@2025-01-01' = {
   name: readingJobName
   location: location
@@ -1057,7 +1062,7 @@ resource readJob 'Microsoft.App/jobs@2025-01-01' = {
           identity: runtimeIdentity.id
         }
       ]
-      replicaTimeout: 2400
+      replicaTimeout: 3000
       replicaRetryLimit: 0
       triggerType: 'Event'
       eventTriggerConfig: {
@@ -1065,7 +1070,7 @@ resource readJob 'Microsoft.App/jobs@2025-01-01' = {
         parallelism: 1
         scale: {
           minExecutions: 0
-          maxExecutions: 3
+          maxExecutions: 1
           pollingInterval: 30
           rules: [
             {
