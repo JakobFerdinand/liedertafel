@@ -1015,6 +1015,50 @@ browser: `ARCHIVE_BASE_URL=… corepack pnpm exec playwright test tests/extrakti
 Migration `20261012052810_ScanReading` is additive: `extraction_jobs."TextSource"`
 (default 0 = embedded) and table `reading_jobs`.
 
+## Flat Lied and Dateien (#166, ADR-0001)
+
+The new model is built beside the old catalogue (expand step of #158); the old
+`songs`/`assets` tables and `/api/songs*` stay until #172 drops them.
+
+- **Tables** (`backend/Lieder`, migration `AddLiederAndDateien`): `lieder`
+  (Titel, Komponist, Bearbeiter, Texter, Besetzung, Tonart, Sprache, Liedtext,
+  Anlass; no published state, `RowVersion` for 409) and `dateien`. A Datei has
+  exactly one owner, a Lied or an Auftritt (`CK_dateien_owner`), a `Kind`
+  (`noten`, `uebe`, `aufnahme`, `sonstiges`; `CK_dateien_kind`), `IsPartitur`
+  (Noten only), `Stimme` (free text, "Alle" allowed), `Description`,
+  `RecordedAtEventId` (Aufnahme of a Lied naming its Auftritt), blob and file
+  facts, and the trash columns `DeletedAt`/`DeletedByAccountId`/
+  `ReplacedByDateiId`. The whole shape is laid down now so #167, #168 and #171
+  need no migration.
+- **Visibility:** every active member reads every Lied. Always read Dateien
+  through `DateiQueries.Visible(db)` (excludes the trash); #168 changes only
+  that predicate.
+- **Upload sessions** stay in `upload_sessions` (`PendingUpload`). The owner is
+  exactly one of `AssetId` (old), `LiedId` or `EventId` (`CK_upload_sessions_owner`);
+  Datei sessions also carry `DateiKind`, `IsPartitur`, `Stimme`, `Description`,
+  `RecordedAtEventId`, `ReplacesDateiId` (#168) and `FinalizedDateiId`. So
+  `POST /api/upload-sessions/{id}/renew|finalize` and `DELETE` serve both
+  models and the browser engine in `lib/assets.ts` is shared. Open a session
+  with `POST /api/lieder/{id}/dateien/upload-session`; finalize of a Datei
+  session is `DateiUploads.FinalizeAsync`.
+- **Kinds plug in** through `DateiKindRules` (content types, header gate,
+  German rejection text); only `noten` (PDF) is registered, #167 adds the rest.
+  Follow-up work runs through `IDateiFinalizedHook` registered in DI
+  (`BeforeSaveAsync` in the finalize transaction, `AfterSaveAsync` best effort).
+- **Blobs:** promoted Dateien live under `dateien/{dateiId}/{guid}`, apart from
+  the old `revisions/` prefix, so #172 can clean up by prefix. Pending blobs
+  are `pending/{guid}` as before.
+- **Budgets:** `Archive:Assets:MaxCollectionBytes` applies per Lied (stored
+  Dateien including the trash plus pending sessions). Several sessions of one
+  Lied may be open at once (Partitur and Stimmen).
+- **API:** `GET /api/lieder` (`q`, `besetzung`, `anlass`, repeated `dateiTyp`,
+  `page`; also returns `options` for the filter lists), `GET /api/lieder/{id}`,
+  `POST /api/lieder`, `PATCH /api/lieder/{id}`, `GET /api/dateien/{id}/access`.
+- **Frontend:** `/lieder` and `/lied` use `lib/lieder.ts` and `lib/dateien.ts`.
+  The Lied page is split by concern: `lied-kopf`, `datei-liste` (with
+  `noten-ansicht`), `datei-hochladen`, `lied-formular`, composed in `lied-detail`.
+  The resume key is `arc-upload-lied-<liedId>-<kind>-<partitur|stimme>`.
+
 ## Runtime grants during `--migrate`
 
 The release's `--migrate` step applies the runtime role's privileges itself:
