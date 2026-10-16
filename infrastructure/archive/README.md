@@ -529,7 +529,7 @@ list --scope $(az cognitiveservices account show -n
 aoai-liedertafel-archive -g RG-Liedertafel-Archive --query id -o tsv)` shows
 `id-archive-app` and `id-archive-read` as the only OpenAI users. The hosted
 journey check (upload a scan, watch the reading) is in
-`docs/plans/006-choir-archive/ARC-034-1-scan-reading.md`.
+[ARC-034-1 (#141)](https://github.com/JakobFerdinand/liedertafel/issues/141).
 
 ## Controlled database releases (ARC-012)
 

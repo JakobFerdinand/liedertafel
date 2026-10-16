@@ -18,7 +18,8 @@ Use this guide when editing or extending the codebase.
   inside the release's `--migrate` as `archive_migrator` (embedded copy at
   `src/archive/backend/Data/runtime-grants.sql`, kept identical by a test);
   run it by hand only as a fallback. OpenTofu was trialled but is not adopted.
-- docs/plans: tracked planning documents.
+- Plans and tickets: GitHub Issues (see `## Agent skills`); the choir archive is parent issue #96 with `ARC-xxx` sub-issues. `src/archive/docs/architecture.md` is the archive architecture (§14 governs AI assistance).
+- docs/agents: issue tracker, triage label and domain doc conventions for agent skills.
 - liedertafel.slnx: .NET solution that opens all API projects together; global.json pins the .NET SDK.
 
 ## Commands (Build / Lint / Test)
@@ -213,3 +214,17 @@ uses its generated Next.js/Biome conventions and local `AGENTS.md`.
 - Centralize shared CSS in `Layout.astro` and use `:global()` where needed.
 - Avoid adding dependencies unless requested.
 - If you must add a new script or tool, update this file.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues on `JakobFerdinand/liedertafel`, managed with the `gh` CLI; archive tickets are `ARC-xxx` sub-issues of #96. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.

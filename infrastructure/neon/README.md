@@ -3,7 +3,7 @@
 **ARC-003 selects documented Neon CLI/API provisioning for this single-database
 scope and rejects OpenTofu adoption.** Completed lifecycle evidence and SQL
 acceptance results are in
-[ARC-003](../../docs/plans/006-choir-archive/ARC-003-neon-provisioning-trial.md).
+[ARC-003](https://github.com/JakobFerdinand/liedertafel/issues/99).
 This runbook is the ARC-011 provisioning and database-role handoff.
 
 ## Decision and fixed inputs
@@ -322,4 +322,4 @@ deletion; retained database secrets follow the ARC-011 handoff.
 - [Manage roles / SQL-created role privileges](https://neon.com/docs/manage/roles)
   and [secure connections](https://neon.com/docs/connect/connect-securely)
 - [Trial provider's tagged project contract](https://github.com/kislerdm/terraform-provider-neon/blob/v0.18.0/docs/resources/project.md)
-- [ARC-003 decision and trial evidence](../../docs/plans/006-choir-archive/ARC-003-neon-provisioning-trial.md)
+- [ARC-003 decision and trial evidence](https://github.com/JakobFerdinand/liedertafel/issues/99)

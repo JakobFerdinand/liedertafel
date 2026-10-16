@@ -6,10 +6,10 @@ Implementation: ARC-001 local walking skeleton completed; later slices remain pl
 
 This document records the architecture interview and supersedes the original
 architecture proposal supplied in conversation on 2026-09-08. The
-[product requirements document](prd.md) defines the agreed features and release
+[product requirements document](https://github.com/JakobFerdinand/liedertafel/issues/96) defines the agreed features and release
 phases. Provider facts were checked on 2026-09-11; sources are listed below.
 
-Implementation is organized in the [issue index](issues.md). The subsequent
+Implementation is organized in the [issue index](https://github.com/JakobFerdinand/liedertafel/issues/96). The subsequent
 local-development requirement makes Aspire orchestration and development
 OpenTelemetry export to its dashboard part of the baseline.
 
@@ -122,7 +122,7 @@ uses Turbopack and an API rewrite; production remains static files with no Node.
 runtime. Routes must be exportable: runtime IDs use client-side API requests and
 query parameters unless paths can be generated at build time. SSR, Server Actions
 and unbounded dynamic App Router paths require a separate hosting decision.
-See the [archive runbook](../../../src/archive/README.md) for the implemented contract.
+See the [archive runbook](../README.md) for the implemented contract.
 
 Database-backed German search covers the PRD's fields, entered lyrics, and
 extracted PDF text. PostgreSQL stores the indexed text and relationships. A
@@ -131,7 +131,7 @@ as the next core work after search.
 
 The detailed schema must distinguish musical versions from file revisions,
 working from published programmes, and planned appearances from confirmed
-performances. See the [PRD catalogue model](prd.md#3-catalogue-model-and-file-identity).
+performances. See the [PRD catalogue model](https://github.com/JakobFerdinand/liedertafel/issues/96).
 
 ### Scale-to-zero behaviour
 
@@ -335,7 +335,7 @@ transcoding jobs in this baseline.
 The Google Drive importer preserves source references, checkpoints progress,
 supports safe reruns, and keeps uncertain matches in editor review. Its scoped
 Drive access method is a validation item; credentials stay out of the browser
-and image. See the [migration requirements](prd.md#8-google-drive-migration).
+and image. See the [migration requirements](https://github.com/JakobFerdinand/liedertafel/issues/96).
 
 ## 7. Infrastructure ownership and repository layout
 
@@ -376,10 +376,8 @@ runtime access) before any shared state is created.
 ### Intended layout
 
 ```text
-docs/plans/006-choir-archive/
-  prd.md
-  architecture.md
 src/archive/
+  docs/architecture.md      This document (PRD and tickets: GitHub issue #96)
   apphost/                  Aspire local resource orchestration
   service-defaults/         Shared .NET telemetry and service configuration
   frontend/                 Next.js + React + TypeScript, static export
@@ -683,7 +681,7 @@ quote. Recheck provider limits, region availability, and pricing before deployme
   [GitHub Packages billing](https://docs.github.com/en/billing/concepts/product-billing/github-packages).
 - Repository baseline inspected: `infrastructure/main.bicep`,
   `infrastructure/main.bicepparam`, existing infrastructure/application workflows,
-  root `AGENTS.md`, and [the PRD](prd.md). Existing resource-group identity scopes
+  root `AGENTS.md`, and [the PRD](https://github.com/JakobFerdinand/liedertafel/issues/96). Existing resource-group identity scopes
   require explicit bootstrap work for the additional archive group.
 
 ## 14. AI assistance
