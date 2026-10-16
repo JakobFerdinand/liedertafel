@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Archive.Backend.Auth;
+using Archive.Backend.Lieder;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
@@ -23,18 +24,27 @@ internal sealed class LiedTestHost : IAsyncDisposable
 
 	public HttpClient Client { get; }
 
+	/// <summary>The service provider of the host the client talks to.</summary>
+	public IServiceProvider Services { get; }
+
+	private readonly WebApplicationFactory<Program> app;
+
 	private readonly Dictionary<string, string> sessions = [];
 
-	public LiedTestHost(Dictionary<string, string?>? settings = null)
+	public LiedTestHost(Dictionary<string, string?>? settings = null, IDateiFinalizedHook? hook = null)
 	{
 		Factory = settings is null ? new AuthApiFactory() : new AuthApiFactory(settings: settings);
-		Client = Factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		app = hook is null
+			? Factory
+			: Factory.WithWebHostBuilder(b => b.ConfigureServices(s => s.AddSingleton(hook)));
+		Services = app.Services;
+		Client = app.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 	}
 
 	/// <summary>Seeds the account in the role and signs it in; returns the session cookie.</summary>
 	public async Task<string> SignInAsync(string email, string role)
 	{
-		using (var scope = Factory.Services.CreateScope())
+		using (var scope = Services.CreateScope())
 		{
 			var users = scope.ServiceProvider.GetRequiredService<UserManager<ArchiveUser>>();
 			var roles = scope.ServiceProvider.GetRequiredService<RoleManager<ArchiveRole>>();
@@ -166,6 +176,8 @@ internal sealed class LiedTestHost : IAsyncDisposable
 	public async ValueTask DisposeAsync()
 	{
 		Client.Dispose();
+		if (!ReferenceEquals(app, Factory))
+			await app.DisposeAsync();
 		await Factory.DisposeAsync();
 	}
 }
