@@ -1,11 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import {
-  antwortStrom,
-  json,
-  liedDetailAntwort,
-  mockSitzung,
-  oberflaeche,
-} from "./chat-mock";
+import { antwortStrom, json, mockSitzung, oberflaeche } from "./chat-mock";
 
 // ARC-022-4: Antworten des Chats zeigen Karten aus dem Katalog des Archivs.
 // Der Browser rendert nur, was der Server geprüft schickt und was dem Katalog
@@ -29,16 +23,26 @@ const frage = "Zeige mir das Wandernlied als Karte";
 
 async function mockArchiv(page: Page) {
   await mockSitzung(page);
-  await page.route(`**/api/songs/${liedId}`, (route) =>
+  await page.route(`**/api/lieder/${liedId}`, (route) =>
     route.fulfill(
-      json(
-        liedDetailAntwort({
+      json({
+        lied: {
           id: liedId,
           title: titel,
           composer: "Carl Friedrich Zöllner",
+          arranger: null,
           lyricist: "Wilhelm Müller",
-        }),
-      ),
+          voiceConfiguration: null,
+          musicalKey: null,
+          language: null,
+          lyrics: null,
+          occasion: null,
+          createdAt: "2026-08-20T08:00:00.000Z",
+          updatedAt: "2026-09-01T10:00:00.000Z",
+          rowVersion: 1,
+          dateien: [],
+        },
+      }),
     ),
   );
 }
@@ -122,7 +126,7 @@ test("Eine Liedkarte erscheint zur Antwort, führt ins Archiv und bleibt nach de
   ).toBeVisible();
 
   // Der Klick ruft keine Chat-Schnittstelle auf, sondern öffnet die Seite des
-  // Archivs, die ihre Daten selbst von /api/songs holt.
+  // Archivs, die ihre Daten selbst von /api/lieder holt.
   const chatAnfragen: string[] = [];
   page.on("request", (anfrage) => {
     if (/\/api\/chat$/.test(anfrage.url())) chatAnfragen.push(anfrage.url());

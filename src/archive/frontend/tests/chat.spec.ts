@@ -38,6 +38,38 @@ async function mockArchiv(page: Page) {
   await page.route("**/api/songs", (route) =>
     route.fulfill(json({ songs: [lied] })),
   );
+  await page.route("**/api/lieder", (route) =>
+    route.fulfill(
+      json({
+        query: null,
+        page: 1,
+        pageSize: 20,
+        total: 1,
+        filters: { voiceConfiguration: null, occasion: null, dateiTypen: [] },
+        options: { voiceConfigurations: [], occasions: [] },
+        lieder: [{ ...lied, dateiTypen: [] }],
+      }),
+    ),
+  );
+  await page.route(`**/api/lieder/${wandernId}`, (route) =>
+    route.fulfill(
+      json({
+        lied: {
+          ...lied,
+          arranger: null,
+          voiceConfiguration: null,
+          musicalKey: null,
+          language: null,
+          lyrics: null,
+          occasion: null,
+          createdAt: "2026-08-20T08:00:00.000Z",
+          updatedAt: "2026-09-01T10:00:00.000Z",
+          rowVersion: 1,
+          dateien: [],
+        },
+      }),
+    ),
+  );
   await page.route(`**/api/songs/${wandernId}`, (route) =>
     route.fulfill(
       json({

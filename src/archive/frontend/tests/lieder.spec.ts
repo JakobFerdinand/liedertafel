@@ -1,896 +1,221 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import {
+  editorMe,
+  json,
+  liste,
+  memberMe,
+  mockSitzung,
+  mondEintrag,
+  mondId,
+  wolkenEintrag,
+} from "./lieder-mock";
 
-const editorMe = {
-  authenticated: true,
-  accountId: "00000000-0000-0000-0000-000000000001",
-  email: "redaktion@liedertafel.test",
-  displayName: "Redaktion",
-  roles: ["Editor"],
-  verifiedAt: new Date().toISOString(),
-};
+// #166: Liederkatalog des flachen Liedes — Liste, Titelsuche, Filter für
+// Besetzung, Anlass und Dateityp, Seiten und Anlegen von Hand.
 
-const memberMe = {
-  authenticated: true,
-  accountId: "00000000-0000-0000-0000-000000000002",
-  email: "mitglied@liedertafel.test",
-  displayName: "Testmitglied",
-  roles: ["Member"],
-  verifiedAt: new Date().toISOString(),
-};
-
-const publishedId = "00000000-0000-0000-0000-00000000000a";
-const draftId = "00000000-0000-0000-0000-00000000000b";
-
-const publishedSong = {
-  id: publishedId,
-  title: "Das Wandern ist des Müllers Lust",
-  composer: "Carl Friedrich Zöllner",
-  lyricist: "Wilhelm Müller",
-  published: true,
-  publishedAt: "2026-09-01T10:00:00.000Z",
-};
-
-const draftSong = {
-  id: draftId,
-  title: "Nachtgesang",
-  composer: null,
-  lyricist: null,
-  published: false,
-  publishedAt: null,
-};
-
-const publishedDetail = {
-  song: {
-    ...publishedSong,
-    createdAt: "2026-08-20T08:00:00.000Z",
-    updatedAt: "2026-09-01T10:00:00.000Z",
-    arrangements: [
-      {
-        id: "00000000-0000-0000-0000-00000000c00a",
-        label: "Satz für gemischten Chor",
-        arranger: "Josef Gabriel",
-        musicalVersions: [
-          {
-            id: "00000000-0000-0000-0000-00000000d00a",
-            label: "Standardfassung",
-            creator: "Josef Gabriel",
-          },
-          {
-            id: "00000000-0000-0000-0000-00000000d00b",
-            label: "Einfache Fassung",
-            creator: null,
-          },
-        ],
-      },
-    ],
-  },
-};
-
-const originalfassungId = "00000000-0000-0000-0000-00000000c10a";
-const maennerchorId = "00000000-0000-0000-0000-00000000c20a";
-const chorsatzGId = "00000000-0000-0000-0000-00000000d10a";
-const chorsatzEsId = "00000000-0000-0000-0000-00000000d10b";
-const maennerchorFassungId = "00000000-0000-0000-0000-00000000d20a";
-
-const mehrfachDetail = {
-  song: {
-    ...publishedSong,
-    createdAt: "2026-08-20T08:00:00.000Z",
-    updatedAt: "2026-09-10T08:00:00.000Z",
-    arrangements: [
-      {
-        id: originalfassungId,
-        label: "Originalfassung",
-        arranger: null,
-        voiceConfiguration: null,
-        musicalVersions: [
-          {
-            id: chorsatzGId,
-            label: "Chorsatz",
-            creator: null,
-            musicalKey: "G-Dur",
-          },
-          {
-            id: chorsatzEsId,
-            label: "Chorsatz",
-            creator: null,
-            musicalKey: "Es-Dur",
-          },
-        ],
-      },
-      {
-        id: maennerchorId,
-        label: "Satz für Männerchor",
-        arranger: "Hans Schmid",
-        voiceConfiguration: "TTBB",
-        musicalVersions: [
-          {
-            id: maennerchorFassungId,
-            label: "Männerchor",
-            creator: "Hans Schmid",
-            musicalKey: null,
-          },
-        ],
-      },
-    ],
-  },
-};
-
-function json(body: unknown, status = 200) {
-  return {
-    status,
-    contentType: "application/json",
-    body: JSON.stringify(body),
-  };
-}
-
-function problem(title: string, status: number) {
-  return {
-    status,
-    contentType: "application/problem+json",
-    body: JSON.stringify({ title }),
-  };
-}
-
-async function mockSitzung(page: Page, me: unknown) {
-  await page.route("**/api/auth/me", (route) => route.fulfill(json(me)));
-  await page.route("**/api/antiforgery", (route) =>
-    route.fulfill(json({ token: "test" })),
-  );
-}
-
-// Öffnet den Anlage-Aufklapper (er ist zu, bis die Redaktion anlegt).
-async function liedAnlegenAufklappen(page: Page) {
-  await page.locator("details.lied-anlegen > summary").click();
-  await expect(page.locator("details.lied-anlegen")).toHaveAttribute(
-    "open",
-    "",
-  );
-}
-
-// Öffnet den Fassungs-Aufklapper des Lieds (er ist zu, bis die Redaktion
-// an Arrangements arbeitet).
-async function fassungenAufklappen(page: Page) {
-  await page.locator("details.lied-fassungen > summary").click();
-  await expect(page.locator("details.lied-fassungen")).toHaveAttribute(
-    "open",
-    "",
-  );
-}
-
-// Öffnet den Bearbeiten-Aufklapper des Lieds (er ist zu, bis die Redaktion
-// das Lied ändert).
-async function liedBearbeitenAufklappen(page: Page) {
-  await page.locator("details.lied-bearbeiten > summary").click();
-  await expect(page.locator("details.lied-bearbeiten")).toHaveAttribute(
-    "open",
-    "",
-  );
-}
-
-test("Mitglied sieht veröffentlichte Lieder ohne Redaktionswerkzeuge", async ({
+test("Mitglied sieht die Lieder mit Angaben und öffnet eines", async ({
   page,
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await mockSitzung(page, memberMe);
-  await page.route("**/api/songs", (route) =>
-    route.fulfill(json({ songs: [publishedSong] })),
+  await page.route("**/api/lieder", (route) =>
+    route.fulfill(json(liste([mondEintrag, wolkenEintrag]))),
   );
 
   await page.goto("/lieder/");
-  await expect(
-    page.getByRole("heading", { name: "Liederkatalog" }),
-  ).toBeVisible();
-  const eintrag = page.getByRole("link", {
-    name: "Das Wandern ist des Müllers Lust",
-  });
-  await expect(eintrag).toBeVisible();
-  await expect(eintrag).toHaveAttribute(
-    "href",
-    new RegExp(`lied/\\?id=${publishedId}`),
-  );
-  await expect(
-    page.getByText("Komponist: Carl Friedrich Zöllner"),
-  ).toBeVisible();
-  await expect(page.getByText("Nachtgesang")).toHaveCount(0);
-  await expect(page.getByText("Entwurf")).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "Neues Lied" })).toHaveCount(
-    0,
-  );
-  await expect(
-    page.getByRole("button", { name: "Veröffentlichen" }),
-  ).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Zurückziehen" })).toHaveCount(
-    0,
-  );
-  await expect(
-    page.getByRole("button", { name: "Bearbeiten", exact: true }),
-  ).toHaveCount(0);
-
-  expect(errors).toEqual([]);
-});
-
-test("Katalog zeigt Lieder direkt und hält Filter per Tastatur erreichbar", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 1154, height: 800 });
-  await mockSitzung(page, memberMe);
-  await page.route("**/api/songs", (route) =>
-    route.fulfill(json({ songs: [publishedSong] })),
-  );
-
-  await page.goto("/lieder/");
-  const lied = page.getByRole("link", { name: publishedSong.title });
-  await expect(lied).toBeVisible();
-  expect(
-    await lied.evaluate((element) => element.getBoundingClientRect().top),
-  ).toBeLessThan(500);
-  await expect(page.locator("#lieder-titel")).toHaveCount(1);
   await expect(
     page.getByRole("heading", { name: "Alle Lieder" }),
   ).toBeVisible();
-
-  const filter = page.locator("details.lieder-filter > summary");
-  await filter.focus();
-  await filter.press("Enter");
-  await expect(page.locator("details.lieder-filter")).toHaveAttribute(
-    "open",
-    "",
-  );
-  await expect(page.getByLabel("Stimmverteilung")).toBeVisible();
-
-  await filter.press("Enter");
-  await page.setViewportSize({ width: 390, height: 844 });
-  expect(
-    await lied.evaluate((element) => element.getBoundingClientRect().top),
-  ).toBeLessThan(600);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
-    390,
-  );
-});
-
-test("Katalog nutzt die Breite auch neben offenem Chat und faltet mobil", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 1804, height: 1304 });
-  await mockSitzung(page, editorMe);
-  const langerTitel = `Hosianna ${"Singstimmen".repeat(20)}`;
-  await page.route("**/api/songs", (route) =>
-    route.fulfill(
-      json({
-        songs: [
-          publishedSong,
-          draftSong,
-          {
-            ...publishedSong,
-            id: "00000000-0000-0000-0000-00000000000c",
-            title: langerTitel,
-          },
-        ],
-      }),
-    ),
-  );
-  await page.goto("/lieder/");
-
-  const zeile = page.locator(".lieder-eintrag").first();
-  await expect(
-    zeile.getByText("Komponist: Carl Friedrich Zöllner"),
-  ).toBeVisible();
-  await expect(zeile.getByText("Text: Wilhelm Müller")).toBeVisible();
-  await expect(zeile.getByText("Interpret", { exact: false })).toHaveCount(0);
-  await expect(page.locator(".lieder-eintrag").nth(1)).toContainText(
-    "Urheber nicht erfasst",
-  );
-
-  async function zeilenGeometrie() {
-    const titel = await zeile.locator("h3").boundingBox();
-    const status = await zeile.locator(".lieder-status").boundingBox();
-    const aktionen = await zeile.locator(".lieder-aktionen").boundingBox();
-    const inhalt = await page.locator(".archiv-seiteninhalt").boundingBox();
-    const eintrag = await zeile.boundingBox();
-    if (!titel || !status || !aktionen || !inhalt || !eintrag)
-      throw new Error("Katalogzeile ist nicht sichtbar");
-    return { titel, status, aktionen, inhalt, eintrag };
-  }
-
-  for (const mitChat of [false, true]) {
-    if (mitChat)
-      await page.getByRole("button", { name: "Chat öffnen" }).click();
-    const { titel, status, aktionen, inhalt, eintrag } =
-      await zeilenGeometrie();
-    expect(eintrag.width).toBeGreaterThan(inhalt.width * 0.95);
-    expect(status.x).toBeGreaterThan(titel.x + titel.width);
-    expect(aktionen.x).toBeGreaterThan(status.x + status.width);
-    expect(Math.abs(titel.y - status.y)).toBeLessThan(20);
-    expect(Math.abs(titel.y - aktionen.y)).toBeLessThan(20);
-    expect(titel.height).toBeLessThan(45);
-    const knoepfe = await zeile.locator(".lieder-aktionen button").all();
-    expect(knoepfe).toHaveLength(2);
-    for (const knopf of knoepfe) {
-      const box = await knopf.boundingBox();
-      if (!box) throw new Error("Zeilenknopf ist nicht sichtbar");
-      expect(Math.abs(titel.y - box.y)).toBeLessThan(20);
-    }
-    expect(aktionen.x + aktionen.width).toBeLessThanOrEqual(
-      inhalt.x + inhalt.width + 1,
-    );
-    expect(
-      await page.evaluate(() => document.documentElement.scrollWidth),
-    ).toBe(1804);
-  }
-
-  await page.getByRole("button", { name: "Chat minimieren" }).click();
-  await zeile.getByRole("button", { name: "Bearbeiten", exact: true }).click();
-  const formular = zeile.locator(".lied-bearbeiten");
-  await expect(formular).toBeVisible();
-  const formBox = await formular.boundingBox();
-  const titelBox = await zeile.locator("h3").boundingBox();
-  if (!formBox || !titelBox)
-    throw new Error("Bearbeitungsformular ist nicht sichtbar");
-  expect(formBox.y).toBeGreaterThan(titelBox.y + titelBox.height);
-
-  await page.setViewportSize({ width: 390, height: 844 });
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
-    390,
-  );
-  const statusMobil = await zeile.locator(".lieder-status").boundingBox();
-  const titelMobil = await zeile.locator("h3").boundingBox();
-  if (!statusMobil || !titelMobil)
-    throw new Error("Mobile Zeile ist nicht sichtbar");
-  expect(statusMobil.y).toBeGreaterThan(titelMobil.y);
-});
-
-test("Mitglied öffnet ein veröffentlichtes Lied; Entwürfe bleiben unfindbar", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 1154, height: 800 });
-  const errors: string[] = [];
-  page.on("pageerror", (error) => errors.push(error.message));
-  await mockSitzung(page, memberMe);
-  await page.route("**/api/songs", (route) =>
-    route.fulfill(json({ songs: [publishedSong] })),
-  );
-  await page.route(`**/api/songs/${publishedId}`, (route) =>
-    route.fulfill(json(publishedDetail)),
-  );
-  await page.route(`**/api/songs/${draftId}`, (route) =>
-    route.fulfill(problem("Lied nicht gefunden.", 404)),
-  );
-
-  await page.goto(`/lied/?id=${publishedId}`);
-  await expect(
-    page.getByRole("heading", { name: "Das Wandern ist des Müllers Lust" }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("heading", { name: publishedSong.title, level: 1 }),
-  ).toBeVisible();
-  await expect(
-    page.getByText("Komponist: Carl Friedrich Zöllner"),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("heading", { name: "Satz für gemischten Chor" }),
-  ).toBeVisible();
-  await expect(page.getByText("Standardfassung · Josef Gabriel")).toBeVisible();
-  await expect(page.getByText("Einfache Fassung")).toBeVisible();
+  const mond = page.getByRole("listitem").filter({
+    hasText: "Der Mond ist aufgegangen",
+  });
+  await expect(mond.getByText("Komponist: J. A. P. Schulz")).toBeVisible();
+  await expect(mond.getByText("TTBB · Abendlied · Noten")).toBeVisible();
+  await expect(page.getByText("Urheber nicht erfasst")).toBeVisible();
+  // Mitglieder legen keine Lieder an und sehen keinen Veröffentlichungsstatus.
+  await expect(page.getByText("Neues Lied")).toHaveCount(0);
   await expect(page.getByText("Entwurf")).toHaveCount(0);
-  await expect(
-    page.getByRole("button", { name: "Veröffentlichen" }),
-  ).toHaveCount(0);
-  await expect(
-    page.getByRole("heading", { name: "Lied bearbeiten" }),
-  ).toHaveCount(0);
 
-  await page.goto(`/lied/?id=${draftId}`);
-  await expect(
-    page.getByText("Dieses Lied wurde nicht gefunden."),
-  ).toBeVisible();
-
+  await page.getByRole("link", { name: "Der Mond ist aufgegangen" }).click();
+  await expect(page).toHaveURL(new RegExp(`/lied/\\?id=${mondId}`));
   expect(errors).toEqual([]);
 });
 
-test("Lied behält einen Seitentitel während Laden und Fehler", async ({
+test("Die Titelsuche schickt den Begriff und zeigt die Treffer", async ({
   page,
 }) => {
-  let antworten = () => {};
-  const warten = new Promise<void>((resolve) => {
-    antworten = resolve;
-  });
-  await page.route("**/api/auth/me", async (route) => {
-    await warten;
-    await route.fulfill({ status: 503 });
-  });
-  try {
-    await page.goto(`/lied/?id=${publishedId}`);
-    await expect(
-      page.getByRole("heading", { name: "Lied wird geladen …", level: 1 }),
-    ).toBeVisible();
-  } finally {
-    antworten();
-  }
-  await expect(
-    page.getByRole("button", { name: "Erneut versuchen" }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("heading", { name: "Lied nicht verfügbar", level: 1 }),
-  ).toBeVisible();
-});
-
-test("Redaktion sieht Entwürfe, legt ein Lied an und veröffentlicht es", async ({
-  page,
-}) => {
-  const errors: string[] = [];
-  page.on("pageerror", (error) => errors.push(error.message));
-  await mockSitzung(page, editorMe);
-  type LiedArt = {
-    id: string;
-    title: string;
-    composer: string | null;
-    lyricist: string | null;
-    published: boolean;
-    publishedAt: string | null;
-  };
-  let bestand: LiedArt[] = [publishedSong, draftSong];
-  await page.route("**/api/songs", (route) => {
-    if (route.request().method() === "POST") {
-      const neu = {
-        id: "00000000-0000-0000-0000-00000000000c",
-        title: "Aurora",
-        composer: null,
-        lyricist: null,
-        published: false,
-        publishedAt: null,
-      };
-      bestand = [...bestand, neu];
-      return route.fulfill(json({ song: neu }, 201));
-    }
-    return route.fulfill(json({ songs: bestand }));
-  });
-  await page.route(`**/api/songs/${draftId}/publish`, (route) => {
-    bestand = [
-      publishedSong,
-      {
-        ...draftSong,
-        published: true,
-        publishedAt: "2026-09-19T12:00:00.000Z",
-      },
-    ];
-    return route.fulfill(json({ song: bestand[1] }));
+  await mockSitzung(page, memberMe);
+  const anfragen: string[] = [];
+  await page.route("**/api/lieder*", (route) => {
+    const url = new URL(route.request().url());
+    anfragen.push(url.search);
+    const treffer = url.searchParams.get("q") === "mond";
+    return route.fulfill(
+      json(
+        liste(treffer ? [mondEintrag] : [mondEintrag, wolkenEintrag], {
+          query: url.searchParams.get("q"),
+        }),
+      ),
+    );
   });
 
   await page.goto("/lieder/");
-  await expect(page.getByRole("heading", { name: "Neues Lied" })).toBeVisible();
-  await expect(page.getByText("Entwurf")).toBeVisible();
-  await liedAnlegenAufklappen(page);
+  await page.getByLabel("Lieder suchen").fill("mond");
+  await page.getByRole("button", { name: "Suchen" }).click();
+  await expect(page).toHaveURL(/suche=mond/);
+  await expect(page.getByRole("heading", { name: "1 Treffer" })).toBeVisible();
+  await expect(page.getByText("Über den Wolken")).toHaveCount(0);
+  expect(anfragen).toContain("?q=mond");
+});
 
-  await page.getByLabel("Titel", { exact: true }).fill("Aurora");
-  await page.getByRole("button", { name: "Lied anlegen" }).click();
-  await expect(page.getByText("Lied angelegt.")).toBeVisible();
-  await expect(page.getByText("Aurora").first()).toBeVisible();
+test("Filter für Besetzung, Anlass und Dateityp stehen in der Adresse", async ({
+  page,
+}) => {
+  await mockSitzung(page, memberMe);
+  const anfragen: string[] = [];
+  await page.route("**/api/lieder*", (route) => {
+    const url = new URL(route.request().url());
+    anfragen.push(url.search);
+    const gefiltert = url.search !== "";
+    return route.fulfill(
+      json(liste(gefiltert ? [mondEintrag] : [mondEintrag, wolkenEintrag])),
+    );
+  });
 
-  await page
-    .getByRole("listitem")
-    .filter({ hasText: "Nachtgesang" })
-    .getByRole("button", { name: "Veröffentlichen" })
+  await page.goto("/lieder/");
+  await page.getByText("Filter", { exact: true }).click();
+  await page.getByLabel("Besetzung").selectOption("TTBB");
+  await page.getByLabel("Anlass").selectOption("Abendlied");
+  await page.getByLabel("Noten", { exact: true }).check();
+  await page.getByRole("button", { name: "Filtern" }).click();
+
+  await expect(page).toHaveURL(/besetzung=TTBB/);
+  await expect(page).toHaveURL(/anlass=Abendlied/);
+  await expect(page).toHaveURL(/dateityp=noten/);
+  await expect(page.getByRole("heading", { name: "1 Treffer" })).toBeVisible();
+  expect(anfragen).toContain("?besetzung=TTBB&anlass=Abendlied&dateiTyp=noten");
+  const aktiv = page.getByRole("navigation", { name: "Aktive Filter" });
+  await expect(aktiv.getByText("Besetzung: TTBB")).toBeVisible();
+  await expect(aktiv.getByText("Dateityp: Noten")).toBeVisible();
+
+  await aktiv
+    .getByRole("button", { name: "Besetzung: TTBB entfernen" })
     .click();
-  await expect(page.getByText("Lied veröffentlicht.")).toBeVisible();
-  const nachtZeile = page
-    .getByRole("listitem")
-    .filter({ hasText: "Nachtgesang" });
-  await expect(nachtZeile.getByText("Entwurf")).toHaveCount(0);
-  await expect(nachtZeile.getByText("Veröffentlicht")).toBeVisible();
-  await expect(
-    nachtZeile.getByRole("button", { name: "Zurückziehen" }),
-  ).toBeVisible();
+  await expect(page).not.toHaveURL(/besetzung=/);
+  await expect(page).toHaveURL(/anlass=Abendlied/);
 
-  expect(errors).toEqual([]);
+  await page.getByRole("button", { name: "Alle Filter zurücksetzen" }).click();
+  await expect(page).toHaveURL(/\/lieder\/$/);
 });
 
-test("Fehlermeldungen aus ProblemDetails werden angezeigt", async ({
-  page,
-}) => {
-  const errors: string[] = [];
-  page.on("pageerror", (error) => errors.push(error.message));
-  await mockSitzung(page, editorMe);
-  await page.route("**/api/songs", (route) => {
-    if (route.request().method() === "POST") {
-      return route.fulfill(
-        problem("Bitte geben Sie einen gültigen Titel an.", 400),
-      );
-    }
-    return route.fulfill(json({ songs: [publishedSong, draftSong] }));
-  });
-  await page.route(`**/api/songs/${publishedId}`, (route) => {
-    if (route.request().method() === "PATCH") {
-      return route.fulfill(
-        problem("Der Eintrag wurde zwischenzeitlich geändert.", 409),
-      );
-    }
-    return route.fulfill(json(publishedDetail));
+test("Mehr als eine Seite blättert vor und zurück", async ({ page }) => {
+  await mockSitzung(page, memberMe);
+  await page.route("**/api/lieder*", (route) => {
+    const seite = Number(
+      new URL(route.request().url()).searchParams.get("page") ?? "1",
+    );
+    return route.fulfill(
+      json(
+        liste(seite === 1 ? [mondEintrag] : [wolkenEintrag], {
+          page: seite,
+          total: 21,
+        }),
+      ),
+    );
   });
 
   await page.goto("/lieder/");
-  await liedAnlegenAufklappen(page);
-
-  await page.getByRole("button", { name: "Lied anlegen" }).click();
-  await expect(page.getByText("Bitte einen Titel eingeben.")).toBeVisible();
-
-  await page.getByLabel("Titel", { exact: true }).fill("Doppelter Titel");
-  await page.getByRole("button", { name: "Lied anlegen" }).click();
-  await expect(
-    page.getByText("Bitte geben Sie einen gültigen Titel an."),
-  ).toBeVisible();
-
-  const zeile = page
-    .getByRole("listitem")
-    .filter({ hasText: "Das Wandern ist des Müllers Lust" });
-  await zeile.getByRole("button", { name: "Bearbeiten", exact: true }).click();
-  await zeile.getByLabel("Titel", { exact: true }).fill("Geänderte Weise");
-  await zeile.getByRole("button", { name: "Änderungen speichern" }).click();
-  await expect(
-    page.getByText("Der Eintrag wurde zwischenzeitlich geändert."),
-  ).toBeVisible();
-
-  expect(errors).toEqual([]);
+  await expect(page.getByText("Seite 1 von 2")).toBeVisible();
+  await page.getByRole("button", { name: "Weiter" }).click();
+  await expect(page).toHaveURL(/seite=2/);
+  await expect(page.getByText("Seite 2 von 2")).toBeVisible();
+  await expect(page.getByText("Über den Wolken")).toBeVisible();
 });
 
-test("Redaktion sieht Veröffentlicht-Marke und Steuerungen am Lied", async ({
+test("Redaktion legt ein Lied von Hand an und landet bei den Dateien", async ({
   page,
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await mockSitzung(page, editorMe);
-  await page.route(`**/api/songs/${publishedId}`, (route) =>
-    route.fulfill(json(publishedDetail)),
-  );
-  await page.route(`**/api/songs/${draftId}`, (route) =>
+  await page.route("**/api/lieder", (route) => {
+    if (route.request().method() === "POST") return route.fallback();
+    return route.fulfill(json(liste([])));
+  });
+  let gesendet: unknown = null;
+  await page.route("**/api/lieder", (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    expect(route.request().headers()["x-csrf-token"]).toBe("test");
+    gesendet = route.request().postDataJSON();
+    return route.fulfill(
+      json(
+        {
+          lied: {
+            ...mondEintrag,
+            lyrics: null,
+            createdAt: "2026-09-19T12:00:00.000Z",
+            updatedAt: "2026-09-19T12:00:00.000Z",
+            rowVersion: 1,
+            dateien: [],
+          },
+        },
+        201,
+      ),
+    );
+  });
+  await page.route(`**/api/lieder/${mondId}`, (route) =>
     route.fulfill(
       json({
-        song: {
-          ...draftSong,
-          createdAt: "2026-09-01T08:00:00.000Z",
-          updatedAt: "2026-09-01T08:00:00.000Z",
-          arrangements: [],
+        lied: {
+          ...mondEintrag,
+          lyrics: null,
+          createdAt: "2026-09-19T12:00:00.000Z",
+          updatedAt: "2026-09-19T12:00:00.000Z",
+          rowVersion: 1,
+          dateien: [],
         },
       }),
     ),
   );
 
-  await page.goto(`/lied/?id=${publishedId}`);
-  await liedBearbeitenAufklappen(page);
-  await expect(page.getByText("Veröffentlicht")).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Veröffentlichung zurückziehen" }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("heading", { name: "Lied bearbeiten" }),
-  ).toBeVisible();
+  await page.goto("/lieder/");
+  await page.getByText("Neues Lied", { exact: true }).click();
+  await page.getByLabel("Titel").fill("Der Mond ist aufgegangen");
+  await page.getByLabel("Komponist (optional)").fill("J. A. P. Schulz");
+  await page.getByLabel("Bearbeiter (optional)").fill("Max Mustermann");
+  await page.getByLabel("Texter (optional)").fill("Matthias Claudius");
+  await page.getByLabel("Besetzung (optional)").fill("TTBB");
+  await page.getByLabel("Tonart (optional)").fill("F-Dur");
+  await page.getByLabel("Sprache (optional)").fill("Deutsch");
+  await page.getByLabel("Anlass (optional)").fill("Abendlied");
+  await page.getByLabel("Liedtext (optional)").fill("Der Mond ist aufgegangen");
+  await page.getByRole("button", { name: "Lied anlegen" }).click();
 
-  await page.goto(`/lied/?id=${draftId}`);
-  await liedBearbeitenAufklappen(page);
-  await expect(page.getByText("Entwurf")).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`/lied/\\?id=${mondId}`));
+  expect(gesendet).toEqual({
+    title: "Der Mond ist aufgegangen",
+    composer: "J. A. P. Schulz",
+    arranger: "Max Mustermann",
+    lyricist: "Matthias Claudius",
+    voiceConfiguration: "TTBB",
+    musicalKey: "F-Dur",
+    language: "Deutsch",
+    lyrics: "Der Mond ist aufgegangen",
+    occasion: "Abendlied",
+  });
   await expect(
-    page.getByRole("button", { name: "Veröffentlichen" }),
+    page.getByRole("heading", { name: "Noten hochladen" }),
   ).toBeVisible();
-  await expect(
-    page.getByText("Für dieses Lied ist noch keine Fassung erfasst."),
-  ).toBeVisible();
-
   expect(errors).toEqual([]);
 });
 
-test("Liederkatalog verlangt Anmeldung ohne Sitzung", async ({ page }) => {
-  const errors: string[] = [];
-  page.on("pageerror", (error) => errors.push(error.message));
-  await mockSitzung(page, { authenticated: false });
+test("Ein Titel ist Pflicht beim Anlegen", async ({ page }) => {
+  await mockSitzung(page, editorMe);
+  await page.route("**/api/lieder", (route) => route.fulfill(json(liste([]))));
 
   await page.goto("/lieder/");
-  await expect(
-    page.getByText("Bitte anmelden, um den Liederkatalog zu sehen."),
-  ).toBeVisible();
-  await page.getByRole("main").getByRole("link", { name: "Anmelden" }).click();
-  await expect(page).toHaveURL(/\/anmelden\//);
-
-  expect(errors).toEqual([]);
-});
-
-test("Mitglied sieht beide Arrangements mit Tonarten und wählt per Klick", async ({
-  page,
-}) => {
-  const errors: string[] = [];
-  page.on("pageerror", (error) => errors.push(error.message));
-  await mockSitzung(page, memberMe);
-  await page.route(`**/api/songs/${publishedId}`, (route) =>
-    route.fulfill(json(mehrfachDetail)),
-  );
-
-  await page.goto(`/lied/?id=${publishedId}`);
-  const wahl = page.getByRole("group");
-  await expect(wahl).toBeVisible();
-
-  const originalGruppe = page
-    .getByRole("heading", { name: "Originalfassung" })
-    .locator("..");
-  const maennerGruppe = page
-    .getByRole("heading", { name: "Satz für Männerchor" })
-    .locator("..");
-  await expect(originalGruppe).toHaveAttribute("data-gewaehlt", "true");
-  await expect(maennerGruppe).not.toHaveAttribute("data-gewaehlt");
-  await expect(
-    maennerGruppe.getByText("Bearbeitung: Hans Schmid"),
-  ).toBeVisible();
-  await expect(
-    maennerGruppe.getByText("Stimmkonfiguration: TTBB"),
-  ).toBeVisible();
-
-  const chorsatzG = wahl.getByRole("button", {
-    name: "Chorsatz · Tonart: G-Dur",
-  });
-  const chorsatzEs = wahl.getByRole("button", {
-    name: "Chorsatz · Tonart: Es-Dur",
-  });
-  const maennerFassung = wahl.getByRole("button", {
-    name: "Männerchor · Hans Schmid",
-  });
-  await expect(chorsatzG).toHaveAttribute("aria-pressed", "true");
-  await expect(chorsatzEs).toHaveAttribute("aria-pressed", "false");
-  await expect(maennerFassung).toHaveAttribute("aria-pressed", "false");
-
-  await maennerFassung.click();
-  await expect(maennerGruppe).toHaveAttribute("data-gewaehlt", "true");
-  await expect(originalGruppe).not.toHaveAttribute("data-gewaehlt");
-  await expect(maennerFassung).toHaveAttribute("aria-pressed", "true");
-  await expect(chorsatzG).toHaveAttribute("aria-pressed", "false");
-
-  await chorsatzEs.click();
-  await expect(originalGruppe).toHaveAttribute("data-gewaehlt", "true");
-  await expect(chorsatzEs).toHaveAttribute("aria-pressed", "true");
-  await expect(chorsatzG).toHaveAttribute("aria-pressed", "false");
-  await expect(page).toHaveURL(
-    new RegExp(`fassung=${originalfassungId}&version=${chorsatzEsId}`),
-  );
-
-  expect(errors).toEqual([]);
-});
-
-test("Direktlink mit Fassungs- und Versionsparameter wählt die richtige Fassung", async ({
-  page,
-}) => {
-  const errors: string[] = [];
-  page.on("pageerror", (error) => errors.push(error.message));
-  await mockSitzung(page, memberMe);
-  await page.route(`**/api/songs/${publishedId}`, (route) =>
-    route.fulfill(json(mehrfachDetail)),
-  );
-
-  await page.goto(
-    `/lied/?id=${publishedId}&fassung=${maennerchorId}&version=${maennerchorFassungId}`,
-  );
-  const maennerGruppe = page
-    .getByRole("heading", { name: "Satz für Männerchor" })
-    .locator("..");
-  await expect(maennerGruppe).toHaveAttribute("data-gewaehlt", "true");
-  await expect(
-    maennerGruppe.getByRole("button", { name: "Männerchor · Hans Schmid" }),
-  ).toHaveAttribute("aria-pressed", "true");
-  await expect(
-    page.getByRole("heading", { name: "Originalfassung" }).locator(".."),
-  ).not.toHaveAttribute("data-gewaehlt");
-
-  expect(errors).toEqual([]);
-});
-
-test("Ungültige Fassungsparameter fallen auf die erste Fassung zurück", async ({
-  page,
-}) => {
-  const errors: string[] = [];
-  page.on("pageerror", (error) => errors.push(error.message));
-  await mockSitzung(page, memberMe);
-  await page.route(`**/api/songs/${publishedId}`, (route) =>
-    route.fulfill(json(mehrfachDetail)),
-  );
-
-  await page.goto(
-    `/lied/?id=${publishedId}&fassung=nicht-ein-uuid&version=auch-nicht`,
-  );
-  const originalGruppe = page
-    .getByRole("heading", { name: "Originalfassung" })
-    .locator("..");
-  await expect(originalGruppe).toHaveAttribute("data-gewaehlt", "true");
-  await expect(
-    originalGruppe.getByRole("button", { name: "Chorsatz · Tonart: G-Dur" }),
-  ).toHaveAttribute("aria-pressed", "true");
-  await expect(
-    page.getByRole("heading", { name: "Satz für Männerchor" }).locator(".."),
-  ).not.toHaveAttribute("data-gewaehlt");
-
-  expect(errors).toEqual([]);
-});
-
-test("Redaktion legt Arrangement und Fassung an und sieht Tonarten", async ({
-  page,
-}) => {
-  const errors: string[] = [];
-  page.on("pageerror", (error) => errors.push(error.message));
-  await mockSitzung(page, editorMe);
-
-  const arrangementNachAnlage = {
-    id: "00000000-0000-0000-0000-00000000c30a",
-    label: "Satz für Frauenchor",
-    arranger: "Anna Berger",
-    voiceConfiguration: "SSA",
-    musicalVersions: [],
-  };
-  const versionNachAnlage = {
-    id: "00000000-0000-0000-0000-00000000d30a",
-    label: "Frauenchor",
-    creator: "Anna Berger",
-    musicalKey: "F-Dur",
-  };
-
-  const detailVorher = JSON.parse(
-    JSON.stringify(mehrfachDetail),
-  ) as typeof mehrfachDetail;
-  const detailMitArrangement = {
-    song: {
-      ...detailVorher.song,
-      updatedAt: "2026-09-19T09:00:00.000Z",
-      arrangements: [...detailVorher.song.arrangements, arrangementNachAnlage],
-    },
-  };
-  const detailMitFassung = {
-    song: {
-      ...detailMitArrangement.song,
-      updatedAt: "2026-09-19T09:10:00.000Z",
-      arrangements: detailMitArrangement.song.arrangements.map((eintrag) =>
-        eintrag.id === arrangementNachAnlage.id
-          ? {
-              ...eintrag,
-              musicalVersions: [...eintrag.musicalVersions, versionNachAnlage],
-            }
-          : eintrag,
-      ),
-    },
-  };
-
-  await page.route(`**/api/songs/${publishedId}`, (route) =>
-    route.fulfill(json(detailVorher)),
-  );
-  await page.route(`**/api/songs/${publishedId}/arrangements`, (route) =>
-    route.fulfill(json(detailMitArrangement, 201)),
-  );
-  await page.route(
-    `**/api/arrangements/${arrangementNachAnlage.id}/versions`,
-    (route) => route.fulfill(json(detailMitFassung, 201)),
-  );
-
-  await page.goto(`/lied/?id=${publishedId}`);
-  await fassungenAufklappen(page);
-
-  await page
-    .getByLabel("Bezeichnung", { exact: true })
-    .and(page.locator("#neues-arrangement-label"))
-    .fill("Satz für Frauenchor");
-  await page
-    .getByLabel("Bearbeiter (optional)")
-    .and(page.locator("#neues-arrangement-person"))
-    .fill("Anna Berger");
-  await page
-    .getByLabel("Stimmkonfiguration (optional)")
-    .and(page.locator("#neues-arrangement-zusatz"))
-    .fill("SSA");
-  await page.getByRole("button", { name: "Arrangement anlegen" }).click();
-  await expect(page.getByText("Arrangement angelegt.")).toBeVisible();
-  await expect(
-    page.getByRole("heading", { name: "Satz für Frauenchor" }),
-  ).toBeVisible();
-  await expect(page.getByText("Stimmkonfiguration: SSA")).toBeVisible();
-  await expect(page.getByText("Bearbeitung: Anna Berger")).toBeVisible();
-
-  const frauenBlock = page
-    .locator(".lied-fassung-block")
-    .filter({ hasText: "Satz für Frauenchor" });
-  await frauenBlock.getByRole("button", { name: "Fassung hinzufügen" }).click();
-  await frauenBlock
-    .locator("input[id^='fassung-'][id$='-label']")
-    .fill("Frauenchor");
-  await frauenBlock
-    .locator("input[id^='fassung-'][id$='-person']")
-    .fill("Anna Berger");
-  await frauenBlock
-    .locator("input[id^='fassung-'][id$='-zusatz']")
-    .fill("F-Dur");
-  await frauenBlock.getByRole("button", { name: "Fassung anlegen" }).click();
-  await expect(page.getByText("Fassung angelegt.")).toBeVisible();
-  const frauenWahl = page
-    .getByRole("heading", { name: "Satz für Frauenchor" })
-    .locator("..");
-  await expect(
-    frauenWahl.getByRole("button", {
-      name: "Frauenchor · Anna Berger · Tonart: F-Dur",
-    }),
-  ).toBeVisible();
-
-  expect(errors).toEqual([]);
-});
-
-test("Redaktion bearbeitet eine Fassung und ändert die Tonart", async ({
-  page,
-}) => {
-  const errors: string[] = [];
-  page.on("pageerror", (error) => errors.push(error.message));
-  await mockSitzung(page, editorMe);
-
-  const detailVorher = JSON.parse(
-    JSON.stringify(mehrfachDetail),
-  ) as typeof mehrfachDetail;
-  const detailNachher = {
-    song: {
-      ...detailVorher.song,
-      updatedAt: "2026-09-19T10:00:00.000Z",
-      arrangements: detailVorher.song.arrangements.map((eintrag) =>
-        eintrag.id === maennerchorId
-          ? {
-              ...eintrag,
-              musicalVersions: eintrag.musicalVersions.map((fassung) =>
-                fassung.id === maennerchorFassungId
-                  ? { ...fassung, musicalKey: "C-Dur" }
-                  : fassung,
-              ),
-            }
-          : eintrag,
-      ),
-    },
-  };
-
-  await page.route(`**/api/songs/${publishedId}`, (route) =>
-    route.fulfill(json(detailVorher)),
-  );
-  await page.route(`**/api/musical-versions/${maennerchorFassungId}`, (route) =>
-    route.fulfill(json(detailNachher)),
-  );
-
-  await page.goto(`/lied/?id=${publishedId}`);
-  await fassungenAufklappen(page);
-
-  const maennerBlock = page
-    .locator(".lied-fassung-block")
-    .filter({ hasText: "Satz für Männerchor" });
-  await maennerBlock
-    .getByRole("button", { name: "Fassung bearbeiten" })
-    .click();
-  await maennerBlock
-    .locator("input[id^='fassung-bearbeiten-'][id$='-zusatz']")
-    .fill("C-Dur");
-  await maennerBlock.getByRole("button", { name: "Fassung speichern" }).click();
-  await expect(page.getByText("Fassung gespeichert.")).toBeVisible();
-  await expect(
-    page.getByRole("button", {
-      name: "Männerchor · Hans Schmid · Tonart: C-Dur",
-    }),
-  ).toBeVisible();
-
-  expect(errors).toEqual([]);
-});
-
-test("Fehlende optionale Felder erscheinen nicht als Platzhaltertext", async ({
-  page,
-}) => {
-  const errors: string[] = [];
-  page.on("pageerror", (error) => errors.push(error.message));
-  await mockSitzung(page, memberMe);
-  await page.route(`**/api/songs/${publishedId}`, (route) =>
-    route.fulfill(json(mehrfachDetail)),
-  );
-
-  await page.goto(`/lied/?id=${publishedId}`);
-  await expect(page.getByText("Stimmkonfiguration: TTBB")).toBeVisible();
-  await expect(page.getByText(/Stimmkonfiguration:/)).toHaveCount(1);
-  await expect(page.getByText(/Bearbeitung:/)).toHaveCount(1);
-  await expect(page.getByText(/Tonart: G-Dur/)).toBeVisible();
-  await expect(page.getByText(/Tonart: Es-Dur/)).toBeVisible();
-  await expect(page.getByText(/Tonart:/)).toHaveCount(2);
-  await expect(page.getByText("unbekannt")).toHaveCount(0);
-
-  expect(errors).toEqual([]);
+  await page.getByText("Neues Lied", { exact: true }).click();
+  await page.getByRole("button", { name: "Lied anlegen" }).click();
+  await expect(page.getByText("Bitte einen Titel eingeben.")).toBeVisible();
 });
