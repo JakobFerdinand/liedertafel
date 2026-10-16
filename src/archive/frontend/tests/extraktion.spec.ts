@@ -1106,7 +1106,7 @@ test("Teilweise gelesene Datei bietet Rest lesen an und stößt es einmal an", a
   await page.goto(`/lied/?id=${songId}`);
   const zeile = page.locator(".extraktion-status");
   await expect(zeile.locator(".extraktion-lesen")).toHaveText(
-    "Teilweise gelesen (20 von 35 Seiten) · 4 Angaben übernommen · 0 Vorschläge",
+    "Teilweise gelesen (20 von 35 Seiten) · 4 Angaben übernommen",
   );
   const rest = zeile.getByRole("button", {
     name: /^Rest lesen: restliche Seiten von /,
