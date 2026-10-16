@@ -6,7 +6,6 @@ using Archive.Backend.Auth;
 using Archive.Backend.Catalogue;
 using Archive.Backend.Data;
 using Archive.Backend.Extraction;
-using Archive.Backend.Provenance;
 using Archive.Backend.Reading;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -21,8 +20,7 @@ namespace Archive.Backend.Tests;
 /// antiforgery, members and anonymous callers are refused, and the state
 /// machine answers honestly (idempotent where nothing new starts, 409 for a
 /// running or finished-and-complete reading, 422 for anything but a score).
-/// The asset's voice label joins the provenance: a human edit locks it and the
-/// editor's song detail lists it for the "KI" badge.
+/// The suggestion queue and field provenance are gone: their routes answer 404.
 /// </summary>
 public sealed class ReadingApiTests
 {
@@ -40,7 +38,6 @@ public sealed class ReadingApiTests
 			row.PagesRead = 20;
 			row.PageLimit = 20;
 			row.FieldsApplied = 4;
-			row.FieldsProposed = 1;
 		}, extractionSource: ExtractionTextSource.Reading);
 
 		using var request = new HttpRequestMessage(HttpMethod.Get, $"/api/revisions/extraction?ids={score}");
@@ -52,8 +49,8 @@ public sealed class ReadingApiTests
 		Assert.True(item.GetProperty("readingEnabled").GetBoolean());
 		var reading = item.GetProperty("reading");
 		Assert.Equal("completed", reading.GetProperty("status").GetString());
-		Assert.Equal((35, 20, true, 4, 1), (reading.GetProperty("pagesTotal").GetInt32(), reading.GetProperty("pagesRead").GetInt32(),
-			reading.GetProperty("partial").GetBoolean(), reading.GetProperty("fieldsApplied").GetInt32(), reading.GetProperty("fieldsProposed").GetInt32()));
+		Assert.Equal((35, 20, true, 4), (reading.GetProperty("pagesTotal").GetInt32(), reading.GetProperty("pagesRead").GetInt32(),
+			reading.GetProperty("partial").GetBoolean(), reading.GetProperty("fieldsApplied").GetInt32()));
 		Assert.True(reading.GetProperty("failureReason").ValueKind is JsonValueKind.Null);
 	}
 
@@ -219,48 +216,39 @@ public sealed class ReadingApiTests
 			Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
 	}
 
-	[Fact]
-	public async Task AHumanEditOfTheVoiceLabelLocksItAndAnAiWrittenOneShowsInTheEditorsProvenance()
+	[Theory]
+	[InlineData("GET", "/api/proposals")]
+	[InlineData("POST", "/api/proposals/00000000-0000-0000-0000-000000000001/accept")]
+	[InlineData("POST", "/api/proposals/00000000-0000-0000-0000-000000000001/reject")]
+	[InlineData("POST", "/api/proposals/00000000-0000-0000-0000-000000000001/refresh")]
+	[InlineData("POST", "/api/provenance/revert")]
+	[InlineData("POST", "/api/dev/provenance-write")]
+	public async Task TheSuggestionQueueAndProvenanceRoutesAreGone(string method, string path)
 	{
 		await using var factory = new AuthApiFactory();
 		var (client, session, _) = await SetupAsync(factory, reading: null);
-		Guid assetId, songId;
+
+		using var response = await SendAsync(client, session, new HttpMethod(method), path, new { });
+
+		Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+	}
+
+	[Fact]
+	public async Task TheEditorsSongDetailCarriesNoFieldProvenance()
+	{
+		await using var factory = new AuthApiFactory();
+		var (client, session, _) = await SetupAsync(factory, reading: null);
+		Guid songId;
 		using (var scope = factory.Services.CreateScope())
-		{
-			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-			var asset = await db.Assets.Include(a => a.MusicalVersion!).ThenInclude(v => v.Arrangement).SingleAsync();
-			assetId = asset.Id;
-			songId = asset.MusicalVersion!.Arrangement.SongId;
-			// The reading job wrote the voice label earlier.
-			asset.VoiceLabel = "Tenor 1";
-			db.FieldProvenance.Add(new FieldProvenance
-			{
-				EntityType = "asset", EntityId = assetId, Field = "voice_label",
-				Source = ProvenanceSource.Ai, Confidence = ProvenanceConfidence.Sicher,
-				Model = "gpt-6-luna", PromptVersion = ScanPrompts.FieldsVersion, ChangedAt = DateTimeOffset.UtcNow,
-			});
-			await db.SaveChangesAsync();
-		}
+			songId = await scope.ServiceProvider.GetRequiredService<ArchiveDbContext>().Songs.Select(s => s.Id).SingleAsync();
 
-		// The editor's song detail lists the asset field's provenance (for the "KI" badge).
-		using (var detail = new HttpRequestMessage(HttpMethod.Get, $"/api/songs/{songId}"))
-		{
-			detail.Headers.Add("Cookie", session);
-			using var response = await client.SendAsync(detail);
-			var entry = (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("song").GetProperty("provenance")
-				.EnumerateArray().Single(e => e.GetProperty("entityType").GetString() == "asset");
-			Assert.Equal((assetId, "voice_label", "Ai"),
-				(entry.GetProperty("entityId").GetGuid(), entry.GetProperty("field").GetString(), entry.GetProperty("source").GetString()));
-		}
+		using var detail = new HttpRequestMessage(HttpMethod.Get, $"/api/songs/{songId}");
+		detail.Headers.Add("Cookie", session);
+		using var response = await client.SendAsync(detail);
 
-		// A human edit of the label is a human write: it locks the field.
-		using (var patch = await SendAsync(client, session, HttpMethod.Patch, $"/api/assets/{assetId}", new { voiceLabel = "Bass II" }))
-			Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
-		using var check = factory.Services.CreateScope();
-		var verify = check.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-		Assert.Equal("Bass II", (await verify.Assets.AsNoTracking().SingleAsync()).VoiceLabel);
-		var row = await verify.FieldProvenance.AsNoTracking().SingleAsync(p => p.EntityType == "asset" && p.Field == "voice_label");
-		Assert.Equal((ProvenanceSource.Human, true, "Tenor 1"), (row.Source, row.Locked, row.PreviousValue));
+		Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+		var song = (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("song");
+		Assert.False(song.TryGetProperty("provenance", out _));
 	}
 
 	[Fact]
@@ -412,63 +400,7 @@ public sealed class ReadingApiTests
 	}
 
 	[Fact]
-	public async Task OnlyTheCreatingEditorMayRevertOrAcceptChangesOfAMaterialsFields()
-	{
-		await using var factory = new AuthApiFactory();
-		var (client, ownerSession, _) = await SetupAsync(factory, reading: null);
-		const string other = "andere@liedertafel.test";
-		await SeedAccountAsync(factory, other, ArchiveRoles.Editor);
-		var otherSession = await SignInAsync(factory, other);
-		Guid assetId;
-		Guid proposalId;
-		using (var scope = factory.Services.CreateScope())
-		{
-			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-			var asset = await db.Assets.SingleAsync();
-			assetId = asset.Id;
-			asset.VoiceLabel = "Tenor 1";
-			db.FieldProvenance.Add(new FieldProvenance
-			{
-				EntityType = "asset", EntityId = asset.Id, Field = "voice_label", Source = ProvenanceSource.Ai,
-				Confidence = ProvenanceConfidence.Sicher, PreviousValue = "Bass", ChangedAt = DateTimeOffset.UtcNow,
-			});
-			var proposal = new Proposal
-			{
-				Kind = ProposalKind.FieldSuggestion, TargetEntityType = "asset", TargetEntityId = asset.Id,
-				Payload = JsonSerializer.Serialize(new { field = "description", value = "Chorsatz" }),
-				Reason = "Test", Source = ProvenanceSource.Ai, Confidence = ProvenanceConfidence.Unsicher,
-				TargetRowVersion = asset.RowVersion, Status = ProposalStatus.Open, CreatedAt = DateTimeOffset.UtcNow,
-			};
-			db.Proposals.Add(proposal);
-			await db.SaveChangesAsync();
-			proposalId = proposal.Id;
-		}
-		var revert = new { entityType = "asset", entityId = assetId, field = "voice_label" };
-
-		using (var denied = await SendAsync(client, otherSession, HttpMethod.Post, "/api/provenance/revert", revert))
-		{
-			Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
-			Assert.Equal(AssetEndpoints.AssetOwnerMessage, (await denied.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("title").GetString());
-		}
-		using (var denied = await SendAsync(client, otherSession, HttpMethod.Post, $"/api/proposals/{proposalId}/accept", new { }))
-			Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
-		using (var scope = factory.Services.CreateScope())
-		{
-			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-			var asset = await db.Assets.AsNoTracking().SingleAsync();
-			Assert.Equal(("Tenor 1", null), (asset.VoiceLabel, asset.Description));
-			Assert.Equal(ProposalStatus.Open, (await db.Proposals.AsNoTracking().SingleAsync()).Status);
-		}
-
-		// The owner may do both (the accept first: a revert moves the row version).
-		using (var allowed = await SendAsync(client, ownerSession, HttpMethod.Post, $"/api/proposals/{proposalId}/accept", new { }))
-			Assert.Equal(HttpStatusCode.OK, allowed.StatusCode);
-		using (var allowed = await SendAsync(client, ownerSession, HttpMethod.Post, "/api/provenance/revert", revert))
-			Assert.Equal(HttpStatusCode.OK, allowed.StatusCode);
-	}
-
-	[Fact]
-	public async Task APatchThatChangesNothingKeepsTheRowVersionAndLeavesProposalsFresh()
+	public async Task APatchThatChangesNothingKeepsTheRowVersion()
 	{
 		await using var factory = new AuthApiFactory();
 		var (client, session, _) = await SetupAsync(factory, reading: null);
@@ -480,13 +412,6 @@ public sealed class ReadingApiTests
 			var asset = await db.Assets.SingleAsync();
 			asset.VoiceLabel = "Tenor 1";
 			asset.Description = "Chorsatz";
-			db.Proposals.Add(new Proposal
-			{
-				Kind = ProposalKind.FieldSuggestion, TargetEntityType = "asset", TargetEntityId = asset.Id,
-				Payload = JsonSerializer.Serialize(new { field = "description", value = "Anders" }),
-				Reason = "Test", Source = ProvenanceSource.Ai, Confidence = ProvenanceConfidence.Unsicher,
-				TargetRowVersion = asset.RowVersion, Status = ProposalStatus.Open, CreatedAt = DateTimeOffset.UtcNow,
-			});
 			await db.SaveChangesAsync();
 			assetId = asset.Id;
 			before = asset.RowVersion;
@@ -499,13 +424,6 @@ public sealed class ReadingApiTests
 		{
 			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
 			Assert.Equal(before, (await db.Assets.AsNoTracking().SingleAsync()).RowVersion);
-		}
-		using (var list = new HttpRequestMessage(HttpMethod.Get, "/api/proposals"))
-		{
-			list.Headers.Add("Cookie", session);
-			using var response = await client.SendAsync(list);
-			var item = Assert.Single((await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("proposals").EnumerateArray());
-			Assert.False(item.GetProperty("isStale").GetBoolean());
 		}
 
 		// A real change still moves it.

@@ -12,7 +12,7 @@ namespace Archive.Backend.Chat;
 /// <summary>
 /// The archive's A2UI component catalog on the server (ARC-022-4): which
 /// components exist, which record id each is built from, and which of them the
-/// member chat can resolve. The browser registers the same six components and
+/// member chat can resolve. The browser registers the same four components and
 /// nothing else (no basic catalog). The model supplies record ids and a
 /// component name only; the server resolves every id against what a member may
 /// see, builds the component properties itself and drops everything else
@@ -61,11 +61,8 @@ public static class A2uiCatalog
 			"Liste von bis zu 10 veröffentlichten Liedern als Verweise ins Archiv.",
 			ResolveSourcesAsync),
 		// Defined and validated, but not yet resolvable in the member chat: the
-		// event tools (ARC-022-1) and the editor assistant (ARC-022-2) bring
-		// their resolvers with their own visibility rules.
+		// event tools (ARC-022-1) bring its resolver with their own visibility rules.
 		new("ProgrammListe", A2uiArgument.AuftrittId, "Programm eines Auftritts.", null),
-		new("VorschlagKarte", A2uiArgument.VorschlagId, "Ein Vorschlag zur Bestätigung.", null),
-		new("AenderungsVorschau", A2uiArgument.VorschlagId, "Vorher-nachher-Vorschau einer vorgeschlagenen Änderung.", null),
 	];
 
 	/// <summary>Short German description of the components a run's tool offers.</summary>
@@ -158,7 +155,7 @@ public static class A2uiCatalog
 	private static string ShownKey(JsonObject props)
 	{
 		var ids = new StringBuilder(StringOf(props["component"]));
-		foreach (var key in new[] { "liedId", "auftrittId", "vorschlagId" })
+		foreach (var key in new[] { "liedId", "auftrittId" })
 			ids.Append('|').Append(StringOf(props[key]));
 		if (props["quellen"] is JsonArray sources)
 			ids.Append('|').Append(string.Join(',', sources.Select(s => StringOf(s?["liedId"]))));
@@ -234,7 +231,6 @@ public static class A2uiCatalog
 		{
 			A2uiArgument.LiedId => new SurfaceRequest(name, LiedId: StringOf(component["liedId"])),
 			A2uiArgument.AuftrittId => new SurfaceRequest(name, AuftrittId: StringOf(component["auftrittId"])),
-			A2uiArgument.VorschlagId => new SurfaceRequest(name, VorschlagId: StringOf(component["vorschlagId"])),
 			A2uiArgument.LiedIds => new SurfaceRequest(name,
 				LiedIds: (component["quellen"] as JsonArray)?.Select(q => StringOf((q as JsonObject)?["liedId"]) ?? string.Empty).ToList()),
 			_ => null,
@@ -354,8 +350,7 @@ public sealed record SurfaceRequest(
 	[property: Description("Name der Komponente.")] string? Komponente,
 	[property: Description("ID des Liedes (für LiedKarte).")] string? LiedId = null,
 	[property: Description("IDs der Lieder (für Quellen), höchstens 10.")] List<string>? LiedIds = null,
-	[property: Description("ID des Auftritts (für AuftrittKarte).")] string? AuftrittId = null,
-	[property: Description("ID eines Vorschlags; im Mitglieder-Chat nicht verfügbar.")] string? VorschlagId = null)
+	[property: Description("ID des Auftritts (für AuftrittKarte).")] string? AuftrittId = null)
 {
 	/// <summary>
 	/// True when the request carries the given id field and no other. A field
@@ -365,8 +360,7 @@ public sealed record SurfaceRequest(
 	internal bool UsesOnly(A2uiArgument argument) =>
 		Present(LiedId) == (argument == A2uiArgument.LiedId)
 		&& (LiedIds is { Count: > 0 }) == (argument == A2uiArgument.LiedIds)
-		&& Present(AuftrittId) == (argument == A2uiArgument.AuftrittId)
-		&& Present(VorschlagId) == (argument == A2uiArgument.VorschlagId);
+		&& Present(AuftrittId) == (argument == A2uiArgument.AuftrittId);
 
 	private static bool Present(string? value) => !string.IsNullOrWhiteSpace(value);
 }
@@ -377,7 +371,6 @@ internal enum A2uiArgument
 	LiedId,
 	LiedIds,
 	AuftrittId,
-	VorschlagId,
 }
 
 internal static class A2uiArgumentExtensions
@@ -386,8 +379,7 @@ internal static class A2uiArgumentExtensions
 	{
 		A2uiArgument.LiedId => "liedId",
 		A2uiArgument.LiedIds => "liedIds",
-		A2uiArgument.AuftrittId => "auftrittId",
-		_ => "vorschlagId",
+		_ => "auftrittId",
 	};
 }
 

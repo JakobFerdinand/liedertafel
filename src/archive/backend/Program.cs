@@ -10,7 +10,6 @@ using Archive.Backend.Development;
 using Archive.Backend.Events;
 using Archive.Backend.Extraction;
 using Archive.Backend.Maintenance;
-using Archive.Backend.Provenance;
 using Archive.Backend.Reading;
 using Archive.Backend.Recordings;
 using Microsoft.AspNetCore.Antiforgery;
@@ -68,7 +67,6 @@ if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" o
     });
     jobs.Services.AddSingleton<IPdfPageRenderer, PdfiumPageRenderer>();
     jobs.Services.AddArchiveAi(jobs.Configuration);
-    jobs.Services.AddOptions<ProvenanceOptions>().BindConfiguration(ProvenanceOptions.SectionName);
     jobs.Services.AddScoped<CatalogueWriteService>();
     jobs.Services.AddScoped<AutomatedFieldWriter>();
     jobs.Services.AddSingleton<ScanReadingModel>();
@@ -263,19 +261,8 @@ builder.Services.AddOptions<ChatOptions>()
 // ARC-022-3: provider selection, model keys, usage ledger, hard monthly cap
 // and the gateway. Whatever injects IChatClient gets the budgeted pipeline.
 builder.Services.AddArchiveAi(builder.Configuration);
-// ARC-013-1: the shared write path with per-field provenance and proposals.
-builder.Services.AddOptions<ProvenanceOptions>()
-	.BindConfiguration(ProvenanceOptions.SectionName);
+// The shared, validated write path of the catalogue and event endpoints.
 builder.Services.AddScoped<CatalogueWriteService>();
-builder.Services.AddScoped<AutomatedFieldWriter>();
-builder.Services.AddScoped<IProposalHandler, FieldSuggestionHandler>();
-builder.Services.AddScoped<IProposalHandler, SongCreationHandler>();
-builder.Services.AddScoped<IProposalHandler, SongPublicationHandler>();
-builder.Services.AddScoped<FieldSuggestionHandler>();
-builder.Services.AddScoped<SongCreationHandler>();
-builder.Services.AddScoped<SongPublicationHandler>();
-builder.Services.AddScoped<ProposalHandlers>();
-builder.Services.AddScoped<ProposalDecisions>();
 builder.Services.AddSingleton<ArchiveChatAgent>();
 builder.Services.AddScoped<ArchiveChatService>();
 builder.Services.AddArchiveAuth(builder.Configuration, builder.Environment);
@@ -381,7 +368,6 @@ app.MapRecordingEndpoints();
 app.MapRecordingPassageEndpoints();
 app.MapExtractionEndpoints();
 app.MapReadingEndpoints();
-app.MapProvenanceEndpoints();
 app.MapDevelopmentDiagnostics();
 
 // A specific fallback reserves the entire API namespace, including missing files.

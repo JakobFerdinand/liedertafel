@@ -1,11 +1,10 @@
 using Archive.Backend.Assets;
 using Archive.Backend.Auth;
-using Archive.Backend.Catalogue;
 using Archive.Backend.Data;
 using Archive.Backend.Events;
 using Microsoft.EntityFrameworkCore;
 
-namespace Archive.Backend.Provenance;
+namespace Archive.Backend.Catalogue;
 
 /// <summary>Result statuses the shared write service reports to its callers.</summary>
 public enum WriteOutcomeStatus
@@ -24,9 +23,9 @@ public enum WriteOutcomeStatus
 }
 
 /// <summary>
-/// Outcome of a write through the shared write service (ARC-013-1).
-/// Validation, attribution and provenance live here alone, so the endpoint
-/// lambdas, the proposal handlers and the automated writers cannot drift.
+/// Outcome of a write through the shared write service. Validation and
+/// attribution live here alone, so the endpoint lambdas and the automated
+/// writer cannot drift.
 /// </summary>
 public sealed record WriteOutcome(WriteOutcomeStatus Status, string? Title)
 {
@@ -42,18 +41,6 @@ public sealed record WriteOutcome(WriteOutcomeStatus Status, string? Title)
 	public int HttpCode => Status == WriteOutcomeStatus.Invalid ? 400 : 409;
 }
 
-/// <summary>
-/// The writer of an applied field change: null for a human editor (locks the
-/// field), or the automated origin (source, confidence, model, prompt
-/// version, confirming editor) of a regex or AI write that applied.
-/// </summary>
-public sealed record AutomatedWrite(
-	ProvenanceSource Source,
-	ProvenanceConfidence Confidence,
-	string? Model,
-	string? PromptVersion,
-	Guid? ConfirmedByAccountId = null);
-
 /// <summary>The acting account and the moment of the write, as the caller decided them.</summary>
 public sealed record WriteActor(Guid AccountId, DateTimeOffset Now);
 
@@ -61,18 +48,17 @@ public sealed record WriteActor(Guid AccountId, DateTimeOffset Now);
 public sealed record AssetFieldPatch(string? Description, string? VoiceLabel);
 
 /// <summary>
-/// The shared write service of ARC-013-1: applies song, arrangement, musical
-/// version, event and asset-field mutations for endpoint lambdas, proposal
-/// handlers and automated writers alike. It owns validation, attribution,
-/// row-version bumps and per-field provenance in one save.
+/// The shared write service: applies song, arrangement, musical version,
+/// event and asset-field mutations for endpoint lambdas and the automated
+/// writer alike. It owns validation, attribution and row-version bumps in
+/// one save. An automated write (scan reading) keeps the record's
+/// attribution to the editor who last saved it.
 /// </summary>
 public sealed class CatalogueWriteService(ArchiveDbContext db)
 {
 	public const string SongConcurrencyMessage = "Der Eintrag wurde zwischenzeitlich geändert.";
 
 	public const string ArrangementConcurrencyMessage = "Die Fassung wurde zwischenzeitlich geändert.";
-
-	public const string RevertUnavailableMessage = "Für dieses Feld ist kein früherer Wert bekannt.";
 
 	public const string UnknownFieldMessage = "Unbekanntes Feld.";
 
@@ -107,7 +93,7 @@ public sealed class CatalogueWriteService(ArchiveDbContext db)
 		=> decision.IsAdministrator || decision.Roles.Contains(ArchiveRoles.Editor);
 
 	/// <summary>
-	/// Loads the entity a provenance row or a proposal points at (tracked, so
+	/// Loads the entity an automated field write points at (tracked, so
 	/// the caller can write through it). Returns null for unknown ids or an
 	/// unknown entity type.
 	/// </summary>
@@ -144,8 +130,8 @@ public sealed class CatalogueWriteService(ArchiveDbContext db)
 	};
 
 	/// <summary>
-	/// The current value of one catalogued field in the joined-string form
-	/// provenance and proposals store; null is an unset field.
+	/// The current value of one catalogued field in its joined-string form
+	/// (list fields newline-joined); null is an unset field.
 	/// </summary>
 	public static string? CurrentFieldValue(object entity, string field)
 	{
@@ -183,58 +169,34 @@ public sealed class CatalogueWriteService(ArchiveDbContext db)
 	/// ordinary patch path of its entity; a null value clears the field.
 	/// </summary>
 	public async Task<WriteOutcome> WriteFieldAsync(
-		object entity, string field, string? value, WriteActor actor, AutomatedWrite? origin, CancellationToken token)
+		object entity, string field, string? value, WriteActor actor, bool automated, CancellationToken token)
 	{
 		switch (entity, field)
 		{
 			case (Song song, var f) when FieldCatalog.IsKnownField(FieldCatalog.EntityTypeSong, f):
-				return await PatchSongAsync(song, SingleFieldSongRequest(f, value), null, actor, origin, token);
+				return await PatchSongAsync(song, SingleFieldSongRequest(f, value), null, actor, automated, token);
 			case (Arrangement arrangement, var f) when FieldCatalog.IsKnownField(FieldCatalog.EntityTypeArrangement, f):
-				return await PatchArrangementAsync(arrangement, SingleFieldPatch(f, value), null, actor, origin, token);
+				return await PatchArrangementAsync(arrangement, SingleFieldPatch(f, value), null, actor, automated, token);
 			case (MusicalVersion version, var f) when FieldCatalog.IsKnownField(FieldCatalog.EntityTypeMusicalVersion, f):
-				return await PatchMusicalVersionAsync(version, SingleVersionPatch(f, value), null, actor, origin, token);
+				return await PatchMusicalVersionAsync(version, SingleVersionPatch(f, value), null, actor, automated, token);
 			case (ArchiveAsset, var f) when FieldCatalog.IsKnownField(FieldCatalog.EntityTypeAsset, f):
 				return await PatchAssetAsync((ArchiveAsset)entity, new AssetFieldPatch(
 					Description: f == "description" ? value : null,
-					VoiceLabel: f == "voice_label" ? value : null), actor, origin, token);
+					VoiceLabel: f == "voice_label" ? value : null), actor, token);
 			case (ChoirEvent choirEvent, var f) when FieldCatalog.IsKnownField(FieldCatalog.EntityTypeEvent, f):
 				return await PatchEventAsync(choirEvent, new PatchEventRequest(
 					Title: null, Kind: null, Venue: null, Date: null, StartTime: null,
 					Notes: f == "notes" ? value : null,
 					SourceNote: f == "source_note" ? value : null,
-					ExpectedRowVersion: null), actor, origin, token);
+					ExpectedRowVersion: null), actor, automated, token);
 			default:
 				return WriteOutcome.Invalid(UnknownFieldMessage);
 		}
 	}
 
-	/// <summary>
-	/// Restores the previous value of one field from its provenance row and
-	/// locks the field the same way a human edit would.
-	/// </summary>
-	public sealed record FieldRevertOutcome(WriteOutcome Outcome)
-	{
-		public bool IsSaved => Outcome.IsSaved;
-	}
-
-	public async Task<FieldRevertOutcome> RevertFieldAsync(
-		string entityType, Guid entityId, string field, WriteActor actor, CancellationToken token)
-	{
-		if (!FieldCatalog.IsKnownField(entityType, field))
-			return new(WriteOutcome.Invalid(UnknownFieldMessage));
-		var provenance = await db.FieldProvenance
-			.FirstOrDefaultAsync(p => p.EntityType == entityType && p.EntityId == entityId && p.Field == field, token);
-		if (provenance is null)
-			return new(WriteOutcome.Stale(RevertUnavailableMessage));
-		var entity = await LoadEntityAsync(entityType, entityId, token);
-		if (entity is null)
-			return new(WriteOutcome.Stale(RevertUnavailableMessage));
-		return new(await WriteFieldAsync(entity, field, provenance.PreviousValue, actor, null, token));
-	}
-
 	// ---- Songs -------------------------------------------------------------
 
-	/// <summary>Creates a song with its initial arrangement and version; runs from endpoints and from proposal handlers.</summary>
+	/// <summary>Creates a song with its initial arrangement and version.</summary>
 	public async Task<(WriteOutcome Outcome, Song? Song)> CreateSongAsync(
 		CreateSongRequest request, WriteActor actor, CancellationToken token)
 	{
@@ -315,15 +277,14 @@ public sealed class CatalogueWriteService(ArchiveDbContext db)
 	}
 
 	/// <summary>
-	/// Applies one song patch; validation, attribution, provenance and the
-	/// row-version bump all live here. A supplied expected row version makes
+	/// Applies one song patch; validation, attribution and the row-version
+	/// bump all live here. A supplied expected row version makes
 	/// a stale edit a refused write without touching the entity.
 	/// </summary>
 	public async Task<WriteOutcome> PatchSongAsync(
 		Song song, PatchSongRequest request, uint? expectedRowVersion,
-		WriteActor actor, AutomatedWrite? origin, CancellationToken token)
+		WriteActor actor, bool automated, CancellationToken token)
 	{
-		var titleBefore = song.Title;
 		string? title = null;
 		if (request.Title is not null)
 		{
@@ -370,21 +331,6 @@ public sealed class CatalogueWriteService(ArchiveDbContext db)
 		if (expectedRowVersion is not null && expectedRowVersion != song.RowVersion)
 			return WriteOutcome.Stale(CatalogueEndpoints.ConcurrencyMessage);
 
-		var composerBefore = song.Composer;
-		var lyricistBefore = song.Lyricist;
-		var lyricsBefore = song.Lyrics;
-		var languageBefore = song.Language;
-		var occasionBefore = song.Occasion;
-		var alternateBefore = request.AlternateTitles is null
-			? null
-			: FieldCatalog.JoinList(song.AlternateTitles
-				.OrderBy(t => t.Position).ThenBy(t => t.Id).Select(t => t.Value));
-		var tagsBefore = request.Tags is null
-			? null
-			: FieldCatalog.JoinList(song.Tags
-				.OrderBy(t => t.Position).ThenBy(t => t.Id).Select(t => t.Value));
-
-		var titleAfter = After(title is not null, title, titleBefore);
 		if (title is not null)
 			song.Title = title;
 		if (request.Composer is not null)
@@ -403,7 +349,7 @@ public sealed class CatalogueWriteService(ArchiveDbContext db)
 			// the millisecond of this save). Lists keep their entered-by
 			// attribution; automated runs preserve the song's creator.
 			db.SongTitles.RemoveRange(song.AlternateTitles);
-			var listActor = origin is null ? actor.AccountId : song.CreatedByAccountId;
+			var listActor = automated ? song.CreatedByAccountId : actor.AccountId;
 			foreach (var (value, position) in alternateTitles.Select((v, p) => (v, p)))
 			{
 				db.SongTitles.Add(new SongTitle
@@ -419,7 +365,7 @@ public sealed class CatalogueWriteService(ArchiveDbContext db)
 		if (tags is not null)
 		{
 			db.SongTags.RemoveRange(song.Tags);
-			var listActor = origin is null ? actor.AccountId : song.CreatedByAccountId;
+			var listActor = automated ? song.CreatedByAccountId : actor.AccountId;
 			foreach (var (value, position) in tags.Select((v, p) => (v, p)))
 			{
 				db.SongTags.Add(new SongTag
@@ -432,24 +378,7 @@ public sealed class CatalogueWriteService(ArchiveDbContext db)
 				});
 			}
 		}
-		var alternateAfter = alternateTitles is null
-			? null
-			: FieldCatalog.JoinList(alternateTitles);
-		var tagsAfter = tags is null ? null : FieldCatalog.JoinList(tags);
-
-		await RecordProvenanceAsync(FieldCatalog.EntityTypeSong, song.Id,
-		[
-			("title", titleBefore, titleAfter),
-			("composer", composerBefore, After(request.Composer is not null, composer, composerBefore)),
-			("lyricist", lyricistBefore, After(request.Lyricist is not null, lyricist, lyricistBefore)),
-			("lyrics", lyricsBefore, After(request.Lyrics is not null, lyrics, lyricsBefore)),
-			("language", languageBefore, After(request.Language is not null, language, languageBefore)),
-			("occasion", occasionBefore, After(request.Occasion is not null, occasion, occasionBefore)),
-			("alternate_titles", alternateBefore, alternateAfter),
-			("tags", tagsBefore, tagsAfter),
-		], actor, origin, token);
-
-		return await SaveSongAttributionAsync(song, actor, origin, SongConcurrencyMessage, token);
+		return await SaveSongAttributionAsync(song, actor, automated, SongConcurrencyMessage, token);
 	}
 
 	public async Task<WriteOutcome> PublishSongAsync(Song song, WriteActor actor, uint? expectedRowVersion, CancellationToken token)
@@ -505,7 +434,7 @@ public sealed class CatalogueWriteService(ArchiveDbContext db)
 			CreatedAt = actor.Now,
 			CreatedByAccountId = actor.AccountId,
 		});
-		return await SaveSongAttributionAsync(song, actor, null, CatalogueEndpoints.ConcurrencyMessage, token);
+		return await SaveSongAttributionAsync(song, actor, false, CatalogueEndpoints.ConcurrencyMessage, token);
 	}
 
 	/// <summary>Creates one further musical version under an existing arrangement.</summary>
@@ -530,15 +459,14 @@ public sealed class CatalogueWriteService(ArchiveDbContext db)
 			CreatedAt = actor.Now,
 			CreatedByAccountId = actor.AccountId,
 		});
-		return await SaveSongAttributionAsync(arrangement.Song, actor, null, CatalogueEndpoints.ConcurrencyMessage, token);
+		return await SaveSongAttributionAsync(arrangement.Song, actor, false, CatalogueEndpoints.ConcurrencyMessage, token);
 	}
 
 	/// <summary>Applies one arrangement patch with its own row version and the song's attribution.</summary>
 	public async Task<WriteOutcome> PatchArrangementAsync(
 		Arrangement arrangement, PatchArrangementRequest request, uint? expectedRowVersion,
-		WriteActor actor, AutomatedWrite? origin, CancellationToken token)
+		WriteActor actor, bool automated, CancellationToken token)
 	{
-		var labelBefore = arrangement.Label;
 		string? label = null;
 		if (request.Label is not null)
 		{
@@ -557,9 +485,6 @@ public sealed class CatalogueWriteService(ArchiveDbContext db)
 		if (expectedRowVersion is not null && expectedRowVersion != arrangement.RowVersion)
 			return WriteOutcome.Stale(ArrangementConcurrencyMessage);
 
-		var arrangerBefore = arrangement.Arranger;
-		var voiceConfigurationBefore = arrangement.VoiceConfiguration;
-		var accompanimentBefore = arrangement.Accompaniment;
 		if (label is not null)
 			arrangement.Label = label;
 		if (request.Arranger is not null)
@@ -569,24 +494,15 @@ public sealed class CatalogueWriteService(ArchiveDbContext db)
 		if (request.Accompaniment is not null)
 			arrangement.Accompaniment = accompaniment;
 
-		await RecordProvenanceAsync(FieldCatalog.EntityTypeArrangement, arrangement.Id,
-		[
-			("label", labelBefore, After(label is not null, label, labelBefore)),
-			("arranger", arrangerBefore, After(request.Arranger is not null, arranger, arrangerBefore)),
-			("voice_configuration", voiceConfigurationBefore, After(request.VoiceConfiguration is not null, voiceConfiguration, voiceConfigurationBefore)),
-			("accompaniment", accompanimentBefore, After(request.Accompaniment is not null, accompaniment, accompanimentBefore)),
-		], actor, origin, token);
-
 		arrangement.RowVersion++;
-		return await SaveSongAttributionAsync(arrangement.Song, actor, origin, SongConcurrencyMessage, token);
+		return await SaveSongAttributionAsync(arrangement.Song, actor, automated, SongConcurrencyMessage, token);
 	}
 
 	/// <summary>Applies one musical-version patch with its own row version and the song's attribution.</summary>
 	public async Task<WriteOutcome> PatchMusicalVersionAsync(
 		MusicalVersion version, PatchMusicalVersionRequest request, uint? expectedRowVersion,
-		WriteActor actor, AutomatedWrite? origin, CancellationToken token)
+		WriteActor actor, bool automated, CancellationToken token)
 	{
-		var labelBefore = version.Label;
 		string? label = null;
 		if (request.Label is not null)
 		{
@@ -603,8 +519,6 @@ public sealed class CatalogueWriteService(ArchiveDbContext db)
 		if (expectedRowVersion is not null && expectedRowVersion != version.RowVersion)
 			return WriteOutcome.Stale(ArrangementConcurrencyMessage);
 
-		var creatorBefore = version.Creator;
-		var musicalKeyBefore = version.MusicalKey;
 		if (label is not null)
 			version.Label = label;
 		if (request.Creator is not null)
@@ -612,24 +526,16 @@ public sealed class CatalogueWriteService(ArchiveDbContext db)
 		if (request.MusicalKey is not null)
 			version.MusicalKey = musicalKey;
 
-		await RecordProvenanceAsync(FieldCatalog.EntityTypeMusicalVersion, version.Id,
-		[
-			("label", labelBefore, After(label is not null, label, labelBefore)),
-			("creator", creatorBefore, After(request.Creator is not null, creator, creatorBefore)),
-			("musical_key", musicalKeyBefore, After(request.MusicalKey is not null, musicalKey, musicalKeyBefore)),
-		], actor, origin, token);
-
 		version.RowVersion++;
-		return await SaveSongAttributionAsync(version.Arrangement.Song, actor, origin, SongConcurrencyMessage, token);
+		return await SaveSongAttributionAsync(version.Arrangement.Song, actor, automated, SongConcurrencyMessage, token);
 	}
 
 	// ---- Events ------------------------------------------------------------
 
-	/// <summary>Applies one event patch; validation, provenance attribution and the row-version bump live here.</summary>
+	/// <summary>Applies one event patch; validation, attribution and the row-version bump live here.</summary>
 	public async Task<WriteOutcome> PatchEventAsync(
-		ChoirEvent choirEvent, PatchEventRequest request, WriteActor actor, AutomatedWrite? origin, CancellationToken token)
+		ChoirEvent choirEvent, PatchEventRequest request, WriteActor actor, bool automated, CancellationToken token)
 	{
-		var titleBefore = choirEvent.Title;
 		string? title = null;
 		if (request.Title is not null)
 		{
@@ -670,8 +576,6 @@ public sealed class CatalogueWriteService(ArchiveDbContext db)
 		if (request.ExpectedRowVersion is not null && request.ExpectedRowVersion != choirEvent.RowVersion)
 			return WriteOutcome.Stale(EventEndpoints.ConcurrencyMessage);
 
-		var notesBefore = choirEvent.Notes;
-		var sourceNoteBefore = choirEvent.SourceNote;
 		if (title is not null)
 			choirEvent.Title = title;
 		if (kind is not null)
@@ -694,21 +598,15 @@ public sealed class CatalogueWriteService(ArchiveDbContext db)
 			choirEvent.DateApproximate = request.Date.Approximate;
 		}
 
-		await RecordProvenanceAsync(FieldCatalog.EntityTypeEvent, choirEvent.Id,
-		[
-			("notes", notesBefore, After(request.Notes is not null, notes, notesBefore)),
-			("source_note", sourceNoteBefore, After(request.SourceNote is not null, sourceNote, sourceNoteBefore)),
-		], actor, origin, token);
-
 		choirEvent.UpdatedAt = actor.Now;
-		choirEvent.UpdatedByAccountId = origin is null ? actor.AccountId : choirEvent.CreatedByAccountId;
+		choirEvent.UpdatedByAccountId = automated ? choirEvent.CreatedByAccountId : actor.AccountId;
 		choirEvent.RowVersion++;
 		try { await db.SaveChangesAsync(token); }
 		catch (DbUpdateConcurrencyException) { return WriteOutcome.Stale(EventEndpoints.ConcurrencyMessage); }
 		return WriteOutcome.Saved();
 	}
 
-	/// <summary>Publishes one event; identity and visibility stay human-confirmed or proposal-applied.</summary>
+	/// <summary>Publishes one event; only an editor's request does this.</summary>
 	public async Task<WriteOutcome> PublishEventAsync(ChoirEvent choirEvent, WriteActor actor, uint? expectedRowVersion, CancellationToken token)
 	{
 		if (choirEvent.PublishedAt is not null)
@@ -740,12 +638,12 @@ public sealed class CatalogueWriteService(ArchiveDbContext db)
 	// ---- Asset fields ------------------------------------------------------
 
 	/// <summary>
-	/// Applies an asset-field patch (description, voice label) with
-	/// provenance; the asset type and file stay untouched here and the
-	/// ownership checks remain in the endpoints.
+	/// Applies an asset-field patch (description, voice label); the asset
+	/// type and file stay untouched here and the ownership checks remain in
+	/// the endpoints.
 	/// </summary>
 	public async Task<WriteOutcome> PatchAssetAsync(
-		ArchiveAsset asset, AssetFieldPatch patch, WriteActor actor, AutomatedWrite? origin, CancellationToken token)
+		ArchiveAsset asset, AssetFieldPatch patch, WriteActor actor, CancellationToken token)
 	{
 		string? description = null;
 		if (patch.Description is not null)
@@ -769,8 +667,7 @@ public sealed class CatalogueWriteService(ArchiveDbContext db)
 		var descriptionBefore = asset.Description;
 		var voiceBefore = asset.VoiceLabel;
 		// A request that changes nothing (no field, no asset type) is not a
-		// write: no new row version (open proposals on the asset would turn
-		// stale for nothing) and no provenance.
+		// write: no new row version.
 		var typeChanged = db.Entry(asset).Property(a => a.AssetType).IsModified;
 		var changed = typeChanged
 			|| (patch.Description is not null && description != descriptionBefore)
@@ -782,12 +679,6 @@ public sealed class CatalogueWriteService(ArchiveDbContext db)
 		if (patch.VoiceLabel is not null)
 			asset.VoiceLabel = voiceLabel;
 
-		await RecordProvenanceAsync(FieldCatalog.EntityTypeAsset, asset.Id,
-		[
-			("description", descriptionBefore, After(patch.Description is not null, description, descriptionBefore)),
-			("voice_label", voiceBefore, After(patch.VoiceLabel is not null, voiceLabel, voiceBefore)),
-		], actor, origin, token);
-
 		asset.RowVersion++;
 		try { await db.SaveChangesAsync(token); }
 		catch (DbUpdateConcurrencyException) { return WriteOutcome.Stale(CatalogueEndpoints.ConcurrencyMessage); }
@@ -795,10 +686,6 @@ public sealed class CatalogueWriteService(ArchiveDbContext db)
 	}
 
 	// ---- Internal helpers --------------------------------------------------
-
-	/// <summary>The value a field carries after this request: applied when present, its previous value otherwise.</summary>
-	private static string? After(bool present, string? applied, string? before)
-		=> present ? applied : before;
 
 	/// <summary>Trims an optional write value for a patch; empty means clear (null), too long is an invalid write.</summary>
 	private static string? CleanPatch(string? raw, int maxLength, string tooLongTitle, out WriteOutcome? error)
@@ -911,49 +798,12 @@ public sealed class CatalogueWriteService(ArchiveDbContext db)
 		MusicalKey: field == "musical_key" ? value : null,
 		RowVersion: null);
 
-	/// <summary>
-	/// Upserts the latest provenance row per changed field. Human writes and
-	/// reverts lock the field; automated writes keep it open for later runs
-	/// and name the run (source, confidence, model, prompt version).
-	/// </summary>
-	private async Task RecordProvenanceAsync(
-		string entityType, Guid entityId, List<(string Field, string? Before, string? After)> changes,
-		WriteActor actor, AutomatedWrite? origin, CancellationToken token)
-	{
-		foreach (var (field, before, after) in changes)
-		{
-			if (!FieldCatalog.IsKnownField(entityType, field))
-				continue;
-			// (null, null) marks a field absent from this request.
-			if (before is null && after is null)
-				continue;
-			if (string.Equals(before, after, StringComparison.Ordinal))
-				continue;
-			var row = await db.FieldProvenance
-				.FirstOrDefaultAsync(p => p.EntityType == entityType
-					&& p.EntityId == entityId && p.Field == field, token);
-			if (row is null)
-			{
-				row = new FieldProvenance { EntityType = entityType, EntityId = entityId, Field = field };
-				db.FieldProvenance.Add(row);
-			}
-			row.Source = origin is null ? ProvenanceSource.Human : origin.Source;
-			row.Confidence = origin is null ? ProvenanceConfidence.Sicher : origin.Confidence;
-			row.Model = origin?.Model;
-			row.PromptVersion = origin?.PromptVersion;
-			row.PreviousValue = before;
-			row.ChangedAt = actor.Now;
-			row.ActorAccountId = origin is null ? actor.AccountId : origin.ConfirmedByAccountId;
-			row.Locked = origin is null;
-		}
-	}
-
 	/// <summary>Saves with the song-level attribution (UpdatedAt, UpdatedBy, RowVersion bump) and the stale mapping.</summary>
 	private async Task<WriteOutcome> SaveSongAttributionAsync(
-		Song song, WriteActor actor, AutomatedWrite? origin, string staleMessage, CancellationToken token)
+		Song song, WriteActor actor, bool automated, string staleMessage, CancellationToken token)
 	{
 		song.UpdatedAt = actor.Now;
-		song.UpdatedByAccountId = origin is null ? actor.AccountId : song.UpdatedByAccountId;
+		song.UpdatedByAccountId = automated ? song.UpdatedByAccountId : actor.AccountId;
 		song.RowVersion++;
 		try { await db.SaveChangesAsync(token); }
 		catch (DbUpdateConcurrencyException) { return WriteOutcome.Stale(staleMessage); }

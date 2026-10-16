@@ -1,7 +1,7 @@
 using Archive.Backend.Assets;
 using Archive.Backend.Auth;
+using Archive.Backend.Catalogue;
 using Archive.Backend.Data;
-using Archive.Backend.Provenance;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.EntityFrameworkCore;
 
@@ -217,11 +217,11 @@ public static class EventEndpoints
 				.FirstOrDefaultAsync(e => e.Id == id, token);
 			if (choirEvent is null)
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
-			// ARC-013-1: the event patch moved into the shared write service
-			// (validation, attribution and the notes/sourceNote provenance).
+			// The event patch runs through the shared write service
+			// (validation and attribution).
 			var outcome = await writes.PatchEventAsync(choirEvent,
 				body ?? new(null, null, null, null, null, null, null, null),
-				new WriteActor(decision!.AccountId, time.GetUtcNow()), null, token);
+				new WriteActor(decision!.AccountId, time.GetUtcNow()), automated: false, token);
 			if (!outcome.IsSaved)
 				return Results.Problem(statusCode: outcome.HttpCode, title: outcome.Title);
 			var documents = await LoadEventDocumentsAsync(db, IsEditor(decision), id, token);
@@ -247,8 +247,8 @@ public static class EventEndpoints
 			var choirEvent = await db.Events.FirstOrDefaultAsync(e => e.Id == id, token);
 			if (choirEvent is null)
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
-			// Publication is proposal-only for automated writers; the human
-			// endpoint keeps idempotent first-publication semantics.
+			// Publication is never automated; the editor's endpoint keeps
+			// idempotent first-publication semantics.
 			var outcome = await writes.PublishEventAsync(choirEvent, new WriteActor(decision!.AccountId, time.GetUtcNow()), null, token);
 			if (!outcome.IsSaved)
 				return Results.Problem(statusCode: outcome.HttpCode, title: outcome.Title);

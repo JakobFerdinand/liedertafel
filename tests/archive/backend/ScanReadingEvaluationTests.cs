@@ -3,7 +3,6 @@ using System.Text.RegularExpressions;
 using Archive.Backend.Ai;
 using Archive.Backend.Chat;
 using Archive.Backend.Data;
-using Archive.Backend.Provenance;
 using Archive.Backend.Reading;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
@@ -15,7 +14,7 @@ namespace Archive.Backend.Tests;
 /// ARC-034-1 regression set for scan reading (architecture §14: features that
 /// auto-apply get a fixed set of real documents with expected fields). The
 /// harness runs each document through the real reading job (PDFium, gateway,
-/// budget, quote check, provenance) and reports the pass rate, the fields
+/// budget, quote check) and reports the pass rate, the fields
 /// that were applied wrongly (the dangerous case) and the cost per document.
 ///
 /// CI runs it on generated scans with the scripted stand-in: it proves the
@@ -132,30 +131,24 @@ public sealed class ScanReadingEvaluationTests(ITestOutputHelper output)
 			["musical_key"] = (await db.MusicalVersions.AsNoTracking().SingleAsync()).MusicalKey,
 			["voice_label"] = (await db.Assets.AsNoTracking().SingleAsync()).VoiceLabel,
 		};
-		var proposed = (await host.ProposalsAsync())
-			.Select(p => JsonDocument.Parse(p.Payload).RootElement)
-			.ToDictionary(e => e.GetProperty("field").GetString()!, e => e.GetProperty("value").GetString());
 		var fields = new List<FieldResult>();
 		foreach (var field in FieldNames)
 		{
 			var applied = values[field];
-			proposed.TryGetValue(field, out var offered);
 			document.Expected.TryGetValue(field, out var expected);
-			var outcome = (applied, offered, expected) switch
+			var outcome = (applied, expected) switch
 			{
-				(not null, _, null) => "applied-unchecked",
-				(not null, _, _) => Matches(field, applied, expected!) ? "applied-correct" : "applied-wrong",
-				(null, not null, null) => "proposed-unchecked",
-				(null, not null, _) => Matches(field, offered, expected!) ? "proposed-correct" : "proposed-wrong",
-				(null, null, not null) => "missing",
+				(not null, null) => "applied-unchecked",
+				(not null, _) => Matches(field, applied, expected!) ? "applied-correct" : "applied-wrong",
+				(null, not null) => "missing",
 				_ => "empty",
 			};
-			if (expected is not null || applied is not null || offered is not null)
-				fields.Add(new FieldResult(field, outcome, applied ?? offered));
+			if (expected is not null || applied is not null)
+				fields.Add(new FieldResult(field, outcome, applied));
 		}
 		var ledger = await host.LedgerAsync();
 		var passed = fields.Where(f => document.Expected.ContainsKey(f.Field))
-			.All(f => f.Outcome is "applied-correct" or "proposed-correct")
+			.All(f => f.Outcome is "applied-correct")
 			&& fields.All(f => f.Outcome != "applied-wrong");
 		return new DocumentResult(document.Name, passed, ledger.Sum(e => e.CostMicroEur), ledger.Sum(e => e.Calls),
 			fields.Where(f => document.Expected.ContainsKey(f.Field) || f.Outcome.StartsWith("applied")).ToList());

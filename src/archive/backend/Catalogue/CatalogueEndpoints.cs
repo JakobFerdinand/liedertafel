@@ -2,7 +2,6 @@ using Archive.Backend.Assets;
 using Archive.Backend.Auth;
 using Archive.Backend.Data;
 using Archive.Backend.Extraction;
-using Archive.Backend.Provenance;
 using Archive.Backend.Recordings;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.EntityFrameworkCore;
@@ -390,10 +389,7 @@ public static class CatalogueEndpoints
 				.Select(v => v.Id)
 				.ToList();
 			var versionAssets = await LoadVersionAssetsAsync(db, versionIds, token);
-			// ARC-013-1: editors receive the latest per-field provenance for
-			// the "KI" badges; members never receive it.
-			var provenance = isEditor ? await LoadEditorProvenanceAsync(db, id, token) : null;
-			return Results.Ok(new { song = SongDetail(song, versionAssets, provenance) });
+			return Results.Ok(new { song = SongDetail(song, versionAssets) });
 		});
 
 		app.MapPost("/api/songs", async (
@@ -411,8 +407,7 @@ public static class CatalogueEndpoints
 			var (decision, error) = await RequireEditorAsync(context, accessor, access);
 			if (error is not null)
 				return error;
-			// ARC-013-1: creation moved into the shared write service so
-			// proposal handlers and the endpoints use one validated path.
+			// Creation runs through the shared write service (one validated path).
 			var actor = new WriteActor(decision!.AccountId, time.GetUtcNow());
 			var (outcome, song) = await writes.CreateSongAsync(
 				body ?? new CreateSongRequest(null, null, null, null, null, null, null, null), actor, token);
@@ -442,15 +437,12 @@ public static class CatalogueEndpoints
 				.FirstOrDefaultAsync(s => s.Id == id, token);
 			if (song is null)
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
-			// ARC-013-1: patch moved into the shared write service; the human
-			// edit locks every changed field against later automated runs.
 			var actor = new WriteActor(decision!.AccountId, time.GetUtcNow());
 			var outcome = await writes.PatchSongAsync(song, body ?? new(null, null, null, null, null, null, null, null, null),
-				body?.RowVersion, actor, null, token);
+				body?.RowVersion, actor, automated: false, token);
 			if (!outcome.IsSaved)
 				return Results.Problem(statusCode: outcome.HttpCode, title: outcome.Title);
-			var provenance = await LoadEditorProvenanceAsync(db, id, token);
-			return Results.Ok(new { song = SongDetail((await LoadDetailAsync(db, id, token))!, provenance: provenance) });
+			return Results.Ok(new { song = SongDetail((await LoadDetailAsync(db, id, token))!) });
 		}).DisableAntiforgery();
 
 		app.MapPost("/api/songs/{id}/publish", async (
@@ -470,13 +462,12 @@ public static class CatalogueEndpoints
 			var song = await db.Songs.FirstOrDefaultAsync(s => s.Id == id, token);
 			if (song is null)
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
-			// Publication is a visibility change: it stays human-confirmed
-			// here and is never written automatically (proposal only).
+			// Publication is a visibility change: only an editor's request
+			// does it, never an automated writer.
 			var outcome = await writes.PublishSongAsync(song, new WriteActor(decision!.AccountId, time.GetUtcNow()), null, token);
 			if (!outcome.IsSaved)
 				return Results.Problem(statusCode: outcome.HttpCode, title: outcome.Title);
-			var provenance = await LoadEditorProvenanceAsync(db, id, token);
-			return Results.Ok(new { song = SongDetail((await LoadDetailAsync(db, id, token))!, provenance: provenance) });
+			return Results.Ok(new { song = SongDetail((await LoadDetailAsync(db, id, token))!) });
 		}).DisableAntiforgery();
 
 		app.MapPost("/api/songs/{id}/unpublish", async (
@@ -549,11 +540,10 @@ public static class CatalogueEndpoints
 				return Results.Problem(statusCode: 404, title: ArrangementNotFoundMessage);
 			var actor = new WriteActor(decision!.AccountId, time.GetUtcNow());
 			var outcome = await writes.PatchArrangementAsync(arrangement,
-				body ?? new(null, null, null, null, null), body?.RowVersion, actor, null, token);
+				body ?? new(null, null, null, null, null), body?.RowVersion, actor, automated: false, token);
 			if (!outcome.IsSaved)
 				return Results.Problem(statusCode: outcome.HttpCode, title: outcome.Title);
-			var provenance = await LoadEditorProvenanceAsync(db, arrangement.Song.Id, token);
-			return Results.Ok(new { song = SongDetail((await LoadDetailAsync(db, arrangement.Song.Id, token))!, provenance: provenance) });
+			return Results.Ok(new { song = SongDetail((await LoadDetailAsync(db, arrangement.Song.Id, token))!) });
 		}).DisableAntiforgery();
 
 		app.MapPost("/api/arrangements/{id}/versions", async (
@@ -605,11 +595,10 @@ public static class CatalogueEndpoints
 				return Results.Problem(statusCode: 404, title: ArrangementNotFoundMessage);
 			var actor = new WriteActor(decision!.AccountId, time.GetUtcNow());
 			var outcome = await writes.PatchMusicalVersionAsync(version,
-				body ?? new(null, null, null, null), body?.RowVersion, actor, null, token);
+				body ?? new(null, null, null, null), body?.RowVersion, actor, automated: false, token);
 			if (!outcome.IsSaved)
 				return Results.Problem(statusCode: outcome.HttpCode, title: outcome.Title);
-			var provenance = await LoadEditorProvenanceAsync(db, version.Arrangement.Song.Id, token);
-			return Results.Ok(new { song = SongDetail((await LoadDetailAsync(db, version.Arrangement.Song.Id, token))!, provenance: provenance) });
+			return Results.Ok(new { song = SongDetail((await LoadDetailAsync(db, version.Arrangement.Song.Id, token))!) });
 		}).DisableAntiforgery();
 	}
 
@@ -691,7 +680,7 @@ public static class CatalogueEndpoints
 		return texts.ToDictionary(t => t.RevisionId, t => ScoreTextAnalyzer.Analyze(t.Text).Facts);
 	}
 
-	private static object SongDetail(Song song, List<(Guid VersionId, List<object> Assets)>? versionAssets = null, object? provenance = null)
+	private static object SongDetail(Song song, List<(Guid VersionId, List<object> Assets)>? versionAssets = null)
 	{
 		var assetMap = versionAssets?.ToDictionary(entry => entry.VersionId, entry => entry.Assets);
 		return new
@@ -708,7 +697,6 @@ public static class CatalogueEndpoints
 			lyrics = song.Lyrics,
 			language = song.Language,
 			occasion = song.Occasion,
-			provenance,
 			tags = song.Tags
 				.OrderBy(t => t.Position).ThenBy(t => t.Id)
 				.Select(t => t.Value),
@@ -736,54 +724,6 @@ public static class CatalogueEndpoints
 				}),
 			}),
 		};
-	}
-
-	/// <summary>
-	/// ARC-013-1: loads the latest provenance rows of one song and its
-	/// arrangements and versions as a flat list, keyed by entity type, id and
-	/// field. Only editors call this; members never get a provenance field.
-	/// </summary>
-	public static async Task<List<object>> LoadEditorProvenanceAsync(ArchiveDbContext db, Guid songId, CancellationToken token)
-	{
-		var song = await db.Songs.AsNoTracking()
-			.Include(s => s.Arrangements).ThenInclude(a => a.MusicalVersions)
-			.FirstOrDefaultAsync(s => s.Id == songId, token);
-		if (song is null)
-			return [];
-		var arrangementIds = song.Arrangements.Select(a => a.Id).ToList();
-		var versionIds = song.Arrangements
-			.SelectMany(a => a.MusicalVersions).Select(v => v.Id).ToList();
-		// ARC-034-1: the materials' own fields (the voice a scan reading wrote).
-		var assetIds = await db.Assets.AsNoTracking()
-			.Where(a => a.MusicalVersionId != null && versionIds.Contains(a.MusicalVersionId.Value))
-			.Select(a => a.Id)
-			.ToListAsync(token);
-		var entityIds = new List<Guid> { song.Id };
-		entityIds.AddRange(arrangementIds);
-		entityIds.AddRange(versionIds);
-		entityIds.AddRange(assetIds);
-		var rows = await db.FieldProvenance.AsNoTracking()
-			.Where(p => entityIds.Contains(p.EntityId)
-				&& (p.EntityType == FieldCatalog.EntityTypeSong
-					|| p.EntityType == FieldCatalog.EntityTypeArrangement
-					|| p.EntityType == FieldCatalog.EntityTypeMusicalVersion
-					|| p.EntityType == FieldCatalog.EntityTypeAsset))
-			.OrderBy(p => p.EntityType).ThenBy(p => p.Field)
-			.ToListAsync(token);
-		return rows.Select(p => (object)new
-		{
-			entityType = p.EntityType,
-			entityId = p.EntityId,
-			field = p.Field,
-			fieldLabel = FieldCatalog.Display(p.EntityType, p.Field),
-			source = p.Source.ToString(),
-			confidence = p.Confidence.ToString(),
-			model = p.Model,
-			promptVersion = p.PromptVersion,
-			changedAt = p.ChangedAt,
-			locked = p.Locked,
-			canRevert = true,
-		}).ToList();
 	}
 
 	private static bool TryValidateTitle(string? raw, out string title, out IResult? error)

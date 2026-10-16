@@ -3,7 +3,6 @@ using Archive.Backend.Assets;
 using Archive.Backend.Catalogue;
 using Archive.Backend.Data;
 using Archive.Backend.Extraction;
-using Archive.Backend.Provenance;
 using Archive.Backend.Reading;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -110,8 +109,6 @@ public sealed class ReadingPostgresLiveTests(ITestOutputHelper output)
 		Assert.Equal((ReadingStatus.Completed, 2, 5), (reading.Status, reading.PagesRead, reading.FieldsApplied));
 		var song = await after.Songs.AsNoTracking().SingleAsync();
 		Assert.Equal(("Franz Schubert", "Anna Beispiel", "Im Wald da singen die Vögel"), (song.Composer, song.Lyricist, song.Lyrics));
-		var provenance = await after.FieldProvenance.AsNoTracking().ToListAsync();
-		Assert.Equal(ProvenanceSource.Ai, provenance.Single(p => p.Field == "lyrics").Source);
 		Assert.Equal(ExtractionTextSource.Reading, (await after.ExtractionJobs.AsNoTracking().SingleAsync()).TextSource);
 		// The real ledger SQL holds both model calls, settled, with nothing left reserved.
 		var ledger = await after.AiUsageEntries.AsNoTracking().ToListAsync();
@@ -186,7 +183,6 @@ public sealed class ReadingPostgresLiveTests(ITestOutputHelper output)
 				new StaticMonitor(harnessHolder.Ai), new AiModels { Chat = ReadingTestHost.ModelKey }));
 			collection.AddSingleton(sp => new ScanReadingModel(sp.GetRequiredService<AiGateway>(),
 				Microsoft.Extensions.Options.Options.Create(harnessHolder.Reading), NullLoggerFactory.Instance));
-			collection.Configure<ProvenanceOptions>(o => o.AutoApplyConfidence = "sicher");
 			collection.AddScoped<CatalogueWriteService>();
 			collection.AddScoped<AutomatedFieldWriter>();
 			collection.AddScoped<ScoreFieldPrefill>();

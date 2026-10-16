@@ -11,7 +11,7 @@ namespace Archive.Backend.Reading;
 /// deliberately simple: a transcription returns a fixed German sample page
 /// (it cannot see images), and the field answer picks credit lines, key,
 /// voice and lyrics out of the text by keywords — so the whole journey (jobs,
-/// budget, quote check, provenance, proposals) can run locally.
+/// budget, quote check, field writes) can run locally.
 /// </summary>
 public static partial class ScriptedScanReader
 {

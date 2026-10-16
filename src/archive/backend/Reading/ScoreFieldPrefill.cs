@@ -1,9 +1,8 @@
-using System.Text.Json;
 using System.Text.RegularExpressions;
 using Archive.Backend.Assets;
+using Archive.Backend.Catalogue;
 using Archive.Backend.Data;
 using Archive.Backend.Extraction;
-using Archive.Backend.Provenance;
 using Microsoft.EntityFrameworkCore;
 
 namespace Archive.Backend.Reading;
@@ -15,8 +14,6 @@ namespace Archive.Backend.Reading;
 public sealed class PrefillProgress
 {
 	public int Applied { get; set; }
-
-	public int Proposed { get; set; }
 }
 
 /// <summary>
@@ -24,22 +21,19 @@ public sealed class PrefillProgress
 /// fields of a score from its text. Deterministic first: the
 /// <see cref="ScoreTextAnalyzer"/> facts are written with source regex; only
 /// when fields are still empty does the field agent run. Everything the
-/// agent says is data that code verifies — a field is applied only when it
+/// agent says is data that code verifies — a field is written only when it
 /// is certain ("sicher") and its quote really stands in the text; everything
-/// else becomes a proposal. Writes go through the shared
-/// <see cref="AutomatedFieldWriter"/> only, for fields that are empty and not
-/// locked by a human, and only while the revision is the asset's current file.
-/// A new song identity is never created here.
+/// else is dropped. Writes go through the shared
+/// <see cref="AutomatedFieldWriter"/> only, for fields that are still empty,
+/// and only while the revision is the asset's current file. A value an
+/// editor entered is never overwritten, and a new song identity is never
+/// created here.
 /// </summary>
 public sealed class ScoreFieldPrefill(
 	ArchiveDbContext db,
 	AutomatedFieldWriter writer,
 	ScanReadingModel model)
 {
-	public const string RegexReason = "Aus dem Text der Noten erkannt.";
-
-	public const string UnverifiedReason = "Aus dem Scan gelesen, das Zitat war im Text aber nicht zu finden.";
-
 	/// <summary>Longest value a field read by the agent may have; longer values are skipped, not cut.</summary>
 	private const int MaxNameLength = 150;
 
@@ -75,13 +69,12 @@ public sealed class ScoreFieldPrefill(
 			["musical_key"] = new(FieldCatalog.EntityTypeMusicalVersion, version.Id, version.MusicalKey),
 			["voice_label"] = new(FieldCatalog.EntityTypeAsset, asset.Id, asset.VoiceLabel),
 		};
-		var open = await OpenFieldsAsync(targets, token);
+		var open = targets
+			.Where(pair => string.IsNullOrWhiteSpace(pair.Value.Current))
+			.Select(pair => pair.Key)
+			.ToHashSet(StringComparer.Ordinal);
 		if (open.Count == 0)
 			return;
-
-		var description = SourceDescription(revision);
-
-		var created = new List<Guid>();
 
 		// 1. Deterministic: what the analyzer reads, written as regex facts.
 		var facts = ScoreTextAnalyzer.Analyze(text).Facts;
@@ -90,20 +83,15 @@ public sealed class ScoreFieldPrefill(
 			if (!open.Contains(field))
 				continue;
 			var target = targets[field];
-			var outcome = await writer.WriteFieldAsync(new AutomatedFieldWriter.FieldWriteRequest(
-				target.EntityType, target.EntityId, field, value, ProvenanceSource.Regex, ProvenanceConfidence.Sicher,
-				Model: null, PromptVersion: null, RegexReason, description, ProposalOnly: false), accountId, token);
+			var outcome = await writer.WriteFieldAsync(
+				new AutomatedFieldWriter.FieldWriteRequest(target.EntityType, target.EntityId, field, value), accountId, token);
 			open.Remove(field);
-			Count(outcome, progress, created);
-			ForgetRefusedWrite(outcome);
+			Count(outcome, progress);
 		}
 		if (open.Count == 0)
-		{
-			await writer.RebaseProposalsAsync(created, token);
 			return;
-		}
 
-		// 2. The agent, for the fields that are still empty and unlocked.
+		// 2. The agent, for the fields that are still empty.
 		var wanted = FieldOrder.Where(open.Contains).ToList();
 		var reading = await model.ReadFieldsAsync(text, wanted, accountId, token);
 		var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -116,42 +104,24 @@ public sealed class ScoreFieldPrefill(
 			var value = CleanValue(read.Field, read.Value);
 			if (value is null)
 				continue;
-			var verified = QuoteIsVerified(read, value, text);
+			// Only a certain value whose quote stands in the text is written;
+			// anything else is dropped.
 			var certain = string.Equals(read.Certainty?.Trim(), "sicher", StringComparison.OrdinalIgnoreCase);
-			var target = targets[read.Field];
-			if (await AlreadyProposedAsync(target, read.Field, value, token))
+			if (!certain || !QuoteIsVerified(read, value, text))
 				continue;
-			var apply = certain && verified;
-			var reason = apply
-				? $"Aus dem Scan gelesen: „{Shorten(read.Quote)}“."
-				: verified
-					? $"Aus dem Scan gelesen, aber nicht sicher: „{Shorten(read.Quote)}“."
-					: UnverifiedReason;
-			var outcome = await writer.WriteFieldAsync(new AutomatedFieldWriter.FieldWriteRequest(
-				target.EntityType, target.EntityId, read.Field, value, ProvenanceSource.Ai,
-				apply ? ProvenanceConfidence.Sicher : ProvenanceConfidence.Unsicher,
-				model.Model, ScanPrompts.FieldsVersion, reason, description, ProposalOnly: !apply), accountId, token);
-			Count(outcome, progress, created);
-			ForgetRefusedWrite(outcome);
+			var target = targets[read.Field];
+			var outcome = await writer.WriteFieldAsync(
+				new AutomatedFieldWriter.FieldWriteRequest(target.EntityType, target.EntityId, read.Field, value), accountId, token);
+			Count(outcome, progress);
 		}
-		// Proposals made before a later apply on the same song would be stale
-		// at once: re-base them on the final row versions.
-		await writer.RebaseProposalsAsync(created, token);
 	}
 
-	private static void Count(AutomatedFieldWriter.AutomatedWriteOutcome outcome, PrefillProgress progress, List<Guid> proposals)
+	private void Count(AutomatedFieldWriter.AutomatedWriteOutcome outcome, PrefillProgress progress)
 	{
-		switch (outcome.Result)
-		{
-			case AutomatedFieldWriter.AutomatedWriteResult.Applied:
-				progress.Applied++;
-				break;
-			case AutomatedFieldWriter.AutomatedWriteResult.Proposed:
-				progress.Proposed++;
-				if (outcome.ProposalId is { } id)
-					proposals.Add(id);
-				break;
-		}
+		if (outcome.Result == AutomatedFieldWriter.AutomatedWriteResult.Applied)
+			progress.Applied++;
+		else if (outcome.Result == AutomatedFieldWriter.AutomatedWriteResult.Refused)
+			ForgetRefusedWrite();
 	}
 
 	/// <summary>
@@ -160,16 +130,12 @@ public sealed class ScoreFieldPrefill(
 	/// pay for the field call twice. Drop the abandoned edits so the next
 	/// field starts from what is stored.
 	/// </summary>
-	private void ForgetRefusedWrite(AutomatedFieldWriter.AutomatedWriteOutcome outcome)
+	private void ForgetRefusedWrite()
 	{
-		if (outcome.Result != AutomatedFieldWriter.AutomatedWriteResult.Refused)
-			return;
 		foreach (var entry in db.ChangeTracker.Entries().ToList())
 		{
-			var abandoned = entry.State == EntityState.Modified
-					&& entry.Entity is Catalogue.Song or Catalogue.Arrangement or Catalogue.MusicalVersion or ArchiveAsset
-				|| entry.State == EntityState.Added && entry.Entity is FieldProvenance;
-			if (abandoned)
+			if (entry.State == EntityState.Modified
+				&& entry.Entity is Song or Arrangement or MusicalVersion or ArchiveAsset)
 				entry.State = EntityState.Detached;
 		}
 	}
@@ -186,50 +152,6 @@ public sealed class ScoreFieldPrefill(
 			yield return ("musical_key", key);
 		if (facts.Voice is { } voice)
 			yield return ("voice_label", voice);
-	}
-
-	/// <summary>The fields that are empty and not locked by a human edit.</summary>
-	private async Task<HashSet<string>> OpenFieldsAsync(Dictionary<string, Target> targets, CancellationToken token)
-	{
-		var ids = targets.Values.Select(t => t.EntityId).Distinct().ToList();
-		var locked = (await db.FieldProvenance.AsNoTracking()
-				.Where(p => ids.Contains(p.EntityId) && p.Locked)
-				.Select(p => new { p.EntityType, p.EntityId, p.Field })
-				.ToListAsync(token))
-			.Select(p => (p.EntityType, p.EntityId, p.Field))
-			.ToHashSet();
-		return targets
-			.Where(pair => string.IsNullOrWhiteSpace(pair.Value.Current)
-				&& !locked.Contains((pair.Value.EntityType, pair.Value.EntityId, pair.Key)))
-			.Select(pair => pair.Key)
-			.ToHashSet(StringComparer.Ordinal);
-	}
-
-	/// <summary>
-	/// True when the editor queue already has this field of the target: any
-	/// open proposal (a retry never doubles it) or a rejected one for the very
-	/// same value (an editor's "no" is not asked again by "Rest lesen").
-	/// </summary>
-	private async Task<bool> AlreadyProposedAsync(Target target, string field, string value, CancellationToken token)
-	{
-		var stored = await db.Proposals.AsNoTracking()
-			.Where(p => p.Kind == ProposalKind.FieldSuggestion
-				&& (p.Status == ProposalStatus.Open || p.Status == ProposalStatus.Rejected)
-				&& p.TargetEntityId == target.EntityId && p.TargetEntityType == target.EntityType)
-			.Select(p => new { p.Status, p.Payload })
-			.ToListAsync(token);
-		return stored.Any(proposal =>
-		{
-			try
-			{
-				var root = JsonDocument.Parse(proposal.Payload).RootElement;
-				if (root.GetProperty("field").GetString() != field)
-					return false;
-				return proposal.Status == ProposalStatus.Open
-					|| root.TryGetProperty("value", out var proposed) && proposed.GetString() == value;
-			}
-			catch (Exception exception) when (exception is JsonException or KeyNotFoundException or InvalidOperationException) { return false; }
-		});
 	}
 
 	/// <summary>Trims the value and bounds it; null when it is empty or too long to be a plausible reading.</summary>
@@ -282,18 +204,6 @@ public sealed class ScoreFieldPrefill(
 		=> string.IsNullOrWhiteSpace(value)
 			? string.Empty
 			: Regex.Replace(value.Replace("­", ""), @"\s+", " ").Trim().ToLowerInvariant();
-
-	private static string Shorten(string? quote)
-	{
-		var single = Regex.Replace(quote ?? string.Empty, @"\s+", " ").Trim();
-		return single.Length <= 160 ? single : single[..160] + "…";
-	}
-
-	private static string SourceDescription(FileRevision revision)
-	{
-		var name = string.IsNullOrWhiteSpace(revision.OriginalFileName) ? "Datei" : revision.OriginalFileName.Trim();
-		return $"Noten {(name.Length > 150 ? name[..150] : name)}, Fassung {revision.RevisionNumber}";
-	}
 
 	private sealed record Target(string EntityType, Guid EntityId, string? Current);
 }

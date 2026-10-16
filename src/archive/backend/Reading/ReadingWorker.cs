@@ -208,7 +208,6 @@ public sealed class ReadingWorker(
 		finally
 		{
 			job.FieldsApplied += progress.Applied;
-			job.FieldsProposed += progress.Proposed;
 		}
 
 		var finished = time.GetUtcNow();

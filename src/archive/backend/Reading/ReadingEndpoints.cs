@@ -195,7 +195,6 @@ public static class ReadingEndpoints
 		// when the stored text is full another request could add nothing.
 		partial = job.IsPartial && !textFull,
 		fieldsApplied = job.FieldsApplied,
-		fieldsProposed = job.FieldsProposed,
 		failureReason = job.FailureReason,
 		attemptCount = job.AttemptCount,
 		completedAt = job.CompletedAt,

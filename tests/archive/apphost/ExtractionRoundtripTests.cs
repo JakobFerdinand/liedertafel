@@ -175,8 +175,6 @@ public sealed class ExtractionRoundtripTests(ITestOutputHelper output)
         var prefilled = (await readSong.Content.ReadFromJsonAsync<JsonElement>(token)).GetProperty("song");
         Assert.Equal("Franz Schubert", prefilled.GetProperty("composer").GetString());
         Assert.Equal("Anna Beispiel", prefilled.GetProperty("lyricist").GetString());
-        Assert.Contains(prefilled.GetProperty("provenance").EnumerateArray(), entry =>
-            entry.GetProperty("field").GetString() == "composer" && entry.GetProperty("source").GetString() == "Regex");
     }
 
     /// <summary>

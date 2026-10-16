@@ -4,7 +4,6 @@ using Archive.Backend.Assets;
 using Archive.Backend.Catalogue;
 using Archive.Backend.Data;
 using Archive.Backend.Extraction;
-using Archive.Backend.Provenance;
 using Archive.Backend.Reading;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
@@ -34,6 +33,9 @@ internal sealed class ScanModelStub : IChatClient
 
 	/// <summary>JSON answer of a field request.</summary>
 	public string FieldsJson { get; set; } = """{"felder":[]}""";
+
+	/// <summary>Runs before a field request is answered, e.g. an editor saving while the model reads.</summary>
+	public Func<Task>? BeforeFieldAnswer { get; set; }
 
 	/// <summary>Throws instead of answering the n-th (one-based) transcription request.</summary>
 	public int? FailTranscriptionNumber { get; set; }
@@ -76,6 +78,8 @@ internal sealed class ScanModelStub : IChatClient
 		}
 		else
 		{
+			if (BeforeFieldAnswer is { } before)
+				await before();
 			answer = FieldsJson;
 		}
 		yield return new ChatResponseUpdate(ChatRole.Assistant, answer);
@@ -122,7 +126,7 @@ internal sealed class ReadingTestHost
 	public const string ModelKey = "stub-model";
 
 	public ReadingTestHost(IChatClient? provider = null, decimal capEur = 15m, Action<ReadingOptions>? configure = null,
-		string autoApply = "sicher", bool maintenance = false, string modelKey = ModelKey, AiModelPrice? price = null,
+		bool maintenance = false, string modelKey = ModelKey, AiModelPrice? price = null,
 		ISaveChangesInterceptor? interceptor = null)
 	{
 		DbOptions = new DbContextOptionsBuilder<ArchiveDbContext>()
@@ -160,7 +164,6 @@ internal sealed class ReadingTestHost
 				["Archive:MaintenanceMode"] = maintenance ? "true" : "false",
 			})
 			.Build();
-		ProvenanceOptions = Microsoft.Extensions.Options.Options.Create(new ProvenanceOptions { AutoApplyConfidence = autoApply });
 		Worker = NewWorker(Db);
 	}
 
@@ -178,7 +181,6 @@ internal sealed class ReadingTestHost
 	public ScanReadingModel ScanModel { get; }
 	public IPdfPageRenderer Renderer { get; set; }
 	public IConfiguration Configuration { get; }
-	public IOptions<ProvenanceOptions> ProvenanceOptions { get; }
 	public ReadingWorker Worker { get; private set; }
 
 	public DateTimeOffset Deadline => DateTimeOffset.UtcNow + Options.TimeBudget;
@@ -186,7 +188,7 @@ internal sealed class ReadingTestHost
 	public ReadingWorker NewWorker(ArchiveDbContext db)
 	{
 		var writes = new CatalogueWriteService(db);
-		var writer = new AutomatedFieldWriter(db, writes, ProvenanceOptions, TimeProvider.System);
+		var writer = new AutomatedFieldWriter(db, writes, TimeProvider.System);
 		return new ReadingWorker(db, Storage, Renderer, ScanModel, new ScoreFieldPrefill(db, writer, ScanModel),
 			Microsoft.Extensions.Options.Options.Create(Options), Microsoft.Extensions.Options.Options.Create(new ExtractionOptions()),
 			Configuration, TimeProvider.System, NullLogger<ReadingWorker>.Instance);
@@ -268,19 +270,6 @@ internal sealed class ReadingTestHost
 	{
 		await using var db = new ArchiveDbContext(DbOptions);
 		return await db.Songs.AsNoTracking().SingleAsync(s => s.Id == id);
-	}
-
-	public async Task<FieldProvenance?> ProvenanceAsync(string entityType, Guid id, string field)
-	{
-		await using var db = new ArchiveDbContext(DbOptions);
-		return await db.FieldProvenance.AsNoTracking()
-			.FirstOrDefaultAsync(p => p.EntityType == entityType && p.EntityId == id && p.Field == field);
-	}
-
-	public async Task<List<Proposal>> ProposalsAsync()
-	{
-		await using var db = new ArchiveDbContext(DbOptions);
-		return await db.Proposals.AsNoTracking().ToListAsync();
 	}
 
 	public async Task<List<AiUsageEntry>> LedgerAsync()

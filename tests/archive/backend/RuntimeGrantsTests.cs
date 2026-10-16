@@ -89,12 +89,11 @@ public sealed class RuntimeGrantsTests(ITestOutputHelper output)
 			{
 				var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
 				await db.Database.MigrateAsync();
-				Assert.False(await HasPrivilege(db, "field_provenance", "INSERT"));
+				Assert.False(await HasPrivilege(db, "reading_jobs", "INSERT"));
 
 				Assert.True(await RuntimeGrants.ApplyAsync(db, NullLogger.Instance, CancellationToken.None));
 
-				Assert.True(await HasPrivilege(db, "field_provenance", "SELECT, INSERT, UPDATE, DELETE"));
-				Assert.True(await HasPrivilege(db, "proposals", "SELECT, INSERT, UPDATE, DELETE"));
+				Assert.True(await HasPrivilege(db, "reading_jobs", "SELECT, INSERT, UPDATE, DELETE"));
 				Assert.False(await HasPrivilege(db, "\"__EFMigrationsHistory\"", "SELECT"));
 
 				// A table a later migration creates is covered by the default privileges.

@@ -397,14 +397,14 @@ The chat runs on a Microsoft Agent Framework agent (`Microsoft.Agents.AI` 1.23.0
 
 ### ARC-022-4 AG-UI client and A2UI cards
 
-The chat page reads the run with `@ag-ui/client` 1.0.2 (`HttpAgent` in `frontend/lib/chat.ts`, posting straight to `/api/chat` through the same CSRF-aware fetch as every other mutation) and shows what the agent displays with `@a2ui/react` 0.13.0 / `@a2ui/web_core` 0.13.0 (protocol v0.9, `zod` 3.25.76; all pinned, no CopilotKit, no Node runtime, still a static export). The A2UI library is loaded on demand (`next/dynamic`, no server rendering) only when an answer carries surfaces. The basic catalog is not registered: the catalog `urn:liedertafel:archiv:a2ui:katalog:v1` has exactly `LiedKarte`, `AuftrittKarte`, `ProgrammListe`, `VorschlagKarte`, `AenderungsVorschau` and `Quellen` (`frontend/lib/a2ui.ts` schemas, `components/a2ui-katalog.tsx` implementations, cards styled in `app/fragen/chat.css`).
+The chat page reads the run with `@ag-ui/client` 1.0.2 (`HttpAgent` in `frontend/lib/chat.ts`, posting straight to `/api/chat` through the same CSRF-aware fetch as every other mutation) and shows what the agent displays with `@a2ui/react` 0.13.0 / `@a2ui/web_core` 0.13.0 (protocol v0.9, `zod` 3.25.76; all pinned, no CopilotKit, no Node runtime, still a static export). The A2UI library is loaded on demand (`next/dynamic`, no server rendering) only when an answer carries surfaces. The basic catalog is not registered: the catalog `urn:liedertafel:archiv:a2ui:katalog:v1` has exactly `LiedKarte`, `AuftrittKarte`, `ProgrammListe` and `Quellen` (`frontend/lib/a2ui.ts` schemas, `components/a2ui-katalog.tsx` implementations, cards styled in `app/fragen/chat.css`).
 
 - **Wire:** the server library wrote protocol fields it does not use as explicit nulls (`usage[].model`, `parentRunId` …), which the strict client rejects as a schema violation. `ChatEndpoints` now serializes events without null properties. `RUN_FINISHED`, `RUN_ERROR` with its `code`, the `archive.citations` custom event and the budget state are unchanged for the page.
-- **The tool:** the agent calls `zeige_oberflaeche(komponenten)`; each entry is a component name and exactly the one record id it is built from (`liedId`, `liedIds`, `auftrittId`, `vorschlagId`). `Chat/A2uiSurfaces.cs` (`A2uiCatalog`) validates every entry against the catalog (known component, only its own id, valid GUIDs, at most 12 entries looked at, at most 4 surfaces per answer, one card per record), resolves the ids to what a member may see (published songs and events only) and builds the A2UI messages itself: `createSurface` plus one `updateComponents` with a single `root` component per surface. Anything else is dropped before streaming; the model only learns how many entries were not shown, never which or why. The model supplies no text and no URL, and the server sends none: the browser derives links (`/lied/?id=…`, `/auftritt/?id=…`) from the ids. The tool call itself is removed from the AG-UI stream; the validated messages travel in one `CUSTOM` event `archive.a2ui` (before the `archive.citations` chips, which stay the server-built event).
-- **Member chat offers:** `LiedKarte` (title, composer, lyricist, first lines), `AuftrittKarte` (title, kind, date, venue) and `Quellen` (up to 10 songs). `ProgrammListe`, `VorschlagKarte` and `AenderungsVorschau` are defined with their wire shape and the browser renders them, but the member chat has no resolver for them yet (always dropped, not offered to the model); ARC-022-1 and ARC-022-2 add their resolvers to `A2uiCatalog.Components`.
+- **The tool:** the agent calls `zeige_oberflaeche(komponenten)`; each entry is a component name and exactly the one record id it is built from (`liedId`, `liedIds`, `auftrittId`). `Chat/A2uiSurfaces.cs` (`A2uiCatalog`) validates every entry against the catalog (known component, only its own id, valid GUIDs, at most 12 entries looked at, at most 4 surfaces per answer, one card per record), resolves the ids to what a member may see (published songs and events only) and builds the A2UI messages itself: `createSurface` plus one `updateComponents` with a single `root` component per surface. Anything else is dropped before streaming; the model only learns how many entries were not shown, never which or why. The model supplies no text and no URL, and the server sends none: the browser derives links (`/lied/?id=…`, `/auftritt/?id=…`) from the ids. The tool call itself is removed from the AG-UI stream; the validated messages travel in one `CUSTOM` event `archive.a2ui` (before the `archive.citations` chips, which stay the server-built event).
+- **Member chat offers:** `LiedKarte` (title, composer, lyricist, first lines), `AuftrittKarte` (title, kind, date, venue) and `Quellen` (up to 10 songs). `ProgrammListe` is defined with its wire shape and the browser renders it, but the member chat has no resolver for it yet (always dropped, not offered to the model); ARC-022-1 and ARC-022-2 add its resolver to `A2uiCatalog.Components`.
 - **Storage and reload:** the validated messages are stored with the assistant answer in `chat_messages."A2uiJson"` (`jsonb`, migration `20261011160524_ChatMessageA2ui`; a card-only answer stores empty content and is not fed back to the model as history). `GET /api/chat/thread/{id}` never returns the stored JSON as it is: `A2uiCatalog.RecheckAsync` rebuilds each surface from the record ids it names, so a card for a since-unpublished record is gone, tampered or unreadable stored content yields nothing, and data is fresh. The message then has an `a2ui` array (or none).
 - **Browser safety:** `leseA2uiOberflaechen` keeps only surfaces of exactly one `createSurface` (this catalog) and one `root` update with a catalog component and exactly its allowed properties (strict schemas: no `href`, `url`, data model or extra fields); the A2UI `MessageProcessor` then runs with `STRICT_VALIDATION` as a second check, and a surface it refuses is removed. Malformed or out-of-catalog messages show no card and no error.
-- **Clicks:** cards link to archive pages that load their own data over REST; `VorschlagKarte`'s Annehmen/Ablehnen call `POST /api/proposals/{id}/accept|reject` (with the CSRF token) and show the server's answer; nothing goes back through the chat.
+- **Clicks:** cards link to archive pages that load their own data over REST; nothing goes back through the chat.
 - **Checks:** `dotnet test tests/archive/backend --filter "FullyQualifiedName~ChatApiTests"` (card stream, reload, unpublish, tampered storage, dropped requests); `ARCHIVE_TEST_POSTGRES=… dotnet test tests/archive/backend --filter "Category=PostgresA2ui"` (migration with existing rows, jsonb round trip, resolvers and re-check as real SQL); from `frontend`: `ARCHIVE_BASE_URL=http://localhost:<port> corepack pnpm exec playwright test tests/a2ui.spec.ts tests/a2ui-katalog.spec.ts tests/chat.spec.ts --workers=1`. The chat Playwright mocks live in `tests/chat-mock.ts` in the exact event shape the server sends; a hand-written stream that breaks the AG-UI protocol is now refused by the client, as it should be.
 
 ## ARC-024 historical events
@@ -859,65 +859,30 @@ For later slices:
 - After applying the migration in a hosted database, run
   `infrastructure/neon/runtime-grants.sql` as usual.
 
-## ARC-013-1 field provenance and proposals
+## Catalogue write path and automated writes
 
-Every catalogued field a machine wrote carries provenance, every human edit
-locks its field, and everything a model or regex run may not apply by itself
-waits in one "Vorschläge" queue — ordinary React over stored state, working
-while AI is paused.
+Catalogue mutations go through one write service, `Catalogue/CatalogueWriteService.cs`:
+song/arrangement/musical-version/event/asset field patches plus song creation,
+arrangement/version creation and publish/unpublish of song and event, all with
+validated German Problem titles, attribution and row-version bumps in one save;
+endpoint lambdas keep antiforgery, role checks and responses, so endpoint
+handlers and the automated writer cannot drift. Arrangements and musical
+versions carry their own `RowVersion` concurrency column; song/arrangement/
+version PATCHes carry it and a stale edit answers 409 "Die Fassung wurde
+zwischenzeitlich geändert." without touching the row. Song detail responses
+carry `rowVersion` on song, arrangement and version.
 
-Data (migration `20261010174016_FieldProvenanceAndProposals`): table
-`field_provenance` with the latest write per (entity type, id, field) —
-source `Human`/`Regex`/`Ai`, confidence `sicher`/`unsicher`, model, prompt
-version, previous value, time, actor and the `Locked` flag — and table
-`proposals` (kind, target, JSON payload, German reason, confidence, source,
-model, prompt version, source description, target row version, open/accepted/
-rejected, attribution; `CK_proposals_kind` / `CK_proposals_status`).
-Arrangements and musical versions gained their own `RowVersion` concurrency
-columns; song/arrangement/version PATCHes carry it and a stale edit answers
-409 "Die Fassung wurde zwischenzeitlich geändert." without touching the row.
-Song detail responses carry `rowVersion` on song, arrangement and version,
-and — editors only — a flat `provenance` list; members never receive it.
-
-The shared write path is `Provenance/WriteService.cs`
-(`CatalogueWriteService`): song/arrangement/musical-version/event/asset
-field patches plus song creation, arrangement/version creation and
-publish/unpublish of song and event, all with validated German Problem
-titles, attribution, row-version bumps and per-field provenance in one
-save; endpoint lambdas keep antiforgery, role checks and responses, so
-endpoint handlers, proposal handlers and automated writers cannot drift.
-`AutomatedFieldWriter` is the one automated path: an unchanged value is a
-no-op; a locked field or a value below
-`Archive:Provenance:AutoApplyConfidence` (default `sicher`; `unsicher`
-applies both steps, `never` proposes everything) becomes an open
-`FieldSuggestion` proposal with the target's row version at proposal time;
-above the threshold it applies itself and records `Regex`/`Ai` provenance.
-`POST /api/dev/provenance-write` (Development) drives it for local checks.
-
-The editor queue lives at `/verwaltung/vorschlaege/`
-(`GET /api/proposals`, accept/reject/refresh, editor-only, members 403),
-listing open proposals grouped by German kind label. Accepting applies the
-change through the typed handler and the shared write service; if the
-target row version changed since the proposal, accept answers 409 with
-`currentValue`, `proposedValue` and `currentRowVersion`, the queue shows
-both values side by side and "Auf den aktuellen Stand bringen"
-(`POST …/refresh`) re-bases the proposal. Accepted values keep their
-automated provenance (the badge stays revertible); reverts run through
-`POST /api/provenance/revert` and lock the field like a human edit.
-The "KI" (or "Auswertung" for regex runs) badge with its "Zurückholen"
-button renders in the song and Fassung editor forms
-(`components/ki-abzeichen.tsx`). Identity and
-visibility stay outside the field vocabulary entirely, so new songs,
-merges, publication, deletion and member administration can only ever
-arrive as proposals; deletion/merge/member-administration handlers are not
-registered yet (their slices register them).
-
-Handoff: ARC-034-1, ARC-036, ARC-025-1, ARC-046, ARC-047 and ARC-031 write
-through `AutomatedFieldWriter`; tests live in
-`tests/archive/backend/ProvenanceProposalTests.cs` (InMemory) and
-`ProvenancePostgresLiveTests.cs` (real PostgreSQL via
-`ARCHIVE_TEST_POSTGRES`), with the browser journey in
-`frontend/tests/vorschlaege.spec.ts`.
+`Catalogue/AutomatedFieldWriter.cs` is the one automated path (scan reading):
+it writes a certain, quote-verified value into a catalogued field only while
+that field is still empty, and drops it otherwise (`Applied`, `Skipped` for a
+field that holds a value, `Refused` for an unknown field, invalid value or lost
+save race). It never overwrites a value an editor entered and keeps no record of
+where a value came from. The vocabulary of writable fields is
+`Catalogue/FieldCatalog.cs`; identity and visibility stay outside it, so new
+songs, publication, deletion and member administration are never automated.
+There is no suggestion queue: ADR-0001 keeps AI output to inline suggestions.
+Migration `RemoveProvenanceAndProposals` dropped the former queue and
+per-field origin tables and `reading_jobs."FieldsProposed"`.
 
 ## ARC-034-1 reading scanned scores
 
@@ -943,9 +908,9 @@ same save plus a message on the `archive-reading` queue. `archive-read` /
    editor's "Rest lesen" (`POST /api/revisions/{id}/reading/continue`) raises
    the page limit by another 20 and requeues the row.
 2. **Text to fields** (`Reading/ScoreFieldPrefill.cs`): only fields that are
-   empty and not locked by a human edit, only while the revision is still the
+   empty, only while the revision is still the
    asset's current file. `ScoreTextAnalyzer` runs first; its facts are written
-   with source `regex` (composer, lyricist, arranger, key, voice). The agent
+   as plain writes (composer, lyricist, arranger, key, voice). The agent
    `archive-score-fields` (text only, no tools, structured output) is asked only
    for what is still empty: the six fields `composer`, `lyricist`, `arranger`,
    `musical_key`, `voice_label` and `lyrics`. Each answer carries `sicher` or
@@ -954,18 +919,13 @@ same save plus a message on the `archive-reading` queue. `archive-read` /
    to it: a name stands in its quote, **every line of the lyrics stands in the
    text** (a real first line cannot vouch for an invented stanza), the first
    word of a voice and the key (hyphens and blanks ignored) stand in their
-   quote. Only `sicher` with a verified quote is applied (source `ai`, model,
-   prompt version `scan-fields-v1`, badge "KI"); everything else becomes an
-   open "Vorschläge" proposal, **whatever `Archive:Provenance:AutoApplyConfidence`
-   says** (`FieldWriteRequest.ProposalOnly`). Unknown or unrequested fields,
-   repeated fields and over-long values in the answer are ignored; a value an
-   editor already rejected is not proposed again. Proposals made in a run are
-   re-based on the targets' final row versions at its end (an apply on the same
-   song moves the version), so the first Accept does not answer 409. A refused
-   write (a lost save race) drops its half-made change instead of poisoning the
-   next save. No song
-   identity is ever created, published or changed here; the job writes only
-   through `AutomatedFieldWriter`.
+   quote. Only `sicher` with a verified quote is written, and only while the field
+   is still empty when the write happens (an editor's save during the model call
+   wins); everything else is dropped and nothing is stored about it.
+   Unknown or unrequested fields, repeated fields and over-long values in the
+   answer are ignored. A refused write (a lost save race) drops its half-made
+   change instead of poisoning the next save. No song identity is ever created,
+   published or changed here; the job writes only through `AutomatedFieldWriter`.
 
 State and budget: `ReadingStatus` is `Queued → Running → Completed | Failed`, plus
 `WaitingForBudget`. When the monthly cap refuses a call the row becomes
@@ -990,12 +950,10 @@ now 6,000 (the chat keeps its own 2,000). Text in a scan is data: both agents
 are told so, and code, not the model, decides what is written.
 
 UI: when reading is enabled, the extraction line of every score (`components/extraktion-status.tsx`)
-shows the reading state ("KI liest die Seiten … (2 von 3 Seiten)", the counts of
-applied fields and proposals, "Vorschläge ansehen", "Rest lesen", "Erneut
-lesen"); the list keeps polling only while reading is queued or running. The
-voice a reading wrote carries the "KI" badge with "Zurückholen" in the material
-list; editing the voice or description of a material by hand now goes through the
-shared write service and locks the field like every other human edit.
+shows the reading state ("KI liest die Seiten … (2 von 3 Seiten)", the count of
+fields written, "Rest lesen", "Erneut lesen"); the list keeps polling only while
+reading is queued or running. Editing the voice or description of a material by
+hand goes through the shared write service.
 
 Local run: `archive-read` is an explicit-start Aspire resource beside
 `archive-extract`; without provider configuration the offline
@@ -1023,9 +981,8 @@ stopped separately; infra deploys and migrating releases reset it) or remove
 (`infrastructure/archive/README.md`). Scores extracted while it was off are read on
 demand ("Seiten von der KI lesen").
 
-Owner rule: the asset's own edit is creator-only, so reverting or accepting a
-change on an asset's field (the voice label) is too (`AssetOwnerRule`, 403
-"Nur die anlegendende Person kann das Material bearbeiten."). A PATCH that
+Owner rule: the asset's own edit is creator-only (403 "Nur die anlegendende
+Person kann das Material bearbeiten."). A PATCH that
 changes nothing no longer bumps the asset's row version. "Rest lesen" is not
 offered (and answers 409) once the revision's stored text has reached
 `Archive:Extraction:MaxTextCharacters`, since more pages could add nothing. A
@@ -1054,7 +1011,7 @@ format and the command are in the ticket.
 Checks: `dotnet test tests/archive/backend --filter "FullyQualifiedName~Reading|FullyQualifiedName~PdfPageRenderer|FullyQualifiedName~ScanReadingEvaluation"`;
 real PostgreSQL (migration over existing rows, constraints, the sweep, real ledger
 SQL): `ARCHIVE_TEST_POSTGRES=… dotnet test tests/archive/backend --filter "Category=PostgresReading"`;
-browser: `ARCHIVE_BASE_URL=… corepack pnpm exec playwright test tests/extraktion.spec.ts tests/vorschlaege.spec.ts --workers=1`.
+browser: `ARCHIVE_BASE_URL=… corepack pnpm exec playwright test tests/extraktion.spec.ts --workers=1`.
 Migration `20261012052810_ScanReading` is additive: `extraction_jobs."TextSource"`
 (default 0 = embedded) and table `reading_jobs`.
 

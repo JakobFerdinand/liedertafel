@@ -3,7 +3,6 @@ using Archive.Backend.Catalogue;
 using Archive.Backend.Data;
 using Archive.Backend.Events;
 using Archive.Backend.Extraction;
-using Archive.Backend.Provenance;
 using Archive.Backend.Recordings;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.EntityFrameworkCore;
@@ -406,7 +405,7 @@ public static class AssetEndpoints
 			// shared write path, so a human edit is recorded as such and locks
 			// the field against the automatic reading of scans.
 			var write = await writes.PatchAssetAsync(asset, new AssetFieldPatch(body?.Description, body?.VoiceLabel),
-				new WriteActor(decision.AccountId, time.GetUtcNow()), null, token);
+				new WriteActor(decision.AccountId, time.GetUtcNow()), token);
 			if (!write.IsSaved)
 				return Results.Problem(statusCode: write.HttpCode, title: write.Title);
 			return Results.Ok(new

@@ -3,7 +3,6 @@ using Archive.Backend.Ai;
 using Archive.Backend.Assets;
 using Archive.Backend.Data;
 using Archive.Backend.Extraction;
-using Archive.Backend.Provenance;
 using Archive.Backend.Reading;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -16,7 +15,7 @@ namespace Archive.Backend.Tests;
 /// below it and the real PDFium renderer: a scan is transcribed into the
 /// revision's text and its still-empty catalogue fields are prefilled
 /// (regex first, then the field agent), nothing a human wrote is touched,
-/// uncertain or unverifiable readings become proposals, instructions inside a
+/// uncertain or unverifiable readings are dropped, instructions inside a
 /// scan stay data, a reached cap parks the row, and progress that was paid
 /// for is never read twice.
 /// </summary>
@@ -60,24 +59,19 @@ public sealed class ReadingWorkerTests
 		Assert.Equal(3, transcription.Images);
 		Assert.Single(host.Model.FieldCalls);
 
-		// What the regex analyzer read is badged "regex"; the lyrics it cannot read are "AI".
+		// The regex analyzer fills what it can read; the field agent fills the lyrics.
 		var song = await host.SongAsync(score.Song.Id);
 		Assert.Equal("Franz Schubert", song.Composer);
 		Assert.Equal("Anna Beispiel", song.Lyricist);
 		Assert.Equal("Im Wald da singen die Vögel\nUnd alle stimmen mit ein", song.Lyrics);
-		Assert.Equal(ProvenanceSource.Regex, (await host.ProvenanceAsync("song", song.Id, "composer"))!.Source);
-		var lyrics = (await host.ProvenanceAsync("song", song.Id, "lyrics"))!;
-		Assert.Equal((ProvenanceSource.Ai, ProvenanceConfidence.Sicher, ReadingTestHost.ModelKey, ScanPrompts.FieldsVersion, false),
-			(lyrics.Source, lyrics.Confidence, lyrics.Model, lyrics.PromptVersion, lyrics.Locked));
 		await using (var db = new Archive.Backend.Data.ArchiveDbContext(host.DbOptions))
 		{
 			var version = await db.MusicalVersions.AsNoTracking().SingleAsync();
 			Assert.Equal("G-Dur", version.MusicalKey);
 			Assert.Equal("Tenor 1", (await db.Assets.AsNoTracking().SingleAsync()).VoiceLabel);
 		}
-		// Five fields written (composer, lyricist, key, voice, lyrics); none left for a proposal.
-		Assert.Equal((5, 0), (reading.FieldsApplied, reading.FieldsProposed));
-		Assert.Empty(await host.ProposalsAsync());
+		// Five fields written: composer, lyricist, key, voice, lyrics.
+		Assert.Equal(5, reading.FieldsApplied);
 	}
 
 	[Fact]
@@ -114,7 +108,7 @@ public sealed class ReadingWorkerTests
 		Assert.Empty(await host.LedgerAsync());
 		var reading = await host.ReadingAsync(score.Revision.Id);
 		Assert.Equal(ReadingStatus.Completed, reading.Status);
-		Assert.Equal((5, 0), (reading.FieldsApplied, reading.FieldsProposed));
+		Assert.Equal(5, reading.FieldsApplied);
 		Assert.Equal(ExtractionTextSource.Embedded, (await host.ExtractionAsync(score.Revision.Id)).TextSource);
 		await using var db = new Archive.Backend.Data.ArchiveDbContext(host.DbOptions);
 		Assert.Equal("Hans Huber", (await db.Arrangements.AsNoTracking().SingleAsync()).Arranger);
@@ -144,24 +138,16 @@ public sealed class ReadingWorkerTests
 		host.Model.FieldsJson = Fields(
 			Field("composer", "Franz Schubert", "sicher", "Musik: Franz Schubert"),
 			Field("lyricist", "Anna Beispiel", "sicher", "Text: Anna Beispiel"));
-		var score = host.SeedScore(ScanFixtures.ScanPdf(["Seite 1"]), song: song => song.Lyricist = "Eigener Textdichter");
-		// The editor cleared the composer on purpose: a human lock on an empty field.
-		await using (var db = new Archive.Backend.Data.ArchiveDbContext(host.DbOptions))
+		var score = host.SeedScore(ScanFixtures.ScanPdf(["Seite 1"]), song: song =>
 		{
-			db.FieldProvenance.Add(new FieldProvenance
-			{
-				EntityType = "song", EntityId = score.Song.Id, Field = "composer", Source = ProvenanceSource.Human,
-				Confidence = ProvenanceConfidence.Sicher, Locked = true, ChangedAt = DateTimeOffset.UtcNow,
-			});
-			await db.SaveChangesAsync();
-		}
+			song.Composer = "Eigener Komponist";
+			song.Lyricist = "Eigener Textdichter";
+		});
 
 		await host.RunAsync(score.Revision.Id);
 
 		var song = await host.SongAsync(score.Song.Id);
-		Assert.Null(song.Composer);
-		Assert.Equal("Eigener Textdichter", song.Lyricist);
-		Assert.Empty(await host.ProposalsAsync());
+		Assert.Equal(("Eigener Komponist", "Eigener Textdichter"), (song.Composer, song.Lyricist));
 		// Running it again changes nothing either.
 		await using (var db = new Archive.Backend.Data.ArchiveDbContext(host.DbOptions))
 		{
@@ -173,15 +159,14 @@ public sealed class ReadingWorkerTests
 		}
 		await host.RunAsync(score.Revision.Id);
 		song = await host.SongAsync(score.Song.Id);
-		Assert.Equal((null, "Eigener Textdichter"), (song.Composer, song.Lyricist));
+		Assert.Equal(("Eigener Komponist", "Eigener Textdichter"), (song.Composer, song.Lyricist));
 	}
 
 	[Fact]
-	public async Task UncertainOrUnverifiableReadingsBecomeProposalsEvenWhenTheThresholdWouldApplyThem()
+	public async Task UncertainOrUnverifiableReadingsAreDropped()
 	{
-		// The deployment is configured to auto-apply uncertain values; reading
-		// still offers them to an editor: only certain, quoted values apply.
-		var host = new ReadingTestHost(autoApply: "unsicher");
+		// Only certain, quote-verified values are written; the rest is dropped.
+		var host = new ReadingTestHost();
 		host.Model.Transcriptions.Add("Waldfahrt\nIm Wald da singen die Vögel\nUnd alle stimmen mit ein\nBass II\nBarcarole in F-Dur");
 		host.Model.FieldsJson = Fields(
 			// Certain, but the quote is not in the text.
@@ -196,47 +181,39 @@ public sealed class ReadingWorkerTests
 
 		var song = await host.SongAsync(score.Song.Id);
 		Assert.Equal((null, null, null), (song.Composer, song.Lyricist, song.Lyrics));
-		var proposals = await host.ProposalsAsync();
-		Assert.Equal(["composer", "lyricist", "lyrics"], proposals
-			.Select(p => JsonDocument.Parse(p.Payload).RootElement.GetProperty("field").GetString()!).Order().ToList());
-		Assert.All(proposals, proposal => Assert.Equal(
-			(ProposalKind.FieldSuggestion, ProposalStatus.Open, ProvenanceSource.Ai, ProvenanceConfidence.Unsicher, ScanPrompts.FieldsVersion),
-			(proposal.Kind, proposal.Status, proposal.Source, proposal.Confidence, proposal.PromptVersion)));
-		Assert.Contains(proposals, p => p.Reason == ScoreFieldPrefill.UnverifiedReason);
-		// The analyzer read the key and the voice with certainty (regex); the
-		// model's three readings are all proposals.
+		// The analyzer read the key and the voice with certainty; the model's
+		// three readings are dropped.
 		var reading = await host.ReadingAsync(score.Revision.Id);
-		Assert.Equal((2, 3), (reading.FieldsApplied, reading.FieldsProposed));
+		Assert.Equal(2, reading.FieldsApplied);
 	}
 
 	private const string PlainScanText =
 		"Waldfahrt\nVon Franz Schubert\nWorte Anna Beispiel\nChorstimme links\nIm Wald da singen die Vögel\nUnd alle stimmen mit ein";
 
-	private static ProposalDecisions Decisions(ArchiveDbContext db)
-		=> new(db, new ProposalHandlers([new FieldSuggestionHandler(new CatalogueWriteService(db))]), TimeProvider.System);
-
 	[Fact]
-	public async Task AProposalMadeBeforeAnAppliedValueOnTheSameSongCanStillBeAccepted()
+	public async Task AValueAnEditorEntersWhileTheModelReadsIsNeverOverwritten()
 	{
-		// composer is only a proposal, lyricist is applied afterwards: the
-		// apply moves the song's row version, so a proposal that kept the old
-		// one would answer 409 on its first accept.
 		var host = new ReadingTestHost();
 		host.Model.FieldsJson = Fields(
-			Field("composer", "Franz Schubert", "unsicher", "Von Franz Schubert"),
+			Field("composer", "Franz Schubert", "sicher", "Von Franz Schubert"),
 			Field("lyricist", "Anna Beispiel", "sicher", "Worte Anna Beispiel"));
 		var score = host.SeedScore(ScanFixtures.TextPdf("Text"), embeddedText: PlainScanText);
+		host.Model.BeforeFieldAnswer = async () =>
+		{
+			// The editor saves the composer while the field request is running.
+			await using var db = new ArchiveDbContext(host.DbOptions);
+			var song = await db.Songs.SingleAsync();
+			song.Composer = "Eigene Eingabe";
+			song.RowVersion++;
+			await db.SaveChangesAsync();
+		};
 
 		await host.RunAsync(score.Revision.Id);
 
-		var song = await host.SongAsync(score.Song.Id);
-		Assert.Equal((null, "Anna Beispiel"), (song.Composer, song.Lyricist));
-		var proposal = Assert.Single(await host.ProposalsAsync());
-		Assert.Equal(song.RowVersion, proposal.TargetRowVersion);
-		await using var db = new ArchiveDbContext(host.DbOptions);
-		var result = await Decisions(db).AcceptAsync(proposal.Id, Guid.CreateVersion7(), CancellationToken.None);
-		Assert.True(result.Ok, result.Title);
-		Assert.Equal("Franz Schubert", (await host.SongAsync(score.Song.Id)).Composer);
+		var stored = await host.SongAsync(score.Song.Id);
+		Assert.Equal(("Eigene Eingabe", "Anna Beispiel"), (stored.Composer, stored.Lyricist));
+		var reading = await host.ReadingAsync(score.Revision.Id);
+		Assert.Equal((ReadingStatus.Completed, 1), (reading.Status, reading.FieldsApplied));
 	}
 
 	[Fact]
@@ -250,12 +227,10 @@ public sealed class ReadingWorkerTests
 		await host.RunAsync(score.Revision.Id);
 
 		Assert.Null((await host.SongAsync(score.Song.Id)).Lyrics);
-		var proposal = Assert.Single(await host.ProposalsAsync());
-		Assert.Equal(ScoreFieldPrefill.UnverifiedReason, proposal.Reason);
 	}
 
 	[Fact]
-	public async Task AVoiceOrKeyThatIsNotInItsQuoteIsOnlyAProposal()
+	public async Task AVoiceOrKeyThatIsNotInItsQuoteIsDropped()
 	{
 		var host = new ReadingTestHost();
 		host.Model.FieldsJson = Fields(
@@ -269,7 +244,6 @@ public sealed class ReadingWorkerTests
 		await using var db = new ArchiveDbContext(host.DbOptions);
 		Assert.Null((await db.Assets.AsNoTracking().SingleAsync()).VoiceLabel);
 		Assert.Null((await db.MusicalVersions.AsNoTracking().SingleAsync()).MusicalKey);
-		Assert.Equal(2, (await host.ProposalsAsync()).Count);
 	}
 
 	[Fact]
@@ -284,34 +258,6 @@ public sealed class ReadingWorkerTests
 
 		await using var check = new ArchiveDbContext(host.DbOptions);
 		Assert.Equal("Partitur", (await check.Assets.AsNoTracking().SingleAsync()).VoiceLabel);
-		Assert.Empty(await host.ProposalsAsync());
-	}
-
-	[Fact]
-	public async Task ARejectedProposalIsNotOfferedAgainByARerun()
-	{
-		var host = new ReadingTestHost();
-		host.Model.FieldsJson = Fields(Field("composer", "Franz Schubert", "unsicher", "Von Franz Schubert"));
-		var score = host.SeedScore(ScanFixtures.TextPdf("Text"), embeddedText: PlainScanText);
-		await host.RunAsync(score.Revision.Id);
-		var first = Assert.Single(await host.ProposalsAsync());
-		await using (var db = new ArchiveDbContext(host.DbOptions))
-			Assert.True((await Decisions(db).RejectAsync(first.Id, Guid.CreateVersion7(), CancellationToken.None)).Ok);
-
-		// "Rest lesen" asks for the fields again.
-		await using (var db = new ArchiveDbContext(host.DbOptions))
-		{
-			var job = await db.ReadingJobs.SingleAsync();
-			job.Status = ReadingStatus.Queued;
-			job.FieldsDone = false;
-			job.AttemptCount = 0;
-			job.RowVersion++;
-			await db.SaveChangesAsync();
-		}
-		await host.RunAsync(score.Revision.Id);
-
-		var proposal = Assert.Single(await host.ProposalsAsync());
-		Assert.Equal(ProposalStatus.Rejected, proposal.Status);
 	}
 
 	[Fact]
@@ -331,7 +277,6 @@ public sealed class ReadingWorkerTests
 		// along with the lyricist's save.
 		var song = await host.SongAsync(score.Song.Id);
 		Assert.Equal((null, "Anna Beispiel"), (song.Composer, song.Lyricist));
-		Assert.Null(await host.ProvenanceAsync("song", song.Id, "composer"));
 		var reading = await host.ReadingAsync(score.Revision.Id);
 		Assert.Equal((ReadingStatus.Completed, 1, 1), (reading.Status, reading.AttemptCount, reading.FieldsApplied));
 		Assert.Single(host.Model.FieldCalls);
@@ -378,7 +323,6 @@ public sealed class ReadingWorkerTests
 		Assert.Equal("Schon eingetragen", song.Composer);
 		// The field was named once; the second answer for it is ignored.
 		Assert.Equal("Im Wald da singen die Vögel", song.Lyrics);
-		Assert.Empty(await host.ProposalsAsync());
 	}
 
 	[Fact]
@@ -671,7 +615,6 @@ public sealed class ReadingWorkerTests
 		var song = await host.SongAsync(score.Song.Id);
 		Assert.Equal("Franz Schubert", song.Composer);
 		Assert.Contains("Im Wald da singen die Vögel", song.Lyrics);
-		Assert.Equal(ProvenanceSource.Ai, (await host.ProvenanceAsync("song", song.Id, "lyrics"))!.Source);
 	}
 
 	[Fact]

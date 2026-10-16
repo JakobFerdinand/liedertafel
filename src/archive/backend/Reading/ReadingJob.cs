@@ -56,11 +56,8 @@ public sealed class ReadingJob
 	/// <summary>True once the catalogue-field step ran for the current text; a resumed run skips it.</summary>
 	public bool FieldsDone { get; set; }
 
-	/// <summary>Fields written with a badge (regex or AI), summed over every field step of this file (a "Rest lesen" adds to it).</summary>
+	/// <summary>Empty fields filled (regex or AI), summed over every field step of this file (a "Rest lesen" adds to it).</summary>
 	public int FieldsApplied { get; set; }
-
-	/// <summary>Fields handed to the "Vorschläge" queue instead of being written, summed like <see cref="FieldsApplied"/>.</summary>
-	public int FieldsProposed { get; set; }
 
 	/// <summary>German reason; null unless <see cref="Status"/> is <see cref="ReadingStatus.Failed"/>.</summary>
 	public string? FailureReason { get; set; }

@@ -322,7 +322,6 @@ public sealed partial class ChatApiTests
 
 	[Theory]
 	[InlineData("liedId", "auftrittId")]
-	[InlineData("liedId", "vorschlagId")]
 	[InlineData("liedId", "liedIds")]
 	public async Task AnEntryCarryingAnIdItsComponentDoesNotTakeIsDroppedEvenForAVisibleRecord(string own, string foreign)
 	{
@@ -377,7 +376,7 @@ public sealed partial class ChatApiTests
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 		provider.Request = $$"""
-			[{"komponente":"LiedKarte","liedId":"{{publishedId}}","liedIds":[],"auftrittId":"","vorschlagId":null}]
+			[{"komponente":"LiedKarte","liedId":"{{publishedId}}","liedIds":[],"auftrittId":""}]
 			""";
 
 		using var response = await RunChatAsync(client, session, Guid.NewGuid().ToString(), "Zeige etwas");
@@ -435,7 +434,7 @@ public sealed partial class ChatApiTests
 	[InlineData("ProgrammListe")]
 	[InlineData("VorschlagKarte")]
 	[InlineData("AenderungsVorschau")]
-	public async Task CatalogComponentsWithoutAMemberResolverAreDroppedAndNeverOffered(string component)
+	public async Task CatalogComponentsWithoutAMemberResolverAndRemovedOnesAreDroppedAndNeverOffered(string component)
 	{
 		var provider = new ShowSurfaceChatClient();
 		await using var factory = ChatFactory(chatClient: provider);
@@ -456,9 +455,10 @@ public sealed partial class ChatApiTests
 		Assert.Contains("LiedKarte", provider.ToolDescription);
 		Assert.Contains("AuftrittKarte", provider.ToolDescription);
 		Assert.Contains("Quellen", provider.ToolDescription);
-		Assert.DoesNotContain("VorschlagKarte", provider.ToolDescription);
-		Assert.DoesNotContain("AenderungsVorschau", provider.ToolDescription);
 		Assert.DoesNotContain("ProgrammListe", provider.ToolDescription);
+		// Suggestions are no longer part of the catalog: not even as an argument.
+		Assert.DoesNotContain("orschlag", provider.ToolDescription, StringComparison.OrdinalIgnoreCase);
+		Assert.DoesNotContain("AenderungsVorschau", provider.ToolDescription);
 	}
 
 	[Fact]
