@@ -315,16 +315,16 @@ export async function cancelUploadSession(uploadSessionId: string) {
   );
 }
 
-export async function finalizeUpload(
+export async function finalizeUpload<T = RevisionResponse>(
   uploadSessionId: string,
   identitaet?: DateiIdentitaet,
-): Promise<RevisionResponse> {
+): Promise<T> {
   const response = await postAuth(
     `/api/upload-sessions/${encodeURIComponent(uploadSessionId)}/finalize`,
     identitaet ?? {},
   );
   if (!response.ok) throw response;
-  return (await response.json()) as RevisionResponse;
+  return (await response.json()) as T;
 }
 
 export async function fetchAssetAccess(
@@ -598,7 +598,13 @@ async function verbindeBloecke(
   }
 }
 
-export async function uebertrageDatei(
+/**
+ * Überträgt eine Datei blockweise und schließt die Sitzung ab. `assetId` ist
+ * der Speicherschlüssel der Sitzung (arc-upload-<Schlüssel>); für Dateien
+ * eines Liedes (#166) legt `optionen.neueSitzung` die Sitzung an und der
+ * Rückgabetyp ist die Antwort des Abschlusses.
+ */
+export async function uebertrageDatei<T = RevisionResponse>(
   assetId: string,
   datei: File,
   contentType: string,
@@ -608,14 +614,20 @@ export async function uebertrageDatei(
     signal?: AbortSignal;
     sitzung?: UploadSessionResponse;
     committiertAb?: number;
+    neueSitzung?: (
+      identitaet: DateiIdentitaet,
+    ) => Promise<UploadSessionResponse>;
   } = {},
-): Promise<RevisionResponse> {
+): Promise<T> {
   const identitaet: DateiIdentitaet = {
     sizeBytes: datei.size,
     fileName: datei.name,
   };
   const sitzung =
-    optionen.sitzung ?? (await createUploadSession(assetId, identitaet));
+    optionen.sitzung ??
+    (await (optionen.neueSitzung ?? ((i) => createUploadSession(assetId, i)))(
+      identitaet,
+    ));
   if (optionen.sitzung === undefined) {
     speichereUploadSitzung(assetId, sitzung, datei);
   }
@@ -662,7 +674,7 @@ export async function uebertrageDatei(
   }
   onSchritt?.("geprueft");
   try {
-    const revision = await schliesseUploadAb(
+    const revision = await schliesseUploadAb<T>(
       sitzung.uploadSessionId,
       identitaet,
     );
@@ -689,17 +701,17 @@ const gleichzeitigGeaendert = "Der Eintrag wurde zwischenzeitlich geändert.";
  * erneut zu übertragen. Andere 409 (Datei fehlt, abgelaufen, abgebrochen)
  * sind endgültig und werden nicht wiederholt.
  */
-async function schliesseUploadAb(
+async function schliesseUploadAb<T>(
   uploadSessionId: string,
   identitaet: DateiIdentitaet,
-): Promise<RevisionResponse> {
+): Promise<T> {
   try {
-    return await finalizeUpload(uploadSessionId, identitaet);
+    return await finalizeUpload<T>(uploadSessionId, identitaet);
   } catch (ursache) {
     if (!(ursache instanceof Response) || ursache.status !== 409) throw ursache;
     const titel = await problemTitel(ursache.clone(), "");
     if (titel !== gleichzeitigGeaendert) throw ursache;
-    return await finalizeUpload(uploadSessionId, identitaet);
+    return await finalizeUpload<T>(uploadSessionId, identitaet);
   }
 }
 
@@ -709,7 +721,7 @@ function werfeAbbruch(assetId: string, sitzung: UploadSessionResponse): never {
   throw new AbbruchFehler();
 }
 
-export async function setzeUploadFort(
+export async function setzeUploadFort<T = RevisionResponse>(
   assetId: string,
   datei: File,
   contentType: string,
@@ -718,7 +730,7 @@ export async function setzeUploadFort(
     onFortschritt?: (uebertragenBytes: number, gesamtBytes: number) => void;
     signal?: AbortSignal;
   } = {},
-): Promise<RevisionResponse> {
+): Promise<T> {
   const eintrag = liesUploadSitzung(assetId);
   if (!eintrag) {
     throw new MaterialFehler(
@@ -751,7 +763,7 @@ export async function setzeUploadFort(
   while (abIndex < gesamt && committiert.has(blockIdFolge(abIndex))) {
     abIndex += 1;
   }
-  return await uebertrageDatei(assetId, datei, contentType, onSchritt, {
+  return await uebertrageDatei<T>(assetId, datei, contentType, onSchritt, {
     ...optionen,
     sitzung,
     committiertAb: abIndex,
