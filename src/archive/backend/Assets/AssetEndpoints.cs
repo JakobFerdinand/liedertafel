@@ -488,8 +488,8 @@ public static class AssetEndpoints
 			// exclude the other owner class in SQL and InMemory alike.
 			var pendingBudget = await db.UploadSessions
 				.Where(s => s.State == PendingUploadState.Pending
-					&& s.Asset.MusicalVersionId == asset.MusicalVersionId
-					&& s.Asset.EventId == asset.EventId)
+					&& s.AssetId != null && s.Asset!.MusicalVersionId == asset.MusicalVersionId
+					&& s.Asset!.EventId == asset.EventId)
 				.SumAsync(s => (long?)(s.DeclaredSizeBytes ?? s.MaxSizeBytes), token) ?? 0;
 			var finalizedBytes = await db.FileRevisions
 				.Where(r => r.Asset.MusicalVersionId == asset.MusicalVersionId
@@ -627,7 +627,7 @@ public static class AssetEndpoints
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
 			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time,
 			IOptions<AssetStorageOptions> options, IAssetStorageAdapter storage,
-			ILoggerFactory loggerFactory, IExtractionQueue extractionQueue,
+			ILoggerFactory loggerFactory, IExtractionQueue extractionQueue, IServiceProvider services,
 			Guid id, CancellationToken token,
 			FinalizeUploadRequest? body) =>
 		{
@@ -641,13 +641,17 @@ public static class AssetEndpoints
 			if (error is not null)
 				return error;
 			var session = await db.UploadSessions
-				.Include(s => s.Asset).ThenInclude(a => a.Revisions)
+				.Include(s => s.Asset).ThenInclude(a => a!.Revisions)
 				.Include(s => s.FinalizedRevision)
 				.FirstOrDefaultAsync(s => s.Id == id, token);
 			if (session is null)
 				return Results.Problem(statusCode: 404, title: UploadNotFoundMessage);
 			if (session.CreatedByAccountId != decision!.AccountId)
 				return Results.Problem(statusCode: 403, title: UploadOwnerMessage);
+			// #166: sessions that end in a Datei (no asset) finalize elsewhere.
+			if (session.AssetId is null)
+				return await Lieder.DateiUploads.FinalizeAsync(db, time, options.Value, storage,
+					services.GetServices<Lieder.IDateiFinalizedHook>(), session, decision.AccountId, body, token);
 			if (session.State == PendingUploadState.Finalized)
 			{
 				var finalized = session.FinalizedRevision;
@@ -685,19 +689,19 @@ public static class AssetEndpoints
 				probe = await storage.ProbeAsync(session.BlobName, token);
 				// ARC-030: an empty recording file is decided by its size
 				// alone; a ranged read of an empty object is not attempted.
-				if (probe is { SizeBytes: 0 } && IsRecordingAssetType(session.Asset.AssetType))
+				if (probe is { SizeBytes: 0 } && IsRecordingAssetType(session.Asset!.AssetType))
 				{
 					await DeletePendingBestEffortAsync(storage, session.BlobName, token);
 					session.State = PendingUploadState.Abandoned;
 					await db.SaveChangesAsync(token);
-					return Results.Problem(statusCode: 422, title: InvalidTypeMessage(session.Asset.AssetType));
+					return Results.Problem(statusCode: 422, title: InvalidTypeMessage(session.Asset!.AssetType));
 				}
 				// Twelve leading bytes cover every honest format gate: the
 				// PDF prefix, the PNG signature and the WEBP "RIFF…WEBP"
 				// window at bytes 8..11. Shorter objects return what exists.
 				// ARC-030 recording containers need a longer look.
 				header = await storage.ReadHeaderAsync(session.BlobName,
-					IsRecordingAssetType(session.Asset.AssetType) ? RecordingFormats.HeaderBytes : 12, token);
+					IsRecordingAssetType(session.Asset!.AssetType) ? RecordingFormats.HeaderBytes : 12, token);
 			}
 			catch (InvalidOperationException)
 			{
@@ -717,8 +721,8 @@ public static class AssetEndpoints
 			// as the per-file oversize branch applies. ARC-025: the budget
 			// scopes per owner (musical version or event) like initiation.
 			var finalizedBytes = await db.FileRevisions
-				.Where(r => r.Asset.MusicalVersionId == session.Asset.MusicalVersionId
-					&& r.Asset.EventId == session.Asset.EventId)
+				.Where(r => r.Asset.MusicalVersionId == session.Asset!.MusicalVersionId
+					&& r.Asset.EventId == session.Asset!.EventId)
 				.SumAsync(r => (long?)r.SizeBytes, token) ?? 0;
 			if (probe.SizeBytes + finalizedBytes > options.Value.MaxCollectionBytes)
 			{
@@ -727,8 +731,8 @@ public static class AssetEndpoints
 				await db.SaveChangesAsync(token);
 				return Results.Problem(statusCode: 413, title: UploadTooLargeMessage);
 			}
-			var whitelistedContentTypes = ContentTypeWhitelist(session.Asset.AssetType);
-			var invalidTypeMessage = InvalidTypeMessage(session.Asset.AssetType);
+			var whitelistedContentTypes = ContentTypeWhitelist(session.Asset!.AssetType);
+			var invalidTypeMessage = InvalidTypeMessage(session.Asset!.AssetType);
 			// ARC-017: a block-list commit carries no blob content type (the
 			// storage reports its default application/octet-stream), so a
 			// missing/default stored type falls back to the session's declared
@@ -745,7 +749,7 @@ public static class AssetEndpoints
 			string effectiveContentType;
 			bool contentTypeValid;
 			bool magicBytesValid;
-			if (IsRecordingAssetType(session.Asset.AssetType))
+			if (IsRecordingAssetType(session.Asset!.AssetType))
 			{
 				// ARC-030: the type of a recording file is what its bytes
 				// say, for the kind its recording declares. An original is
@@ -755,9 +759,9 @@ public static class AssetEndpoints
 				// The asset must sit in the slot its type names, on a
 				// recording of its own event; otherwise it is not a
 				// recording file at all and nothing is accepted.
-				var isOriginal = session.Asset.AssetType == RecordingOriginalAssetType;
+				var isOriginal = session.Asset!.AssetType == RecordingOriginalAssetType;
 				var kind = await db.Recordings
-					.Where(r => r.EventId == session.Asset.EventId
+					.Where(r => r.EventId == session.Asset!.EventId
 						&& (isOriginal ? r.OriginalAssetId == session.AssetId : r.PlaybackAssetId == session.AssetId))
 					.Select(r => r.Kind)
 					.FirstOrDefaultAsync(token);
@@ -768,7 +772,7 @@ public static class AssetEndpoints
 			}
 			else
 			{
-				var isPhoto = session.Asset.AssetType == PhotoAssetType;
+				var isPhoto = session.Asset!.AssetType == PhotoAssetType;
 				if (storedContentType is null && isPhoto)
 				{
 					effectiveContentType = DetectImageContentType(header) ?? string.Empty;
@@ -782,10 +786,10 @@ public static class AssetEndpoints
 				// photos must present an effective whitelisted image type with
 				// honest JPEG/PNG/WEBP magic bytes; audio/MIDI must present an
 				// effective whitelisted type and skip magic-byte validation.
-				contentTypeValid = session.Asset.AssetType is ScoreAssetType or DocumentAssetType
+				contentTypeValid = session.Asset!.AssetType is ScoreAssetType or DocumentAssetType
 					? string.Equals(effectiveContentType, PdfContentType, StringComparison.OrdinalIgnoreCase)
 					: whitelistedContentTypes.Contains(effectiveContentType, StringComparer.OrdinalIgnoreCase);
-				magicBytesValid = HasValidMagicBytes(session.Asset.AssetType, header, effectiveContentType);
+				magicBytesValid = HasValidMagicBytes(session.Asset!.AssetType, header, effectiveContentType);
 			}
 			if (!contentTypeValid || !magicBytesValid)
 			{
@@ -794,7 +798,7 @@ public static class AssetEndpoints
 				await db.SaveChangesAsync(token);
 				return Results.Problem(statusCode: 422, title: invalidTypeMessage);
 			}
-			var asset = session.Asset;
+			var asset = session.Asset!;
 			var revision = new FileRevision
 			{
 				AssetId = asset.Id,

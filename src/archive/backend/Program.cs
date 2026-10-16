@@ -9,6 +9,7 @@ using Archive.Backend.Data;
 using Archive.Backend.Development;
 using Archive.Backend.Events;
 using Archive.Backend.Extraction;
+using Archive.Backend.Lieder;
 using Archive.Backend.Maintenance;
 using Archive.Backend.Reading;
 using Archive.Backend.Recordings;
@@ -368,6 +369,8 @@ app.MapRecordingEndpoints();
 app.MapRecordingPassageEndpoints();
 app.MapExtractionEndpoints();
 app.MapReadingEndpoints();
+app.MapLiedEndpoints();
+app.MapDateiEndpoints();
 app.MapDevelopmentDiagnostics();
 
 // A specific fallback reserves the entire API namespace, including missing files.

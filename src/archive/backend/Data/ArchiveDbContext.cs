@@ -84,6 +84,12 @@ public sealed class ArchiveDbContext(DbContextOptions<ArchiveDbContext> options)
 
 	public DbSet<Ai.AiBudgetMonth> AiBudgetMonths => Set<Ai.AiBudgetMonth>();
 
+	/// <summary>#166: the flat Lied that replaces Song, Arrangement and MusicalVersion.</summary>
+	public DbSet<Lieder.Lied> Lieder => Set<Lieder.Lied>();
+
+	/// <summary>#166: Dateien of a Lied or an Auftritt; replaces assets and file revisions.</summary>
+	public DbSet<Lieder.Datei> Dateien => Set<Lieder.Datei>();
+
 	protected override void OnModelCreating(ModelBuilder modelBuilder)
 	{
 		base.OnModelCreating(modelBuilder);

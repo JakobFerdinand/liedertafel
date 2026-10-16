@@ -66,7 +66,14 @@ public sealed class AssetModelConfiguration
 
 	public void Configure(EntityTypeBuilder<PendingUpload> builder)
 	{
-		builder.ToTable("upload_sessions");
+		builder.ToTable("upload_sessions", t => t.HasCheckConstraint("CK_upload_sessions_owner",
+			"((\"AssetId\" IS NOT NULL)::int + (\"LiedId\" IS NOT NULL)::int + (\"EventId\" IS NOT NULL)::int) = 1"));
+		builder.Property(x => x.DateiKind).HasMaxLength(20);
+		builder.Property(x => x.Stimme).HasMaxLength(200);
+		builder.Property(x => x.Description).HasMaxLength(500);
+		builder.HasOne<Lieder.Lied>().WithMany().HasForeignKey(x => x.LiedId).OnDelete(DeleteBehavior.Cascade);
+		builder.HasOne<Events.ChoirEvent>().WithMany().HasForeignKey(x => x.EventId).OnDelete(DeleteBehavior.Cascade);
+		builder.HasIndex(x => x.LiedId);
 		builder.HasKey(x => x.Id);
 		builder.Property(x => x.BlobName).HasMaxLength(300).IsRequired();
 		builder.Property(x => x.ContentType).HasMaxLength(100).IsRequired();
