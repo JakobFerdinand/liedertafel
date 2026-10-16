@@ -2,7 +2,14 @@
 
 Status: User-confirmed planning baseline, subject to the validation gates below.
 Date: 2026-09-11
-Implementation: ARC-001 local walking skeleton completed; later slices remain planned.
+Implementation: most slices are implemented; see the issues under #96.
+
+> **Simplified on 2026-10-16 by [ADR-0001](../../../docs/adr/0001-flat-lied-and-upload-first.md).**
+> The catalogue is flat (Lied → Dateien, no arrangements, musical versions or
+> file revisions), editing is upload-first with AI suggestions shown only inline,
+> Auftritte have one editable Programm, and audio analysis of Aufnahmen is in
+> scope. Where this document still says otherwise, the ADR wins. Domain terms are
+> in the root `GLOSSARY.md`.
 
 This document records the architecture interview and supersedes the original
 architecture proposal supplied in conversation on 2026-09-08. The
@@ -67,7 +74,7 @@ to keep this overview readable.
 | Development telemetry | API and C# workers export OpenTelemetry logs, traces and metrics to the Aspire dashboard over OTLP |
 | Production releases | Explicit maintainer-triggered/approved GitHub Actions release |
 | Database changes | Once per release, in a maintenance window; small changes and fix-forward handling |
-| Operational backups | Deliberately out of scope; editor revision history and trash remain |
+| Operational backups | Deliberately out of scope; the seven-day editor trash remains |
 
 ## 2. Operating targets and boundaries
 
@@ -129,9 +136,8 @@ extracted PDF text. PostgreSQL stores the indexed text and relationships. A
 dedicated search server is not a launch dependency; the chatbot is prioritized
 as the next core work after search.
 
-The detailed schema must distinguish musical versions from file revisions,
-working from published programmes, and planned appearances from confirmed
-performances. See the [PRD catalogue model](https://github.com/JakobFerdinand/liedertafel/issues/96).
+The schema is flat: a Lied has Dateien, an Auftritt has one Programm and its
+Aufnahmen (ADR-0001). See the [PRD](https://github.com/JakobFerdinand/liedertafel/issues/96).
 
 ### Scale-to-zero behaviour
 
@@ -283,15 +289,14 @@ of staging a whole original on Container Apps' limited temporary local disk.
 | Scores, practice audio/MIDI, member-facing playback copies | Hot, immediately readable |
 | Preservation originals with verified usable online material | Cold, immediately readable with higher read charges |
 | A file serving as both original and playback copy | One online object; do not create duplicates just to satisfy category names |
-| Incompatible original | Preserve it; editor attaches an externally converted playback copy |
-| Score revisions | Live catalogue content, retained until explicitly removed |
+| Incompatible original (e.g. `.mov`) | Preserve it; a job creates a playable copy automatically (up to 1080p, H.264, AAC 192 kbit/s) |
 | Deleted catalogue items/files | Recoverable editor trash for seven days, followed by cleanup |
 
 Cold storage has a 90-day minimum billable retention. Deleting or replacing data
 earlier may incur a remaining-retention charge; this does not prevent seven-day
 editor-trash cleanup. Original files should use stable object identities rather
-than repeated overwrites. Final deletion must respect references from retained
-revisions and other catalogue records.
+than repeated overwrites. Final deletion must respect references from other
+catalogue records.
 
 Use standard GPv2 storage, initially priced on LRS: Azure's internal copies
 within a datacenter. Those provider-managed durability mechanisms are distinct
@@ -311,7 +316,7 @@ flowchart LR
     Retry -.-> Queue
 
     Maintainer["Maintainer starts one-time import"] --> Import["C# migration job<br/>Read Google Drive and stream files"]
-    Import --> Review["Persist provenance and progress<br/>Editor reviews proposed catalogue"]
+    Import --> Review["Persist progress<br/>Editor confirms suggested Lieder"]
 ```
 
 **Durable work** survives the web application stopping. The queue provides a
@@ -535,8 +540,8 @@ from this design. Consequently:
   superseded.
 - Provider-managed durability/default history is not an application backup
   strategy. No additional backup retention is configured by this plan.
-- Score revisions remain live catalogue content until explicitly removed, and
-  ordinary editor deletion remains recoverable for seven days.
+- Replacing a Datei moves the old one to the trash; ordinary editor deletion
+  remains recoverable for seven days.
 - Persistent live storage, authentication keys, infrastructure state if needed,
   and compatible previous application images retain their normal operational
   purposes.
@@ -579,7 +584,7 @@ illustration, that online playback copies occupy **20% of original size**:
 
 This represents one set of originals plus usable derivatives, not backup copies.
 Measure actual playable/original sizes before using this as an estimate. Scores,
-retained revisions, trash, and other live objects also occupy capacity.
+trash and other live objects also occupy capacity.
 
 The subtotals exclude tax, operations, Cold retrieval, early deletion, network
 transfer, application/job compute, email, Key Vault, queues, logs, and any future
@@ -607,7 +612,7 @@ These are explicit implementation prerequisites, not claims of completed tests.
 | Framework baseline | Supported Aspire/React/.NET/EF/Npgsql/library versions and compatibility with repository tooling |
 | Local development | One AppHost start connects frontend/API, PostgreSQL, Azurite, mail and implemented workers; OTel logs/traces/metrics reach Aspire, including finite jobs and queue context |
 | Neon provisioning | Provider lifecycle trial and pinned version if OpenTofu is adopted, or complete documented manual setup; Free limits and Frankfurt region verified |
-| Source inventory | Actual folder conventions, aggregate size, maximum file sizes, formats, musical versions, and playable/original size ratio |
+| Source inventory | Actual folder conventions, aggregate size, maximum file sizes, formats, and playable/original size ratio |
 | App-owned authentication | Invitations, German code delivery, expiry/reuse/attempt controls, 30-day sessions across restart, revocation, and restricted admin repair |
 | Permissions | API/search/file operations enforce roles; web runtime, jobs, migration tooling, and release identities have appropriate separate scopes |
 | Media transfer | Approximately 10 GB interrupted uploads, safe finalization/reruns, private reads, seek/range support, and renewable 15-minute playback tickets |
@@ -692,26 +697,28 @@ each issue's **AI assistance** section applies it to that slice.
 
 ### Where AI is used and where it is not
 
-- **Interaction model:** the classic navigation stays. Every editor screen gets
-  AI help (prefilled fields, proposals, drafts); editors and administrators also
-  get an assistant that can act through tools. Members get search and the
-  read-only grounded chat. The app is not chat-first.
+- **Interaction model:** the classic navigation stays. Editing is
+  upload-first: dropping files is the default first step, and the AI fills the
+  form the editor is looking at (ADR-0001). Members get search and the
+  read-only grounded chat. There is no editor assistant. The app is not
+  chat-first.
 - **Editors first:** the manual editorial work (upload, metadata, events,
   import, curation) is the main target; members benefit through better data.
 - **No AI when** deterministic code does the job as well, or when a wrong
   result costs more than the time saved. Counts, permissions, alerts, copying,
   trash and media handling stay deterministic.
-- **Still out of scope:** audio analysis, including automatic recording
-  boundary detection, and optical music recognition. Text generated per page
-  view is also excluded; generated text is produced once and stored.
+- **Audio analysis is in scope (ADR-0001):** a concert Aufnahme is transcribed
+  with timestamps to suggest Zeitmarken, or a whole Programm. Optical music
+  recognition and text generated per page view stay out of scope.
 
 ### Model and provider
 
 - Azure OpenAI in the EU Data Zone stays the only provider (ARC-021 gate:
   EU processing, no training on inputs). The model for **all** AI work is
   **GPT-6 Luna**, replacing `gpt-5.4-mini`, including image input for scans.
-- Embeddings use `text-embedding-3-small` in the same Azure OpenAI resource
-  with pgvector in the existing Neon database (ARC-052).
+- No embeddings: semantic search was cut (ADR-0001). Transcription of
+  Aufnahmen needs an audio model in the same resource, chosen in the
+  transcription spike.
 - **No switch gate:** the deployment moves to Luna directly (ARC-021-1). The
   chat evaluation is still run and recorded, but it does not block the switch.
 - The chat stays on Chat Completions with reasoning effort `none`, because
@@ -724,48 +731,38 @@ each issue's **AI assistance** section applies it to that slice.
   from the usage ledger; it replaces the EUR 5 warning, which was only logged
   after the call and never stopped anything.
 - When the cap is reached: background AI jobs stay queued and resume next
-  month; the chat and the editor assistant show "Monatsbudget erreicht"; every
-  form keeps working by hand; search keeps working because stored embeddings
-  cost nothing to query.
+  month; the chat shows "Monatsbudget erreicht"; every form keeps working by
+  hand; search never calls a model.
 
 ### Authority of AI output
 
-| Kind of change | Behaviour |
-| --- | --- |
-| Low-stakes, reversible fields (key, voice, lyrics text, tags, creators read from a score) | Applied automatically above a confidence threshold, marked as AI-derived, revertible |
-| Identity or visibility (new song identity, merge, publication, deletion, anything in member administration) | Proposal only; a human confirms |
-| Everything in the Drive import | Proposal only, sorted into confidence bands for bulk approval |
-| Generated text (song history, programme notes, translations) | Draft that an editor approves; grounded in archive records with citations |
+Superseded by ADR-0001: AI output is only ever a suggestion, shown prefilled and
+editable in the form the editor is working in, and it becomes ordinary data
+when the editor saves. Nothing is applied in the background, there is no
+"Vorschläge" queue and no stored per-field provenance or "KI" badge for
+catalogue fields. Suggested Zeitmarken and Programme are shown in the player or
+Programm editor the same way.
 
-- **Per-field provenance (ARC-013-1):** every AI- or regex-written field
-  records source (human / regex / AI), confidence, model and previous value. A
-  human edit locks the field against later AI overwrites.
-- **UI:** a "KI" badge with one-click revert on auto-applied fields, and one
-  "Vorschläge" queue in `/verwaltung` for everything awaiting confirmation.
-- **Deterministic first:** where embedded PDF text exists, the regex analyzer
-  runs first; the model fills only empty fields and reads scans without text.
+- **Deterministic first:** where embedded PDF text exists, it is used before
+  the model; the model reads scans without text.
+- Reading quotes are still verified against the read text before a value is
+  offered as certain.
 
 ### Data boundaries
 
 - Member names and emails never reach the provider (unchanged from ARC-021).
   Correction reports are sent without the reporter's identity; free text may
   name historical or catalogue persons.
-- **Drafts:** editor-triggered AI and background jobs may read unpublished
-  material. The member chat and member search see published content only.
-  Embedding rows carry a visibility flag that enforces this split.
+- **Unfinished uploads:** AI jobs may read uploads in "Angefangen"; the member
+  chat and member search see saved records only.
 - **Untrusted text:** scans, imported files and member reports are data, not
-  instructions. Jobs that read them have no write access beyond their own
-  draft or proposal. The editor assistant never acts on text it read from a
-  document without the editor's confirmation.
-- **Assistant tools:** the editor assistant creates and edits drafts of songs,
-  arrangements, events, programme items and performances. Publish, merge,
-  delete and member administration are proposals with a confirm button. The
-  member chat stays read-only.
+  instructions. Jobs that read them write only suggestions for the upload they
+  belong to. The member chat stays read-only.
 
 ### Search
 
-One search box backed by lexical plus embedding search. No model call sits in
-the search path, so search stays fast after a cold start and has no per-query
+One search box backed by lexical search over title, creators, Liedtext and text
+read from Noten. No model call sits in the search path, so search stays fast after a cold start and has no per-query
 cost. Questions go to the chat.
 
 ### Evaluation
@@ -777,18 +774,8 @@ corrections) need ordinary tests of the plumbing only.
 
 ### Order of work
 
-1. Chat on an Agent Framework agent with the cap and ledger as chat-client
-   middleware (ARC-022-3), then the Luna deployment (ARC-021-1) and the
-   AG-UI client with the A2UI catalog (ARC-022-4).
-2. Per-field provenance and the "Vorschläge" queue (ARC-013-1).
-3. Scan reading through vision on upload (ARC-034-1).
-4. Embeddings, widened to drafts (ARC-052).
-5. Import chain with AI mapping (ARC-036 to ARC-038).
-6. Launch gates (ARC-044, ARC-045).
-7. After launch: chat tools for events and history (ARC-022-1), programme
-   reading (ARC-025-1), editor assistant (ARC-022-2), hybrid member search
-   (ARC-020-1), duplicates (ARC-046, ARC-050), corrections (ARC-047), song
-   histories (ARC-031) and lyric translations (ARC-013-2).
+Superseded by ADR-0001: work is ordered by the milestones Vereinfachung,
+Bestand and Betrieb on the issues under #96.
 
 ### Technical design
 
@@ -810,21 +797,14 @@ Confirmed with the user on 2026-10-04 in a second, technical interview.
   and the archive is a static export with one origin.
 - **A2UI** renders what an agent shows in the member chat and the editor
   assistant, with `@a2ui/react` and a catalog of the archive's own components
-  only (`LiedKarte`, `AuftrittKarte`, `ProgrammListe`, `VorschlagKarte`,
-  `AenderungsVorschau`, `Quellen`). The agent supplies record IDs; validated
+  only (`LiedKarte`, `AuftrittKarte`, `ProgrammListe`, `Quellen`). The agent supplies record IDs; validated
   server data fills the components; the model never supplies a URL.
 - The agent emits A2UI through a `zeige_oberflaeche` tool whose arguments are
   validated against the catalog before streaming. Citation chips stay a
   server-built `CUSTOM` event. Validated A2UI messages are stored with the
   chat message and re-checked for visibility on reload.
-- The "Vorschläge" queue and "KI" badges are ordinary React over stored state,
-  so they work when AI is paused.
 - Clicks in agent-made UI call the REST endpoints directly; the agent is told
-  through shared state. Tool approval (an AG-UI interrupt) is used for one
-  case: changing a draft based on text read from a document or report.
-- The editor assistant is a side panel on every editor screen that knows the
-  open record through shared state, with its own endpoint, agent and editor
-  tool set. Member chat tools stay hard-coded to published content.
+  through shared state. Member chat tools stay hard-coded to saved content.
 
 **Budget and ledger**
 
@@ -842,26 +822,18 @@ Confirmed with the user on 2026-10-04 in a second, technical interview.
   prompt or model changes; an operator command reruns a feature for unlocked
   fields. Prompts are versioned constants in code.
 
-**Provenance, proposals and writes**
+**Writes**
 
-- One generic `FieldProvenance` table (entity type and id, field, source,
-  confidence, model, prompt version, previous value, time, actor); a row with
-  source `human` is the lock.
-- One `Proposal` table with a kind, a JSON payload and a typed handler per
-  kind. Each proposal stores the row version it was made against; on accept a
-  changed record is shown beside the proposed value for a fresh decision.
-- The song, arrangement, version and event mutations the AI features touch move
-  from endpoint lambdas into a shared write service used by endpoints, proposal
-  handlers and jobs. Song, arrangement and version PATCHes carry a row version;
-  arrangement and musical version gain one.
+- Catalogue mutations go through one write service used by endpoints and jobs;
+  PATCHes carry a row version. The `FieldProvenance` and `Proposal` tables are
+  removed (ADR-0001).
 - Confidence is categorical (`sicher` / `unsicher`) plus a verbatim quote that
-  code verifies against the read text. Auto-apply needs both.
-- Regex facts are written through the same path with source `regex`, into
-  empty unlocked fields only.
+  code verifies against the read text; it decides how a suggestion is shown,
+  never whether it is saved.
 
 **Reading scans**
 
-- Two steps: page images to transcribed text, stored as the revision's text;
+- Two steps: page images to transcribed text, stored as the Datei's text;
   then text to fields, the same path text PDFs with gaps take.
 - A second "AI reading" job with its own identity, queue, size and timeout.
   The extraction job stays model-free and hands `NoText` and gap-filling work
@@ -871,14 +843,13 @@ Confirmed with the user on 2026-10-04 in a second, technical interview.
   at a bounded resolution; longer documents are marked "teilweise gelesen" and
   an editor can request the rest.
 
-**Embeddings and search**
+**Audio and video**
 
-- pgvector, with the extension created once by the admin role in
-  `infrastructure/neon` (the migrator role cannot create extensions).
-- Chunks of about 500 tokens for lyrics and score text, one vector for short
-  fields, 512 dimensions, exact scan without an index.
-- Embeddings are computed by the AI job through the outbox-and-queue pattern;
-  only the query embedding is computed in the request.
-- Vector search sits behind a small interface with a fake for unit tests; the
-  real SQL is covered by the AppHost integration tests. Model calls in jobs
-  get a scripted stand-in, so CI never calls the provider.
+- A job makes a playable copy of every uploaded video that browsers cannot play
+  well (original resolution up to 1080p, H.264 at high quality, AAC 192 kbit/s)
+  and keeps the original.
+- A concert Aufnahme is transcribed with timestamps; the model matches the
+  transcript against the Programm and each Lied's Liedtext and suggests
+  Zeitmarken, or a Programm when none exists. A spike on a real concert video
+  decides the transcription model before the feature is built.
+- Model calls in jobs get a scripted stand-in, so CI never calls the provider.

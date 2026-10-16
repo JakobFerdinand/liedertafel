@@ -18,7 +18,7 @@ Use this guide when editing or extending the codebase.
   inside the release's `--migrate` as `archive_migrator` (embedded copy at
   `src/archive/backend/Data/runtime-grants.sql`, kept identical by a test);
   run it by hand only as a fallback. OpenTofu was trialled but is not adopted.
-- Plans and tickets: GitHub Issues (see `## Agent skills`); the choir archive is parent issue #96 with `ARC-xxx` sub-issues. `src/archive/docs/architecture.md` is the archive architecture (§14 governs AI assistance).
+- Plans and tickets: GitHub Issues (see `## Agent skills`); the choir archive is parent issue #96 with sub-issues ordered by milestone (Vereinfachung, Bestand, Betrieb). `src/archive/docs/architecture.md` is the archive architecture (§14 governs AI assistance).
 - docs/agents: issue tracker, triage label and domain doc conventions for agent skills.
 - liedertafel.slnx: .NET solution that opens all API projects together; global.json pins the .NET SDK.
 
@@ -128,6 +128,11 @@ uses its generated Next.js/Biome conventions and local `AGENTS.md`.
 
 ## Archive Contracts
 
+- [ADR-0001](docs/adr/0001-flat-lied-and-upload-first.md) simplifies the archive:
+  flat Lied → Dateien, upload-first editing, AI suggestions only inline (no
+  review queue or provenance), one editable Programm per Auftritt. Until the
+  Vereinfachung issues land, parts of the code below still follow the old
+  design; the ADR and `GLOSSARY.md` win for new work.
 - Keep Next.js statically exportable; ASP.NET serves the only production origin.
   Browser APIs use relative `/api/*`; API errors must never fall back to HTML.
 - Every archive C# host calls `AddServiceDefaults()`. Development requires
@@ -219,7 +224,7 @@ uses its generated Next.js/Biome conventions and local `AGENTS.md`.
 
 ### Issue tracker
 
-Issues live in GitHub Issues on `JakobFerdinand/liedertafel`, managed with the `gh` CLI; archive tickets are `ARC-xxx` sub-issues of #96. See `docs/agents/issue-tracker.md`.
+Issues live in GitHub Issues on `JakobFerdinand/liedertafel`, managed with the `gh` CLI; archive tickets are sub-issues of #96, grouped by `archiv:*` labels and milestones. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

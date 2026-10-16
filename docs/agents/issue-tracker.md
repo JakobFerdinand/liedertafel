@@ -14,14 +14,25 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 
 Infer the repo from `git remote -v`; `gh` does this automatically when run inside a clone. The repo is `JakobFerdinand/liedertafel` and **public**: never put secrets, credentials or private member data in an issue.
 
-## Choir archive (plan 006)
+## Choir archive
 
-- Parent issue: **#96** "006 Choir archive". Its body is the product requirements document; its first comment is the issue index (dependency layers, phases, shared definition of done); its second comment is the current implementation handoff.
-- Every archive ticket is a sub-issue of #96, labelled `archive` and titled `ARC-xxx: <outcome>`. Keep the ID when renaming. Follow-up slices of a finished ticket get a suffix (`ARC-034-1`).
-- The body starts with a **Status / Phase / Kind** and **Touches / External inputs** header; keep it current. Status maps to state: `done` → closed as completed; `in_progress` → open with `ready-for-human` while maintainer steps remain; `planned` → open with `ready-for-agent`.
-- Dependencies (`depends_on`) are native *blocked by* links (see **Blocking** below); keep the body's **Depends on** line in sync.
-- Record verification commands and results on the issue (body section or comment), then close it and update its status line in #96's index comment.
-- The archive architecture is a repo file, `src/archive/docs/architecture.md`; §14 is authoritative for the AI slices.
+- Parent issue: **#96**. Its body is the product requirements document. The
+  decisions behind the current scope are [ADR-0001](../adr/0001-flat-lied-and-upload-first.md);
+  domain terms are in the root `GLOSSARY.md`.
+- Every archive ticket is a sub-issue of #96, labelled `archive` plus one area
+  label (`archiv:lieder`, `archiv:auftritte`, `archiv:ki`, `archiv:betrieb`) and
+  assigned to a milestone: **Vereinfachung**, then **Bestand**, then
+  **Betrieb**. Progress is the milestone and #96's sub-issue bar.
+- Titles are plain outcomes in English using the glossary's German terms
+  ("Create a Lied by uploading its files"); no `ARC-xxx` numbers. Closed
+  tickets keep their historical `ARC-xxx` titles.
+- Order inside a milestone comes only from native *blocked by* links (see
+  **Blocking** below), not from issue numbers.
+- State: `ready-for-agent` when an agent can implement it, `ready-for-human`
+  while maintainer steps remain. Record verification commands and results on
+  the issue, then close it.
+- The archive architecture is `src/archive/docs/architecture.md`; §14 governs
+  AI work, and ADR-0001 wins where they conflict.
 
 ## Pull requests as a triage surface
 
