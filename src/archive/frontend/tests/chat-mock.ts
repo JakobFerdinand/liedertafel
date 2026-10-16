@@ -147,8 +147,7 @@ export async function mockSitzung(page: Page) {
 }
 
 // Antwort von GET /api/songs/{id} für ein Mitglied, Feld für Feld wie
-// CatalogueEndpoints.SongDetail sie baut (Mitglieder erhalten
-// `provenance: null`; Fassungen tragen rowVersion, accompaniment und assets).
+// CatalogueEndpoints.SongDetail sie baut (Fassungen tragen rowVersion, accompaniment und assets).
 export function liedDetailAntwort(
   lied: { id: string; title: string; composer: string; lyricist: string },
   fassungId = "00000000-0000-0000-0000-0000000005d1",
@@ -164,7 +163,6 @@ export function liedDetailAntwort(
       lyrics: "Das Wandern ist des Müllers Lust,\nDas Wandern!",
       language: "Deutsch",
       occasion: null,
-      provenance: null,
       tags: ["Wanderlied"],
       alternateTitles: ["Das Wandern"],
       arrangements: [

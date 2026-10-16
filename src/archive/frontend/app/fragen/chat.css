@@ -460,38 +460,3 @@
   color: var(--muted);
   font-size: var(--schrift-meta);
 }
-
-.a2ui-aktionen {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-  margin-block: 0.5rem;
-}
-
-.a2ui-meldung {
-  display: block;
-  min-height: 1.4em;
-  color: var(--muted);
-  font-size: var(--schrift-meta);
-  margin-bottom: 0.4rem;
-}
-
-.a2ui-aenderungen {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--schrift-meta);
-  margin-bottom: 0.6rem;
-}
-
-.a2ui-aenderungen th,
-.a2ui-aenderungen td {
-  text-align: left;
-  vertical-align: top;
-  padding: 0.4rem 0.6rem 0.4rem 0;
-  border-bottom: 1px solid var(--rule);
-}
-
-.a2ui-aenderungen thead th {
-  color: var(--muted);
-  font-weight: 400;
-}

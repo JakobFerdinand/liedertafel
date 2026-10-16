@@ -32,7 +32,6 @@ export type LeseInfo = {
   /** „teilweise gelesen“: die Datei hat mehr Seiten als bisher gelesen wurden. */
   partial: boolean;
   fieldsApplied: number;
-  fieldsProposed: number;
   failureReason: string | null;
   attemptCount: number;
   completedAt: string | null;
@@ -165,7 +164,6 @@ export function leseStatusText(info: LeseInfo): string {
             ? `Alle ${info.pagesTotal} ${info.pagesTotal === 1 ? "Seite" : "Seiten"} gelesen`
             : "Angaben aus dem Text geprüft",
         mehrzahl(info.fieldsApplied, "Angabe übernommen", "Angaben übernommen"),
-        mehrzahl(info.fieldsProposed, "Vorschlag", "Vorschläge"),
       ];
       return teile.join(" · ");
     }

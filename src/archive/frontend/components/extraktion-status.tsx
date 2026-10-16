@@ -1,6 +1,4 @@
 "use client";
-
-import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useExtraktionStand } from "@/components/extraktion-uebersicht";
 import { problemTitel } from "@/lib/assets";
@@ -249,11 +247,6 @@ export function ExtraktionStatus({
             <span className="extraktion-grund"> — {lesenGrund}</span>
           ) : null}
         </output>
-      )}
-      {lesen?.status === "completed" && lesen.fieldsProposed > 0 && (
-        <Link className="knopf-leise" href="/verwaltung/vorschlaege/">
-          Vorschläge ansehen
-        </Link>
       )}
       {lesenAngebot && (
         <button

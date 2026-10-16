@@ -84,20 +84,6 @@ export type LiedMusicalVersion = {
   assets: LiedAsset[];
 };
 
-/** ARC-013-1: neueste Herkunft eines Einzelfeldes (nur Redaktion). */
-export type FeldHerkunft = {
-  entityType: "song" | "arrangement" | "musical_version" | "asset" | "event";
-  entityId: string;
-  field: string;
-  fieldLabel: string;
-  source: "Human" | "Regex" | "Ai";
-  confidence: "Sicher" | "Unsicher";
-  model: string | null;
-  promptVersion: string | null;
-  changedAt: string;
-  locked: boolean;
-};
-
 export type LiedDetails = Omit<
   Lied,
   "arrangements" | "language" | "occasion" | "tags"
@@ -110,8 +96,6 @@ export type LiedDetails = Omit<
   tags: string[];
   /** ARC-013-1: Optimistischer Zeiger der Lied-Zeile. */
   rowVersion?: number;
-  /** ARC-013-1: Feldherkunft der Redaktion; Mitglieder erhalten kein Feld. */
-  provenance?: FeldHerkunft[];
   arrangements: LiedArrangement[];
 };
 

@@ -123,19 +123,6 @@ export function LiedDetail() {
     }
   }, [id]);
 
-  // ARC-013-1: lädt nach dem Zurückholen eines KI-Feldes die Ansicht neu
-  // (gesicherter Wert, frische Herkunft und Zeilenstand), ohne die Ansicht
-  // bei einem fehlgeschlagenen Aufruf abzubrechen.
-  const neuLaden = useCallback(async () => {
-    if (!id) return;
-    try {
-      const details = await fetchSong(id);
-      setLied((vorher) => notenErhalten(vorher, details));
-    } catch {
-      // bleibt bei den zuletzt bekannten Angaben
-    }
-  }, [id]);
-
   useEffect(() => {
     const abort = new AbortController();
     // Ein erneuter Versuch führt die Wirkung erneut aus; im Hintergrund wird
@@ -293,7 +280,6 @@ export function LiedDetail() {
           }
           assets={ausgewaehlteFassung.assets ?? []}
           isEditor={editor === true}
-          herkunft={lied.provenance}
           aktualisieren={() => void notenAktualisieren()}
         />
       )}
@@ -377,10 +363,7 @@ export function LiedDetail() {
                     zusatz: arrangement.voiceConfiguration ?? "",
                     begleitung: arrangement.accompaniment ?? "",
                   }}
-                  feldHerkunftListe={lied.provenance}
-                  zielId={arrangement.id}
                   rowVersion={arrangement.rowVersion}
-                  neuLaden={neuLaden}
                   onSuccess={(gespeichert, meldung) => {
                     gesichertSpeichern(gespeichert, meldung);
                     setArrangementBearbeitet(null);
@@ -432,10 +415,7 @@ export function LiedDetail() {
                         person: fassung.creator ?? "",
                         zusatz: fassung.musicalKey ?? "",
                       }}
-                      feldHerkunftListe={lied.provenance}
-                      zielId={fassung.id}
                       rowVersion={fassung.rowVersion}
-                      neuLaden={neuLaden}
                       onSuccess={(gespeichert, meldung) => {
                         gesichertSpeichern(gespeichert, meldung);
                         setFassungBearbeitet(null);
@@ -473,7 +453,6 @@ export function LiedDetail() {
           <LiedFormular
             lied={lied}
             absendenText="Änderungen speichern"
-            neuLaden={neuLaden}
             onSuccess={(gespeichert) => {
               setLied(gespeichert as LiedDetails);
               setErfolg("Änderungen gespeichert.");

@@ -981,7 +981,6 @@ function lesen(overwrite: Record<string, unknown> = {}) {
     pagesRead: 3,
     partial: false,
     fieldsApplied: 4,
-    fieldsProposed: 0,
     failureReason: null,
     attemptCount: 1,
     completedAt: "2026-10-12T09:30:00.000Z",
@@ -1022,7 +1021,7 @@ test("Das KI-Lesen läuft sichtbar und meldet am Ende, was übernommen wurde", a
       status: "completed",
       textSource: "reading",
       text: "Waldfahrt Musik: Franz Schubert",
-      reading: lesen({ fieldsApplied: 1, fieldsProposed: 2 }),
+      reading: lesen({ fieldsApplied: 1 }),
     }),
   ];
   let abrufe = 0;
@@ -1038,12 +1037,12 @@ test("Das KI-Lesen läuft sichtbar und meldet am Ende, was übernommen wurde", a
   await expect(lesenZeile).toHaveText("KI-Lesen wartet …");
   await expect(lesenZeile).toHaveText("KI liest die Seiten … (2 von 3 Seiten)");
   await expect(lesenZeile).toHaveText(
-    "Alle 3 Seiten gelesen · 1 Angabe übernommen · 2 Vorschläge",
+    "Alle 3 Seiten gelesen · 1 Angabe übernommen",
     { timeout: 15000 },
   );
   await expect(
     zeile.getByRole("link", { name: "Vorschläge ansehen" }),
-  ).toHaveAttribute("href", "/verwaltung/vorschlaege/");
+  ).toHaveCount(0);
   await expect(zeile.locator(".extraktion-stand")).toHaveText(
     "Text ausgelesen",
   );
