@@ -198,7 +198,7 @@ namespace Archive.Backend.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<Guid>("AssetId")
+                    b.Property<Guid?>("AssetId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("BlobName")
@@ -217,6 +217,10 @@ namespace Archive.Backend.Data.Migrations
                     b.Property<Guid>("CreatedByAccountId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("DateiKind")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
                     b.Property<string>("DeclaredFileName")
                         .HasMaxLength(300)
                         .HasColumnType("character varying(300)");
@@ -224,14 +228,40 @@ namespace Archive.Backend.Data.Migrations
                     b.Property<long?>("DeclaredSizeBytes")
                         .HasColumnType("bigint");
 
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid?>("EventId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("FinalizedDateiId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid?>("FinalizedRevisionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsPartitur")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid?>("LiedId")
                         .HasColumnType("uuid");
 
                     b.Property<long>("MaxSizeBytes")
                         .HasColumnType("bigint");
 
+                    b.Property<Guid?>("RecordedAtEventId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ReplacesDateiId")
+                        .HasColumnType("uuid");
+
                     b.Property<int>("State")
                         .HasColumnType("integer");
+
+                    b.Property<string>("Stimme")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
 
                     b.Property<DateTimeOffset>("UploadTicketExpiresAt")
                         .HasColumnType("timestamp with time zone");
@@ -243,10 +273,17 @@ namespace Archive.Backend.Data.Migrations
                     b.HasIndex("BlobName")
                         .IsUnique();
 
+                    b.HasIndex("EventId");
+
                     b.HasIndex("FinalizedRevisionId")
                         .IsUnique();
 
-                    b.ToTable("upload_sessions", (string)null);
+                    b.HasIndex("LiedId");
+
+                    b.ToTable("upload_sessions", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_upload_sessions_owner", "((\"AssetId\" IS NOT NULL)::int + (\"LiedId\" IS NOT NULL)::int + (\"EventId\" IS NOT NULL)::int) = 1");
+                        });
                 });
 
             modelBuilder.Entity("Archive.Backend.Assets.RevisionChange", b =>
@@ -1238,6 +1275,160 @@ namespace Archive.Backend.Data.Migrations
                     b.ToTable("extraction_jobs", (string)null);
                 });
 
+            modelBuilder.Entity("Archive.Backend.Lieder.Datei", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BlobName")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedByAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("DeletedByAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid?>("EventId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsPartitur")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid?>("LiedId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("OriginalFileName")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<Guid?>("RecordedAtEventId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ReplacedByDateiId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("RowVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Stimme")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BlobName")
+                        .IsUnique();
+
+                    b.HasIndex("EventId");
+
+                    b.HasIndex("LiedId");
+
+                    b.HasIndex("RecordedAtEventId");
+
+                    b.ToTable("dateien", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_dateien_kind", "\"Kind\" IN ('noten', 'uebe', 'aufnahme', 'sonstiges')");
+
+                            t.HasCheckConstraint("CK_dateien_owner", "((\"LiedId\" IS NOT NULL)::int + (\"EventId\" IS NOT NULL)::int) = 1");
+
+                            t.HasCheckConstraint("CK_dateien_partitur", "NOT \"IsPartitur\" OR \"Kind\" = 'noten'");
+                        });
+                });
+
+            modelBuilder.Entity("Archive.Backend.Lieder.Lied", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Arranger")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Composer")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedByAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Language")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Lyricist")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Lyrics")
+                        .HasMaxLength(5000)
+                        .HasColumnType("character varying(5000)");
+
+                    b.Property<string>("MusicalKey")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Occasion")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<long>("RowVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UpdatedByAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("VoiceConfiguration")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Title");
+
+                    b.ToTable("lieder", (string)null);
+                });
+
             modelBuilder.Entity("Archive.Backend.Reading.ReadingJob", b =>
                 {
                     b.Property<Guid>("RevisionId")
@@ -1600,13 +1791,22 @@ namespace Archive.Backend.Data.Migrations
                     b.HasOne("Archive.Backend.Assets.ArchiveAsset", "Asset")
                         .WithMany()
                         .HasForeignKey("AssetId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Archive.Backend.Events.ChoirEvent", null)
+                        .WithMany()
+                        .HasForeignKey("EventId")
+                        .OnDelete(DeleteBehavior.Cascade);
 
                     b.HasOne("Archive.Backend.Assets.FileRevision", "FinalizedRevision")
                         .WithOne()
                         .HasForeignKey("Archive.Backend.Assets.PendingUpload", "FinalizedRevisionId")
                         .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Archive.Backend.Lieder.Lied", null)
+                        .WithMany()
+                        .HasForeignKey("LiedId")
+                        .OnDelete(DeleteBehavior.Cascade);
 
                     b.Navigation("Asset");
 
@@ -1840,6 +2040,30 @@ namespace Archive.Backend.Data.Migrations
                     b.Navigation("Revision");
                 });
 
+            modelBuilder.Entity("Archive.Backend.Lieder.Datei", b =>
+                {
+                    b.HasOne("Archive.Backend.Events.ChoirEvent", "Event")
+                        .WithMany()
+                        .HasForeignKey("EventId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Archive.Backend.Lieder.Lied", "Lied")
+                        .WithMany("Dateien")
+                        .HasForeignKey("LiedId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Archive.Backend.Events.ChoirEvent", "RecordedAtEvent")
+                        .WithMany()
+                        .HasForeignKey("RecordedAtEventId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Event");
+
+                    b.Navigation("Lied");
+
+                    b.Navigation("RecordedAtEvent");
+                });
+
             modelBuilder.Entity("Archive.Backend.Reading.ReadingJob", b =>
                 {
                     b.HasOne("Archive.Backend.Assets.FileRevision", "Revision")
@@ -2040,6 +2264,11 @@ namespace Archive.Backend.Data.Migrations
             modelBuilder.Entity("Archive.Backend.Events.ProgrammeRevision", b =>
                 {
                     b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("Archive.Backend.Lieder.Lied", b =>
+                {
+                    b.Navigation("Dateien");
                 });
 #pragma warning restore 612, 618
         }
