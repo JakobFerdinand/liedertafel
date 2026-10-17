@@ -9,11 +9,13 @@ import {
 } from "@/lib/assets";
 import {
   gespeicherteUebertragung,
+  inhaltstypFuerDatei,
   ladeDateiHoch,
   type NeueDatei,
   setzeDateiUebertragungFort,
 } from "@/lib/dateien";
-import type { LiedDatei } from "@/lib/lieder";
+import { fetchEvents } from "@/lib/events";
+import { type DateiArt, dateiArten, type LiedDatei } from "@/lib/lieder";
 import {
   stimmeAusName,
   stimmenFuerBesetzung,
@@ -55,6 +57,43 @@ function statusText(zeile: Zeile): string {
   }
 }
 
+type ArtBeschreibung = {
+  titel: string;
+  hinweis: string;
+  accept: string;
+  stimme: "pflicht" | "keine";
+};
+
+const artBeschreibung: Record<DateiArt, ArtBeschreibung> = {
+  noten: {
+    titel: "Noten",
+    hinweis:
+      "Partitur oder Noten einer Stimme (PDF). Mehrere Dateien auf einmal sind möglich.",
+    accept: "application/pdf,.pdf",
+    stimme: "pflicht",
+  },
+  uebe: {
+    titel: "Übe-Dateien",
+    hinweis:
+      "Ton (MP3, M4A, WAV, OGG) oder MIDI zum Üben, für eine Stimme oder „Alle“.",
+    accept: "audio/*,.mp3,.m4a,.wav,.ogg,.mid,.midi",
+    stimme: "pflicht",
+  },
+  aufnahme: {
+    titel: "Aufnahmen",
+    hinweis:
+      "Ton oder Video des Chores bei diesem Lied, auf Wunsch mit dem Auftritt.",
+    accept: "audio/*,video/mp4,video/webm,.mp3,.m4a,.wav,.ogg,.mp4,.webm",
+    stimme: "keine",
+  },
+  sonstiges: {
+    titel: "Sonstiges",
+    hinweis: "PDF, Bild, Text oder Office-Dokument zum Herunterladen.",
+    accept: "application/pdf,image/*,text/plain,.pdf,.txt,.docx,.xlsx,.pptx",
+    stimme: "keine",
+  },
+};
+
 async function fehlerText(ursache: unknown): Promise<string> {
   if (ursache instanceof MaterialFehler) return ursache.message;
   return problemTitel(
@@ -87,12 +126,48 @@ export function DateiHochladen({
   const [laeuft, setLaeuft] = useState(false);
   const [meldung, setMeldung] = useState("");
   const [unterbrochen, setUnterbrochen] = useState<string[]>([]);
+  const [art, setArt] = useState<DateiArt>("noten");
+  const [auftritte, setAuftritte] = useState<{ id: string; titel: string }[]>(
+    [],
+  );
+  const [auftrittId, setAuftrittId] = useState("");
+  const beschreibung = artBeschreibung[art];
+  const stimmePflicht = beschreibung.stimme === "pflicht";
 
   useEffect(() => {
     setUnterbrochen(
       unterbrocheneUebertragungen(liedId).map((eintrag) => eintrag.fileName),
     );
   }, [liedId]);
+
+  useEffect(() => {
+    if (art !== "aufnahme" || auftritte.length > 0) return;
+    const abbruch = new AbortController();
+    fetchEvents({}, abbruch.signal)
+      .then((ergebnis) =>
+        setAuftritte(
+          ergebnis.events.map((auftritt) => ({
+            id: auftritt.id,
+            titel: auftritt.dateDisplay
+              ? `${auftritt.title} (${auftritt.dateDisplay})`
+              : auftritt.title,
+          })),
+        ),
+      )
+      .catch(() => {});
+    return () => abbruch.abort();
+  }, [art, auftritte.length]);
+
+  function artWechseln(neueArt: DateiArt) {
+    if (zeilenRef.current.some((zeile) => zeile.status !== "gespeichert")) {
+      setMeldung("Bitte erst die gewählten Dateien hochladen oder entfernen.");
+      return;
+    }
+    zeilenRef.current = [];
+    setZeilen([]);
+    setMeldung("");
+    setArt(neueArt);
+  }
 
   function aktualisiere(id: number, aenderung: Partial<Zeile>) {
     zeilenRef.current = zeilenRef.current.map((zeile) =>
@@ -105,11 +180,11 @@ export function DateiHochladen({
     const gewaehlt = Array.from(event.target.files ?? []);
     event.target.value = "";
     const neue: Zeile[] = gewaehlt.map((datei) => {
-      const stimme = stimmeAusName(datei.name, stimmen);
+      const stimme = stimmePflicht ? stimmeAusName(datei.name, stimmen) : "";
       return {
         id: naechsteId.current++,
         datei,
-        partitur: !stimme && /partitur/i.test(datei.name),
+        partitur: art === "noten" && !stimme && /partitur/i.test(datei.name),
         stimme,
         status: "bereit",
         fortschritt: 0,
@@ -128,9 +203,13 @@ export function DateiHochladen({
 
   async function uebertrage(zeile: Zeile) {
     const neu: NeueDatei = {
-      kind: "noten",
+      kind: art,
       isPartitur: zeile.partitur,
-      stimme: zeile.stimme.trim(),
+      stimme: stimmePflicht ? zeile.stimme.trim() : "",
+      contentType:
+        art === "noten" ? "application/pdf" : inhaltstypFuerDatei(zeile.datei),
+      dateiName: zeile.datei.name,
+      recordedAtEventId: art === "aufnahme" ? auftrittId || null : null,
     };
     const abbruch = new AbortController();
     abbrueche.current.set(zeile.id, abbruch);
@@ -185,11 +264,13 @@ export function DateiHochladen({
       (zeile) => zeile.status !== "gespeichert",
     );
     const ungueltig = offen.find(
-      (zeile) => !zeile.partitur && !zeile.stimme.trim(),
+      (zeile) => stimmePflicht && !zeile.partitur && !zeile.stimme.trim(),
     );
     if (ungueltig) {
       setMeldung(
-        `Bitte für „${ungueltig.datei.name}“ eine Stimme angeben oder Partitur wählen.`,
+        art === "noten"
+          ? `Bitte für „${ungueltig.datei.name}“ eine Stimme angeben oder Partitur wählen.`
+          : `Bitte für „${ungueltig.datei.name}“ eine Stimme angeben oder „Alle“ wählen.`,
       );
       return;
     }
@@ -216,25 +297,55 @@ export function DateiHochladen({
   return (
     <section
       className="noten-bereich datei-hochladen"
-      aria-label="Noten hochladen"
+      aria-label={`${beschreibung.titel} hochladen`}
     >
-      <h3>Noten hochladen</h3>
-      <p className="noten-info">
-        Partitur oder Noten einer Stimme (PDF). Mehrere Dateien auf einmal sind
-        möglich.
-      </p>
+      <h3>{beschreibung.titel} hochladen</h3>
+      <label htmlFor="datei-hochladen-art">Art der Datei</label>
+      <select
+        id="datei-hochladen-art"
+        value={art}
+        disabled={laeuft}
+        onChange={(event) => artWechseln(event.target.value as DateiArt)}
+      >
+        {dateiArten.map(([wert, titel]) => (
+          <option key={wert} value={wert}>
+            {titel}
+          </option>
+        ))}
+      </select>
+      <p className="noten-info">{beschreibung.hinweis}</p>
+      {art === "aufnahme" && (
+        <>
+          <label htmlFor="datei-hochladen-auftritt">Auftritt (optional)</label>
+          <select
+            id="datei-hochladen-auftritt"
+            value={auftrittId}
+            disabled={laeuft}
+            onChange={(event) => setAuftrittId(event.target.value)}
+          >
+            <option value="">Kein Auftritt</option>
+            {auftritte.map((auftritt) => (
+              <option key={auftritt.id} value={auftritt.id}>
+                {auftritt.titel}
+              </option>
+            ))}
+          </select>
+        </>
+      )}
       {unterbrochen.length > 0 && !laeuft && (
         <output className="noten-info">
           Unterbrochene Übertragung: {unterbrochen.join(", ")}. Wähle die Datei
           erneut aus, um sie fortzusetzen.
         </output>
       )}
-      <label htmlFor="datei-hochladen-auswahl">Noten auswählen</label>
+      <label htmlFor="datei-hochladen-auswahl">
+        {beschreibung.titel} auswählen
+      </label>
       <input
         ref={eingabeRef}
         id="datei-hochladen-auswahl"
         type="file"
-        accept="application/pdf,.pdf"
+        accept={beschreibung.accept}
         multiple
         onChange={dateienGewaehlt}
       />
@@ -251,18 +362,20 @@ export function DateiHochladen({
                 {zeile.datei.name} · {groesseText(zeile.datei.size)} ·{" "}
                 {statusText(zeile)}
               </p>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={zeile.partitur}
-                  disabled={zeile.status === "gespeichert" || laeuft}
-                  onChange={(event) =>
-                    aktualisiere(zeile.id, { partitur: event.target.checked })
-                  }
-                />
-                Partitur
-              </label>
-              {!zeile.partitur && (
+              {art === "noten" && (
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={zeile.partitur}
+                    disabled={zeile.status === "gespeichert" || laeuft}
+                    onChange={(event) =>
+                      aktualisiere(zeile.id, { partitur: event.target.checked })
+                    }
+                  />
+                  Partitur
+                </label>
+              )}
+              {stimmePflicht && !zeile.partitur && (
                 <>
                   <label htmlFor={`datei-stimme-${zeile.id}`}>
                     Stimme für {zeile.datei.name}

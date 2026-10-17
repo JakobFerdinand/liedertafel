@@ -41,6 +41,10 @@ export type NeueDatei = {
   isPartitur: boolean;
   stimme: string;
   description?: string;
+  contentType?: string;
+  /** Dateiname; Schlüssel der Übertragung, wo es keine Stimme gibt. */
+  dateiName?: string;
+  recordedAtEventId?: string | null;
 };
 
 /**
@@ -48,7 +52,11 @@ export type NeueDatei = {
  * Partitur/Stimme, damit ein Neuladen die Übertragung fortsetzen kann.
  */
 export function uploadSchluessel(liedId: string, neu: NeueDatei): string {
-  const platz = neu.isPartitur ? "partitur" : neu.stimme.trim().toLowerCase();
+  const platz = neu.isPartitur
+    ? "partitur"
+    : neu.kind === "aufnahme" || neu.kind === "sonstiges"
+      ? (neu.dateiName ?? "").toLowerCase()
+      : neu.stimme.trim().toLowerCase();
   return `lied-${liedId}-${neu.kind}-${platz}`;
 }
 
@@ -65,8 +73,12 @@ function sitzungAnlegen(liedId: string, neu: NeueDatei) {
       {
         kind: neu.kind,
         isPartitur: neu.isPartitur,
-        stimme: neu.isPartitur ? null : neu.stimme.trim(),
+        stimme: neu.isPartitur ? null : neu.stimme.trim() || null,
         description: neu.description?.trim() || null,
+        contentType: neu.contentType ?? "application/pdf",
+        ...(neu.recordedAtEventId
+          ? { recordedAtEventId: neu.recordedAtEventId }
+          : {}),
         ...identitaet,
       },
     );
@@ -90,7 +102,7 @@ export async function ladeDateiHoch(
   const antwort = await uebertrageDatei<{ datei: LiedDatei }>(
     uploadSchluessel(liedId, neu),
     datei,
-    "application/pdf",
+    neu.contentType ?? "application/pdf",
     onSchritt,
     { ...optionen, neueSitzung: sitzungAnlegen(liedId, neu) },
   );
@@ -107,9 +119,38 @@ export async function setzeDateiUebertragungFort(
   const antwort = await setzeUploadFort<{ datei: LiedDatei }>(
     uploadSchluessel(liedId, neu),
     datei,
-    "application/pdf",
+    neu.contentType ?? "application/pdf",
     onSchritt,
     optionen,
   );
   return antwort.datei;
+}
+
+const inhaltstypNachEndung: Record<string, string> = {
+  pdf: "application/pdf",
+  mp3: "audio/mpeg",
+  m4a: "audio/mp4",
+  wav: "audio/wav",
+  ogg: "audio/ogg",
+  weba: "audio/webm",
+  mid: "audio/midi",
+  midi: "audio/midi",
+  mp4: "video/mp4",
+  webm: "video/webm",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  txt: "text/plain",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+};
+
+/** Inhaltstyp einer gewählten Datei: erst der Browser, sonst die Endung. */
+export function inhaltstypFuerDatei(datei: File): string {
+  const endung = datei.name.toLowerCase().split(".").pop() ?? "";
+  const nachEndung = inhaltstypNachEndung[endung];
+  if (nachEndung) return nachEndung;
+  return datei.type.toLowerCase() || "application/octet-stream";
 }

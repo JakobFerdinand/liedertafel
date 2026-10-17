@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { SpielerZugriff } from "@/components/medien-spieler";
 import type { AssetAccessResponse, SpielerFehler } from "@/lib/assets";
 import { fetchAssetAccess, ladeFehlerAusUrsache, zeitText } from "@/lib/assets";
 import type { MidiStueck } from "@/lib/midi";
@@ -27,25 +28,32 @@ const ScheitelFaktor = 0.2;
 /** Abstand der Positionsaktualisierungen in Millisekunden. */
 const TaktMs = 100;
 
-export type MidiSpielerProps = {
+export type MidiSpielerProps<
+  Zugriff extends SpielerZugriff = AssetAccessResponse,
+> = {
   assetId: string;
   /** Beschriftete Stimme (inklusive Vollmix-Ersatz), für Klartext-Labels. */
   stimme: string;
-  zugriff: AssetAccessResponse;
+  zugriff: Zugriff;
+  /** Holt ein frisches Ticket; ohne Angabe das Ticket des alten Materials. */
+  holeZugriff?: () => Promise<Zugriff>;
   /** Nur ein Spieler läuft gleichzeitig; inaktive pausieren sich selbst. */
   aktiv: boolean;
   onAbspielen: () => void;
-  onErneuert: (zugriff: AssetAccessResponse) => void;
+  onErneuert: (zugriff: Zugriff) => void;
 };
 
-export function MidiSpieler({
+export function MidiSpieler<
+  Zugriff extends SpielerZugriff = AssetAccessResponse,
+>({
   assetId,
   stimme,
   zugriff,
+  holeZugriff,
   aktiv,
   onAbspielen,
   onErneuert,
-}: MidiSpielerProps) {
+}: MidiSpielerProps<Zugriff>) {
   const [wiedergabe, setWiedergabe] = useState(false);
   const [position, setPosition] = useState(0);
   const [tempo, setTempo] = useState(100);
@@ -162,7 +170,7 @@ export function MidiSpieler({
     setPosition(position);
   }, [aktuellePosition, stoppQuellen]);
 
-  const laden = useCallback(async (ticket: AssetAccessResponse) => {
+  const laden = useCallback(async (ticket: SpielerZugriff) => {
     setLaedt(true);
     try {
       // Ticketierte Blob-URL: die Bytes kommen ohne Anmeldeinformationen.
@@ -296,9 +304,11 @@ export function MidiSpieler({
     setFehler(null);
     // Das alte Ticket kann abgelaufen sein: erst frische Zugriffsrechte
     // holen und dem Besitzer melden, dann die Bytes neu laden.
-    let neu: AssetAccessResponse;
+    let neu: Zugriff;
     try {
-      neu = await fetchAssetAccess(assetId);
+      neu = holeZugriff
+        ? await holeZugriff()
+        : ((await fetchAssetAccess(assetId)) as unknown as Zugriff);
     } catch (ursache) {
       setFehler(ladeFehlerAusUrsache(ursache, LadeFehler.meldung));
       return;
