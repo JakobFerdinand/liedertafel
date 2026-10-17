@@ -83,8 +83,6 @@ public static class RevisionChanges
 		});
 		asset.CurrentRevisionId = revision.Id;
 		asset.RowVersion++;
-		if (AssetEndpoints.IsRecordingAssetType(asset.AssetType))
-			await RecordingFiles.OnCurrentFileChangedAsync(db, asset, token);
 		if (!ExtractionService.IsExtractable(asset.AssetType)
 			|| !string.Equals(revision.ContentType, AssetEndpoints.PdfContentType, StringComparison.OrdinalIgnoreCase))
 			return false;

@@ -2,6 +2,7 @@ using Archive.Backend.Assets;
 using Archive.Backend.Auth;
 using Archive.Backend.Data;
 using Archive.Backend.Events;
+using Archive.Backend.Lieder;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -9,6 +10,8 @@ using Microsoft.Extensions.Options;
 namespace Archive.Backend.Recordings;
 
 public sealed record CreateRecordingRequest(string? Label, string? Kind);
+
+public sealed record AttachDateiRequest(Guid? DateiId);
 
 /// <summary>
 /// Absent fields stay unchanged. <c>ExpectedVersion</c> is the version the
@@ -26,12 +29,14 @@ public sealed record PatchRecordingRequest(
 /// - Any editor may relabel, publish and switch downloads; only the editor
 ///   who created a recording may change its files, the ARC-025 rule for
 ///   event-owned assets (<c>MayChangeCurrentFile</c>).
-/// - Files are transferred through the shared upload protocol on the
-///   recording's two assets (<see cref="AssetEndpoints"/>); this class owns
-///   only identity, labels, publication and tickets.
+/// - Files are Aufnahme Dateien of the Auftritt (#171): the browser uploads
+///   through <c>POST /api/events/{id}/dateien/upload-session</c> and the
+///   shared finalize, then attaches the Datei to a slot with
+///   <c>PUT /api/recordings/{id}/dateien/{slot}</c>; this class owns
+///   identity, labels, publication, slots and tickets.
 /// - Tickets come from <c>GET /api/recordings/{id}/access</c> and nowhere
-///   else for members: the generic asset access refuses recording assets to
-///   members, so publication and the download switch cannot be bypassed.
+///   else for members: the generic Datei access refuses Aufnahmen of an
+///   Auftritt, so publication and the download switch cannot be bypassed.
 /// Extension points: ARC-032 keys passages on the recording id and reads
 /// <c>durationSeconds</c> and the playback <c>revisionId</c>; ARC-041 moves
 /// a preserved original that is not the playback file to another tier —
@@ -62,6 +67,14 @@ public static class RecordingEndpoints
 	public const string FilesOwnerMessage = "Nur die anlegende Person kann die Dateien dieser Aufnahme ändern.";
 
 	public const string NoFileMessage = "Für diese Aufnahme wurde noch keine Datei hochgeladen.";
+
+	public const string DateiRequiredMessage = "Bitte eine hochgeladene Datei angeben.";
+
+	public const string DateiInUseMessage = "Diese Datei gehört bereits zu einer Aufnahme.";
+
+	public const string OriginalSlot = "original";
+
+	public const string PlaybackSlotName = "playback";
 
 	public const int LabelMaxLength = 200;
 
@@ -118,24 +131,16 @@ public static class RecordingEndpoints
 			if (!await db.Events.AnyAsync(e => e.Id == id, token))
 				return Results.Problem(statusCode: 404, title: EventEndpoints.NotFoundMessage);
 			var now = time.GetUtcNow();
-			// The original slot exists from the start, so the browser can
-			// open its upload session right away. The event row is not
-			// touched and no programme or performance record is created.
-			var original = new ArchiveAsset
-			{
-				EventId = id,
-				AssetType = AssetEndpoints.RecordingOriginalAssetType,
-				CreatedAt = now,
-				CreatedByAccountId = decision!.AccountId,
-			};
+			// The slots stay empty until the browser attaches uploaded
+			// Dateien; the event row is not touched and no programme or
+			// performance record is created.
 			var recording = new Recording
 			{
 				EventId = id,
 				Label = label,
 				Kind = kind,
-				OriginalAsset = original,
 				CreatedAt = now,
-				CreatedByAccountId = decision.AccountId,
+				CreatedByAccountId = decision!.AccountId,
 				UpdatedAt = now,
 				UpdatedByAccountId = decision.AccountId,
 			};
@@ -214,15 +219,16 @@ public static class RecordingEndpoints
 		}).DisableAntiforgery();
 
 		/// <summary>
-		/// Opens the playback-copy slot of a recording whose original browsers
-		/// cannot play. Repeating the call returns the existing slot. The
-		/// copy itself is then transferred through the shared upload protocol
-		/// and only counts once finalize has validated it; a later, better
-		/// copy is a further revision of the same slot.
+		/// Attaches an uploaded Aufnahme Datei of this Auftritt to the
+		/// <c>original</c> or <c>playback</c> slot. A Datei already in the slot
+		/// goes to the trash, replaced by the new one (#168 rule). A playback
+		/// copy must be a container browsers play; otherwise it is refused and
+		/// the unusable Datei goes to the trash, the earlier copy stays.
 		/// </summary>
-		app.MapPost("/api/recordings/{id}/playback", async (
+		app.MapPut("/api/recordings/{id}/dateien/{slot}", async (
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
-			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time, Guid id, CancellationToken token) =>
+			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time, Guid id, string slot,
+			CancellationToken token, AttachDateiRequest? body) =>
 		{
 			try { await antiforgery.ValidateRequestAsync(context); }
 			catch (AntiforgeryValidationException)
@@ -233,36 +239,71 @@ public static class RecordingEndpoints
 			var (decision, error) = await RequireEditorAsync(context, accessor, access);
 			if (error is not null)
 				return error;
+			var isOriginal = slot == OriginalSlot;
+			if (!isOriginal && slot != PlaybackSlotName)
+				return Results.Problem(statusCode: 404, title: NotFoundMessage);
 			var recording = await WithFiles(db.Recordings).FirstOrDefaultAsync(r => r.Id == id, token);
 			if (recording is null)
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
 			if (recording.CreatedByAccountId != decision!.AccountId)
 				return Results.Problem(statusCode: 403, title: FilesOwnerMessage);
-			if (RecordingFiles.PlaybackSlot(recording) is null)
+			if (body?.DateiId is not { } dateiId)
+				return Results.Problem(statusCode: 400, title: DateiRequiredMessage);
+			var datei = await DateiQueries.Visible(db).FirstOrDefaultAsync(d => d.Id == dateiId
+				&& d.EventId == recording.EventId && d.Kind == DateiKinds.Aufnahme, token);
+			if (datei is null)
+				return Results.Problem(statusCode: 404, title: DateiUploads.DateiNotFoundMessage);
+			var currentId = isOriginal ? recording.OriginalDateiId : recording.PlaybackDateiId;
+			var now = time.GetUtcNow();
+			if (currentId == datei.Id)
+				return Results.Ok(new { recording = Payload(recording, decision, isEditor: true) });
+			if (await db.Recordings.AnyAsync(r => r.Id != id
+				&& (r.OriginalDateiId == datei.Id || r.PlaybackDateiId == datei.Id), token)
+				|| (isOriginal ? recording.PlaybackDateiId : recording.OriginalDateiId) == datei.Id)
+				return Results.Problem(statusCode: 409, title: DateiInUseMessage);
+			if (datei.SizeBytes == 0)
 			{
-				var now = time.GetUtcNow();
-				var copy = new ArchiveAsset
-				{
-					EventId = recording.EventId,
-					AssetType = AssetEndpoints.RecordingPlaybackAssetType,
-					CreatedAt = now,
-					CreatedByAccountId = decision.AccountId,
-				};
-				// Added explicitly: its preset key would otherwise make it
-				// look like an existing row when reached through the link.
-				db.Assets.Add(copy);
-				recording.PlaybackAsset = copy;
-				recording.UpdatedAt = now;
-				recording.UpdatedByAccountId = decision.AccountId;
-				recording.RowVersion++;
-				try
-				{
-					await db.SaveChangesAsync(token);
-				}
-				catch (DbUpdateException exception) when (RevisionChanges.IsLostRace(exception))
-				{
-					return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
-				}
+				DateiTrash.MoveToTrash(datei, decision.AccountId, now);
+				await db.SaveChangesAsync(token);
+				return Results.Problem(statusCode: 422, title: AssetEndpoints.EmptyRecordingMessage);
+			}
+			if (!isOriginal && !RecordingFormats.IsPlayable(datei.ContentType, recording.Kind))
+			{
+				DateiTrash.MoveToTrash(datei, decision.AccountId, now);
+				await db.SaveChangesAsync(token);
+				return Results.Problem(statusCode: 422, title: AssetEndpoints.InvalidPlaybackMessage);
+			}
+			var playedBefore = RecordingFiles.Resolve(recording).Playable?.Id;
+			var replaced = isOriginal ? recording.OriginalDatei : recording.PlaybackDatei;
+			if (replaced is { DeletedAt: null })
+			{
+				DateiTrash.MoveToTrash(replaced, decision.AccountId, now);
+				replaced.ReplacedByDateiId = datei.Id;
+			}
+			if (isOriginal)
+			{
+				recording.OriginalDateiId = datei.Id;
+				recording.OriginalDatei = datei;
+			}
+			else
+			{
+				recording.PlaybackDateiId = datei.Id;
+				recording.PlaybackDatei = datei;
+			}
+			// A measured duration describes the file members play; the
+			// uploading browser reports the new one.
+			if (RecordingFiles.Resolve(recording).Playable?.Id != playedBefore)
+				recording.DurationSeconds = null;
+			recording.UpdatedAt = now;
+			recording.UpdatedByAccountId = decision.AccountId;
+			recording.RowVersion++;
+			try
+			{
+				await db.SaveChangesAsync(token);
+			}
+			catch (DbUpdateException exception) when (exception is DbUpdateConcurrencyException || IsUniqueViolation(exception))
+			{
+				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
 			}
 			return Results.Ok(new { recording = Payload(recording, decision, isEditor: true) });
 		}).DisableAntiforgery();
@@ -315,7 +356,7 @@ public static class RecordingEndpoints
 				kind = recording.Kind,
 				playbackState = files.State,
 				source = files.Source,
-				revisionId = file.Id,
+				dateiId = file.Id,
 				contentType = file.ContentType,
 				sizeBytes = file.SizeBytes,
 				durationSeconds = recording.DurationSeconds,
@@ -327,15 +368,18 @@ public static class RecordingEndpoints
 		});
 	}
 
-	/// <summary>Both asset slots with their current revisions (<see cref="RecordingFiles.Resolve"/> needs them).</summary>
+	/// <summary>Both Datei slots (<see cref="RecordingFiles.Resolve"/> needs them).</summary>
 	internal static IQueryable<Recording> WithFiles(IQueryable<Recording> recordings) => recordings
-		.Include(r => r.OriginalAsset).ThenInclude(a => a.CurrentRevision)
-		.Include(r => r.PlaybackAsset).ThenInclude(a => a!.CurrentRevision);
+		.Include(r => r.OriginalDatei)
+		.Include(r => r.PlaybackDatei);
+
+	private static bool IsUniqueViolation(DbUpdateException exception) =>
+		exception.InnerException is Npgsql.PostgresException { SqlState: Npgsql.PostgresErrorCodes.UniqueViolation };
 
 	/// <summary>
 	/// One wire shape for lists and write responses. Requires both asset
-	/// slots with their current revisions (<see cref="WithFiles"/>). Asset
-	/// ids, file names, versions and attribution stay in the editor block.
+	/// slots (<see cref="WithFiles"/>). File names, versions and attribution
+	/// stay in the editor block.
 	/// </summary>
 	private static object Payload(Recording recording, ArchiveAccessDecision decision, bool isEditor)
 	{
@@ -353,7 +397,7 @@ public static class RecordingEndpoints
 			{
 				state = files.State,
 				source = files.Source,
-				revisionId = files.Playable?.Id,
+				dateiId = files.Playable?.Id,
 				contentType = files.Playable?.ContentType,
 				sizeBytes = files.Playable?.SizeBytes,
 			},
@@ -365,28 +409,24 @@ public static class RecordingEndpoints
 					version = recording.RowVersion,
 					canChangeFiles = recording.CreatedByAccountId == decision.AccountId,
 					publishedAt = recording.PublishedAt,
-					original = SlotPayload(recording.OriginalAsset, recording.Kind),
-					playbackCopy = RecordingFiles.PlaybackSlot(recording) is { } copySlot
-						? SlotPayload(copySlot, recording.Kind)
-						: null,
+					original = SlotPayload(RecordingFiles.Live(recording.OriginalDatei), recording.Kind),
+					playbackCopy = SlotPayload(RecordingFiles.Live(recording.PlaybackDatei), recording.Kind),
 				},
 		};
 	}
 
-	private static object SlotPayload(ArchiveAsset asset, string kind) => new
+	private static object SlotPayload(Datei? datei, string kind) => new
 	{
-		assetId = asset.Id,
-		file = asset.CurrentRevision is not { } revision
+		file = datei is null
 			? null
 			: (object)new
 			{
-				revisionId = revision.Id,
-				revisionNumber = revision.RevisionNumber,
-				contentType = revision.ContentType,
-				sizeBytes = revision.SizeBytes,
-				fileName = revision.OriginalFileName,
-				createdAt = revision.CreatedAt,
-				playable = RecordingFormats.IsPlayable(revision.ContentType, kind),
+				dateiId = datei.Id,
+				contentType = datei.ContentType,
+				sizeBytes = datei.SizeBytes,
+				fileName = datei.OriginalFileName,
+				createdAt = datei.CreatedAt,
+				playable = RecordingFormats.IsPlayable(datei.ContentType, kind),
 			},
 	};
 
@@ -429,11 +469,12 @@ public static class RecordingEndpoints
 
 /// <summary>
 /// Which of a recording's files plays what role right now (ARC-030).
-/// <see cref="Playable"/> is the file members stream: the validated playback
+/// <see cref="Playable"/> is the Datei members stream: the validated playback
 /// copy when one exists, otherwise a playable original serving both roles.
-/// <see cref="Preserved"/> is the file that exists when nothing is playable.
+/// <see cref="Preserved"/> is the Datei that exists when nothing is playable.
+/// A slot whose Datei sits in the trash counts as empty.
 /// </summary>
-public sealed record RecordingFiles(string State, string? Source, FileRevision? Playable, FileRevision? Preserved)
+public sealed record RecordingFiles(string State, string? Source, Datei? Playable, Datei? Preserved)
 {
 	/// <summary>A playable file exists.</summary>
 	public const string Ready = "ready";
@@ -448,26 +489,14 @@ public sealed record RecordingFiles(string State, string? Source, FileRevision? 
 
 	public const string PlaybackCopySource = "playbackCopy";
 
-	/// <summary>
-	/// The playback-copy slot, or null when there is none. The link only
-	/// counts when it points at a playback asset of the recording's own
-	/// event and not at the original; anything else is treated as absent, so
-	/// a wrong link can never hand out another owner's file. The database
-	/// check <c>CK_recordings_slots</c> rules out the original itself.
-	/// </summary>
-	public static ArchiveAsset? PlaybackSlot(Recording recording) =>
-		recording.PlaybackAsset is { } asset
-			&& asset.AssetType == AssetEndpoints.RecordingPlaybackAssetType
-			&& asset.EventId == recording.EventId
-			&& asset.Id != recording.OriginalAssetId
-				? asset
-				: null;
+	/// <summary>The slot's Datei unless it is in the trash.</summary>
+	public static Datei? Live(Datei? datei) => datei is { DeletedAt: null } ? datei : null;
 
-	/// <summary>Requires both asset slots loaded with their current revisions.</summary>
+	/// <summary>Requires both Datei slots loaded.</summary>
 	public static RecordingFiles Resolve(Recording recording)
 	{
-		var copy = PlaybackSlot(recording)?.CurrentRevision;
-		var original = recording.OriginalAsset.CurrentRevision;
+		var copy = Live(recording.PlaybackDatei);
+		var original = Live(recording.OriginalDatei);
 		if (copy is not null && RecordingFormats.IsPlayable(copy.ContentType, recording.Kind))
 			return new RecordingFiles(Ready, PlaybackCopySource, copy, null);
 		if (original is not null && RecordingFormats.IsPlayable(original.ContentType, recording.Kind))
@@ -476,26 +505,5 @@ public sealed record RecordingFiles(string State, string? Source, FileRevision? 
 		return preserved is null
 			? new RecordingFiles(Missing, null, null, null)
 			: new RecordingFiles(NeedsPlaybackCopy, null, null, preserved);
-	}
-
-	/// <summary>
-	/// Called by the revision-change contract when one of a recording's
-	/// assets gets a new current file. A measured duration describes the
-	/// file members play, so it is dropped when that file changes; the
-	/// uploading browser reports the new one.
-	/// </summary>
-	public static async Task OnCurrentFileChangedAsync(
-		ArchiveDbContext db, ArchiveAsset asset, CancellationToken token)
-	{
-		var recording = await db.Recordings
-			.Include(r => r.PlaybackAsset)
-			.FirstOrDefaultAsync(r => r.OriginalAssetId == asset.Id || r.PlaybackAssetId == asset.Id, token);
-		if (recording is null || recording.DurationSeconds is null)
-			return;
-		var copyPlays = PlaybackSlot(recording)?.CurrentRevisionId is not null;
-		if (recording.OriginalAssetId == asset.Id && copyPlays)
-			return;
-		recording.DurationSeconds = null;
-		recording.RowVersion++;
 	}
 }

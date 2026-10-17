@@ -454,55 +454,6 @@ public sealed partial class AssetApiTests
 	}
 
 	[Fact]
-	public async Task EventAssetsStayWithTheirCreatorForCorrectionAndRestore()
-	{
-		await using var factory = new AuthApiFactory();
-		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
-		await SeedAsync(factory, SecondEditor, ArchiveRoles.Editor);
-		var editorSession = await SignInAsync(factory, Editor);
-		var secondSession = await SignInAsync(factory, SecondEditor);
-		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		using var createEvent = await PostJsonAsync(client, "/api/events",
-			new { kind = "concert", title = "Frühjahrskonzert" }, editorSession);
-		Assert.Equal(HttpStatusCode.Created, createEvent.StatusCode);
-		var eventId = (await createEvent.Content.ReadFromJsonAsync<JsonElement>())
-			.GetProperty("event").GetProperty("id").GetString();
-		using var createAsset = await PostJsonAsync(client, $"/api/events/{eventId}/assets",
-			new { assetType = "document" }, editorSession);
-		Assert.Equal(HttpStatusCode.Created, createAsset.StatusCode);
-		var assetId = Guid.Parse((await createAsset.Content.ReadFromJsonAsync<JsonElement>())
-			.GetProperty("id").GetString()!);
-		var (_, _, first) = await UploadAndFinalizeAsync(factory, client, editorSession, assetId, size: 1024);
-		var (_, _, second) = await UploadAndFinalizeAsync(factory, client, editorSession, assetId, size: 2048);
-
-		// Unlike a musical-version asset, an event document with a file is
-		// not open to other editors: neither a correction …
-		using var correction = await PostJsonAsync(client,
-			$"/api/assets/{assetId}/upload-session", new { }, secondSession);
-		Assert.Equal(HttpStatusCode.Forbidden, correction.StatusCode);
-		var correctionProblem = await correction.Content.ReadFromJsonAsync<JsonElement>();
-		Assert.Equal(AssetEndpoints.AssetOwnerMessage, correctionProblem.GetProperty("title").GetString());
-		// … nor a restore.
-		using var restore = await PostJsonAsync(client, $"/api/assets/{assetId}/current-revision",
-			new { revisionId = RevisionId(first) }, secondSession);
-		Assert.Equal(HttpStatusCode.Forbidden, restore.StatusCode);
-		var restoreProblem = await restore.Content.ReadFromJsonAsync<JsonElement>();
-		Assert.Equal(AssetEndpoints.AssetOwnerMessage, restoreProblem.GetProperty("title").GetString());
-		using (var scope = factory.Services.CreateScope())
-		{
-			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-			Assert.Equal(RevisionId(second), (await db.Assets.SingleAsync()).CurrentRevisionId);
-			Assert.Equal(2, await db.RevisionChanges.CountAsync());
-			Assert.Equal(2, await db.UploadSessions.CountAsync());
-		}
-
-		// The creating editor keeps both abilities.
-		using var own = await PostJsonAsync(client, $"/api/assets/{assetId}/current-revision",
-			new { revisionId = RevisionId(first) }, editorSession);
-		Assert.Equal(HttpStatusCode.OK, own.StatusCode);
-	}
-
-	[Fact]
 	public async Task DowngradedOrRevokedEditorsLoseTheRevisionEndpoints()
 	{
 		await using var factory = new AuthApiFactory();

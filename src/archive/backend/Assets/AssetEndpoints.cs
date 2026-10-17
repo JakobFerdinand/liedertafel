@@ -305,60 +305,9 @@ public static class AssetEndpoints
 			});
 		}).DisableAntiforgery();
 
-		/// <summary>
-		/// ARC-025: editors attach a historical document or photograph to an
-		/// event; the three-step upload protocol (session, browser PUT,
-		/// finalize) is shared with the ARC-015 version assets. The event row
-		/// itself is never touched: attaching material creates no programme
-		/// or performance records (ARC-026 does that explicitly).
-		/// </summary>
-		app.MapPost("/api/events/{id}/assets", async (
-			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
-			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time, Guid id, CancellationToken token,
-			CreateEventAssetRequest? body) =>
-		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await RequireEditorAsync(context, accessor, access);
-			if (error is not null)
-				return error;
-			var assetType = (body?.AssetType ?? DocumentAssetType).Trim().ToLowerInvariant();
-			var typeError = ValidateAssetTypeForOwner(assetType, eventOwned: true);
-			if (typeError is not null)
-				return typeError;
-			var description = CleanOptional(body?.Description, 500, DescriptionTooLongMessage, out var descriptionError);
-			if (descriptionError is not null)
-				return descriptionError;
-			var choirEvent = await db.Events.FirstOrDefaultAsync(e => e.Id == id, token);
-			if (choirEvent is null)
-				return Results.Problem(statusCode: 404, title: Events.EventEndpoints.NotFoundMessage);
-			var asset = new ArchiveAsset
-			{
-				EventId = choirEvent.Id,
-				AssetType = assetType,
-				VoiceLabel = null,
-				Description = description,
-				CreatedAt = time.GetUtcNow(),
-				CreatedByAccountId = decision!.AccountId,
-			};
-			db.Assets.Add(asset);
-			await db.SaveChangesAsync(token);
-			return Results.Created($"/api/assets/{asset.Id}", new
-			{
-				id = asset.Id,
-				musicalVersionId = asset.MusicalVersionId,
-				eventId = asset.EventId,
-				assetType = asset.AssetType,
-				voiceLabel = asset.VoiceLabel,
-				description = asset.Description,
-				createdAt = asset.CreatedAt,
-				currentRevision = (object?)null,
-			});
-		}).DisableAntiforgery();
+		// #171: documents, photos and concert files of an Auftritt are Dateien
+		// (POST /api/events/{id}/dateien/upload-session); nothing creates
+		// event-owned assets any more.
 
 		app.MapPatch("/api/assets/{id}", async (
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,

@@ -1,6 +1,7 @@
 using Archive.Backend.Assets;
 using Archive.Backend.Auth;
 using Archive.Backend.Data;
+using Archive.Backend.Recordings;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
@@ -31,6 +32,8 @@ public static class DateiUploads
 	public const string RecordedAtEventNotFoundMessage = "Auftritt nicht gefunden.";
 
 	public const string DateiNotFoundMessage = "Datei nicht gefunden.";
+
+	public const string LiedKindOnEventMessage = "Dieser Dateityp gehört zu einem Lied und nicht zu einem Auftritt.";
 
 	/// <summary>Creates the session for a new Datei of a Lied (the Lied exists, the caller is an editor).</summary>
 	public static async Task<IResult> CreateForLiedAsync(
@@ -139,6 +142,103 @@ public static class DateiUploads
 	}
 
 	/// <summary>
+	/// Creates the session for a new Datei of an Auftritt (#171): documents and
+	/// photos (<c>sonstiges</c>) or concert files (<c>aufnahme</c>). Replacing a
+	/// <c>sonstiges</c> Datei follows the #168 rule. The content type of an
+	/// Aufnahme is only a hint: finalize recognises the container from its bytes.
+	/// </summary>
+	public static async Task<IResult> CreateForEventAsync(
+		ArchiveDbContext db, TimeProvider time, AssetStorageOptions storageOptions, IAssetStorageAdapter storage,
+		Guid accountId, Guid eventId, CreateDateiUploadRequest? body, CancellationToken token)
+	{
+		if (!await db.Events.AnyAsync(e => e.Id == eventId, token))
+			return Results.Problem(statusCode: 404, title: Events.EventEndpoints.NotFoundMessage);
+		Datei? replaces = null;
+		if (body?.ReplacesDateiId is { } replacesId)
+		{
+			replaces = await DateiQueries.Visible(db).AsNoTracking()
+				.FirstOrDefaultAsync(d => d.Id == replacesId && d.EventId == eventId && d.Kind == DateiKinds.Sonstiges, token);
+			if (replaces is null)
+				return Results.Problem(statusCode: 404, title: DateiNotFoundMessage);
+		}
+		var kind = replaces?.Kind ?? (body?.Kind ?? DateiKinds.Sonstiges).Trim().ToLowerInvariant();
+		if (!DateiKinds.IsKnown(kind))
+			return Results.Problem(statusCode: 422, title: "Unbekannter Dateityp.");
+		if (kind is not (DateiKinds.Sonstiges or DateiKinds.Aufnahme))
+			return Results.Problem(statusCode: 422, title: LiedKindOnEventMessage);
+		var rule = DateiKindRules.For(kind)!;
+		var contentType = Clean(body?.ContentType)?.ToLowerInvariant();
+		if (kind == DateiKinds.Aufnahme)
+		{
+			// Any audio or video container may be preserved as an original.
+			contentType ??= "video/mp4";
+			if (!contentType.StartsWith("audio/", StringComparison.Ordinal)
+				&& !contentType.StartsWith("video/", StringComparison.Ordinal))
+				return Results.Problem(statusCode: 422, title: DateiKindRules.UnsupportedContentTypeMessage);
+		}
+		else
+		{
+			contentType ??= rule.ContentTypes[0];
+			if (!rule.ContentTypes.Contains(contentType, StringComparer.Ordinal))
+				return Results.Problem(statusCode: 422, title: DateiKindRules.UnsupportedContentTypeMessage);
+		}
+		var description = Clean(body?.Description) ?? replaces?.Description;
+		if (description is { Length: > 500 })
+			return Results.Problem(statusCode: 400, title: AssetEndpoints.DescriptionTooLongMessage);
+		var fileName = Clean(body?.FileName);
+		if (fileName is { Length: > 300 })
+			return Results.Problem(statusCode: 400, title: AssetEndpoints.FileNameTooLongMessage);
+		var declaredSize = body?.SizeBytes;
+		if (declaredSize > storageOptions.MaxUploadBytes)
+			return Results.Problem(statusCode: 413, title: AssetEndpoints.UploadTooLargeMessage);
+		var pendingBytes = await db.UploadSessions
+			.Where(s => s.EventId == eventId && s.State == PendingUploadState.Pending)
+			.SumAsync(s => (long?)(s.DeclaredSizeBytes ?? s.MaxSizeBytes), token) ?? 0;
+		var storedBytes = await db.Dateien.Where(d => d.EventId == eventId)
+			.SumAsync(d => (long?)d.SizeBytes, token) ?? 0;
+		if ((declaredSize ?? 0) + pendingBytes + storedBytes > storageOptions.MaxCollectionBytes)
+			return Results.Problem(statusCode: 413, title: AssetEndpoints.UploadTooLargeMessage);
+
+		var now = time.GetUtcNow();
+		var pending = new PendingUpload
+		{
+			EventId = eventId,
+			DateiKind = kind,
+			Description = description,
+			ReplacesDateiId = replaces?.Id,
+			BlobName = $"pending/{Guid.CreateVersion7()}",
+			ContentType = contentType,
+			MaxSizeBytes = storageOptions.MaxUploadBytes,
+			DeclaredFileName = fileName,
+			DeclaredSizeBytes = declaredSize,
+			UploadTicketExpiresAt = now + storageOptions.UploadSessionLifetime,
+			State = PendingUploadState.Pending,
+			CreatedByAccountId = accountId,
+			CreatedAt = now,
+		};
+		db.UploadSessions.Add(pending);
+		await db.SaveChangesAsync(token);
+		string uploadUrl;
+		try
+		{
+			uploadUrl = await storage.CreateUploadTicketAsync(pending.BlobName, storageOptions.UploadSessionLifetime, token);
+		}
+		catch (InvalidOperationException)
+		{
+			return Results.Problem(statusCode: 502, title: AssetEndpoints.StorageFailureMessage);
+		}
+		return Results.Created($"/api/events/{eventId}", new
+		{
+			uploadSessionId = pending.Id,
+			blobName = (string?)null,
+			uploadUrl,
+			expiresAt = pending.UploadTicketExpiresAt,
+			maxBytes = pending.MaxSizeBytes,
+			blockBytes = storageOptions.UploadBlockBytes,
+		});
+	}
+
+	/// <summary>
 	/// Finalizes a Datei session: verifies the object against the declaration
 	/// and the kind's rule, promotes the blob under <see cref="BlobPrefix"/> and
 	/// creates the Datei. Mirrors the asset finalize semantics (idempotent
@@ -177,7 +277,7 @@ public static class DateiUploads
 			return Results.Problem(statusCode: 409, title: AssetEndpoints.UploadMismatchMessage);
 		var kind = session.DateiKind ?? DateiKinds.Noten;
 		var rule = DateiKindRules.For(kind);
-		if (rule is null || session.LiedId is null)
+		if (rule is null || (session.LiedId is null && session.EventId is null))
 		{
 			await AbandonAsync(db, storage, session, token);
 			return Results.Problem(statusCode: 422, title: DateiKindRules.UnsupportedKindMessage);
@@ -195,7 +295,7 @@ public static class DateiUploads
 		try
 		{
 			probe = await storage.ProbeAsync(session.BlobName, token);
-			header = await storage.ReadHeaderAsync(session.BlobName, DateiKindRules.HeaderBytes, token);
+			header = probe is { SizeBytes: 0 } ? [] : await storage.ReadHeaderAsync(session.BlobName, DateiKindRules.HeaderBytes, token);
 		}
 		catch (InvalidOperationException)
 		{
@@ -208,7 +308,8 @@ public static class DateiUploads
 			await AbandonAsync(db, storage, session, token);
 			return Results.Problem(statusCode: 413, title: AssetEndpoints.UploadTooLargeMessage);
 		}
-		var storedBytes = await db.Dateien.Where(d => d.LiedId == session.LiedId)
+		var storedBytes = await db.Dateien
+			.Where(d => session.LiedId != null ? d.LiedId == session.LiedId : d.EventId == session.EventId)
 			.SumAsync(d => (long?)d.SizeBytes, token) ?? 0;
 		if (probe.SizeBytes + storedBytes > storageOptions.MaxCollectionBytes)
 		{
@@ -222,8 +323,23 @@ public static class DateiUploads
 				? type
 				: null;
 		var effectiveContentType = storedContentType ?? session.ContentType;
-		if (!rule.ContentTypes.Contains(effectiveContentType, StringComparer.OrdinalIgnoreCase)
-			|| !rule.HasValidHeader(header, effectiveContentType))
+		bool accepted;
+		if (session.EventId is not null && kind == DateiKinds.Aufnahme)
+		{
+			// #171: a concert file is preserved whatever audio or video
+			// container it is (only an empty file is refused); the type is
+			// what its bytes say, for the media family the browser declared.
+			effectiveContentType = RecordingFormats.Detect(header ?? [],
+				session.ContentType.StartsWith("audio/", StringComparison.Ordinal)
+					? RecordingKinds.Audio : RecordingKinds.Video).ContentType;
+			accepted = probe.SizeBytes > 0;
+		}
+		else
+		{
+			accepted = rule.ContentTypes.Contains(effectiveContentType, StringComparer.OrdinalIgnoreCase)
+				&& rule.HasValidHeader(header, effectiveContentType);
+		}
+		if (!accepted)
 		{
 			await AbandonAsync(db, storage, session, token);
 			return Results.Problem(statusCode: 422, title: rule.InvalidMessage);
@@ -233,6 +349,7 @@ public static class DateiUploads
 		var datei = new Datei
 		{
 			LiedId = session.LiedId,
+			EventId = session.EventId,
 			Kind = kind,
 			IsPartitur = session.IsPartitur,
 			Stimme = session.Stimme,

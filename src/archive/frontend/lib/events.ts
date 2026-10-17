@@ -1,10 +1,8 @@
 // ARC-024: Auftritte des Chores mit ehrlicher Datumsdarstellung. Die
 // Abrufhelfer folgen dem Muster der Lieder (deutsche Fehler als geworfene
 // Antworten, keine Zwischenspeicherung).
-// ARC-025: an einem Auftritt hängende Dokumente und Fotografien nutzen
-// denselben Drei-Schritte-Upload wie die Noten (Sitzung, Übertragung zum
-// Ticket, Abschluss); die Helfer hier formen nur die Ereignis-spezifische
-// Vertragssprache (Arten, Beschreibung statt Stimme).
+// ARC-025/#171: Dokumente und Fotografien eines Auftritts sind Dateien und
+// nutzen den Upload aus lib/dateien.ts.
 
 import { patchAuth, postAuth, putAuth } from "@/lib/auth";
 
@@ -37,38 +35,22 @@ export type Auftritt = {
   published: boolean;
 };
 
-// ARC-025: Dokumente und Fotografien am Auftritt. „document" ist ein
-// eingescanntes Programm oder Schriftstück (PDF), „photo" eine historische
-// Fotografie (JPEG/PNG/WEBP). Die Beschreibung steht als sichtbare
+// ARC-025/#171: Dokumente und Fotografien am Auftritt sind Dateien des
+// Auftritts. „document" ist ein eingescanntes Programm oder Schriftstück
+// (PDF), „photo" eine historische Fotografie (JPEG/PNG/WEBP) – der Server
+// unterscheidet sie am Inhaltstyp. Die Beschreibung steht als sichtbare
 // Bildunterschrift und dient zugleich als Vorlesetext (alt) des Bildes.
-export type DokumentTyp = "document" | "photo";
-
-// Dieselbe Revisionsangabe wie bei den Noten (lib/songs.ts): Fassung,
-// Inhaltstyp und Größe des hochgeladenen Standes. Ohne abgeschlossenen
-// Upload bleibt currentRevision null – der Eintrag ist dann noch nicht
-// hochgeladen und trägt keine Tickets.
-export type DokumentRevision = {
-  revisionId: string;
-  revisionNumber: number;
-  contentType: string;
-  sizeBytes: number;
-  createdAt: string;
-};
+export type DokumentArt = "document" | "photo";
 
 export type Dokument = {
   id: string;
-  assetType: DokumentTyp;
+  art: DokumentArt;
   description: string | null;
+  fileName: string | null;
+  contentType: string;
+  sizeBytes: number;
   createdAt: string;
-  currentRevision: DokumentRevision | null;
-};
-
-// Antwortform der Anlage- und Änderungsaufrufe (Asset-Eignervertrag):
-// dieselben Felder wie Dokument, dazu die Eigner-Kennzeichnung.
-export type EventAssetAntwort = Dokument & {
-  eventId: string | null;
-  musicalVersionId: string | null;
-  voiceLabel: string | null;
+  rowVersion: number;
 };
 
 export type AuftrittDetails = Auftritt & {
@@ -144,13 +126,6 @@ export async function fetchEvent(
   return data.event;
 }
 
-// Erlaubte Inhaltstypen je Materialart (Spiegel der Backend-Whitelist:
-// Dokumente nur PDF, Fotografien JPEG/PNG/WEBP).
-const erlaubteDokumentInhaltstypen: Record<DokumentTyp, string[]> = {
-  document: ["application/pdf"],
-  photo: ["image/jpeg", "image/png", "image/webp"],
-};
-
 const dokumentInhaltstypNachEndung: Record<string, string> = {
   pdf: "application/pdf",
   jpg: "image/jpeg",
@@ -159,75 +134,19 @@ const dokumentInhaltstypNachEndung: Record<string, string> = {
   webp: "image/webp",
 };
 
-export function istDokumentTyp(typ: string): typ is DokumentTyp {
-  return typ === "document" || typ === "photo";
-}
-
-/** Vorwahl der Materialart aus dem MIME-Typ; unbekanntes gilt als Dokument. */
-export function dokumentTypFuerDatei(datei: File): DokumentTyp {
+/** Wirksamer Inhaltstyp einer gewählten Datei: erkannter Typ, sonst die Endung. */
+export function contentTypeFuerDokument(datei: File): string {
   const inhaltstyp = datei.type.toLowerCase();
-  if (inhaltstyp.startsWith("image/")) return "photo";
-  if (inhaltstyp === "application/pdf") return "document";
-  const endung = datei.name.toLowerCase().split(".").pop() ?? "";
-  if (
-    endung === "jpg" ||
-    endung === "jpeg" ||
-    endung === "png" ||
-    endung === "webp"
-  ) {
-    return "photo";
+  if (Object.values(dokumentInhaltstypNachEndung).includes(inhaltstyp)) {
+    return inhaltstyp;
   }
-  return "document";
-}
-
-/** Wirksamer Inhaltstyp der Übertragung: erkannter Typ, sonst Whitelist-Ersatz. */
-export function contentTypeFuerDokument(typ: DokumentTyp, datei: File): string {
-  const erlaubt = erlaubteDokumentInhaltstypen[typ];
-  const inhaltstyp = datei.type.toLowerCase();
-  if (erlaubt.includes(inhaltstyp)) return inhaltstyp;
   const endung = datei.name.toLowerCase().split(".").pop() ?? "";
-  const nachEndung = dokumentInhaltstypNachEndung[endung];
-  if (nachEndung && erlaubt.includes(nachEndung)) return nachEndung;
-  return erlaubt[0];
+  return dokumentInhaltstypNachEndung[endung] ?? "application/pdf";
 }
 
 /** Deutscher Name der Materialart für Zeilen und Etiketten. */
-export function dokumentTypName(typ: DokumentTyp): string {
-  return typ === "photo" ? "Fotografie" : "Dokument";
-}
-
-/**
- * ARC-025: hängt ein neues Dokument/eine neue Fotografie an den Auftritt.
- * Der Aufruf legt nur den Eigner-Eintrag an; am Auftritt selbst ändert
- * sich nichts (kein Programm, keine bestätigte Aufführung).
- */
-export async function createEventAsset(
-  eventId: string,
-  body: { assetType: DokumentTyp; description?: string },
-): Promise<EventAssetAntwort> {
-  const response = await postAuth(
-    `/api/events/${encodeURIComponent(eventId)}/assets`,
-    body,
-  );
-  if (!response.ok) throw response;
-  return (await response.json()) as EventAssetAntwort;
-}
-
-/**
- * Ändert Materialart und/oder Beschreibung eines Auftritts-Materials
- * (PATCH: abwesende Felder bleiben unverändert). Der Typ bleibt nach dem
- * ersten Hochladen gesperrt; der Server antwortet dann mit 409.
- */
-export async function patchEventAsset(
-  assetId: string,
-  body: { assetType?: DokumentTyp; description?: string | null },
-): Promise<EventAssetAntwort> {
-  const response = await patchAuth(
-    `/api/assets/${encodeURIComponent(assetId)}`,
-    body,
-  );
-  if (!response.ok) throw response;
-  return (await response.json()) as EventAssetAntwort;
+export function dokumentArtName(art: DokumentArt): string {
+  return art === "photo" ? "Fotografie" : "Dokument";
 }
 
 // ─── ARC-026: Programm des Auftritts ─────────────────────────────────

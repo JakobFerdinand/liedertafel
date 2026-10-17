@@ -1295,13 +1295,10 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         // A QuickTime original: stored and kept, not playable.
         var video = await CreateRecordingAsync("Video Saal", "video");
         var videoId = Guid.Parse(video.GetProperty("id").GetString()!);
-        var originalAssetId = Guid.Parse(video.GetProperty("editor").GetProperty("original")
-            .GetProperty("assetId").GetString()!);
         var mov = new byte[2048];
         "ftypqt  "u8.CopyTo(mov.AsSpan(4));
         for (var i = 16; i < mov.Length; i++) mov[i] = (byte)(i % 251);
-        await TransferAndFinalizeAsync(api, storage, editorSession, originalAssetId, mov, token,
-            contentType: "video/quicktime");
+        await AttachFileAsync(videoId, "original", mov, "video/quicktime");
         using (var publish = await PatchJsonAsync(api, $"/api/recordings/{videoId}",
             new { isPublished = true, downloadEnabled = true }, editorSession, token))
         {
@@ -1321,13 +1318,7 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         }
 
         // The playback slot: a second QuickTime file is refused, a WebM passes.
-        using var slotResponse = await PostJsonAsync(api, $"/api/recordings/{videoId}/playback", new { }, editorSession, token);
-        Assert.Equal(HttpStatusCode.OK, slotResponse.StatusCode);
-        var playbackAssetId = Guid.Parse((await slotResponse.Content.ReadFromJsonAsync<JsonElement>(token))
-            .GetProperty("recording").GetProperty("editor").GetProperty("playbackCopy")
-            .GetProperty("assetId").GetString()!);
-        await TransferAndFinalizeAsync(api, storage, editorSession, playbackAssetId, mov, token,
-            expectFailure: HttpStatusCode.UnprocessableEntity, contentType: "video/mp4");
+        await AttachFileAsync(videoId, "playback", mov, "video/mp4", HttpStatusCode.UnprocessableEntity);
         var webm = new byte[4096];
         new byte[]
         {
@@ -1336,13 +1327,12 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         }.CopyTo(webm, 0);
         for (var i = 64; i < webm.Length; i++) webm[i] = (byte)(i % 241);
         // The transfer claims a wrong type; the bytes decide.
-        var (_, copyRevisionId) = await TransferAndFinalizeAsync(api, storage, editorSession, playbackAssetId,
-            webm, token, contentType: "application/octet-stream");
+        var copyRevisionId = await AttachFileAsync(videoId, "playback", webm, "application/octet-stream");
 
         var playable = await AccessAsync(videoId, memberSession);
         Assert.Equal("ready", playable.GetProperty("playbackState").GetString());
         Assert.Equal("playbackCopy", playable.GetProperty("source").GetString());
-        Assert.Equal(copyRevisionId, Guid.Parse(playable.GetProperty("revisionId").GetString()!));
+        Assert.Equal(copyRevisionId, Guid.Parse(playable.GetProperty("dateiId").GetString()!));
         // Seeking is a range request against the ticket.
         using (var range = new HttpRequestMessage(HttpMethod.Get, playable.GetProperty("viewUrl").GetString()))
         {
@@ -1355,7 +1345,7 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         }
         // Renewal: a second, different ticket for the same file.
         var renewed = await AccessAsync(videoId, memberSession);
-        Assert.Equal(copyRevisionId, Guid.Parse(renewed.GetProperty("revisionId").GetString()!));
+        Assert.Equal(copyRevisionId, Guid.Parse(renewed.GetProperty("dateiId").GetString()!));
         using (var renewedRead = await storage.GetAsync(renewed.GetProperty("viewUrl").GetString(), token))
             Assert.Equal(webm, await renewedRead.Content.ReadAsByteArrayAsync(token));
 
@@ -1366,11 +1356,8 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         var locked = await AccessAsync(videoId, memberSession);
         Assert.Equal(JsonValueKind.Null, locked.GetProperty("downloadUrl").ValueKind);
         Assert.Equal(5412.5, locked.GetProperty("durationSeconds").GetDouble());
-        foreach (var assetId in new[] { originalAssetId, playbackAssetId })
-        {
-            using var generic = await GetAsync(api, $"/api/assets/{assetId}/access", memberSession, token);
+        using (var generic = await GetAsync(api, $"/api/dateien/{copyRevisionId}/access", memberSession, token))
             Assert.Equal(HttpStatusCode.NotFound, generic.StatusCode);
-        }
 
         // A stale form is refused by the stored version.
         using (var stale = await PatchJsonAsync(api, $"/api/recordings/{videoId}",
@@ -1381,9 +1368,7 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         var audio = await CreateRecordingAsync("Ton Mischpult", "audio");
         var audioId = Guid.Parse(audio.GetProperty("id").GetString()!);
         var mp3 = "ID3"u8.ToArray().Concat(new byte[1021]).ToArray();
-        await TransferAndFinalizeAsync(api, storage, editorSession,
-            Guid.Parse(audio.GetProperty("editor").GetProperty("original").GetProperty("assetId").GetString()!),
-            mp3, token, contentType: "audio/mpeg");
+        await AttachFileAsync(audioId, "original", mp3, "audio/mpeg");
         // Unpublished: the member sees only the video.
         using (var hidden = await GetAsync(api, $"/api/recordings/{audioId}/access", memberSession, token))
             Assert.Equal(HttpStatusCode.NotFound, hidden.StatusCode);
@@ -1437,23 +1422,23 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
 
         var passagePath = $"/api/recordings/{videoId}/passages";
         using (var crossEvent = await PostJsonAsync(api, passagePath,
-            new { performanceId = foreignPerformanceId, startSeconds = 10, endSeconds = 20, expectedPlaybackRevisionId = copyRevisionId }, editorSession, token))
+            new { performanceId = foreignPerformanceId, startSeconds = 10, endSeconds = 20, expectedPlaybackDateiId = copyRevisionId }, editorSession, token))
             Assert.Equal(HttpStatusCode.NotFound, crossEvent.StatusCode);
         using (var beyondEnd = await PostJsonAsync(api, passagePath,
-            new { performanceId, startSeconds = 10, endSeconds = 9000, expectedPlaybackRevisionId = copyRevisionId }, editorSession, token))
+            new { performanceId, startSeconds = 10, endSeconds = 9000, expectedPlaybackDateiId = copyRevisionId }, editorSession, token))
             Assert.Equal(HttpStatusCode.BadRequest, beyondEnd.StatusCode);
         using var createPassage = await PostJsonAsync(api, passagePath,
-            new { performanceId, startSeconds = 12.5, endSeconds = 301.25, expectedPlaybackRevisionId = copyRevisionId }, editorSession, token);
+            new { performanceId, startSeconds = 12.5, endSeconds = 301.25, expectedPlaybackDateiId = copyRevisionId }, editorSession, token);
         Assert.Equal(HttpStatusCode.Created, createPassage.StatusCode);
         var passage = (await createPassage.Content.ReadFromJsonAsync<JsonElement>(token)).GetProperty("passage");
         Assert.Equal("ARC-032 Lied", passage.GetProperty("songTitle").GetString());
         Assert.Equal("current", passage.GetProperty("timestampState").GetString());
         // The same occurrence in a second recording; a repeat of the first is a duplicate.
         using (var secondRecording = await PostJsonAsync(api, $"/api/recordings/{audioId}/passages",
-            new { performanceId, startSeconds = 3, endSeconds = 200, expectedPlaybackRevisionId = audioAccess.GetProperty("revisionId").GetString() }, editorSession, token))
+            new { performanceId, startSeconds = 3, endSeconds = 200, expectedPlaybackDateiId = audioAccess.GetProperty("dateiId").GetString() }, editorSession, token))
             Assert.Equal(HttpStatusCode.Created, secondRecording.StatusCode);
         using (var duplicate = await PostJsonAsync(api, passagePath,
-            new { performanceId, startSeconds = 1, endSeconds = 2, expectedPlaybackRevisionId = copyRevisionId }, editorSession, token))
+            new { performanceId, startSeconds = 1, endSeconds = 2, expectedPlaybackDateiId = copyRevisionId }, editorSession, token))
             Assert.Equal(HttpStatusCode.Conflict, duplicate.StatusCode);
 
         using var memberPassages = await GetAsync(api, passagePath, memberSession, token);
@@ -1486,17 +1471,16 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         // A new playback file flags the passage; members lose the position.
         var webmAgain = (byte[])webm.Clone();
         for (var i = 64; i < webmAgain.Length; i++) webmAgain[i] = (byte)(i % 239);
-        await TransferAndFinalizeAsync(api, storage, editorSession, playbackAssetId, webmAgain, token,
-            contentType: "video/webm");
+        await AttachFileAsync(videoId, "playback", webmAgain, "video/webm");
         // A form built against the old file can neither mark nor confirm.
         using (var oldFile = await PostJsonAsync(api, passagePath,
-            new { performanceId, startSeconds = 1, endSeconds = 2, expectedPlaybackRevisionId = copyRevisionId },
+            new { performanceId, startSeconds = 1, endSeconds = 2, expectedPlaybackDateiId = copyRevisionId },
             editorSession, token))
             Assert.Equal(HttpStatusCode.Conflict, oldFile.StatusCode);
         using (var oldReview = await PostJsonAsync(api, $"{passagePath}/review",
             new
             {
-                expectedPlaybackRevisionId = copyRevisionId,
+                expectedPlaybackDateiId = copyRevisionId,
                 passages = new[] { new { id = passage.GetProperty("id").GetString(), expectedVersion = 1 } },
             }, editorSession, token))
             Assert.Equal(HttpStatusCode.Conflict, oldReview.StatusCode);
@@ -1518,7 +1502,7 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         using (var review = await PostJsonAsync(api, $"{passagePath}/review",
             new
             {
-                expectedPlaybackRevisionId = editorBody.GetProperty("playbackRevisionId").GetString(),
+                expectedPlaybackDateiId = editorBody.GetProperty("playbackDateiId").GetString(),
                 passages = new[]
                 {
                     new
@@ -1532,6 +1516,34 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         using var reviewed = await GetAsync(api, passagePath, memberSession, token);
         Assert.Equal("current", (await reviewed.Content.ReadFromJsonAsync<JsonElement>(token))
             .GetProperty("passages").EnumerateArray().Single().GetProperty("timestampState").GetString());
+
+        // #171: concert files are Dateien of the Auftritt, attached to a slot.
+        async Task<Guid> AttachFileAsync(
+            Guid recordingId, string slot, byte[] content, string contentType, HttpStatusCode? expectAttach = null)
+        {
+            using var open = await PostJsonAsync(api, $"/api/events/{eventId}/dateien/upload-session",
+                new { kind = "aufnahme", contentType, sizeBytes = content.LongLength }, editorSession, token);
+            Assert.Equal(HttpStatusCode.Created, open.StatusCode);
+            var session = await open.Content.ReadFromJsonAsync<JsonElement>(token);
+            using var put = new HttpRequestMessage(HttpMethod.Put, session.GetProperty("uploadUrl").GetString())
+            {
+                Content = new ByteArrayContent(content),
+            };
+            put.Content.Headers.ContentType = new(contentType);
+            put.Headers.Add("x-ms-blob-type", "BlockBlob");
+            using var putResponse = await storage.SendAsync(put, token);
+            Assert.Equal(HttpStatusCode.Created, putResponse.StatusCode);
+            using var finalize = await PostJsonAsync(api,
+                $"/api/upload-sessions/{session.GetProperty("uploadSessionId").GetString()}/finalize",
+                new { }, editorSession, token);
+            Assert.Equal(HttpStatusCode.OK, finalize.StatusCode);
+            var dateiId = Guid.Parse((await finalize.Content.ReadFromJsonAsync<JsonElement>(token))
+                .GetProperty("datei").GetProperty("id").GetString()!);
+            using var attach = await PutJsonAsync(api, $"/api/recordings/{recordingId}/dateien/{slot}",
+                new { dateiId }, editorSession, token);
+            Assert.Equal(expectAttach ?? HttpStatusCode.OK, attach.StatusCode);
+            return dateiId;
+        }
 
         async Task<JsonElement> CreateRecordingAsync(string label, string kind)
         {
@@ -1668,6 +1680,17 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
     {
         var (cookie, csrfToken) = await GetCsrfAsync(client, sessionCookie, token);
         using var request = new HttpRequestMessage(HttpMethod.Patch, path);
+        request.Headers.Add("Cookie", $"{cookie}; {sessionCookie}");
+        request.Headers.Add("X-CSRF-TOKEN", csrfToken);
+        request.Content = JsonContent.Create(body);
+        return await client.SendAsync(request, token);
+    }
+
+    private static async Task<HttpResponseMessage> PutJsonAsync(
+        HttpClient client, string path, object body, string sessionCookie, CancellationToken token)
+    {
+        var (cookie, csrfToken) = await GetCsrfAsync(client, sessionCookie, token);
+        using var request = new HttpRequestMessage(HttpMethod.Put, path);
         request.Headers.Add("Cookie", $"{cookie}; {sessionCookie}");
         request.Headers.Add("X-CSRF-TOKEN", csrfToken);
         request.Content = JsonContent.Create(body);

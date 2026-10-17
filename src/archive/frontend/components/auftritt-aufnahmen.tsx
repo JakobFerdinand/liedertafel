@@ -21,15 +21,11 @@ import {
   AbbruchFehler,
   cancelUploadSession,
   entferneUploadSitzung,
-  fetchAssetAccess,
   liesUploadSitzung,
   MaterialFehler,
   type MaterialSchritt,
   problemTitel,
-  type RevisionResponse,
   restlaufzeitMs,
-  setzeUploadFort,
-  uebertrageDatei,
   zeitText,
 } from "@/lib/assets";
 import {
@@ -46,9 +42,16 @@ import {
   fetchAufnahmeZugriff,
   formatName,
   messeDauer,
-  oeffneAbspielfassung,
   patchAufnahme,
 } from "@/lib/aufnahmen";
+import {
+  auftrittUploadSchluessel,
+  fetchDateiZugriff,
+  haengeAufnahmeDateiAn,
+  ladeAuftrittDateiHoch,
+  setzeAuftrittUebertragungFort,
+} from "@/lib/dateien";
+import type { LiedDatei } from "@/lib/lieder";
 import {
   bereichText,
   fetchZeitmarken,
@@ -112,6 +115,11 @@ function platzSchluessel(aufnahmeId: string, platz: Platz) {
   return `${aufnahmeId}:${platz}`;
 }
 
+/** Speicherschlüssel der Übertragung im Browser: ein Platz je Aufnahme. */
+function speicherSchluessel(aufnahmeId: string, platz: Platz) {
+  return auftrittUploadSchluessel(aufnahmeId, platz);
+}
+
 function platzName(platz: Platz) {
   return platz === "original" ? "Original" : "Abspielfassung";
 }
@@ -152,7 +160,6 @@ function dateiZeile(datei: AufnahmeDatei): string {
     datei.fileName ?? "ohne Dateinamen",
     formatName(datei.contentType),
     aufnahmeGroesse(datei.sizeBytes),
-    `Dateistand ${datei.revisionNumber}`,
   ].join(" · ");
 }
 
@@ -369,11 +376,11 @@ export function AuftrittAufnahmen({
   // mehr; Aufnahmeliste und Marken werden neu geladen, bevor etwas eingestellt
   // wird. Gibt false zurück, wenn der Stand veraltet war.
   const dateiPruefen = useCallback(
-    (id: string, revisionId: string): boolean => {
+    (id: string, dateiId: string): boolean => {
       const bekannt = aufnahmenRef.current?.find(
         (aufnahme) => aufnahme.id === id,
-      )?.playback.revisionId;
-      if (!bekannt || bekannt === revisionId) return true;
+      )?.playback.dateiId;
+      if (!bekannt || bekannt === dateiId) return true;
       setAbschnitte((vorher) => {
         const { [id]: _weg, ...rest } = vorher;
         return rest;
@@ -408,7 +415,7 @@ export function AuftrittAufnahmen({
           return null;
         }
         setZugriffe((vorher) => ({ ...vorher, [id]: zugriff }));
-        return { aktuell: dateiPruefen(id, zugriff.revisionId) };
+        return { aktuell: dateiPruefen(id, zugriff.dateiId) };
       } catch (ursache) {
         setZugriffFehler((vorher) => ({
           ...vorher,
@@ -454,7 +461,7 @@ export function AuftrittAufnahmen({
       const bis = marke.endSeconds;
       const gemerkt = zugriffeRef.current[aufnahme.id];
       if (gemerkt) {
-        if (!dateiPruefen(aufnahme.id, gemerkt.revisionId)) return;
+        if (!dateiPruefen(aufnahme.id, gemerkt.dateiId)) return;
       } else {
         const geoeffnet = await oeffnen(aufnahme.id);
         if (!geoeffnet?.aktuell) return;
@@ -604,20 +611,24 @@ export function AuftrittAufnahmen({
   // ab, wird mit erneuertem Ticket ab dem letzten gesicherten Block
   // weitergemacht, solange dabei Fortschritt entsteht.
   async function uebertrage(
-    assetId: string,
+    speicher: string,
     datei: File,
     schluessel: string,
     signal: AbortSignal,
-  ): Promise<RevisionResponse> {
-    const inhaltstyp = datei.type || "application/octet-stream";
-    const gemerkt = liesUploadSitzung(assetId);
+    art: AufnahmeArt,
+  ): Promise<LiedDatei> {
+    // Der Server erkennt das Format an den Bytes; der Typ ist nur ein Hinweis.
+    const inhaltstyp = /^(audio|video)\//.test(datei.type)
+      ? datei.type
+      : `${art}/mp4`;
+    const gemerkt = liesUploadSitzung(speicher);
     let fortsetzen =
       gemerkt !== null &&
       gemerkt.fileName === datei.name &&
       gemerkt.sizeBytes === datei.size &&
       gemerkt.lastModified === datei.lastModified;
     if (gemerkt !== null && !fortsetzen) {
-      entferneUploadSitzung(assetId);
+      entferneUploadSitzung(speicher);
       void cancelUploadSession(gemerkt.uploadSessionId).catch(() => {});
     }
     let gesichert = 0;
@@ -641,17 +652,18 @@ export function AuftrittAufnahmen({
       begonnen = false;
       try {
         return fortsetzen
-          ? await setzeUploadFort(
-              assetId,
-              datei,
+          ? await setzeAuftrittUebertragungFort(
+              speicher,
               inhaltstyp,
+              datei,
               beiSchritt,
               optionen,
             )
-          : await uebertrageDatei(
-              assetId,
+          : await ladeAuftrittDateiHoch(
+              auftrittId,
+              speicher,
+              { kind: "aufnahme", contentType: inhaltstyp },
               datei,
-              inhaltstyp,
               beiSchritt,
               optionen,
             );
@@ -667,7 +679,7 @@ export function AuftrittAufnahmen({
           !signal.aborted &&
           (status === 409 || status === 404)
         ) {
-          entferneUploadSitzung(assetId);
+          entferneUploadSitzung(speicher);
           fortsetzen = false;
           frischVersucht = true;
           continue;
@@ -682,14 +694,14 @@ export function AuftrittAufnahmen({
             ursache instanceof MaterialFehler &&
             !WiederholbareAbschluesse.includes(ursache.message))
         ) {
-          entferneUploadSitzung(assetId);
+          entferneUploadSitzung(speicher);
         }
         const unterbrochen =
           ursache instanceof MaterialFehler &&
           !(ursache instanceof AbbruchFehler) &&
           ursache.status === null &&
           !signal.aborted &&
-          liesUploadSitzung(assetId) !== null &&
+          liesUploadSitzung(speicher) !== null &&
           gesichert > letzterStand;
         if (!unterbrochen) throw ursache;
         letzterStand = gesichert;
@@ -711,24 +723,23 @@ export function AuftrittAufnahmen({
       fehler: "",
     });
     try {
-      const assetId =
-        platz === "original"
-          ? aufnahme.editor.original.assetId
-          : (aufnahme.editor.playbackCopy?.assetId ??
-            (await oeffneAbspielfassung(aufnahme.id)).editor?.playbackCopy
-              ?.assetId);
-      if (!assetId) throw new MaterialFehler(SpeicherErsatz);
-      const revision = await uebertrage(
-        assetId,
+      const hochgeladen = await uebertrage(
+        speicherSchluessel(aufnahme.id, platz),
         datei,
         schluessel,
         abbruch.signal,
+        aufnahme.kind,
+      );
+      const angehaengt = await haengeAufnahmeDateiAn(
+        aufnahme.id,
+        platz === "original" ? "original" : "playback",
+        hochgeladen.id,
       );
       // Ist die neue Datei das, was Mitglieder abspielen, misst der Browser
       // ihre Länge aus der lokalen Datei und meldet sie dem Archiv.
       const liste = await laden();
       const neu = liste?.find((eintrag) => eintrag.id === aufnahme.id);
-      if (neu && neu.playback.revisionId === revision.revisionId) {
+      if (neu && neu.playback.dateiId === angehaengt.playback.dateiId) {
         const dauer = await messeDauer(datei, neu.kind);
         if (dauer !== null) {
           await patchAufnahme(neu.id, { durationSeconds: dauer }).catch(
@@ -928,7 +939,7 @@ export function AuftrittAufnahmen({
                           : vorher,
                       );
                       // Ein erneuertes Ticket kann eine andere Datei nennen.
-                      dateiPruefen(aufnahme.id, neu.revisionId);
+                      dateiPruefen(aufnahme.id, neu.dateiId);
                     }}
                     ladeMeldung={LadeErsatz}
                     formatMeldung={
@@ -1118,10 +1129,10 @@ function AufnahmeRedaktion({
 
   // Das Original für die Umwandlung außerhalb des Archivs: Ticket im
   // Augenblick des Klicks, nirgends aufbewahrt.
-  async function originalLaden(assetId: string) {
+  async function originalLaden(dateiId: string) {
     setLadeFehler("");
     try {
-      const zugriff = await fetchAssetAccess(assetId);
+      const zugriff = await fetchDateiZugriff(dateiId);
       window.location.assign(zugriff.downloadUrl);
     } catch (ursache) {
       setLadeFehler(
@@ -1225,7 +1236,7 @@ function AufnahmeRedaktion({
               type="button"
               className="knopf-leise"
               aria-label={`Original von ${aufnahme.label} herunterladen`}
-              onClick={() => void originalLaden(redaktion.original.assetId)}
+              onClick={() => void originalLaden(original.dateiId)}
             >
               Original herunterladen
             </button>
@@ -1295,19 +1306,16 @@ function DateiPlatz({
   const laeuft =
     uebertragung !== undefined && uebertragung.status !== "gescheitert";
   const name = platzName(platz);
-  const assetId =
-    platz === "original"
-      ? aufnahme.editor?.original.assetId
-      : aufnahme.editor?.playbackCopy?.assetId;
+  const speicher = speicherSchluessel(aufnahme.id, platz);
   // Nach dem Neuladen der Seite: eine gemerkte, unterbrochene Übertragung.
   const [gemerkt, setGemerkt] = useState<string | null>(null);
   useEffect(() => {
-    if (!assetId || laeuft) {
+    if (!aufnahme.editor || laeuft) {
       setGemerkt(null);
       return;
     }
-    setGemerkt(liesUploadSitzung(assetId)?.fileName ?? null);
-  }, [assetId, laeuft]);
+    setGemerkt(liesUploadSitzung(speicher)?.fileName ?? null);
+  }, [aufnahme.editor, speicher, laeuft]);
 
   return (
     <div className="aufnahme-platz" data-platz={platz}>

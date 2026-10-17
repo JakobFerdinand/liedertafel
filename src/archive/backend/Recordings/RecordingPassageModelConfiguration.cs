@@ -37,6 +37,11 @@ public sealed class RecordingPassageModelConfiguration : IEntityTypeConfiguratio
 			.WithMany()
 			.HasForeignKey(x => x.PlaybackRevisionId)
 			.OnDelete(DeleteBehavior.Restrict);
+		builder.HasOne(x => x.PlaybackDatei)
+			.WithMany()
+			.HasForeignKey(x => x.PlaybackDateiId)
+			.OnDelete(DeleteBehavior.Restrict);
+		builder.HasIndex(x => x.PlaybackDateiId);
 		// One passage per occurrence and recording (a performance split over
 		// several passages is out of scope); the same occurrence may appear
 		// once in each of several recordings.

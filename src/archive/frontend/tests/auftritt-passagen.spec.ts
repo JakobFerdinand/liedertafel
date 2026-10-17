@@ -85,7 +85,7 @@ function eintrag(stelle: Stelle, redaktion: boolean) {
     editor: redaktion
       ? {
           version: stelle.version,
-          playbackRevisionId:
+          playbackDateiId:
             stelle.zustand === "current" ? revisionId : alteRevisionId,
           updatedAt: "2026-10-05T10:00:00.000Z",
         }
@@ -104,7 +104,7 @@ function stellenStand(stellen: Stelle[], redaktion: boolean, opts = {}) {
   if (!redaktion) return basis;
   return {
     ...basis,
-    playbackRevisionId: revisionId,
+    playbackDateiId: revisionId,
     durationSeconds: 6,
     occurrences: Object.entries(lieder).map(([performanceId, lied]) => ({
       performanceId,
@@ -134,7 +134,7 @@ function aufnahme(redaktion: boolean) {
     playback: {
       state: "ready",
       source: "original",
-      revisionId,
+      dateiId: revisionId,
       contentType: "video/webm",
       sizeBytes: 1048576,
     },
@@ -145,10 +145,8 @@ function aufnahme(redaktion: boolean) {
           canChangeFiles: true,
           publishedAt: "2026-10-01T11:00:00.000Z",
           original: {
-            assetId: "00000000-0000-0000-0000-00000000b321",
             file: {
-              revisionId,
-              revisionNumber: 1,
+              dateiId: revisionId,
               contentType: "video/webm",
               sizeBytes: 1048576,
               fileName: "advent.webm",
@@ -156,7 +154,7 @@ function aufnahme(redaktion: boolean) {
               playable: true,
             },
           },
-          playbackCopy: null,
+          playbackCopy: { file: null },
         }
       : null,
   };
@@ -227,7 +225,7 @@ async function mockSeite(
         kind: "video",
         playbackState: "ready",
         source: "original",
-        revisionId,
+        dateiId: revisionId,
         contentType: "video/webm",
         sizeBytes: 1048576,
         durationSeconds: 6,
@@ -586,7 +584,7 @@ test("Redaktion geht die Lieder der Reihe nach durch und setzt Anfang und Ende m
     performanceId: performanceA,
     startSeconds: 1.5,
     endSeconds: 3,
-    expectedPlaybackRevisionId: revisionId,
+    expectedPlaybackDateiId: revisionId,
   });
   await expect(
     page.getByText("Zeitmarke für „Lied A“ gespeichert."),
@@ -780,7 +778,7 @@ test("Redaktion ändert und entfernt eine Zeitmarke mit dem Stand, den sie geseh
       startSeconds: 1,
       endSeconds: 2.5,
       expectedVersion: 4,
-      expectedPlaybackRevisionId: revisionId,
+      expectedPlaybackDateiId: revisionId,
     },
   });
   await expect(
@@ -831,7 +829,7 @@ test("Redaktion sieht zu prüfende Zeitmarken und bestätigt sie gegen die aktue
     return route.fulfill(
       json({
         recordingId: videoId,
-        playbackRevisionId: revisionId,
+        playbackDateiId: revisionId,
         passages: stellen.map((s) => eintrag(s, true)),
       }),
     );
@@ -858,7 +856,7 @@ test("Redaktion sieht zu prüfende Zeitmarken und bestätigt sie gegen die aktue
   await expect.poll(() => anfragen.gesendet.length).toBe(1);
   // Genau die aufgelisteten Marken, mit ihrem Stand und der gesehenen Datei.
   expect(anfragen.gesendet[0].body).toEqual({
-    expectedPlaybackRevisionId: revisionId,
+    expectedPlaybackDateiId: revisionId,
     passages: [
       { id: passageA, expectedVersion: 1 },
       { id: passageB, expectedVersion: 1 },
@@ -998,11 +996,11 @@ test("Redaktion: Bestätigen gegen eine ersetzte Datei oder einen geänderten St
   // Zwei Anfragen, beide mit der gesehenen Datei und der aufgelisteten Marke.
   expect(anfragen.gesendet.map((a) => a.body)).toEqual([
     {
-      expectedPlaybackRevisionId: revisionId,
+      expectedPlaybackDateiId: revisionId,
       passages: [{ id: passageA, expectedVersion: 1 }],
     },
     {
-      expectedPlaybackRevisionId: revisionId,
+      expectedPlaybackDateiId: revisionId,
       passages: [{ id: passageA, expectedVersion: 1 }],
     },
   ]);
@@ -1021,7 +1019,7 @@ test("Sprung bei geänderter Datei wendet keine gemerkten Zeiten an, sondern lä
     if (route.request().method() !== "GET") return route.fallback();
     listenAbrufe += 1;
     const liste = aufnahme(false);
-    if (neu) liste.playback.revisionId = neueRevision;
+    if (neu) liste.playback.dateiId = neueRevision;
     return route.fulfill(json({ eventId, recordings: [liste] }));
   });
   await page.route(`**/api/recordings/${videoId}/passages`, (route) => {
@@ -1049,7 +1047,7 @@ test("Sprung bei geänderter Datei wendet keine gemerkten Zeiten an, sondern lä
         kind: "video",
         playbackState: "ready",
         source: "original",
-        revisionId: neueRevision,
+        dateiId: neueRevision,
         contentType: "video/webm",
         sizeBytes: 1048576,
         durationSeconds: 6,
@@ -1187,7 +1185,7 @@ test("Ticketerneuerung während eines Abschnitts behält Position und Halt am Ab
         kind: "video",
         playbackState: "ready",
         source: "original",
-        revisionId,
+        dateiId: revisionId,
         contentType: "video/webm",
         sizeBytes: 1048576,
         durationSeconds: 6,

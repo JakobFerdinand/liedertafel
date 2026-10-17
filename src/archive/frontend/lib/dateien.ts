@@ -6,7 +6,8 @@ import {
   type UploadSessionResponse,
   uebertrageDatei,
 } from "@/lib/assets";
-import { postAuth } from "@/lib/auth";
+import type { Aufnahme } from "@/lib/aufnahmen";
+import { patchAuth, postAuth, putAuth } from "@/lib/auth";
 import type { DateiArt, LiedDatei } from "@/lib/lieder";
 
 // Dateien eines Liedes (#166): Zugriff und Hochladen über die gemeinsame
@@ -230,4 +231,129 @@ export async function fetchPapierkorb(
   });
   if (!response.ok) throw response;
   return ((await response.json()) as { dateien: PapierkorbEintrag[] }).dateien;
+}
+
+// Dateien eines Auftritts (#171): Dokumente, Fotografien und Konzertdateien.
+
+export type NeueAuftrittDatei = {
+  kind: "sonstiges" | "aufnahme";
+  contentType: string;
+  description?: string;
+  /** Ersetzt ein Dokument oder Foto des Auftritts (Papierkorb-Regel). */
+  replacesDateiId?: string;
+};
+
+function auftrittSitzungAnlegen(auftrittId: string, neu: NeueAuftrittDatei) {
+  return async (
+    identitaet: DateiIdentitaet,
+  ): Promise<UploadSessionResponse> => {
+    const response = await postAuth(
+      `/api/events/${encodeURIComponent(auftrittId)}/dateien/upload-session`,
+      {
+        kind: neu.kind,
+        contentType: neu.contentType,
+        description: neu.description?.trim() || null,
+        ...(neu.replacesDateiId
+          ? { replacesDateiId: neu.replacesDateiId }
+          : {}),
+        ...identitaet,
+      },
+    );
+    if (!response.ok) throw response;
+    return (await response.json()) as UploadSessionResponse;
+  };
+}
+
+/** Speicherschlüssel der Übertragung (ein Platz je Aufnahme und Platz). */
+export function auftrittUploadSchluessel(
+  auftrittId: string,
+  platz: string,
+): string {
+  return `auftritt-${auftrittId}-${platz}`;
+}
+
+export async function ladeAuftrittDateiHoch(
+  auftrittId: string,
+  schluessel: string,
+  neu: NeueAuftrittDatei,
+  datei: File,
+  onSchritt?: (schritt: MaterialSchritt) => void,
+  optionen: UebertragungOptionen = {},
+): Promise<LiedDatei> {
+  const antwort = await uebertrageDatei<{ datei: LiedDatei }>(
+    schluessel,
+    datei,
+    neu.contentType,
+    onSchritt,
+    { ...optionen, neueSitzung: auftrittSitzungAnlegen(auftrittId, neu) },
+  );
+  return antwort.datei;
+}
+
+export async function setzeAuftrittUebertragungFort(
+  schluessel: string,
+  contentType: string,
+  datei: File,
+  onSchritt?: (schritt: MaterialSchritt) => void,
+  optionen: UebertragungOptionen = {},
+): Promise<LiedDatei> {
+  const antwort = await setzeUploadFort<{ datei: LiedDatei }>(
+    schluessel,
+    datei,
+    contentType,
+    onSchritt,
+    optionen,
+  );
+  return antwort.datei;
+}
+
+/** Unterbrochene Übertragungen mit diesem Schlüsselanfang aus dem lokalen Speicher. */
+export function unterbrocheneAuftrittUebertragungen(
+  auftrittId: string,
+  platz: string,
+): { schluessel: string; fileName: string }[] {
+  const praefix = "arc-upload-";
+  const suche = `${praefix}${auftrittUploadSchluessel(auftrittId, platz)}`;
+  const eintraege: { schluessel: string; fileName: string }[] = [];
+  try {
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const name = window.localStorage.key(i);
+      if (!name?.startsWith(suche)) continue;
+      const schluessel = name.slice(praefix.length);
+      const eintrag = liesUploadSitzung(schluessel);
+      if (eintrag) eintraege.push({ schluessel, fileName: eintrag.fileName });
+    }
+  } catch {
+    // Ohne lokalen Speicher entfällt nur das Fortsetzen nach dem Neuladen.
+  }
+  return eintraege;
+}
+
+/** Ändert die Beschreibung eines Dokuments oder Fotos des Auftritts. */
+export async function aendereDateiBeschreibung(
+  dateiId: string,
+  beschreibung: string,
+): Promise<void> {
+  const response = await patchAuth(
+    `/api/dateien/${encodeURIComponent(dateiId)}`,
+    { description: beschreibung },
+  );
+  if (!response.ok) throw response;
+}
+
+/**
+ * Hängt eine hochgeladene Konzertdatei an den Platz einer Aufnahme; die Datei
+ * davor wandert in den Papierkorb. Gibt die ganze Aufnahme zurück.
+ */
+export async function haengeAufnahmeDateiAn(
+  aufnahmeId: string,
+  platz: "original" | "playback",
+  dateiId: string,
+): Promise<Aufnahme> {
+  const response = await putAuth(
+    `/api/recordings/${encodeURIComponent(aufnahmeId)}/dateien/${platz}`,
+    { dateiId },
+  );
+  if (!response.ok) throw response;
+  return ((await response.json()) as { recording: Aufnahme }).recording;
 }

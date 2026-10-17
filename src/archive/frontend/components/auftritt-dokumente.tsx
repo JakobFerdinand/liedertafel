@@ -1,42 +1,39 @@
 "use client";
 
-// ARC-025: Dokumente und Fotografien am Auftritt — Lesesaal (Fotografien
-// mit Bildunterschrift und Vorlesetext, Dokumente mit Öffnen/Herunterladen)
-// und die Redaktions-Werkbank nach der Rezeptur des Notenbereichs
-// (Anlage → Upload-Sitzung → Übertragung zum Ticket → Abschluss,
-// Fortschritt je Zeile, Erneut-versuchen über das bestehende Material,
-// Fortsetzen unterbrochener Übertragungen aus dem lokalen Speicher).
+// ARC-025 / #171: Dokumente und Fotografien am Auftritt sind Dateien des
+// Auftritts — Lesesaal (Fotografien mit Bildunterschrift und Vorlesetext,
+// Dokumente mit Öffnen/Herunterladen) und die Redaktions-Werkbank
+// (Upload-Sitzung → Übertragung zum Ticket → Abschluss, Fortschritt je Zeile,
+// Erneut-versuchen, Fortsetzen unterbrochener Übertragungen aus dem lokalen
+// Speicher, Ersetzen und Löschen über den Papierkorb).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ExtraktionStatus } from "@/components/extraktion-status";
-import { ExtraktionUebersichtProvider } from "@/components/extraktion-uebersicht";
 import {
   AbbruchFehler,
-  type AssetAccessResponse,
   cancelUploadSession,
   entferneUploadSitzung,
-  fetchAssetAccess,
-  type GespeicherteUploadSitzung,
   groesseText,
   liesUploadSitzung,
   MaterialFehler,
   type MaterialSchritt,
   problemTitel,
   restlaufzeitMs,
-  setzeUploadFort,
-  uebertrageDatei,
 } from "@/lib/assets";
+import {
+  aendereDateiBeschreibung,
+  auftrittUploadSchluessel,
+  type DateiZugriff,
+  fetchDateiZugriff,
+  ladeAuftrittDateiHoch,
+  loescheDatei,
+  setzeAuftrittUebertragungFort,
+  unterbrocheneAuftrittUebertragungen,
+} from "@/lib/dateien";
 import {
   type AuftrittDetails,
   contentTypeFuerDokument,
-  createEventAsset,
   type Dokument,
-  type DokumentRevision,
-  type DokumentTyp,
-  dokumentTypFuerDatei,
-  dokumentTypName,
-  istDokumentTyp,
-  patchEventAsset,
+  dokumentArtName,
 } from "@/lib/events";
 
 /** Vorlauf vor dem Ticketablauf, zu dem still neue Tickets angefordert werden. */
@@ -52,9 +49,11 @@ const LadeErsatz =
 const startMeldung =
   "Das Hochladen konnte nicht gestartet werden. Bitte erneut versuchen.";
 
+const DokumentPlatz = "dokument-";
+
 // Tickets werden pro Material geholt: entfernte Dateien (404) erklären
 // sich selbst, abgelaufene Anmeldungen weisen aufs Neuladen, Vorübergehendes
-// bietet den erneuten Versuch (Rezeptur lib/assets.ts).
+// bietet den erneuten Versuch.
 function zugriffsFehler(ursache: unknown, ersatz: string): string {
   const status = ursache instanceof Response ? ursache.status : 0;
   if (status === 404) return "Das Material ist nicht mehr verfügbar.";
@@ -81,7 +80,7 @@ function typText(contentType: string): string {
 
 /** Sichtbare Zeile: die Beschreibung oder der ehrliche Art-Ersatz. */
 function beschriftungVon(dokument: Dokument): string {
-  return dokument.description?.trim() || dokumentTypName(dokument.assetType);
+  return dokument.description?.trim() || dokumentArtName(dokument.art);
 }
 
 /** Vorlesetext des Bildes: die Beschreibung oder der menschliche Ersatz. */
@@ -92,8 +91,8 @@ function altTextVon(dokument: Dokument): string {
 // Die Ticket-Abfrage je Material: einmal je Eintrag, still erneuert, bevor
 // das Ticket abläuft (Rezeptur des Audio-Spielers), mit eigenen
 // Fehlerzuständen pro Eintrag.
-function useTicketzugriff(assetId: string) {
-  const [zugriff, setZugriff] = useState<AssetAccessResponse | null>(null);
+function useTicketzugriff(dateiId: string) {
+  const [zugriff, setZugriff] = useState<DateiZugriff | null>(null);
   const [fehler, setFehler] = useState("");
   const [busy, setBusy] = useState(true);
   const timerRef = useRef<number | undefined>(undefined);
@@ -101,7 +100,7 @@ function useTicketzugriff(assetId: string) {
   const laden = useCallback(
     async (signal?: AbortSignal, still = false) => {
       try {
-        const neu = await fetchAssetAccess(assetId, signal);
+        const neu = await fetchDateiZugriff(dateiId, signal);
         if (signal?.aborted) return;
         setZugriff(neu);
         setFehler("");
@@ -120,7 +119,7 @@ function useTicketzugriff(assetId: string) {
         if (!signal?.aborted) setBusy(false);
       }
     },
-    [assetId],
+    [dateiId],
   );
 
   // Erneuert das Ticket kurz vor Ablauf; der Schlüssel auf `zugriff` plant
@@ -148,7 +147,7 @@ function useTicketzugriff(assetId: string) {
 }
 
 type BildInfo = {
-  zugriff: AssetAccessResponse;
+  zugriff: DateiZugriff;
   dokument: Dokument;
 };
 
@@ -157,13 +156,15 @@ type BildInfo = {
 // bleibt beim Betrachter. Der Redaktion bleibt die Beschreibung
 // korrigierbar (Beschreibung wird zum alt-Text).
 function BildEintrag({
+  auftrittId,
   dokument,
   isEditor,
   onVergroessern,
   onBearbeitet,
   aktualisieren,
 }: {
-  dokument: Dokument & { currentRevision: DokumentRevision };
+  auftrittId: string;
+  dokument: Dokument;
   isEditor: boolean;
   onVergroessern: (bild: BildInfo) => void;
   onBearbeitet: () => void;
@@ -255,32 +256,20 @@ function BildEintrag({
         </figcaption>
       </figure>
       <p className="noten-info">
-        {typText(dokument.currentRevision.contentType)} ·{" "}
-        {groesseText(dokument.currentRevision.sizeBytes)}
+        {typText(dokument.contentType)} · {groesseText(dokument.sizeBytes)}
       </p>
       {isEditor && (
-        <>
-          <div className="noten-aktionen">
-            <button
-              type="button"
-              className="knopf-leise"
-              aria-expanded={bearbeiten}
-              onClick={() => setBearbeiten(!bearbeiten)}
-            >
-              {bearbeiten ? "Bearbeiten schließen" : "Beschreibung bearbeiten"}
-            </button>
-          </div>
-          {bearbeiten && (
-            <MaterialBearbeiten
-              dokument={dokument}
-              onFertig={() => {
-                setBearbeiten(false);
-                onBearbeitet();
-              }}
-              aktualisieren={aktualisieren}
-            />
-          )}
-        </>
+        <RedaktionsWerkzeug
+          auftrittId={auftrittId}
+          dokument={dokument}
+          bearbeiten={bearbeiten}
+          onUmschalten={() => setBearbeiten(!bearbeiten)}
+          onBearbeitet={() => {
+            setBearbeiten(false);
+            onBearbeitet();
+          }}
+          aktualisieren={aktualisieren}
+        />
       )}
     </>
   );
@@ -290,12 +279,14 @@ function BildEintrag({
 // „Öffnen“ (Ansicht im neuen Tab) und „Herunterladen“; der Redaktion bleibt
 // die Beschreibung korrigierbar.
 function DokumentEintrag({
+  auftrittId,
   dokument,
   isEditor,
   onBearbeitet,
   aktualisieren,
 }: {
-  dokument: Dokument & { currentRevision: DokumentRevision };
+  auftrittId: string;
+  dokument: Dokument;
   isEditor: boolean;
   onBearbeitet: () => void;
   aktualisieren: () => void;
@@ -310,8 +301,7 @@ function DokumentEintrag({
     <article className="material-eintrag" aria-label={beschriftung}>
       <p className="dokument-titel">{beschriftung}</p>
       <p className="noten-info">
-        {typText(dokument.currentRevision.contentType)} ·{" "}
-        {groesseText(dokument.currentRevision.sizeBytes)}
+        {typText(dokument.contentType)} · {groesseText(dokument.sizeBytes)}
       </p>
       <div className="noten-aktionen">
         {zugriff ? (
@@ -348,70 +338,56 @@ function DokumentEintrag({
         </p>
       )}
       {isEditor && (
-        <>
-          {dokument.assetType === "document" &&
-            dokument.currentRevision.contentType.toLowerCase() ===
-              "application/pdf" && (
-              <ExtraktionStatus
-                revisionId={dokument.currentRevision.revisionId}
-                isEditor={isEditor}
-              />
-            )}
-          <div className="noten-aktionen">
-            <button
-              type="button"
-              className="knopf-leise"
-              aria-expanded={bearbeiten}
-              onClick={() => setBearbeiten(!bearbeiten)}
-            >
-              {bearbeiten ? "Bearbeiten schließen" : "Beschreibung bearbeiten"}
-            </button>
-          </div>
-          {bearbeiten && (
-            <MaterialBearbeiten
-              dokument={dokument}
-              onFertig={() => {
-                setBearbeiten(false);
-                onBearbeitet();
-              }}
-              aktualisieren={aktualisieren}
-            />
-          )}
-        </>
+        <RedaktionsWerkzeug
+          auftrittId={auftrittId}
+          dokument={dokument}
+          bearbeiten={bearbeiten}
+          onUmschalten={() => setBearbeiten(!bearbeiten)}
+          onBearbeitet={() => {
+            setBearbeiten(false);
+            onBearbeitet();
+          }}
+          aktualisieren={aktualisieren}
+        />
       )}
     </article>
   );
 }
 
-// Bearbeiten-Formular eines Eintrags: Beschreibung immer, Materialart nur
-// solange keine Datei hochgeladen ist (der Server sperrt sie danach mit 409).
-function MaterialBearbeiten({
+// Redaktionswerkzeug eines Eintrags: Beschreibung bearbeiten, Datei ersetzen,
+// Datei in den Papierkorb legen. Ersetzte und gelöschte Dateien wandern in den
+// Papierkorb (#168); der Lesesaal zeigt danach nur den aktuellen Stand.
+function RedaktionsWerkzeug({
+  auftrittId,
   dokument,
-  onFertig,
+  bearbeiten,
+  onUmschalten,
+  onBearbeitet,
   aktualisieren,
 }: {
+  auftrittId: string;
   dokument: Dokument;
-  onFertig: () => void;
+  bearbeiten: boolean;
+  onUmschalten: () => void;
+  onBearbeitet: () => void;
   aktualisieren: () => void;
 }) {
-  const typGesperrt = dokument.currentRevision !== null;
+  const beschriftung = beschriftungVon(dokument);
   const idPraefix = `dokument-${dokument.id}`;
-  const [typ, setTyp] = useState<DokumentTyp>(dokument.assetType);
+  const eingabeRef = useRef<HTMLInputElement>(null);
   const [beschreibung, setBeschreibung] = useState(dokument.description ?? "");
   const [busy, setBusy] = useState(false);
+  const [bestaetigen, setBestaetigen] = useState(false);
+  const [status, setStatus] = useState("");
   const [fehler, setFehler] = useState("");
 
   async function speichern() {
     setBusy(true);
     setFehler("");
     try {
-      const body: { assetType?: DokumentTyp; description: string } = {
-        description: beschreibung.trim(),
-      };
-      if (!typGesperrt) body.assetType = typ;
-      await patchEventAsset(dokument.id, body);
+      await aendereDateiBeschreibung(dokument.id, beschreibung.trim());
       aktualisieren();
-      onFertig();
+      onBearbeitet();
     } catch (ursache) {
       setFehler(
         await problemTitel(
@@ -424,99 +400,176 @@ function MaterialBearbeiten({
     }
   }
 
+  async function ersetzen(event: React.ChangeEvent<HTMLInputElement>) {
+    const gewaehlt = event.target.files?.[0];
+    event.target.value = "";
+    if (!gewaehlt) return;
+    setBusy(true);
+    setFehler("");
+    setStatus("Neue Datei wird übertragen …");
+    try {
+      await ladeAuftrittDateiHoch(
+        auftrittId,
+        auftrittUploadSchluessel(auftrittId, `ersetzen-${dokument.id}`),
+        {
+          kind: "sonstiges",
+          contentType: contentTypeFuerDokument(gewaehlt),
+          replacesDateiId: dokument.id,
+        },
+        gewaehlt,
+        (schritt) =>
+          setStatus(
+            schritt === "uebertragen"
+              ? "Neue Datei wird übertragen …"
+              : "Neue Datei wird geprüft …",
+          ),
+      );
+      setStatus("");
+      aktualisieren();
+    } catch (ursache) {
+      setStatus("");
+      setFehler(
+        ursache instanceof AbbruchFehler
+          ? "Das Ersetzen wurde abgebrochen."
+          : ursache instanceof MaterialFehler
+            ? ursache.message
+            : await problemTitel(
+                ursache,
+                "Das Ersetzen konnte nicht abgeschlossen werden. Bitte erneut versuchen.",
+              ),
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function loeschen() {
+    setBusy(true);
+    setFehler("");
+    try {
+      await loescheDatei(dokument.id, dokument.rowVersion);
+      aktualisieren();
+    } catch (ursache) {
+      setBestaetigen(false);
+      const veraltet = ursache instanceof Response && ursache.status === 409;
+      setFehler(
+        veraltet
+          ? "Die Datei wurde inzwischen geändert. Die Liste wird neu geladen."
+          : await problemTitel(
+              ursache,
+              "Die Datei konnte nicht gelöscht werden.",
+            ),
+      );
+      if (veraltet) aktualisieren();
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
-    <div className="material-bearbeiten">
-      {typGesperrt ? (
-        <p className="noten-info">
-          Materialtyp: {dokumentTypName(dokument.assetType)} (nach dem ersten
-          Hochladen gesperrt)
-        </p>
-      ) : (
-        <>
-          <label htmlFor={`${idPraefix}-typ`}>Materialtyp</label>
-          <select
-            id={`${idPraefix}-typ`}
-            value={typ}
-            onChange={(event) => setTyp(event.target.value as DokumentTyp)}
-          >
-            <option value="document">Dokument (PDF)</option>
-            <option value="photo">Fotografie</option>
-          </select>
-        </>
-      )}
-      <label htmlFor={`${idPraefix}-beschreibung`}>
-        Beschreibung (wird als Text zum Bild vorgelesen)
-      </label>
-      <input
-        id={`${idPraefix}-beschreibung`}
-        type="text"
-        maxLength={500}
-        value={beschreibung}
-        onChange={(event) => setBeschreibung(event.target.value)}
-      />
-      {fehler && (
-        <p role="alert" className="feld-fehler">
-          {fehler}
-        </p>
-      )}
-      <div className="auth-aktionen">
-        <button type="button" disabled={busy} onClick={() => void speichern()}>
-          {busy ? "Wird gespeichert …" : "Änderungen speichern"}
+    <>
+      <div className="noten-aktionen">
+        <button
+          type="button"
+          className="knopf-leise"
+          aria-expanded={bearbeiten}
+          onClick={onUmschalten}
+        >
+          {bearbeiten ? "Bearbeiten schließen" : "Beschreibung bearbeiten"}
         </button>
       </div>
-    </div>
-  );
-}
-
-// Zeile für noch nicht hochgeladenes Material: die Redaktion kann den
-// Upload (erneut) starten und Beschreibung/Typ über PATCH nachbessern.
-function UnausgeliefertZeile({
-  dokument,
-  busy,
-  onHochladen,
-  onBearbeitet,
-  aktualisieren,
-}: {
-  dokument: Dokument;
-  busy: boolean;
-  onHochladen: (dokument: Dokument) => void;
-  onBearbeitet: () => void;
-  aktualisieren: () => void;
-}) {
-  const [bearbeiten, setBearbeiten] = useState(false);
-
-  return (
-    <div className="material-fortsetzung">
-      <span className="material-datei-name">{beschriftungVon(dokument)}</span>
-      <span className="material-datei-groesse">
-        {dokumentTypName(dokument.assetType)}
-      </span>
-      <button
-        type="button"
-        onClick={() => onHochladen(dokument)}
-        disabled={busy}
-      >
-        Hochladen
-      </button>
-      <button
-        type="button"
-        className="knopf-leise"
-        aria-expanded={bearbeiten}
-        onClick={() => setBearbeiten(!bearbeiten)}
-      >
-        {bearbeiten ? "Bearbeiten schließen" : "Bearbeiten"}
-      </button>
       {bearbeiten && (
-        <MaterialBearbeiten
-          dokument={dokument}
-          onFertig={() => {
-            setBearbeiten(false);
-            onBearbeitet();
-          }}
-          aktualisieren={aktualisieren}
-        />
+        <div className="material-bearbeiten">
+          <label htmlFor={`${idPraefix}-beschreibung`}>
+            Beschreibung (wird als Text zum Bild vorgelesen)
+          </label>
+          <input
+            id={`${idPraefix}-beschreibung`}
+            type="text"
+            maxLength={500}
+            value={beschreibung}
+            onChange={(event) => setBeschreibung(event.target.value)}
+          />
+          {fehler && (
+            <p role="alert" className="feld-fehler">
+              {fehler}
+            </p>
+          )}
+          <div className="auth-aktionen">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void speichern()}
+            >
+              {busy ? "Wird gespeichert …" : "Änderungen speichern"}
+            </button>
+          </div>
+        </div>
       )}
-    </div>
+      <div className="datei-aktionen">
+        <input
+          ref={eingabeRef}
+          type="file"
+          hidden
+          aria-label={`Neue Datei für ${beschriftung}`}
+          accept=".pdf,image/jpeg,image/png,image/webp"
+          onChange={(event) => void ersetzen(event)}
+        />
+        {bestaetigen ? (
+          <>
+            <span className="noten-info">
+              „{beschriftung}“ in den Papierkorb legen?
+            </span>
+            <button
+              type="button"
+              onClick={() => void loeschen()}
+              disabled={busy}
+            >
+              Ja, löschen
+            </button>
+            <button
+              type="button"
+              className="knopf-leise"
+              onClick={() => setBestaetigen(false)}
+              disabled={busy}
+            >
+              Abbrechen
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              className="knopf-leise"
+              onClick={() => eingabeRef.current?.click()}
+              disabled={busy}
+              aria-label={`Ersetzen · ${beschriftung}`}
+            >
+              Ersetzen
+            </button>
+            <button
+              type="button"
+              className="knopf-leise"
+              onClick={() => setBestaetigen(true)}
+              disabled={busy}
+              aria-label={`Löschen · ${beschriftung}`}
+            >
+              Löschen
+            </button>
+          </>
+        )}
+        {status && (
+          <output aria-live="polite" className="noten-info">
+            {status}
+          </output>
+        )}
+        {fehler && !bearbeiten && (
+          <output aria-live="polite" className="feld-fehler">
+            {fehler}
+          </output>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -529,22 +582,16 @@ type MaterialStatus =
   | "abbruchLaeuft"
   | "abgebrochen";
 
-type FortsetzungsWunsch = {
-  assetId: string;
-  assetTyp: DokumentTyp;
-  eintrag: GespeicherteUploadSitzung;
-};
-
 type DateiZeile = {
   id: number;
   datei: File;
-  assetTyp: DokumentTyp;
   beschreibung: string;
-  assetId: string | null;
   status: MaterialStatus;
   fortschritt: number;
   fehler: string;
 };
+
+type Fortsetzung = { schluessel: string; fileName: string };
 
 // Zustandswörter der Werkbank, wie im Notenbereich.
 function statusTextFuer(status: MaterialStatus, fortschritt: number): string {
@@ -574,6 +621,13 @@ async function fehlerMeldung(
   return problemTitel(ursache, ersatz);
 }
 
+function speicherFuer(auftrittId: string, datei: File): string {
+  return auftrittUploadSchluessel(
+    auftrittId,
+    `${DokumentPlatz}${datei.name.toLowerCase()}`,
+  );
+}
+
 export function AuftrittDokumente({
   auftritt,
   isEditor,
@@ -592,67 +646,39 @@ export function AuftrittDokumente({
   const naechsteZeileId = useRef(0);
   const zeilenRef = useRef<DateiZeile[]>([]);
   const abbrueche = useRef(new Map<number, AbortController>());
-  // Ein Wunsch je Mausklick: eine unterbrochene Übertragung (mit gemerkter
-  // Sitzung) oder ein unausgelieferter Eintrag, an den die gewählte Datei
-  // gebunden wird.
-  const wunschRef = useRef<FortsetzungsWunsch | null>(null);
-  const verbindungsRef = useRef<{
-    assetId: string;
-    assetTyp: DokumentTyp;
-    beschreibung: string;
-  } | null>(null);
+  // Ein Wunsch je Mausklick: eine unterbrochene Übertragung, deren Datei
+  // erneut gewählt wird, wird fortgesetzt.
+  const wunschRef = useRef<Fortsetzung | null>(null);
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const [zeilen, setZeilen] = useState<DateiZeile[]>([]);
   const [uebertragLaeuft, setUebertragLaeuft] = useState(false);
   const [batchMeldung, setBatchMeldung] = useState("");
   const [erfolg, setErfolg] = useState("");
-  const [fortsetzbar, setFortsetzbar] = useState<FortsetzungsWunsch[]>([]);
+  const [fortsetzbar, setFortsetzbar] = useState<Fortsetzung[]>([]);
   const [gross, setGross] = useState<BildInfo | null>(null);
 
-  // Unterbrochene Übertragungen des lokalen Speichers; fertige Materialien
-  // räumen ihren gespeicherten Stand weg.
+  // Unterbrochene Übertragungen des lokalen Speichers.
   useEffect(() => {
     if (!isEditor) return;
-    const eintraege: FortsetzungsWunsch[] = [];
-    for (const dokument of dokumente) {
-      if (!istDokumentTyp(dokument.assetType)) continue;
-      if (dokument.currentRevision !== null) {
-        entferneUploadSitzung(dokument.id);
-        continue;
-      }
-      const eintrag = liesUploadSitzung(dokument.id);
-      if (
-        eintrag &&
-        !zeilenRef.current.some((zeile) => zeile.assetId === dokument.id)
-      ) {
-        eintraege.push({
-          assetId: dokument.id,
-          assetTyp: dokument.assetType,
-          eintrag,
-        });
-      }
-    }
-    setFortsetzbar(eintraege);
-  }, [dokumente, isEditor]);
+    setFortsetzbar(
+      unterbrocheneAuftrittUebertragungen(auftritt.id, DokumentPlatz).filter(
+        (eintrag) =>
+          !zeilenRef.current.some(
+            (zeile) =>
+              speicherFuer(auftritt.id, zeile.datei) === eintrag.schluessel,
+          ),
+      ),
+    );
+  }, [auftritt.id, isEditor]);
 
   useEffect(() => {
     if (!gross) return;
     dialogRef.current?.showModal();
   }, [gross]);
 
-  const unausgeliefert = dokumente.filter(
-    (dokument) =>
-      dokument.currentRevision === null &&
-      !zeilen.some((zeile) => zeile.assetId === dokument.id) &&
-      !fortsetzbar.some((wunsch) => wunsch.assetId === dokument.id),
-  );
-  const fotos = dokumente.filter(
-    (dokument): dokument is Dokument & { currentRevision: DokumentRevision } =>
-      dokument.assetType === "photo" && dokument.currentRevision !== null,
-  );
+  const fotos = dokumente.filter((dokument) => dokument.art === "photo");
   const dokumentEintraege = dokumente.filter(
-    (dokument): dokument is Dokument & { currentRevision: DokumentRevision } =>
-      dokument.assetType === "document" && dokument.currentRevision !== null,
+    (dokument) => dokument.art === "document",
   );
 
   function zeileAendern(id: number, aenderung: Partial<DateiZeile>) {
@@ -667,9 +693,7 @@ export function AuftrittDokumente({
     const neue: DateiZeile[] = Array.from(liste).map((datei) => ({
       id: naechsteZeileId.current++,
       datei,
-      assetTyp: dokumentTypFuerDatei(datei),
       beschreibung: "",
-      assetId: null,
       status: "warten",
       fortschritt: 0,
       fehler: "",
@@ -685,33 +709,10 @@ export function AuftrittDokumente({
     const liste = Array.from(event.target.files ?? []);
     event.target.value = "";
     if (liste.length === 0) return;
-    const verbindung = verbindungsRef.current;
-    verbindungsRef.current = null;
-    if (verbindung) {
-      const zeile: DateiZeile = {
-        id: naechsteZeileId.current++,
-        datei: liste[0],
-        assetTyp: verbindung.assetTyp,
-        beschreibung: verbindung.beschreibung,
-        assetId: verbindung.assetId,
-        status: "warten",
-        fortschritt: 0,
-        fehler: "",
-      };
-      zeilenRef.current = [...zeilenRef.current, zeile];
-      setZeilen(zeilenRef.current);
-      setUebertragLaeuft(true);
-      void starteZeile(zeile, null).then(() => {
-        setUebertragLaeuft(false);
-        batchMeldungNeu(zeilenRef.current);
-        aktualisieren();
-      });
-      return;
-    }
     const wunsch = wunschRef.current;
     wunschRef.current = null;
     if (wunsch) {
-      void bindeDateiAnMaterial(wunsch, liste[0]);
+      void setzeFort(wunsch, liste[0]);
       return;
     }
     dateienHinzufuegen(liste);
@@ -727,10 +728,7 @@ export function AuftrittDokumente({
     event.preventDefault();
   }
 
-  async function starteZeile(
-    zeile: DateiZeile,
-    wiederverwendbar: string | null,
-  ) {
+  async function starteZeile(zeile: DateiZeile, fortsetzen = false) {
     const abbruch = new AbortController();
     abbrueche.current.set(zeile.id, abbruch);
     zeileAendern(zeile.id, {
@@ -738,53 +736,48 @@ export function AuftrittDokumente({
       fehler: "",
       fortschritt: 0,
     });
-    let assetId = zeile.assetId ?? wiederverwendbar;
+    const speicher = speicherFuer(auftritt.id, zeile.datei);
+    const inhaltstyp = contentTypeFuerDokument(zeile.datei);
+    const optionen = {
+      onFortschritt: (uebertragenBytes: number, gesamtBytes: number) => {
+        zeileAendern(zeile.id, {
+          fortschritt: (uebertragenBytes / gesamtBytes) * 100,
+        });
+      },
+      signal: abbruch.signal,
+    };
+    const beiSchritt = (schritt: MaterialSchritt) => {
+      zeileAendern(zeile.id, { status: schritt });
+    };
     try {
-      if (!assetId) {
-        const body: { assetType: DokumentTyp; description?: string } = {
-          assetType: zeile.assetTyp,
-        };
-        const beschreibung = zeile.beschreibung.trim();
-        if (beschreibung) body.description = beschreibung;
-        assetId = (await createEventAsset(auftritt.id, body)).id;
+      if (fortsetzen) {
+        await setzeAuftrittUebertragungFort(
+          speicher,
+          inhaltstyp,
+          zeile.datei,
+          beiSchritt,
+          optionen,
+        );
       } else {
-        // Bestehendes Material weiterverwenden: die Beschreibung geht mit,
-        // solange nichts hochgeladen ist auch die Materialart.
-        const body: { assetType?: DokumentTyp; description?: string } = {
-          assetType: zeile.assetTyp,
-        };
-        const beschreibung = zeile.beschreibung.trim();
-        if (beschreibung) body.description = beschreibung;
-        await patchEventAsset(assetId, body);
-      }
-      const revision = await uebertrageDatei(
-        assetId,
-        zeile.datei,
-        contentTypeFuerDokument(zeile.assetTyp, zeile.datei),
-        (schritt: MaterialSchritt) => {
-          zeileAendern(zeile.id, { status: schritt });
-        },
-        {
-          onFortschritt: (uebertragenBytes, gesamtBytes) => {
-            zeileAendern(zeile.id, {
-              fortschritt: (uebertragenBytes / gesamtBytes) * 100,
-            });
+        await ladeAuftrittDateiHoch(
+          auftritt.id,
+          speicher,
+          {
+            kind: "sonstiges",
+            contentType: inhaltstyp,
+            description: zeile.beschreibung.trim() || undefined,
           },
-          signal: abbruch.signal,
-        },
-      );
-      zeileAendern(zeile.id, {
-        status: "gespeichert",
-        assetId,
-        fehler: "",
-      });
-      void revision;
+          zeile.datei,
+          beiSchritt,
+          optionen,
+        );
+      }
+      zeileAendern(zeile.id, { status: "gespeichert", fehler: "" });
     } catch (ursache) {
       const abgebrochen =
         abbruch.signal.aborted || ursache instanceof AbbruchFehler;
       zeileAendern(zeile.id, {
         status: abgebrochen ? "abgebrochen" : "gescheitert",
-        assetId,
         fehler: abgebrochen ? "" : await fehlerMeldung(ursache, startMeldung),
       });
     } finally {
@@ -799,88 +792,37 @@ export function AuftrittDokumente({
     }
   }
 
-  async function bindeDateiAnMaterial(wunsch: FortsetzungsWunsch, datei: File) {
+  async function setzeFort(wunsch: Fortsetzung, datei: File) {
+    const eintrag = liesUploadSitzung(wunsch.schluessel);
     const identisch =
-      datei.name === wunsch.eintrag.fileName &&
-      datei.size === wunsch.eintrag.sizeBytes &&
-      datei.lastModified === wunsch.eintrag.lastModified;
-    if (!identisch) {
+      eintrag !== null &&
+      datei.name === eintrag.fileName &&
+      datei.size === eintrag.sizeBytes &&
+      datei.lastModified === eintrag.lastModified;
+    if (eintrag && !identisch) {
       // Eine andere Datei als die gemerkte: die alte Sitzung wird
       // abgebrochen, der Upload startet mit einer frischen Zeile.
-      entferneUploadSitzung(wunsch.assetId);
-      // Die ferne Sitzung wird daneben still abgemeldet, damit das
-      // gemerkte Größenbudget sofort wieder frei wird (Rezeptur
-      // noten-bereich.tsx).
-      void cancelUploadSession(wunsch.eintrag.uploadSessionId).catch(() => {});
-      const neue: DateiZeile = {
-        id: naechsteZeileId.current++,
-        datei,
-        assetTyp: wunsch.assetTyp,
-        beschreibung: "",
-        assetId: wunsch.assetId,
-        status: "warten",
-        fortschritt: 0,
-        fehler: "",
-      };
-      zeilenRef.current = [...zeilenRef.current, neue];
-      setZeilen(zeilenRef.current);
-      setUebertragLaeuft(true);
-      await starteZeile(neue, null);
-      setUebertragLaeuft(false);
-      batchMeldungNeu(zeilenRef.current);
-      aktualisieren();
-      return;
+      entferneUploadSitzung(wunsch.schluessel);
+      void cancelUploadSession(eintrag.uploadSessionId).catch(() => {});
     }
     const zeile: DateiZeile = {
       id: naechsteZeileId.current++,
       datei,
-      assetTyp: wunsch.assetTyp,
       beschreibung: "",
-      assetId: wunsch.assetId,
-      status: "uebertragen",
+      status: "warten",
       fortschritt: 0,
       fehler: "",
     };
     zeilenRef.current = [...zeilenRef.current, zeile];
     setZeilen(zeilenRef.current);
     setFortsetzbar((vorher) =>
-      vorher.filter((eintrag) => eintrag.assetId !== wunsch.assetId),
+      vorher.filter((alt) => alt.schluessel !== wunsch.schluessel),
     );
     setUebertragLaeuft(true);
-    const abbruch = new AbortController();
-    abbrueche.current.set(zeile.id, abbruch);
-    try {
-      const revision = await setzeUploadFort(
-        wunsch.assetId,
-        datei,
-        contentTypeFuerDokument(wunsch.assetTyp, datei),
-        (schritt: MaterialSchritt) => {
-          zeileAendern(zeile.id, { status: schritt });
-        },
-        {
-          onFortschritt: (uebertragenBytes, gesamtBytes) => {
-            zeileAendern(zeile.id, {
-              fortschritt: (uebertragenBytes / gesamtBytes) * 100,
-            });
-          },
-          signal: abbruch.signal,
-        },
-      );
-      zeileAendern(zeile.id, { status: "gespeichert", fehler: "" });
-      void revision;
-    } catch (ursache) {
-      const abgebrochen =
-        abbruch.signal.aborted || ursache instanceof AbbruchFehler;
-      zeileAendern(zeile.id, {
-        status: abgebrochen ? "abgebrochen" : "gescheitert",
-        fehler: abgebrochen ? "" : await fehlerMeldung(ursache, startMeldung),
-      });
-    } finally {
-      abbrueche.current.delete(zeile.id);
-      setUebertragLaeuft(false);
-      batchMeldungNeu(zeilenRef.current);
-      aktualisieren();
-    }
+    await starteZeile(zeile, identisch);
+    setUebertragLaeuft(false);
+    batchMeldungNeu(zeilenRef.current);
+    aktualisieren();
   }
 
   function batchMeldungNeu(stand: DateiZeile[]) {
@@ -909,27 +851,11 @@ export function AuftrittDokumente({
     if (abrechnung.length === 0) return;
     const versucht = new Set(abrechnung.map((zeile) => zeile.id));
     setUebertragLaeuft(true);
-    // Bereits angelegtes, noch leeres Material derselben Art wird
-    // weiterverwendet: ein gescheiterter Versuch hinterlässt keine
-    // Doppel-Einträge.
-    const wiederverwendbar: Record<DokumentTyp, string[]> = {
-      document: [],
-      photo: [],
-    };
-    for (const dokument of dokumente) {
-      if (
-        dokument.currentRevision === null &&
-        istDokumentTyp(dokument.assetType)
-      ) {
-        wiederverwendbar[dokument.assetType].push(dokument.id);
-      }
-    }
     let naechster = 0;
     const arbeiter = async () => {
       while (naechster < abrechnung.length) {
         const zeile = abrechnung[naechster++];
-        const erbe = wiederverwendbar[zeile.assetTyp].shift() ?? null;
-        await starteZeile(zeile, erbe);
+        await starteZeile(zeile);
       }
     };
     await Promise.all([arbeiter(), arbeiter()]);
@@ -944,7 +870,7 @@ export function AuftrittDokumente({
     const zeile = zeilenRef.current.find((eintrag) => eintrag.id === id);
     if (!zeile) return;
     setUebertragLaeuft(true);
-    await starteZeile(zeile, null);
+    await starteZeile(zeile);
     setUebertragLaeuft(false);
     batchMeldungNeu(
       zeilenRef.current.filter(
@@ -978,6 +904,7 @@ export function AuftrittDokumente({
               {fotos.map((foto) => (
                 <li key={foto.id}>
                   <BildEintrag
+                    auftrittId={auftritt.id}
                     dokument={foto}
                     isEditor={isEditor}
                     onVergroessern={setGross}
@@ -989,19 +916,18 @@ export function AuftrittDokumente({
             </ul>
           )}
           {dokumentEintraege.length > 0 && (
-            <ExtraktionUebersichtProvider>
-              <div className="material-liste dokumente-liste">
-                {dokumentEintraege.map((eintrag) => (
-                  <DokumentEintrag
-                    dokument={eintrag}
-                    isEditor={isEditor}
-                    onBearbeitet={() => setErfolg("Änderungen gespeichert.")}
-                    aktualisieren={aktualisieren}
-                    key={eintrag.id}
-                  />
-                ))}
-              </div>
-            </ExtraktionUebersichtProvider>
+            <div className="material-liste dokumente-liste">
+              {dokumentEintraege.map((eintrag) => (
+                <DokumentEintrag
+                  auftrittId={auftritt.id}
+                  dokument={eintrag}
+                  isEditor={isEditor}
+                  onBearbeitet={() => setErfolg("Änderungen gespeichert.")}
+                  aktualisieren={aktualisieren}
+                  key={eintrag.id}
+                />
+              ))}
+            </div>
           )}
         </>
       ) : (
@@ -1039,54 +965,21 @@ export function AuftrittDokumente({
               <div className="material-fortsetzungen">
                 <p>Unterbrochene Übertragungen</p>
                 {fortsetzbar.map((wunsch) => (
-                  <div className="material-fortsetzung" key={wunsch.assetId}>
+                  <div className="material-fortsetzung" key={wunsch.schluessel}>
                     <span className="material-datei-name">
-                      {wunsch.eintrag.fileName}
-                    </span>
-                    <span className="material-datei-groesse">
-                      {groesseText(wunsch.eintrag.sizeBytes)}
+                      {wunsch.fileName}
                     </span>
                     <button
                       type="button"
                       disabled={uebertragLaeuft}
                       onClick={() => {
-                        // Nur ein Wunsch je Mausklick: ein noch bewaffneter
-                        // Hochlade-Wunsch aus der anderen Zeile würde die
-                        // gewählte Datei an das falsche Material binden.
                         wunschRef.current = wunsch;
-                        verbindungsRef.current = null;
                         eingabeRef.current?.click();
                       }}
                     >
                       Fortsetzen
                     </button>
                   </div>
-                ))}
-              </div>
-            )}
-            {unausgeliefert.length > 0 && (
-              <div className="material-fortsetzungen">
-                <p>Noch nicht hochgeladen</p>
-                {unausgeliefert.map((dokument) => (
-                  <UnausgeliefertZeile
-                    dokument={dokument}
-                    busy={uebertragLaeuft}
-                    onHochladen={(gewaehlt) => {
-                      // Nur ein Wunsch je Mausklick: ein noch bewaffneter
-                      // Fortsetzungs-Wunsch würde die gewählte Datei auf die
-                      // unterbrochene Übertragung umlenken.
-                      wunschRef.current = null;
-                      verbindungsRef.current = {
-                        assetId: gewaehlt.id,
-                        assetTyp: gewaehlt.assetType,
-                        beschreibung: gewaehlt.description ?? "",
-                      };
-                      eingabeRef.current?.click();
-                    }}
-                    onBearbeitet={() => setErfolg("Änderungen gespeichert.")}
-                    aktualisieren={aktualisieren}
-                    key={dokument.id}
-                  />
                 ))}
               </div>
             )}
@@ -1152,22 +1045,6 @@ export function AuftrittDokumente({
                       </>
                     )}
                     <div className="material-felder">
-                      <label htmlFor={`dokument-zeile-${zeile.id}-typ`}>
-                        Materialtyp
-                      </label>
-                      <select
-                        id={`dokument-zeile-${zeile.id}-typ`}
-                        value={zeile.assetTyp}
-                        disabled={zeile.status !== "warten"}
-                        onChange={(event) =>
-                          zeileAendern(zeile.id, {
-                            assetTyp: event.target.value as DokumentTyp,
-                          })
-                        }
-                      >
-                        <option value="document">Dokument (PDF)</option>
-                        <option value="photo">Fotografie</option>
-                      </select>
                       <label
                         htmlFor={`dokument-zeile-${zeile.id}-beschreibung`}
                       >
@@ -1195,7 +1072,6 @@ export function AuftrittDokumente({
                 type="button"
                 onClick={() => {
                   wunschRef.current = null;
-                  verbindungsRef.current = null;
                   eingabeRef.current?.click();
                 }}
                 disabled={uebertragLaeuft}
@@ -1242,8 +1118,8 @@ export function AuftrittDokumente({
             {beschriftungVon(gross.dokument)}
           </p>
           <p className="noten-info">
-            {typText(gross.dokument.currentRevision?.contentType ?? "")} ·{" "}
-            {groesseText(gross.dokument.currentRevision?.sizeBytes ?? 0)}
+            {typText(gross.dokument.contentType)} ·{" "}
+            {groesseText(gross.dokument.sizeBytes)}
           </p>
           <div className="noten-aktionen">
             <button type="button" onClick={() => dialogRef.current?.close()}>

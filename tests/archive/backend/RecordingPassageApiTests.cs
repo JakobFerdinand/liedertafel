@@ -179,7 +179,7 @@ public sealed partial class RecordingPassageApiTests
 		var foreign = await scenario.RecordAsync(elsewhere, song.SongId);
 		var recording = await scenario.CreateRecordingAsync(concert, "Mitschnitt", "video", duration: 1000);
 		var path = $"/api/recordings/{recording}/passages";
-		var rev = await scenario.PlaybackRevisionAsync(recording);
+		var rev = await scenario.PlaybackDateiAsync(recording);
 
 		async Task AssertRefusedAsync(object body, HttpStatusCode status, string message)
 		{
@@ -188,26 +188,26 @@ public sealed partial class RecordingPassageApiTests
 			Assert.Equal(message, await TitleAsync(response));
 		}
 
-		await AssertRefusedAsync(new { expectedPlaybackRevisionId = rev, performanceId = performance, startSeconds = -1, endSeconds = 50 },
+		await AssertRefusedAsync(new { expectedPlaybackDateiId = rev, performanceId = performance, startSeconds = -1, endSeconds = 50 },
 			HttpStatusCode.BadRequest, "Der Anfang ist ungültig.");
-		await AssertRefusedAsync(new { expectedPlaybackRevisionId = rev, performanceId = performance, endSeconds = 50 },
+		await AssertRefusedAsync(new { expectedPlaybackDateiId = rev, performanceId = performance, endSeconds = 50 },
 			HttpStatusCode.BadRequest, "Der Anfang ist ungültig.");
-		await AssertRefusedAsync(new { expectedPlaybackRevisionId = rev, performanceId = performance, startSeconds = 10 },
+		await AssertRefusedAsync(new { expectedPlaybackDateiId = rev, performanceId = performance, startSeconds = 10 },
 			HttpStatusCode.BadRequest, "Das Ende ist ungültig.");
-		await AssertRefusedAsync(new { expectedPlaybackRevisionId = rev, performanceId = performance, startSeconds = 100, endSeconds = 100 },
+		await AssertRefusedAsync(new { expectedPlaybackDateiId = rev, performanceId = performance, startSeconds = 100, endSeconds = 100 },
 			HttpStatusCode.BadRequest, "Das Ende muss nach dem Anfang liegen.");
-		await AssertRefusedAsync(new { expectedPlaybackRevisionId = rev, performanceId = performance, startSeconds = 100, endSeconds = 50 },
+		await AssertRefusedAsync(new { expectedPlaybackDateiId = rev, performanceId = performance, startSeconds = 100, endSeconds = 50 },
 			HttpStatusCode.BadRequest, "Das Ende muss nach dem Anfang liegen.");
-		await AssertRefusedAsync(new { expectedPlaybackRevisionId = rev, performanceId = performance, startSeconds = 100, endSeconds = 1500 },
+		await AssertRefusedAsync(new { expectedPlaybackDateiId = rev, performanceId = performance, startSeconds = 100, endSeconds = 1500 },
 			HttpStatusCode.BadRequest, "Das Ende liegt hinter dem Ende der Aufnahme.");
-		await AssertRefusedAsync(new { expectedPlaybackRevisionId = rev, performanceId = performance, startSeconds = 100, endSeconds = 200000 },
+		await AssertRefusedAsync(new { expectedPlaybackDateiId = rev, performanceId = performance, startSeconds = 100, endSeconds = 200000 },
 			HttpStatusCode.BadRequest, "Das Ende liegt hinter dem Ende der Aufnahme.");
-		await AssertRefusedAsync(new { expectedPlaybackRevisionId = rev, startSeconds = 1, endSeconds = 50 },
+		await AssertRefusedAsync(new { expectedPlaybackDateiId = rev, startSeconds = 1, endSeconds = 50 },
 			HttpStatusCode.NotFound, "Die Aufführung gehört nicht zu diesem Auftritt.");
 		// The occurrence of another event is not this recording's to mark.
-		await AssertRefusedAsync(new { expectedPlaybackRevisionId = rev, performanceId = foreign, startSeconds = 1, endSeconds = 50 },
+		await AssertRefusedAsync(new { expectedPlaybackDateiId = rev, performanceId = foreign, startSeconds = 1, endSeconds = 50 },
 			HttpStatusCode.NotFound, "Die Aufführung gehört nicht zu diesem Auftritt.");
-		await AssertRefusedAsync(new { expectedPlaybackRevisionId = rev, performanceId = Guid.NewGuid(), startSeconds = 1, endSeconds = 50 },
+		await AssertRefusedAsync(new { expectedPlaybackDateiId = rev, performanceId = Guid.NewGuid(), startSeconds = 1, endSeconds = 50 },
 			HttpStatusCode.NotFound, "Die Aufführung gehört nicht zu diesem Auftritt.");
 		Assert.Empty((await scenario.PassagesAsync(recording, scenario.EditorSession))
 			.GetProperty("passages").EnumerateArray());
@@ -216,7 +216,7 @@ public sealed partial class RecordingPassageApiTests
 		var created = await scenario.AddPassageAsync(recording, performance, 900, 1000);
 		// A lost retry of the identical request answers the stored passage.
 		using (var retry = await scenario.SendAsync(HttpMethod.Post, path,
-			new { expectedPlaybackRevisionId = rev, performanceId = performance, startSeconds = 900, endSeconds = 1000 }, scenario.EditorSession))
+			new { expectedPlaybackDateiId = rev, performanceId = performance, startSeconds = 900, endSeconds = 1000 }, scenario.EditorSession))
 		{
 			Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
 			Assert.Equal(created.GetProperty("id").GetString(),
@@ -224,7 +224,7 @@ public sealed partial class RecordingPassageApiTests
 		}
 		// A different statement for a marked occurrence is "not allowed in
 		// this state" (edit the existing one), not a stale conflict.
-		await AssertRefusedAsync(new { expectedPlaybackRevisionId = rev, performanceId = performance, startSeconds = 10, endSeconds = 20 },
+		await AssertRefusedAsync(new { expectedPlaybackDateiId = rev, performanceId = performance, startSeconds = 10, endSeconds = 20 },
 			HttpStatusCode.Conflict, "Für diese Aufführung gibt es in dieser Aufnahme schon eine Zeitmarke. Bearbeite die vorhandene.");
 		Assert.Single((await scenario.PassagesAsync(recording, scenario.EditorSession))
 			.GetProperty("passages").EnumerateArray());
@@ -232,14 +232,14 @@ public sealed partial class RecordingPassageApiTests
 		// A recording without a playable file cannot carry timestamps.
 		var empty = await scenario.CreateRecordingAsync(concert, "Ohne Datei", "video", upload: false);
 		using var noFile = await scenario.SendAsync(HttpMethod.Post, $"/api/recordings/{empty}/passages",
-			new { expectedPlaybackRevisionId = rev, performanceId = performance, startSeconds = 1, endSeconds = 5 }, scenario.EditorSession);
+			new { expectedPlaybackDateiId = rev, performanceId = performance, startSeconds = 1, endSeconds = 5 }, scenario.EditorSession);
 		Assert.Equal(HttpStatusCode.Conflict, noFile.StatusCode);
 		Assert.Equal("Die Aufnahme hat noch keine abspielbare Datei, an der sich Zeitmarken setzen lassen.",
 			await TitleAsync(noFile));
 
 		// Unknown recording.
 		using var unknown = await scenario.SendAsync(HttpMethod.Post, $"/api/recordings/{Guid.NewGuid()}/passages",
-			new { expectedPlaybackRevisionId = rev, performanceId = performance, startSeconds = 1, endSeconds = 5 }, scenario.EditorSession);
+			new { expectedPlaybackDateiId = rev, performanceId = performance, startSeconds = 1, endSeconds = 5 }, scenario.EditorSession);
 		Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
 		Assert.Equal("Aufnahme nicht gefunden.", await TitleAsync(unknown));
 	}
@@ -259,11 +259,11 @@ public sealed partial class RecordingPassageApiTests
 		var passageId = passage.GetProperty("id").GetString();
 		var version = passage.GetProperty("editor").GetProperty("version").GetUInt32();
 		var path = $"/api/recordings/{recording}/passages/{passageId}";
-		var rev = await scenario.PlaybackRevisionAsync(recording);
+		var rev = await scenario.PlaybackDateiAsync(recording);
 
 		// A move answers the complete passage with display fields and a new version.
 		using var moved = await scenario.SendAsync(HttpMethod.Patch, path,
-			new { expectedPlaybackRevisionId = rev, startSeconds = 110.5, endSeconds = 215, expectedVersion = version }, scenario.EditorSession);
+			new { expectedPlaybackDateiId = rev, startSeconds = 110.5, endSeconds = 215, expectedVersion = version }, scenario.EditorSession);
 		Assert.Equal(HttpStatusCode.OK, moved.StatusCode);
 		var movedPassage = (await moved.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("passage");
 		Assert.Equal(110.5, movedPassage.GetProperty("startSeconds").GetDouble());
@@ -274,29 +274,29 @@ public sealed partial class RecordingPassageApiTests
 
 		// A change that changes nothing leaves the version alone.
 		using var same = await scenario.SendAsync(HttpMethod.Patch, path,
-			new { expectedPlaybackRevisionId = rev, startSeconds = 110.5, endSeconds = 215, expectedVersion = newVersion }, scenario.EditorSession);
+			new { expectedPlaybackDateiId = rev, startSeconds = 110.5, endSeconds = 215, expectedVersion = newVersion }, scenario.EditorSession);
 		Assert.Equal(HttpStatusCode.OK, same.StatusCode);
 		Assert.Equal(newVersion, (await same.Content.ReadFromJsonAsync<JsonElement>())
 			.GetProperty("passage").GetProperty("editor").GetProperty("version").GetUInt32());
 
 		// A stale form answers the stale message; invalid bounds keep their own.
 		using var stale = await scenario.SendAsync(HttpMethod.Patch, path,
-			new { expectedPlaybackRevisionId = rev, startSeconds = 50, expectedVersion = version }, scenario.EditorSession);
+			new { expectedPlaybackDateiId = rev, startSeconds = 50, expectedVersion = version }, scenario.EditorSession);
 		Assert.Equal(HttpStatusCode.Conflict, stale.StatusCode);
 		Assert.Equal("Die Zeitmarke wurde zwischenzeitlich geändert.", await TitleAsync(stale));
 		using var inverted = await scenario.SendAsync(HttpMethod.Patch, path,
-			new { expectedPlaybackRevisionId = rev, startSeconds = 500, expectedVersion = newVersion }, scenario.EditorSession);
+			new { expectedPlaybackDateiId = rev, startSeconds = 500, expectedVersion = newVersion }, scenario.EditorSession);
 		Assert.Equal(HttpStatusCode.BadRequest, inverted.StatusCode);
 		Assert.Equal("Das Ende muss nach dem Anfang liegen.", await TitleAsync(inverted));
 		using var beyond = await scenario.SendAsync(HttpMethod.Patch, path,
-			new { expectedPlaybackRevisionId = rev, endSeconds = 2500, expectedVersion = newVersion }, scenario.EditorSession);
+			new { expectedPlaybackDateiId = rev, endSeconds = 2500, expectedVersion = newVersion }, scenario.EditorSession);
 		Assert.Equal("Das Ende liegt hinter dem Ende der Aufnahme.", await TitleAsync(beyond));
 
 		// The passage's ids belong to its stated recording: the same passage
 		// under another recording, or another recording's id, is unknown.
 		using var wrongRecording = await scenario.SendAsync(HttpMethod.Patch,
 			$"/api/recordings/{otherRecording}/passages/{passageId}",
-			new { expectedPlaybackRevisionId = rev, startSeconds = 1, expectedVersion = newVersion }, scenario.EditorSession);
+			new { expectedPlaybackDateiId = rev, startSeconds = 1, expectedVersion = newVersion }, scenario.EditorSession);
 		Assert.Equal(HttpStatusCode.NotFound, wrongRecording.StatusCode);
 		Assert.Equal("Zeitmarke nicht gefunden.", await TitleAsync(wrongRecording));
 		using var wrongDelete = await scenario.SendAsync(HttpMethod.Post,
@@ -304,7 +304,7 @@ public sealed partial class RecordingPassageApiTests
 		Assert.Equal(HttpStatusCode.NotFound, wrongDelete.StatusCode);
 		// A patch cannot move the passage to another occurrence.
 		using var retarget = await scenario.SendAsync(HttpMethod.Patch, path,
-			new { expectedPlaybackRevisionId = rev, performanceId = otherPerformance, startSeconds = 111, expectedVersion = newVersion }, scenario.EditorSession);
+			new { expectedPlaybackDateiId = rev, performanceId = otherPerformance, startSeconds = 111, expectedVersion = newVersion }, scenario.EditorSession);
 		Assert.Equal(HttpStatusCode.OK, retarget.StatusCode);
 		Assert.Equal(performance, (await retarget.Content.ReadFromJsonAsync<JsonElement>())
 			.GetProperty("passage").GetProperty("performanceId").GetString());
@@ -447,19 +447,19 @@ public sealed partial class RecordingPassageApiTests
 		var passage = await scenario.AddPassageAsync(recording, performance, 100, 300);
 		var passageId = passage.GetProperty("id").GetString();
 		var revisionBefore = (await scenario.PassagesAsync(recording, scenario.EditorSession))
-			.GetProperty("playbackRevisionId").GetString();
-		Assert.Equal((await scenario.AccessAsync(recording, scenario.MemberSession)).GetProperty("revisionId").GetString(),
+			.GetProperty("playbackDateiId").GetString();
+		Assert.Equal((await scenario.AccessAsync(recording, scenario.MemberSession)).GetProperty("dateiId").GetString(),
 			revisionBefore);
 
 		// A converted copy replaces what members play: the timestamps were
 		// taken against the old file.
 		await scenario.ReplacePlaybackFileAsync(recording);
 		var editorView = await scenario.PassagesAsync(recording, scenario.EditorSession);
-		Assert.NotEqual(revisionBefore, editorView.GetProperty("playbackRevisionId").GetString());
+		Assert.NotEqual(revisionBefore, editorView.GetProperty("playbackDateiId").GetString());
 		var flagged = editorView.GetProperty("passages")[0];
 		Assert.Equal("needsReview", flagged.GetProperty("timestampState").GetString());
 		Assert.Equal(100, flagged.GetProperty("startSeconds").GetDouble());
-		Assert.Equal(revisionBefore, flagged.GetProperty("editor").GetProperty("playbackRevisionId").GetString());
+		Assert.Equal(revisionBefore, flagged.GetProperty("editor").GetProperty("playbackDateiId").GetString());
 
 		// Members get the song as part of the recording, but no position.
 		var memberView = await scenario.PassagesAsync(recording, scenario.MemberSession);
@@ -481,21 +481,21 @@ public sealed partial class RecordingPassageApiTests
 		// Editing against the new file is a new statement: it takes the new
 		// revision, and both bounds are stated because neither was verified.
 		var version = flagged.GetProperty("editor").GetProperty("version").GetUInt32();
-		var current = editorView.GetProperty("playbackRevisionId").GetString();
+		var current = editorView.GetProperty("playbackDateiId").GetString();
 		using (var oneBound = await scenario.SendAsync(HttpMethod.Patch,
 			$"/api/recordings/{recording}/passages/{passageId}",
-			new { startSeconds = 90, expectedVersion = version, expectedPlaybackRevisionId = current }, scenario.EditorSession))
+			new { startSeconds = 90, expectedVersion = version, expectedPlaybackDateiId = current }, scenario.EditorSession))
 		{
 			Assert.Equal(HttpStatusCode.BadRequest, oneBound.StatusCode);
 			Assert.Equal("Zum Prüfen einer Zeitmarke bitte Anfang und Ende angeben.", await TitleAsync(oneBound));
 		}
 		using var edited = await scenario.SendAsync(HttpMethod.Patch, $"/api/recordings/{recording}/passages/{passageId}",
-			new { startSeconds = 90, endSeconds = 310, expectedVersion = version, expectedPlaybackRevisionId = current },
+			new { startSeconds = 90, endSeconds = 310, expectedVersion = version, expectedPlaybackDateiId = current },
 			scenario.EditorSession);
 		Assert.Equal(HttpStatusCode.OK, edited.StatusCode);
 		var reanchored = (await edited.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("passage");
 		Assert.Equal("current", reanchored.GetProperty("timestampState").GetString());
-		Assert.Equal(current, reanchored.GetProperty("editor").GetProperty("playbackRevisionId").GetString());
+		Assert.Equal(current, reanchored.GetProperty("editor").GetProperty("playbackDateiId").GetString());
 		Assert.Equal(90, reanchored.GetProperty("startSeconds").GetDouble());
 		Assert.Equal(310, reanchored.GetProperty("endSeconds").GetDouble());
 	}
@@ -516,21 +516,21 @@ public sealed partial class RecordingPassageApiTests
 		await scenario.ReplacePlaybackFileAsync(recording);
 
 		var view = await scenario.PassagesAsync(recording, scenario.EditorSession);
-		var currentRevisionId = view.GetProperty("playbackRevisionId").GetString();
+		var currentRevisionId = view.GetProperty("playbackDateiId").GetString();
 		var listed = view.GetProperty("passages").EnumerateArray()
 			.Select(p => new { id = p.GetProperty("id").GetString(), expectedVersion = p.GetProperty("editor").GetProperty("version").GetUInt32() })
 			.ToArray();
 		using var review = await scenario.SendAsync(HttpMethod.Post, $"/api/recordings/{recording}/passages/review",
-			new { expectedPlaybackRevisionId = currentRevisionId, passages = listed }, scenario.EditorSession);
+			new { expectedPlaybackDateiId = currentRevisionId, passages = listed }, scenario.EditorSession);
 		Assert.Equal(HttpStatusCode.OK, review.StatusCode);
 		var answer = await review.Content.ReadFromJsonAsync<JsonElement>();
-		var currentRevision = answer.GetProperty("playbackRevisionId").GetString();
+		var currentRevision = answer.GetProperty("playbackDateiId").GetString();
 		var passages = answer.GetProperty("passages").EnumerateArray().ToList();
 		Assert.Equal(2, passages.Count);
 		Assert.All(passages, p =>
 		{
 			Assert.Equal("current", p.GetProperty("timestampState").GetString());
-			Assert.Equal(currentRevision, p.GetProperty("editor").GetProperty("playbackRevisionId").GetString());
+			Assert.Equal(currentRevision, p.GetProperty("editor").GetProperty("playbackDateiId").GetString());
 			Assert.False(string.IsNullOrEmpty(p.GetProperty("songTitle").GetString()));
 		});
 		// The values were confirmed as they are, and members get the jump again.
@@ -543,7 +543,7 @@ public sealed partial class RecordingPassageApiTests
 		var versions = passages.Select(p => p.GetProperty("editor").GetProperty("version").GetUInt32()).ToList();
 		var confirmed = passages.Select(p => new { id = p.GetProperty("id").GetString(), expectedVersion = p.GetProperty("editor").GetProperty("version").GetUInt32() }).ToArray();
 		using var again = await scenario.SendAsync(HttpMethod.Post, $"/api/recordings/{recording}/passages/review",
-			new { expectedPlaybackRevisionId = currentRevisionId, passages = confirmed }, scenario.EditorSession);
+			new { expectedPlaybackDateiId = currentRevisionId, passages = confirmed }, scenario.EditorSession);
 		var repeated = (await again.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("passages")
 			.EnumerateArray().Select(p => p.GetProperty("editor").GetProperty("version").GetUInt32()).ToList();
 		Assert.Equal(versions, repeated);

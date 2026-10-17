@@ -149,6 +149,90 @@ internal sealed class LiedTestHost : IAsyncDisposable
 		return (await finalize.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("datei");
 	}
 
+	/// <summary>Creates an Auftritt (#171) and optionally publishes it; returns its id.</summary>
+	public async Task<Guid> CreateEventAsync(string session, string title, bool publish = true)
+	{
+		using var create = await PostAsync("/api/events", new { kind = "concert", title }, session);
+		Assert.Equal(HttpStatusCode.Created, create.StatusCode);
+		var id = Guid.Parse((await create.Content.ReadFromJsonAsync<JsonElement>())
+			.GetProperty("event").GetProperty("id").GetString()!);
+		if (publish)
+		{
+			using var published = await PostAsync($"/api/events/{id}/publish", new { }, session);
+			Assert.Equal(HttpStatusCode.OK, published.StatusCode);
+		}
+		return id;
+	}
+
+	/// <summary>Opens an event upload session (#171), stores the bytes in the fake storage and finalizes; returns the response.</summary>
+	public async Task<HttpResponseMessage> UploadEventDateiRawAsync(
+		string session, Guid eventId, string kind, byte[] bytes, string fileName, string contentType,
+		Guid? replacesDateiId = null, string? description = null)
+	{
+		var open = await PostAsync($"/api/events/{eventId}/dateien/upload-session",
+			new { kind, contentType, fileName, sizeBytes = bytes.LongLength, replacesDateiId, description }, session);
+		if (open.StatusCode != HttpStatusCode.Created)
+			return open;
+		var json = await open.Content.ReadFromJsonAsync<JsonElement>();
+		open.Dispose();
+		var uploadUrl = json.GetProperty("uploadUrl").GetString()!;
+		Factory.Storage.Store(Factory.Storage.Find(uploadUrl)!.BlobName, bytes);
+		return await PostAsync($"/api/upload-sessions/{json.GetProperty("uploadSessionId").GetString()}/finalize",
+			new { }, session);
+	}
+
+	public async Task<JsonElement> UploadEventDateiAsync(
+		string session, Guid eventId, string kind, byte[] bytes, string fileName, string contentType,
+		Guid? replacesDateiId = null, string? description = null)
+	{
+		using var response = await UploadEventDateiRawAsync(
+			session, eventId, kind, bytes, fileName, contentType, replacesDateiId, description);
+		Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+		return (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("datei");
+	}
+
+	public static byte[] Mp4(int size, string brand = "isom")
+	{
+		var bytes = new byte[Math.Max(size, 16)];
+		bytes[3] = 0x18;
+		"ftyp"u8.CopyTo(bytes.AsSpan(4));
+		System.Text.Encoding.ASCII.GetBytes(brand).CopyTo(bytes.AsSpan(8));
+		return bytes;
+	}
+
+	public static byte[] Mov(int size) => Mp4(size, "qt  ");
+
+	public static byte[] Mp3(int size)
+	{
+		var bytes = new byte[Math.Max(size, 16)];
+		"ID3"u8.CopyTo(bytes);
+		return bytes;
+	}
+
+	public static byte[] Png(int size)
+	{
+		var bytes = new byte[Math.Max(size, 16)];
+		new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }.CopyTo(bytes, 0);
+		return bytes;
+	}
+
+	/// <summary>Creates a recording (#171) and returns its JSON.</summary>
+	public async Task<JsonElement> CreateRecordingAsync(string session, Guid eventId, string label, string kind)
+	{
+		using var response = await PostAsync($"/api/events/{eventId}/recordings", new { label, kind }, session);
+		Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+		return (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("recording");
+	}
+
+	/// <summary>Uploads an Aufnahme Datei to the Auftritt and attaches it to a recording slot; returns the attach response.</summary>
+	public async Task<HttpResponseMessage> AttachAsync(
+		string session, Guid eventId, Guid recordingId, string slot, byte[] bytes, string fileName, string contentType)
+	{
+		var datei = await UploadEventDateiAsync(session, eventId, "aufnahme", bytes, fileName, contentType);
+		return await PutAsync($"/api/recordings/{recordingId}/dateien/{slot}",
+			new { dateiId = datei.GetProperty("id").GetString() }, session);
+	}
+
 	public static byte[] ValidPdf(long size)
 	{
 		var bytes = new byte[size];

@@ -1,5 +1,6 @@
 using Archive.Backend.Assets;
 using Archive.Backend.Events;
+using Archive.Backend.Lieder;
 
 namespace Archive.Backend.Recordings;
 
@@ -10,11 +11,11 @@ namespace Archive.Backend.Recordings;
 /// never copies it, so a second recording can document the same occurrence
 /// and recordings still add nothing to any history count.
 /// A timestamp is only meaningful for the file it was taken against:
-/// <see cref="PlaybackRevisionId"/> names that playback revision. When the
-/// file members play is a different revision (replaced copy, restored
-/// earlier file) the passage is "in need of review" — computed from this
-/// comparison on every read, never stored, so restoring the earlier file
-/// makes the marks trustworthy again without any bookkeeping.
+/// <see cref="PlaybackDateiId"/> names that Aufnahme Datei (#171). When the
+/// Datei members play is a different one (replaced or deleted file) the
+/// passage is "in need of review" — computed from this comparison on every
+/// read, never stored, so restoring the earlier file from the trash makes
+/// the marks trustworthy again without any bookkeeping.
 /// Event ownership is a database fact: the composite keys
 /// (<see cref="RecordingId"/>, <see cref="EventId"/>) and
 /// (<see cref="PerformanceId"/>, <see cref="EventId"/>) only match when the
@@ -35,10 +36,15 @@ public sealed class RecordingPassage
 	/// <summary>The event both the recording and the performance belong to.</summary>
 	public Guid EventId { get; set; }
 
-	/// <summary>The playback file revision the two timestamps were taken against.</summary>
-	public Guid PlaybackRevisionId { get; set; }
+	/// <summary>Legacy (old revision model); null on new passages, dropped in #172.</summary>
+	public Guid? PlaybackRevisionId { get; set; }
 
-	public FileRevision PlaybackRevision { get; set; } = null!;
+	public FileRevision? PlaybackRevision { get; set; }
+
+	/// <summary>The playback Aufnahme Datei the two timestamps were taken against; null on legacy passages.</summary>
+	public Guid? PlaybackDateiId { get; set; }
+
+	public Datei? PlaybackDatei { get; set; }
 
 	/// <summary>Start in seconds from the beginning of the file, at least 0.</summary>
 	public double StartSeconds { get; set; }

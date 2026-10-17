@@ -33,9 +33,9 @@ public sealed partial class RecordingPassageApiTests
 		await scenario.PublishRecordingAsync(recording);
 		var first = await scenario.AddPassageAsync(recording, pa, 10, 100);
 		var second = await scenario.AddPassageAsync(recording, pb, 200, 300);
-		var oldRevision = await scenario.PlaybackRevisionAsync(recording);
+		var oldRevision = await scenario.PlaybackDateiAsync(recording);
 		await scenario.ReplacePlaybackFileAsync(recording);
-		var newRevision = await scenario.PlaybackRevisionAsync(recording);
+		var newRevision = await scenario.PlaybackDateiAsync(recording);
 		Assert.NotEqual(oldRevision, newRevision);
 		var path = $"/api/recordings/{recording}/passages";
 		var firstId = first.GetProperty("id").GetString();
@@ -45,7 +45,7 @@ public sealed partial class RecordingPassageApiTests
 
 		// A form built against the old file cannot create, change or confirm.
 		using (var create = await scenario.SendAsync(HttpMethod.Post, path,
-			new { expectedPlaybackRevisionId = oldRevision, performanceId = pc, startSeconds = 1, endSeconds = 5 },
+			new { expectedPlaybackDateiId = oldRevision, performanceId = pc, startSeconds = 1, endSeconds = 5 },
 			scenario.EditorSession))
 		{
 			Assert.Equal(HttpStatusCode.Conflict, create.StatusCode);
@@ -58,7 +58,7 @@ public sealed partial class RecordingPassageApiTests
 			Assert.Equal("Die Dateiversion der Aufnahme fehlt.", await TitleAsync(missing));
 		}
 		using (var patch = await scenario.SendAsync(HttpMethod.Patch, $"{path}/{firstId}",
-			new { expectedPlaybackRevisionId = oldRevision, startSeconds = 11, endSeconds = 101, expectedVersion = firstVersion },
+			new { expectedPlaybackDateiId = oldRevision, startSeconds = 11, endSeconds = 101, expectedVersion = firstVersion },
 			scenario.EditorSession))
 		{
 			Assert.Equal(HttpStatusCode.Conflict, patch.StatusCode);
@@ -70,7 +70,7 @@ public sealed partial class RecordingPassageApiTests
 		using (var review = await scenario.SendAsync(HttpMethod.Post, $"{path}/review",
 			new
 			{
-				expectedPlaybackRevisionId = oldRevision,
+				expectedPlaybackDateiId = oldRevision,
 				passages = new[] { new { id = firstId, expectedVersion = firstVersion } },
 			}, scenario.EditorSession))
 		{
@@ -88,8 +88,8 @@ public sealed partial class RecordingPassageApiTests
 		// The review needs a list; an empty one is as good as none.
 		foreach (var body in new object[]
 		{
-			new { expectedPlaybackRevisionId = newRevision },
-			new { expectedPlaybackRevisionId = newRevision, passages = Array.Empty<object>() },
+			new { expectedPlaybackDateiId = newRevision },
+			new { expectedPlaybackDateiId = newRevision, passages = Array.Empty<object>() },
 		})
 		{
 			using var empty = await scenario.SendAsync(HttpMethod.Post, $"{path}/review", body, scenario.EditorSession);
@@ -103,7 +103,7 @@ public sealed partial class RecordingPassageApiTests
 		using (var foreign = await scenario.SendAsync(HttpMethod.Post, $"{path}/review",
 			new
 			{
-				expectedPlaybackRevisionId = newRevision,
+				expectedPlaybackDateiId = newRevision,
 				passages = new[] { new { id = Guid.NewGuid().ToString(), expectedVersion = 1u } },
 			}, scenario.EditorSession))
 		{
@@ -116,7 +116,7 @@ public sealed partial class RecordingPassageApiTests
 		using (var concurrent = await scenario.SendAsync(HttpMethod.Post, $"{path}/review",
 			new
 			{
-				expectedPlaybackRevisionId = newRevision,
+				expectedPlaybackDateiId = newRevision,
 				passages = new[]
 				{
 					new { id = firstId, expectedVersion = firstVersion },
@@ -134,7 +134,7 @@ public sealed partial class RecordingPassageApiTests
 		using (var one = await scenario.SendAsync(HttpMethod.Post, $"{path}/review",
 			new
 			{
-				expectedPlaybackRevisionId = newRevision,
+				expectedPlaybackDateiId = newRevision,
 				passages = new[] { new { id = firstId, expectedVersion = firstVersion } },
 			}, scenario.EditorSession))
 		{
@@ -153,11 +153,11 @@ public sealed partial class RecordingPassageApiTests
 		var performance = await scenario.RecordAsync(concert, song.SongId);
 		var recording = await scenario.CreateRecordingAsync(concert, "Mitschnitt", "video", duration: 2000);
 		var passage = await scenario.AddPassageAsync(recording, performance, 10, 100);
-		var revision = await scenario.PlaybackRevisionAsync(recording);
+		var revision = await scenario.PlaybackDateiAsync(recording);
 		var version = passage.GetProperty("editor").GetProperty("version").GetUInt32();
 		var path = $"/api/recordings/{recording}/passages/{passage.GetProperty("id").GetString()}";
 		using var moved = await scenario.SendAsync(HttpMethod.Patch, path,
-			new { expectedPlaybackRevisionId = revision, startSeconds = 20, endSeconds = 110, expectedVersion = version },
+			new { expectedPlaybackDateiId = revision, startSeconds = 20, endSeconds = 110, expectedVersion = version },
 			scenario.EditorSession);
 		Assert.Equal(HttpStatusCode.OK, moved.StatusCode);
 		// A review that lists the old token for a current passage is a stale
@@ -165,7 +165,7 @@ public sealed partial class RecordingPassageApiTests
 		using var review = await scenario.SendAsync(HttpMethod.Post, $"/api/recordings/{recording}/passages/review",
 			new
 			{
-				expectedPlaybackRevisionId = revision,
+				expectedPlaybackDateiId = revision,
 				passages = new[] { new { id = passage.GetProperty("id").GetString(), expectedVersion = version } },
 			}, scenario.EditorSession);
 		Assert.Equal(HttpStatusCode.Conflict, review.StatusCode);
@@ -183,14 +183,14 @@ public sealed partial class RecordingPassageApiTests
 		var passage = await scenario.AddPassageAsync(recording, performance, 10, 100);
 		var path = $"/api/recordings/{recording}/passages";
 		var passageId = passage.GetProperty("id").GetString();
-		var revision = await scenario.PlaybackRevisionAsync(recording);
+		var revision = await scenario.PlaybackDateiAsync(recording);
 		var calls = new (HttpMethod, string, object)[]
 		{
 			(HttpMethod.Patch, $"{path}/{passageId}",
-				new { expectedPlaybackRevisionId = revision, startSeconds = 20, endSeconds = 50 }),
+				new { expectedPlaybackDateiId = revision, startSeconds = 20, endSeconds = 50 }),
 			(HttpMethod.Post, $"{path}/{passageId}/delete", new { }),
 			(HttpMethod.Post, $"{path}/review",
-				new { expectedPlaybackRevisionId = revision, passages = new[] { new { id = passageId, expectedVersion = 1u } } }),
+				new { expectedPlaybackDateiId = revision, passages = new[] { new { id = passageId, expectedVersion = 1u } } }),
 		};
 		foreach (var (method, route, payload) in calls)
 		{
@@ -210,38 +210,6 @@ public sealed partial class RecordingPassageApiTests
 	}
 
 	[Fact]
-	public async Task RestoringTheEarlierFileMakesTheMarksCurrentAgain()
-	{
-		await using var scenario = await Scenario.CreateAsync();
-		var song = await scenario.CreateSongAsync("Rückkehrlied");
-		var concert = await scenario.CreateEventAsync("Konzert", 2007, 3, 3, published: true);
-		var performance = await scenario.RecordAsync(concert, song.SongId);
-		var recording = await scenario.CreateRecordingAsync(concert, "Mitschnitt", "video", duration: 2000);
-		await scenario.PublishRecordingAsync(recording);
-		var (copyAsset, firstCopy) = await scenario.ReplacePlaybackFileAsync(recording);
-		await scenario.AddPassageAsync(recording, performance, 100, 300);
-		Assert.Equal("current", Assert.Single((await scenario.PassagesAsync(recording, scenario.MemberSession))
-			.GetProperty("passages").EnumerateArray()).GetProperty("timestampState").GetString());
-
-		var (_, secondCopy) = await scenario.ReplacePlaybackFileAsync(recording);
-		Assert.NotEqual(firstCopy, secondCopy);
-		var flagged = Assert.Single((await scenario.PassagesAsync(recording, scenario.MemberSession))
-			.GetProperty("passages").EnumerateArray());
-		Assert.Equal("needsReview", flagged.GetProperty("timestampState").GetString());
-		Assert.True(flagged.GetProperty("startSeconds").ValueKind is JsonValueKind.Null);
-
-		// Making the earlier file current again needs no bookkeeping: the
-		// timestamps were taken against exactly that file.
-		await scenario.RestoreRevisionAsync(copyAsset, firstCopy);
-		var restored = Assert.Single((await scenario.PassagesAsync(recording, scenario.MemberSession))
-			.GetProperty("passages").EnumerateArray());
-		Assert.Equal("current", restored.GetProperty("timestampState").GetString());
-		Assert.Equal(100, restored.GetProperty("startSeconds").GetDouble());
-		Assert.Equal(1, (await scenario.ListSongsAsync(scenario.MemberSession, "material=recording"))
-			.GetProperty("total").GetInt32());
-	}
-
-	[Fact]
 	public async Task RecordingThatLosesItsPlayableFileReadsEverythingAsInNeedOfReview()
 	{
 		await using var scenario = await Scenario.CreateAsync();
@@ -253,14 +221,14 @@ public sealed partial class RecordingPassageApiTests
 		var recording = await scenario.CreateRecordingAsync(concert, "Mitschnitt", "video", duration: 2000);
 		await scenario.PublishRecordingAsync(recording);
 		var passage = await scenario.AddPassageAsync(recording, performance, 10, 100);
-		var revision = await scenario.PlaybackRevisionAsync(recording);
+		var revision = await scenario.PlaybackDateiAsync(recording);
 		var passageId = passage.GetProperty("id").GetString();
 		var version = passage.GetProperty("editor").GetProperty("version").GetUInt32();
 
 		// The new original is preserved but browsers cannot play it.
 		await scenario.ReplaceOriginalWithUnplayableAsync(recording);
 		var editorView = await scenario.PassagesAsync(recording, scenario.EditorSession);
-		Assert.True(editorView.GetProperty("playbackRevisionId").ValueKind is JsonValueKind.Null);
+		Assert.True(editorView.GetProperty("playbackDateiId").ValueKind is JsonValueKind.Null);
 		Assert.Equal("needsReview", editorView.GetProperty("passages")[0].GetProperty("timestampState").GetString());
 		var member = (await scenario.PassagesAsync(recording, scenario.MemberSession)).GetProperty("passages")[0];
 		Assert.Equal("needsReview", member.GetProperty("timestampState").GetString());
@@ -273,11 +241,11 @@ public sealed partial class RecordingPassageApiTests
 		foreach (var (method, route, payload) in new (HttpMethod, string, object)[]
 		{
 			(HttpMethod.Post, path,
-				new { expectedPlaybackRevisionId = revision, performanceId = otherPerformance, startSeconds = 1, endSeconds = 5 }),
+				new { expectedPlaybackDateiId = revision, performanceId = otherPerformance, startSeconds = 1, endSeconds = 5 }),
 			(HttpMethod.Patch, $"{path}/{passageId}",
-				new { expectedPlaybackRevisionId = revision, startSeconds = 11, endSeconds = 101, expectedVersion = version }),
+				new { expectedPlaybackDateiId = revision, startSeconds = 11, endSeconds = 101, expectedVersion = version }),
 			(HttpMethod.Post, $"{path}/review",
-				new { expectedPlaybackRevisionId = revision, passages = new[] { new { id = passageId, expectedVersion = version } } }),
+				new { expectedPlaybackDateiId = revision, passages = new[] { new { id = passageId, expectedVersion = version } } }),
 		})
 		{
 			using var refused = await scenario.SendAsync(method, route, payload, scenario.EditorSession);

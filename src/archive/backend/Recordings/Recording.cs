@@ -1,5 +1,6 @@
 using Archive.Backend.Assets;
 using Archive.Backend.Events;
+using Archive.Backend.Lieder;
 
 namespace Archive.Backend.Recordings;
 
@@ -8,13 +9,14 @@ namespace Archive.Backend.Recordings;
 /// that later slices key on (ARC-032 passages). An event may carry several
 /// independently labelled recordings; a recording is material about the
 /// event and never a performance occurrence.
-/// Files live in two event-owned <see cref="ArchiveAsset"/> slots that reuse
-/// the ARC-015 revision and ticket contracts:
-/// - <see cref="OriginalAssetId"/> is the preserved original, whatever its
+/// Files are event-owned Aufnahme <see cref="Datei"/>en (#171) in two slots:
+/// - <see cref="OriginalDateiId"/> is the preserved original, whatever its
 ///   format;
-/// - <see cref="PlaybackAssetId"/> is an optional, externally converted
+/// - <see cref="PlaybackDateiId"/> is an optional, externally converted
 ///   playback copy. While it has no file, a playable original serves both
 ///   roles as one object (no duplicate is created).
+/// Replacing a slot sends the earlier Datei to the trash. The old asset
+/// columns are legacy until #172 drops them and are neither read nor written.
 /// Publication is explicit and separate from the event's: members see a
 /// recording only when both are published.
 /// </summary>
@@ -33,13 +35,25 @@ public sealed class Recording
 	/// <summary>Closed media kind from <see cref="RecordingKinds.Known"/>.</summary>
 	public required string Kind { get; set; }
 
-	public Guid OriginalAssetId { get; set; }
+	/// <summary>Legacy (old asset model); dropped with it in #172.</summary>
+	public Guid? OriginalAssetId { get; set; }
 
-	public ArchiveAsset OriginalAsset { get; set; } = null!;
+	public ArchiveAsset? OriginalAsset { get; set; }
 
+	/// <summary>Legacy (old asset model); dropped with it in #172.</summary>
 	public Guid? PlaybackAssetId { get; set; }
 
 	public ArchiveAsset? PlaybackAsset { get; set; }
+
+	/// <summary>The preserved original; null until its file is attached.</summary>
+	public Guid? OriginalDateiId { get; set; }
+
+	public Datei? OriginalDatei { get; set; }
+
+	/// <summary>The converted playback copy; null while there is none.</summary>
+	public Guid? PlaybackDateiId { get; set; }
+
+	public Datei? PlaybackDatei { get; set; }
 
 	/// <summary>
 	/// Length of the file members play, in seconds, as measured by the

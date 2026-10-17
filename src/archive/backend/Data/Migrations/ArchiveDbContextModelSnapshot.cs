@@ -1537,10 +1537,16 @@ namespace Archive.Backend.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
-                    b.Property<Guid>("OriginalAssetId")
+                    b.Property<Guid?>("OriginalAssetId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("OriginalDateiId")
                         .HasColumnType("uuid");
 
                     b.Property<Guid?>("PlaybackAssetId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("PlaybackDateiId")
                         .HasColumnType("uuid");
 
                     b.Property<DateTimeOffset?>("PublishedAt")
@@ -1566,11 +1572,19 @@ namespace Archive.Backend.Data.Migrations
                     b.HasIndex("OriginalAssetId")
                         .IsUnique();
 
+                    b.HasIndex("OriginalDateiId")
+                        .IsUnique();
+
                     b.HasIndex("PlaybackAssetId")
+                        .IsUnique();
+
+                    b.HasIndex("PlaybackDateiId")
                         .IsUnique();
 
                     b.ToTable("recordings", null, t =>
                         {
+                            t.HasCheckConstraint("CK_recordings_dateien", "\"PlaybackDateiId\" IS NULL OR \"PlaybackDateiId\" <> \"OriginalDateiId\"");
+
                             t.HasCheckConstraint("CK_recordings_kind", "\"Kind\" IN ('audio', 'video')");
 
                             t.HasCheckConstraint("CK_recordings_slots", "\"PlaybackAssetId\" IS NULL OR \"PlaybackAssetId\" <> \"OriginalAssetId\"");
@@ -1598,7 +1612,10 @@ namespace Archive.Backend.Data.Migrations
                     b.Property<Guid>("PerformanceId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid>("PlaybackRevisionId")
+                    b.Property<Guid?>("PlaybackDateiId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("PlaybackRevisionId")
                         .HasColumnType("uuid");
 
                     b.Property<Guid>("RecordingId")
@@ -1620,6 +1637,8 @@ namespace Archive.Backend.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("PerformanceId");
+
+                    b.HasIndex("PlaybackDateiId");
 
                     b.HasIndex("PlaybackRevisionId");
 
@@ -2106,28 +2125,45 @@ namespace Archive.Backend.Data.Migrations
                     b.HasOne("Archive.Backend.Assets.ArchiveAsset", "OriginalAsset")
                         .WithOne()
                         .HasForeignKey("Archive.Backend.Recordings.Recording", "OriginalAssetId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Archive.Backend.Lieder.Datei", "OriginalDatei")
+                        .WithOne()
+                        .HasForeignKey("Archive.Backend.Recordings.Recording", "OriginalDateiId")
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("Archive.Backend.Assets.ArchiveAsset", "PlaybackAsset")
                         .WithOne()
                         .HasForeignKey("Archive.Backend.Recordings.Recording", "PlaybackAssetId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("Archive.Backend.Lieder.Datei", "PlaybackDatei")
+                        .WithOne()
+                        .HasForeignKey("Archive.Backend.Recordings.Recording", "PlaybackDateiId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("Event");
 
                     b.Navigation("OriginalAsset");
 
+                    b.Navigation("OriginalDatei");
+
                     b.Navigation("PlaybackAsset");
+
+                    b.Navigation("PlaybackDatei");
                 });
 
             modelBuilder.Entity("Archive.Backend.Recordings.RecordingPassage", b =>
                 {
+                    b.HasOne("Archive.Backend.Lieder.Datei", "PlaybackDatei")
+                        .WithMany()
+                        .HasForeignKey("PlaybackDateiId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Archive.Backend.Assets.FileRevision", "PlaybackRevision")
                         .WithMany()
                         .HasForeignKey("PlaybackRevisionId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("Archive.Backend.Events.Performance", "Performance")
                         .WithMany()
@@ -2144,6 +2180,8 @@ namespace Archive.Backend.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Performance");
+
+                    b.Navigation("PlaybackDatei");
 
                     b.Navigation("PlaybackRevision");
 

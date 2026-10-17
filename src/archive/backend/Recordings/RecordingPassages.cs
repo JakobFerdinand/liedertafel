@@ -38,7 +38,7 @@ public static class RecordingPassages
 		Guid Id, Guid RecordingId, string RecordingLabel, string RecordingKind, bool RecordingPublished,
 		Guid EventId, Guid PerformanceId, Guid SongId, Guid? ArrangementId, Guid? MusicalVersionId,
 		int Position, string EvidenceStatus, double StartSeconds, double EndSeconds,
-		Guid PlaybackRevisionId, uint RowVersion, DateTimeOffset UpdatedAt);
+		Guid? PlaybackDateiId, uint RowVersion, DateTimeOffset UpdatedAt);
 
 	public sealed record PassageView(
 		PassageRow Row, string SongTitle, string? ArrangementLabel, string? VersionLabel, string State);
@@ -83,8 +83,8 @@ public static class RecordingPassages
 			ConstraintName: RecordingForeignKey,
 		};
 
-	public static string StateOf(Guid playbackRevisionId, Guid? playable) =>
-		playable is { } current && current == playbackRevisionId ? Current : NeedsReview;
+	public static string StateOf(Guid? playbackDateiId, Guid? playable) =>
+		playable is { } current && playbackDateiId == current ? Current : NeedsReview;
 
 	public static IQueryable<RecordingPassage> VisibleTo(IQueryable<RecordingPassage> passages, bool isEditor) =>
 		isEditor ? passages : RecordingVisibility.OfMemberVisible(passages);
@@ -96,12 +96,12 @@ public static class RecordingPassages
 			.Select(p => new PassageRow(p.Id, p.RecordingId, p.Recording.Label, p.Recording.Kind,
 				p.Recording.PublishedAt != null, p.EventId, p.PerformanceId, p.Performance.LiedId ?? p.Performance.SongId ?? Guid.Empty,
 				p.Performance.ArrangementId, p.Performance.MusicalVersionId, p.Performance.Position,
-				p.Performance.EvidenceStatus, p.StartSeconds, p.EndSeconds, p.PlaybackRevisionId,
+				p.Performance.EvidenceStatus, p.StartSeconds, p.EndSeconds, p.PlaybackDateiId,
 				p.RowVersion, p.UpdatedAt))
 			.ToListAsync(token);
 
-	/// <summary>The playback revision members stream per recording; null while nothing plays.</summary>
-	public static async Task<Dictionary<Guid, Guid?>> PlayableRevisionsAsync(
+	/// <summary>The playback Datei members stream per recording; null while nothing plays.</summary>
+	public static async Task<Dictionary<Guid, Guid?>> PlayableDateienAsync(
 		ArchiveDbContext db, IReadOnlyCollection<Guid> recordingIds, CancellationToken token)
 	{
 		if (recordingIds.Count == 0)
@@ -147,7 +147,7 @@ public static class RecordingPassages
 	public static async Task<List<PassageView>> ViewsAsync(
 		ArchiveDbContext db, List<PassageRow> rows, bool isEditor, CancellationToken token)
 	{
-		var playable = await PlayableRevisionsAsync(db, rows.Select(r => r.RecordingId).Distinct().ToList(), token);
+		var playable = await PlayableDateienAsync(db, rows.Select(r => r.RecordingId).Distinct().ToList(), token);
 		var labels = await LoadLabelsAsync(db,
 			rows.Select(r => r.SongId).Distinct().ToList(),
 			rows.Where(r => r.ArrangementId is not null).Select(r => r.ArrangementId!.Value).Distinct().ToList(),
@@ -161,7 +161,7 @@ public static class RecordingPassages
 			views.Add(new PassageView(row, song.Title,
 				row.ArrangementId is { } arrangementId ? labels.Arrangements.GetValueOrDefault(arrangementId) : null,
 				row.MusicalVersionId is { } versionId ? labels.Versions.GetValueOrDefault(versionId) : null,
-				StateOf(row.PlaybackRevisionId, playable.GetValueOrDefault(row.RecordingId))));
+				StateOf(row.PlaybackDateiId, playable.GetValueOrDefault(row.RecordingId))));
 		}
 		return views;
 	}
@@ -194,7 +194,7 @@ public static class RecordingPassages
 				: (object)new
 				{
 					version = row.RowVersion,
-					playbackRevisionId = row.PlaybackRevisionId,
+					playbackDateiId = row.PlaybackDateiId,
 					updatedAt = row.UpdatedAt,
 				},
 		};
@@ -238,7 +238,7 @@ public static class RecordingPassages
 			.Select(p => new
 			{
 				p.RecordingId,
-				p.PlaybackRevisionId,
+				p.PlaybackDateiId,
 				SongId = p.Performance.LiedId ?? p.Performance.SongId ?? Guid.Empty,
 				p.Performance.ArrangementId,
 				p.Performance.MusicalVersionId,
@@ -246,9 +246,9 @@ public static class RecordingPassages
 			.ToListAsync(token);
 		if (isEditor)
 			return rows.Select(r => new RecordedChain(r.SongId, r.ArrangementId, r.MusicalVersionId)).Distinct().ToList();
-		var playable = await PlayableRevisionsAsync(db, rows.Select(r => r.RecordingId).Distinct().ToList(), token);
+		var playable = await PlayableDateienAsync(db, rows.Select(r => r.RecordingId).Distinct().ToList(), token);
 		return rows
-			.Where(r => StateOf(r.PlaybackRevisionId, playable.GetValueOrDefault(r.RecordingId)) == Current)
+			.Where(r => StateOf(r.PlaybackDateiId, playable.GetValueOrDefault(r.RecordingId)) == Current)
 			.Select(r => new RecordedChain(r.SongId, r.ArrangementId, r.MusicalVersionId))
 			.Distinct().ToList();
 	}

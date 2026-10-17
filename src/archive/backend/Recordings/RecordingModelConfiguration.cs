@@ -15,6 +15,8 @@ public sealed class RecordingModelConfiguration : IEntityTypeConfiguration<Recor
 			// playback copy; "serves both roles" is an empty playback slot.
 			t.HasCheckConstraint("CK_recordings_slots",
 				"\"PlaybackAssetId\" IS NULL OR \"PlaybackAssetId\" <> \"OriginalAssetId\"");
+			t.HasCheckConstraint("CK_recordings_dateien",
+				"\"PlaybackDateiId\" IS NULL OR \"PlaybackDateiId\" <> \"OriginalDateiId\"");
 		});
 		builder.HasKey(x => x.Id);
 		builder.Property(x => x.Label).HasMaxLength(RecordingEndpoints.LabelMaxLength).IsRequired();
@@ -39,6 +41,15 @@ public sealed class RecordingModelConfiguration : IEntityTypeConfiguration<Recor
 		builder.HasOne(x => x.PlaybackAsset)
 			.WithOne()
 			.HasForeignKey<Recording>(x => x.PlaybackAssetId)
+			.OnDelete(DeleteBehavior.Restrict);
+		// #171: one Datei fills exactly one slot of one recording.
+		builder.HasOne(x => x.OriginalDatei)
+			.WithOne()
+			.HasForeignKey<Recording>(x => x.OriginalDateiId)
+			.OnDelete(DeleteBehavior.Restrict);
+		builder.HasOne(x => x.PlaybackDatei)
+			.WithOne()
+			.HasForeignKey<Recording>(x => x.PlaybackDateiId)
 			.OnDelete(DeleteBehavior.Restrict);
 	}
 }

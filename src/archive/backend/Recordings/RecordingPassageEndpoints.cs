@@ -9,13 +9,13 @@ namespace Archive.Backend.Recordings;
 
 /// <summary>Both times are required; the performance must be an occurrence of the recording's event.</summary>
 /// <remarks>
-/// <c>ExpectedPlaybackRevisionId</c> is the playback revision the editor's
-/// list was built against (<c>playbackRevisionId</c> of the GET); it is
+/// <c>ExpectedPlaybackDateiId</c> is the playback revision the editor's
+/// list was built against (<c>playbackDateiId</c> of the GET); it is
 /// required on every write that anchors times to a file, so times seen
 /// against one file are never stamped onto another.
 /// </remarks>
 public sealed record CreatePassageRequest(
-	Guid? PerformanceId, double? StartSeconds, double? EndSeconds, Guid? ExpectedPlaybackRevisionId);
+	Guid? PerformanceId, double? StartSeconds, double? EndSeconds, Guid? ExpectedPlaybackDateiId);
 
 /// <summary>
 /// Absent times stay as they are, except on a passage in need of review,
@@ -23,7 +23,7 @@ public sealed record CreatePassageRequest(
 /// overwriting a newer state.
 /// </summary>
 public sealed record PatchPassageRequest(
-	double? StartSeconds, double? EndSeconds, uint? ExpectedVersion, Guid? ExpectedPlaybackRevisionId);
+	double? StartSeconds, double? EndSeconds, uint? ExpectedVersion, Guid? ExpectedPlaybackDateiId);
 
 public sealed record DeletePassageRequest(uint? ExpectedVersion);
 
@@ -31,7 +31,7 @@ public sealed record DeletePassageRequest(uint? ExpectedVersion);
 public sealed record ReviewPassageItem(Guid? Id, uint? ExpectedVersion);
 
 /// <summary>The review acts on exactly the passages named here, nothing else.</summary>
-public sealed record ReviewPassagesRequest(Guid? ExpectedPlaybackRevisionId, List<ReviewPassageItem?>? Passages);
+public sealed record ReviewPassagesRequest(Guid? ExpectedPlaybackDateiId, List<ReviewPassageItem?>? Passages);
 
 /// <summary>
 /// Passages in whole recordings (ARC-032). An editor marks where one
@@ -50,7 +50,7 @@ public sealed record ReviewPassagesRequest(Guid? ExpectedPlaybackRevisionId, Lis
 ///   moves; performances with passages cannot be deleted or skipped
 ///   (<see cref="RecordingPassages.BlockedMessageAsync"/>).
 /// - Writes carry the playback revision the editor saw
-///   (<c>expectedPlaybackRevisionId</c>); when the file members play has
+///   (<c>expectedPlaybackDateiId</c>); when the file members play has
 ///   changed since, the write is a stale-state 409 and writes nothing.
 ///   The bulk review acts only on the passages (and row tokens) it is given.
 /// - Stale-state 409 ("changed in between") and not-allowed 409 (duplicate
@@ -86,7 +86,7 @@ public static class RecordingPassageEndpoints
 	/// <summary>Stale state: the file the times were seen against is no longer the one members play.</summary>
 	public const string StalePlaybackMessage = "Die Datei der Aufnahme wurde zwischenzeitlich ersetzt.";
 
-	public const string RevisionRequiredMessage = "Die Dateiversion der Aufnahme fehlt.";
+	public const string DateiRequiredMessage = "Die Dateiversion der Aufnahme fehlt.";
 
 	public const string ReviewBothBoundsMessage = "Zum Prüfen einer Zeitmarke bitte Anfang und Ende angeben.";
 
@@ -116,7 +116,7 @@ public static class RecordingPassageEndpoints
 			{
 				recordingId = id,
 				eventId = recording.EventId,
-				playbackRevisionId = RecordingFiles.Resolve(recording).Playable?.Id,
+				playbackDateiId = RecordingFiles.Resolve(recording).Playable?.Id,
 				durationSeconds = recording.DurationSeconds,
 				passages,
 				occurrences = await OccurrencesAsync(db, recording.EventId, views, token),
@@ -136,8 +136,8 @@ public static class RecordingPassageEndpoints
 			var (decision, error) = await RequireEditorAsync(context, accessor, access);
 			if (error is not null)
 				return error;
-			if (body?.ExpectedPlaybackRevisionId is not { } expectedRevision)
-				return Results.Problem(statusCode: 400, title: RevisionRequiredMessage);
+			if (body?.ExpectedPlaybackDateiId is not { } expectedDatei)
+				return Results.Problem(statusCode: 400, title: DateiRequiredMessage);
 			var start = Round(body.StartSeconds);
 			var end = Round(body.EndSeconds);
 			var recording = await RecordingEndpoints.WithFiles(db.Recordings.AsNoTracking())
@@ -154,7 +154,7 @@ public static class RecordingPassageEndpoints
 			var playable = RecordingFiles.Resolve(recording).Playable;
 			if (playable is null)
 				return Results.Problem(statusCode: 409, title: NoPlayableFileMessage);
-			if (playable.Id != expectedRevision)
+			if (playable.Id != expectedDatei)
 				return Results.Problem(statusCode: 409, title: StalePlaybackMessage);
 			var existing = await db.RecordingPassages.AsNoTracking()
 				.FirstOrDefaultAsync(p => p.RecordingId == id && p.PerformanceId == performanceId, token);
@@ -162,7 +162,7 @@ public static class RecordingPassageEndpoints
 			{
 				// A lost retry of the identical statement answers the stored passage.
 				if (existing.StartSeconds == start && existing.EndSeconds == end
-					&& existing.PlaybackRevisionId == playable.Id)
+					&& existing.PlaybackDateiId == playable.Id)
 					return Results.Ok(new { passage = await LoadOneAsync(db, existing.Id, token) });
 				return Results.Problem(statusCode: 409, title: DuplicateMessage);
 			}
@@ -172,7 +172,7 @@ public static class RecordingPassageEndpoints
 				RecordingId = id,
 				PerformanceId = performanceId.Value,
 				EventId = recording.EventId,
-				PlaybackRevisionId = playable.Id,
+				PlaybackDateiId = playable.Id,
 				StartSeconds = start!.Value,
 				EndSeconds = end!.Value,
 				CreatedAt = now,
@@ -210,8 +210,8 @@ public static class RecordingPassageEndpoints
 			var (decision, error) = await RequireEditorAsync(context, accessor, access);
 			if (error is not null)
 				return error;
-			if (body?.ExpectedPlaybackRevisionId is not { } expectedRevision)
-				return Results.Problem(statusCode: 400, title: RevisionRequiredMessage);
+			if (body?.ExpectedPlaybackDateiId is not { } expectedDatei)
+				return Results.Problem(statusCode: 400, title: DateiRequiredMessage);
 			var passage = await db.RecordingPassages
 				.FirstOrDefaultAsync(p => p.Id == passageId && p.RecordingId == id, token);
 			if (passage is null)
@@ -223,11 +223,11 @@ public static class RecordingPassageEndpoints
 			var playable = RecordingFiles.Resolve(recording).Playable;
 			if (playable is null)
 				return Results.Problem(statusCode: 409, title: NoPlayableFileMessage);
-			if (playable.Id != expectedRevision)
+			if (playable.Id != expectedDatei)
 				return Results.Problem(statusCode: 409, title: StalePlaybackMessage);
 			// A pair taken against another file is confirmed only by stating
 			// both bounds: neither of them has been looked at on this file.
-			if (passage.PlaybackRevisionId != playable.Id
+			if (passage.PlaybackDateiId != playable.Id
 				&& (body.StartSeconds is null || body.EndSeconds is null))
 				return Results.Problem(statusCode: 400, title: ReviewBothBoundsMessage);
 			var start = Round(body.StartSeconds) ?? passage.StartSeconds;
@@ -238,11 +238,11 @@ public static class RecordingPassageEndpoints
 			// editor's review of it, even when both values stayed. Only a
 			// pair that is already current and unchanged is a no-op.
 			if (start == passage.StartSeconds && end == passage.EndSeconds
-				&& passage.PlaybackRevisionId == playable.Id)
+				&& passage.PlaybackDateiId == playable.Id)
 				return Results.Ok(new { passage = await LoadOneAsync(db, passage.Id, token) });
 			passage.StartSeconds = start;
 			passage.EndSeconds = end;
-			passage.PlaybackRevisionId = playable.Id;
+			passage.PlaybackDateiId = playable.Id;
 			passage.UpdatedAt = time.GetUtcNow();
 			passage.UpdatedByAccountId = decision!.AccountId;
 			passage.RowVersion++;
@@ -297,8 +297,8 @@ public static class RecordingPassageEndpoints
 			var (decision, error) = await RequireEditorAsync(context, accessor, access);
 			if (error is not null)
 				return error;
-			if (body?.ExpectedPlaybackRevisionId is not { } expectedRevision)
-				return Results.Problem(statusCode: 400, title: RevisionRequiredMessage);
+			if (body?.ExpectedPlaybackDateiId is not { } expectedDatei)
+				return Results.Problem(statusCode: 400, title: DateiRequiredMessage);
 			if (body.Passages is not { Count: > 0 } listed
 				|| listed.Any(item => item?.Id is null || item.ExpectedVersion is null))
 				return Results.Problem(statusCode: 400, title: NoReviewSelectionMessage);
@@ -309,7 +309,7 @@ public static class RecordingPassageEndpoints
 			var playable = RecordingFiles.Resolve(recording).Playable;
 			if (playable is null)
 				return Results.Problem(statusCode: 409, title: NoPlayableFileMessage);
-			if (playable.Id != expectedRevision)
+			if (playable.Id != expectedDatei)
 				return Results.Problem(statusCode: 409, title: StalePlaybackMessage);
 			// Exactly the passages the editor listed, each with the token it
 			// saw: anything else — another recording's id, a concurrent edit —
@@ -323,9 +323,9 @@ public static class RecordingPassageEndpoints
 			if (listed.Any(item => rows.First(p => p.Id == item!.Id).RowVersion != item!.ExpectedVersion))
 				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
 			var now = time.GetUtcNow();
-			foreach (var passage in rows.Where(p => p.PlaybackRevisionId != playable.Id))
+			foreach (var passage in rows.Where(p => p.PlaybackDateiId != playable.Id))
 			{
-				passage.PlaybackRevisionId = playable.Id;
+				passage.PlaybackDateiId = playable.Id;
 				passage.UpdatedAt = now;
 				passage.UpdatedByAccountId = decision!.AccountId;
 				passage.RowVersion++;
@@ -342,7 +342,7 @@ public static class RecordingPassageEndpoints
 			return Results.Ok(new
 			{
 				recordingId = id,
-				playbackRevisionId = playable.Id,
+				playbackDateiId = playable.Id,
 				passages = views.Select(v => RecordingPassages.Payload(v, isEditor: true)).ToList(),
 			});
 		}).DisableAntiforgery();

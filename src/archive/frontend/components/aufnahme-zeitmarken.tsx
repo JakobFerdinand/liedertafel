@@ -274,7 +274,7 @@ export function ZeitmarkenRedaktion({
     }
     // Zeiten werden immer an der Datei festgehalten, die die Redaktion beim
     // Bauen dieser Ansicht gesehen hat; ohne abspielbare Datei gibt es keine.
-    const revision = stand.playbackRevisionId ?? null;
+    const revision = stand.playbackDateiId ?? null;
     if (revision === null) {
       meldeFehler(
         `„${titel}“: Die Aufnahme hat noch keine abspielbare Datei, an der sich Zeitmarken setzen lassen.`,
@@ -289,14 +289,14 @@ export function ZeitmarkenRedaktion({
           startSeconds: ergebnis.start,
           endSeconds: ergebnis.ende,
           expectedVersion: marke.editor.version,
-          expectedPlaybackRevisionId: revision,
+          expectedPlaybackDateiId: revision,
         });
       } else {
         await createZeitmarke(aufnahme.id, {
           performanceId: eintrag.performanceId,
           startSeconds: ergebnis.start,
           endSeconds: ergebnis.ende,
-          expectedPlaybackRevisionId: revision,
+          expectedPlaybackDateiId: revision,
         });
       }
       setEntwuerfe((vorher) => {
@@ -390,7 +390,7 @@ export function ZeitmarkenRedaktion({
   async function allePruefen() {
     if (busy) return;
     setFehler("");
-    const revision = stand.playbackRevisionId ?? null;
+    const revision = stand.playbackDateiId ?? null;
     if (revision === null) {
       meldeFehler(
         "Die Aufnahme hat noch keine abspielbare Datei, an der sich Zeitmarken bestätigen lassen.",

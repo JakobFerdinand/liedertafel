@@ -346,41 +346,28 @@ public static class EventEndpoints
 	};
 
 	/// <summary>
-	/// ARC-025: documents/photos attached to the event, sorted by createdAt
-	/// then id. Members only see assets that already carry a current revision
-	/// (the same rule as the song detail); pending items expose no tickets and
-	/// stay editor-only, and draft events never reach members at all.
+	/// Documents and photos of the event (#171): its live <c>sonstiges</c>
+	/// Dateien, sorted by createdAt then id. A photo is told from a document
+	/// by its content type. Draft events never reach members at all.
 	/// </summary>
 	private static async Task<List<object>> LoadEventDocumentsAsync(
 		ArchiveDbContext db, bool isEditor, Guid eventId, CancellationToken token)
 	{
-		var assets = await db.Assets.AsNoTracking()
-			.Include(a => a.CurrentRevision)
-			// ARC-030: a recording's files belong to the recording, not to
-			// the document list.
-			.Where(a => a.EventId == eventId
-				&& a.AssetType != AssetEndpoints.RecordingOriginalAssetType
-				&& a.AssetType != AssetEndpoints.RecordingPlaybackAssetType)
-			.OrderBy(a => a.CreatedAt).ThenBy(a => a.Id)
+		var dateien = await Lieder.DateiQueries.Visible(db).AsNoTracking()
+			.Where(d => d.EventId == eventId && d.Kind == Lieder.DateiKinds.Sonstiges)
+			.OrderBy(d => d.CreatedAt).ThenBy(d => d.Id)
 			.ToListAsync(token);
-		return assets
-			.Where(a => isEditor || a.CurrentRevisionId is not null)
-			.Select(a => (object)new
+		return dateien
+			.Select(d => (object)new
 			{
-				id = a.Id,
-				assetType = a.AssetType,
-				description = a.Description,
-				createdAt = a.CreatedAt,
-				currentRevision = a.CurrentRevision is null
-					? null
-					: (object)new
-					{
-						revisionId = a.CurrentRevision.Id,
-						revisionNumber = a.CurrentRevision.RevisionNumber,
-						contentType = a.CurrentRevision.ContentType,
-						sizeBytes = a.CurrentRevision.SizeBytes,
-						createdAt = a.CurrentRevision.CreatedAt,
-					},
+				id = d.Id,
+				art = d.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) ? "photo" : "document",
+				description = d.Description,
+				fileName = d.OriginalFileName,
+				contentType = d.ContentType,
+				sizeBytes = d.SizeBytes,
+				createdAt = d.CreatedAt,
+				rowVersion = d.RowVersion,
 			})
 			.ToList();
 	}
