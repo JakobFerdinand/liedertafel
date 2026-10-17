@@ -1059,6 +1059,26 @@ The new model is built beside the old catalogue (expand step of #158); the old
   `noten-ansicht`), `datei-hochladen`, `lied-formular`, composed in `lied-detail`.
   The resume key is `arc-upload-lied-<liedId>-<kind>-<partitur|stimme>`.
 
+## Programm, Nachweise, Lied history and chat on Lieder (#170)
+
+Programme items and performances reference a `Lied` (`LiedId`, Restrict FK) beside the old
+song/arrangement/version chain, which stays nullable and readable until the final cleanup
+ticket drops it. New rows carry only `LiedId`.
+
+- `PUT /api/events/{id}/programme/items` takes `{id?, liedId, note}`; `POST .../performances`
+  takes `{liedId, evidenceStatus, ...}`; confirmation additions take `liedId`. Embeds return
+  `liedId`/`liedTitle` (plus `voiceConfiguration`/`musicalKey` of the Lied). A Lied has no
+  versions, so a version correction on a Lied entry is refused.
+- `GET /api/lieder/{id}/performances` (`Events/LiedHistoryEndpoints.cs`) is the Lied history:
+  same honest counting as the old song history, without arrangements. Members only see
+  occurrences at published Auftritte.
+- Chat: `catalogue_search` and `lied_details` read `lieder` (every saved Lied is visible to a
+  member). `lied_details` adds `gesungen` (confirmed or mentioned performances at published
+  Auftritte) and `geplant` (published programme without confirmation). `LiedKarte` and
+  `Quellen` resolve against `lieder`. The scripted client answers "Wann haben wir dieses Lied
+  gesungen?" from that data and shows the Lied card.
+- Frontend: `LiedWahl` (`components/lied-wahl.tsx`) replaces the Fassung picker.
+
 ## Runtime grants during `--migrate`
 
 The release's `--migrate` step applies the runtime role's privileges itself:
