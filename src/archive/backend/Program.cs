@@ -265,6 +265,7 @@ builder.Services.AddArchiveAi(builder.Configuration);
 // The shared, validated write path of the catalogue and event endpoints.
 builder.Services.AddScoped<CatalogueWriteService>();
 builder.Services.AddSingleton<ArchiveChatAgent>();
+builder.Services.AddSingleton<Archive.Backend.Lieder.IDateiFinalizedHook, Archive.Backend.Lieder.DateiReplacementHook>();
 builder.Services.AddScoped<ArchiveChatService>();
 builder.Services.AddArchiveAuth(builder.Configuration, builder.Environment);
 // ARC-011: Container Apps terminates TLS at the front proxy and forwards
@@ -371,6 +372,7 @@ app.MapExtractionEndpoints();
 app.MapReadingEndpoints();
 app.MapLiedEndpoints();
 app.MapDateiEndpoints();
+app.MapDateiTrashEndpoints();
 app.MapDevelopmentDiagnostics();
 
 // A specific fallback reserves the entire API namespace, including missing files.

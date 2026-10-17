@@ -316,6 +316,7 @@ public static class DateiPayloads
 		contentType = d.ContentType,
 		sizeBytes = d.SizeBytes,
 		createdAt = d.CreatedAt,
+		rowVersion = d.RowVersion,
 		recordedAtEvent,
 	};
 }

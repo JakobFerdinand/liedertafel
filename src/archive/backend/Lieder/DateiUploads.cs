@@ -26,7 +26,7 @@ public static class DateiUploads
 
 	public const string StimmeRequiredMessage = "Bitte eine Stimme angeben oder die Datei als Partitur kennzeichnen.";
 
-	public const string ReplaceNotAvailableMessage = "Ersetzen ist noch nicht verfügbar.";
+	public const string ReplacedMeanwhileMessage = "Die Datei wurde inzwischen ersetzt oder gelöscht.";
 
 	public const string RecordedAtEventNotFoundMessage = "Auftritt nicht gefunden.";
 
@@ -37,36 +37,46 @@ public static class DateiUploads
 		ArchiveDbContext db, TimeProvider time, AssetStorageOptions storageOptions, IAssetStorageAdapter storage,
 		Guid accountId, Guid liedId, CreateDateiUploadRequest? body, CancellationToken token)
 	{
-		var kind = (body?.Kind ?? DateiKinds.Noten).Trim().ToLowerInvariant();
+		if (!await db.Lieder.AnyAsync(l => l.Id == liedId, token))
+			return Results.Problem(statusCode: 404, title: LiedEndpoints.NotFoundMessage);
+		// Replacing (#168): the new Datei keeps the target's kind, Stimme and
+		// Partitur flag; only a live Datei of this very Lied can be replaced.
+		Datei? replaces = null;
+		if (body?.ReplacesDateiId is { } replacesId)
+		{
+			replaces = await DateiQueries.Visible(db).AsNoTracking()
+				.FirstOrDefaultAsync(d => d.Id == replacesId && d.LiedId == liedId, token);
+			if (replaces is null)
+				return Results.Problem(statusCode: 404, title: DateiNotFoundMessage);
+		}
+		var kind = replaces?.Kind ?? (body?.Kind ?? DateiKinds.Noten).Trim().ToLowerInvariant();
 		if (!DateiKinds.IsKnown(kind))
 			return Results.Problem(statusCode: 422, title: "Unbekannter Dateityp.");
 		var rule = DateiKindRules.For(kind);
 		if (rule is null)
 			return Results.Problem(statusCode: 422, title: DateiKindRules.UnsupportedKindMessage);
-		// #168 removes this refusal and finalizes replacements.
-		if (body?.ReplacesDateiId is not null)
-			return Results.Problem(statusCode: 422, title: ReplaceNotAvailableMessage);
-		if (!await db.Lieder.AnyAsync(l => l.Id == liedId, token))
-			return Results.Problem(statusCode: 404, title: LiedEndpoints.NotFoundMessage);
 
 		var contentType = Clean(body?.ContentType)?.ToLowerInvariant() ?? rule.ContentTypes[0];
 		if (!rule.ContentTypes.Contains(contentType, StringComparer.Ordinal))
 			return Results.Problem(statusCode: 422, title: DateiKindRules.UnsupportedContentTypeMessage);
 		Guid? recordedAtEventId = null;
-		if (kind == DateiKinds.Aufnahme && body?.RecordedAtEventId is { } eventId)
+		if (replaces is not null)
+			recordedAtEventId = replaces.RecordedAtEventId;
+		else if (kind == DateiKinds.Aufnahme && body?.RecordedAtEventId is { } eventId)
 		{
 			if (!await db.Events.AnyAsync(e => e.Id == eventId, token))
 				return Results.Problem(statusCode: 400, title: RecordedAtEventNotFoundMessage);
 			recordedAtEventId = eventId;
 		}
 
-		var isPartitur = kind == DateiKinds.Noten && body?.IsPartitur == true;
-		var stimme = isPartitur || kind is DateiKinds.Aufnahme or DateiKinds.Sonstiges ? null : Clean(body?.Stimme);
+		var isPartitur = replaces?.IsPartitur ?? (kind == DateiKinds.Noten && body?.IsPartitur == true);
+		var stimme = replaces is not null ? replaces.Stimme
+			: isPartitur || kind is DateiKinds.Aufnahme or DateiKinds.Sonstiges ? null : Clean(body?.Stimme);
 		if (stimme is { Length: > 200 })
 			return Results.Problem(statusCode: 400, title: LiedEndpoints.FieldTooLongMessage);
 		if (kind is DateiKinds.Noten or DateiKinds.Uebe && !isPartitur && stimme is null)
 			return Results.Problem(statusCode: 400, title: StimmeRequiredMessage);
-		var description = Clean(body?.Description);
+		var description = Clean(body?.Description) ?? replaces?.Description;
 		if (description is { Length: > 500 })
 			return Results.Problem(statusCode: 400, title: AssetEndpoints.DescriptionTooLongMessage);
 		var fileName = Clean(body?.FileName);
@@ -95,6 +105,7 @@ public static class DateiUploads
 			Stimme = stimme,
 			Description = description,
 			RecordedAtEventId = recordedAtEventId,
+			ReplacesDateiId = replaces?.Id,
 			BlobName = $"pending/{Guid.CreateVersion7()}",
 			ContentType = contentType,
 			MaxSizeBytes = storageOptions.MaxUploadBytes,
@@ -170,6 +181,13 @@ public static class DateiUploads
 		{
 			await AbandonAsync(db, storage, session, token);
 			return Results.Problem(statusCode: 422, title: DateiKindRules.UnsupportedKindMessage);
+		}
+
+		if (session.ReplacesDateiId is { } replacesId
+			&& !await DateiQueries.Visible(db).AnyAsync(d => d.Id == replacesId, token))
+		{
+			await AbandonAsync(db, storage, session, token);
+			return Results.Problem(statusCode: 409, title: ReplacedMeanwhileMessage);
 		}
 
 		AssetObjectInfo? probe;

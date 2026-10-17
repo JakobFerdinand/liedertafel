@@ -135,6 +135,17 @@ internal sealed class LiedTestHost : IAsyncDisposable
 		return (await finalize.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("datei");
 	}
 
+	/// <summary>Replaces a Noten Datei (#168): opens a session with <c>replacesDateiId</c>, uploads a PDF, finalizes; returns the new Datei JSON.</summary>
+	public async Task<JsonElement> ReplaceAsync(string session, Guid liedId, string replacesDateiId, string fileName, long size = 1024)
+	{
+		var (sessionId, uploadUrl, _) = await OpenUploadAsync(session, liedId,
+			new { kind = "noten", replacesDateiId, fileName, sizeBytes = size });
+		Factory.Storage.Store(Factory.Storage.Find(uploadUrl)!.BlobName, ValidPdf(size));
+		using var finalize = await PostAsync($"/api/upload-sessions/{sessionId}/finalize", new { }, session);
+		Assert.Equal(HttpStatusCode.OK, finalize.StatusCode);
+		return (await finalize.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("datei");
+	}
+
 	public static byte[] ValidPdf(long size)
 	{
 		var bytes = new byte[size];
