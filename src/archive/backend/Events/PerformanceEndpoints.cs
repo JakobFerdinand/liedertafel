@@ -8,7 +8,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Archive.Backend.Events;
 
-public sealed record CreatePerformanceRequest(Guid? SongId, Guid? MusicalVersionId, string? EvidenceStatus, string? SourceNote, string? IdempotencyKey);
+public sealed record CreatePerformanceRequest(Guid? LiedId, Guid? SongId, Guid? MusicalVersionId, string? EvidenceStatus, string? SourceNote, string? IdempotencyKey);
 
 /// <summary>
 /// PATCH body (ARC-028): raw JSON elements keep "absent" and "explicitly
@@ -86,8 +86,23 @@ public static class PerformanceEndpoints
 				.FirstOrDefaultAsync(e => e.Id == eventId, token);
 			if (choirEvent is null)
 				return Results.Problem(statusCode: 404, title: EventEndpoints.NotFoundMessage);
-			if (body?.SongId is not { } songId || !await db.Songs.AsNoTracking()
-				.AnyAsync(s => s.Id == songId, token))
+			// #170: an occurrence names a Lied; the old song id is still taken
+			// for historical evidence until the old model is dropped.
+			Guid? liedId = null;
+			Guid? songId = null;
+			if (body?.LiedId is { } requestedLiedId)
+			{
+				if (body.SongId is not null
+					|| !await db.Lieder.AsNoTracking().AnyAsync(l => l.Id == requestedLiedId, token))
+					return Results.Problem(statusCode: 404, title: SongNotFoundMessage);
+				if (body.MusicalVersionId is not null)
+					return Results.Problem(statusCode: 404, title: FassungPasstNichtMessage);
+				liedId = requestedLiedId;
+			}
+			else if (body?.SongId is { } requestedSongId && await db.Songs.AsNoTracking()
+				.AnyAsync(s => s.Id == requestedSongId, token))
+				songId = requestedSongId;
+			else
 				return Results.Problem(statusCode: 404, title: SongNotFoundMessage);
 			// Chain validation mirrors the programme items: the version must
 			// exist with its arrangement and song, and the song must match
@@ -95,7 +110,7 @@ public static class PerformanceEndpoints
 			// both columns ("Fassung unbekannt").
 			Guid? arrangementId = null;
 			Guid? musicalVersionId = null;
-			if (body?.MusicalVersionId is { } requestedVersionId)
+			if (body?.MusicalVersionId is { } requestedVersionId && liedId is null)
 			{
 				var version = await db.MusicalVersions.AsNoTracking()
 					.Include(v => v.Arrangement)
@@ -141,7 +156,7 @@ public static class PerformanceEndpoints
 			if (idempotencyKey is null)
 			{
 				var existing = await db.Performances.AsNoTracking()
-					.Where(p => p.EventId == eventId && p.SongId == songId)
+					.Where(p => p.EventId == eventId && p.LiedId == liedId && p.SongId == songId)
 					.ToListAsync(token);
 				if (existing.Any(p => string.Equals(p.EvidenceStatus, evidenceStatus, StringComparison.OrdinalIgnoreCase)
 					&& p.MusicalVersionId == musicalVersionId
@@ -152,6 +167,7 @@ public static class PerformanceEndpoints
 			var performance = new Performance
 			{
 				EventId = eventId,
+				LiedId = liedId,
 				SongId = songId,
 				ArrangementId = arrangementId,
 				MusicalVersionId = musicalVersionId,
@@ -248,6 +264,9 @@ public static class PerformanceEndpoints
 			// the arrangement is rewritten from the resolved chain atomically.
 			if (body.MusicalVersionId.ValueKind is not JsonValueKind.Undefined)
 			{
+				// A Lied occurrence has no version to choose (#170).
+				if (performance.LiedId is not null && body.MusicalVersionId.ValueKind is not JsonValueKind.Null)
+					return Results.Problem(statusCode: 404, title: FassungPasstNichtMessage);
 				if (body.MusicalVersionId.ValueKind is JsonValueKind.Null)
 				{
 					performance.ArrangementId = null;
@@ -378,6 +397,7 @@ public static class PerformanceEndpoints
 	{
 		id = performance.Id,
 		eventId = performance.EventId,
+		liedId = performance.LiedId,
 		songId = performance.SongId,
 		arrangementId = performance.ArrangementId,
 		musicalVersionId = performance.MusicalVersionId,
@@ -398,6 +418,7 @@ public static class PerformanceEndpoints
 	private static object MemberEmbed(Performance performance) => new
 	{
 		id = performance.Id,
+		liedId = performance.LiedId,
 		songId = performance.SongId,
 		arrangementId = performance.ArrangementId,
 		musicalVersionId = performance.MusicalVersionId,

@@ -1,4 +1,5 @@
 using Archive.Backend.Catalogue;
+using Archive.Backend.Lieder;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -69,6 +70,12 @@ public sealed class EventProgrammeModelConfiguration
 			.HasForeignKey(x => x.ArrangementId)
 			.OnDelete(DeleteBehavior.Restrict);
 		builder.HasIndex(x => x.ArrangementId);
+		// #170: the Lied of the entry; Restrict like the old references.
+		builder.HasOne(x => x.Lied)
+			.WithMany()
+			.HasForeignKey(x => x.LiedId)
+			.OnDelete(DeleteBehavior.Restrict);
+		builder.HasIndex(x => x.LiedId);
 	}
 
 	public void Configure(EntityTypeBuilder<ProgrammeConfirmation> builder)

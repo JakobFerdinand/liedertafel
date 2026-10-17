@@ -399,7 +399,7 @@ public static class RecordingPassageEndpoints
 		var performances = await db.Performances.AsNoTracking()
 			.Where(p => p.EventId == eventId)
 			.OrderBy(p => p.Position).ThenBy(p => p.Id)
-			.Select(p => new { p.Id, p.Position, p.SongId, p.ArrangementId, p.MusicalVersionId, p.EvidenceStatus })
+			.Select(p => new { p.Id, p.Position, SongId = p.LiedId ?? p.SongId ?? Guid.Empty, p.ArrangementId, p.MusicalVersionId, p.EvidenceStatus })
 			.ToListAsync(token);
 		var labels = await RecordingPassages.LoadLabelsAsync(db,
 			performances.Select(p => p.SongId).Distinct().ToList(),

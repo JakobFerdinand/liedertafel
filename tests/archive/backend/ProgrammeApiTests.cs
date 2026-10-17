@@ -1316,7 +1316,7 @@ public sealed class ProgrammeApiTests
 		Assert.True(editorPublished.GetProperty("working").ValueKind is JsonValueKind.Null);
 		Assert.Equal(2, editorPublished.GetProperty("published").GetProperty("number").GetInt32());
 		var editorId = await UserIdAsync(factory, Editor);
-		List<(Guid Id, int Position, Guid SongId, Guid ArrangementId, Guid MusicalVersionId, string? Note)> frozenItems;
+		List<(Guid Id, int Position, Guid? SongId, Guid? ArrangementId, Guid? MusicalVersionId, string? Note)> frozenItems;
 		DateTimeOffset frozenStamp;
 		using (var scope = factory.Services.CreateScope())
 		{
