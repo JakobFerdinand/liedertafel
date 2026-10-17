@@ -1,9 +1,9 @@
 using System.Text.Json.Nodes;
 using Archive.Backend.Auth;
-using Archive.Backend.Catalogue;
 using Archive.Backend.Chat;
 using Archive.Backend.Data;
 using Archive.Backend.Events;
+using Archive.Backend.Lieder;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -100,16 +100,17 @@ public sealed class ChatA2uiPostgresLiveTests(ITestOutputHelper output)
 		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
 		await db.Database.MigrateAsync();
 		var owner = Guid.NewGuid();
-		var published = NewSong("Die Waldfahrt", owner, publishedAt: October);
-		var other = NewSong("Abendlied", owner, publishedAt: October);
-		var draft = NewSong("Geheime Probe", owner, publishedAt: null);
+		var published = NewLied("Die Waldfahrt", owner);
+		var other = NewLied("Abendlied", owner);
+		// Never saved: an id no record stands behind must resolve to nothing.
+		var draft = NewLied("Geheime Probe", owner);
 		var concert = NewEvent("Frühlingskonzert", owner, October);
 		var internalEvent = NewEvent("Interne Beratung", owner, null);
-		db.Songs.AddRange(published, other, draft);
+		db.Lieder.AddRange(published, other);
 		db.Events.AddRange(concert, internalEvent);
 		await db.SaveChangesAsync();
 
-		// ShowAsync: the model's request resolves against published records only.
+		// ShowAsync: the model's request resolves against what a member may see only.
 		var state = new ChatRunState();
 		var result = await A2uiCatalog.ShowAsync(db,
 		[
@@ -155,7 +156,7 @@ public sealed class ChatA2uiPostgresLiveTests(ITestOutputHelper output)
 		Assert.Contains(viaDatabase, m => m["updateComponents"]?["components"]?[0]?["titel"]?.GetValue<string>() == "Die Waldfahrt");
 
 		// The stored form re-checks against today's visibility on load.
-		published.PublishedAt = null;
+		db.Lieder.Remove(published);
 		concert.PublishedAt = null;
 		await db.SaveChangesAsync();
 		var restored = await A2uiCatalog.RecheckAsync(readDb, storedText, CancellationToken.None);
@@ -170,13 +171,11 @@ public sealed class ChatA2uiPostgresLiveTests(ITestOutputHelper output)
 		=> Microsoft.EntityFrameworkCore.Infrastructure.AccessorExtensions.GetService<Microsoft.EntityFrameworkCore.Migrations.IMigrator>(db.Database)
 			.MigrateAsync(target);
 
-	private static Song NewSong(string title, Guid owner, DateTimeOffset? publishedAt) => new()
+	private static Lied NewLied(string title, Guid owner) => new()
 	{
 		Title = title,
 		Composer = "Friedrich Silcher",
 		Lyrics = "Die Sänger wandern gemeinsam durch den Wald.\nUnd singen ihre Lieder.",
-		PublishedAt = publishedAt,
-		PublishedByAccountId = publishedAt is null ? null : owner,
 		CreatedAt = October,
 		CreatedByAccountId = owner,
 		UpdatedAt = October,

@@ -59,7 +59,7 @@ internal sealed class ChatRunState
 		{
 			using var document = JsonDocument.Parse(resultJson);
 			if (document.RootElement.ValueKind is not JsonValueKind.Object
-				|| !document.RootElement.TryGetProperty("songs", out var songsElement)
+				|| !document.RootElement.TryGetProperty("lieder", out var songsElement)
 				|| songsElement.ValueKind is not JsonValueKind.Array)
 				return;
 			foreach (var element in songsElement.EnumerateArray())

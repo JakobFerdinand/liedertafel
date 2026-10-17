@@ -1,7 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using Archive.Backend.Catalogue;
 using Archive.Backend.Chat;
 using Archive.Backend.Data;
 using Archive.Backend.Events;
@@ -128,7 +127,7 @@ public sealed partial class ChatApiTests
 	}
 
 	[Fact]
-	public async Task ReloadDropsTheCardOfASinceUnpublishedSongAndKeepsTheText()
+	public async Task ReloadDropsTheCardOfASinceDeletedLiedAndKeepsTheText()
 	{
 		await using var factory = ChatFactory();
 		var ownerId = await SeedMemberAsync(factory, MemberA);
@@ -142,8 +141,8 @@ public sealed partial class ChatApiTests
 		await using (var scope = factory.Services.CreateAsyncScope())
 		{
 			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-			var song = await db.Songs.SingleAsync(s => s.Id == publishedId);
-			song.PublishedAt = null;
+			var song = await db.Lieder.SingleAsync(s => s.Id == publishedId);
+			db.Lieder.Remove(song);
 			await db.SaveChangesAsync();
 		}
 
