@@ -8,7 +8,7 @@ namespace Archive.Backend.Lieder;
 
 public sealed record CreateDateiUploadRequest(
 	string? Kind, bool? IsPartitur, string? Stimme, string? Description, string? FileName, long? SizeBytes,
-	Guid? ReplacesDateiId, Guid? RecordedAtEventId);
+	Guid? ReplacesDateiId, Guid? RecordedAtEventId, string? ContentType = null);
 
 /// <summary>
 /// Upload sessions that end in a <see cref="Datei"/>. They live in the shared
@@ -27,6 +27,8 @@ public static class DateiUploads
 	public const string StimmeRequiredMessage = "Bitte eine Stimme angeben oder die Datei als Partitur kennzeichnen.";
 
 	public const string ReplaceNotAvailableMessage = "Ersetzen ist noch nicht verfügbar.";
+
+	public const string RecordedAtEventNotFoundMessage = "Auftritt nicht gefunden.";
 
 	public const string DateiNotFoundMessage = "Datei nicht gefunden.";
 
@@ -47,11 +49,22 @@ public static class DateiUploads
 		if (!await db.Lieder.AnyAsync(l => l.Id == liedId, token))
 			return Results.Problem(statusCode: 404, title: LiedEndpoints.NotFoundMessage);
 
+		var contentType = Clean(body?.ContentType)?.ToLowerInvariant() ?? rule.ContentTypes[0];
+		if (!rule.ContentTypes.Contains(contentType, StringComparer.Ordinal))
+			return Results.Problem(statusCode: 422, title: DateiKindRules.UnsupportedContentTypeMessage);
+		Guid? recordedAtEventId = null;
+		if (kind == DateiKinds.Aufnahme && body?.RecordedAtEventId is { } eventId)
+		{
+			if (!await db.Events.AnyAsync(e => e.Id == eventId, token))
+				return Results.Problem(statusCode: 400, title: RecordedAtEventNotFoundMessage);
+			recordedAtEventId = eventId;
+		}
+
 		var isPartitur = kind == DateiKinds.Noten && body?.IsPartitur == true;
-		var stimme = isPartitur ? null : Clean(body?.Stimme);
+		var stimme = isPartitur || kind is DateiKinds.Aufnahme or DateiKinds.Sonstiges ? null : Clean(body?.Stimme);
 		if (stimme is { Length: > 200 })
 			return Results.Problem(statusCode: 400, title: LiedEndpoints.FieldTooLongMessage);
-		if (kind == DateiKinds.Noten && !isPartitur && stimme is null)
+		if (kind is DateiKinds.Noten or DateiKinds.Uebe && !isPartitur && stimme is null)
 			return Results.Problem(statusCode: 400, title: StimmeRequiredMessage);
 		var description = Clean(body?.Description);
 		if (description is { Length: > 500 })
@@ -81,8 +94,9 @@ public static class DateiUploads
 			IsPartitur = isPartitur,
 			Stimme = stimme,
 			Description = description,
+			RecordedAtEventId = recordedAtEventId,
 			BlobName = $"pending/{Guid.CreateVersion7()}",
-			ContentType = rule.ContentTypes[0],
+			ContentType = contentType,
 			MaxSizeBytes = storageOptions.MaxUploadBytes,
 			DeclaredFileName = fileName,
 			DeclaredSizeBytes = declaredSize,
@@ -163,7 +177,7 @@ public static class DateiUploads
 		try
 		{
 			probe = await storage.ProbeAsync(session.BlobName, token);
-			header = await storage.ReadHeaderAsync(session.BlobName, 12, token);
+			header = await storage.ReadHeaderAsync(session.BlobName, DateiKindRules.HeaderBytes, token);
 		}
 		catch (InvalidOperationException)
 		{
@@ -191,7 +205,7 @@ public static class DateiUploads
 				: null;
 		var effectiveContentType = storedContentType ?? session.ContentType;
 		if (!rule.ContentTypes.Contains(effectiveContentType, StringComparer.OrdinalIgnoreCase)
-			|| !rule.HasValidHeader(header))
+			|| !rule.HasValidHeader(header, effectiveContentType))
 		{
 			await AbandonAsync(db, storage, session, token);
 			return Results.Problem(statusCode: 422, title: rule.InvalidMessage);

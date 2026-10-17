@@ -160,8 +160,6 @@ public sealed class DateiUploadTests
 		Assert.Equal(HttpStatusCode.BadRequest, noStimme.StatusCode);
 		using var unknownKind = await host.PostAsync(path, new { kind = "video" }, editor);
 		Assert.Equal(HttpStatusCode.UnprocessableEntity, unknownKind.StatusCode);
-		using var notYet = await host.PostAsync(path, new { kind = "uebe", stimme = "Alle" }, editor);
-		Assert.Equal(HttpStatusCode.UnprocessableEntity, notYet.StatusCode);
 		using var replace = await host.PostAsync(path,
 			new { kind = "noten", isPartitur = true, replacesDateiId = Guid.NewGuid() }, editor);
 		Assert.Equal(HttpStatusCode.UnprocessableEntity, replace.StatusCode);
