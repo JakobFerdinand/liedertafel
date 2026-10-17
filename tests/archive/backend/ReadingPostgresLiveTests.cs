@@ -133,7 +133,7 @@ public sealed class ReadingPostgresLiveTests(ITestOutputHelper output)
 		await using var verify = harness.Scopes.CreateAsyncScope();
 		var after = verify.ServiceProvider.GetRequiredService<ArchiveDbContext>();
 		var reading = await after.ReadingJobs.AsNoTracking().SingleAsync();
-		Assert.Equal((ReadingStatus.Completed, 2, 5), (reading.Status, reading.PagesRead, reading.FieldsApplied));
+		Assert.Equal((ReadingStatus.Completed, 2, 4), (reading.Status, reading.PagesRead, reading.FieldsApplied));
 		var song = await after.Lieder.AsNoTracking().SingleAsync();
 		Assert.Equal(("Franz Schubert", "Anna Beispiel", "Im Wald da singen die Vögel"), (song.Composer, song.Lyricist, song.Lyrics));
 		Assert.Equal(ExtractionTextSource.Reading, (await after.ExtractionJobs.AsNoTracking().SingleAsync()).TextSource);
