@@ -52,6 +52,12 @@ public sealed class PerformanceModelConfiguration : IEntityTypeConfiguration<Per
 			.HasForeignKey(x => x.ArrangementId)
 			.OnDelete(DeleteBehavior.Restrict);
 		builder.HasIndex(x => x.ArrangementId);
+		// #170: the Lied of the occurrence; Restrict like the old references.
+		builder.HasOne(x => x.Lied)
+			.WithMany()
+			.HasForeignKey(x => x.LiedId)
+			.OnDelete(DeleteBehavior.Restrict);
+		builder.HasIndex(x => x.LiedId);
 		/// <summary>
 		/// ARC-029 programme confirmation links: a planned entry is confirmed
 		/// by at most one occurrence (unique, nulls never collide), and the

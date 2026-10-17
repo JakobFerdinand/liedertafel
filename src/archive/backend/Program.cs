@@ -374,6 +374,7 @@ app.MapReadingEndpoints();
 app.MapLiedEndpoints();
 app.MapDateiEndpoints();
 app.MapDateiTrashEndpoints();
+app.MapLiedHistoryEndpoints();
 app.MapDevelopmentDiagnostics();
 
 // A specific fallback reserves the entire API namespace, including missing files.

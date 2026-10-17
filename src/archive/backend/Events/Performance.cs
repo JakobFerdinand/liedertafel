@@ -1,4 +1,5 @@
 using Archive.Backend.Catalogue;
+using Archive.Backend.Lieder;
 
 namespace Archive.Backend.Events;
 
@@ -22,8 +23,17 @@ public sealed class Performance
 
 	public ChoirEvent Event { get; set; } = null!;
 
-	/// <summary>Recorded song of the occurrence, kept stable via Restrict.</summary>
-	public required Guid SongId { get; set; }
+	/// <summary>
+	/// The Lied of the occurrence (#170), kept stable via Restrict. Set on
+	/// every occurrence written since the flat Lied model; null on
+	/// historical rows that still carry the old song chain below.
+	/// </summary>
+	public Guid? LiedId { get; set; }
+
+	public Lied? Lied { get; set; }
+
+	/// <summary>Old model: recorded song of the occurrence, null for Lied occurrences.</summary>
+	public Guid? SongId { get; set; }
 
 	/// <summary>Resolved arrangement of the known chain, set together with the version.</summary>
 	public Guid? ArrangementId { get; set; }

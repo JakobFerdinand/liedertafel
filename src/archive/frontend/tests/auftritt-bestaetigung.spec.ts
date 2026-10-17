@@ -2,7 +2,7 @@ import { expect, type Page, test } from "@playwright/test";
 import { mockLeereAufnahmen } from "./aufnahmen-mock";
 
 // ARC-029: tatsächlich gesungenes Programm — der Lesesaal der Mitglieder
-// (Plan und Aufführung getrennt, abweichende Fassung, Zugabe, ausgefallene
+// (Plan und Aufführung getrennt, Zugabe, ausgefallene
 // Programmpunkte, ehrliches „noch nicht bestätigt“) und die Werkbank der
 // Redaktion (Ein-Klick-Bestätigung, ausdrückliche Entscheidung je
 // Programmpunkt, Zugabe mit Client-Schlüssel, veralteter Stand). Die
@@ -32,11 +32,6 @@ const programmId = "00000000-0000-0000-0000-00000000e091";
 const revisionId = "00000000-0000-0000-0000-00000000e093";
 const lied1Id = "00000000-0000-0000-0000-0000000000f1";
 const lied2Id = "00000000-0000-0000-0000-0000000000f2";
-const arrangement1Id = "00000000-0000-0000-0000-00000000c0f1";
-const arrangement2Id = "00000000-0000-0000-0000-00000000c0f2";
-const standardId = "00000000-0000-0000-0000-00000000d0f1";
-const transponiertId = "00000000-0000-0000-0000-00000000d0f3";
-const lied2FassungId = "00000000-0000-0000-0000-00000000d0f2";
 const punktA = "00000000-0000-0000-0000-00000000b0f1";
 const punktB = "00000000-0000-0000-0000-00000000b0f2";
 const nachweisA = "00000000-0000-0000-0000-00000000a0f1";
@@ -69,117 +64,46 @@ async function mockSitzung(page: Page, me: unknown) {
   );
 }
 
-function song(
-  id: string,
-  title: string,
-  arrangementId: string,
-  versionen: Array<{ id: string; label: string; key: string }>,
-) {
-  return {
-    song: {
-      id,
-      title,
-      composer: null,
-      lyricist: null,
-      published: true,
-      publishedAt: null,
-      alternateTitles: [],
-      matchedIn: [],
-      matchedArrangements: [],
-      createdAt: "2026-08-20T08:00:00.000Z",
-      updatedAt: "2026-09-01T10:00:00.000Z",
-      lyrics: null,
-      language: null,
-      occasion: null,
-      tags: [],
-      arrangements: [
-        {
-          id: arrangementId,
-          label: "Satz für gemischten Chor",
-          arranger: null,
-          voiceConfiguration: "SATB",
-          accompaniment: null,
-          musicalVersions: versionen.map((fassung) => ({
-            id: fassung.id,
-            label: fassung.label,
-            creator: null,
-            musicalKey: fassung.key,
-            assets: [],
-          })),
-        },
-      ],
-    },
-  };
-}
-
 async function mockKatalog(page: Page) {
-  await page.route(/\/api\/songs\?.*/, (route) =>
+  await page.route(/\/api\/lieder\?.*/, (route) =>
     route.fulfill(
       json({
         query: "",
         page: 1,
         pageSize: 20,
         total: 1,
-        songs: [
+        filters: { voiceConfiguration: null, occasion: null, dateiTypen: [] },
+        options: { voiceConfigurations: [], occasions: [] },
+        lieder: [
           {
             id: lied2Id,
             title: "Zugabe-Lied",
             composer: null,
+            arranger: null,
             lyricist: null,
-            published: true,
-            publishedAt: null,
-            alternateTitles: [],
-            arrangements: [],
-            matchedIn: [],
-            matchedArrangements: [],
+            voiceConfiguration: "SATB",
+            musicalKey: "C-Dur",
             language: null,
             occasion: null,
-            tags: [],
+            dateiTypen: [],
           },
         ],
       }),
     ),
   );
-  await page.route(`**/api/songs/${lied1Id}`, (route) =>
-    route.fulfill(
-      json(
-        song(lied1Id, "Das Wandern", arrangement1Id, [
-          { id: standardId, label: "Standardfassung", key: "G-Dur" },
-          { id: transponiertId, label: "Tiefe Tonart", key: "F-Dur" },
-        ]),
-      ),
-    ),
-  );
-  await page.route(`**/api/songs/${lied2Id}`, (route) =>
-    route.fulfill(
-      json(
-        song(lied2Id, "Zugabe-Lied", arrangement2Id, [
-          { id: lied2FassungId, label: "Standardfassung", key: "C-Dur" },
-        ]),
-      ),
-    ),
-  );
 }
 
 const fassung1 = {
-  songId: lied1Id,
-  songTitle: "Das Wandern",
-  arrangementId: arrangement1Id,
-  musicalVersionId: standardId,
-  arrangementLabel: "Satz für gemischten Chor",
+  liedId: lied1Id,
+  liedTitle: "Das Wandern",
   voiceConfiguration: "SATB",
-  musicalVersionLabel: "Standardfassung",
   musicalKey: "G-Dur",
 };
 
 const fassung2 = {
-  songId: lied2Id,
-  songTitle: "Zugabe-Lied",
-  arrangementId: arrangement2Id,
-  musicalVersionId: lied2FassungId,
-  arrangementLabel: "Satz für gemischten Chor",
+  liedId: lied2Id,
+  liedTitle: "Zugabe-Lied",
   voiceConfiguration: "SATB",
-  musicalVersionLabel: "Standardfassung",
   musicalKey: "C-Dur",
 };
 
@@ -233,8 +157,7 @@ function detail(confirmation: unknown) {
   };
 }
 
-// Bestätigung: Punkt 1 in anderer Fassung gesungen, Punkt 2 ausgefallen,
-// dazu eine Zugabe.
+// Bestätigung: Punkt 1 gesungen, Punkt 2 ausgefallen, dazu eine Zugabe.
 const bestaetigung = {
   revisionId,
   revisionNumber: 2,
@@ -247,21 +170,14 @@ const bestaetigung = {
       performanceId: nachweisA,
       programmeItemId: punktA,
       added: false,
-      differsFromPlan: true,
-      plannedMusicalVersionLabel: "Standardfassung",
-      musicalVersionId: transponiertId,
-      musicalVersionLabel: "Tiefe Tonart",
-      musicalKey: "F-Dur",
       evidenceStatus: "confirmed",
     },
     {
       ...fassung2,
-      songTitle: "Die Zugabe",
+      liedTitle: "Die Zugabe",
       performanceId: nachweisZugabe,
       programmeItemId: null,
       added: true,
-      differsFromPlan: false,
-      plannedMusicalVersionLabel: null,
       evidenceStatus: "confirmed",
     },
   ],
@@ -365,7 +281,7 @@ test("Mitglied liest ohne Bestätigung ehrlich: Plan ist nicht Aufführung", asy
   expect(errors).toEqual([]);
 });
 
-test("Mitglied unterscheidet Plan und Aufführung: andere Fassung, Zugabe, ausgefallen", async ({
+test("Mitglied unterscheidet Plan und Aufführung: Zugabe, ausgefallen", async ({
   page,
 }) => {
   const errors: string[] = [];
@@ -382,14 +298,10 @@ test("Mitglied unterscheidet Plan und Aufführung: andere Fassung, Zugabe, ausge
   const eintraege = abschnitt.locator(".bestaetigung-ist .programm-eintrag");
   await expect(eintraege).toHaveCount(2);
   await expect(eintraege.nth(0)).toContainText("Das Wandern");
-  await expect(eintraege.nth(0)).toContainText(
-    "Andere Fassung als geplant (geplant: Standardfassung)",
-  );
-  await expect(eintraege.nth(0)).toContainText("Tiefe Tonart");
-  // Tiefer Leseport auf die tatsächlich gesungene Fassung.
+  // Tiefer Leseport auf das gesungene Lied.
   await expect(eintraege.nth(0).getByRole("link")).toHaveAttribute(
     "href",
-    `/lied/?id=${lied1Id}&fassung=${arrangement1Id}&version=${transponiertId}`,
+    `/lied/?id=${lied1Id}`,
   );
   await expect(eintraege.nth(1)).toContainText("Die Zugabe");
   await expect(eintraege.nth(1)).toContainText("Zusätzlich gesungen");
@@ -481,12 +393,12 @@ test("Redaktion bestätigt das Programm mit einem Klick unverändert", async ({
     },
   ]);
   // Die Antwort trägt die Anzeigefelder: die Werkzeilen lesen sich nach dem
-  // Speichern weiter mit Titel und Fassung des Plans.
+  // Speichern weiter mit Titel und Angaben des Plans.
   const zeilen = page.locator(".bestaetigung-zeile");
   await expect(zeilen).toHaveCount(2);
   await expect(zeilen.nth(0)).toContainText("Das Wandern");
   await expect(zeilen.nth(0)).toContainText(
-    "Geplant: Satz für gemischten Chor · Standardfassung · Tonart: G-Dur",
+    "Geplant: Besetzung: SATB · Tonart: G-Dur",
   );
   await expect(zeilen.nth(0)).not.toContainText("Ohne Titel");
   await expect(zeilen.nth(1)).toContainText("Zugabe-Lied");
@@ -497,7 +409,7 @@ test("Redaktion bestätigt das Programm mit einem Klick unverändert", async ({
   expect(errors).toEqual([]);
 });
 
-test("Redaktion entscheidet ausdrücklich: ausgefallen, andere Fassung und Zugabe", async ({
+test("Redaktion entscheidet ausdrücklich: ausgefallen und Zugabe", async ({
   page,
 }) => {
   const errors: string[] = [];
@@ -522,16 +434,7 @@ test("Redaktion entscheidet ausdrücklich: ausgefallen, andere Fassung und Zugab
               {
                 ...offeneItems[0],
                 outcome: "sung",
-                performance: nachweis(
-                  nachweisA,
-                  {
-                    ...fassung1,
-                    musicalVersionId: transponiertId,
-                    musicalVersionLabel: "Tiefe Tonart",
-                    musicalKey: "F-Dur",
-                  },
-                  punktA,
-                ),
+                performance: nachweis(nachweisA, fassung1, punktA),
               },
               { ...offeneItems[1], outcome: "skipped" },
             ],
@@ -557,17 +460,8 @@ test("Redaktion entscheidet ausdrücklich: ausgefallen, andere Fassung und Zugab
   ).toBeVisible();
   expect(puts).toHaveLength(0);
 
-  // Punkt 1 gesungen — in der tiefen Tonart; Punkt 2 nicht gesungen.
+  // Punkt 1 gesungen; Punkt 2 nicht gesungen.
   await zeilen.nth(0).getByLabel("Gesungen", { exact: true }).check();
-  await zeilen
-    .nth(0)
-    .getByRole("button", { name: "Andere Fassung gesungen" })
-    .click();
-  await zeilen
-    .nth(0)
-    .getByRole("button", { name: /Tiefe Tonart/ })
-    .click();
-  await expect(zeilen.nth(0)).toContainText("Gesungen: Tiefe Tonart");
   await zeilen.nth(1).getByLabel("Nicht gesungen").check();
 
   // Zugabe aus dem Katalog.
@@ -584,25 +478,21 @@ test("Redaktion entscheidet ausdrücklich: ausgefallen, andere Fassung und Zugab
   expect(puts).toHaveLength(1);
   const gesendet = puts[0] as {
     items: unknown[];
-    additions: Array<{ clientKey?: string; songId: string }>;
+    additions: Array<{ clientKey?: string; liedId: string }>;
   };
   expect(gesendet).toMatchObject({
     revisionId,
     rowVersion: 0,
     items: [
-      {
-        programmeItemId: punktA,
-        outcome: "sung",
-        musicalVersionId: transponiertId,
-      },
+      { programmeItemId: punktA, outcome: "sung" },
       { programmeItemId: punktB, outcome: "skipped" },
     ],
   });
   expect(gesendet.additions).toHaveLength(1);
-  expect(gesendet.additions[0].songId).toBe(lied2Id);
+  expect(gesendet.additions[0].liedId).toBe(lied2Id);
   expect(gesendet.additions[0].clientKey).toMatch(/^[0-9a-f-]{36}$/);
   // Nach dem Speichern liest sich die Werkbank mit dem Server-Stand weiter:
-  // Titel und Plan-Fassung bleiben, der Ausfall und die Zugabe stehen.
+  // Titel und Plan-Angaben bleiben, der Ausfall und die Zugabe stehen.
   await expect(zeilen.nth(0)).toContainText("Das Wandern");
   await expect(zeilen.nth(0)).not.toContainText("Ohne Titel");
   await expect(zeilen.nth(1).getByLabel("Nicht gesungen")).toBeChecked();
@@ -876,20 +766,11 @@ test("Entfernen eines Nachweises mit Quellenangabe braucht einen zweiten Klick",
   ]);
 });
 
-test("Nach einer Neuveröffentlichung behält die Übernahme die gesungene Fassung", async ({
+test("Nach einer Neuveröffentlichung übernimmt die Werkbank den früheren Nachweis", async ({
   page,
 }) => {
   const frueher = {
-    ...nachweis(
-      nachweisA,
-      {
-        ...fassung1,
-        musicalVersionId: transponiertId,
-        musicalVersionLabel: "Tiefe Tonart",
-        musicalKey: "F-Dur",
-      },
-      "alter-punkt",
-    ),
+    ...nachweis(nachweisA, fassung1, "alter-punkt"),
     rowVersion: 3,
   };
   const items = [
@@ -910,7 +791,9 @@ test("Nach einer Neuveröffentlichung behält die Übernahme die gesungene Fassu
     ),
   );
   const zeilen = page.locator(".bestaetigung-zeile");
-  await expect(zeilen.nth(0)).toContainText("Gesungen: andere Fassung");
+  await expect(
+    zeilen.nth(0).getByLabel("Gesungen", { exact: true }),
+  ).toBeChecked();
   await zeilen.nth(1).getByLabel("Gesungen", { exact: true }).check();
   await page.getByRole("button", { name: "Bestätigung speichern" }).click();
   await expect
@@ -922,28 +805,22 @@ test("Nach einer Neuveröffentlichung behält die Übernahme die gesungene Fassu
   expect(put.items[0]).toMatchObject({
     outcome: "sung",
     performanceId: nachweisA,
-    musicalVersionId: transponiertId,
     rowVersion: 3,
   });
 });
 
-test("Meldungen und Fassungsknöpfe sind für Hilfstechnik eindeutig", async ({
-  page,
-}) => {
+test("Meldungen sind für Hilfstechnik eindeutig", async ({ page }) => {
   await werkbankOeffnen(page, () => json(pruefung(0, offeneItems)));
   const werkbank = page.locator("details.bestaetigung-verwaltung");
   // Die Statusflächen stehen dauerhaft, auch ohne Meldung.
   await expect(werkbank.getByRole("status")).toHaveCount(1);
   await expect(werkbank.getByRole("alert")).toHaveCount(1);
-  const zeilen = page.locator(".bestaetigung-zeile");
-  await zeilen.nth(0).getByLabel("Gesungen", { exact: true }).check();
-  await zeilen.nth(1).getByLabel("Gesungen", { exact: true }).check();
-  // Je Eintrag ein eigener zugänglicher Name.
+  // Je Eintrag eine eigene Gruppe mit zugänglichem Namen.
   await expect(
-    page.getByRole("button", { name: "Andere Fassung gesungen: Das Wandern" }),
+    page.getByRole("group", { name: "Programmpunkt 1: Das Wandern" }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Andere Fassung gesungen: Zugabe-Lied" }),
+    page.getByRole("group", { name: "Programmpunkt 2: Zugabe-Lied" }),
   ).toBeVisible();
 });
 

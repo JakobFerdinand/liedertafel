@@ -80,6 +80,9 @@ internal sealed class LiedTestHost : IAsyncDisposable
 	public async Task<HttpResponseMessage> PostAsync(string path, object body, string session)
 		=> await SendAsync(HttpMethod.Post, path, body, session);
 
+	public async Task<HttpResponseMessage> PutAsync(string path, object body, string session)
+		=> await SendAsync(HttpMethod.Put, path, body, session);
+
 	public async Task<HttpResponseMessage> PatchAsync(string path, object body, string session)
 		=> await SendAsync(HttpMethod.Patch, path, body, session);
 

@@ -1,4 +1,5 @@
 using Archive.Backend.Catalogue;
+using Archive.Backend.Lieder;
 
 namespace Archive.Backend.Events;
 
@@ -21,11 +22,24 @@ public sealed class ProgrammeItem
 	/// <summary>1-based order within the revision.</summary>
 	public int Position { get; set; }
 
-	public Guid SongId { get; set; }
+	/// <summary>
+	/// The Lied of the entry (#170). Set for every entry written since the
+	/// flat Lied model; the old Song/Arrangement/Version chain below is
+	/// null then and only stays on historical rows until the old model is
+	/// dropped.
+	/// </summary>
+	public Guid? LiedId { get; set; }
 
-	public Guid ArrangementId { get; set; }
+	public Lied? Lied { get; set; }
 
-	public Guid MusicalVersionId { get; set; }
+	/// <summary>Old model: song of the historical chain, null for Lied entries.</summary>
+	public Guid? SongId { get; set; }
+
+	/// <summary>Old model: arrangement of the historical chain, null for Lied entries.</summary>
+	public Guid? ArrangementId { get; set; }
+
+	/// <summary>Old model: musical version of the historical chain, null for Lied entries.</summary>
+	public Guid? MusicalVersionId { get; set; }
 
 	public MusicalVersion? MusicalVersion { get; set; }
 

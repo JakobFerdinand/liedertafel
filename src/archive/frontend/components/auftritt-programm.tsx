@@ -3,7 +3,7 @@
 // ARC-026: Programm des Auftritts — Lesesaal für Mitglieder (geordnete
 // Programmpunkte mit tieflinkender Liedseite) und Redaktions-Werkbank
 // nach der Rezeptur des Notenbereichs: je Eintrag eine Zeile mit
-// Fassungswahl, Notiz, Umordnen (↑/↓) und Entfernen; Speichern (PUT,
+// Lied, Notiz, Umordnen (↑/↓) und Entfernen; Speichern (PUT,
 // ganzer geordneter Ersatz) und Veröffentlichen trennen Entwurf und
 // Mitgliedssicht. Veraltete Stände laden den frischen Stand und bitten
 // um Nacharbeit.
@@ -17,24 +17,23 @@
 //
 // ARC-027: die Werkbank zeigt ehrliche Stände — Entwurf und
 // Mitgliedersicht mit Revision und Zeitpunkt, darunter die eingefrorenen
-// früheren Fassungen. Ersetzt ein frischer Server-Stand unerledigte
+// früheren Ständen. Ersetzt ein frischer Server-Stand unerledigte
 // Arbeit, erklärt die Werkbank die Ersetzung statt sie stillschweigend
 // zu schlucken.
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
-import { FassungsWahl } from "@/components/fassungs-wahl";
+import { useEffect, useState } from "react";
+import { LiedWahl } from "@/components/lied-wahl";
 import { problemTitel } from "@/lib/assets";
 import {
   type AuftrittDetailsMitProgramm,
+  liedUrl,
   type ProgrammRevision,
   type ProgrammRevisionVeroeffentlicht,
-  programmPunktUrl,
   publishedAtText,
   publishProgramm,
   putProgrammItems,
 } from "@/lib/events";
-import { fetchSong, fetchSongSearch, type LiedDetails } from "@/lib/songs";
 
 const notizMaximal = 500;
 
@@ -42,11 +41,6 @@ const veralteteAenderung =
   "Der Programmentwurf wurde zwischenzeitlich geändert. Bitte prüfe den aktuellen Stand und wiederhole deine Änderung.";
 
 const ersatzFehler = "Das hat nicht geklappt. Bitte erneut versuchen.";
-
-const liedLadeFehler =
-  "Ein Lied konnte nicht geladen werden. Die Fassungsauswahl bleibt dann leer.";
-
-const katalogFehler = "Der Katalog antwortet nicht. Bitte erneut versuchen.";
 
 const ungespeicherteAenderungen =
   "Es gibt nicht gespeicherte Änderungen. Speichere den Entwurf erst, um sie zu veröffentlichen.";
@@ -56,9 +50,9 @@ const ungespeicherteAenderungen =
 type WerkZeile = {
   schluessel: string;
   serverId: string | null;
-  songId: string | null;
-  arrangementId: string | null;
-  musicalVersionId: string | null;
+  // Null nur bei historischen Einträgen aus dem alten Katalog.
+  liedId: string | null;
+  liedTitel: string | null;
   notiz: string;
 };
 
@@ -66,8 +60,7 @@ type WerkZeile = {
 // der Prüfung, ob ungespeicherte Arbeit vorliegt.
 type SynchronZeile = {
   serverId: string | null;
-  songId: string;
-  musicalVersionId: string;
+  liedId: string;
   notiz: string;
 };
 
@@ -88,9 +81,8 @@ function zeilenAusRevisionen(
       zeilen: working.items.map((punkt) => ({
         schluessel: punkt.id,
         serverId: punkt.id,
-        songId: punkt.songId,
-        arrangementId: punkt.arrangementId,
-        musicalVersionId: punkt.musicalVersionId,
+        liedId: punkt.liedId,
+        liedTitel: punkt.liedTitle,
         notiz: punkt.note ?? "",
       })),
     };
@@ -103,9 +95,8 @@ function zeilenAusRevisionen(
     zeilen: (published?.items ?? []).map((punkt) => ({
       schluessel: punkt.id,
       serverId: null,
-      songId: punkt.songId,
-      arrangementId: punkt.arrangementId,
-      musicalVersionId: punkt.musicalVersionId,
+      liedId: punkt.liedId,
+      liedTitel: punkt.liedTitle,
       notiz: punkt.note ?? "",
     })),
   };
@@ -115,15 +106,14 @@ function zeilenAusRevisionen(
 function synchronstandAusZeilen(zeilen: WerkZeile[]): SynchronZeile[] {
   return zeilen.map((zeile) => ({
     serverId: zeile.serverId,
-    songId: zeile.songId ?? "",
-    musicalVersionId: zeile.musicalVersionId ?? "",
+    liedId: zeile.liedId ?? "",
     notiz: zeile.notiz,
   }));
 }
 
 /**
  * Ungespeicherte Arbeit: die Zeilen weichen vom zuletzt synchronisierten
- * Server-Stand ab (Id-Vorhandensein, Reihenfolge, Liedfassung, Notiz).
+ * Server-Stand ab (Id-Vorhandensein, Reihenfolge, Lied, Notiz).
  */
 function ungespeichert(
   aktuelleZeilen: WerkZeile[],
@@ -134,8 +124,7 @@ function ungespeichert(
     const bekannt = bekannterStand[index];
     return (
       (zeile.serverId !== null) !== (bekannt.serverId !== null) ||
-      zeile.songId !== bekannt.songId ||
-      zeile.musicalVersionId !== bekannt.musicalVersionId ||
+      (zeile.liedId ?? "") !== bekannt.liedId ||
       zeile.notiz.trim() !== bekannt.notiz.trim()
     );
   });
@@ -152,22 +141,23 @@ function VeröffentlichtListe({
     <ol className="programm-liste">
       {revision.items.map((punkt) => {
         const zeile = [
-          punkt.arrangementLabel,
-          punkt.musicalVersionLabel,
-          punkt.musicalKey ? `Tonart: ${punkt.musicalKey}` : null,
           punkt.voiceConfiguration
-            ? `Stimmkonfiguration: ${punkt.voiceConfiguration}`
+            ? `Besetzung: ${punkt.voiceConfiguration}`
             : null,
+          punkt.musicalKey ? `Tonart: ${punkt.musicalKey}` : null,
         ].filter((teil): teil is string => teil !== null);
+        const ziel = liedUrl(punkt.liedId);
         return (
           <li className="programm-eintrag" key={punkt.id}>
             <h4 className="programm-titel">
               <span className="programm-nummer" aria-hidden="true">
                 {punkt.position}.
               </span>{" "}
-              <Link href={programmPunktUrl(punkt)}>
-                {punkt.songTitle ?? "Ohne Titel"}
-              </Link>
+              {ziel ? (
+                <Link href={ziel}>{punkt.liedTitle ?? "Ohne Titel"}</Link>
+              ) : (
+                (punkt.liedTitle ?? "Ohne Titel")
+              )}
             </h4>
             {zeile.length > 0 && (
               <p className="noten-info">{zeile.join(" · ")}</p>
@@ -187,32 +177,22 @@ function ProgrammZeile({
   stelle,
   erste,
   letzte,
-  lied,
-  liedFehler,
-  liedLaeuft,
-  onFassungGewaehlt,
   onNotiz,
   onHoch,
   onRunter,
   onEntfernen,
-  onErneutVersuchen,
 }: {
   zeile: WerkZeile;
   stelle: number;
   erste: boolean;
   letzte: boolean;
-  lied: LiedDetails | null;
-  liedFehler: string;
-  liedLaeuft: boolean;
-  onFassungGewaehlt: (arrangementId: string, versionId: string) => void;
   onNotiz: (wert: string) => void;
   onHoch: () => void;
   onRunter: () => void;
   onEntfernen: () => void;
-  onErneutVersuchen: () => void;
 }) {
   const idPraefix = `programm-zeile-${zeile.schluessel}`;
-  const titel = lied?.title ?? "Lied wird geladen …";
+  const titel = zeile.liedTitel ?? "Lied aus dem alten Katalog";
   return (
     <li className="programm-zeile">
       <div className="programm-zeile-kopf">
@@ -220,11 +200,11 @@ function ProgrammZeile({
           {stelle}.
         </span>
         <span className="programm-zeile-titel">{titel}</span>
-        {/* Eine ankündigende Stelle je Zeile: der Fehler läuft hier mit
-            und wiederholt sich nicht über den ganzen Bereich. */}
-        <span className="material-datei-status" aria-live="polite">
-          {liedFehler || (lied ? "" : liedLaeuft ? "wird geladen …" : "")}
-        </span>
+        {zeile.liedId === null && (
+          <span className="material-datei-status" aria-live="polite">
+            Bitte durch ein Lied ersetzen.
+          </span>
+        )}
       </div>
       <div className="programm-zeile-werkzeuge">
         <button
@@ -254,29 +234,6 @@ function ProgrammZeile({
           Entfernen
         </button>
       </div>
-      {lied ? (
-        <FassungsWahl
-          lied={lied}
-          arrangementId={zeile.arrangementId ?? ""}
-          versionId={zeile.musicalVersionId ?? ""}
-          onSelect={onFassungGewaehlt}
-        />
-      ) : (
-        <div>
-          <p className="feld-hinweis">
-            {liedLaeuft ? "Lied wird geladen …" : liedFehler}
-          </p>
-          {!liedLaeuft && liedFehler && (
-            <button
-              type="button"
-              className="knopf-leise"
-              onClick={onErneutVersuchen}
-            >
-              Erneut versuchen
-            </button>
-          )}
-        </div>
-      )}
       <div className="programm-zeile-notiz">
         <label htmlFor={`${idPraefix}-notiz`}>Notiz (optional)</label>
         <input
@@ -288,117 +245,6 @@ function ProgrammZeile({
         />
       </div>
     </li>
-  );
-}
-
-// ─── Liedauswahl aus dem Katalog ─────────────────────────────────────
-
-export function LiedWahl({
-  onGewaehlt,
-  kennung = "programm-lied-suche",
-  beschriftung = "Lied aus dem Katalog suchen",
-}: {
-  onGewaehlt: (songId: string) => void;
-  // Eigene Feld-Id, wenn mehrere Liedsuchen auf einer Seite stehen
-  // (Programm-Werkbank und Aufführungsbestätigung).
-  kennung?: string;
-  beschriftung?: string;
-}) {
-  const [suche, setSuche] = useState("");
-  const [ergebnisse, setErgebnisse] = useState<
-    Array<{ id: string; title: string }>
-  >([]);
-  const [fehler, setFehler] = useState("");
-  const [busy, setBusy] = useState(false);
-  // Suche in fester Reihenfolge: jede neue Suche bricht die vorige ab
-  // und zählt weiter; ältere Antworten dürfen jüngere Ergebnisse nicht
-  // überschreiben, und nach dem Einklappen wird kein Zustand mehr
-  // gesetzt.
-  const laufNummer = useRef(0);
-  const laufendeAbbruch = useRef<AbortController | null>(null);
-  const lebt = useRef(true);
-
-  useEffect(() => {
-    lebt.current = true;
-    return () => {
-      lebt.current = false;
-      laufendeAbbruch.current?.abort();
-    };
-  }, []);
-
-  async function suchen(event: React.FormEvent) {
-    event.preventDefault();
-    const nummer = laufNummer.current + 1;
-    laufNummer.current = nummer;
-    laufendeAbbruch.current?.abort();
-    const abbruch = new AbortController();
-    laufendeAbbruch.current = abbruch;
-    setBusy(true);
-    setFehler("");
-    try {
-      const antwort = await fetchSongSearch(
-        suche.trim() || null,
-        1,
-        abbruch.signal,
-      );
-      if (!lebt.current || nummer !== laufNummer.current) return;
-      setErgebnisse(
-        antwort.songs.map((eintrag) => ({
-          id: eintrag.id,
-          title: eintrag.title,
-        })),
-      );
-      if (antwort.songs.length === 0) setFehler("Kein Lied gefunden.");
-    } catch {
-      // Abgebrochene oder überholte Antworten ändern nichts mehr.
-      if (!lebt.current || nummer !== laufNummer.current) return;
-      setFehler(katalogFehler);
-    } finally {
-      if (lebt.current && nummer === laufNummer.current) setBusy(false);
-    }
-  }
-
-  return (
-    <form
-      className="programm-lied-wahl"
-      onSubmit={(event) => void suchen(event)}
-    >
-      <label htmlFor={kennung}>{beschriftung}</label>
-      <div className="programm-lied-suche-reihe">
-        <input
-          id={kennung}
-          type="search"
-          value={suche}
-          onChange={(event) => setSuche(event.target.value)}
-        />
-        <button type="submit" disabled={busy}>
-          {busy ? "Wird gesucht …" : "Suchen"}
-        </button>
-      </div>
-      {fehler && (
-        <p role="alert" className="feld-fehler">
-          {fehler}
-        </p>
-      )}
-      {ergebnisse.length > 0 && (
-        <div className="programm-lied-treffer">
-          {ergebnisse.map((eintrag) => (
-            <button
-              key={eintrag.id}
-              type="button"
-              className="knopf-leise-rahmen"
-              onClick={() => {
-                onGewaehlt(eintrag.id);
-                setErgebnisse([]);
-                setSuche("");
-              }}
-            >
-              {eintrag.title}
-            </button>
-          ))}
-        </div>
-      )}
-    </form>
   );
 }
 
@@ -428,10 +274,6 @@ export function AuftrittProgramm({
   const [letzteGeladeneVersion, setLetzteGeladeneVersion] = useState<
     number | null
   >(null);
-  const [lieder, setLieder] = useState<Record<string, LiedDetails | "fehler">>(
-    {},
-  );
-  const [liedFehler, setLiedFehler] = useState<Record<string, string>>({});
   const [hinweis, setHinweis] = useState("");
   const [erfolg, setErfolg] = useState("");
   const [speichernBusy, setSpeichernBusy] = useState(false);
@@ -486,74 +328,17 @@ export function AuftrittProgramm({
     synchronstand,
   ]);
 
-  // Lieddetails je betroffenem Eintrag laden (FassungsWahl braucht sie);
-  // schon geladene Lieder bleiben im Bestand, nur neue Ids werden geholt.
-  // Eine fehlgeschlagene Abfrage merkt sich ihr Lied als "fehler" und
-  // wartet auf Erneut versuchen, statt sich endlos zu wiederholen.
-  useEffect(() => {
-    if (!ausgeklappt) return;
-    const fehlende = [
-      ...new Set(
-        zeilen
-          .map((zeile) => zeile.songId)
-          .filter((id): id is string => id !== null && !(id in lieder)),
-      ),
-    ];
-    if (fehlende.length === 0) return;
-    const abbruch = new AbortController();
-    void Promise.all(
-      fehlende.map(async (id) => {
-        try {
-          return [id, await fetchSong(id, abbruch.signal)] as const;
-        } catch {
-          return [id, "fehler"] as const;
-        }
-      }),
-    ).then((paare) => {
-      if (abbruch.signal.aborted) return;
-      setLieder((bisher) => ({
-        ...bisher,
-        ...Object.fromEntries(paare),
-      }));
-      setLiedFehler((bisher) => {
-        const stand = { ...bisher };
-        for (const [id, ergebnis] of paare) {
-          if (ergebnis === "fehler") stand[id] = liedLadeFehler;
-          else delete stand[id];
-        }
-        return stand;
-      });
-    });
-    return () => abbruch.abort();
-  }, [ausgeklappt, zeilen, lieder]);
-
-  function neuerEintrag(songId: string) {
+  function neuerEintrag(liedId: string, titel: string) {
     setZeilen((bisher) => [
       ...bisher,
       {
         schluessel: crypto.randomUUID(),
         serverId: null,
-        songId,
-        arrangementId: null,
-        musicalVersionId: null,
+        liedId,
+        liedTitel: titel,
         notiz: "",
       },
     ]);
-  }
-
-  // Neuer Versuch für ein fehlgeschlagenes Lied: der Fehler-Marker und
-  // die Meldung fallen weg, die Wirkung lädt das Lied erneut.
-  function liedErneutVersuchen(songId: string) {
-    setLieder((bisher) => {
-      const stand = { ...bisher };
-      delete stand[songId];
-      return stand;
-    });
-    setLiedFehler((bisher) => {
-      const stand = { ...bisher };
-      delete stand[songId];
-      return stand;
-    });
   }
 
   function umordnen(index: number, richtung: -1 | 1) {
@@ -573,24 +358,10 @@ export function AuftrittProgramm({
     );
   }
 
-  function fassungGewaehlt(
-    schluessel: string,
-    arrangementId: string,
-    versionId: string,
-  ) {
-    setZeilen((bisher) =>
-      bisher.map((zeile) =>
-        zeile.schluessel === schluessel
-          ? { ...zeile, arrangementId, musicalVersionId: versionId }
-          : zeile,
-      ),
-    );
-  }
-
   async function speichern() {
-    if (zeilen.some((zeile) => !zeile.songId || !zeile.musicalVersionId)) {
+    if (zeilen.some((zeile) => !zeile.liedId)) {
       setHinweis(
-        "Jeder Eintrag braucht eine Liedfassung, bevor der Entwurf gespeichert werden kann.",
+        "Jeder Eintrag braucht ein Lied, bevor der Entwurf gespeichert werden kann.",
       );
       return;
     }
@@ -604,8 +375,7 @@ export function AuftrittProgramm({
       const einbettung = await putProgrammItems(auftritt.id, {
         items: zeilen.map((zeile) => ({
           ...(zeile.serverId ? { id: zeile.serverId } : {}),
-          songId: zeile.songId ?? "",
-          musicalVersionId: zeile.musicalVersionId ?? "",
+          liedId: zeile.liedId ?? "",
           note: zeile.notiz.trim(),
         })),
         ...(letzteGeladeneVersion !== null
@@ -777,57 +547,31 @@ export function AuftrittProgramm({
                 {zeilen.length === 0 ? (
                   <p className="auftritt-leer">
                     Der Entwurf ist leer. Such ein Lied aus dem Katalog und füge
-                    es mit seiner Fassung hinzu.
+                    es hinzu.
                   </p>
                 ) : (
                   <ul className="programm-zeilen">
-                    {zeilen.map((zeile, index) => {
-                      const liedStand = zeile.songId
-                        ? lieder[zeile.songId]
-                        : undefined;
-                      return (
-                        <ProgrammZeile
-                          key={zeile.schluessel}
-                          zeile={zeile}
-                          stelle={index + 1}
-                          erste={index === 0}
-                          letzte={index === zeilen.length - 1}
-                          lied={
-                            liedStand && liedStand !== "fehler"
-                              ? liedStand
-                              : null
-                          }
-                          liedFehler={
-                            (zeile.songId && liedFehler[zeile.songId]) || ""
-                          }
-                          liedLaeuft={
-                            zeile.songId !== null && !(zeile.songId in lieder)
-                          }
-                          onFassungGewaehlt={(arrangementId, versionId) =>
-                            fassungGewaehlt(
-                              zeile.schluessel,
-                              arrangementId,
-                              versionId,
-                            )
-                          }
-                          onNotiz={(wert) =>
-                            setZeilen((bisher) =>
-                              bisher.map((eintrag) =>
-                                eintrag.schluessel === zeile.schluessel
-                                  ? { ...eintrag, notiz: wert }
-                                  : eintrag,
-                              ),
-                            )
-                          }
-                          onHoch={() => umordnen(index, -1)}
-                          onRunter={() => umordnen(index, 1)}
-                          onEntfernen={() => entfernen(zeile.schluessel)}
-                          onErneutVersuchen={() => {
-                            if (zeile.songId) liedErneutVersuchen(zeile.songId);
-                          }}
-                        />
-                      );
-                    })}
+                    {zeilen.map((zeile, index) => (
+                      <ProgrammZeile
+                        key={zeile.schluessel}
+                        zeile={zeile}
+                        stelle={index + 1}
+                        erste={index === 0}
+                        letzte={index === zeilen.length - 1}
+                        onNotiz={(wert) =>
+                          setZeilen((bisher) =>
+                            bisher.map((eintrag) =>
+                              eintrag.schluessel === zeile.schluessel
+                                ? { ...eintrag, notiz: wert }
+                                : eintrag,
+                            ),
+                          )
+                        }
+                        onHoch={() => umordnen(index, -1)}
+                        onRunter={() => umordnen(index, 1)}
+                        onEntfernen={() => entfernen(zeile.schluessel)}
+                      />
+                    ))}
                   </ul>
                 )}
                 <LiedWahl onGewaehlt={neuerEintrag} />

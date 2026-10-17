@@ -52,13 +52,13 @@ public static class A2uiCatalog
 	internal static IReadOnlyList<A2uiComponent> Components { get; } =
 	[
 		new("LiedKarte", A2uiArgument.LiedId,
-			"Karte zu einem einzelnen veröffentlichten Lied (Titel, Komponist, Textdichter, Textanfang) mit Verweis ins Archiv.",
+			"Karte zu einem einzelnen Lied (Titel, Komponist, Textdichter, Textanfang) mit Verweis ins Archiv.",
 			ResolveSongCardAsync),
 		new("AuftrittKarte", A2uiArgument.AuftrittId,
 			"Karte zu einem veröffentlichten Auftritt (Titel, Art, Datum, Ort) mit Verweis ins Archiv.",
 			ResolveEventCardAsync),
 		new("Quellen", A2uiArgument.LiedIds,
-			"Liste von bis zu 10 veröffentlichten Liedern als Verweise ins Archiv.",
+			"Liste von bis zu 10 Liedern als Verweise ins Archiv.",
 			ResolveSourcesAsync),
 		// Defined and validated, but not yet resolvable in the member chat: the
 		// event tools (ARC-022-1) bring its resolver with their own visibility rules.
@@ -240,14 +240,14 @@ public static class A2uiCatalog
 	/// <summary>A JSON string value, or null for anything else (never throws on a foreign JSON type).</summary>
 	private static string? StringOf(JsonNode? node) => node is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
 
-	// ---- resolvers (published records only) ----
+	// ---- resolvers (what a member may see: every saved Lied, published Auftritte) ----
 
 	private static async Task<JsonObject?> ResolveSongCardAsync(ArchiveDbContext db, SurfaceRequest request, CancellationToken token)
 	{
 		if (!Guid.TryParse(request.LiedId, out var id))
 			return null;
-		var song = await db.Songs.AsNoTracking()
-			.Where(s => s.Id == id && s.PublishedAt != null)
+		var song = await db.Lieder.AsNoTracking()
+			.Where(s => s.Id == id)
 			.Select(s => new { s.Id, s.Title, s.Composer, s.Lyricist, s.Lyrics })
 			.FirstOrDefaultAsync(token);
 		if (song is null)
@@ -287,8 +287,8 @@ public static class A2uiCatalog
 			.OfType<Guid>().Distinct().Take(MaxSources).ToList();
 		if (ids.Count == 0)
 			return null;
-		var songs = await db.Songs.AsNoTracking()
-			.Where(s => ids.Contains(s.Id) && s.PublishedAt != null)
+		var songs = await db.Lieder.AsNoTracking()
+			.Where(s => ids.Contains(s.Id))
 			.Select(s => new { s.Id, s.Title, s.Composer })
 			.ToListAsync(token);
 		if (songs.Count == 0)

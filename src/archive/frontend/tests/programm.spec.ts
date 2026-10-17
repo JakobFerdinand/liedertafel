@@ -33,17 +33,10 @@ const programmId = "00000000-0000-0000-0000-00000000e021";
 const revisionEntwurfId = "00000000-0000-0000-0000-00000000e022";
 const revisionVeroeffentlichtId = "00000000-0000-0000-0000-00000000e023";
 
-// Lied 1 kennt die Standard- und die transponierte Fassung; Lied 2
-// liefern die Suche als zweites Ergebnis; der dritte Programmpunkt
-// wiederholt Lied 1 (zwei eigene Einträge, zwei eigene Ids).
+// Lied 1 steht zweimal im Programm (zwei eigene Einträge, zwei eigene
+// Ids); Lied 2 liefert die Suche als zweites Ergebnis.
 const lied1Id = "00000000-0000-0000-0000-0000000000a1";
 const lied2Id = "00000000-0000-0000-0000-0000000000a2";
-const lied2FassungId = "00000000-0000-0000-0000-00000000d010";
-const arrangement1Id = "00000000-0000-0000-0000-00000000c0a1";
-const arrangement2Id = "00000000-0000-0000-0000-00000000c0a2";
-const standardId = "00000000-0000-0000-0000-00000000d00a";
-const transponiertId = "00000000-0000-0000-0000-00000000d00b";
-const lied2ArrangementId = "00000000-0000-0000-0000-00000000c0b1";
 
 // Programmpunkte des veröffentlichten oder gezeichneten Standes; die
 // Werkbank leitet ihre Zeilen daraus ab und behält die Ids stabil.
@@ -78,153 +71,43 @@ async function mockSitzung(page: Page, me: unknown) {
   );
 }
 
-// Lieddetails für die FassungsWahl: Lied 1 trägt zwei Fassungen
-// (Standard + Transposition nach Es-Dur), Lied 2 eine eigene Fassung.
+// Die Liedsuche der Werkbank: das Verzeichnis liefert beide Lieder.
 async function mockKatalog(page: Page) {
-  await page.route(/\/api\/songs\?.*/, (route) =>
+  await page.route(/\/api\/lieder\?.*/, (route) =>
     route.fulfill(
       json({
         query: "",
         page: 1,
         pageSize: 20,
         total: 2,
-        songs: [
+        filters: { voiceConfiguration: null, occasion: null, dateiTypen: [] },
+        options: { voiceConfigurations: [], occasions: [] },
+        lieder: [
           {
             id: lied1Id,
             title: "Das Wandern ist des Müllers Lust",
             composer: null,
+            arranger: null,
             lyricist: null,
-            published: true,
-            publishedAt: null,
-            alternateTitles: [],
-            arrangements: [],
-            matchedIn: [],
-            matchedArrangements: [],
+            voiceConfiguration: "SATB",
+            musicalKey: "G-Dur",
             language: null,
             occasion: null,
-            tags: [],
+            dateiTypen: [],
           },
           {
             id: lied2Id,
             title: "Aurora",
             composer: null,
+            arranger: null,
             lyricist: null,
-            published: true,
-            publishedAt: null,
-            alternateTitles: [],
-            arrangements: [],
-            matchedIn: [],
-            matchedArrangements: [],
+            voiceConfiguration: "SATB",
+            musicalKey: null,
             language: null,
             occasion: null,
-            tags: [],
+            dateiTypen: [],
           },
         ],
-      }),
-    ),
-  );
-  await page.route(`**/api/songs/${lied1Id}`, (route) =>
-    route.fulfill(
-      json({
-        song: {
-          id: lied1Id,
-          title: "Das Wandern ist des Müllers Lust",
-          composer: "Carl Friedrich Zöllner",
-          lyricist: "Wilhelm Müller",
-          published: true,
-          publishedAt: null,
-          alternateTitles: [],
-          matchedIn: [],
-          matchedArrangements: [],
-          createdAt: "2026-08-20T08:00:00.000Z",
-          updatedAt: "2026-09-01T10:00:00.000Z",
-          lyrics: null,
-          language: null,
-          occasion: null,
-          tags: [],
-          arrangements: [
-            {
-              id: arrangement1Id,
-              label: "Satz für gemischten Chor",
-              arranger: "Josef Gabriel",
-              voiceConfiguration: "SATB",
-              accompaniment: null,
-              musicalVersions: [
-                {
-                  id: standardId,
-                  label: "Standardfassung",
-                  creator: "Josef Gabriel",
-                  musicalKey: "G-Dur",
-                  assets: [],
-                },
-                {
-                  id: transponiertId,
-                  label: "Transposition",
-                  creator: "Josef Gabriel",
-                  musicalKey: "Es-Dur",
-                  assets: [],
-                },
-              ],
-            },
-            {
-              id: arrangement2Id,
-              label: "Satz für Männerchor",
-              arranger: "Hans Schmid",
-              voiceConfiguration: "TTBB",
-              accompaniment: null,
-              musicalVersions: [
-                {
-                  id: "00000000-0000-0000-0000-00000000d00c",
-                  label: "Männerchor",
-                  creator: "Hans Schmid",
-                  musicalKey: null,
-                  assets: [],
-                },
-              ],
-            },
-          ],
-        },
-      }),
-    ),
-  );
-  await page.route(`**/api/songs/${lied2Id}`, (route) =>
-    route.fulfill(
-      json({
-        song: {
-          id: lied2Id,
-          title: "Aurora",
-          composer: null,
-          lyricist: null,
-          published: true,
-          publishedAt: null,
-          alternateTitles: [],
-          matchedIn: [],
-          matchedArrangements: [],
-          createdAt: "2026-08-20T08:00:00.000Z",
-          updatedAt: "2026-09-01T10:00:00.000Z",
-          lyrics: null,
-          language: null,
-          occasion: null,
-          tags: [],
-          arrangements: [
-            {
-              id: lied2ArrangementId,
-              label: "Satz für gemischten Chor",
-              arranger: null,
-              voiceConfiguration: "SATB",
-              accompaniment: null,
-              musicalVersions: [
-                {
-                  id: lied2FassungId,
-                  label: "Standardfassung",
-                  creator: null,
-                  musicalKey: "G-Dur",
-                  assets: [],
-                },
-              ],
-            },
-          ],
-        },
       }),
     ),
   );
@@ -261,25 +144,17 @@ function detail(programme: unknown) {
 function punkt(
   id: string,
   position: number,
-  songId: string,
-  songTitle: string,
-  arrangementId: string,
-  arrangementLabel: string,
-  versionId: string,
-  musicalVersionLabel: string,
+  liedId: string,
+  liedTitle: string,
   musicalKey: string | null,
   note: string | null = null,
 ) {
   return {
     id,
     position,
-    songId,
-    arrangementId,
-    musicalVersionId: versionId,
-    songTitle,
-    arrangementLabel,
+    liedId,
+    liedTitle,
     voiceConfiguration: "SATB",
-    musicalVersionLabel,
     musicalKey,
     note,
   };
@@ -291,37 +166,11 @@ const veroeffentlichteItems = [
     1,
     lied1Id,
     "Das Wandern ist des Müllers Lust",
-    arrangement1Id,
-    "Satz für gemischten Chor",
-    standardId,
-    "Standardfassung",
     "G-Dur",
     "Erste Strophe im Stehchoral.",
   ),
-  punkt(
-    punktB,
-    2,
-    lied2Id,
-    "Aurora",
-    lied2ArrangementId,
-    "Satz für gemischten Chor",
-    lied2FassungId,
-    "Standardfassung",
-    null,
-    null,
-  ),
-  punkt(
-    punktC,
-    3,
-    lied1Id,
-    "Das Wandern ist des Müllers Lust",
-    arrangement1Id,
-    "Satz für gemischten Chor",
-    transponiertId,
-    "Transposition",
-    "Es-Dur",
-    null,
-  ),
+  punkt(punktB, 2, lied2Id, "Aurora", null, null),
+  punkt(punktC, 3, lied1Id, "Das Wandern ist des Müllers Lust", "G-Dur", null),
 ];
 
 const veroeffentlicht = {
@@ -371,22 +220,20 @@ function entwurfStandMitDrei(rowVersion = 4) {
 function antwortItems(
   anfrage: Array<{
     id?: string;
-    songId: string;
-    musicalVersionId: string;
+    liedId: string;
     note?: string;
   }>,
 ) {
   return anfrage.map((eintrag, index) => {
     const muster =
       veroeffentlichteItems.find(
-        (testPunkt) => testPunkt.musicalVersionId === eintrag.musicalVersionId,
+        (testPunkt) => testPunkt.liedId === eintrag.liedId,
       ) ?? veroeffentlichteItems[0];
     return {
       ...muster,
       id: eintrag.id ?? [punktA, punktB, punktC][index],
       position: index + 1,
-      songId: eintrag.songId,
-      musicalVersionId: eintrag.musicalVersionId,
+      liedId: eintrag.liedId,
       note: eintrag.note ?? null,
     };
   });
@@ -439,10 +286,6 @@ const veroeffentlichtMitGeschichte = {
           1,
           lied1Id,
           "Das Wandern ist des Müllers Lust",
-          arrangement1Id,
-          "Satz für gemischten Chor",
-          standardId,
-          "Standardfassung",
           "G-Dur",
           null,
         ),
@@ -451,10 +294,6 @@ const veroeffentlichtMitGeschichte = {
           2,
           lied2Id,
           "Aurora",
-          lied2ArrangementId,
-          "Satz für gemischten Chor",
-          lied2FassungId,
-          "Standardfassung",
           null,
           null,
         ),
@@ -473,7 +312,7 @@ async function programmVerwaltungAufklappen(page: Page) {
   ).toHaveAttribute("open", "");
 }
 
-test("Mitglied liest das veröffentlichte Programm mit Fassungsangaben und Notizen", async ({
+test("Mitglied liest das veröffentlichte Programm mit Besetzung, Tonart und Notizen", async ({
   page,
 }) => {
   const errors: string[] = [];
@@ -494,19 +333,18 @@ test("Mitglied liest das veröffentlichte Programm mit Fassungsangaben und Notiz
   await expect(punkte.nth(0)).toContainText("Das Wandern ist des Müllers Lust");
   await expect(punkte.nth(1)).toContainText("Aurora");
   await expect(punkte.nth(2)).toContainText("Das Wandern ist des Müllers Lust");
-  // Deep-Link: Lied, Fassung und musikalische Version fahren in der
-  // Adresse mit.
+  // Deep-Link: das Lied fährt in der Adresse mit.
   await expect(punkte.nth(0).getByRole("link")).toHaveAttribute(
     "href",
-    `/lied/?id=${lied1Id}&fassung=${arrangement1Id}&version=${standardId}`,
+    `/lied/?id=${lied1Id}`,
   );
   await expect(punkte.nth(2).getByRole("link")).toHaveAttribute(
     "href",
-    `/lied/?id=${lied1Id}&fassung=${arrangement1Id}&version=${transponiertId}`,
+    `/lied/?id=${lied1Id}`,
   );
-  // Fassungszeile mit Tonart, Notiz je Eintrag.
+  // Angabenzeile mit Besetzung und Tonart, Notiz je Eintrag.
   await expect(punkte.nth(0).locator(".noten-info")).toHaveText(
-    "Satz für gemischten Chor · Standardfassung · Tonart: G-Dur · Stimmkonfiguration: SATB",
+    "Besetzung: SATB · Tonart: G-Dur",
   );
   await expect(punkte.nth(0).locator(".programm-notiz")).toHaveText(
     "Erste Strophe im Stehchoral.",
@@ -573,8 +411,7 @@ test("Redaktion baut ein dreiliediges Programm auf und speichert zweimal mit sta
     const anfrage = route.request().postDataJSON() as {
       items: Array<{
         id?: string;
-        songId: string;
-        musicalVersionId: string;
+        liedId: string;
         note?: string;
       }>;
       rowVersion?: number;
@@ -607,8 +444,7 @@ test("Redaktion baut ein dreiliediges Programm auf und speichert zweimal mit sta
   await expect(page.getByText("Noch nichts veröffentlicht.")).toBeVisible();
   await programmVerwaltungAufklappen(page);
 
-  // Erstes Lied über die Katalogsuche; die Fassung kommt aus dem
-  // Lieddetail (Standardfassung in G-Dur).
+  // Erstes Lied über die Katalogsuche.
   await page.getByLabel("Lied aus dem Katalog suchen").fill("Wandern");
   await page.getByRole("button", { name: "Suchen" }).click();
   await page
@@ -616,13 +452,8 @@ test("Redaktion baut ein dreiliediges Programm auf und speichert zweimal mit sta
     .getByRole("button", { name: "Das Wandern ist des Müllers Lust" })
     .click();
   await expect(page.locator(".programm-zeile")).toHaveCount(1);
-  await page
-    .locator(".programm-zeile")
-    .nth(0)
-    .getByRole("button", { name: /Standardfassung/ })
-    .click();
 
-  // Zweites Lied mit eigener Standardfassung.
+  // Zweites Lied.
   await page.getByLabel("Lied aus dem Katalog suchen").fill("Aurora");
   await page.getByRole("button", { name: "Suchen" }).click();
   await page
@@ -630,13 +461,8 @@ test("Redaktion baut ein dreiliediges Programm auf und speichert zweimal mit sta
     .getByRole("button", { name: "Aurora" })
     .click();
   await expect(page.locator(".programm-zeile")).toHaveCount(2);
-  await page
-    .locator(".programm-zeile")
-    .nth(1)
-    .getByRole("button", { name: /Standardfassung/ })
-    .click();
 
-  // Dritter Eintrag wiederholt Lied 1, diesmal transponiert nach Es-Dur.
+  // Dritter Eintrag wiederholt Lied 1.
   await page.getByLabel("Lied aus dem Katalog suchen").fill("Wandern");
   await page.getByRole("button", { name: "Suchen" }).click();
   await page
@@ -644,11 +470,6 @@ test("Redaktion baut ein dreiliediges Programm auf und speichert zweimal mit sta
     .getByRole("button", { name: "Das Wandern ist des Müllers Lust" })
     .click();
   await expect(page.locator(".programm-zeile")).toHaveCount(3);
-  await page
-    .locator(".programm-zeile")
-    .nth(2)
-    .getByRole("button", { name: /Transposition/ })
-    .click();
 
   // Notizen in den ersten beiden Einträgen.
   await page
@@ -668,17 +489,9 @@ test("Redaktion baut ein dreiliediges Programm auf und speichert zweimal mit sta
   // Ganzer geordneter Ersatz: die Reihenfolge der Zeilen setzt die
   // Positionen; neue Einträge tragen keine Id.
   expect(puts[0].items).toEqual([
-    {
-      songId: lied1Id,
-      musicalVersionId: standardId,
-      note: "Erste Strophe im Stehchoral.",
-    },
-    {
-      songId: lied2Id,
-      musicalVersionId: lied2FassungId,
-      note: "Zweite Strophe sitzend.",
-    },
-    { songId: lied1Id, musicalVersionId: transponiertId, note: "" },
+    { liedId: lied1Id, note: "Erste Strophe im Stehchoral." },
+    { liedId: lied2Id, note: "Zweite Strophe sitzend." },
+    { liedId: lied1Id, note: "" },
   ]);
 
   // Der frische Stand kommt mit drei stabilen Ids zurück; die unver-
@@ -688,24 +501,9 @@ test("Redaktion baut ein dreiliediges Programm auf und speichert zweimal mit sta
   await page.getByRole("button", { name: "Entwurf speichern" }).click();
   await expect(puts).toHaveLength(2);
   expect(puts[1].items).toEqual([
-    {
-      id: punktA,
-      songId: lied1Id,
-      musicalVersionId: standardId,
-      note: "Erste Strophe im Stehchoral.",
-    },
-    {
-      id: punktB,
-      songId: lied2Id,
-      musicalVersionId: lied2FassungId,
-      note: "Zweite Strophe sitzend.",
-    },
-    {
-      id: punktC,
-      songId: lied1Id,
-      musicalVersionId: transponiertId,
-      note: "",
-    },
+    { id: punktA, liedId: lied1Id, note: "Erste Strophe im Stehchoral." },
+    { id: punktB, liedId: lied2Id, note: "Zweite Strophe sitzend." },
+    { id: punktC, liedId: lied1Id, note: "" },
   ]);
   expect(puts[1].rowVersion).toBe(4);
 
@@ -741,20 +539,13 @@ test("Redaktion legt auf einem auftrittslosen Programm mit an: erster PUT ohne r
     .locator(".programm-lied-treffer")
     .getByRole("button", { name: "Aurora" })
     .click();
-  await page
-    .locator(".programm-zeile")
-    .nth(0)
-    .getByRole("button", { name: /Standardfassung/ })
-    .click();
 
   await page.getByRole("button", { name: "Entwurf speichern" }).click();
   await expect(page.getByText("Programmentwurf gespeichert.")).toBeVisible();
   expect(puts).toHaveLength(1);
   // Ohne Programm entfällt die rowVersion; der Server legt still an.
   expect(puts[0].rowVersion).toBeUndefined();
-  expect(puts[0].items).toEqual([
-    { songId: lied2Id, musicalVersionId: lied2FassungId, note: "" },
-  ]);
+  expect(puts[0].items).toEqual([{ liedId: lied2Id, note: "" }]);
 
   // Der frische Stand (Programm + Entwurf) kommt über die erneute
   // Auftrittsabfrage; die Werkbank bleibt aufgeklappt und zeigt ihn.
@@ -901,8 +692,7 @@ test("Ungespeicherte Arbeit meldet sich und legt sich nach dem Speichern still",
     const anfrage = route.request().postDataJSON() as {
       items: Array<{
         id?: string;
-        songId: string;
-        musicalVersionId: string;
+        liedId: string;
         note?: string;
       }>;
       rowVersion?: number;
@@ -967,14 +757,9 @@ test("Ungespeicherte Arbeit meldet sich und legt sich nach dem Speichern still",
   expect(puts).toHaveLength(1);
   expect(puts[0].rowVersion).toBe(4);
   expect(puts[0].items).toEqual([
-    {
-      id: punktA,
-      songId: lied1Id,
-      musicalVersionId: standardId,
-      note: "Erste Strophe langsam ansetzen.",
-    },
-    { id: punktB, songId: lied2Id, musicalVersionId: lied2FassungId, note: "" },
-    { id: punktC, songId: lied1Id, musicalVersionId: transponiertId, note: "" },
+    { id: punktA, liedId: lied1Id, note: "Erste Strophe langsam ansetzen." },
+    { id: punktB, liedId: lied2Id, note: "" },
+    { id: punktC, liedId: lied1Id, note: "" },
   ]);
 
   expect(errors).toEqual([]);
@@ -1175,8 +960,7 @@ test("Umordnen und Entfernen wandern in der PUT-Reihenfolge mit stabilen Ids", a
     const anfrage = route.request().postDataJSON() as {
       items: Array<{
         id?: string;
-        songId: string;
-        musicalVersionId: string;
+        liedId: string;
         note?: string;
       }>;
       rowVersion?: number;
@@ -1200,7 +984,7 @@ test("Umordnen und Entfernen wandern in der PUT-Reihenfolge mit stabilen Ids", a
   await programmVerwaltungAufklappen(page);
   await expect(page.locator(".programm-zeile")).toHaveCount(3);
 
-  // ↑ schiebt den dritten Eintrag (Lied 1 in der Transposition) um einen
+  // ↑ schiebt den dritten Eintrag (Lied 1, zum zweiten Mal) um einen
   // Platz nach vorn, zwischen Wiederholungsquelle und zweiten Lied.
   await page
     .locator(".programm-zeile")
@@ -1213,24 +997,9 @@ test("Umordnen und Entfernen wandern in der PUT-Reihenfolge mit stabilen Ids", a
   // Die Reihenfolge der Zeilen definiert die Positionen; die stabilen Ids
   // reisen unverändert mit, nichts wird neu angelegt.
   expect(puts[0].items).toEqual([
-    {
-      id: punktA,
-      songId: lied1Id,
-      musicalVersionId: standardId,
-      note: "Erste Strophe im Stehchoral.",
-    },
-    {
-      id: punktC,
-      songId: lied1Id,
-      musicalVersionId: transponiertId,
-      note: "",
-    },
-    {
-      id: punktB,
-      songId: lied2Id,
-      musicalVersionId: lied2FassungId,
-      note: "",
-    },
+    { id: punktA, liedId: lied1Id, note: "Erste Strophe im Stehchoral." },
+    { id: punktC, liedId: lied1Id, note: "" },
+    { id: punktB, liedId: lied2Id, note: "" },
   ]);
   expect(puts[0].rowVersion).toBe(4);
 
@@ -1245,18 +1014,8 @@ test("Umordnen und Entfernen wandern in der PUT-Reihenfolge mit stabilen Ids", a
   await expect(page.getByText("Programmentwurf gespeichert.")).toBeVisible();
   expect(puts).toHaveLength(2);
   expect(puts[1].items).toEqual([
-    {
-      id: punktC,
-      songId: lied1Id,
-      musicalVersionId: transponiertId,
-      note: "",
-    },
-    {
-      id: punktB,
-      songId: lied2Id,
-      musicalVersionId: lied2FassungId,
-      note: "",
-    },
+    { id: punktC, liedId: lied1Id, note: "" },
+    { id: punktB, liedId: lied2Id, note: "" },
   ]);
   expect(puts[1].rowVersion).toBe(5);
 
@@ -1281,8 +1040,7 @@ test("Nach der Veröffentlichung startet der Entwurf als Kopie ohne Ids", async 
     const anfrage = route.request().postDataJSON() as {
       items: Array<{
         id?: string;
-        songId: string;
-        musicalVersionId: string;
+        liedId: string;
         note?: string;
       }>;
       rowVersion?: number;
@@ -1323,27 +1081,15 @@ test("Nach der Veröffentlichung startet der Entwurf als Kopie ohne Ids", async 
   ).toBeVisible();
   await expect(page.locator(".programm-zeile")).toHaveCount(3);
 
-  // Sofortiges Speichern legt jeden Eintrag neu an: dieselben Liedfassun-
-  // gen, aber ohne Programmpunkt-Ids (frische Ids erzeugt der Vertrag).
+  // Sofortiges Speichern legt jeden Eintrag neu an: dieselben Lieder,
+  // aber ohne Programmpunkt-Ids (frische Ids erzeugt der Vertrag).
   await page.getByRole("button", { name: "Entwurf speichern" }).click();
   await expect(page.getByText("Programmentwurf gespeichert.")).toBeVisible();
   expect(puts).toHaveLength(1);
   expect(puts[0].items).toEqual([
-    {
-      songId: lied1Id,
-      musicalVersionId: standardId,
-      note: "Erste Strophe im Stehchoral.",
-    },
-    {
-      songId: lied2Id,
-      musicalVersionId: lied2FassungId,
-      note: "",
-    },
-    {
-      songId: lied1Id,
-      musicalVersionId: transponiertId,
-      note: "",
-    },
+    { liedId: lied1Id, note: "Erste Strophe im Stehchoral." },
+    { liedId: lied2Id, note: "" },
+    { liedId: lied1Id, note: "" },
   ]);
   // Concurrency-Anker: die rowVersion des veröffentlichten Standes.
   expect(puts[0].rowVersion).toBe(5);

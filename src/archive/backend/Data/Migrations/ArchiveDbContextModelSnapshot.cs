@@ -1059,6 +1059,9 @@ namespace Archive.Backend.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<Guid?>("LiedId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid?>("MusicalVersionId")
                         .HasColumnType("uuid");
 
@@ -1072,7 +1075,7 @@ namespace Archive.Backend.Data.Migrations
                         .IsConcurrencyToken()
                         .HasColumnType("bigint");
 
-                    b.Property<Guid>("SongId")
+                    b.Property<Guid?>("SongId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("SourceNote")
@@ -1092,6 +1095,8 @@ namespace Archive.Backend.Data.Migrations
                     b.HasIndex("ConfirmationId");
 
                     b.HasIndex("EventId");
+
+                    b.HasIndex("LiedId");
 
                     b.HasIndex("MusicalVersionId");
 
@@ -1153,10 +1158,13 @@ namespace Archive.Backend.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<Guid>("ArrangementId")
+                    b.Property<Guid?>("ArrangementId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid>("MusicalVersionId")
+                    b.Property<Guid?>("LiedId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("MusicalVersionId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("Note")
@@ -1169,12 +1177,14 @@ namespace Archive.Backend.Data.Migrations
                     b.Property<Guid>("RevisionId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid>("SongId")
+                    b.Property<Guid?>("SongId")
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
 
                     b.HasIndex("ArrangementId");
+
+                    b.HasIndex("LiedId");
 
                     b.HasIndex("MusicalVersionId");
 
@@ -1941,6 +1951,11 @@ namespace Archive.Backend.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Archive.Backend.Lieder.Lied", "Lied")
+                        .WithMany()
+                        .HasForeignKey("LiedId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Archive.Backend.Catalogue.MusicalVersion", "MusicalVersion")
                         .WithMany()
                         .HasForeignKey("MusicalVersionId")
@@ -1954,10 +1969,11 @@ namespace Archive.Backend.Data.Migrations
                     b.HasOne("Archive.Backend.Catalogue.Song", null)
                         .WithMany()
                         .HasForeignKey("SongId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("Event");
+
+                    b.Navigation("Lied");
 
                     b.Navigation("MusicalVersion");
                 });
@@ -1986,14 +2002,17 @@ namespace Archive.Backend.Data.Migrations
                     b.HasOne("Archive.Backend.Catalogue.Arrangement", null)
                         .WithMany()
                         .HasForeignKey("ArrangementId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Archive.Backend.Lieder.Lied", "Lied")
+                        .WithMany()
+                        .HasForeignKey("LiedId")
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("Archive.Backend.Catalogue.MusicalVersion", "MusicalVersion")
                         .WithMany()
                         .HasForeignKey("MusicalVersionId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("Archive.Backend.Events.ProgrammeRevision", "Revision")
                         .WithMany("Items")
@@ -2004,8 +2023,9 @@ namespace Archive.Backend.Data.Migrations
                     b.HasOne("Archive.Backend.Catalogue.Song", null)
                         .WithMany()
                         .HasForeignKey("SongId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Lied");
 
                     b.Navigation("MusicalVersion");
 

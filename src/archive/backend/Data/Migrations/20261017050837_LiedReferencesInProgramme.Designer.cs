@@ -12,8 +12,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Archive.Backend.Data.Migrations
 {
     [DbContext(typeof(ArchiveDbContext))]
-    [Migration("20261017104047_DateiExtraction")]
-    partial class DateiExtraction
+    [Migration("20261017050837_LiedReferencesInProgramme")]
+    partial class LiedReferencesInProgramme
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -1062,6 +1062,9 @@ namespace Archive.Backend.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<Guid?>("LiedId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid?>("MusicalVersionId")
                         .HasColumnType("uuid");
 
@@ -1075,7 +1078,7 @@ namespace Archive.Backend.Data.Migrations
                         .IsConcurrencyToken()
                         .HasColumnType("bigint");
 
-                    b.Property<Guid>("SongId")
+                    b.Property<Guid?>("SongId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("SourceNote")
@@ -1095,6 +1098,8 @@ namespace Archive.Backend.Data.Migrations
                     b.HasIndex("ConfirmationId");
 
                     b.HasIndex("EventId");
+
+                    b.HasIndex("LiedId");
 
                     b.HasIndex("MusicalVersionId");
 
@@ -1156,10 +1161,13 @@ namespace Archive.Backend.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<Guid>("ArrangementId")
+                    b.Property<Guid?>("ArrangementId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid>("MusicalVersionId")
+                    b.Property<Guid?>("LiedId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("MusicalVersionId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("Note")
@@ -1172,12 +1180,14 @@ namespace Archive.Backend.Data.Migrations
                     b.Property<Guid>("RevisionId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid>("SongId")
+                    b.Property<Guid?>("SongId")
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
 
                     b.HasIndex("ArrangementId");
+
+                    b.HasIndex("LiedId");
 
                     b.HasIndex("MusicalVersionId");
 
@@ -1227,7 +1237,10 @@ namespace Archive.Backend.Data.Migrations
 
             modelBuilder.Entity("Archive.Backend.Extraction.ExtractionJob", b =>
                 {
-                    b.Property<Guid>("DateiId")
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AssetId")
                         .HasColumnType("uuid");
 
                     b.Property<int>("AttemptCount")
@@ -1270,7 +1283,7 @@ namespace Archive.Backend.Data.Migrations
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.HasKey("DateiId");
+                    b.HasKey("RevisionId");
 
                     b.ToTable("extraction_jobs", (string)null);
                 });
@@ -1431,7 +1444,10 @@ namespace Archive.Backend.Data.Migrations
 
             modelBuilder.Entity("Archive.Backend.Reading.ReadingJob", b =>
                 {
-                    b.Property<Guid>("DateiId")
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AssetId")
                         .HasColumnType("uuid");
 
                     b.Property<int>("AttemptCount")
@@ -1481,7 +1497,7 @@ namespace Archive.Backend.Data.Migrations
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.HasKey("DateiId");
+                    b.HasKey("RevisionId");
 
                     b.HasIndex("Status");
 
@@ -1944,6 +1960,11 @@ namespace Archive.Backend.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Archive.Backend.Lieder.Lied", "Lied")
+                        .WithMany()
+                        .HasForeignKey("LiedId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Archive.Backend.Catalogue.MusicalVersion", "MusicalVersion")
                         .WithMany()
                         .HasForeignKey("MusicalVersionId")
@@ -1957,10 +1978,11 @@ namespace Archive.Backend.Data.Migrations
                     b.HasOne("Archive.Backend.Catalogue.Song", null)
                         .WithMany()
                         .HasForeignKey("SongId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("Event");
+
+                    b.Navigation("Lied");
 
                     b.Navigation("MusicalVersion");
                 });
@@ -1989,14 +2011,17 @@ namespace Archive.Backend.Data.Migrations
                     b.HasOne("Archive.Backend.Catalogue.Arrangement", null)
                         .WithMany()
                         .HasForeignKey("ArrangementId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Archive.Backend.Lieder.Lied", "Lied")
+                        .WithMany()
+                        .HasForeignKey("LiedId")
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("Archive.Backend.Catalogue.MusicalVersion", "MusicalVersion")
                         .WithMany()
                         .HasForeignKey("MusicalVersionId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("Archive.Backend.Events.ProgrammeRevision", "Revision")
                         .WithMany("Items")
@@ -2007,8 +2032,9 @@ namespace Archive.Backend.Data.Migrations
                     b.HasOne("Archive.Backend.Catalogue.Song", null)
                         .WithMany()
                         .HasForeignKey("SongId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Lied");
 
                     b.Navigation("MusicalVersion");
 
@@ -2028,13 +2054,13 @@ namespace Archive.Backend.Data.Migrations
 
             modelBuilder.Entity("Archive.Backend.Extraction.ExtractionJob", b =>
                 {
-                    b.HasOne("Archive.Backend.Lieder.Datei", "Datei")
+                    b.HasOne("Archive.Backend.Assets.FileRevision", "Revision")
                         .WithMany()
-                        .HasForeignKey("DateiId")
+                        .HasForeignKey("RevisionId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.Navigation("Datei");
+                    b.Navigation("Revision");
                 });
 
             modelBuilder.Entity("Archive.Backend.Lieder.Datei", b =>
@@ -2063,13 +2089,13 @@ namespace Archive.Backend.Data.Migrations
 
             modelBuilder.Entity("Archive.Backend.Reading.ReadingJob", b =>
                 {
-                    b.HasOne("Archive.Backend.Lieder.Datei", "Datei")
+                    b.HasOne("Archive.Backend.Assets.FileRevision", "Revision")
                         .WithMany()
-                        .HasForeignKey("DateiId")
+                        .HasForeignKey("RevisionId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.Navigation("Datei");
+                    b.Navigation("Revision");
                 });
 
             modelBuilder.Entity("Archive.Backend.Recordings.Recording", b =>

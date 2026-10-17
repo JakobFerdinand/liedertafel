@@ -232,7 +232,7 @@ export async function patchEventAsset(
 
 // ─── ARC-026: Programm des Auftritts ─────────────────────────────────
 // Ein Programm gehört zu genau einem Auftritt; ein Programmpunkt verweist
-// auf eine Liedfassung (Arrangement + musikalische Version). Dasselbe
+// auf ein Lied (#170). Dasselbe
 // Lied darf doppelt stehen — zwei eigene Einträge mit eigener stabiler
 // Programmpunkt-Id. Vor der ersten Veröffentlichung sehen Mitglieder
 // nichts (das eingebettete Programm bleibt null).
@@ -242,15 +242,12 @@ export type ProgrammPunkt = {
   // behalten sie über ein Speichern hinweg (ganzer geordneter Ersatz).
   id: string;
   position: number;
-  songId: string;
-  arrangementId: string;
-  musicalVersionId: string;
-  // Anzeigefelder aus der Kette; Unbekanntes bleibt null (keine
+  // Null nur bei historischen Einträgen aus dem alten Katalog (bis #172).
+  liedId: string | null;
+  // Anzeigefelder aus dem Lied; Unbekanntes bleibt null (keine
   // erfundenen Plätze).
-  songTitle: string | null;
-  arrangementLabel: string | null;
+  liedTitle: string | null;
   voiceConfiguration: string | null;
-  musicalVersionLabel: string | null;
   musicalKey: string | null;
   note: string | null;
 };
@@ -323,8 +320,7 @@ export async function putProgrammItems(
   body: {
     items: Array<{
       id?: string;
-      songId: string;
-      musicalVersionId: string;
+      liedId: string;
       note?: string;
     }>;
     rowVersion?: number;
@@ -385,49 +381,22 @@ export function publishedAtText(zeitstempel: string): string {
   });
 }
 
-/**
- * Tief verlinkte Liedseite des Programmpunkts: das Mitglied landet direkt
- * bei der Liedfassung und musikalischen Version des Eintrags.
- */
-export function programmPunktUrl(punkt: ProgrammPunkt): string {
-  const parameter = new URLSearchParams();
-  parameter.set("id", punkt.songId);
-  parameter.set("fassung", punkt.arrangementId);
-  parameter.set("version", punkt.musicalVersionId);
-  return `/lied/?${parameter.toString()}`;
-}
-
-/**
- * Tief verlinkte Liedseite des Aufführungsnachweises (ARC-028): mit
- * bekannter Fassungskette fahren Fassung und Version in der Adresse
- * (dieselbe Rezeptur wie der Programmpunkt); ohne Kette weist der Port
- * nur auf das Lied — nichts wird erfunden.
- */
-export function nachweisUrl(beleg: Nachweis): string {
-  const parameter = new URLSearchParams();
-  parameter.set("id", beleg.songId);
-  if (beleg.arrangementId && beleg.musicalVersionId) {
-    parameter.set("fassung", beleg.arrangementId);
-    parameter.set("version", beleg.musicalVersionId);
-  }
-  const query = parameter.toString();
-  return query ? `/lied/?${query}` : "/lied/";
+/** Liedseite eines Lieds; ohne Lied (historischer Eintrag) kein Link. */
+export function liedUrl(liedId: string | null): string | null {
+  return liedId ? `/lied/?id=${encodeURIComponent(liedId)}` : null;
 }
 
 // ─── ARC-028: Aufführungsnachweise ───────────────────────────────────
 // Nachweise sammeln die überlieferten Belege eines Auftritts: eine
 // bestätigte Aufführung („confirmed“) oder nur ein unverifizierter
-// Programmhinweis („mention“). Die Fassungskette (Arrangement +
-// musikalische Version) ist optional — ohne sie bleiben beide Ids null
-// („Fassung unbekannt“). Die Einbettung liest sich aus den
+// Programmhinweis („mention“). Ein Nachweis nennt ein Lied (#170). Die Einbettung liest sich aus den
 // Auftrittsdetails hinter `programme`; ältere Antworten ohne das Feld
 // bleiben zulässig.
 
 export type Nachweis = {
   id: string;
-  songId: string;
-  arrangementId: string | null;
-  musicalVersionId: string | null;
+  liedId: string | null;
+  liedTitle: string | null;
   evidenceStatus: string;
   position: number;
 };
@@ -453,12 +422,10 @@ export type AuftrittDetailsMitBelegen = AuftrittDetails & {
   performances?: Nachweis[] | null;
 };
 
-/** Körper des Erfassungsaufrufs: die Fassungskette entfällt bei
-    „Fassung unbekannt“, leere Quellenangaben werden weggelassen. */
+/** Körper des Erfassungsaufrufs: leere Quellenangaben werden weggelassen. */
 export type NachweisErfassung = {
-  songId: string;
+  liedId: string;
   evidenceStatus: string;
-  musicalVersionId?: string;
   sourceNote?: string;
   // Wiederholungsschlüssel gegen verlorene Doppelklicks: derselbe
   // Schlüssel liefert denselben Nachweis zurück, statt neu anzulegen.
@@ -466,10 +433,9 @@ export type NachweisErfassung = {
 };
 
 /** PATCH-Körper: abwesend = unverändert, explizit null räumt ab
-    (musicalVersionId null klart die Kette, sourceNote null die Angabe). */
+    (sourceNote null die Angabe). */
 export type NachweisAenderung = {
   evidenceStatus?: string;
-  musicalVersionId?: string | null;
   sourceNote?: string | null;
   rowVersion: number;
 };
@@ -493,7 +459,7 @@ export async function posteNachweis(
 }
 
 /**
- * Ändert Nachweisart, Fassungskette und/oder Quellenangabe (PATCH:
+ * Ändert Nachweisart und/oder Quellenangabe (PATCH:
  * abwesende Felder bleiben unverändert). Ein veralteter rowVersion-Stand
  * antwortet mit 409 — der frische Stand kommt dann über den Eltern-Nachlauf.
  */
@@ -529,13 +495,9 @@ export async function loescheNachweis(id: string): Promise<void> {
 // getrennt.
 
 export type BestaetigungFassung = {
-  songId: string;
-  songTitle: string | null;
-  arrangementId: string | null;
-  musicalVersionId: string | null;
-  arrangementLabel: string | null;
+  liedId: string | null;
+  liedTitle: string | null;
   voiceConfiguration: string | null;
-  musicalVersionLabel: string | null;
   musicalKey: string | null;
 };
 
@@ -545,9 +507,6 @@ export type BestaetigungIst = BestaetigungFassung & {
   programmeItemId: string | null;
   // Zusätzlich zum Plan gesungen (Zugabe).
   added: boolean;
-  // Eine andere Fassung als geplant wurde gesungen.
-  differsFromPlan: boolean;
-  plannedMusicalVersionLabel: string | null;
   evidenceStatus: string;
 };
 
@@ -593,7 +552,7 @@ export type BestaetigungPunkt = BestaetigungFassung & {
   // Nach einer Neuveröffentlichung: bisheriger Nachweis desselben Liedes,
   // den die Redaktion ausdrücklich übernehmen kann.
   suggestedPerformanceId: string | null;
-  // Dieser Vorschlag samt Fassungskette und Marke; er kann ein früherer
+  // Dieser Vorschlag samt Marke; er kann ein früherer
   // Nachweis (nach einer Neuveröffentlichung) oder ein von Hand erfasster
   // Nachweis desselben Liedes sein.
   suggestedPerformance: BestaetigungNachweis | null;
@@ -628,8 +587,6 @@ export type BestaetigungEintrag = {
   outcome: "sung" | "skipped";
   performanceId?: string;
   rowVersion?: number;
-  // Korrigierte Fassung desselben Liedes; abwesend = wie geplant.
-  musicalVersionId?: string;
 };
 
 export type BestaetigungZusatz = {
@@ -637,8 +594,7 @@ export type BestaetigungZusatz = {
   // Client-Schlüssel gegen Doppelanlage: derselbe Schlüssel liefert
   // denselben Nachweis zurück.
   clientKey?: string;
-  songId: string;
-  musicalVersionId?: string;
+  liedId: string;
   rowVersion?: number;
 };
 
@@ -686,19 +642,4 @@ export async function putBestaetigung(
   if (!response.ok) throw response;
   const data = (await response.json()) as { review: BestaetigungPruefung };
   return data.review;
-}
-
-/** Tiefer Leseport auf die gesungene Fassung; ohne Kette nur aufs Lied. */
-export function bestaetigungUrl(eintrag: {
-  songId: string;
-  arrangementId: string | null;
-  musicalVersionId: string | null;
-}): string {
-  const parameter = new URLSearchParams();
-  parameter.set("id", eintrag.songId);
-  if (eintrag.arrangementId && eintrag.musicalVersionId) {
-    parameter.set("fassung", eintrag.arrangementId);
-    parameter.set("version", eintrag.musicalVersionId);
-  }
-  return `/lied/?${parameter.toString()}`;
 }

@@ -94,7 +94,7 @@ public static class RecordingPassages
 		IQueryable<RecordingPassage> passages, CancellationToken token) =>
 		await passages
 			.Select(p => new PassageRow(p.Id, p.RecordingId, p.Recording.Label, p.Recording.Kind,
-				p.Recording.PublishedAt != null, p.EventId, p.PerformanceId, p.Performance.SongId,
+				p.Recording.PublishedAt != null, p.EventId, p.PerformanceId, p.Performance.LiedId ?? p.Performance.SongId ?? Guid.Empty,
 				p.Performance.ArrangementId, p.Performance.MusicalVersionId, p.Performance.Position,
 				p.Performance.EvidenceStatus, p.StartSeconds, p.EndSeconds, p.PlaybackRevisionId,
 				p.RowVersion, p.UpdatedAt))
@@ -121,6 +121,14 @@ public static class RecordingPassages
 			: (await db.Songs.AsNoTracking().Where(s => songIds.Contains(s.Id))
 				.Select(s => new { s.Id, s.Title, Published = s.PublishedAt != null })
 				.ToListAsync(token)).ToDictionary(s => s.Id, s => (s.Title, s.Published));
+		// #170: an occurrence names a Lied or, on historical rows, a song; the
+		// id in `songIds` is whichever it has (ids are globally unique).
+		if (songIds.Count > 0)
+		{
+			foreach (var lied in await db.Lieder.AsNoTracking().Where(l => songIds.Contains(l.Id))
+				.Select(l => new { l.Id, l.Title }).ToListAsync(token))
+				songs[lied.Id] = (lied.Title, true);
+		}
 		var arrangements = arrangementIds.Count == 0
 			? []
 			: (await db.Arrangements.AsNoTracking().Where(a => arrangementIds.Contains(a.Id))
@@ -231,7 +239,7 @@ public static class RecordingPassages
 			{
 				p.RecordingId,
 				p.PlaybackRevisionId,
-				p.Performance.SongId,
+				SongId = p.Performance.LiedId ?? p.Performance.SongId ?? Guid.Empty,
 				p.Performance.ArrangementId,
 				p.Performance.MusicalVersionId,
 			})
@@ -258,13 +266,16 @@ public static class RecordingPassages
 			return null;
 		var rows = await db.RecordingPassages.AsNoTracking()
 			.Where(p => performanceIds.Contains(p.PerformanceId))
-			.Select(p => new { p.Performance.SongId, Recording = p.Recording.Label })
+			.Select(p => new { SongId = p.Performance.LiedId ?? p.Performance.SongId ?? Guid.Empty, Recording = p.Recording.Label })
 			.ToListAsync(token);
 		if (rows.Count == 0)
 			return null;
 		var songIds = rows.Select(r => r.SongId).Distinct().ToList();
 		var titles = await db.Songs.AsNoTracking().Where(s => songIds.Contains(s.Id))
 			.ToDictionaryAsync(s => s.Id, s => s.Title, token);
+		foreach (var lied in await db.Lieder.AsNoTracking().Where(l => songIds.Contains(l.Id))
+			.Select(l => new { l.Id, l.Title }).ToListAsync(token))
+			titles[lied.Id] = lied.Title;
 		var entries = rows
 			.Select(r => $"„{titles.GetValueOrDefault(r.SongId, "Ohne Titel")}“ in „{r.Recording}“")
 			.Distinct().OrderBy(e => e, StringComparer.CurrentCulture).ToList();
