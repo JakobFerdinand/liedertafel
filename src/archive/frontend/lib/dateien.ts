@@ -154,3 +154,80 @@ export function inhaltstypFuerDatei(datei: File): string {
   if (nachEndung) return nachEndung;
   return datei.type.toLowerCase() || "application/octet-stream";
 }
+
+// Ersetzen, Löschen und Papierkorb (#168).
+
+/** Ersetzt eine Datei durch eine neue; Art, Stimme und Partitur bleiben. */
+export async function ersetzeDatei(
+  liedId: string,
+  alt: LiedDatei,
+  datei: File,
+  onSchritt?: (schritt: MaterialSchritt) => void,
+  optionen: UebertragungOptionen = {},
+): Promise<LiedDatei> {
+  const contentType =
+    alt.kind === "noten" ? "application/pdf" : inhaltstypFuerDatei(datei);
+  const antwort = await uebertrageDatei<{ datei: LiedDatei }>(
+    `lied-${liedId}-ersetzen-${alt.id}`,
+    datei,
+    contentType,
+    onSchritt,
+    {
+      ...optionen,
+      neueSitzung: async (identitaet) => {
+        const response = await postAuth(
+          `/api/lieder/${encodeURIComponent(liedId)}/dateien/upload-session`,
+          {
+            kind: alt.kind,
+            replacesDateiId: alt.id,
+            contentType,
+            ...identitaet,
+          },
+        );
+        if (!response.ok) throw response;
+        return (await response.json()) as UploadSessionResponse;
+      },
+    },
+  );
+  return antwort.datei;
+}
+
+/** Verschiebt eine Datei in den Papierkorb. */
+export async function loescheDatei(
+  dateiId: string,
+  rowVersion: number | undefined,
+): Promise<void> {
+  const response = await postAuth(
+    `/api/dateien/${encodeURIComponent(dateiId)}/delete`,
+    { rowVersion },
+  );
+  if (!response.ok) throw response;
+}
+
+export type PapierkorbEintrag = {
+  id: string;
+  kind: DateiArt;
+  isPartitur: boolean;
+  stimme: string | null;
+  fileName: string | null;
+  sizeBytes: number;
+  liedId: string | null;
+  liedTitle: string | null;
+  eventId: string | null;
+  eventTitle: string | null;
+  deletedAt: string;
+  deletedBy: string | null;
+  replaced: boolean;
+};
+
+export async function fetchPapierkorb(
+  signal?: AbortSignal,
+): Promise<PapierkorbEintrag[]> {
+  const response = await fetch("/api/papierkorb", {
+    credentials: "same-origin",
+    cache: "no-store",
+    signal,
+  });
+  if (!response.ok) throw response;
+  return ((await response.json()) as { dateien: PapierkorbEintrag[] }).dateien;
+}

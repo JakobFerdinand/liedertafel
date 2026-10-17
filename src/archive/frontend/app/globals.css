@@ -3123,3 +3123,20 @@ details.aufnahme-anlegen {
 .verwaltung-werkzeuge a {
   text-decoration: underline;
 }
+
+/* #168: Ersetzen/Löschen und Papierkorb */
+.datei-aktionen {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-block: 0 0.8rem;
+}
+.datei-aktionen button {
+  min-height: 2.75rem;
+}
+.papierkorb-liste {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}

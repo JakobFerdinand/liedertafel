@@ -147,7 +147,11 @@ export function LiedDetail() {
 
       <section className="noten-bereich materialien" aria-label="Dateien">
         <h3 id="material-titel">Dateien</h3>
-        <DateiListe dateien={lied.dateien} />
+        <DateiListe
+          dateien={lied.dateien}
+          liedId={editor ? lied.id : undefined}
+          onGeaendert={editor ? () => void dateienAktualisieren() : undefined}
+        />
       </section>
 
       {editor && (

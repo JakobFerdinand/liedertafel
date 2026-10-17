@@ -27,6 +27,8 @@ export type LiedDatei = {
   contentType: string;
   sizeBytes: number;
   createdAt: string;
+  /** Prüfstand für Löschen und Ersetzen (#168). */
+  rowVersion?: number;
   /** Auftritt, bei dem eine Aufnahme entstand (nur wenn sichtbar). */
   recordedAtEvent?: { id: string; title: string; dateDisplay: string } | null;
 };
