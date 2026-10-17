@@ -35,6 +35,8 @@ public static class LiedEndpoints
 
 	public const string UnknownDateiTypMessage = "Unbekannter Dateityp.";
 
+	public const string ForbiddenMessage = "Keine Berechtigung für das Liedverzeichnis.";
+
 	public const string ConcurrencyMessage = "Der Eintrag wurde zwischenzeitlich geändert.";
 
 	public const int FieldMaxLength = 200;
@@ -370,7 +372,7 @@ internal static class LiedAccess
 		if (error is not null)
 			return (null, error);
 		if (!IsEditor(decision!))
-			return (null, Results.Problem(statusCode: 403, title: CatalogueEndpoints.ForbiddenMessage));
+			return (null, Results.Problem(statusCode: 403, title: LiedEndpoints.ForbiddenMessage));
 		return (decision, null);
 	}
 }

@@ -265,13 +265,13 @@ public static class RecordingEndpoints
 			{
 				DateiTrash.MoveToTrash(datei, decision.AccountId, now);
 				await db.SaveChangesAsync(token);
-				return Results.Problem(statusCode: 422, title: AssetEndpoints.EmptyRecordingMessage);
+				return Results.Problem(statusCode: 422, title: UploadEndpoints.EmptyRecordingMessage);
 			}
 			if (!isOriginal && !RecordingFormats.IsPlayable(datei.ContentType, recording.Kind))
 			{
 				DateiTrash.MoveToTrash(datei, decision.AccountId, now);
 				await db.SaveChangesAsync(token);
-				return Results.Problem(statusCode: 422, title: AssetEndpoints.InvalidPlaybackMessage);
+				return Results.Problem(statusCode: 422, title: UploadEndpoints.InvalidPlaybackMessage);
 			}
 			var playedBefore = RecordingFiles.Resolve(recording).Playable?.Id;
 			var replaced = isOriginal ? recording.OriginalDatei : recording.PlaybackDatei;
@@ -348,7 +348,7 @@ public static class RecordingEndpoints
 			}
 			catch (InvalidOperationException)
 			{
-				return Results.Problem(statusCode: 502, title: AssetEndpoints.StorageFailureMessage);
+				return Results.Problem(statusCode: 502, title: UploadEndpoints.StorageFailureMessage);
 			}
 			return Results.Ok(new
 			{

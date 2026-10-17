@@ -81,13 +81,13 @@ public static class DateiUploads
 			return Results.Problem(statusCode: 400, title: StimmeRequiredMessage);
 		var description = Clean(body?.Description) ?? replaces?.Description;
 		if (description is { Length: > 500 })
-			return Results.Problem(statusCode: 400, title: AssetEndpoints.DescriptionTooLongMessage);
+			return Results.Problem(statusCode: 400, title: UploadEndpoints.DescriptionTooLongMessage);
 		var fileName = Clean(body?.FileName);
 		if (fileName is { Length: > 300 })
-			return Results.Problem(statusCode: 400, title: AssetEndpoints.FileNameTooLongMessage);
+			return Results.Problem(statusCode: 400, title: UploadEndpoints.FileNameTooLongMessage);
 		var declaredSize = body?.SizeBytes;
 		if (declaredSize > storageOptions.MaxUploadBytes)
-			return Results.Problem(statusCode: 413, title: AssetEndpoints.UploadTooLargeMessage);
+			return Results.Problem(statusCode: 413, title: UploadEndpoints.UploadTooLargeMessage);
 
 		// Collection budget per Lied: stored Dateien (the trash still holds
 		// bytes) plus the other pending sessions plus this declaration.
@@ -97,7 +97,7 @@ public static class DateiUploads
 		var storedBytes = await db.Dateien.Where(d => d.LiedId == liedId)
 			.SumAsync(d => (long?)d.SizeBytes, token) ?? 0;
 		if ((declaredSize ?? 0) + pendingBytes + storedBytes > storageOptions.MaxCollectionBytes)
-			return Results.Problem(statusCode: 413, title: AssetEndpoints.UploadTooLargeMessage);
+			return Results.Problem(statusCode: 413, title: UploadEndpoints.UploadTooLargeMessage);
 
 		var now = time.GetUtcNow();
 		var pending = new PendingUpload
@@ -128,7 +128,7 @@ public static class DateiUploads
 		}
 		catch (InvalidOperationException)
 		{
-			return Results.Problem(statusCode: 502, title: AssetEndpoints.StorageFailureMessage);
+			return Results.Problem(statusCode: 502, title: UploadEndpoints.StorageFailureMessage);
 		}
 		return Results.Created($"/api/lieder/{liedId}", new
 		{
@@ -184,20 +184,20 @@ public static class DateiUploads
 		}
 		var description = Clean(body?.Description) ?? replaces?.Description;
 		if (description is { Length: > 500 })
-			return Results.Problem(statusCode: 400, title: AssetEndpoints.DescriptionTooLongMessage);
+			return Results.Problem(statusCode: 400, title: UploadEndpoints.DescriptionTooLongMessage);
 		var fileName = Clean(body?.FileName);
 		if (fileName is { Length: > 300 })
-			return Results.Problem(statusCode: 400, title: AssetEndpoints.FileNameTooLongMessage);
+			return Results.Problem(statusCode: 400, title: UploadEndpoints.FileNameTooLongMessage);
 		var declaredSize = body?.SizeBytes;
 		if (declaredSize > storageOptions.MaxUploadBytes)
-			return Results.Problem(statusCode: 413, title: AssetEndpoints.UploadTooLargeMessage);
+			return Results.Problem(statusCode: 413, title: UploadEndpoints.UploadTooLargeMessage);
 		var pendingBytes = await db.UploadSessions
 			.Where(s => s.EventId == eventId && s.State == PendingUploadState.Pending)
 			.SumAsync(s => (long?)(s.DeclaredSizeBytes ?? s.MaxSizeBytes), token) ?? 0;
 		var storedBytes = await db.Dateien.Where(d => d.EventId == eventId)
 			.SumAsync(d => (long?)d.SizeBytes, token) ?? 0;
 		if ((declaredSize ?? 0) + pendingBytes + storedBytes > storageOptions.MaxCollectionBytes)
-			return Results.Problem(statusCode: 413, title: AssetEndpoints.UploadTooLargeMessage);
+			return Results.Problem(statusCode: 413, title: UploadEndpoints.UploadTooLargeMessage);
 
 		var now = time.GetUtcNow();
 		var pending = new PendingUpload
@@ -225,7 +225,7 @@ public static class DateiUploads
 		}
 		catch (InvalidOperationException)
 		{
-			return Results.Problem(statusCode: 502, title: AssetEndpoints.StorageFailureMessage);
+			return Results.Problem(statusCode: 502, title: UploadEndpoints.StorageFailureMessage);
 		}
 		return Results.Created($"/api/events/{eventId}", new
 		{
@@ -255,26 +255,26 @@ public static class DateiUploads
 				? await db.Dateien.AsNoTracking().FirstOrDefaultAsync(d => d.Id == finalizedId, token)
 				: null;
 			return existing is null
-				? Results.Problem(statusCode: 409, title: AssetEndpoints.ConcurrencyMessage)
+				? Results.Problem(statusCode: 409, title: UploadEndpoints.ConcurrencyMessage)
 				: Results.Ok(new { datei = DateiPayloads.Summary(existing) });
 		}
 		if (session.State == PendingUploadState.Cancelled)
-			return Results.Problem(statusCode: 409, title: AssetEndpoints.UploadCancelledMessage);
+			return Results.Problem(statusCode: 409, title: UploadEndpoints.UploadCancelledMessage);
 		if (session.State != PendingUploadState.Pending)
-			return Results.Problem(statusCode: 409, title: AssetEndpoints.UploadAbandonedMessage);
+			return Results.Problem(statusCode: 409, title: UploadEndpoints.UploadAbandonedMessage);
 		if (session.UploadTicketExpiresAt < time.GetUtcNow())
 		{
 			session.State = PendingUploadState.Abandoned;
 			await db.SaveChangesAsync(token);
-			return Results.Problem(statusCode: 409, title: AssetEndpoints.UploadExpiredMessage);
+			return Results.Problem(statusCode: 409, title: UploadEndpoints.UploadExpiredMessage);
 		}
 		var declaredSize = body?.SizeBytes;
 		var declaredFileName = body?.FileName?.Trim();
 		if (declaredSize is long requestedSize && session.DeclaredSizeBytes is long storedSize && requestedSize != storedSize)
-			return Results.Problem(statusCode: 409, title: AssetEndpoints.UploadMismatchMessage);
+			return Results.Problem(statusCode: 409, title: UploadEndpoints.UploadMismatchMessage);
 		if (!string.IsNullOrEmpty(declaredFileName) && session.DeclaredFileName is string storedName
 			&& !string.Equals(declaredFileName, storedName, StringComparison.Ordinal))
-			return Results.Problem(statusCode: 409, title: AssetEndpoints.UploadMismatchMessage);
+			return Results.Problem(statusCode: 409, title: UploadEndpoints.UploadMismatchMessage);
 		var kind = session.DateiKind ?? DateiKinds.Noten;
 		var rule = DateiKindRules.For(kind);
 		if (rule is null || (session.LiedId is null && session.EventId is null))
@@ -299,14 +299,14 @@ public static class DateiUploads
 		}
 		catch (InvalidOperationException)
 		{
-			return Results.Problem(statusCode: 502, title: AssetEndpoints.StorageFailureMessage);
+			return Results.Problem(statusCode: 502, title: UploadEndpoints.StorageFailureMessage);
 		}
 		if (probe is null)
-			return Results.Problem(statusCode: 409, title: AssetEndpoints.UploadMissingMessage);
+			return Results.Problem(statusCode: 409, title: UploadEndpoints.UploadMissingMessage);
 		if (probe.SizeBytes > session.MaxSizeBytes)
 		{
 			await AbandonAsync(db, storage, session, token);
-			return Results.Problem(statusCode: 413, title: AssetEndpoints.UploadTooLargeMessage);
+			return Results.Problem(statusCode: 413, title: UploadEndpoints.UploadTooLargeMessage);
 		}
 		var storedBytes = await db.Dateien
 			.Where(d => session.LiedId != null ? d.LiedId == session.LiedId : d.EventId == session.EventId)
@@ -314,12 +314,12 @@ public static class DateiUploads
 		if (probe.SizeBytes + storedBytes > storageOptions.MaxCollectionBytes)
 		{
 			await AbandonAsync(db, storage, session, token);
-			return Results.Problem(statusCode: 413, title: AssetEndpoints.UploadTooLargeMessage);
+			return Results.Problem(statusCode: 413, title: UploadEndpoints.UploadTooLargeMessage);
 		}
 		// A block-list commit reports no blob type, so the session's declared
 		// whitelisted type stands in, exactly as for asset revisions.
 		var storedContentType = probe.ContentType is { Length: > 0 } type
-			&& !string.Equals(type, AssetEndpoints.StorageDefaultContentType, StringComparison.OrdinalIgnoreCase)
+			&& !string.Equals(type, UploadEndpoints.StorageDefaultContentType, StringComparison.OrdinalIgnoreCase)
 				? type
 				: null;
 		var effectiveContentType = storedContentType ?? session.ContentType;
@@ -370,7 +370,7 @@ public static class DateiUploads
 		}
 		catch (Exception exception) when (exception is InvalidOperationException or TimeoutException)
 		{
-			return Results.Problem(statusCode: 502, title: AssetEndpoints.StorageFailureMessage);
+			return Results.Problem(statusCode: 502, title: UploadEndpoints.StorageFailureMessage);
 		}
 		db.Dateien.Add(datei);
 		session.State = PendingUploadState.Finalized;

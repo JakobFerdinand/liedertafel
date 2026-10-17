@@ -35,12 +35,12 @@ public static class DateiKindRules
 	private const string PptxType = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 
 	private static readonly string[] AudioTypes =
-		[AssetEndpoints.Mp3ContentType, "audio/mp4", "audio/x-m4a", "audio/wav", "audio/ogg"];
+		[UploadEndpoints.Mp3ContentType, "audio/mp4", "audio/x-m4a", "audio/wav", "audio/ogg"];
 
-	private static readonly string[] MidiTypes = [AssetEndpoints.MidiContentType, AssetEndpoints.XMidiContentType];
+	private static readonly string[] MidiTypes = [UploadEndpoints.MidiContentType, UploadEndpoints.XMidiContentType];
 
 	private static readonly string[] ImageTypes =
-		[AssetEndpoints.JpegContentType, AssetEndpoints.PngContentType, AssetEndpoints.WebpContentType];
+		[UploadEndpoints.JpegContentType, UploadEndpoints.PngContentType, UploadEndpoints.WebpContentType];
 
 	private static readonly string[] ZipDocumentTypes = [DocxType, XlsxType, PptxType];
 
@@ -51,7 +51,7 @@ public static class DateiKindRules
 	{
 		// Noten: PDF only, demanded by content type and the "%PDF-" prefix.
 		[DateiKinds.Noten] = new DateiKindRule(
-			[AssetEndpoints.PdfContentType],
+			[UploadEndpoints.PdfContentType],
 			InvalidPdfMessage,
 			(header, _) => IsPdf(header)),
 		// Übe-Datei: audio or MIDI, recognised from the leading bytes.
@@ -66,7 +66,7 @@ public static class DateiKindRules
 			(header, type) => MatchesMedia(header, type, video: type.StartsWith("video/", StringComparison.Ordinal))),
 		// Sonstiges: a short whitelist of document and image types, downloaded not played.
 		[DateiKinds.Sonstiges] = new DateiKindRule(
-			[AssetEndpoints.PdfContentType, .. ImageTypes, "text/plain", .. ZipDocumentTypes],
+			[UploadEndpoints.PdfContentType, .. ImageTypes, "text/plain", .. ZipDocumentTypes],
 			InvalidSonstigesMessage,
 			MatchesDocument),
 	};
@@ -104,10 +104,10 @@ public static class DateiKindRules
 		var span = header.AsSpan();
 		return contentType.ToLowerInvariant() switch
 		{
-			AssetEndpoints.PdfContentType => IsPdf(header),
-			AssetEndpoints.JpegContentType => span.Length >= 3 && span[0] == 0xFF && span[1] == 0xD8 && span[2] == 0xFF,
-			AssetEndpoints.PngContentType => span.StartsWith(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }),
-			AssetEndpoints.WebpContentType => span.Length >= 12 && span.StartsWith("RIFF"u8) && span.Slice(8, 4).SequenceEqual("WEBP"u8),
+			UploadEndpoints.PdfContentType => IsPdf(header),
+			UploadEndpoints.JpegContentType => span.Length >= 3 && span[0] == 0xFF && span[1] == 0xD8 && span[2] == 0xFF,
+			UploadEndpoints.PngContentType => span.StartsWith(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }),
+			UploadEndpoints.WebpContentType => span.Length >= 12 && span.StartsWith("RIFF"u8) && span.Slice(8, 4).SequenceEqual("WEBP"u8),
 			"text/plain" => span.IndexOf((byte)0) < 0,
 			_ => span.StartsWith(new byte[] { 0x50, 0x4B, 0x03, 0x04 }),
 		};

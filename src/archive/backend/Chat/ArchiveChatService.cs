@@ -261,7 +261,7 @@ public sealed class ArchiveChatService(
 			// derived from THIS run's tool results whose title the answer
 			// cites with an inline [Quelle: …] marker, already validated by
 			// the citation filter against this same authorized result set.
-			var citations = BuildCitations(state.ToolSongs, answer.ToString());
+			var citations = BuildCitations(state.ToolLieder, answer.ToString());
 			if (citations.Count > 0)
 				await writer.WriteAsync(BuildCitationsEvent(citations), CancellationToken.None);
 		}
@@ -335,7 +335,7 @@ public sealed class ArchiveChatService(
 		{
 			resultJson = "{}";
 		}
-		state.CollectToolSongs(resultJson);
+		state.CollectToolLieder(resultJson);
 		return resultJson;
 	}
 
@@ -344,18 +344,18 @@ public sealed class ArchiveChatService(
 	/// the answer cites with an inline [Quelle: Titel] marker. The comparison
 	/// folds both sides so umlauts/quote variants cannot break the match.
 	/// </summary>
-	private static List<ToolSong> BuildCitations(List<ToolSong> toolSongs, string answer)
+	private static List<ToolLied> BuildCitations(List<ToolLied> toolLieder, string answer)
 	{
-		if (toolSongs.Count == 0 || answer.Length == 0)
+		if (toolLieder.Count == 0 || answer.Length == 0)
 			return [];
 		var foldedAnswer = CatalogueText.Fold(answer);
-		var cited = new List<ToolSong>();
-		foreach (var song in toolSongs)
+		var cited = new List<ToolLied>();
+		foreach (var lied in toolLieder)
 		{
-			if (cited.Any(c => c.Id == song.Id))
+			if (cited.Any(c => c.Id == lied.Id))
 				continue;
-			if (foldedAnswer.Contains(CatalogueText.Fold(CitationMarkerPrefix + song.Title + "]")))
-				cited.Add(song);
+			if (foldedAnswer.Contains(CatalogueText.Fold(CitationMarkerPrefix + lied.Title + "]")))
+				cited.Add(lied);
 		}
 		return cited;
 	}
@@ -377,7 +377,7 @@ public sealed class ArchiveChatService(
 	};
 
 	/// <summary>The AG-UI custom event carrying the citation chips.</summary>
-	private static ChatResponseUpdate BuildCitationsEvent(List<ToolSong> citations)
+	private static ChatResponseUpdate BuildCitationsEvent(List<ToolLied> citations)
 	{
 		var payload = JsonSerializer.Serialize(citations.Select(c => new { id = c.Id, label = c.Title }));
 		return new ChatResponseUpdate

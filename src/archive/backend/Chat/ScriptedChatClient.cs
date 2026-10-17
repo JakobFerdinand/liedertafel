@@ -107,7 +107,7 @@ public sealed class ScriptedChatClient : IChatClient
 			if (asksHistory && calledTool == SearchToolName)
 			{
 				var wanted = HistoryTitle(askedQuestion, conversation);
-				var found = ParseSongs(result.Result);
+				var found = ParseLieder(result.Result);
 				var lied = found.FirstOrDefault(l => CatalogueFold(l.Title) == CatalogueFold(wanted ?? string.Empty))
 					?? found.FirstOrDefault();
 				if (lied is not null)
@@ -126,7 +126,7 @@ public sealed class ScriptedChatClient : IChatClient
 			// from the lookup result as usual.
 			var cardSource = asksHistory ? DetailsToolName : SearchToolName;
 			if (offersCards && (asksHistory || AsksForCard(askedQuestion)) && calledTool == cardSource
-				&& ParseSongs(result.Result) is [{ } first, ..])
+				&& ParseLieder(result.Result) is [{ } first, ..])
 			{
 				yield return new ChatResponseUpdate
 				{
@@ -221,8 +221,8 @@ public sealed class ScriptedChatClient : IChatClient
 	private static List<ChatResponseUpdate> AnswerFromToolResults(FunctionResultContent result, bool history)
 	{
 		var updates = new List<ChatResponseUpdate>();
-		var songs = ParseSongs(result.Result);
-		if (songs.Count == 0)
+		var lieder = ParseLieder(result.Result);
+		if (lieder.Count == 0)
 		{
 			updates.Add(Text(UnknownAnswer));
 			updates.Add(Usage(result.Result?.ToString() ?? string.Empty, UnknownAnswer));
@@ -232,7 +232,7 @@ public sealed class ScriptedChatClient : IChatClient
 		var embeddedInstruction = false;
 		if (history && result.Result is string detailsJson)
 		{
-			var lied = songs[0];
+			var lied = lieder[0];
 			builder.Append(HistorySentences(lied.Title, detailsJson));
 			builder.Append(' ').Append(CitationMarkerPrefix).Append(lied.Title).Append(']');
 			var historyAnswer = builder.ToString().TrimEnd();
@@ -240,11 +240,11 @@ public sealed class ScriptedChatClient : IChatClient
 			updates.Add(Usage(detailsJson, historyAnswer));
 			return updates;
 		}
-		foreach (var song in songs)
+		foreach (var lied in lieder)
 		{
-			builder.Append("Der Titel „").Append(song.Title).Append("“ ist im Archiv verzeichnet.");
-			builder.Append(' ').Append(CitationMarkerPrefix).Append(song.Title).Append("] ");
-			if (song.LyricsExcerpt is not null && song.LyricsExcerpt.Contains(EmbeddedInstructionMarker, StringComparison.OrdinalIgnoreCase))
+			builder.Append("Der Titel „").Append(lied.Title).Append("“ ist im Archiv verzeichnet.");
+			builder.Append(' ').Append(CitationMarkerPrefix).Append(lied.Title).Append("] ");
+			if (lied.LyricsExcerpt is not null && lied.LyricsExcerpt.Contains(EmbeddedInstructionMarker, StringComparison.OrdinalIgnoreCase))
 				embeddedInstruction = true;
 		}
 		var answer = builder.ToString().TrimEnd();
@@ -283,27 +283,27 @@ public sealed class ScriptedChatClient : IChatClient
 			],
 		};
 
-	private static List<ScriptedSong> ParseSongs(object? result)
+	private static List<ScriptedLied> ParseLieder(object? result)
 	{
 		if (result is not string json || json.Length == 0)
 			return [];
 		try
 		{
 			using var document = JsonDocument.Parse(json);
-			if (!document.RootElement.TryGetProperty("lieder", out var songsElement)
-				|| songsElement.ValueKind is not JsonValueKind.Array)
+			if (!document.RootElement.TryGetProperty("lieder", out var liederElement)
+				|| liederElement.ValueKind is not JsonValueKind.Array)
 				return [];
-			var songs = new List<ScriptedSong>();
-			foreach (var element in songsElement.EnumerateArray())
+			var lieder = new List<ScriptedLied>();
+			foreach (var element in liederElement.EnumerateArray())
 			{
-				songs.Add(new ScriptedSong(
+				lieder.Add(new ScriptedLied(
 					element.TryGetProperty("id", out var id) ? id.GetString() ?? string.Empty : string.Empty,
 					element.TryGetProperty("title", out var title) ? title.GetString() ?? string.Empty : string.Empty,
 					element.TryGetProperty("lyricsExcerpt", out var excerpt) && excerpt.ValueKind is JsonValueKind.String
 						? excerpt.GetString()
 						: null));
 			}
-			return songs;
+			return lieder;
 		}
 		catch (JsonException)
 		{
@@ -398,7 +398,7 @@ public sealed class ScriptedChatClient : IChatClient
 			? string.Empty
 			: AsksForCard(question) ? WithoutCardWords(question) : question;
 
-	/// <summary>A question that asks for the song "als Karte" (ARC-022-4).</summary>
+	/// <summary>A question that asks for the Lied "als Karte" (ARC-022-4).</summary>
 	private static bool AsksForCard(string question) => ContainsAny(question, " als karte");
 
 	private static string WithoutCardWords(string question) => string.Join(' ',
@@ -416,5 +416,5 @@ public sealed class ScriptedChatClient : IChatClient
 	private static bool HasFunctionCall(AiChatMessage message)
 		=> message.Contents.OfType<FunctionCallContent>().Any();
 
-	private sealed record ScriptedSong(string Id, string Title, string? LyricsExcerpt);
+	private sealed record ScriptedLied(string Id, string Title, string? LyricsExcerpt);
 }

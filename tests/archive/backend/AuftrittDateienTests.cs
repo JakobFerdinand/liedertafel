@@ -51,7 +51,7 @@ public sealed class AuftrittDateienTests
 	}
 
 	[Fact]
-	public async Task ReplacingADocumentSendsTheOldOneToTheTrashAndNothingWritesAssets()
+	public async Task ReplacingADocumentSendsTheOldOneToTheTrash()
 	{
 		await using var host = new LiedTestHost();
 		var editor = await host.EditorAsync();
@@ -70,8 +70,6 @@ public sealed class AuftrittDateienTests
 		var trashed = await db.Dateien.SingleAsync(d => d.Id == oldId);
 		Assert.NotNull(trashed.DeletedAt);
 		Assert.Equal(Guid.Parse(fresh.GetProperty("id").GetString()!), trashed.ReplacedByDateiId);
-		Assert.Equal(0, await db.Assets.CountAsync());
-		Assert.Equal(0, await db.FileRevisions.CountAsync());
 	}
 
 	[Fact]
@@ -124,8 +122,6 @@ public sealed class AuftrittDateienTests
 		Assert.Equal(HttpStatusCode.NotFound, generic.StatusCode);
 		using var scope = host.Services.CreateScope();
 		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-		Assert.Equal(0, await db.Assets.CountAsync());
-		Assert.Equal(0, await db.FileRevisions.CountAsync());
 	}
 
 	[Fact]

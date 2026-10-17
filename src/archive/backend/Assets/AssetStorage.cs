@@ -51,6 +51,9 @@ public interface IAssetStorageAdapter
 	Task PromoteAsync(string sourceBlobName, string targetBlobName, CancellationToken cancellationToken);
 
 	Task DeleteAsync(string blobName, CancellationToken cancellationToken);
+
+	/// <summary>#172: the names of all objects whose name starts with <paramref name="prefix"/>, in name order.</summary>
+	IAsyncEnumerable<string> ListAsync(string prefix, CancellationToken cancellationToken);
 }
 
 public sealed class AssetStorageOptions
@@ -230,6 +233,27 @@ public sealed class BlobAssetStorageAdapter(
 	public Task DeleteAsync(string blobName, CancellationToken cancellationToken) =>
 		ExecuteAsync("delete", async () =>
 			await Blob(blobName).DeleteIfExistsAsync(cancellationToken: cancellationToken));
+
+	public async IAsyncEnumerable<string> ListAsync(
+		string prefix, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+	{
+		await using var names = Client().GetBlobContainerClient(options.Value.ContainerName)
+			.GetBlobsAsync(BlobTraits.None, BlobStates.None, prefix, cancellationToken)
+			.GetAsyncEnumerator(cancellationToken);
+		while (true)
+		{
+			try
+			{
+				if (!await names.MoveNextAsync())
+					yield break;
+			}
+			catch (Exception exception) when (exception is RequestFailedException or CredentialUnavailableException)
+			{
+				throw new InvalidOperationException("Speicherdienst nicht erreichbar.", exception);
+			}
+			yield return names.Current.Name;
+		}
+	}
 
 	/// <summary>
 	/// ARC-049: signs the ticket through user delegation in Entra mode and

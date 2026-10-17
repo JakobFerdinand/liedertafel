@@ -43,19 +43,13 @@ public sealed class ProgrammeLiedApiTests
 		Assert.Equal("TTBB", items[0].GetProperty("voiceConfiguration").GetString());
 		Assert.Equal("G-Dur", items[0].GetProperty("musicalKey").GetString());
 		Assert.Equal("Eröffnung", items[0].GetProperty("note").GetString());
-		Assert.Equal(JsonValueKind.Null, items[0].GetProperty("musicalVersionId").ValueKind);
 		Assert.NotEqual(items[0].GetProperty("id").GetString(), items[2].GetProperty("id").GetString());
 
 		using (var scope = host.Services.CreateScope())
 		{
 			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
 			var rows = await db.ProgrammeItems.OrderBy(i => i.Position).ToListAsync();
-			Assert.All(rows, r =>
-			{
-				Assert.NotNull(r.LiedId);
-				Assert.Null(r.SongId);
-				Assert.Null(r.MusicalVersionId);
-			});
+			Assert.Equal([waldId, abendlied, waldId], rows.Select(r => r.LiedId).ToList());
 		}
 
 		using var publish = await host.PostAsync($"/api/events/{eventId}/programme/publish",
@@ -71,7 +65,7 @@ public sealed class ProgrammeLiedApiTests
 	}
 
 	[Fact]
-	public async Task ProgrammeItemNeedsAnExistingLiedAndExactlyOneReference()
+	public async Task ProgrammeItemNeedsAnExistingLied()
 	{
 		await using var host = new LiedTestHost();
 		var editor = await host.EditorAsync();
@@ -81,9 +75,6 @@ public sealed class ProgrammeLiedApiTests
 		using var unknown = await host.PutAsync($"/api/events/{eventId}/programme/items",
 			new { items = new object[] { new { liedId = Guid.NewGuid() } } }, editor);
 		Assert.Equal(HttpStatusCode.BadRequest, unknown.StatusCode);
-		using var mixed = await host.PutAsync($"/api/events/{eventId}/programme/items",
-			new { items = new object[] { new { liedId = lied, songId = Guid.NewGuid(), musicalVersionId = Guid.NewGuid() } } }, editor);
-		Assert.Equal(HttpStatusCode.BadRequest, mixed.StatusCode);
 		using var empty = await host.PutAsync($"/api/events/{eventId}/programme/items",
 			new { items = new object[] { new { note = "nichts" } } }, editor);
 		Assert.Equal(HttpStatusCode.BadRequest, empty.StatusCode);
@@ -122,8 +113,7 @@ public sealed class ProgrammeLiedApiTests
 		{
 			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
 			var rows = await db.Performances.Where(p => p.EventId == eventId).OrderBy(p => p.Position).ToListAsync();
-			Assert.Equal([waldfahrt, zugabe], rows.Select(r => r.LiedId!.Value).ToList());
-			Assert.All(rows, r => Assert.Null(r.SongId));
+			Assert.Equal([waldfahrt, zugabe], rows.Select(r => r.LiedId).ToList());
 		}
 
 		// The Auftritt shows what was sung with the Lied title.
@@ -185,9 +175,6 @@ public sealed class ProgrammeLiedApiTests
 		using var duplicate = await host.PostAsync($"/api/events/{eventId}/performances",
 			new { liedId = lied, evidenceStatus = "mention", sourceNote = "Festschrift" }, editor);
 		Assert.Equal(HttpStatusCode.Conflict, duplicate.StatusCode);
-		using var withVersion = await host.PostAsync($"/api/events/{eventId}/performances",
-			new { liedId = lied, musicalVersionId = Guid.NewGuid(), evidenceStatus = "confirmed" }, editor);
-		Assert.Equal(HttpStatusCode.NotFound, withVersion.StatusCode);
 		using var unknown = await host.PostAsync($"/api/events/{eventId}/performances",
 			new { liedId = Guid.NewGuid(), evidenceStatus = "confirmed" }, editor);
 		Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);

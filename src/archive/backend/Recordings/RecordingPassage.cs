@@ -1,4 +1,3 @@
-using Archive.Backend.Assets;
 using Archive.Backend.Events;
 using Archive.Backend.Lieder;
 
@@ -35,11 +34,6 @@ public sealed class RecordingPassage
 
 	/// <summary>The event both the recording and the performance belong to.</summary>
 	public Guid EventId { get; set; }
-
-	/// <summary>Legacy (old revision model); null on new passages, dropped in #172.</summary>
-	public Guid? PlaybackRevisionId { get; set; }
-
-	public FileRevision? PlaybackRevision { get; set; }
 
 	/// <summary>The playback Aufnahme Datei the two timestamps were taken against; null on legacy passages.</summary>
 	public Guid? PlaybackDateiId { get; set; }

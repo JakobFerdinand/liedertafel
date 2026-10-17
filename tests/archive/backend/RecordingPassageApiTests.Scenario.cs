@@ -13,7 +13,7 @@ namespace Archive.Backend.Tests;
 public sealed partial class RecordingPassageApiTests
 {
 	/// <summary>
-	/// Reusable API scaffolding in the style of the other suites: songs,
+	/// Reusable API scaffolding in the style of the other suites: Lieder,
 	/// events, occurrences, recordings with a real (fake-stored) MP4 file.
 	/// </summary>
 	private sealed class Scenario : IAsyncDisposable
@@ -46,53 +46,12 @@ public sealed partial class RecordingPassageApiTests
 			await Factory.DisposeAsync();
 		}
 
-		public async Task<(Guid SongId, Guid ArrangementId, Guid VersionId)> CreateSongAsync(
-			string title, string? versionLabel = null, bool publish = true)
+		public async Task<Guid> CreateLiedAsync(string title)
 		{
-			using var create = await SendAsync(HttpMethod.Post, "/api/songs", new { title }, EditorSession);
+			using var create = await SendAsync(HttpMethod.Post, "/api/lieder", new { title }, EditorSession);
 			Assert.Equal(HttpStatusCode.Created, create.StatusCode);
-			var song = (await create.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("song");
-			var songId = Guid.Parse(song.GetProperty("id").GetString()!);
-			var arrangement = song.GetProperty("arrangements").EnumerateArray().Single();
-			var arrangementId = Guid.Parse(arrangement.GetProperty("id").GetString()!);
-			var versionId = Guid.Parse(arrangement.GetProperty("musicalVersions").EnumerateArray().Single()
-				.GetProperty("id").GetString()!);
-			if (versionLabel is not null)
-			{
-				using var patch = await SendAsync(HttpMethod.Patch, $"/api/musical-versions/{versionId}",
-					new { label = versionLabel }, EditorSession);
-				Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
-			}
-			if (publish)
-			{
-				using var published = await SendAsync(HttpMethod.Post, $"/api/songs/{songId}/publish", new { }, EditorSession);
-				Assert.Equal(HttpStatusCode.OK, published.StatusCode);
-			}
-			return (songId, arrangementId, versionId);
-		}
-
-		public async Task<(Guid ArrangementId, Guid VersionId)> AddArrangementAsync(Guid songId, string label)
-		{
-			using var response = await SendAsync(HttpMethod.Post, $"/api/songs/{songId}/arrangements", new { label }, EditorSession);
-			Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-			var song = (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("song");
-			var arrangementId = Guid.Parse(song.GetProperty("arrangements").EnumerateArray()
-				.Single(a => a.GetProperty("label").GetString() == label).GetProperty("id").GetString()!);
-			using var version = await SendAsync(HttpMethod.Post, $"/api/arrangements/{arrangementId}/versions",
-				new { label = $"{label} (Fassung)" }, EditorSession);
-			Assert.Equal(HttpStatusCode.Created, version.StatusCode);
-			var created = (await version.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("song")
-				.GetProperty("arrangements").EnumerateArray()
-				.Single(a => Guid.Parse(a.GetProperty("id").GetString()!) == arrangementId)
-				.GetProperty("musicalVersions")[0].GetProperty("id").GetString()!;
-			return (arrangementId, Guid.Parse(created));
-		}
-
-		public async Task SetVoiceAsync(Guid arrangementId, string voice)
-		{
-			using var response = await SendAsync(HttpMethod.Patch, $"/api/arrangements/{arrangementId}",
-				new { voiceConfiguration = voice }, EditorSession);
-			Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+			return Guid.Parse((await create.Content.ReadFromJsonAsync<JsonElement>())
+				.GetProperty("lied").GetProperty("id").GetString()!);
 		}
 
 		public async Task<Guid> CreateEventAsync(string title, int? year, int? month, int? day, bool published = false)
@@ -115,14 +74,13 @@ public sealed partial class RecordingPassageApiTests
 		}
 
 		/// <summary>Records one confirmed (or mention) occurrence and returns its stable id.</summary>
-		public async Task<string> RecordAsync(Guid eventId, Guid songId, Guid? versionId = null, string? note = null)
+		public async Task<string> RecordAsync(Guid eventId, Guid liedId, string? note = null)
 		{
 			using var response = await SendAsync(HttpMethod.Post, $"/api/events/{eventId}/performances", new
 			{
-				songId,
+				liedId,
 				evidenceStatus = "confirmed",
 				sourceNote = note,
-				musicalVersionId = versionId,
 				idempotencyKey = Guid.NewGuid().ToString("N"),
 			}, EditorSession);
 			Assert.Equal(HttpStatusCode.Created, response.StatusCode);
@@ -130,10 +88,9 @@ public sealed partial class RecordingPassageApiTests
 				.GetProperty("performance").GetProperty("id").GetString()!;
 		}
 
-		public async Task PublishProgrammeAsync(Guid eventId,
-			IEnumerable<(Guid SongId, Guid ArrangementId, Guid VersionId)> songs)
+		public async Task PublishProgrammeAsync(Guid eventId, IEnumerable<Guid> lieder)
 		{
-			var items = songs.Select(s => (object)new { songId = s.SongId, musicalVersionId = s.VersionId }).ToArray();
+			var items = lieder.Select(l => (object)new { liedId = l }).ToArray();
 			using var save = await SendAsync(HttpMethod.Put, $"/api/events/{eventId}/programme/items", new { items }, EditorSession);
 			Assert.Equal(HttpStatusCode.OK, save.StatusCode);
 			var saved = (await save.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("programme");
@@ -282,16 +239,9 @@ public sealed partial class RecordingPassageApiTests
 			return (await response.Content.ReadFromJsonAsync<JsonElement>()).Clone();
 		}
 
-		public async Task<JsonElement> HistoryAsync(Guid songId, string session)
+		public async Task<JsonElement> HistoryAsync(Guid liedId, string session)
 		{
-			using var response = await GetAsync($"/api/songs/{songId}/performances", session);
-			Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-			return (await response.Content.ReadFromJsonAsync<JsonElement>()).Clone();
-		}
-
-		public async Task<JsonElement> ListSongsAsync(string session, string query)
-		{
-			using var response = await GetAsync($"/api/songs?{query}", session);
+			using var response = await GetAsync($"/api/lieder/{liedId}/performances", session);
 			Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 			return (await response.Content.ReadFromJsonAsync<JsonElement>()).Clone();
 		}

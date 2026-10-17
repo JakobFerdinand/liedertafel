@@ -37,7 +37,7 @@ public sealed record ReviewPassagesRequest(Guid? ExpectedPlaybackDateiId, List<R
 /// Passages in whole recordings (ARC-032). An editor marks where one
 /// performance occurrence starts and ends inside a recording (any editor, not
 /// only the one who uploaded the files); members read them with the recording
-/// and in the song history.
+/// and in the Lied history.
 /// - Ids are checked against their stated parents: a passage is addressed
 ///   through its recording, and the occurrence must belong to the
 ///   recording's event (also guaranteed by the database).
@@ -390,7 +390,7 @@ public static class RecordingPassageEndpoints
 	/// <summary>
 	/// The marker list for editors: every occurrence of the event in captured
 	/// (programme) order with its passage in this recording, if any. A
-	/// confirmed programme has made its songs occurrences; a published
+	/// confirmed programme has made its Lieder occurrences; a published
 	/// programme that was not confirmed yet has none to mark.
 	/// </summary>
 	private static async Task<List<object>> OccurrencesAsync(
@@ -399,26 +399,16 @@ public static class RecordingPassageEndpoints
 		var performances = await db.Performances.AsNoTracking()
 			.Where(p => p.EventId == eventId)
 			.OrderBy(p => p.Position).ThenBy(p => p.Id)
-			.Select(p => new { p.Id, p.Position, SongId = p.LiedId ?? p.SongId ?? Guid.Empty, p.ArrangementId, p.MusicalVersionId, p.EvidenceStatus })
+			.Select(p => new { p.Id, p.Position, p.LiedId, p.EvidenceStatus })
 			.ToListAsync(token);
-		var labels = await RecordingPassages.LoadLabelsAsync(db,
-			performances.Select(p => p.SongId).Distinct().ToList(),
-			performances.Where(p => p.ArrangementId is not null).Select(p => p.ArrangementId!.Value).Distinct().ToList(),
-			performances.Where(p => p.MusicalVersionId is not null).Select(p => p.MusicalVersionId!.Value).Distinct().ToList(),
-			token);
+		var titles = await RecordingPassages.LoadTitlesAsync(db, performances.Select(p => p.LiedId).Distinct().ToList(), token);
 		var byPerformance = views.ToDictionary(v => v.Row.PerformanceId, v => v.Row.Id);
 		return performances.Select(p => (object)new
 		{
 			performanceId = p.Id,
 			position = p.Position,
-			songId = p.SongId,
-			songTitle = labels.Songs.TryGetValue(p.SongId, out var song) ? song.Title : null,
-			arrangement = p.ArrangementId is { } arrangementId && labels.Arrangements.TryGetValue(arrangementId, out var arrangement)
-				? new { id = arrangementId, label = arrangement }
-				: null,
-			musicalVersion = p.MusicalVersionId is { } versionId && labels.Versions.TryGetValue(versionId, out var version)
-				? new { id = versionId, label = version }
-				: null,
+			liedId = p.LiedId,
+			liedTitle = titles.GetValueOrDefault(p.LiedId),
 			evidenceStatus = p.EvidenceStatus,
 			passageId = byPerformance.TryGetValue(p.Id, out var passageId) ? (Guid?)passageId : null,
 		}).ToList();

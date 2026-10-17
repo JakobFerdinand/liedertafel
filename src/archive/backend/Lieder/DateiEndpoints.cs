@@ -11,7 +11,7 @@ namespace Archive.Backend.Lieder;
 /// <summary>
 /// Datei endpoints (#166): opening an upload session for a Lied and the
 /// scoped read tickets. Renew, cancel and finalize are the shared
-/// <c>/api/upload-sessions/{id}/...</c> routes in <see cref="AssetEndpoints"/>,
+/// <c>/api/upload-sessions/{id}/...</c> routes in <see cref="UploadEndpoints"/>,
 /// which hand Datei sessions to <see cref="DateiUploads"/>.
 /// </summary>
 public sealed record PatchDateiRequest(string? Description, uint? RowVersion);
@@ -77,9 +77,9 @@ public static class DateiEndpoints
 				return Results.Problem(statusCode: 404, title: DateiUploads.DateiNotFoundMessage);
 			var description = body?.Description?.Trim();
 			if (description is { Length: > 500 })
-				return Results.Problem(statusCode: 400, title: AssetEndpoints.DescriptionTooLongMessage);
+				return Results.Problem(statusCode: 400, title: UploadEndpoints.DescriptionTooLongMessage);
 			if (body?.RowVersion is { } expected && expected != datei.RowVersion)
-				return Results.Problem(statusCode: 409, title: AssetEndpoints.ConcurrencyMessage);
+				return Results.Problem(statusCode: 409, title: UploadEndpoints.ConcurrencyMessage);
 			if (body?.Description is not null && (description ?? string.Empty) != (datei.Description ?? string.Empty))
 			{
 				datei.Description = string.IsNullOrEmpty(description) ? null : description;
@@ -90,7 +90,7 @@ public static class DateiEndpoints
 				}
 				catch (DbUpdateConcurrencyException)
 				{
-					return Results.Problem(statusCode: 409, title: AssetEndpoints.ConcurrencyMessage);
+					return Results.Problem(statusCode: 409, title: UploadEndpoints.ConcurrencyMessage);
 				}
 			}
 			return Results.Ok(new { datei = DateiPayloads.Summary(datei) });
@@ -129,7 +129,7 @@ public static class DateiEndpoints
 			}
 			catch (InvalidOperationException)
 			{
-				return Results.Problem(statusCode: 502, title: AssetEndpoints.StorageFailureMessage);
+				return Results.Problem(statusCode: 502, title: UploadEndpoints.StorageFailureMessage);
 			}
 			return Results.Ok(new
 			{

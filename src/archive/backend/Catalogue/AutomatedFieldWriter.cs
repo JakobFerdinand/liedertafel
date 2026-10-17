@@ -1,4 +1,3 @@
-using Archive.Backend.Assets;
 using Archive.Backend.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -61,10 +60,6 @@ public sealed class AutomatedFieldWriter(
 	private static Guid CreatorOf(object entity) => entity switch
 	{
 		Lieder.Lied lied => lied.CreatedByAccountId,
-		Song song => song.CreatedByAccountId,
-		Arrangement arrangement => arrangement.CreatedByAccountId,
-		MusicalVersion version => version.CreatedByAccountId,
-		ArchiveAsset asset => asset.CreatedByAccountId,
 		Events.ChoirEvent choirEvent => choirEvent.CreatedByAccountId,
 		_ => Guid.Empty,
 	};

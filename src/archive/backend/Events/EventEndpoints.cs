@@ -289,7 +289,7 @@ public static class EventEndpoints
 	/// Deterministic ARC-024 list order, newest first: known year descending;
 	/// within a year, day-precision entries first (month then day, both
 	/// descending), then month-only entries, then year-only entries;
-	/// unknown-year events sort last, by Id (shared with the song history via
+	/// unknown-year events sort last, by Id (shared with the Lied history via
 	/// <see cref="EventDate.CompareNewestFirst"/>). Pure C# so InMemory tests
 	/// and PostgreSQL agree.
 	/// </summary>

@@ -22,13 +22,13 @@ public sealed partial class RecordingPassageApiTests
 	public async Task OutdatedPlaybackRevisionIsRefusedOnEveryWriteAndWritesNothing()
 	{
 		await using var scenario = await Scenario.CreateAsync();
-		var a = await scenario.CreateSongAsync("Alt");
-		var b = await scenario.CreateSongAsync("Neu");
-		var c = await scenario.CreateSongAsync("Dritt");
+		var a = await scenario.CreateLiedAsync("Alt");
+		var b = await scenario.CreateLiedAsync("Neu");
+		var c = await scenario.CreateLiedAsync("Dritt");
 		var concert = await scenario.CreateEventAsync("Konzert", 2004, 3, 3, published: true);
-		var pa = await scenario.RecordAsync(concert, a.SongId);
-		var pb = await scenario.RecordAsync(concert, b.SongId);
-		var pc = await scenario.RecordAsync(concert, c.SongId);
+		var pa = await scenario.RecordAsync(concert, a);
+		var pb = await scenario.RecordAsync(concert, b);
+		var pc = await scenario.RecordAsync(concert, c);
 		var recording = await scenario.CreateRecordingAsync(concert, "Mitschnitt", "video", duration: 2000);
 		await scenario.PublishRecordingAsync(recording);
 		var first = await scenario.AddPassageAsync(recording, pa, 10, 100);
@@ -148,9 +148,9 @@ public sealed partial class RecordingPassageApiTests
 	public async Task EditorWithTheCurrentRevisionStillGetsAStalePassageRefusedOnItsOwnToken()
 	{
 		await using var scenario = await Scenario.CreateAsync();
-		var song = await scenario.CreateSongAsync("Eigenes Lied");
+		var lied = await scenario.CreateLiedAsync("Eigenes Lied");
 		var concert = await scenario.CreateEventAsync("Konzert", 2005, 3, 3, published: true);
-		var performance = await scenario.RecordAsync(concert, song.SongId);
+		var performance = await scenario.RecordAsync(concert, lied);
 		var recording = await scenario.CreateRecordingAsync(concert, "Mitschnitt", "video", duration: 2000);
 		var passage = await scenario.AddPassageAsync(recording, performance, 10, 100);
 		var revision = await scenario.PlaybackDateiAsync(recording);
@@ -176,9 +176,9 @@ public sealed partial class RecordingPassageApiTests
 	public async Task AntiforgeryAndAnonymousCallersAreRefusedOnPatchDeleteAndReview()
 	{
 		await using var scenario = await Scenario.CreateAsync();
-		var song = await scenario.CreateSongAsync("Wachlied");
+		var lied = await scenario.CreateLiedAsync("Wachlied");
 		var concert = await scenario.CreateEventAsync("Konzert", 2006, 3, 3, published: true);
-		var performance = await scenario.RecordAsync(concert, song.SongId);
+		var performance = await scenario.RecordAsync(concert, lied);
 		var recording = await scenario.CreateRecordingAsync(concert, "Mitschnitt", "video", duration: 2000);
 		var passage = await scenario.AddPassageAsync(recording, performance, 10, 100);
 		var path = $"/api/recordings/{recording}/passages";
@@ -213,11 +213,11 @@ public sealed partial class RecordingPassageApiTests
 	public async Task RecordingThatLosesItsPlayableFileReadsEverythingAsInNeedOfReview()
 	{
 		await using var scenario = await Scenario.CreateAsync();
-		var song = await scenario.CreateSongAsync("Verlorenes Lied");
-		var other = await scenario.CreateSongAsync("Anderes Lied");
+		var lied = await scenario.CreateLiedAsync("Verlorenes Lied");
+		var other = await scenario.CreateLiedAsync("Anderes Lied");
 		var concert = await scenario.CreateEventAsync("Konzert", 2008, 3, 3, published: true);
-		var performance = await scenario.RecordAsync(concert, song.SongId);
-		var otherPerformance = await scenario.RecordAsync(concert, other.SongId);
+		var performance = await scenario.RecordAsync(concert, lied);
+		var otherPerformance = await scenario.RecordAsync(concert, other);
 		var recording = await scenario.CreateRecordingAsync(concert, "Mitschnitt", "video", duration: 2000);
 		await scenario.PublishRecordingAsync(recording);
 		var passage = await scenario.AddPassageAsync(recording, performance, 10, 100);
@@ -233,8 +233,6 @@ public sealed partial class RecordingPassageApiTests
 		var member = (await scenario.PassagesAsync(recording, scenario.MemberSession)).GetProperty("passages")[0];
 		Assert.Equal("needsReview", member.GetProperty("timestampState").GetString());
 		Assert.True(member.GetProperty("startSeconds").ValueKind is JsonValueKind.Null);
-		Assert.Equal(0, (await scenario.ListSongsAsync(scenario.MemberSession, "material=recording"))
-			.GetProperty("total").GetInt32());
 
 		// No write can be anchored to a file that does not play.
 		var path = $"/api/recordings/{recording}/passages";
@@ -262,8 +260,8 @@ public sealed partial class RecordingPassageApiTests
 	public async Task StaleConfirmationFormGetsTheStaleAnswerNotThePassagesBlock()
 	{
 		await using var scenario = await Scenario.CreateAsync();
-		var a = await scenario.CreateSongAsync("Gesungen");
-		var b = await scenario.CreateSongAsync("Ausgelassen");
+		var a = await scenario.CreateLiedAsync("Gesungen");
+		var b = await scenario.CreateLiedAsync("Ausgelassen");
 		var concert = await scenario.CreateEventAsync("Konzert", 2009, 3, 3, published: true);
 		await scenario.PublishProgrammeAsync(concert, [a, b]);
 		await scenario.ConfirmAsync(concert);

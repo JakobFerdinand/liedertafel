@@ -7,7 +7,7 @@ namespace Archive.Backend.Events;
 /// rows (which stay frozen) and from the ARC-028 occurrences it owns: the
 /// confirmation says "this event's actual programme has been reviewed", the
 /// occurrences with this <see cref="Id"/> as <see cref="Performance.ConfirmationId"/>
-/// are the sung songs, and a planned entry of <see cref="RevisionId"/>
+/// are the sung Lieder, and a planned entry of <see cref="RevisionId"/>
 /// without an occurrence was skipped. Attribution and the application-bumped
 /// optimistic concurrency token follow the catalogue pattern (ARC-007).
 /// </summary>

@@ -1,4 +1,3 @@
-using Archive.Backend.Catalogue;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -26,33 +25,10 @@ public sealed class PerformanceModelConfiguration : IEntityTypeConfiguration<Per
 		// Target of the recording passages' composite key (ARC-032): a passage
 		// can only point at an occurrence of its recording's event.
 		builder.HasAlternateKey(x => new { x.Id, x.EventId });
-		/// <summary>
-		/// Catalogue references (ARC-028): Restrict keeps catalogue deletion
-		/// from cascading into historical evidence (the retained-reference
-		/// contract, ARC-037). The arrangement column mirrors the resolved
-		/// chain and is set together with the version; the endpoint
-		/// validates that the version belongs to the arrangement and the
-		/// song, so no database check constraint is needed. The retry key is
-		/// unique per event; null keys never collide (PostgreSQL semantics).
-		/// </summary>
+		// The retry key is unique per event; null keys never collide (PostgreSQL semantics).
 		builder.HasIndex(x => new { x.EventId, x.Position }).IsUnique();
 		builder.HasIndex(x => new { x.EventId, x.IdempotencyKey }).IsUnique();
-		builder.HasOne(x => x.MusicalVersion)
-			.WithMany()
-			.HasForeignKey(x => x.MusicalVersionId)
-			.OnDelete(DeleteBehavior.Restrict);
-		builder.HasIndex(x => x.MusicalVersionId);
-		builder.HasOne<Song>()
-			.WithMany()
-			.HasForeignKey(x => x.SongId)
-			.OnDelete(DeleteBehavior.Restrict);
-		builder.HasIndex(x => x.SongId);
-		builder.HasOne<Arrangement>()
-			.WithMany()
-			.HasForeignKey(x => x.ArrangementId)
-			.OnDelete(DeleteBehavior.Restrict);
-		builder.HasIndex(x => x.ArrangementId);
-		// #170: the Lied of the occurrence; Restrict like the old references.
+		// Restrict keeps Lied deletion from cascading into historical evidence (ARC-037).
 		builder.HasOne(x => x.Lied)
 			.WithMany()
 			.HasForeignKey(x => x.LiedId)

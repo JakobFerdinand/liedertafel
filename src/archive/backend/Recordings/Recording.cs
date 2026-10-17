@@ -1,4 +1,3 @@
-using Archive.Backend.Assets;
 using Archive.Backend.Events;
 using Archive.Backend.Lieder;
 
@@ -15,8 +14,7 @@ namespace Archive.Backend.Recordings;
 /// - <see cref="PlaybackDateiId"/> is an optional, externally converted
 ///   playback copy. While it has no file, a playable original serves both
 ///   roles as one object (no duplicate is created).
-/// Replacing a slot sends the earlier Datei to the trash. The old asset
-/// columns are legacy until #172 drops them and are neither read nor written.
+/// Replacing a slot sends the earlier Datei to the trash.
 /// Publication is explicit and separate from the event's: members see a
 /// recording only when both are published.
 /// </summary>
@@ -34,16 +32,6 @@ public sealed class Recording
 
 	/// <summary>Closed media kind from <see cref="RecordingKinds.Known"/>.</summary>
 	public required string Kind { get; set; }
-
-	/// <summary>Legacy (old asset model); dropped with it in #172.</summary>
-	public Guid? OriginalAssetId { get; set; }
-
-	public ArchiveAsset? OriginalAsset { get; set; }
-
-	/// <summary>Legacy (old asset model); dropped with it in #172.</summary>
-	public Guid? PlaybackAssetId { get; set; }
-
-	public ArchiveAsset? PlaybackAsset { get; set; }
 
 	/// <summary>The preserved original; null until its file is attached.</summary>
 	public Guid? OriginalDateiId { get; set; }
@@ -104,8 +92,7 @@ public static class RecordingVisibility
 	/// <summary>
 	/// The same decision as a query filter for passages (ARC-032): a passage
 	/// is member-visible with its recording. ARC-040 trash conditions extend
-	/// this and <see cref="EventVisibility"/>; the song's own publication is
-	/// applied where the song is read.
+	/// this and <see cref="EventVisibility"/>.
 	/// </summary>
 	public static IQueryable<RecordingPassage> OfMemberVisible(IQueryable<RecordingPassage> passages) =>
 		passages.Where(p => p.Recording.PublishedAt != null && p.Recording.Event.PublishedAt != null);

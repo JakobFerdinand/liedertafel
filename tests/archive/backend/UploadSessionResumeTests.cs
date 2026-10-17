@@ -1,9 +1,10 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Archive.Backend.Assets;
 using Archive.Backend.Auth;
-using Archive.Backend.Catalogue;
+using Archive.Backend.Lieder;
 using Archive.Backend.Data;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -34,9 +35,8 @@ public sealed class UploadSessionResumeTests
 		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
-		var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
-		var (sessionId, uploadUrl, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
+		var liedId = await CreateLiedAsync(client, editorSession);
+		var (sessionId, uploadUrl, _) = await CreateUploadSessionAsync(client, editorSession, liedId);
 		string blobName;
 		using (var scope = factory.Services.CreateScope())
 		{
@@ -74,9 +74,8 @@ public sealed class UploadSessionResumeTests
 		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
-		var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
-		var (sessionId, _, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
+		var liedId = await CreateLiedAsync(client, editorSession);
+		var (sessionId, _, _) = await CreateUploadSessionAsync(client, editorSession, liedId);
 		using (var scope = factory.Services.CreateScope())
 		{
 			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
@@ -113,16 +112,15 @@ public sealed class UploadSessionResumeTests
 		var editorSession = await SignInAsync(factory, Editor);
 		var secondSession = await SignInAsync(factory, SecondEditor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
-		var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
+		var liedId = await CreateLiedAsync(client, editorSession);
 
-		var (sessionId, _, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
+		var (sessionId, _, _) = await CreateUploadSessionAsync(client, editorSession, liedId);
 		using (var memberResponse = await PostJsonAsync(client,
 			$"/api/upload-sessions/{sessionId}/renew", new { }, memberSession))
 		{
 			Assert.Equal(HttpStatusCode.Forbidden, memberResponse.StatusCode);
 			var memberProblem = await memberResponse.Content.ReadFromJsonAsync<JsonElement>();
-			Assert.Equal(CatalogueEndpoints.ForbiddenMessage, memberProblem.GetProperty("title").GetString());
+			Assert.Equal(LiedEndpoints.ForbiddenMessage, memberProblem.GetProperty("title").GetString());
 		}
 
 		var (anonCookie, anonToken) = await GetCsrfAsync(client);
@@ -135,7 +133,7 @@ public sealed class UploadSessionResumeTests
 		{
 			Assert.Equal(HttpStatusCode.Forbidden, otherResponse.StatusCode);
 			var otherProblem = await otherResponse.Content.ReadFromJsonAsync<JsonElement>();
-			Assert.Equal(AssetEndpoints.UploadOwnerMessage, otherProblem.GetProperty("title").GetString());
+			Assert.Equal(UploadEndpoints.UploadOwnerMessage, otherProblem.GetProperty("title").GetString());
 		}
 
 		using (var unknown = await PostJsonAsync(client,
@@ -143,22 +141,22 @@ public sealed class UploadSessionResumeTests
 		{
 			Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
 			var unknownProblem = await unknown.Content.ReadFromJsonAsync<JsonElement>();
-			Assert.Equal(AssetEndpoints.UploadNotFoundMessage, unknownProblem.GetProperty("title").GetString());
+			Assert.Equal(UploadEndpoints.UploadNotFoundMessage, unknownProblem.GetProperty("title").GetString());
 		}
 
 		// Finalized sessions report the distinct already-finalized conflict.
-		var finalizedId = await UploadAndFinalizeAsync(factory, client, editorSession, assetId).ContinueWith(
+		var finalizedId = await UploadAndFinalizeAsync(factory, client, editorSession, liedId).ContinueWith(
 			t => t.Result.SessionId);
 		using (var finalized = await PostJsonAsync(client,
 			$"/api/upload-sessions/{finalizedId}/renew", new { }, editorSession))
 		{
 			Assert.Equal(HttpStatusCode.Conflict, finalized.StatusCode);
 			var finalizedProblem = await finalized.Content.ReadFromJsonAsync<JsonElement>();
-			Assert.Equal(AssetEndpoints.UploadAlreadyFinalizedMessage, finalizedProblem.GetProperty("title").GetString());
+			Assert.Equal(UploadEndpoints.UploadAlreadyFinalizedMessage, finalizedProblem.GetProperty("title").GetString());
 		}
 
 		// Abandoned sessions stay terminally refused.
-		var abandonedFactorySession = await CreateUploadSessionAsync(client, editorSession, assetId);
+		var abandonedFactorySession = await CreateUploadSessionAsync(client, editorSession, liedId);
 		using (var scope = factory.Services.CreateScope())
 		{
 			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
@@ -172,7 +170,7 @@ public sealed class UploadSessionResumeTests
 		{
 			Assert.Equal(HttpStatusCode.Conflict, abandoned.StatusCode);
 			var abandonedProblem = await abandoned.Content.ReadFromJsonAsync<JsonElement>();
-			Assert.Equal(AssetEndpoints.UploadAbandonedMessage, abandonedProblem.GetProperty("title").GetString());
+			Assert.Equal(UploadEndpoints.UploadAbandonedMessage, abandonedProblem.GetProperty("title").GetString());
 		}
 	}
 
@@ -186,10 +184,9 @@ public sealed class UploadSessionResumeTests
 		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
-		var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
+		var liedId = await CreateLiedAsync(client, editorSession);
 
-		var (sessionId, _, body) = await CreateUploadSessionAsync(client, editorSession, assetId,
+		var (sessionId, _, body) = await CreateUploadSessionAsync(client, editorSession, liedId,
 			new { sizeBytes = 1500, fileName = "  lied.pdf  " });
 		Assert.Equal(2048, body.GetProperty("maxBytes").GetInt64());
 		Assert.Equal(8 * 1024 * 1024, body.GetProperty("blockBytes").GetInt64());
@@ -213,14 +210,13 @@ public sealed class UploadSessionResumeTests
 		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
-		var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
+		var liedId = await CreateLiedAsync(client, editorSession);
 
 		using var response = await PostJsonAsync(client,
-			$"/api/assets/{assetId}/upload-session", new { sizeBytes = 1025 }, editorSession);
+			$"/api/lieder/{liedId}/dateien/upload-session", Noten(new { sizeBytes = 1025 }), editorSession);
 		Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
 		var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
-		Assert.Equal(AssetEndpoints.UploadTooLargeMessage, problem.GetProperty("title").GetString());
+		Assert.Equal(UploadEndpoints.UploadTooLargeMessage, problem.GetProperty("title").GetString());
 
 		using var scope = factory.Services.CreateScope();
 		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
@@ -239,37 +235,31 @@ public sealed class UploadSessionResumeTests
 		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
-		var assetAId = await CreateAssetAsync(client, editorSession, versionId, "score");
-		var assetBId = await CreateAssetAsync(client, editorSession, versionId, "score");
-		var assetCId = await CreateAssetAsync(client, editorSession, versionId, "score");
-		var assetDId = await CreateAssetAsync(client, editorSession, versionId, "score");
+		var liedId = await CreateLiedAsync(client, editorSession);
 
 		// One finalized revision (1024) and one pending session (max 2048)
 		// consume 3072 of the 4096-byte collection budget.
-		await UploadAndFinalizeAsync(factory, client, editorSession, assetAId, size: 1024);
-		await CreateUploadSessionAsync(client, editorSession, assetBId);
+		await UploadAndFinalizeAsync(factory, client, editorSession, liedId, size: 1024);
+		await CreateUploadSessionAsync(client, editorSession, liedId);
 
 		// Fits exactly (3072 + 1024 = 4096).
-		var (_, _, fitted) = await CreateUploadSessionAsync(client, editorSession, assetCId,
+		var (_, _, fitted) = await CreateUploadSessionAsync(client, editorSession, liedId,
 			new { sizeBytes = 1024 });
 		Assert.Equal(2048, fitted.GetProperty("maxBytes").GetInt64());
 
 		// Exceeds: the session is refused and no row is created.
 		using var response = await PostJsonAsync(client,
-			$"/api/assets/{assetDId}/upload-session", new { sizeBytes = 1025 }, editorSession);
+			$"/api/lieder/{liedId}/dateien/upload-session", Noten(new { sizeBytes = 1025 }), editorSession);
 		Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
 		var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
-		Assert.Equal(AssetEndpoints.UploadTooLargeMessage, problem.GetProperty("title").GetString());
+		Assert.Equal(UploadEndpoints.UploadTooLargeMessage, problem.GetProperty("title").GetString());
 
 		using (var scope = factory.Services.CreateScope())
 		{
 			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
 			Assert.Equal(2, await db.UploadSessions.CountAsync(
 				s => s.State == PendingUploadState.Pending));
-			Assert.Equal(0, await db.UploadSessions
-				.Where(s => s.AssetId == assetDId).CountAsync());
-		}
+					}
 	}
 
 	[Fact]
@@ -285,131 +275,30 @@ public sealed class UploadSessionResumeTests
 		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
-		var assetAId = await CreateAssetAsync(client, editorSession, versionId, "score");
-		var assetBId = await CreateAssetAsync(client, editorSession, versionId, "score");
-		var assetCId = await CreateAssetAsync(client, editorSession, versionId, "score");
-		var assetDId = await CreateAssetAsync(client, editorSession, versionId, "score");
+		var liedId = await CreateLiedAsync(client, editorSession);
 
-		await CreateUploadSessionAsync(client, editorSession, assetAId,
+		await CreateUploadSessionAsync(client, editorSession, liedId,
 			new { sizeBytes = 1024, fileName = "a.pdf" });
-		await CreateUploadSessionAsync(client, editorSession, assetBId);
+		await CreateUploadSessionAsync(client, editorSession, liedId);
 
 		// Fits exactly: 1024 (declared) + 2048 (cap, undeclared) + 1024 = 4096.
-		var (_, _, fitted) = await CreateUploadSessionAsync(client, editorSession, assetCId,
+		var (_, _, fitted) = await CreateUploadSessionAsync(client, editorSession, liedId,
 			new { sizeBytes = 1024, fileName = "c.pdf" });
 		Assert.Equal(2048, fitted.GetProperty("maxBytes").GetInt64());
 
 		// Exceeds: the session is refused and no row is created.
 		using var response = await PostJsonAsync(client,
-			$"/api/assets/{assetDId}/upload-session", new { sizeBytes = 1025 }, editorSession);
+			$"/api/lieder/{liedId}/dateien/upload-session", Noten(new { sizeBytes = 1025 }), editorSession);
 		Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
 		var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
-		Assert.Equal(AssetEndpoints.UploadTooLargeMessage, problem.GetProperty("title").GetString());
+		Assert.Equal(UploadEndpoints.UploadTooLargeMessage, problem.GetProperty("title").GetString());
 
 		using (var scope = factory.Services.CreateScope())
 		{
 			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
 			Assert.Equal(3, await db.UploadSessions.CountAsync(
 				s => s.State == PendingUploadState.Pending));
-			Assert.Equal(0, await db.UploadSessions
-				.Where(s => s.AssetId == assetDId).CountAsync());
-		}
-	}
-
-	[Fact]
-	public async Task NewUploadSessionCancelsPriorPendingSessionsOfSameAssetAndOwner()
-	{
-		await using var factory = new AuthApiFactory();
-		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
-		var secondEditorId = await SeedAsync(factory, SecondEditor, ArchiveRoles.Editor);
-		var editorSession = await SignInAsync(factory, Editor);
-		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
-		var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
-		var otherAssetId = await CreateAssetAsync(client, editorSession, versionId, "score");
-
-		// The editor's earlier attempt left a pending session behind, as did
-		// a foreign user and an upload to another asset of the version.
-		// ARC-025: a second editor can no longer initiate a session on
-		// someone else's asset at all, so the foreign row is seeded directly;
-		// the supersede pass must still leave other owners untouched.
-		var (staleId, staleUrl, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
-		var staleBlob = factory.Storage.Find(staleUrl)!.BlobName;
-		factory.Storage.Store(staleBlob, ValidPdf(128));
-		string foreignBlob;
-		using (var scope = factory.Services.CreateScope())
-		{
-			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-			var foreign = new PendingUpload
-			{
-				AssetId = assetId,
-				BlobName = $"pending/{Guid.CreateVersion7()}",
-				ContentType = AssetEndpoints.PdfContentType,
-				MaxSizeBytes = 10 * 1024L * 1024 * 1024,
-				UploadTicketExpiresAt = DateTimeOffset.UtcNow.AddMinutes(30),
-				State = PendingUploadState.Pending,
-				CreatedByAccountId = secondEditorId,
-				CreatedAt = DateTimeOffset.UtcNow,
-			};
-			db.UploadSessions.Add(foreign);
-			await db.SaveChangesAsync();
-			foreignBlob = foreign.BlobName;
-		}
-		factory.Storage.Store(foreignBlob, ValidPdf(128));
-		var (otherAssetSessionId, _, _) = await CreateUploadSessionAsync(client, editorSession, otherAssetId);
-
-		var (freshId, _, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
-
-		using (var scope = factory.Services.CreateScope())
-		{
-			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-			Assert.Equal(PendingUploadState.Cancelled,
-				(await db.UploadSessions.SingleAsync(s => s.Id == staleId)).State);
-			Assert.Equal(PendingUploadState.Pending,
-				(await db.UploadSessions.SingleAsync(s => s.AssetId == assetId
-					&& s.CreatedByAccountId == secondEditorId)).State);
-			Assert.Equal(PendingUploadState.Pending,
-				(await db.UploadSessions.SingleAsync(s => s.Id == otherAssetSessionId)).State);
-			Assert.Equal(PendingUploadState.Pending,
-				(await db.UploadSessions.SingleAsync(s => s.Id == freshId)).State);
-		}
-		Assert.False(factory.Storage.Has(staleBlob));
-		Assert.True(factory.Storage.Has(foreignBlob));
-	}
-
-	[Fact]
-	public async Task RetryOnSameAssetFreesTheCollectionBudget()
-	{
-		// The production failure shape: repeated attempts on one asset left
-		// pending sessions that reserved the per-file cap each and starved
-		// the version budget, so even tiny uploads were refused as too large.
-		await using var factory = new AuthApiFactory(settings: new Dictionary<string, string?>
-		{
-			["Archive:Assets:MaxUploadBytes"] = "2048",
-			["Archive:Assets:MaxCollectionBytes"] = "4096",
-		});
-		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
-		var editorSession = await SignInAsync(factory, Editor);
-		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
-		var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
-
-		var identity = new { sizeBytes = 2048, fileName = "lied.pdf" };
-		var (firstId, _, _) = await CreateUploadSessionAsync(client, editorSession, assetId, identity);
-
-		// The retry supersedes the failed attempt instead of exhausting the budget.
-		var (retryId, _, _) = await CreateUploadSessionAsync(client, editorSession, assetId, identity);
-		Assert.NotEqual(firstId, retryId);
-
-		using (var scope = factory.Services.CreateScope())
-		{
-			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-			Assert.Equal(PendingUploadState.Cancelled,
-				(await db.UploadSessions.SingleAsync(s => s.Id == firstId)).State);
-			Assert.Equal(PendingUploadState.Pending,
-				(await db.UploadSessions.SingleAsync(s => s.Id == retryId)).State);
-		}
+					}
 	}
 
 	[Fact]
@@ -419,15 +308,14 @@ public sealed class UploadSessionResumeTests
 		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
-		var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
+		var liedId = await CreateLiedAsync(client, editorSession);
 
 		using var response = await PostJsonAsync(client,
-			$"/api/assets/{assetId}/upload-session",
-			new { fileName = new string('x', 301) }, editorSession);
+			$"/api/lieder/{liedId}/dateien/upload-session",
+			Noten(new { fileName = new string('x', 301) }), editorSession);
 		Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
 		var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
-		Assert.Equal(AssetEndpoints.FileNameTooLongMessage, problem.GetProperty("title").GetString());
+		Assert.Equal(UploadEndpoints.FileNameTooLongMessage, problem.GetProperty("title").GetString());
 
 		using var scope = factory.Services.CreateScope();
 		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
@@ -441,9 +329,8 @@ public sealed class UploadSessionResumeTests
 		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
-		var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
-		var (sessionId, uploadUrl, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
+		var liedId = await CreateLiedAsync(client, editorSession);
+		var (sessionId, uploadUrl, _) = await CreateUploadSessionAsync(client, editorSession, liedId);
 		var blobName = factory.Storage.Find(uploadUrl)!.BlobName;
 		factory.Storage.Store(blobName, ValidPdf(128));
 
@@ -470,38 +357,37 @@ public sealed class UploadSessionResumeTests
 		var editorSession = await SignInAsync(factory, Editor);
 		var secondSession = await SignInAsync(factory, SecondEditor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
-		var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
+		var liedId = await CreateLiedAsync(client, editorSession);
 
 		using (var unknown = await DeleteAsync(client,
 			$"/api/upload-sessions/{Guid.CreateVersion7()}", editorSession))
 		{
 			Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
 			var unknownProblem = await unknown.Content.ReadFromJsonAsync<JsonElement>();
-			Assert.Equal(AssetEndpoints.UploadNotFoundMessage, unknownProblem.GetProperty("title").GetString());
+			Assert.Equal(UploadEndpoints.UploadNotFoundMessage, unknownProblem.GetProperty("title").GetString());
 		}
 
-		var (pendingId, _, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
+		var (pendingId, _, _) = await CreateUploadSessionAsync(client, editorSession, liedId);
 		using (var other = await DeleteAsync(client,
 			$"/api/upload-sessions/{pendingId}", secondSession))
 		{
 			Assert.Equal(HttpStatusCode.Forbidden, other.StatusCode);
 			var otherProblem = await other.Content.ReadFromJsonAsync<JsonElement>();
-			Assert.Equal(AssetEndpoints.UploadOwnerMessage, otherProblem.GetProperty("title").GetString());
+			Assert.Equal(UploadEndpoints.UploadOwnerMessage, otherProblem.GetProperty("title").GetString());
 		}
 
 		// Finalized: a committed revision must not be cancelled.
-		var (finalizedId, _, _) = await UploadAndFinalizeAsync(factory, client, editorSession, assetId);
+		var (finalizedId, _, _) = await UploadAndFinalizeAsync(factory, client, editorSession, liedId);
 		using (var finalized = await DeleteAsync(client,
 			$"/api/upload-sessions/{finalizedId}", editorSession))
 		{
 			Assert.Equal(HttpStatusCode.Conflict, finalized.StatusCode);
 			var finalizedProblem = await finalized.Content.ReadFromJsonAsync<JsonElement>();
-			Assert.Equal(AssetEndpoints.UploadAbandonedMessage, finalizedProblem.GetProperty("title").GetString());
+			Assert.Equal(UploadEndpoints.UploadAbandonedMessage, finalizedProblem.GetProperty("title").GetString());
 		}
 
 		// Abandoned: terminal refusal.
-		var (abandonedId, _, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
+		var (abandonedId, _, _) = await CreateUploadSessionAsync(client, editorSession, liedId);
 		using (var scope = factory.Services.CreateScope())
 		{
 			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
@@ -514,11 +400,11 @@ public sealed class UploadSessionResumeTests
 		{
 			Assert.Equal(HttpStatusCode.Conflict, abandoned.StatusCode);
 			var abandonedProblem = await abandoned.Content.ReadFromJsonAsync<JsonElement>();
-			Assert.Equal(AssetEndpoints.UploadAbandonedMessage, abandonedProblem.GetProperty("title").GetString());
+			Assert.Equal(UploadEndpoints.UploadAbandonedMessage, abandonedProblem.GetProperty("title").GetString());
 		}
 
 		// Cancelled: cancelling twice reports the distinct cancelled conflict.
-		var (cancelledId, _, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
+		var (cancelledId, _, _) = await CreateUploadSessionAsync(client, editorSession, liedId);
 		using (var first = await DeleteAsync(client,
 			$"/api/upload-sessions/{cancelledId}", editorSession))
 		{
@@ -529,7 +415,7 @@ public sealed class UploadSessionResumeTests
 		{
 			Assert.Equal(HttpStatusCode.Conflict, replay.StatusCode);
 			var replayProblem = await replay.Content.ReadFromJsonAsync<JsonElement>();
-			Assert.Equal(AssetEndpoints.UploadCancelledMessage, replayProblem.GetProperty("title").GetString());
+			Assert.Equal(UploadEndpoints.UploadCancelledMessage, replayProblem.GetProperty("title").GetString());
 		}
 	}
 
@@ -540,9 +426,8 @@ public sealed class UploadSessionResumeTests
 		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
-		var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
-		var (sessionId, uploadUrl, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
+		var liedId = await CreateLiedAsync(client, editorSession);
+		var (sessionId, uploadUrl, _) = await CreateUploadSessionAsync(client, editorSession, liedId);
 		var blobName = factory.Storage.Find(uploadUrl)!.BlobName;
 
 		using var cancel = await DeleteAsync(client,
@@ -554,15 +439,15 @@ public sealed class UploadSessionResumeTests
 		using var finalize = await FinalizeAsync(client, editorSession, sessionId);
 		Assert.Equal(HttpStatusCode.Conflict, finalize.StatusCode);
 		var problem = await finalize.Content.ReadFromJsonAsync<JsonElement>();
-		Assert.Equal(AssetEndpoints.UploadCancelledMessage, problem.GetProperty("title").GetString());
+		Assert.Equal(UploadEndpoints.UploadCancelledMessage, problem.GetProperty("title").GetString());
 
 		using (var scope = factory.Services.CreateScope())
 		{
 			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
 			var session = await db.UploadSessions.SingleAsync(s => s.Id == sessionId);
 			Assert.Equal(PendingUploadState.Cancelled, session.State);
-			Assert.Null(session.FinalizedRevisionId);
-			Assert.Equal(0, await db.FileRevisions.CountAsync());
+			Assert.Null(session.FinalizedDateiId);
+			Assert.Equal(0, await db.Dateien.CountAsync());
 		}
 		Assert.False(factory.Storage.Has(blobName));
 	}
@@ -574,9 +459,8 @@ public sealed class UploadSessionResumeTests
 		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
-		var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
-		var (sessionId, _, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
+		var liedId = await CreateLiedAsync(client, editorSession);
+		var (sessionId, _, _) = await CreateUploadSessionAsync(client, editorSession, liedId);
 
 		using var cancel = await DeleteAsync(client,
 			$"/api/upload-sessions/{sessionId}", editorSession);
@@ -586,7 +470,7 @@ public sealed class UploadSessionResumeTests
 			$"/api/upload-sessions/{sessionId}/renew", new { }, editorSession);
 		Assert.Equal(HttpStatusCode.Conflict, renew.StatusCode);
 		var problem = await renew.Content.ReadFromJsonAsync<JsonElement>();
-		Assert.Equal(AssetEndpoints.UploadAbandonedMessage, problem.GetProperty("title").GetString());
+		Assert.Equal(UploadEndpoints.UploadAbandonedMessage, problem.GetProperty("title").GetString());
 	}
 
 	[Fact]
@@ -596,9 +480,8 @@ public sealed class UploadSessionResumeTests
 		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
-		var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
-		var (sessionId, uploadUrl, _) = await CreateUploadSessionAsync(client, editorSession, assetId,
+		var liedId = await CreateLiedAsync(client, editorSession);
+		var (sessionId, uploadUrl, _) = await CreateUploadSessionAsync(client, editorSession, liedId,
 			new { sizeBytes = 1024, fileName = "lied.pdf" });
 		var blobName = factory.Storage.Find(uploadUrl)!.BlobName;
 		factory.Storage.Store(blobName, ValidPdf(1024));
@@ -610,7 +493,7 @@ public sealed class UploadSessionResumeTests
 		{
 			Assert.Equal(HttpStatusCode.Conflict, sizeMismatch.StatusCode);
 			var sizeProblem = await sizeMismatch.Content.ReadFromJsonAsync<JsonElement>();
-			Assert.Equal(AssetEndpoints.UploadMismatchMessage, sizeProblem.GetProperty("title").GetString());
+			Assert.Equal(UploadEndpoints.UploadMismatchMessage, sizeProblem.GetProperty("title").GetString());
 			Assert.True(factory.Storage.Has(blobName));
 		}
 
@@ -621,7 +504,7 @@ public sealed class UploadSessionResumeTests
 		{
 			Assert.Equal(HttpStatusCode.Conflict, nameMismatch.StatusCode);
 			var nameProblem = await nameMismatch.Content.ReadFromJsonAsync<JsonElement>();
-			Assert.Equal(AssetEndpoints.UploadMismatchMessage, nameProblem.GetProperty("title").GetString());
+			Assert.Equal(UploadEndpoints.UploadMismatchMessage, nameProblem.GetProperty("title").GetString());
 		}
 
 		// The session stays pending and retryable with the correct file.
@@ -635,7 +518,7 @@ public sealed class UploadSessionResumeTests
 		using (var scope = factory.Services.CreateScope())
 		{
 			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-			Assert.Equal(1, await db.FileRevisions.CountAsync());
+			Assert.Equal(1, await db.Dateien.CountAsync());
 		}
 	}
 
@@ -646,11 +529,10 @@ public sealed class UploadSessionResumeTests
 		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
-		var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
+		var liedId = await CreateLiedAsync(client, editorSession);
 
 		// Session without declared identity: a declaring finalize is not a mismatch.
-		var (undeclaredId, uploadUrl, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
+		var (undeclaredId, uploadUrl, _) = await CreateUploadSessionAsync(client, editorSession, liedId);
 		factory.Storage.Store(factory.Storage.Find(uploadUrl)!.BlobName, ValidPdf(1024));
 		using (var response = await PostJsonAsync(client,
 			$"/api/upload-sessions/{undeclaredId}/finalize", new { sizeBytes = 1024 }, editorSession))
@@ -659,7 +541,7 @@ public sealed class UploadSessionResumeTests
 		}
 
 		// Declared size only: an absent fileName dimension cannot conflict.
-		var (sizeOnlyId, sizeOnlyUrl, _) = await CreateUploadSessionAsync(client, editorSession, assetId,
+		var (sizeOnlyId, sizeOnlyUrl, _) = await CreateUploadSessionAsync(client, editorSession, liedId,
 			new { sizeBytes = 512 });
 		factory.Storage.Store(factory.Storage.Find(sizeOnlyUrl)!.BlobName, ValidPdf(512));
 		using (var response = await PostJsonAsync(client,
@@ -670,7 +552,7 @@ public sealed class UploadSessionResumeTests
 		}
 
 		// Declared fileName only: a matching name without size still finalizes.
-		var (nameOnlyId, nameOnlyUrl, _) = await CreateUploadSessionAsync(client, editorSession, assetId,
+		var (nameOnlyId, nameOnlyUrl, _) = await CreateUploadSessionAsync(client, editorSession, liedId,
 			new { fileName = "stimme.pdf" });
 		factory.Storage.Store(factory.Storage.Find(nameOnlyUrl)!.BlobName, ValidPdf(256));
 		using (var response = await PostJsonAsync(client,
@@ -683,7 +565,7 @@ public sealed class UploadSessionResumeTests
 		using (var scope = factory.Services.CreateScope())
 		{
 			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-			Assert.Equal(3, await db.FileRevisions.CountAsync());
+			Assert.Equal(3, await db.Dateien.CountAsync());
 		}
 	}
 
@@ -694,37 +576,36 @@ public sealed class UploadSessionResumeTests
 		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
-		var scoreAssetId = await CreateAssetAsync(client, editorSession, versionId, "score");
-		var audioAssetId = await CreateAssetAsync(client, editorSession, versionId, "audio");
+		var liedId = await CreateLiedAsync(client, editorSession);
 
 		// A block-list commit carries no blob content type (the storage
 		// reports its default), so finalize falls back to the session's
 		// declared whitelisted type.
-		var (scoreSessionId, scoreUploadUrl, _) = await CreateUploadSessionAsync(client, editorSession, scoreAssetId);
+		var (scoreSessionId, scoreUploadUrl, _) = await CreateUploadSessionAsync(client, editorSession, liedId);
 		factory.Storage.Store(factory.Storage.Find(scoreUploadUrl)!.BlobName,
-			ValidPdf(1024), AssetEndpoints.StorageDefaultContentType);
+			ValidPdf(1024), UploadEndpoints.StorageDefaultContentType);
 		using (var score = await PostJsonAsync(client,
 			$"/api/upload-sessions/{scoreSessionId}/finalize", new { }, editorSession))
 		{
 			Assert.Equal(HttpStatusCode.OK, score.StatusCode);
-			var revision = await score.Content.ReadFromJsonAsync<JsonElement>();
-			Assert.Equal(AssetEndpoints.PdfContentType, revision.GetProperty("contentType").GetString());
+			var datei = (await score.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("datei");
+			Assert.Equal(UploadEndpoints.PdfContentType, datei.GetProperty("contentType").GetString());
 		}
 
-		var (audioSessionId, audioUploadUrl, _) = await CreateUploadSessionAsync(client, editorSession, audioAssetId);
+		var (audioSessionId, audioUploadUrl, _) = await CreateUploadSessionAsync(client, editorSession, liedId,
+			new { kind = DateiKinds.Uebe, isPartitur = false, stimme = "Tenor 1" });
 		factory.Storage.Store(factory.Storage.Find(audioUploadUrl)!.BlobName,
-			new byte[512], AssetEndpoints.StorageDefaultContentType);
+			LiedTestHost.Mp3(512), UploadEndpoints.StorageDefaultContentType);
 		using (var audio = await PostJsonAsync(client,
 			$"/api/upload-sessions/{audioSessionId}/finalize", new { }, editorSession))
 		{
 			Assert.Equal(HttpStatusCode.OK, audio.StatusCode);
-			var revision = await audio.Content.ReadFromJsonAsync<JsonElement>();
-			Assert.Equal(AssetEndpoints.Mp3ContentType, revision.GetProperty("contentType").GetString());
+			var datei = (await audio.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("datei");
+			Assert.Equal(UploadEndpoints.Mp3ContentType, datei.GetProperty("contentType").GetString());
 		}
 
 		// A stored non-whitelisted type is still rejected.
-		var (textSessionId, textUploadUrl, _) = await CreateUploadSessionAsync(client, editorSession, scoreAssetId);
+		var (textSessionId, textUploadUrl, _) = await CreateUploadSessionAsync(client, editorSession, liedId);
 		factory.Storage.Store(factory.Storage.Find(textUploadUrl)!.BlobName,
 			ValidPdf(512), "text/plain");
 		using (var text = await PostJsonAsync(client,
@@ -732,7 +613,7 @@ public sealed class UploadSessionResumeTests
 		{
 			Assert.Equal(HttpStatusCode.UnprocessableEntity, text.StatusCode);
 			var problem = await text.Content.ReadFromJsonAsync<JsonElement>();
-			Assert.Equal(AssetEndpoints.InvalidPdfMessage, problem.GetProperty("title").GetString());
+			Assert.Equal(UploadEndpoints.InvalidPdfMessage, problem.GetProperty("title").GetString());
 		}
 	}
 
@@ -747,30 +628,26 @@ public sealed class UploadSessionResumeTests
 		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
-		var assetAId = await CreateAssetAsync(client, editorSession, versionId, "score");
-		var assetBId = await CreateAssetAsync(client, editorSession, versionId, "score");
+		var liedId = await CreateLiedAsync(client, editorSession);
 
 		// A finalizes 1024 bytes; B then transfers 3073 bytes, which together
 		// exceed the 4096-byte version budget.
-		await UploadAndFinalizeAsync(factory, client, editorSession, assetAId, size: 1024);
-		var (sessionBId, uploadUrlB, _) = await CreateUploadSessionAsync(client, editorSession, assetBId);
+		await UploadAndFinalizeAsync(factory, client, editorSession, liedId, size: 1024);
+		var (sessionBId, uploadUrlB, _) = await CreateUploadSessionAsync(client, editorSession, liedId);
 		var blobNameB = factory.Storage.Find(uploadUrlB)!.BlobName;
 		factory.Storage.Store(blobNameB, ValidPdf(3073));
 
 		using var response = await FinalizeAsync(client, editorSession, sessionBId);
 		Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
 		var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
-		Assert.Equal(AssetEndpoints.UploadTooLargeMessage, problem.GetProperty("title").GetString());
+		Assert.Equal(UploadEndpoints.UploadTooLargeMessage, problem.GetProperty("title").GetString());
 
 		using (var scope = factory.Services.CreateScope())
 		{
 			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
 			var session = await db.UploadSessions.SingleAsync(s => s.Id == sessionBId);
 			Assert.Equal(PendingUploadState.Abandoned, session.State);
-			Assert.Equal(1, await db.FileRevisions.CountAsync(
-				r => r.AssetId == assetAId));
-			Assert.Null((await db.Assets.SingleAsync(a => a.Id == assetBId)).CurrentRevisionId);
+			Assert.Equal(1, await db.Dateien.CountAsync());
 		}
 		Assert.False(factory.Storage.Has(blobNameB));
 	}
@@ -782,13 +659,11 @@ public sealed class UploadSessionResumeTests
 		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
-		var expiredAssetId = await CreateAssetAsync(client, editorSession, versionId, "score");
-		var freshAssetId = await CreateAssetAsync(client, editorSession, versionId, "score");
-		var (expiredId, expiredUrl, _) = await CreateUploadSessionAsync(client, editorSession, expiredAssetId);
+		var liedId = await CreateLiedAsync(client, editorSession);
+		var (expiredId, expiredUrl, _) = await CreateUploadSessionAsync(client, editorSession, liedId);
 		var expiredBlob = factory.Storage.Find(expiredUrl)!.BlobName;
 		factory.Storage.Store(expiredBlob, ValidPdf(128));
-		var (freshId, freshUrl, _) = await CreateUploadSessionAsync(client, editorSession, freshAssetId);
+		var (freshId, freshUrl, _) = await CreateUploadSessionAsync(client, editorSession, liedId);
 		var freshBlob = factory.Storage.Find(freshUrl)!.BlobName;
 		factory.Storage.Store(freshBlob, ValidPdf(128));
 
@@ -836,10 +711,9 @@ public sealed class UploadSessionResumeTests
 		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
-		var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
-		var (_, _, _) = await UploadAndFinalizeAsync(factory, client, editorSession, assetId);
-		var (cancelledId, _, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
+		var liedId = await CreateLiedAsync(client, editorSession);
+		var (_, _, _) = await UploadAndFinalizeAsync(factory, client, editorSession, liedId);
+		var (cancelledId, _, _) = await CreateUploadSessionAsync(client, editorSession, liedId);
 		using (var cancel = await DeleteAsync(client,
 			$"/api/upload-sessions/{cancelledId}", editorSession))
 		{
@@ -870,31 +744,32 @@ public sealed class UploadSessionResumeTests
 		}
 	}
 
-	private static async Task<(Guid SongId, Guid VersionId)> CreateSongWithVersionAsync(
-		AuthApiFactory factory, HttpClient client, string editorSession, string title = "Notenlied")
+	private static async Task<Guid> CreateLiedAsync(HttpClient client, string editorSession, string title = "Notenlied")
 	{
-		var songId = await CreateSongAsync(factory, client, editorSession, title);
-		var detail = await GetSongDetailAsync(client, editorSession, songId);
-		var versionId = Guid.Parse(detail.GetProperty("arrangements")[0]
-			.GetProperty("musicalVersions")[0].GetProperty("id").GetString()!);
-		return (songId, versionId);
-	}
-
-	private static async Task<Guid> CreateAssetAsync(
-		HttpClient client, string editorSession, Guid versionId, string assetType)
-	{
-		using var response = await PostJsonAsync(client,
-			$"/api/musical-versions/{versionId}/assets", new { assetType }, editorSession);
+		using var response = await PostJsonAsync(client, "/api/lieder", new { title }, editorSession);
 		Assert.Equal(HttpStatusCode.Created, response.StatusCode);
 		var body = await response.Content.ReadFromJsonAsync<JsonElement>();
-		return Guid.Parse(body.GetProperty("id").GetString()!);
+		return Guid.Parse(body.GetProperty("lied").GetProperty("id").GetString()!);
+	}
+
+	/// <summary>A Noten session request for a Partitur, extended by the given declared identity.</summary>
+	private static JsonObject Noten(object? identity = null)
+	{
+		var request = new JsonObject { ["kind"] = DateiKinds.Noten, ["isPartitur"] = true };
+		if (identity is not null && JsonSerializer.SerializeToNode(identity) is JsonObject extra)
+			foreach (var (name, value) in extra.ToList())
+			{
+				extra.Remove(name);
+				request[name] = value;
+			}
+		return request;
 	}
 
 	private static async Task<(Guid SessionId, string UploadUrl, JsonElement Body)> CreateUploadSessionAsync(
-		HttpClient client, string editorSession, Guid assetId, object? body = null)
+		HttpClient client, string editorSession, Guid liedId, object? body = null)
 	{
 		using var response = await PostJsonAsync(client,
-			$"/api/assets/{assetId}/upload-session", body ?? new { }, editorSession);
+			$"/api/lieder/{liedId}/dateien/upload-session", Noten(body), editorSession);
 		Assert.Equal(HttpStatusCode.Created, response.StatusCode);
 		var json = await response.Content.ReadFromJsonAsync<JsonElement>();
 		return (
@@ -904,15 +779,15 @@ public sealed class UploadSessionResumeTests
 	}
 
 	/// <summary>Creates the session, stores a valid PDF and finalizes.</summary>
-	private static async Task<(Guid SessionId, string UploadUrl, JsonElement Revision)> UploadAndFinalizeAsync(
-		AuthApiFactory factory, HttpClient client, string editorSession, Guid assetId, long size = 1024)
+	private static async Task<(Guid SessionId, string UploadUrl, JsonElement Datei)> UploadAndFinalizeAsync(
+		AuthApiFactory factory, HttpClient client, string editorSession, Guid liedId, long size = 1024)
 	{
-		var (sessionId, uploadUrl, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
+		var (sessionId, uploadUrl, _) = await CreateUploadSessionAsync(client, editorSession, liedId);
 		factory.Storage.Store(factory.Storage.Find(uploadUrl)!.BlobName, ValidPdf(size));
 		using var finalize = await FinalizeAsync(client, editorSession, sessionId);
 		Assert.Equal(HttpStatusCode.OK, finalize.StatusCode);
-		var revision = await finalize.Content.ReadFromJsonAsync<JsonElement>();
-		return (sessionId, uploadUrl, revision);
+		var datei = (await finalize.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("datei");
+		return (sessionId, uploadUrl, datei);
 	}
 
 	private static async Task<HttpResponseMessage> FinalizeAsync(
@@ -942,17 +817,6 @@ public sealed class UploadSessionResumeTests
 		request.Headers.Add("X-CSRF-TOKEN", token);
 		request.Content = JsonContent.Create(new { });
 		return await client.SendAsync(request);
-	}
-
-	private static async Task<Guid> CreateSongAsync(
-		AuthApiFactory factory, HttpClient client, string editorSession, string title)
-	{
-		var (cookie, token) = await GetCsrfAsync(client, editorSession);
-		using var create = AuthedPost("/api/songs", new { title }, $"{cookie}; {editorSession}", token);
-		using var response = await client.SendAsync(create);
-		Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-		var body = await response.Content.ReadFromJsonAsync<JsonElement>();
-		return Guid.Parse(body.GetProperty("song").GetProperty("id").GetString()!);
 	}
 
 	private static async Task<Guid> SeedAsync(AuthApiFactory factory, string email, string role)
@@ -1007,15 +871,5 @@ public sealed class UploadSessionResumeTests
 		request.Headers.Add("X-CSRF-TOKEN", token);
 		request.Content = JsonContent.Create(body);
 		return request;
-	}
-
-	private static async Task<JsonElement> GetSongDetailAsync(HttpClient client, string session, Guid songId)
-	{
-		using var request = new HttpRequestMessage(HttpMethod.Get, $"/api/songs/{songId}");
-		request.Headers.Add("Cookie", session);
-		using var response = await client.SendAsync(request);
-		response.EnsureSuccessStatusCode();
-		var body = await response.Content.ReadFromJsonAsync<JsonElement>();
-		return body.GetProperty("song");
 	}
 }

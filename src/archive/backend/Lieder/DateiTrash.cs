@@ -58,7 +58,7 @@ public static class DateiTrashEndpoints
 			if (datei is null)
 				return Results.Problem(statusCode: 404, title: DateiUploads.DateiNotFoundMessage);
 			if (body?.RowVersion is not { } expected || expected != datei.RowVersion)
-				return Results.Problem(statusCode: 409, title: AssetEndpoints.ConcurrencyMessage);
+				return Results.Problem(statusCode: 409, title: UploadEndpoints.ConcurrencyMessage);
 			DateiTrash.MoveToTrash(datei, decision!.AccountId, time.GetUtcNow());
 			try
 			{
@@ -66,7 +66,7 @@ public static class DateiTrashEndpoints
 			}
 			catch (DbUpdateConcurrencyException)
 			{
-				return Results.Problem(statusCode: 409, title: AssetEndpoints.ConcurrencyMessage);
+				return Results.Problem(statusCode: 409, title: UploadEndpoints.ConcurrencyMessage);
 			}
 			return Results.NoContent();
 		}).DisableAntiforgery();

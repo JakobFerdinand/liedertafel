@@ -1,14 +1,11 @@
-using Archive.Backend.Catalogue;
 using Archive.Backend.Lieder;
 
 namespace Archive.Backend.Events;
 
 /// <summary>
-/// One recorded occurrence of a song at one historical event (ARC-028): a
+/// One recorded occurrence of a Lied at one historical event (ARC-028): a
 /// confirmed performance or an unconfirmed programme mention (see
 /// <see cref="PerformanceEvidenceStatus"/>) with stable occurrence identity.
-/// The optional known chain is resolved at capture time and stored on both
-/// columns; an unknown version ("Fassung unbekannt") stays null on both.
 /// Attribution and the application-bumped optimistic concurrency token
 /// follow the catalogue/auth entities (ARC-007 pattern); the per-event
 /// idempotency key returns a lost retry its stored row instead of a second
@@ -23,25 +20,10 @@ public sealed class Performance
 
 	public ChoirEvent Event { get; set; } = null!;
 
-	/// <summary>
-	/// The Lied of the occurrence (#170), kept stable via Restrict. Set on
-	/// every occurrence written since the flat Lied model; null on
-	/// historical rows that still carry the old song chain below.
-	/// </summary>
-	public Guid? LiedId { get; set; }
+	/// <summary>The Lied of the occurrence, kept stable via Restrict.</summary>
+	public Guid LiedId { get; set; }
 
 	public Lied? Lied { get; set; }
-
-	/// <summary>Old model: recorded song of the occurrence, null for Lied occurrences.</summary>
-	public Guid? SongId { get; set; }
-
-	/// <summary>Resolved arrangement of the known chain, set together with the version.</summary>
-	public Guid? ArrangementId { get; set; }
-
-	/// <summary>Resolved musical version of the known chain, null when unknown.</summary>
-	public Guid? MusicalVersionId { get; set; }
-
-	public MusicalVersion? MusicalVersion { get; set; }
 
 	/// <summary>1-based captured order within the event, appended on create.</summary>
 	public int Position { get; set; }
@@ -64,7 +46,7 @@ public sealed class Performance
 
 	/// <summary>
 	/// ARC-029: the programme confirmation owning this occurrence (planned
-	/// entries sung and added encore songs); null for ARC-028 historical
+	/// entries sung and added encore Lieder); null for ARC-028 historical
 	/// evidence, which confirmations never touch.
 	/// </summary>
 	public Guid? ConfirmationId { get; set; }

@@ -3,7 +3,7 @@ namespace Archive.Backend.Chat;
 /// <summary>
 /// A persisted chat conversation (ARC-022). Owned by the asking member via a
 /// plain account id column like the catalogue attribution pattern
-/// (<see cref="Catalogue.Song.PublishedByAccountId"/>); no navigation to
+/// (<see cref="Lieder.Lied.CreatedByAccountId"/>); no navigation to
 /// Identity, ownership is validated on every request. Bounded to the last
 /// <see cref="ArchiveChatService.MessageHistoryLimit"/> messages.
 /// </summary>

@@ -1,6 +1,5 @@
 using Archive.Backend.Assets;
 using Archive.Backend.Auth;
-using Archive.Backend.Catalogue;
 using Archive.Backend.Events;
 using Archive.Backend.Extraction;
 using Microsoft.AspNetCore.Identity;
@@ -34,16 +33,6 @@ public sealed class ArchiveDbContext(DbContextOptions<ArchiveDbContext> options)
 
 	public DbSet<MemberEmailChange> MemberEmailChanges => Set<MemberEmailChange>();
 
-	public DbSet<Song> Songs => Set<Song>();
-
-	public DbSet<Arrangement> Arrangements => Set<Arrangement>();
-
-	public DbSet<MusicalVersion> MusicalVersions => Set<MusicalVersion>();
-
-	public DbSet<SongTitle> SongTitles => Set<SongTitle>();
-
-	public DbSet<SongTag> SongTags => Set<SongTag>();
-
 	public DbSet<ChoirEvent> Events => Set<ChoirEvent>();
 
 	public DbSet<EventProgramme> Programmes => Set<EventProgramme>();
@@ -56,21 +45,14 @@ public sealed class ArchiveDbContext(DbContextOptions<ArchiveDbContext> options)
 
 	public DbSet<ProgrammeConfirmation> ProgrammeConfirmations => Set<ProgrammeConfirmation>();
 
-	public DbSet<ArchiveAsset> Assets => Set<ArchiveAsset>();
-
-	public DbSet<FileRevision> FileRevisions => Set<FileRevision>();
-
 	public DbSet<PendingUpload> UploadSessions => Set<PendingUpload>();
-
-	/// <summary>ARC-033: append-only history of current-revision pointer changes.</summary>
-	public DbSet<RevisionChange> RevisionChanges => Set<RevisionChange>();
 
 	/// <summary>ARC-030: whole recordings of an event, each with an original and an optional playback copy.</summary>
 	public DbSet<Recordings.Recording> Recordings => Set<Recordings.Recording>();
 
 	public DbSet<Recordings.RecordingPassage> RecordingPassages => Set<Recordings.RecordingPassage>();
 
-	/// <summary>ARC-034: revision-keyed text extraction work, one row per FileRevision.</summary>
+	/// <summary>ARC-034: text extraction work, one row per Datei.</summary>
 	public DbSet<ExtractionJob> ExtractionJobs => Set<ExtractionJob>();
 
 	public DbSet<Reading.ReadingJob> ReadingJobs => Set<Reading.ReadingJob>();
@@ -84,7 +66,7 @@ public sealed class ArchiveDbContext(DbContextOptions<ArchiveDbContext> options)
 
 	public DbSet<Ai.AiBudgetMonth> AiBudgetMonths => Set<Ai.AiBudgetMonth>();
 
-	/// <summary>#166: the flat Lied that replaces Song, Arrangement and MusicalVersion.</summary>
+	/// <summary>The flat Lied (ADR-0001).</summary>
 	public DbSet<Lieder.Lied> Lieder => Set<Lieder.Lied>();
 
 	/// <summary>#166: Dateien of a Lied or an Auftritt; replaces assets and file revisions.</summary>

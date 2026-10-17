@@ -98,13 +98,13 @@ public sealed partial class ChatApiTests
 	[Theory]
 	[InlineData(false)]
 	[InlineData(true)]
-	public async Task GenericCatalogueQuestionListsPublishedSongsFromEmptyProviderSearch(bool scripted)
+	public async Task GenericCatalogueQuestionListsLiederFromEmptyProviderSearch(bool scripted)
 	{
 		// Replay the provider's empty search for the exact reported question.
 		// The endpoint, bounded tool loop, database and citation derivation are real.
 		await using var factory = ChatFactory(chatClient: scripted ? new ScriptedChatClient() : new CatalogueBrowseChatClient());
 		var ownerId = await SeedMemberAsync(factory, MemberA);
-		var (publishedId, draftId, instructionId) = await SeedSongsAsync(factory, ownerId);
+		var (publishedId, draftId, instructionId) = await SeedLiederAsync(factory, ownerId);
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 
@@ -154,7 +154,7 @@ public sealed partial class ChatApiTests
 	{
 		await using var factory = ChatFactory(chatClient: new CatalogueBrowseChatClient { ProviderMetadata = true });
 		var ownerId = await SeedMemberAsync(factory, MemberA);
-		var (publishedId, _, _) = await SeedSongsAsync(factory, ownerId);
+		var (publishedId, _, _) = await SeedLiederAsync(factory, ownerId);
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 		var threadId = Guid.NewGuid();
@@ -235,7 +235,7 @@ public sealed partial class ChatApiTests
 	}
 
 	[Fact]
-	public async Task BracketedSongTitlesRemainCitedAcrossProviderChunks()
+	public async Task BracketedLiedTitlesRemainCitedAcrossProviderChunks()
 	{
 		const string title = "Abendlied [SATB]";
 		await using var factory = ChatFactory(chatClient: new CatalogueBrowseChatClient
@@ -243,22 +243,22 @@ public sealed partial class ChatApiTests
 			AnswerChunks = ["Lied [Que", "lle: Abendlied [SA", "TB]", "] Ende. [Quelle: Erfunden [SATB]]"],
 		});
 		var ownerId = await SeedMemberAsync(factory, MemberA);
-		Guid songId;
+		Guid liedId;
 		using (var scope = factory.Services.CreateScope())
 		{
 			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-			var song = new Lied { Title = title,
+			var lied = new Lied { Title = title,
 				CreatedByAccountId = ownerId, UpdatedByAccountId = ownerId };
-			db.Lieder.Add(song);
+			db.Lieder.Add(lied);
 			await db.SaveChangesAsync();
-			songId = song.Id;
+			liedId = lied.Id;
 		}
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 		using var response = await RunChatAsync(client, session, Guid.NewGuid().ToString(), "welche lieder gibt es?");
 		var body = await response.Content.ReadAsStringAsync();
 		Assert.Equal("Lied [Quelle: Abendlied [SATB]] Ende. ", string.Concat(CollectTextDeltas(body)));
-		Assert.Equal([songId.ToString()], CollectCitationIds(body));
+		Assert.Equal([liedId.ToString()], CollectCitationIds(body));
 	}
 
 	[Fact]
@@ -269,7 +269,7 @@ public sealed partial class ChatApiTests
 			AnswerChunks = ["Lieder: [Que", "lle: Die Waldfahrt] [Quelle: Liedverzeichnis] ", "[Quelle: Geheime Probe] [Quel", "le: erfunden] Ende."],
 		});
 		var ownerId = await SeedMemberAsync(factory, MemberA);
-		var (publishedId, _, _) = await SeedSongsAsync(factory, ownerId);
+		var (publishedId, _, _) = await SeedLiederAsync(factory, ownerId);
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 		var threadId = Guid.NewGuid();
@@ -288,7 +288,7 @@ public sealed partial class ChatApiTests
 	{
 		await using var factory = ChatFactory();
 		var ownerId = await SeedMemberAsync(factory, MemberA);
-		var (publishedId, _, _) = await SeedSongsAsync(factory, ownerId);
+		var (publishedId, _, _) = await SeedLiederAsync(factory, ownerId);
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 
@@ -320,7 +320,7 @@ public sealed partial class ChatApiTests
 	{
 		await using var factory = ChatFactory();
 		await SeedMemberAsync(factory, MemberA);
-		await SeedSongsAsync(factory, Guid.NewGuid());
+		await SeedLiederAsync(factory, Guid.NewGuid());
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 
@@ -349,7 +349,7 @@ public sealed partial class ChatApiTests
 		await using var factory = ChatFactory();
 		await SeedMemberAsync(factory, MemberA);
 		await SeedMemberAsync(factory, MemberB);
-		await SeedSongsAsync(factory, Guid.NewGuid());
+		await SeedLiederAsync(factory, Guid.NewGuid());
 		var sessionA = await SignInAsync(factory, MemberA);
 		var sessionB = await SignInAsync(factory, MemberB);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
@@ -377,7 +377,7 @@ public sealed partial class ChatApiTests
 	{
 		await using var factory = ChatFactory();
 		var ownerId = await SeedMemberAsync(factory, MemberA);
-		await SeedSongsAsync(factory, ownerId);
+		await SeedLiederAsync(factory, ownerId);
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 
@@ -419,7 +419,7 @@ public sealed partial class ChatApiTests
 	{
 		await using var factory = ChatFactory();
 		var ownerId = await SeedMemberAsync(factory, MemberA);
-		var (_, draftId, _) = await SeedSongsAsync(factory, ownerId);
+		var (_, draftId, _) = await SeedLiederAsync(factory, ownerId);
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 
@@ -439,7 +439,7 @@ public sealed partial class ChatApiTests
 	{
 		await using var factory = ChatFactory();
 		var ownerId = await SeedMemberAsync(factory, MemberA);
-		await SeedSongsAsync(factory, ownerId);
+		await SeedLiederAsync(factory, ownerId);
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 
@@ -457,7 +457,7 @@ public sealed partial class ChatApiTests
 	{
 		await using var factory = ChatFactory();
 		var ownerId = await SeedMemberAsync(factory, MemberA);
-		await SeedSongsAsync(factory, ownerId);
+		await SeedLiederAsync(factory, ownerId);
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 
@@ -504,7 +504,7 @@ public sealed partial class ChatApiTests
 			["Archive:Ai:MonthlyCapEur"] = "1",
 		}, chatClient: provider);
 		var ownerId = await SeedMemberAsync(factory, MemberA);
-		await SeedSongsAsync(factory, ownerId);
+		await SeedLiederAsync(factory, ownerId);
 		using (var scope = factory.Services.CreateScope())
 		{
 			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
@@ -562,7 +562,7 @@ public sealed partial class ChatApiTests
 		var provider = new UsageReportingChatClient();
 		await using var factory = ChatFactory(chatClient: provider);
 		var ownerId = await SeedMemberAsync(factory, MemberA);
-		await SeedSongsAsync(factory, ownerId);
+		await SeedLiederAsync(factory, ownerId);
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 
@@ -590,7 +590,7 @@ public sealed partial class ChatApiTests
 		var provider = new UsageReportingChatClient();
 		await using var factory = ChatFactory(chatClient: provider);
 		var ownerId = await SeedMemberAsync(factory, MemberA);
-		await SeedSongsAsync(factory, ownerId);
+		await SeedLiederAsync(factory, ownerId);
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 
@@ -638,7 +638,7 @@ public sealed partial class ChatApiTests
 		await using var factory = new AuthApiFactory("Development", otlpEndpoint: collector.Urls.Single(),
 			settings: MergeSettings(null));
 		var ownerId = await SeedMemberAsync(factory, MemberA);
-		await SeedSongsAsync(factory, ownerId);
+		await SeedLiederAsync(factory, ownerId);
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 
@@ -694,7 +694,7 @@ public sealed partial class ChatApiTests
 		var provider = new UsageReportingChatClient();
 		await using var factory = ChatFactory(chatClient: provider);
 		var ownerId = await SeedMemberAsync(factory, MemberA);
-		await SeedSongsAsync(factory, ownerId);
+		await SeedLiederAsync(factory, ownerId);
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 
@@ -805,7 +805,7 @@ public sealed partial class ChatApiTests
 		var provider = new UsageReportingChatClient();
 		await using var factory = ChatFactory(chatClient: provider, saveChanges: new GatedFailSaveInterceptor(gate));
 		await SeedMemberAsync(factory, MemberA);
-		await SeedSongsAsync(factory, Guid.NewGuid());
+		await SeedLiederAsync(factory, Guid.NewGuid());
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 
@@ -836,7 +836,7 @@ public sealed partial class ChatApiTests
 		var provider = new UsageReportingChatClient();
 		await using var factory = ChatFactory(chatClient: provider, saveChanges: save);
 		var ownerId = await SeedMemberAsync(factory, MemberA);
-		await SeedSongsAsync(factory, ownerId);
+		await SeedLiederAsync(factory, ownerId);
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 
@@ -1034,7 +1034,7 @@ public sealed partial class ChatApiTests
 	/// Seeds two Lieder and returns their ids plus the id of a Lied that was never saved
 	/// (the old model's draft), which must never resolve or surface.
 	/// </summary>
-	private static async Task<(Guid PublishedId, Guid DraftId, Guid InstructionId)> SeedSongsAsync(AuthApiFactory factory, Guid ownerId)
+	private static async Task<(Guid PublishedId, Guid DraftId, Guid InstructionId)> SeedLiederAsync(AuthApiFactory factory, Guid ownerId)
 	{
 		using var scope = factory.Services.CreateScope();
 		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();

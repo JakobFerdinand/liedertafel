@@ -39,7 +39,7 @@ public static class A2uiCatalog
 	/// <summary>Requests of one tool call that are looked at; the rest counts as dropped.</summary>
 	internal const int MaxRequestsPerCall = 12;
 
-	/// <summary>Songs one <c>Quellen</c> list shows.</summary>
+	/// <summary>Lieder one <c>Quellen</c> list shows.</summary>
 	internal const int MaxSources = 10;
 
 	private const int MaxTitleChars = 200;
@@ -53,7 +53,7 @@ public static class A2uiCatalog
 	[
 		new("LiedKarte", A2uiArgument.LiedId,
 			"Karte zu einem einzelnen Lied (Titel, Komponist, Textdichter, Textanfang) mit Verweis ins Archiv.",
-			ResolveSongCardAsync),
+			ResolveLiedCardAsync),
 		new("AuftrittKarte", A2uiArgument.AuftrittId,
 			"Karte zu einem veröffentlichten Auftritt (Titel, Art, Datum, Ort) mit Verweis ins Archiv.",
 			ResolveEventCardAsync),
@@ -242,20 +242,20 @@ public static class A2uiCatalog
 
 	// ---- resolvers (what a member may see: every saved Lied, published Auftritte) ----
 
-	private static async Task<JsonObject?> ResolveSongCardAsync(ArchiveDbContext db, SurfaceRequest request, CancellationToken token)
+	private static async Task<JsonObject?> ResolveLiedCardAsync(ArchiveDbContext db, SurfaceRequest request, CancellationToken token)
 	{
 		if (!Guid.TryParse(request.LiedId, out var id))
 			return null;
-		var song = await db.Lieder.AsNoTracking()
+		var lied = await db.Lieder.AsNoTracking()
 			.Where(s => s.Id == id)
 			.Select(s => new { s.Id, s.Title, s.Composer, s.Lyricist, s.Lyrics })
 			.FirstOrDefaultAsync(token);
-		if (song is null)
+		if (lied is null)
 			return null;
-		var card = new JsonObject { ["liedId"] = song.Id.ToString(), ["titel"] = Clip(song.Title, MaxTitleChars) };
-		SetIfPresent(card, "komponist", song.Composer);
-		SetIfPresent(card, "textdichter", song.Lyricist);
-		SetIfPresent(card, "textanfang", Beginning(song.Lyrics));
+		var card = new JsonObject { ["liedId"] = lied.Id.ToString(), ["titel"] = Clip(lied.Title, MaxTitleChars) };
+		SetIfPresent(card, "komponist", lied.Composer);
+		SetIfPresent(card, "textdichter", lied.Lyricist);
+		SetIfPresent(card, "textanfang", Beginning(lied.Lyrics));
 		return card;
 	}
 
@@ -287,20 +287,20 @@ public static class A2uiCatalog
 			.OfType<Guid>().Distinct().Take(MaxSources).ToList();
 		if (ids.Count == 0)
 			return null;
-		var songs = await db.Lieder.AsNoTracking()
+		var lieder = await db.Lieder.AsNoTracking()
 			.Where(s => ids.Contains(s.Id))
 			.Select(s => new { s.Id, s.Title, s.Composer })
 			.ToListAsync(token);
-		if (songs.Count == 0)
+		if (lieder.Count == 0)
 			return null;
 		var sources = new JsonArray();
 		foreach (var id in ids)
 		{
-			var song = songs.FirstOrDefault(s => s.Id == id);
-			if (song is null)
+			var lied = lieder.FirstOrDefault(s => s.Id == id);
+			if (lied is null)
 				continue;
-			var entry = new JsonObject { ["liedId"] = song.Id.ToString(), ["titel"] = Clip(song.Title, MaxTitleChars) };
-			SetIfPresent(entry, "komponist", song.Composer);
+			var entry = new JsonObject { ["liedId"] = lied.Id.ToString(), ["titel"] = Clip(lied.Title, MaxTitleChars) };
+			SetIfPresent(entry, "komponist", lied.Composer);
 			sources.Add(entry);
 		}
 		return new JsonObject { ["quellen"] = sources };

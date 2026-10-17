@@ -19,6 +19,8 @@ namespace Archive.Backend.Events;
 /// </summary>
 public static class LiedHistoryEndpoints
 {
+	public const string InvalidEvidenceFilterMessage = "Der Nachweisfilter ist ungültig.";
+
 	public const string LiedNotFoundMessage = "Lied nicht gefunden.";
 
 	public const int PageSize = 20;
@@ -51,7 +53,7 @@ public static class LiedHistoryEndpoints
 				evidenceFilter = PerformanceEvidenceStatus.Known.FirstOrDefault(known => string.Equals(
 					known, evidenceParameter, StringComparison.OrdinalIgnoreCase));
 				if (evidenceFilter is null)
-					return Results.Problem(statusCode: 400, title: SongHistoryEndpoints.InvalidEvidenceFilterMessage);
+					return Results.Problem(statusCode: 400, title: InvalidEvidenceFilterMessage);
 			}
 
 			var query = db.Performances.AsNoTracking().Where(p => p.LiedId == liedId);

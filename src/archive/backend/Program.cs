@@ -23,7 +23,7 @@ using Microsoft.Extensions.Options;
 using ChatOptions = Archive.Backend.Chat.ChatOptions;
 
 var command = args.FirstOrDefault();
-if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" or "--bootstrap-admin" or "--repair-admin" or "--seed-dev-auth" or "--send-test-mail" or "--cleanup-uploads" or "--extract-queue" or "--dispatch-extraction" or "--read-queue" or "--dispatch-reading")
+if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" or "--bootstrap-admin" or "--repair-admin" or "--seed-dev-auth" or "--send-test-mail" or "--cleanup-uploads" or "--cleanup-dropped-blobs" or "--extract-queue" or "--dispatch-extraction" or "--read-queue" or "--dispatch-reading")
 {
     var jobs = Host.CreateApplicationBuilder(args.Skip(1).ToArray());
     jobs.AddServiceDefaults();
@@ -40,6 +40,7 @@ if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" o
     jobs.Services.AddSingleton<BlobAssetStorageAdapter>();
     jobs.Services.AddSingleton<IAssetStorageAdapter>(sp => sp.GetRequiredService<BlobAssetStorageAdapter>());
     jobs.Services.AddScoped<UploadSessionCleaner>();
+    jobs.Services.AddScoped<DroppedBlobCleaner>();
     // ARC-034: the extraction worker stack for the finite commands. The
     // message source is built from the same shared queue client factory as
     // the sender; an explicitly started consumer without any queue backend
@@ -112,6 +113,16 @@ if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" o
                 .CleanAsync(token);
             provider.GetRequiredService<ILoggerFactory>().CreateLogger("Archive.Jobs")
                 .LogInformation("Cleanup marked {AbandonedCount} upload sessions abandoned", cleaned);
+        }
+        else if (command == "--cleanup-dropped-blobs")
+        {
+            // #172 one-off operator command after the contract migration:
+            // releases the blobs of the dropped asset/revision model, keeps
+            // every Datei. --dry-run only counts.
+            var dropped = await provider.GetRequiredService<DroppedBlobCleaner>()
+                .CleanAsync(args.Contains("--dry-run"), token);
+            provider.GetRequiredService<ILoggerFactory>().CreateLogger("Archive.Jobs")
+                .LogInformation("Dropped-blob cleanup finished: {Result}", dropped);
         }
         else if (command == "--extract-queue")
         {
@@ -359,14 +370,12 @@ app.MapMaintenanceEndpoints();
 app.MapAuthEndpoints();
 app.MapPasskeyEndpoints();
 app.MapMemberAdminEndpoints();
-app.MapCatalogueEndpoints();
 app.MapEventEndpoints();
 app.MapProgrammeEndpoints();
 app.MapPerformanceEndpoints();
-app.MapSongHistoryEndpoints();
 app.MapProgrammeConfirmationEndpoints();
 app.MapChatEndpoints();
-app.MapAssetEndpoints();
+app.MapUploadEndpoints();
 app.MapRecordingEndpoints();
 app.MapRecordingPassageEndpoints();
 app.MapExtractionEndpoints();

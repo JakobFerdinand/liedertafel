@@ -91,114 +91,10 @@ namespace Archive.Backend.Data.Migrations
                     b.ToTable("ai_usage_entries", (string)null);
                 });
 
-            modelBuilder.Entity("Archive.Backend.Assets.ArchiveAsset", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("AssetType")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasDefaultValue("score");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("CreatedByAccountId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("CurrentRevisionId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Description")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
-
-                    b.Property<Guid?>("EventId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("MusicalVersionId")
-                        .HasColumnType("uuid");
-
-                    b.Property<long>("RowVersion")
-                        .IsConcurrencyToken()
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("VoiceLabel")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CurrentRevisionId")
-                        .IsUnique();
-
-                    b.HasIndex("EventId");
-
-                    b.HasIndex("MusicalVersionId");
-
-                    b.ToTable("assets", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_assets_owner", "((\"MusicalVersionId\" IS NOT NULL)::int + (\"EventId\" IS NOT NULL)::int) = 1");
-                        });
-                });
-
-            modelBuilder.Entity("Archive.Backend.Assets.FileRevision", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("AssetId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("BlobName")
-                        .IsRequired()
-                        .HasMaxLength(300)
-                        .HasColumnType("character varying(300)");
-
-                    b.Property<string>("ContentType")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("CreatedByAccountId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("OriginalFileName")
-                        .HasMaxLength(300)
-                        .HasColumnType("character varying(300)");
-
-                    b.Property<int>("RevisionNumber")
-                        .HasColumnType("integer");
-
-                    b.Property<long>("SizeBytes")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("BlobName")
-                        .IsUnique();
-
-                    b.HasIndex("AssetId", "RevisionNumber")
-                        .IsUnique();
-
-                    b.ToTable("file_revisions", (string)null);
-                });
-
             modelBuilder.Entity("Archive.Backend.Assets.PendingUpload", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("AssetId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("BlobName")
@@ -238,9 +134,6 @@ namespace Archive.Backend.Data.Migrations
                     b.Property<Guid?>("FinalizedDateiId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid?>("FinalizedRevisionId")
-                        .HasColumnType("uuid");
-
                     b.Property<bool>("IsPartitur")
                         .HasColumnType("boolean");
 
@@ -268,55 +161,17 @@ namespace Archive.Backend.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("AssetId");
-
                     b.HasIndex("BlobName")
                         .IsUnique();
 
                     b.HasIndex("EventId");
 
-                    b.HasIndex("FinalizedRevisionId")
-                        .IsUnique();
-
                     b.HasIndex("LiedId");
 
                     b.ToTable("upload_sessions", null, t =>
                         {
-                            t.HasCheckConstraint("CK_upload_sessions_owner", "((\"AssetId\" IS NOT NULL)::int + (\"LiedId\" IS NOT NULL)::int + (\"EventId\" IS NOT NULL)::int) = 1");
+                            t.HasCheckConstraint("CK_upload_sessions_owner", "((\"LiedId\" IS NOT NULL)::int + (\"EventId\" IS NOT NULL)::int) = 1");
                         });
-                });
-
-            modelBuilder.Entity("Archive.Backend.Assets.RevisionChange", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("AssetId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("ChangedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("ChangedByAccountId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("Kind")
-                        .HasColumnType("integer");
-
-                    b.Property<Guid?>("PreviousRevisionId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("RevisionId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("RevisionId");
-
-                    b.HasIndex("AssetId", "ChangedAt");
-
-                    b.ToTable("asset_revision_changes", (string)null);
                 });
 
             modelBuilder.Entity("Archive.Backend.Auth.ArchiveRole", b =>
@@ -663,212 +518,6 @@ namespace Archive.Backend.Data.Migrations
                         });
                 });
 
-            modelBuilder.Entity("Archive.Backend.Catalogue.Arrangement", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Accompaniment")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<string>("Arranger")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("CreatedByAccountId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Label")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<long>("RowVersion")
-                        .IsConcurrencyToken()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasDefaultValue(0L);
-
-                    b.Property<Guid>("SongId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("VoiceConfiguration")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("SongId");
-
-                    b.ToTable("arrangements", (string)null);
-                });
-
-            modelBuilder.Entity("Archive.Backend.Catalogue.MusicalVersion", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("ArrangementId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("CreatedByAccountId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Creator")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<string>("Label")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<string>("MusicalKey")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<long>("RowVersion")
-                        .IsConcurrencyToken()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasDefaultValue(0L);
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ArrangementId");
-
-                    b.ToTable("musical_versions", (string)null);
-                });
-
-            modelBuilder.Entity("Archive.Backend.Catalogue.Song", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Composer")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("CreatedByAccountId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Language")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<string>("Lyricist")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<string>("Lyrics")
-                        .HasMaxLength(5000)
-                        .HasColumnType("character varying(5000)");
-
-                    b.Property<string>("Occasion")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<DateTimeOffset?>("PublishedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("PublishedByAccountId")
-                        .HasColumnType("uuid");
-
-                    b.Property<long>("RowVersion")
-                        .IsConcurrencyToken()
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("UpdatedByAccountId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Title");
-
-                    b.ToTable("songs", (string)null);
-                });
-
-            modelBuilder.Entity("Archive.Backend.Catalogue.SongTag", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("CreatedByAccountId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("Position")
-                        .HasColumnType("integer");
-
-                    b.Property<Guid>("SongId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Value")
-                        .IsRequired()
-                        .HasMaxLength(60)
-                        .HasColumnType("character varying(60)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("SongId");
-
-                    b.ToTable("song_tags", (string)null);
-                });
-
-            modelBuilder.Entity("Archive.Backend.Catalogue.SongTitle", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("CreatedByAccountId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("Position")
-                        .HasColumnType("integer");
-
-                    b.Property<Guid>("SongId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Value")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("SongId");
-
-                    b.ToTable("song_titles", (string)null);
-                });
-
             modelBuilder.Entity("Archive.Backend.Chat.ChatMessage", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1035,9 +684,6 @@ namespace Archive.Backend.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<Guid?>("ArrangementId")
-                        .HasColumnType("uuid");
-
                     b.Property<Guid?>("ConfirmationId")
                         .HasColumnType("uuid");
 
@@ -1059,10 +705,7 @@ namespace Archive.Backend.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
-                    b.Property<Guid?>("LiedId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("MusicalVersionId")
+                    b.Property<Guid>("LiedId")
                         .HasColumnType("uuid");
 
                     b.Property<int>("Position")
@@ -1074,9 +717,6 @@ namespace Archive.Backend.Data.Migrations
                     b.Property<long>("RowVersion")
                         .IsConcurrencyToken()
                         .HasColumnType("bigint");
-
-                    b.Property<Guid?>("SongId")
-                        .HasColumnType("uuid");
 
                     b.Property<string>("SourceNote")
                         .HasMaxLength(2000)
@@ -1090,20 +730,14 @@ namespace Archive.Backend.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ArrangementId");
-
                     b.HasIndex("ConfirmationId");
 
                     b.HasIndex("EventId");
 
                     b.HasIndex("LiedId");
 
-                    b.HasIndex("MusicalVersionId");
-
                     b.HasIndex("ProgrammeItemId")
                         .IsUnique();
-
-                    b.HasIndex("SongId");
 
                     b.HasIndex("EventId", "IdempotencyKey")
                         .IsUnique();
@@ -1158,13 +792,7 @@ namespace Archive.Backend.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<Guid?>("ArrangementId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("LiedId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("MusicalVersionId")
+                    b.Property<Guid>("LiedId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("Note")
@@ -1177,18 +805,9 @@ namespace Archive.Backend.Data.Migrations
                     b.Property<Guid>("RevisionId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid?>("SongId")
-                        .HasColumnType("uuid");
-
                     b.HasKey("Id");
 
-                    b.HasIndex("ArrangementId");
-
                     b.HasIndex("LiedId");
-
-                    b.HasIndex("MusicalVersionId");
-
-                    b.HasIndex("SongId");
 
                     b.HasIndex("RevisionId", "Position")
                         .IsUnique();
@@ -1531,13 +1150,7 @@ namespace Archive.Backend.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
-                    b.Property<Guid?>("OriginalAssetId")
-                        .HasColumnType("uuid");
-
                     b.Property<Guid?>("OriginalDateiId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("PlaybackAssetId")
                         .HasColumnType("uuid");
 
                     b.Property<Guid?>("PlaybackDateiId")
@@ -1563,13 +1176,7 @@ namespace Archive.Backend.Data.Migrations
 
                     b.HasIndex("EventId");
 
-                    b.HasIndex("OriginalAssetId")
-                        .IsUnique();
-
                     b.HasIndex("OriginalDateiId")
-                        .IsUnique();
-
-                    b.HasIndex("PlaybackAssetId")
                         .IsUnique();
 
                     b.HasIndex("PlaybackDateiId")
@@ -1580,8 +1187,6 @@ namespace Archive.Backend.Data.Migrations
                             t.HasCheckConstraint("CK_recordings_dateien", "\"PlaybackDateiId\" IS NULL OR \"PlaybackDateiId\" <> \"OriginalDateiId\"");
 
                             t.HasCheckConstraint("CK_recordings_kind", "\"Kind\" IN ('audio', 'video')");
-
-                            t.HasCheckConstraint("CK_recordings_slots", "\"PlaybackAssetId\" IS NULL OR \"PlaybackAssetId\" <> \"OriginalAssetId\"");
                         });
                 });
 
@@ -1609,9 +1214,6 @@ namespace Archive.Backend.Data.Migrations
                     b.Property<Guid?>("PlaybackDateiId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid?>("PlaybackRevisionId")
-                        .HasColumnType("uuid");
-
                     b.Property<Guid>("RecordingId")
                         .HasColumnType("uuid");
 
@@ -1633,8 +1235,6 @@ namespace Archive.Backend.Data.Migrations
                     b.HasIndex("PerformanceId");
 
                     b.HasIndex("PlaybackDateiId");
-
-                    b.HasIndex("PlaybackRevisionId");
 
                     b.HasIndex("PerformanceId", "EventId");
 
@@ -1774,85 +1374,17 @@ namespace Archive.Backend.Data.Migrations
                     b.ToTable("AspNetUserTokens", (string)null);
                 });
 
-            modelBuilder.Entity("Archive.Backend.Assets.ArchiveAsset", b =>
-                {
-                    b.HasOne("Archive.Backend.Assets.FileRevision", "CurrentRevision")
-                        .WithOne()
-                        .HasForeignKey("Archive.Backend.Assets.ArchiveAsset", "CurrentRevisionId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Archive.Backend.Events.ChoirEvent", "Event")
-                        .WithMany()
-                        .HasForeignKey("EventId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Archive.Backend.Catalogue.MusicalVersion", "MusicalVersion")
-                        .WithMany()
-                        .HasForeignKey("MusicalVersionId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.Navigation("CurrentRevision");
-
-                    b.Navigation("Event");
-
-                    b.Navigation("MusicalVersion");
-                });
-
-            modelBuilder.Entity("Archive.Backend.Assets.FileRevision", b =>
-                {
-                    b.HasOne("Archive.Backend.Assets.ArchiveAsset", "Asset")
-                        .WithMany("Revisions")
-                        .HasForeignKey("AssetId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Asset");
-                });
-
             modelBuilder.Entity("Archive.Backend.Assets.PendingUpload", b =>
                 {
-                    b.HasOne("Archive.Backend.Assets.ArchiveAsset", "Asset")
-                        .WithMany()
-                        .HasForeignKey("AssetId")
-                        .OnDelete(DeleteBehavior.Cascade);
-
                     b.HasOne("Archive.Backend.Events.ChoirEvent", null)
                         .WithMany()
                         .HasForeignKey("EventId")
                         .OnDelete(DeleteBehavior.Cascade);
 
-                    b.HasOne("Archive.Backend.Assets.FileRevision", "FinalizedRevision")
-                        .WithOne()
-                        .HasForeignKey("Archive.Backend.Assets.PendingUpload", "FinalizedRevisionId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.HasOne("Archive.Backend.Lieder.Lied", null)
                         .WithMany()
                         .HasForeignKey("LiedId")
                         .OnDelete(DeleteBehavior.Cascade);
-
-                    b.Navigation("Asset");
-
-                    b.Navigation("FinalizedRevision");
-                });
-
-            modelBuilder.Entity("Archive.Backend.Assets.RevisionChange", b =>
-                {
-                    b.HasOne("Archive.Backend.Assets.ArchiveAsset", "Asset")
-                        .WithMany()
-                        .HasForeignKey("AssetId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Archive.Backend.Assets.FileRevision", "Revision")
-                        .WithMany()
-                        .HasForeignKey("RevisionId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Asset");
-
-                    b.Navigation("Revision");
                 });
 
             modelBuilder.Entity("Archive.Backend.Auth.MemberEmailChange", b =>
@@ -1888,50 +1420,6 @@ namespace Archive.Backend.Data.Migrations
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("Archive.Backend.Catalogue.Arrangement", b =>
-                {
-                    b.HasOne("Archive.Backend.Catalogue.Song", "Song")
-                        .WithMany("Arrangements")
-                        .HasForeignKey("SongId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Song");
-                });
-
-            modelBuilder.Entity("Archive.Backend.Catalogue.MusicalVersion", b =>
-                {
-                    b.HasOne("Archive.Backend.Catalogue.Arrangement", "Arrangement")
-                        .WithMany("MusicalVersions")
-                        .HasForeignKey("ArrangementId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Arrangement");
-                });
-
-            modelBuilder.Entity("Archive.Backend.Catalogue.SongTag", b =>
-                {
-                    b.HasOne("Archive.Backend.Catalogue.Song", "Song")
-                        .WithMany("Tags")
-                        .HasForeignKey("SongId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Song");
-                });
-
-            modelBuilder.Entity("Archive.Backend.Catalogue.SongTitle", b =>
-                {
-                    b.HasOne("Archive.Backend.Catalogue.Song", "Song")
-                        .WithMany("AlternateTitles")
-                        .HasForeignKey("SongId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Song");
-                });
-
             modelBuilder.Entity("Archive.Backend.Chat.ChatMessage", b =>
                 {
                     b.HasOne("Archive.Backend.Chat.ChatThread", null)
@@ -1954,11 +1442,6 @@ namespace Archive.Backend.Data.Migrations
 
             modelBuilder.Entity("Archive.Backend.Events.Performance", b =>
                 {
-                    b.HasOne("Archive.Backend.Catalogue.Arrangement", null)
-                        .WithMany()
-                        .HasForeignKey("ArrangementId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.HasOne("Archive.Backend.Events.ProgrammeConfirmation", null)
                         .WithMany()
                         .HasForeignKey("ConfirmationId")
@@ -1973,28 +1456,17 @@ namespace Archive.Backend.Data.Migrations
                     b.HasOne("Archive.Backend.Lieder.Lied", "Lied")
                         .WithMany()
                         .HasForeignKey("LiedId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Archive.Backend.Catalogue.MusicalVersion", "MusicalVersion")
-                        .WithMany()
-                        .HasForeignKey("MusicalVersionId")
-                        .OnDelete(DeleteBehavior.Restrict);
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
 
                     b.HasOne("Archive.Backend.Events.ProgrammeItem", null)
                         .WithMany()
                         .HasForeignKey("ProgrammeItemId")
                         .OnDelete(DeleteBehavior.Restrict);
 
-                    b.HasOne("Archive.Backend.Catalogue.Song", null)
-                        .WithMany()
-                        .HasForeignKey("SongId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.Navigation("Event");
 
                     b.Navigation("Lied");
-
-                    b.Navigation("MusicalVersion");
                 });
 
             modelBuilder.Entity("Archive.Backend.Events.ProgrammeConfirmation", b =>
@@ -2018,20 +1490,11 @@ namespace Archive.Backend.Data.Migrations
 
             modelBuilder.Entity("Archive.Backend.Events.ProgrammeItem", b =>
                 {
-                    b.HasOne("Archive.Backend.Catalogue.Arrangement", null)
-                        .WithMany()
-                        .HasForeignKey("ArrangementId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.HasOne("Archive.Backend.Lieder.Lied", "Lied")
                         .WithMany()
                         .HasForeignKey("LiedId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Archive.Backend.Catalogue.MusicalVersion", "MusicalVersion")
-                        .WithMany()
-                        .HasForeignKey("MusicalVersionId")
-                        .OnDelete(DeleteBehavior.Restrict);
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
 
                     b.HasOne("Archive.Backend.Events.ProgrammeRevision", "Revision")
                         .WithMany("Items")
@@ -2039,14 +1502,7 @@ namespace Archive.Backend.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("Archive.Backend.Catalogue.Song", null)
-                        .WithMany()
-                        .HasForeignKey("SongId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.Navigation("Lied");
-
-                    b.Navigation("MusicalVersion");
 
                     b.Navigation("Revision");
                 });
@@ -2116,19 +1572,9 @@ namespace Archive.Backend.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("Archive.Backend.Assets.ArchiveAsset", "OriginalAsset")
-                        .WithOne()
-                        .HasForeignKey("Archive.Backend.Recordings.Recording", "OriginalAssetId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.HasOne("Archive.Backend.Lieder.Datei", "OriginalDatei")
                         .WithOne()
                         .HasForeignKey("Archive.Backend.Recordings.Recording", "OriginalDateiId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Archive.Backend.Assets.ArchiveAsset", "PlaybackAsset")
-                        .WithOne()
-                        .HasForeignKey("Archive.Backend.Recordings.Recording", "PlaybackAssetId")
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("Archive.Backend.Lieder.Datei", "PlaybackDatei")
@@ -2138,11 +1584,7 @@ namespace Archive.Backend.Data.Migrations
 
                     b.Navigation("Event");
 
-                    b.Navigation("OriginalAsset");
-
                     b.Navigation("OriginalDatei");
-
-                    b.Navigation("PlaybackAsset");
 
                     b.Navigation("PlaybackDatei");
                 });
@@ -2152,11 +1594,6 @@ namespace Archive.Backend.Data.Migrations
                     b.HasOne("Archive.Backend.Lieder.Datei", "PlaybackDatei")
                         .WithMany()
                         .HasForeignKey("PlaybackDateiId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Archive.Backend.Assets.FileRevision", "PlaybackRevision")
-                        .WithMany()
-                        .HasForeignKey("PlaybackRevisionId")
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("Archive.Backend.Events.Performance", "Performance")
@@ -2176,8 +1613,6 @@ namespace Archive.Backend.Data.Migrations
                     b.Navigation("Performance");
 
                     b.Navigation("PlaybackDatei");
-
-                    b.Navigation("PlaybackRevision");
 
                     b.Navigation("Recording");
                 });
@@ -2282,25 +1717,6 @@ namespace Archive.Backend.Data.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
-                });
-
-            modelBuilder.Entity("Archive.Backend.Assets.ArchiveAsset", b =>
-                {
-                    b.Navigation("Revisions");
-                });
-
-            modelBuilder.Entity("Archive.Backend.Catalogue.Arrangement", b =>
-                {
-                    b.Navigation("MusicalVersions");
-                });
-
-            modelBuilder.Entity("Archive.Backend.Catalogue.Song", b =>
-                {
-                    b.Navigation("AlternateTitles");
-
-                    b.Navigation("Arrangements");
-
-                    b.Navigation("Tags");
                 });
 
             modelBuilder.Entity("Archive.Backend.Chat.ChatThread", b =>

@@ -1,4 +1,3 @@
-using Archive.Backend.Assets;
 using Archive.Backend.Events;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -33,10 +32,6 @@ public sealed class RecordingPassageModelConfiguration : IEntityTypeConfiguratio
 			.HasForeignKey(x => new { x.PerformanceId, x.EventId })
 			.HasPrincipalKey(x => new { x.Id, x.EventId })
 			.OnDelete(DeleteBehavior.Restrict);
-		builder.HasOne(x => x.PlaybackRevision)
-			.WithMany()
-			.HasForeignKey(x => x.PlaybackRevisionId)
-			.OnDelete(DeleteBehavior.Restrict);
 		builder.HasOne(x => x.PlaybackDatei)
 			.WithMany()
 			.HasForeignKey(x => x.PlaybackDateiId)
@@ -47,6 +42,5 @@ public sealed class RecordingPassageModelConfiguration : IEntityTypeConfiguratio
 		// once in each of several recordings.
 		builder.HasIndex(x => new { x.RecordingId, x.PerformanceId }).IsUnique();
 		builder.HasIndex(x => x.PerformanceId);
-		builder.HasIndex(x => x.PlaybackRevisionId);
 	}
 }
