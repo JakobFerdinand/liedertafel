@@ -5,7 +5,9 @@ import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { DateiHochladen } from "@/components/datei-hochladen";
 import { DateiListe } from "@/components/datei-liste";
+import { HistorieAufnahmen } from "@/components/historie-aufnahmen";
 import { LiedFormular } from "@/components/lied-formular";
+import { LiedHistorie } from "@/components/lied-historie";
 import { LiedKopf } from "@/components/lied-kopf";
 import { fetchMe, type MeResponse } from "@/lib/auth";
 import { fetchLied, type LiedDatei, type LiedMitDateien } from "@/lib/lieder";
@@ -149,6 +151,20 @@ export function LiedDetail() {
         <h3 id="material-titel">Dateien</h3>
         <DateiListe dateien={lied.dateien} />
       </section>
+
+      <LiedHistorie
+        liedId={lied.id}
+        isEditor={Boolean(editor)}
+        erweiterung={(zeile) =>
+          (zeile.recordings ?? []).length > 0 ? (
+            <HistorieAufnahmen
+              zeile={zeile}
+              liedTitel={lied.title}
+              isEditor={Boolean(editor)}
+            />
+          ) : null
+        }
+      />
 
       {editor && (
         <DateiHochladen

@@ -181,6 +181,7 @@ public sealed class ProgrammeLiedApiTests
 		Assert.Equal(HttpStatusCode.Created, first.StatusCode);
 		var created = (await first.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("performance");
 		Assert.Equal(lied.ToString(), created.GetProperty("liedId").GetString());
+		Assert.Equal("Abendlied", created.GetProperty("liedTitle").GetString());
 		using var duplicate = await host.PostAsync($"/api/events/{eventId}/performances",
 			new { liedId = lied, evidenceStatus = "mention", sourceNote = "Festschrift" }, editor);
 		Assert.Equal(HttpStatusCode.Conflict, duplicate.StatusCode);

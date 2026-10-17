@@ -147,7 +147,7 @@ public static class PerformanceEndpoints
 			if (idempotencyKey is not null
 				&& await db.Performances.AsNoTracking().FirstOrDefaultAsync(
 					p => p.EventId == eventId && p.IdempotencyKey == idempotencyKey, token) is { } replay)
-				return Results.Ok(new { performance = PerformanceEmbed(replay) });
+				return Results.Ok(new { performance = PerformanceEmbed(replay, await LiedTitlesAsync(db, [replay], token)) });
 			// A second editor re-submitting the same content without a retry
 			// key is refused: same song, same evidence value, same chain and
 			// the same normalized source note already exist on this event. A
@@ -197,11 +197,11 @@ public static class PerformanceEndpoints
 				if (idempotencyKey is not null
 					&& await db.Performances.AsNoTracking().FirstOrDefaultAsync(
 						p => p.EventId == eventId && p.IdempotencyKey == idempotencyKey, token) is { } stored)
-					return Results.Ok(new { performance = PerformanceEmbed(stored) });
+					return Results.Ok(new { performance = PerformanceEmbed(stored, await LiedTitlesAsync(db, [stored], token)) });
 				throw;
 			}
 			return Results.Created($"/api/performances/{performance.Id}",
-				new { performance = PerformanceEmbed(performance) });
+				new { performance = PerformanceEmbed(performance, await LiedTitlesAsync(db, [performance], token)) });
 		}).DisableAntiforgery();
 
 		app.MapPatch("/api/performances/{id}", async (
@@ -303,7 +303,7 @@ public static class PerformanceEndpoints
 			{
 				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
 			}
-			return Results.Ok(new { performance = PerformanceEmbed(performance) });
+			return Results.Ok(new { performance = PerformanceEmbed(performance, await LiedTitlesAsync(db, [performance], token)) });
 		}).DisableAntiforgery();
 
 		app.MapPost("/api/performances/{id}/delete", async (
@@ -371,7 +371,8 @@ public static class PerformanceEndpoints
 				.Where(p => p.EventId == eventId)
 				.OrderBy(p => p.Position).ThenBy(p => p.Id)
 				.ToListAsync(token);
-			return Results.Ok(new { performances = rows.Select(PerformanceEmbed) });
+			var titles = await LiedTitlesAsync(db, rows, token);
+			return Results.Ok(new { performances = rows.Select(row => PerformanceEmbed(row, titles)) });
 		});
 	}
 
@@ -388,16 +389,29 @@ public static class PerformanceEndpoints
 			.Where(p => p.EventId == eventId)
 			.OrderBy(p => p.Position).ThenBy(p => p.Id)
 			.ToListAsync(token);
+		var titles = await LiedTitlesAsync(db, rows, token);
 		return rows
-			.Select(p => isEditor ? (object)PerformanceEmbed(p) : (object)MemberEmbed(p))
+			.Select(p => isEditor ? (object)PerformanceEmbed(p, titles) : (object)MemberEmbed(p, titles))
 			.ToList();
 	}
 
-	private static object PerformanceEmbed(Performance performance) => new
+	/// <summary>Titles of the Lieder the given occurrences name (#170), keyed by Lied id.</summary>
+	private static async Task<IReadOnlyDictionary<Guid, string>> LiedTitlesAsync(
+		ArchiveDbContext db, IEnumerable<Performance> rows, CancellationToken token)
+	{
+		var ids = rows.Select(p => p.LiedId).OfType<Guid>().Distinct().ToList();
+		if (ids.Count == 0)
+			return new Dictionary<Guid, string>();
+		return await db.Lieder.AsNoTracking().Where(l => ids.Contains(l.Id))
+			.ToDictionaryAsync(l => l.Id, l => l.Title, token);
+	}
+
+	private static object PerformanceEmbed(Performance performance, IReadOnlyDictionary<Guid, string> titles) => new
 	{
 		id = performance.Id,
 		eventId = performance.EventId,
 		liedId = performance.LiedId,
+		liedTitle = performance.LiedId is { } titledId ? titles.GetValueOrDefault(titledId) : null,
 		songId = performance.SongId,
 		arrangementId = performance.ArrangementId,
 		musicalVersionId = performance.MusicalVersionId,
@@ -415,10 +429,11 @@ public static class PerformanceEndpoints
 		rowVersion = performance.RowVersion,
 	};
 
-	private static object MemberEmbed(Performance performance) => new
+	private static object MemberEmbed(Performance performance, IReadOnlyDictionary<Guid, string> titles) => new
 	{
 		id = performance.Id,
 		liedId = performance.LiedId,
+		liedTitle = performance.LiedId is { } titledId ? titles.GetValueOrDefault(titledId) : null,
 		songId = performance.SongId,
 		arrangementId = performance.ArrangementId,
 		musicalVersionId = performance.MusicalVersionId,

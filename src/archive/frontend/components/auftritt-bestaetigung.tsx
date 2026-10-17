@@ -2,21 +2,19 @@
 
 // ARC-029: tatsächlich gesungenes Programm. Der Plan (Abschnitt Programm)
 // und die Aufführung bleiben getrennt: Mitglieder lesen unter dem Plan,
-// was nach der Bestätigung wirklich gesungen wurde — samt abweichender
-// Fassung, Zugaben und ausgefallenen Programmpunkten — oder, solange
+// was nach der Bestätigung wirklich gesungen wurde — samt
+// Zugaben und ausgefallenen Programmpunkten — oder, solange
 // nichts bestätigt ist, ehrlich „noch nicht bestätigt“. Die Redaktion
 // bestätigt eine veröffentlichte Revision an einer Werkbank: je
 // Programmpunkt „gesungen“ oder „nicht gesungen“ (ausdrücklich, nichts
-// wird stillschweigend angenommen), optional eine andere Fassung, dazu
-// zusätzlich gesungene Lieder. „Programm unverändert bestätigen“ ist die
+// wird stillschweigend angenommen), dazu zusätzlich gesungene Lieder. „Programm unverändert bestätigen“ ist die
 // Ein-Klick-Aussage für den häufigen Fall. Das Absenden ist eine ganze,
 // wiederholbare Aussage (PUT): dieselben Nachweise werden fortgeschrieben,
 // ein veralteter Stand lädt den frischen und bittet um Nacharbeit.
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { LiedWahl } from "@/components/auftritt-programm";
-import { FassungsWahl } from "@/components/fassungs-wahl";
+import { LiedWahl } from "@/components/lied-wahl";
 import { problemTitel } from "@/lib/assets";
 import {
   type AuftrittDetailsMitProgramm,
@@ -24,12 +22,11 @@ import {
   type BestaetigungFassung,
   type BestaetigungNachweis,
   type BestaetigungPruefung,
-  bestaetigungUrl,
   fetchBestaetigung,
+  liedUrl,
   publishedAtText,
   putBestaetigung,
 } from "@/lib/events";
-import { fetchSong, type LiedDetails } from "@/lib/songs";
 import { ZeitmarkenVorhanden } from "@/lib/zeitmarken";
 
 const ersatzFehler = "Das hat nicht geklappt. Bitte erneut versuchen.";
@@ -54,9 +51,6 @@ const veralteterStand =
 const unentschieden =
   "Bitte gib für jeden Programmpunkt an, ob er gesungen wurde.";
 
-const liedLadeFehler =
-  "Ein Lied konnte nicht geladen werden. Die Fassungsauswahl bleibt leer.";
-
 type Ausgang = "sung" | "skipped";
 
 // Zeile der Werkbank für ein zusätzlich gesungenes Lied: vorhandene
@@ -67,34 +61,24 @@ type ZusatzZeile = {
   performanceId: string | null;
   rowVersion: number | null;
   clientKey: string;
-  songId: string;
+  liedId: string;
   titel: string | null;
-  arrangementId: string | null;
-  musicalVersionId: string | null;
 };
 
-type Korrektur = { arrangementId: string; versionId: string };
-
-/** Meta-Leiter der Fassung: Satz, Fassung, Tonart und Stimmkonfiguration,
-    Unbekanntes bleibt weg (nichts wird erfunden). */
-function fassungsTeile(fassung: BestaetigungFassung): string[] {
+/** Meta-Leiter des Liedes: Besetzung und Tonart, Unbekanntes bleibt weg
+    (nichts wird erfunden). */
+function liedTeile(lied: BestaetigungFassung): string[] {
   return [
-    fassung.arrangementLabel,
-    fassung.musicalVersionLabel,
-    fassung.musicalKey ? `Tonart: ${fassung.musicalKey}` : null,
-    fassung.voiceConfiguration
-      ? `Stimmkonfiguration: ${fassung.voiceConfiguration}`
-      : null,
+    lied.voiceConfiguration ? `Besetzung: ${lied.voiceConfiguration}` : null,
+    lied.musicalKey ? `Tonart: ${lied.musicalKey}` : null,
   ].filter((teil): teil is string => teil !== null);
 }
 
 function zeilenAusPruefung(pruefung: BestaetigungPruefung): {
   ausgang: Record<string, Ausgang | null>;
-  korrektur: Record<string, Korrektur | null>;
   zusaetze: ZusatzZeile[];
 } {
   const ausgang: Record<string, Ausgang | null> = {};
-  const korrektur: Record<string, Korrektur | null> = {};
   for (const punkt of pruefung.items) {
     if (punkt.outcome === "skipped") ausgang[punkt.programmeItemId] = "skipped";
     else if (punkt.outcome === "sung" || punkt.outcome === "unconfirmed")
@@ -106,32 +90,23 @@ function zeilenAusPruefung(pruefung: BestaetigungPruefung): {
       ausgang[punkt.programmeItemId] = punkt.suggestedPerformanceId
         ? "sung"
         : null;
-    // Die gesungene Fassung folgt dem vorhandenen oder dem zur Übernahme
-    // vorgeschlagenen Nachweis, damit eine Übernahme sie behält.
-    const gesungen = punkt.performance ?? punkt.suggestedPerformance;
-    korrektur[punkt.programmeItemId] =
-      gesungen?.musicalVersionId &&
-      gesungen.arrangementId &&
-      gesungen.musicalVersionId !== punkt.musicalVersionId
-        ? {
-            arrangementId: gesungen.arrangementId,
-            versionId: gesungen.musicalVersionId,
-          }
-        : null;
   }
   return {
     ausgang,
-    korrektur,
-    zusaetze: pruefung.additions.map((nachweis) => ({
-      schluessel: nachweis.id,
-      performanceId: nachweis.id,
-      rowVersion: nachweis.rowVersion,
-      clientKey: crypto.randomUUID(),
-      songId: nachweis.songId,
-      titel: nachweis.songTitle,
-      arrangementId: nachweis.arrangementId,
-      musicalVersionId: nachweis.musicalVersionId,
-    })),
+    zusaetze: pruefung.additions.flatMap((nachweis) =>
+      nachweis.liedId
+        ? [
+            {
+              schluessel: nachweis.id,
+              performanceId: nachweis.id,
+              rowVersion: nachweis.rowVersion,
+              clientKey: crypto.randomUUID(),
+              liedId: nachweis.liedId,
+              titel: nachweis.liedTitle,
+            },
+          ]
+        : [],
+    ),
   };
 }
 
@@ -139,7 +114,6 @@ function zeilenAusPruefung(pruefung: BestaetigungPruefung): {
 function absendeKoerper(
   pruefung: BestaetigungPruefung,
   ausgang: Record<string, Ausgang | null>,
-  korrektur: Record<string, Korrektur | null>,
   zusaetze: ZusatzZeile[],
 ): BestaetigungAbsenden {
   return {
@@ -149,16 +123,12 @@ function absendeKoerper(
       const wert = ausgang[punkt.programmeItemId] ?? "skipped";
       const eigener = punkt.performance ?? punkt.suggestedPerformance;
       const vorhanden = eigener?.id ?? null;
-      const geaendert = korrektur[punkt.programmeItemId];
       return {
         programmeItemId: punkt.programmeItemId,
         outcome: wert,
         ...(wert === "sung" && vorhanden ? { performanceId: vorhanden } : {}),
         ...(wert === "sung" && eigener
           ? { rowVersion: eigener.rowVersion }
-          : {}),
-        ...(wert === "sung" && geaendert
-          ? { musicalVersionId: geaendert.versionId }
           : {}),
       };
     }),
@@ -187,10 +157,7 @@ function absendeKoerper(
               : {}),
           }
         : { clientKey: zeile.clientKey }),
-      songId: zeile.songId,
-      ...(zeile.musicalVersionId
-        ? { musicalVersionId: zeile.musicalVersionId }
-        : {}),
+      liedId: zeile.liedId,
     })),
   };
 }
@@ -198,13 +165,11 @@ function absendeKoerper(
 /** Vergleichsstand der Werkbank: ändert sich etwas, gilt sie als bearbeitet. */
 function standVon(
   ausgang: Record<string, Ausgang | null>,
-  korrektur: Record<string, Korrektur | null>,
   zusaetze: ZusatzZeile[],
 ): string {
   return JSON.stringify([
     ausgang,
-    korrektur,
-    zusaetze.map((z) => [z.schluessel, z.songId, z.musicalVersionId]),
+    zusaetze.map((z) => [z.schluessel, z.liedId]),
   ]);
 }
 
@@ -260,23 +225,23 @@ function Lesesaal({
           {bestaetigung.actual.map((eintrag, index) => {
             const marken = [
               eintrag.added ? "Zusätzlich gesungen" : null,
-              eintrag.differsFromPlan
-                ? `Andere Fassung als geplant${eintrag.plannedMusicalVersionLabel ? ` (geplant: ${eintrag.plannedMusicalVersionLabel})` : ""}`
-                : null,
               eintrag.evidenceStatus === "mention"
                 ? "Programmangabe, nicht bestätigt"
                 : null,
-              ...fassungsTeile(eintrag),
+              ...liedTeile(eintrag),
             ].filter((teil): teil is string => teil !== null);
+            const ziel = liedUrl(eintrag.liedId);
             return (
               <li className="programm-eintrag" key={eintrag.performanceId}>
                 <h4 className="programm-titel">
                   <span className="programm-nummer" aria-hidden="true">
                     {index + 1}.
                   </span>{" "}
-                  <Link href={bestaetigungUrl(eintrag)}>
-                    {eintrag.songTitle ?? "Ohne Titel"}
-                  </Link>
+                  {ziel ? (
+                    <Link href={ziel}>{eintrag.liedTitle ?? "Ohne Titel"}</Link>
+                  ) : (
+                    (eintrag.liedTitle ?? "Ohne Titel")
+                  )}
                 </h4>
                 {marken.length > 0 && (
                   <p className="noten-info">{marken.join(" · ")}</p>
@@ -297,7 +262,7 @@ function Lesesaal({
                 <span className="programm-nummer" aria-hidden="true">
                   {punkt.position}.
                 </span>{" "}
-                {punkt.songTitle ?? "Ohne Titel"}
+                {punkt.liedTitle ?? "Ohne Titel"}
               </li>
             ))}
           </ul>
@@ -320,14 +285,7 @@ function Werkbank({
   const [pruefung, setPruefung] = useState<BestaetigungPruefung | null>(null);
   const [ladeFehler, setLadeFehler] = useState("");
   const [ausgang, setAusgang] = useState<Record<string, Ausgang | null>>({});
-  const [korrektur, setKorrektur] = useState<Record<string, Korrektur | null>>(
-    {},
-  );
   const [zusaetze, setZusaetze] = useState<ZusatzZeile[]>([]);
-  const [lieder, setLieder] = useState<Record<string, LiedDetails | "fehler">>(
-    {},
-  );
-  const [fassungOffen, setFassungOffen] = useState<string | null>(null);
   const [hinweis, setHinweis] = useState("");
   const [erfolg, setErfolg] = useState("");
   const [busy, setBusy] = useState(false);
@@ -344,13 +302,11 @@ function Werkbank({
 
   const uebernehmen = useCallback((neu: BestaetigungPruefung) => {
     const zeilen = zeilenAusPruefung(neu);
-    setGrundstand(standVon(zeilen.ausgang, zeilen.korrektur, zeilen.zusaetze));
+    setGrundstand(standVon(zeilen.ausgang, zeilen.zusaetze));
     setVerlustFreigabe("");
     setPruefung(neu);
     setAusgang(zeilen.ausgang);
-    setKorrektur(zeilen.korrektur);
     setZusaetze(zeilen.zusaetze);
-    setFassungOffen(null);
   }, []);
 
   // Beim Aufklappen kommt die Prüfansicht frisch vom Server; die Werkbank
@@ -370,42 +326,18 @@ function Werkbank({
     return () => abbruch.abort();
   }, [ausgeklappt, eventId, uebernehmen]);
 
-  // Lieddetails für die Fassungswahl werden erst bei Bedarf geholt.
-  async function liedLaden(songId: string) {
-    if (songId in lieder) return;
-    try {
-      const lied = await fetchSong(songId);
-      setLieder((bisher) => ({ ...bisher, [songId]: lied }));
-    } catch {
-      setLieder((bisher) => ({ ...bisher, [songId]: "fehler" }));
-    }
-  }
-
-  function fassungUmschalten(schluessel: string, songId: string) {
-    if (fassungOffen === schluessel) {
-      setFassungOffen(null);
-      return;
-    }
-    setFassungOffen(schluessel);
-    void liedLaden(songId);
-  }
-
-  function neuerZusatz(songId: string) {
-    const schluessel = crypto.randomUUID();
+  function neuerZusatz(liedId: string, titel: string) {
     setZusaetze((bisher) => [
       ...bisher,
       {
-        schluessel,
+        schluessel: crypto.randomUUID(),
         performanceId: null,
         rowVersion: null,
         clientKey: crypto.randomUUID(),
-        songId,
-        titel: null,
-        arrangementId: null,
-        musicalVersionId: null,
+        liedId,
+        titel,
       },
     ]);
-    void liedLaden(songId);
   }
 
   async function absenden(koerper: BestaetigungAbsenden) {
@@ -468,7 +400,7 @@ function Werkbank({
       setHinweis(unentschieden);
       return;
     }
-    const koerper = absendeKoerper(pruefung, ausgang, korrektur, zusaetze);
+    const koerper = absendeKoerper(pruefung, ausgang, zusaetze);
     // Wer einen Nachweis mit Quellenangabe abwählt oder entfernt, verliert
     // die Angabe: erst ein zweiter Klick auf dieselbe Aussage gibt frei.
     const behalten = behalteneIds(koerper);
@@ -480,7 +412,7 @@ function Werkbank({
       if (verlustFreigabe !== marke) {
         setVerlustFreigabe(marke);
         setHinweis(
-          `Beim Speichern werden Nachweise samt Quellenangabe entfernt: ${verlust.map((nachweis) => nachweis.songTitle ?? "Ohne Titel").join(", ")}. Zum Bestätigen noch einmal „Bestätigung speichern“ wählen.`,
+          `Beim Speichern werden Nachweise samt Quellenangabe entfernt: ${verlust.map((nachweis) => nachweis.liedTitle ?? "Ohne Titel").join(", ")}. Zum Bestätigen noch einmal „Bestätigung speichern“ wählen.`,
         );
         return;
       }
@@ -492,20 +424,19 @@ function Werkbank({
     if (!pruefung) return;
     const alles: Record<string, Ausgang | null> = {};
     for (const punkt of pruefung.items) alles[punkt.programmeItemId] = "sung";
-    void absenden(absendeKoerper(pruefung, alles, {}, []));
+    void absenden(absendeKoerper(pruefung, alles, []));
   }
 
-  const dirty =
-    pruefung !== null && standVon(ausgang, korrektur, zusaetze) !== grundstand;
+  const dirty = pruefung !== null && standVon(ausgang, zusaetze) !== grundstand;
   const gesperrt = pruefung !== null && !pruefung.confirmable;
   // Hand erfasste Nachweise, die der Stand der Werkbank nicht übernimmt:
   // sie zählten neben der Bestätigung ein zweites Mal.
   const unadoptiert = pruefung
     ? pruefung.unownedOccurrences.filter(
         (nachweis) =>
-          !behalteneIds(
-            absendeKoerper(pruefung, ausgang, korrektur, zusaetze),
-          ).has(nachweis.id),
+          !behalteneIds(absendeKoerper(pruefung, ausgang, zusaetze)).has(
+            nachweis.id,
+          ),
       )
     : [];
 
@@ -522,11 +453,6 @@ function Werkbank({
       (nachweis.passageCount ?? 0) > 0 &&
       !zusaetze.some((zeile) => zeile.performanceId === nachweis.id),
   );
-
-  const lied = (songId: string) => {
-    const stand = lieder[songId];
-    return stand && stand !== "fehler" ? stand : null;
-  };
 
   return (
     <details
@@ -594,16 +520,6 @@ function Werkbank({
                 <ul className="programm-zeilen">
                   {pruefung.items.map((punkt) => {
                     const wert = ausgang[punkt.programmeItemId] ?? null;
-                    const gewaehlt = korrektur[punkt.programmeItemId] ?? null;
-                    const offen = fassungOffen === punkt.programmeItemId;
-                    const liedStand = lied(punkt.songId);
-                    const gewaehlteFassung = gewaehlt
-                      ? liedStand?.arrangements
-                          .find((a) => a.id === gewaehlt.arrangementId)
-                          ?.musicalVersions.find(
-                            (v) => v.id === gewaehlt.versionId,
-                          )?.label
-                      : null;
                     return (
                       <li
                         className="programm-zeile bestaetigung-zeile"
@@ -617,17 +533,17 @@ function Werkbank({
                             {punkt.position}.
                           </span>
                           <span className="programm-zeile-titel">
-                            {punkt.songTitle ?? "Ohne Titel"}
+                            {punkt.liedTitle ?? "Ohne Titel"}
                           </span>
                         </div>
                         <p className="noten-info">
-                          Geplant: {fassungsTeile(punkt).join(" · ") || "—"}
+                          Geplant: {liedTeile(punkt).join(" · ") || "—"}
                           {punkt.outcome === "unconfirmed" &&
                             " · Nachweis ist inzwischen nur noch eine Programmangabe"}
                         </p>
                         <fieldset className="belege-art bestaetigung-ausgang">
                           <legend>
-                            {`Programmpunkt ${punkt.position}: ${punkt.songTitle ?? "Ohne Titel"}`}
+                            {`Programmpunkt ${punkt.position}: ${punkt.liedTitle ?? "Ohne Titel"}`}
                           </legend>
                           <div className="belege-art-auswahl">
                             <label>
@@ -687,70 +603,6 @@ function Werkbank({
                               Speichern verloren.
                             </p>
                           )}
-                        {wert === "sung" && (
-                          <div className="bestaetigung-fassung">
-                            <button
-                              type="button"
-                              className="knopf-leise"
-                              aria-expanded={offen}
-                              aria-label={`${offen ? "Fassungswahl schließen" : "Andere Fassung gesungen"}: ${punkt.songTitle ?? "Ohne Titel"}`}
-                              onClick={() =>
-                                fassungUmschalten(
-                                  punkt.programmeItemId,
-                                  punkt.songId,
-                                )
-                              }
-                            >
-                              {offen
-                                ? "Fassungswahl schließen"
-                                : "Andere Fassung gesungen"}
-                            </button>
-                            {gewaehlt && (
-                              <>
-                                <span className="noten-info">
-                                  Gesungen:{" "}
-                                  {gewaehlteFassung ?? "andere Fassung"}
-                                </span>
-                                <button
-                                  type="button"
-                                  className="knopf-leise"
-                                  aria-label={`Wie geplant: ${punkt.songTitle ?? "Ohne Titel"}`}
-                                  onClick={() =>
-                                    setKorrektur((bisher) => ({
-                                      ...bisher,
-                                      [punkt.programmeItemId]: null,
-                                    }))
-                                  }
-                                >
-                                  Wie geplant
-                                </button>
-                              </>
-                            )}
-                            {offen &&
-                              (liedStand ? (
-                                <FassungsWahl
-                                  lied={liedStand}
-                                  arrangementId={gewaehlt?.arrangementId ?? ""}
-                                  versionId={gewaehlt?.versionId ?? ""}
-                                  onSelect={(arrangementId, versionId) =>
-                                    setKorrektur((bisher) => ({
-                                      ...bisher,
-                                      [punkt.programmeItemId]:
-                                        versionId === punkt.musicalVersionId
-                                          ? null
-                                          : { arrangementId, versionId },
-                                    }))
-                                  }
-                                />
-                              ) : (
-                                <p className="feld-hinweis">
-                                  {lieder[punkt.songId] === "fehler"
-                                    ? liedLadeFehler
-                                    : "Lied wird geladen …"}
-                                </p>
-                              ))}
-                          </div>
-                        )}
                       </li>
                     );
                   })}
@@ -761,7 +613,7 @@ function Werkbank({
                 </p>
                 {entfernteMitMarken.map((nachweis) => (
                   <p className="feld-fehler" key={nachweis.id}>
-                    {`Zugabe „${nachweis.songTitle ?? "Ohne Titel"}“ ist entfernt, aber nicht gespeichert. ${zeitmarkenWarnung(nachweis.passageCount, "entfernt")}`}
+                    {`Zugabe „${nachweis.liedTitle ?? "Ohne Titel"}“ ist entfernt, aber nicht gespeichert. ${zeitmarkenWarnung(nachweis.passageCount, "entfernt")}`}
                   </p>
                 ))}
                 {zusaetze.length === 0 ? (
@@ -771,9 +623,7 @@ function Werkbank({
                 ) : (
                   <ul className="programm-zeilen">
                     {zusaetze.map((zeile) => {
-                      const liedStand = lied(zeile.songId);
-                      const offen = fassungOffen === zeile.schluessel;
-                      const titel = liedStand?.title ?? zeile.titel;
+                      const titel = zeile.titel;
                       return (
                         <li
                           className="programm-zeile bestaetigung-zusatz"
@@ -781,26 +631,10 @@ function Werkbank({
                         >
                           <div className="programm-zeile-kopf">
                             <span className="programm-zeile-titel">
-                              {titel ?? "Lied wird geladen …"}
+                              {titel ?? "Ohne Titel"}
                             </span>
                           </div>
                           <div className="programm-zeile-werkzeuge">
-                            <button
-                              type="button"
-                              className="knopf-leise"
-                              aria-expanded={offen}
-                              aria-label={`${offen ? "Fassungswahl schließen" : "Fassung wählen"}: ${titel ?? "Zusätzliches Lied"}`}
-                              onClick={() =>
-                                fassungUmschalten(
-                                  zeile.schluessel,
-                                  zeile.songId,
-                                )
-                              }
-                            >
-                              {offen
-                                ? "Fassungswahl schließen"
-                                : "Fassung wählen"}
-                            </button>
                             <button
                               type="button"
                               className="knopf-leise"
@@ -825,38 +659,6 @@ function Werkbank({
                               )}
                             </p>
                           )}
-                          <p className="noten-info">
-                            {zeile.musicalVersionId
-                              ? `Fassung: ${liedStand?.arrangements.flatMap((a) => a.musicalVersions).find((v) => v.id === zeile.musicalVersionId)?.label ?? "gewählt"}`
-                              : "Fassung unbekannt"}
-                          </p>
-                          {offen &&
-                            (liedStand ? (
-                              <FassungsWahl
-                                lied={liedStand}
-                                arrangementId={zeile.arrangementId ?? ""}
-                                versionId={zeile.musicalVersionId ?? ""}
-                                onSelect={(arrangementId, versionId) =>
-                                  setZusaetze((bisher) =>
-                                    bisher.map((andere) =>
-                                      andere.schluessel === zeile.schluessel
-                                        ? {
-                                            ...andere,
-                                            arrangementId,
-                                            musicalVersionId: versionId,
-                                          }
-                                        : andere,
-                                    ),
-                                  )
-                                }
-                              />
-                            ) : (
-                              <p className="feld-hinweis">
-                                {lieder[zeile.songId] === "fehler"
-                                  ? liedLadeFehler
-                                  : "Lied wird geladen …"}
-                              </p>
-                            ))}
                         </li>
                       );
                     })}
@@ -875,7 +677,7 @@ function Werkbank({
                     {unadoptiert
                       .map(
                         (nachweis) =>
-                          `${nachweis.songTitle ?? "Ohne Titel"} (${nachweis.evidenceStatus === "confirmed" ? "bestätigt" : "Programmangabe"})`,
+                          `${nachweis.liedTitle ?? "Ohne Titel"} (${nachweis.evidenceStatus === "confirmed" ? "bestätigt" : "Programmangabe"})`,
                       )
                       .join(", ")}
                     . Die Lieder zählten sonst doppelt.
