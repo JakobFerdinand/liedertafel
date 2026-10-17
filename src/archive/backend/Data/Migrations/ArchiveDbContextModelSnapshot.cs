@@ -1224,10 +1224,7 @@ namespace Archive.Backend.Data.Migrations
 
             modelBuilder.Entity("Archive.Backend.Extraction.ExtractionJob", b =>
                 {
-                    b.Property<Guid>("RevisionId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("AssetId")
+                    b.Property<Guid>("DateiId")
                         .HasColumnType("uuid");
 
                     b.Property<int>("AttemptCount")
@@ -1270,7 +1267,7 @@ namespace Archive.Backend.Data.Migrations
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.HasKey("RevisionId");
+                    b.HasKey("DateiId");
 
                     b.ToTable("extraction_jobs", (string)null);
                 });
@@ -1431,10 +1428,7 @@ namespace Archive.Backend.Data.Migrations
 
             modelBuilder.Entity("Archive.Backend.Reading.ReadingJob", b =>
                 {
-                    b.Property<Guid>("RevisionId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("AssetId")
+                    b.Property<Guid>("DateiId")
                         .HasColumnType("uuid");
 
                     b.Property<int>("AttemptCount")
@@ -1484,7 +1478,7 @@ namespace Archive.Backend.Data.Migrations
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.HasKey("RevisionId");
+                    b.HasKey("DateiId");
 
                     b.HasIndex("Status");
 
@@ -2031,13 +2025,13 @@ namespace Archive.Backend.Data.Migrations
 
             modelBuilder.Entity("Archive.Backend.Extraction.ExtractionJob", b =>
                 {
-                    b.HasOne("Archive.Backend.Assets.FileRevision", "Revision")
+                    b.HasOne("Archive.Backend.Lieder.Datei", "Datei")
                         .WithMany()
-                        .HasForeignKey("RevisionId")
+                        .HasForeignKey("DateiId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.Navigation("Revision");
+                    b.Navigation("Datei");
                 });
 
             modelBuilder.Entity("Archive.Backend.Lieder.Datei", b =>
@@ -2066,13 +2060,13 @@ namespace Archive.Backend.Data.Migrations
 
             modelBuilder.Entity("Archive.Backend.Reading.ReadingJob", b =>
                 {
-                    b.HasOne("Archive.Backend.Assets.FileRevision", "Revision")
+                    b.HasOne("Archive.Backend.Lieder.Datei", "Datei")
                         .WithMany()
-                        .HasForeignKey("RevisionId")
+                        .HasForeignKey("DateiId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.Navigation("Revision");
+                    b.Navigation("Datei");
                 });
 
             modelBuilder.Entity("Archive.Backend.Recordings.Recording", b =>

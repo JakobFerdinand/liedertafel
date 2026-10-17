@@ -829,7 +829,7 @@ public static class AssetEndpoints
 			// un-enqueued for the dispatch sweep, and it never fails
 			// finalize. The idempotent re-entry branch above never reaches
 			// this, so no revision ever gains a second row.
-			var enqueueExtraction = await RevisionChanges.MakeCurrentAsync(
+			await RevisionChanges.MakeCurrentAsync(
 				db, asset, revision, RevisionChangeKind.Upload, decision.AccountId, time.GetUtcNow(), token);
 			try
 			{
@@ -847,11 +847,6 @@ public static class AssetEndpoints
 			}
 			// Keep the staged upload replayable until the revision is committed.
 			await DeletePendingBestEffortAsync(storage, session.BlobName, token);
-			if (enqueueExtraction)
-			{
-				await ExtractionService.TryEnqueueAsync(
-					db, extractionQueue, loggerFactory.CreateLogger("Archive.Extraction"), revision.Id, time, token);
-			}
 			return Results.Ok(RevisionPayload(revision));
 		}).DisableAntiforgery();
 
@@ -987,7 +982,7 @@ public static class AssetEndpoints
 				return Results.Ok(await HistoryPayloadAsync(db, asset, token));
 			if (body?.ExpectedCurrentRevisionId is { } expected && expected != asset.CurrentRevisionId)
 				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
-			var enqueueExtraction = await RevisionChanges.MakeCurrentAsync(
+			await RevisionChanges.MakeCurrentAsync(
 				db, asset, revision, RevisionChangeKind.Restore, decision.AccountId, time.GetUtcNow(), token);
 			try
 			{
@@ -996,11 +991,6 @@ public static class AssetEndpoints
 			catch (DbUpdateException exception) when (RevisionChanges.IsLostRace(exception))
 			{
 				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
-			}
-			if (enqueueExtraction)
-			{
-				await ExtractionService.TryEnqueueAsync(
-					db, extractionQueue, loggerFactory.CreateLogger("Archive.Extraction"), revision.Id, time, token);
 			}
 			return Results.Ok(await HistoryPayloadAsync(db, asset, token));
 		}).DisableAntiforgery();

@@ -667,17 +667,10 @@ public static class CatalogueEndpoints
 	public static async Task<Dictionary<Guid, ScoreFacts>> LoadScoreFactsAsync(
 		ArchiveDbContext db, IReadOnlyCollection<ArchiveAsset> assets, CancellationToken token)
 	{
-		var revisionIds = assets
-			.Where(a => a.AssetType == AssetEndpoints.ScoreAssetType && a.CurrentRevisionId is not null)
-			.Select(a => a.CurrentRevisionId!.Value)
-			.ToList();
-		if (revisionIds.Count == 0)
-			return [];
-		var texts = await db.ExtractionJobs.AsNoTracking()
-			.Where(j => revisionIds.Contains(j.RevisionId) && j.Status == ExtractionStatus.Completed)
-			.Select(j => new { j.RevisionId, j.Text })
-			.ToListAsync(token);
-		return texts.ToDictionary(t => t.RevisionId, t => ScoreTextAnalyzer.Analyze(t.Text).Facts);
+		// Extraction text is keyed by Datei since #169; the old revision
+		// model has no text any more and is dropped by #172.
+		await Task.CompletedTask;
+		return [];
 	}
 
 	private static object SongDetail(Song song, List<(Guid VersionId, List<object> Assets)>? versionAssets = null)

@@ -1,6 +1,6 @@
-using Archive.Backend.Assets;
 using Archive.Backend.Auth;
 using Archive.Backend.Data;
+using Archive.Backend.Lieder;
 using Archive.Backend.Reading;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.EntityFrameworkCore;
@@ -10,20 +10,22 @@ using Microsoft.Extensions.Options;
 namespace Archive.Backend.Extraction;
 
 /// <summary>
-/// ARC-034 editor surface for revision text extraction: a bounded batch
+/// ARC-034 editor surface for the text extraction of Dateien: a bounded batch
 /// status query (for the upload lists' polling) and the explicit retry
 /// action for failed runs. Both are editor-only with the shared archive
 /// access decision; responses are no-store and failures answer with German
 /// ProblemDetails. Unknown ids are silently skipped so the batch query leaks
-/// nothing about other people's revisions.
+/// nothing about other Dateien.
 /// </summary>
 public static class ExtractionEndpoints
 {
-	public const string TooManyIdsMessage = "Es können höchstens 100 Revisionen gleichzeitig angefragt werden.";
+	public const string TooManyIdsMessage = "Es können höchstens 100 Dateien gleichzeitig angefragt werden.";
 
-	public const string RevisionNotFoundMessage = "Revision nicht gefunden.";
+	public const string DateiNotFoundMessage = "Datei nicht gefunden.";
 
 	public const string ExtractionNotSupportedMessage = "Die Textauswertung ist nur für PDF-Dateien möglich.";
+
+	public const string ConcurrencyMessage = "Die Datei wurde zwischenzeitlich geändert. Bitte neu laden.";
 
 	public const string ExtractionRunningMessage = "Die Auswertung läuft bereits.";
 
@@ -32,7 +34,7 @@ public static class ExtractionEndpoints
 
 	public static void MapExtractionEndpoints(this IEndpointRouteBuilder app)
 	{
-		app.MapGet("/api/revisions/extraction", async (
+		app.MapGet("/api/dateien/extraction", async (
 			HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access,
 			ArchiveDbContext db, IOptions<ReadingOptions> readingOptions, IOptions<ExtractionOptions> extractionOptions,
 			CancellationToken token) =>
@@ -48,11 +50,11 @@ public static class ExtractionEndpoints
 			if (ids.Count > 0)
 			{
 				jobs = await db.ExtractionJobs.AsNoTracking()
-					.Include(j => j.Revision).ThenInclude(r => r.Asset)
-					.Where(j => ids.Contains(j.RevisionId))
+					.Include(j => j.Datei)
+					.Where(j => ids.Contains(j.DateiId) && j.Datei.DeletedAt == null)
 					.ToListAsync(token);
 			}
-			var byRevision = jobs.ToDictionary(j => j.RevisionId);
+			var byDatei = jobs.ToDictionary(j => j.DateiId);
 			// ARC-034-1: the AI reading state travels with the extraction row,
 			// so one poll serves the whole list.
 			var readingEnabled = readingOptions.Value.Enabled;
@@ -60,18 +62,18 @@ public static class ExtractionEndpoints
 			var readings = ids.Count == 0 || !readingEnabled
 				? new Dictionary<Guid, ReadingJob>()
 				: await db.ReadingJobs.AsNoTracking()
-					.Where(j => ids.Contains(j.RevisionId))
-					.ToDictionaryAsync(j => j.RevisionId, token);
+					.Where(j => ids.Contains(j.DateiId))
+					.ToDictionaryAsync(j => j.DateiId, token);
 			return Results.Ok(new
 			{
 				// Request order with unknown ids silently skipped.
-				results = ids.Where(byRevision.ContainsKey)
-					.Select(revisionId => StatusPayload(byRevision[revisionId], readings.GetValueOrDefault(revisionId), readingEnabled, textCap))
+				results = ids.Where(byDatei.ContainsKey)
+					.Select(dateiId => StatusPayload(byDatei[dateiId], readings.GetValueOrDefault(dateiId), readingEnabled, textCap))
 					.ToList(),
 			});
 		});
 
-		app.MapPost("/api/revisions/{id}/extraction/retry", async (
+		app.MapPost("/api/dateien/{id}/extraction/retry", async (
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
 			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time,
 			ILoggerFactory loggerFactory, IExtractionQueue queue, IOptions<ExtractionOptions> options,
@@ -86,26 +88,25 @@ public static class ExtractionEndpoints
 			var (decision, error) = await RequireEditorAsync(context, accessor, access);
 			if (error is not null)
 				return error;
-			var revision = await db.FileRevisions
-				.Include(r => r.Asset)
-				.FirstOrDefaultAsync(r => r.Id == id, token);
-			if (revision is null)
-				return Results.Problem(statusCode: 404, title: RevisionNotFoundMessage);
-			if (!ExtractionService.IsExtractable(revision.Asset.AssetType))
+			var datei = await DateiQueries.Visible(db).FirstOrDefaultAsync(d => d.Id == id, token);
+			if (datei is null)
+				return Results.Problem(statusCode: 404, title: DateiNotFoundMessage);
+			if (!ExtractionService.IsExtractable(datei))
 				return Results.Problem(statusCode: 422, title: ExtractionNotSupportedMessage);
 			var now = time.GetUtcNow();
 			for (var pass = 0; pass < 2; pass++)
 			{
 				var job = await db.ExtractionJobs
-					.Include(j => j.Revision).ThenInclude(r => r.Asset)
-					.FirstOrDefaultAsync(j => j.RevisionId == id, token);
+					.Include(j => j.Datei)
+					.FirstOrDefaultAsync(j => j.DateiId == id, token);
 				var creating = job is null;
 				var enqueue = false;
 				if (job is null)
 				{
-					// Revisions finalized before ARC-034 gain their row here.
-					job = ExtractionService.CreateForRevision(revision.Asset, revision, decision!.AccountId, now);
-					job.Revision = revision;
+					// Dateien finalized before ARC-034 gain their row here.
+					job = ExtractionService.CreateForDatei(datei, now);
+					job.TriggeredByAccountId = decision!.AccountId;
+					job.Datei = datei;
 					db.ExtractionJobs.Add(job);
 					enqueue = true;
 				}
@@ -141,12 +142,12 @@ public static class ExtractionEndpoints
 				}
 				catch (DbUpdateConcurrencyException)
 				{
-					return Results.Problem(statusCode: 409, title: AssetEndpoints.ConcurrencyMessage);
+					return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
 				}
 				catch (DbUpdateException) when (creating || pass == 1)
 				{
 					if (pass == 1)
-						return Results.Problem(statusCode: 409, title: AssetEndpoints.ConcurrencyMessage);
+						return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
 					// A concurrent retry may have inserted this primary key.
 					// Detach the losing insert, reload, and reapply the state matrix.
 					db.Entry(job).State = EntityState.Detached;
@@ -159,7 +160,7 @@ public static class ExtractionEndpoints
 				}
 				return Results.Ok(await StatusWithReadingAsync(db, job, readingOptions.Value, options.Value, token));
 			}
-			return Results.Problem(statusCode: 409, title: AssetEndpoints.ConcurrencyMessage);
+			return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
 		}).DisableAntiforgery();
 	}
 
@@ -169,7 +170,7 @@ public static class ExtractionEndpoints
 		CancellationToken token)
 	{
 		var reading = readingOptions.Enabled
-			? await db.ReadingJobs.AsNoTracking().FirstOrDefaultAsync(r => r.RevisionId == job.RevisionId, token)
+			? await db.ReadingJobs.AsNoTracking().FirstOrDefaultAsync(r => r.DateiId == job.DateiId, token)
 			: null;
 		return StatusPayload(job, reading, readingOptions.Enabled, extractionOptions.MaxTextCharacters);
 	}
@@ -180,9 +181,7 @@ public static class ExtractionEndpoints
 		var analysis = job.Status == ExtractionStatus.Completed ? ScoreTextAnalyzer.Analyze(job.Text) : null;
 		return new
 		{
-			revisionId = job.RevisionId,
-			assetId = job.AssetId,
-			revisionNumber = job.Revision.RevisionNumber,
+			dateiId = job.DateiId,
 			status = ToStatusString(job.Status),
 			textSource = job.TextSource == ExtractionTextSource.Reading ? "reading" : "embedded",
 			// ARC-034-1: false until the hosted reading job exists; the page then
@@ -192,8 +191,8 @@ public static class ExtractionEndpoints
 			text = job.Text,
 			// Readable text and facts are derived on read from the stored text.
 			cleanText = analysis?.CleanText,
-			// Voice, key and credits only describe scores, never event documents.
-			facts = job.Revision.Asset?.AssetType == AssetEndpoints.ScoreAssetType ? FactsPayload(analysis?.Facts) : null,
+			// Voice, key and credits only describe Noten, never other documents.
+			facts = job.Datei.Kind == DateiKinds.Noten ? FactsPayload(analysis?.Facts) : null,
 			failureReason = job.FailureReason,
 			attemptCount = job.AttemptCount,
 			completedAt = job.CompletedAt,

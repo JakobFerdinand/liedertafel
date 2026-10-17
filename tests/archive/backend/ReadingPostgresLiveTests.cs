@@ -26,11 +26,11 @@ namespace Archive.Backend.Tests;
 /// </summary>
 public sealed class ReadingPostgresLiveTests(ITestOutputHelper output)
 {
-	private const string PreviousMigration = "20261011160524_ChatMessageA2ui";
+	private const string PreviousMigration = "20261016170055_AddLiederAndDateien";
 
 	[Fact]
 	[Trait("Category", "PostgresReading")]
-	public async Task MigrationKeepsExistingExtractionRowsAsEmbeddedTextAndConstrainsReadingRows()
+	public async Task MigrationRekeysTheJobsToDateienAndConstrainsTheirRows()
 	{
 		if (!Harness.Configured(output))
 			return;
@@ -40,22 +40,40 @@ public sealed class ReadingPostgresLiveTests(ITestOutputHelper output)
 			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
 			await db.Database.GetService<Microsoft.EntityFrameworkCore.Migrations.IMigrator>().MigrateAsync(PreviousMigration);
 		}
-		var (revisionId, assetId) = await harness.SeedRevisionBeforeTheMigrationAsync();
+		await harness.SeedRevisionBeforeTheMigrationAsync();
 
 		await using (var scope = harness.Scopes.CreateAsyncScope())
 			await scope.ServiceProvider.GetRequiredService<ArchiveDbContext>().Database.MigrateAsync();
 
 		await using var verify = harness.Scopes.CreateAsyncScope();
 		var after = verify.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-		var extraction = await after.ExtractionJobs.AsNoTracking().SingleAsync(j => j.RevisionId == revisionId);
-		Assert.Equal((ExtractionStatus.Completed, ExtractionTextSource.Embedded, "Text von früher"),
-			(extraction.Status, extraction.TextSource, extraction.Text));
+		// Rows keyed by file revision cannot map to Dateien: they are dropped (test data, ADR-0001).
+		Assert.Empty(await after.ExtractionJobs.AsNoTracking().ToListAsync());
+		Assert.Empty(await after.ReadingJobs.AsNoTracking().ToListAsync());
 
-		// A reading row for that revision, then the constraints by name.
+		// A Noten Datei with its extraction and reading rows, then the constraints by name.
+		var account = Guid.NewGuid();
+		var lied = new Archive.Backend.Lieder.Lied
+		{
+			Title = "Neues Lied", CreatedByAccountId = account, UpdatedByAccountId = account,
+			CreatedAt = harness.Now, UpdatedAt = harness.Now, RowVersion = 1,
+		};
+		var datei = new Archive.Backend.Lieder.Datei
+		{
+			LiedId = lied.Id, Kind = Archive.Backend.Lieder.DateiKinds.Noten, IsPartitur = true, BlobName = "dateien/x", ContentType = "application/pdf",
+			SizeBytes = 10, CreatedByAccountId = account, CreatedAt = harness.Now, RowVersion = 1,
+		};
+		after.AddRange(lied, datei);
+		await after.SaveChangesAsync();
+		after.ExtractionJobs.Add(new ExtractionJob
+		{
+			DateiId = datei.Id, Status = ExtractionStatus.Completed, Text = "Text", TriggeredByAccountId = account,
+			CreatedAt = harness.Now, UpdatedAt = harness.Now,
+		});
 		after.ReadingJobs.Add(new ReadingJob
 		{
-			RevisionId = revisionId, AssetId = assetId, Status = ReadingStatus.WaitingForBudget, PageLimit = 20,
-			TriggeredByAccountId = Guid.NewGuid(), CreatedAt = harness.Now, UpdatedAt = harness.Now,
+			DateiId = datei.Id, Status = ReadingStatus.WaitingForBudget, PageLimit = 20,
+			TriggeredByAccountId = account, CreatedAt = harness.Now, UpdatedAt = harness.Now,
 		});
 		await after.SaveChangesAsync();
 		await using var raw = new NpgsqlConnection(after.Database.GetConnectionString());
@@ -64,9 +82,18 @@ public sealed class ReadingPostgresLiveTests(ITestOutputHelper output)
 			Assert.Equal("CK_reading_jobs_status", (await Assert.ThrowsAsync<PostgresException>(() => badStatus.ExecuteNonQueryAsync())).ConstraintName);
 		await using (var negativePages = new NpgsqlCommand("UPDATE reading_jobs SET \"PagesRead\" = -1", raw))
 			Assert.Equal("CK_reading_jobs_pages", (await Assert.ThrowsAsync<PostgresException>(() => negativePages.ExecuteNonQueryAsync())).ConstraintName);
-		// The revision is retained: a reading row blocks its deletion (Restrict).
-		await using (var deleteRevision = new NpgsqlCommand("DELETE FROM file_revisions", raw))
-			Assert.Equal("23503", (await Assert.ThrowsAsync<PostgresException>(() => deleteRevision.ExecuteNonQueryAsync())).SqlState);
+		// The Datei is retained: its job rows block a hard delete (Restrict).
+		await using (var deleteDatei = new NpgsqlCommand("DELETE FROM dateien", raw))
+			Assert.Equal("23503", (await Assert.ThrowsAsync<PostgresException>(() => deleteDatei.ExecuteNonQueryAsync())).SqlState);
+		// A job row for a Datei that does not exist is refused.
+		await using (var orphan = new NpgsqlCommand(
+			"INSERT INTO extraction_jobs (\"DateiId\", \"Status\", \"AttemptCount\", \"TriggeredByAccountId\", \"CreatedAt\", \"UpdatedAt\", \"RowVersion\", \"TextSource\")"
+			+ " VALUES (@id, 0, 0, @account, now(), now(), 0, 0)", raw))
+		{
+			orphan.Parameters.AddWithValue("id", Guid.NewGuid());
+			orphan.Parameters.AddWithValue("account", account);
+			Assert.Equal("23503", (await Assert.ThrowsAsync<PostgresException>(() => orphan.ExecuteNonQueryAsync())).SqlState);
+		}
 	}
 
 	[Fact]
@@ -83,7 +110,7 @@ public sealed class ReadingPostgresLiveTests(ITestOutputHelper output)
 
 		// The cap holds exactly nothing: parked, message acknowledged.
 		harness.Options.MonthlyCapEur = 0.0001m;
-		var parked = await harness.RunAsync(score.RevisionId);
+		var parked = await harness.RunAsync(score.DateiId);
 		Assert.False(parked.Abandon);
 		await using (var scope = harness.Scopes.CreateAsyncScope())
 		{
@@ -100,14 +127,14 @@ public sealed class ReadingPostgresLiveTests(ITestOutputHelper output)
 				Options.Create(harness.ReadingOptions), TimeProvider.System, NullLogger.Instance, CancellationToken.None);
 			Assert.Equal(1, sent);
 		}
-		Assert.Equal([score.RevisionId], harness.Queue.Attempts);
-		Assert.False((await harness.RunAsync(score.RevisionId)).Abandon);
+		Assert.Equal([score.DateiId], harness.Queue.Attempts);
+		Assert.False((await harness.RunAsync(score.DateiId)).Abandon);
 
 		await using var verify = harness.Scopes.CreateAsyncScope();
 		var after = verify.ServiceProvider.GetRequiredService<ArchiveDbContext>();
 		var reading = await after.ReadingJobs.AsNoTracking().SingleAsync();
 		Assert.Equal((ReadingStatus.Completed, 2, 5), (reading.Status, reading.PagesRead, reading.FieldsApplied));
-		var song = await after.Songs.AsNoTracking().SingleAsync();
+		var song = await after.Lieder.AsNoTracking().SingleAsync();
 		Assert.Equal(("Franz Schubert", "Anna Beispiel", "Im Wald da singen die Vögel"), (song.Composer, song.Lyricist, song.Lyrics));
 		Assert.Equal(ExtractionTextSource.Reading, (await after.ExtractionJobs.AsNoTracking().SingleAsync()).TextSource);
 		// The real ledger SQL holds both model calls, settled, with nothing left reserved.
@@ -221,35 +248,42 @@ public sealed class ReadingPostgresLiveTests(ITestOutputHelper output)
 			insert.Parameters.AddWithValue("asset", asset.Id);
 			insert.Parameters.AddWithValue("account", account);
 			await insert.ExecuteNonQueryAsync();
+			await using var insertReading = new NpgsqlCommand(
+				"INSERT INTO reading_jobs (\"RevisionId\", \"AssetId\", \"Status\", \"PagesRead\", \"PageLimit\", \"FieldsDone\", \"FieldsApplied\", \"AttemptCount\", \"TriggeredByAccountId\", \"CreatedAt\", \"UpdatedAt\", \"RowVersion\")"
+				+ " VALUES (@revision, @asset, 3, 0, 20, false, 0, 1, @account, now(), now(), 0)", raw);
+			insertReading.Parameters.AddWithValue("revision", revision.Id);
+			insertReading.Parameters.AddWithValue("asset", asset.Id);
+			insertReading.Parameters.AddWithValue("account", account);
+			await insertReading.ExecuteNonQueryAsync();
 			return (revision.Id, asset.Id);
 		}
 
-		public async Task<(Guid RevisionId, Guid SongId)> SeedScoreAsync(byte[] pdf)
+		public async Task<(Guid DateiId, Guid LiedId)> SeedScoreAsync(byte[] pdf)
 		{
 			await using var scope = Scopes.CreateAsyncScope();
 			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
 			var account = Guid.NewGuid();
-			var song = new Song { Title = "Waldfahrt", CreatedByAccountId = account, UpdatedByAccountId = account, CreatedAt = October, UpdatedAt = October };
-			var arrangement = new Arrangement { Song = song, Label = "Chorsatz", CreatedByAccountId = account, CreatedAt = October };
-			var version = new MusicalVersion { Arrangement = arrangement, Label = "Original", CreatedByAccountId = account, CreatedAt = October };
-			var asset = new ArchiveAsset { AssetType = AssetEndpoints.ScoreAssetType, MusicalVersion = version, CreatedByAccountId = account, CreatedAt = October };
-			var revision = new FileRevision
+			var lied = new Archive.Backend.Lieder.Lied
 			{
-				Asset = asset, RevisionNumber = 1, BlobName = $"revisions/{Guid.NewGuid():N}.pdf", ContentType = AssetEndpoints.PdfContentType,
-				SizeBytes = pdf.Length, CreatedByAccountId = account, CreatedAt = October,
+				Title = "Waldfahrt", CreatedByAccountId = account, UpdatedByAccountId = account,
+				CreatedAt = October, UpdatedAt = October, RowVersion = 1,
 			};
-			db.AddRange(song, arrangement, version, asset, revision);
+			var datei = new Archive.Backend.Lieder.Datei
+			{
+				LiedId = lied.Id, Kind = Archive.Backend.Lieder.DateiKinds.Noten, IsPartitur = true, BlobName = $"dateien/{Guid.NewGuid():N}.pdf",
+				ContentType = "application/pdf", SizeBytes = pdf.Length, CreatedByAccountId = account, CreatedAt = October, RowVersion = 1,
+			};
+			db.AddRange(lied, datei);
 			await db.SaveChangesAsync();
-			asset.CurrentRevisionId = revision.Id;
 			db.ExtractionJobs.Add(new ExtractionJob
 			{
-				RevisionId = revision.Id, AssetId = asset.Id, Status = ExtractionStatus.NoText, TriggeredByAccountId = account,
+				DateiId = datei.Id, Status = ExtractionStatus.NoText, TriggeredByAccountId = account,
 				CreatedAt = October, UpdatedAt = October, CompletedAt = October,
 			});
-			db.ReadingJobs.Add(ReadingService.CreateForRevision(revision, account, ReadingOptions.MaxPagesPerRequest, October));
+			db.ReadingJobs.Add(ReadingService.CreateForDatei(datei, account, ReadingOptions.MaxPagesPerRequest, October));
 			await db.SaveChangesAsync();
-			storage.Store(revision.BlobName, pdf);
-			return (revision.Id, song.Id);
+			storage.Store(datei.BlobName, pdf);
+			return (datei.Id, lied.Id);
 		}
 
 		/// <summary>The message a worker run handles, in its own scope like the pump does.</summary>

@@ -1,7 +1,7 @@
-using Archive.Backend.Assets;
 using Archive.Backend.Auth;
 using Archive.Backend.Data;
 using Archive.Backend.Extraction;
+using Archive.Backend.Lieder;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -19,7 +19,7 @@ namespace Archive.Backend.Reading;
 /// </summary>
 public static class ReadingEndpoints
 {
-	public const string NotScoreMessage = "Nur Noten werden von der KI gelesen.";
+	public const string NotScoreMessage = "Nur Noten eines Liedes werden von der KI gelesen.";
 
 	public const string ExtractionNotFinishedMessage = "Die Textauswertung ist noch nicht abgeschlossen.";
 
@@ -34,14 +34,14 @@ public static class ReadingEndpoints
 
 	public static void MapReadingEndpoints(this IEndpointRouteBuilder app)
 	{
-		app.MapPost("/api/revisions/{id}/reading/retry", (
+		app.MapPost("/api/dateien/{id}/reading/retry", (
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
 			ArchiveDbContext db, TimeProvider time, ILoggerFactory loggers, IReadingQueue queue,
 			IOptions<ReadingOptions> options, IOptions<ExtractionOptions> extractionOptions, Guid id, CancellationToken token)
 			=> ActAsync(context, antiforgery, accessor, access, db, time, loggers, queue, options, extractionOptions, id, restart: true, token))
 			.DisableAntiforgery();
 
-		app.MapPost("/api/revisions/{id}/reading/continue", (
+		app.MapPost("/api/dateien/{id}/reading/continue", (
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
 			ArchiveDbContext db, TimeProvider time, ILoggerFactory loggers, IReadingQueue queue,
 			IOptions<ReadingOptions> options, IOptions<ExtractionOptions> extractionOptions, Guid id, CancellationToken token)
@@ -66,12 +66,12 @@ public static class ReadingEndpoints
 			return error;
 		if (!options.Value.Enabled)
 			return Results.Problem(statusCode: 409, title: NotEnabledMessage);
-		var revision = await db.FileRevisions.Include(r => r.Asset).FirstOrDefaultAsync(r => r.Id == id, token);
-		if (revision is null)
-			return Results.Problem(statusCode: 404, title: ExtractionEndpoints.RevisionNotFoundMessage);
-		if (!ReadingService.IsReadable(revision.Asset.AssetType))
+		var datei = await DateiQueries.Visible(db).FirstOrDefaultAsync(d => d.Id == id, token);
+		if (datei is null)
+			return Results.Problem(statusCode: 404, title: ExtractionEndpoints.DateiNotFoundMessage);
+		if (!ReadingService.IsReadable(datei))
 			return Results.Problem(statusCode: 422, title: NotScoreMessage);
-		var extraction = await db.ExtractionJobs.AsNoTracking().FirstOrDefaultAsync(j => j.RevisionId == id, token);
+		var extraction = await db.ExtractionJobs.AsNoTracking().FirstOrDefaultAsync(j => j.DateiId == id, token);
 		if (extraction is null || extraction.Status is not (ExtractionStatus.Completed or ExtractionStatus.NoText))
 			return Results.Problem(statusCode: 409, title: ExtractionNotFinishedMessage);
 		var textFull = ReadingService.TextIsFull(extraction, extractionOptions.Value.MaxTextCharacters);
@@ -82,15 +82,15 @@ public static class ReadingEndpoints
 		for (var pass = 0; pass < 2; pass++)
 		{
 			var now = time.GetUtcNow();
-			var job = await db.ReadingJobs.FirstOrDefaultAsync(j => j.RevisionId == id, token);
+			var job = await db.ReadingJobs.FirstOrDefaultAsync(j => j.DateiId == id, token);
 			var enqueue = false;
 			var creating = false;
 			if (job is null)
 			{
 				if (!restart)
 					return Results.Problem(statusCode: 409, title: NothingMoreToReadMessage);
-				// Revisions extracted before ARC-034-1 gain their row here.
-				job = ReadingService.CreateForRevision(revision, decision!.AccountId, options.Value.MaxPagesPerRequest, now);
+				// Dateien extracted before ARC-034-1 gain their row here.
+				job = ReadingService.CreateForDatei(datei, decision!.AccountId, options.Value.MaxPagesPerRequest, now);
 				db.ReadingJobs.Add(job);
 				enqueue = true;
 				creating = true;
@@ -147,7 +147,7 @@ public static class ReadingEndpoints
 			}
 			catch (DbUpdateConcurrencyException)
 			{
-				return Results.Problem(statusCode: 409, title: AssetEndpoints.ConcurrencyMessage);
+				return Results.Problem(statusCode: 409, title: ExtractionEndpoints.ConcurrencyMessage);
 			}
 			catch (DbUpdateException exception) when (creating && pass == 0 && IsPrimaryKeyCollision(exception))
 			{
@@ -160,7 +160,7 @@ public static class ReadingEndpoints
 				await ReadingService.TryEnqueueAsync(db, queue, loggers.CreateLogger("Archive.Reading"), id, time, token);
 			return Results.Ok(new { reading = ReadingPayload(job, textFull) });
 		}
-		return Results.Problem(statusCode: 409, title: AssetEndpoints.ConcurrencyMessage);
+		return Results.Problem(statusCode: 409, title: ExtractionEndpoints.ConcurrencyMessage);
 	}
 
 	/// <summary>True only for the unique violation on the reading row's primary key; any other failure surfaces.</summary>

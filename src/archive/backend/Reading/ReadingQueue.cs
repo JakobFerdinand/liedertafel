@@ -7,13 +7,13 @@ using Microsoft.Extensions.Options;
 namespace Archive.Backend.Reading;
 
 /// <summary>
-/// Seam for handing one revision's reading work to the queue (ARC-034-1),
+/// Seam for handing one Datei's reading work to the queue (ARC-034-1),
 /// mirroring <see cref="IExtractionQueue"/>: true when a message was
 /// accepted, so the caller can stamp the row's enqueue time.
 /// </summary>
 public interface IReadingQueue
 {
-	Task<bool> SendAsync(Guid revisionId, CancellationToken token);
+	Task<bool> SendAsync(Guid dateiId, CancellationToken token);
 }
 
 /// <summary>
@@ -66,10 +66,10 @@ public sealed class AzureReadingQueue(QueueServiceClient client, IOptions<Readin
 
 	private QueueClient? queueClient;
 
-	public async Task<bool> SendAsync(Guid revisionId, CancellationToken token)
+	public async Task<bool> SendAsync(Guid dateiId, CancellationToken token)
 	{
 		var queue = queueClient ??= client.GetQueueClient(options.Value.QueueName);
-		var envelope = new ExtractionEnvelope(ReadingType, revisionId,
+		var envelope = new ExtractionEnvelope(ReadingType, dateiId,
 			Activity.Current?.Id, Activity.Current?.TraceStateString);
 		await queue.SendMessageAsync(JsonSerializer.Serialize(envelope, ExtractionEnvelope.SerializerOptions), token);
 		return true;
@@ -79,7 +79,7 @@ public sealed class AzureReadingQueue(QueueServiceClient client, IOptions<Readin
 /// <summary>No queue backend: reports "not accepted" so rows stay un-enqueued for the sweep.</summary>
 public sealed class NullReadingQueue : IReadingQueue
 {
-	public Task<bool> SendAsync(Guid revisionId, CancellationToken token) => Task.FromResult(false);
+	public Task<bool> SendAsync(Guid dateiId, CancellationToken token) => Task.FromResult(false);
 }
 
 /// <summary>Receive seam of the reading queue; the same shape as the extraction one, but a type of its own so both can live in one host.</summary>

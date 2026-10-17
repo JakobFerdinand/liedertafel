@@ -6,6 +6,7 @@ namespace Archive.Backend.Catalogue;
 /// </summary>
 public static class FieldCatalog
 {
+	public const string EntityTypeLied = "lied";
 	public const string EntityTypeSong = "song";
 	public const string EntityTypeArrangement = "arrangement";
 	public const string EntityTypeMusicalVersion = "musical_version";
@@ -15,6 +16,14 @@ public static class FieldCatalog
 	public static readonly IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> Fields =
 		new Dictionary<string, IReadOnlyDictionary<string, string>>(StringComparer.Ordinal)
 		{
+			[EntityTypeLied] = new Dictionary<string, string>(StringComparer.Ordinal)
+			{
+				["composer"] = "Komponist",
+				["lyricist"] = "Textdichter",
+				["arranger"] = "Bearbeiter",
+				["musical_key"] = "Tonart",
+				["lyrics"] = "Liedtext",
+			},
 			[EntityTypeSong] = new Dictionary<string, string>(StringComparer.Ordinal)
 			{
 				["title"] = "Titel",

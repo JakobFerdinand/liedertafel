@@ -1,7 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using Archive.Backend.Assets;
+using Archive.Backend.Lieder;
 using Archive.Backend.Auth;
 using Archive.Backend.Catalogue;
 using Archive.Backend.Data;
@@ -40,7 +40,7 @@ public sealed class ReadingApiTests
 			row.FieldsApplied = 4;
 		}, extractionSource: ExtractionTextSource.Reading);
 
-		using var request = new HttpRequestMessage(HttpMethod.Get, $"/api/revisions/extraction?ids={score}");
+		using var request = new HttpRequestMessage(HttpMethod.Get, $"/api/dateien/extraction?ids={score}");
 		request.Headers.Add("Cookie", session);
 		using var response = await client.SendAsync(request);
 		var item = Assert.Single((await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("results").EnumerateArray());
@@ -60,7 +60,7 @@ public sealed class ReadingApiTests
 		await using var factory = new AuthApiFactory();
 		var (client, session, score) = await SetupAsync(factory, reading: null);
 
-		using var request = new HttpRequestMessage(HttpMethod.Get, $"/api/revisions/extraction?ids={score}");
+		using var request = new HttpRequestMessage(HttpMethod.Get, $"/api/dateien/extraction?ids={score}");
 		request.Headers.Add("Cookie", session);
 		using var response = await client.SendAsync(request);
 		var item = Assert.Single((await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("results").EnumerateArray());
@@ -79,12 +79,12 @@ public sealed class ReadingApiTests
 		await SeedAccountAsync(factory, Member, ArchiveRoles.Member);
 		var memberSession = await SignInAsync(factory, Member);
 
-		using (var anonymous = await PostAsync(client, $"/api/revisions/{score}/reading/{action}", null))
+		using (var anonymous = await PostAsync(client, $"/api/dateien/{score}/reading/{action}", null))
 			Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
-		using (var member = await PostAsync(client, $"/api/revisions/{score}/reading/{action}", memberSession))
+		using (var member = await PostAsync(client, $"/api/dateien/{score}/reading/{action}", memberSession))
 			Assert.Equal(HttpStatusCode.Forbidden, member.StatusCode);
 		// An editor without the antiforgery token is refused before anything changes.
-		using (var noToken = new HttpRequestMessage(HttpMethod.Post, $"/api/revisions/{score}/reading/{action}"))
+		using (var noToken = new HttpRequestMessage(HttpMethod.Post, $"/api/dateien/{score}/reading/{action}"))
 		{
 			noToken.Headers.Add("Cookie", editorSession);
 			noToken.Content = JsonContent.Create(new { });
@@ -109,7 +109,7 @@ public sealed class ReadingApiTests
 			row.PageLimit = 20;
 		});
 
-		using var response = await PostAsync(client, $"/api/revisions/{score}/reading/retry", session);
+		using var response = await PostAsync(client, $"/api/dateien/{score}/reading/retry", session);
 
 		Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 		var reading = (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("reading");
@@ -127,7 +127,7 @@ public sealed class ReadingApiTests
 		await using var factory = new AuthApiFactory(readingQueue: queue);
 		var (client, session, score) = await SetupAsync(factory, reading: null, extractionNoText: true);
 
-		using var response = await PostAsync(client, $"/api/revisions/{score}/reading/retry", session);
+		using var response = await PostAsync(client, $"/api/dateien/{score}/reading/retry", session);
 
 		Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 		var row = await ReadingRowAsync(factory, score);
@@ -150,7 +150,7 @@ public sealed class ReadingApiTests
 			row.AttemptCount = 1;
 		});
 
-		using var response = await PostAsync(client, $"/api/revisions/{score}/reading/continue", session);
+		using var response = await PostAsync(client, $"/api/dateien/{score}/reading/continue", session);
 
 		Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 		var row = await ReadingRowAsync(factory, score);
@@ -169,7 +169,7 @@ public sealed class ReadingApiTests
 			row.PagesTotal = 12;
 		});
 
-		using var response = await PostAsync(client, $"/api/revisions/{score}/reading/continue", session);
+		using var response = await PostAsync(client, $"/api/dateien/{score}/reading/continue", session);
 
 		Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
 		Assert.Equal(ReadingEndpoints.NothingMoreToReadMessage, (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("title").GetString());
@@ -186,13 +186,13 @@ public sealed class ReadingApiTests
 			row.LastAttemptAt = DateTimeOffset.UtcNow;
 		});
 
-		using var conflict = await PostAsync(client, $"/api/revisions/{running}/reading/retry", session);
+		using var conflict = await PostAsync(client, $"/api/dateien/{running}/reading/retry", session);
 		Assert.Equal(HttpStatusCode.Conflict, conflict.StatusCode);
 		Assert.Equal(ReadingEndpoints.ReadingRunningMessage, (await conflict.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("title").GetString());
 
 		await using var other = new AuthApiFactory(readingQueue: new FakeReadingQueue());
 		var (otherClient, otherSession, waiting) = await SetupAsync(other, reading: row => row.Status = ReadingStatus.WaitingForBudget);
-		using var idempotent = await PostAsync(otherClient, $"/api/revisions/{waiting}/reading/retry", otherSession);
+		using var idempotent = await PostAsync(otherClient, $"/api/dateien/{waiting}/reading/retry", otherSession);
 		Assert.Equal(HttpStatusCode.OK, idempotent.StatusCode);
 		Assert.Equal("waitingForBudget",
 			(await idempotent.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("reading").GetProperty("status").GetString());
@@ -204,15 +204,15 @@ public sealed class ReadingApiTests
 	{
 		await using var factory = new AuthApiFactory();
 		var (client, session, unfinished) = await SetupAsync(factory, reading: null, extractionStatus: ExtractionStatus.Running);
-		using (var response = await PostAsync(client, $"/api/revisions/{unfinished}/reading/retry", session))
+		using (var response = await PostAsync(client, $"/api/dateien/{unfinished}/reading/retry", session))
 		{
 			Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
 			Assert.Equal(ReadingEndpoints.ExtractionNotFinishedMessage, (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("title").GetString());
 		}
-		var (_, _, document) = await SetupAsync(factory, reading: null, assetType: AssetEndpoints.DocumentAssetType);
-		using (var response = await PostAsync(client, $"/api/revisions/{document}/reading/retry", session))
+		var (_, _, document) = await SetupAsync(factory, reading: null, kind: DateiKinds.Sonstiges);
+		using (var response = await PostAsync(client, $"/api/dateien/{document}/reading/retry", session))
 			Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
-		using (var response = await PostAsync(client, $"/api/revisions/{Guid.NewGuid()}/reading/retry", session))
+		using (var response = await PostAsync(client, $"/api/dateien/{Guid.NewGuid()}/reading/retry", session))
 			Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
 	}
 
@@ -234,31 +234,13 @@ public sealed class ReadingApiTests
 	}
 
 	[Fact]
-	public async Task TheEditorsSongDetailCarriesNoFieldProvenance()
-	{
-		await using var factory = new AuthApiFactory();
-		var (client, session, _) = await SetupAsync(factory, reading: null);
-		Guid songId;
-		using (var scope = factory.Services.CreateScope())
-			songId = await scope.ServiceProvider.GetRequiredService<ArchiveDbContext>().Songs.Select(s => s.Id).SingleAsync();
-
-		using var detail = new HttpRequestMessage(HttpMethod.Get, $"/api/songs/{songId}");
-		detail.Headers.Add("Cookie", session);
-		using var response = await client.SendAsync(detail);
-
-		Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-		var song = (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("song");
-		Assert.False(song.TryGetProperty("provenance", out _));
-	}
-
-	[Fact]
 	public async Task WhileReadingIsNotEnabledNothingOfItIsShownAndTheActionsAreRefused()
 	{
 		await using var factory = new AuthApiFactory(settings: new Dictionary<string, string?> { ["Archive:Reading:Enabled"] = "false" });
 		// A row that exists anyway (created while it was on) stays hidden.
 		var (client, session, score) = await SetupAsync(factory, reading: row => row.Status = ReadingStatus.Queued, extractionNoText: true);
 
-		using var request = new HttpRequestMessage(HttpMethod.Get, $"/api/revisions/extraction?ids={score}");
+		using var request = new HttpRequestMessage(HttpMethod.Get, $"/api/dateien/extraction?ids={score}");
 		request.Headers.Add("Cookie", session);
 		using var response = await client.SendAsync(request);
 		var item = Assert.Single((await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("results").EnumerateArray());
@@ -267,7 +249,7 @@ public sealed class ReadingApiTests
 
 		foreach (var action in new[] { "retry", "continue" })
 		{
-			using var refused = await PostAsync(client, $"/api/revisions/{score}/reading/{action}", session);
+			using var refused = await PostAsync(client, $"/api/dateien/{score}/reading/{action}", session);
 			Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
 			Assert.Equal("Das Lesen durch die KI ist noch nicht eingerichtet.",
 				(await refused.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("title").GetString());
@@ -287,13 +269,13 @@ public sealed class ReadingApiTests
 			row.PageLimit = 20;
 		}, extractionText: new string('x', 20));
 
-		using var request = new HttpRequestMessage(HttpMethod.Get, $"/api/revisions/extraction?ids={score}");
+		using var request = new HttpRequestMessage(HttpMethod.Get, $"/api/dateien/extraction?ids={score}");
 		request.Headers.Add("Cookie", session);
 		using var response = await client.SendAsync(request);
 		var item = Assert.Single((await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("results").EnumerateArray());
 		Assert.False(item.GetProperty("reading").GetProperty("partial").GetBoolean());
 
-		using var refused = await PostAsync(client, $"/api/revisions/{score}/reading/continue", session);
+		using var refused = await PostAsync(client, $"/api/dateien/{score}/reading/continue", session);
 		Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
 		Assert.Equal(ReadingStatus.Completed, (await ReadingRowAsync(factory, score)).Status);
 	}
@@ -318,7 +300,7 @@ public sealed class ReadingApiTests
 			Assert.True((await users.RemoveFromRoleAsync(user, ArchiveRoles.Editor)).Succeeded);
 			Assert.True((await users.AddToRoleAsync(user, ArchiveRoles.Member)).Succeeded);
 		}
-		using (var downgraded = await SendWithAsync(client, session, csrfCookie, token, HttpMethod.Post, $"/api/revisions/{score}/reading/{action}", new { }))
+		using (var downgraded = await SendWithAsync(client, session, csrfCookie, token, HttpMethod.Post, $"/api/dateien/{score}/reading/{action}", new { }))
 			Assert.Equal(HttpStatusCode.Forbidden, downgraded.StatusCode);
 
 		using (var scope = factory.Services.CreateScope())
@@ -331,7 +313,7 @@ public sealed class ReadingApiTests
 		}
 		// A revoked cookie is no identity any more: the token is the anonymous one.
 		var (anonymousCookie, anonymousToken) = await TokenAsync(client, null);
-		using (var revoked = await SendWithAsync(client, session, anonymousCookie, anonymousToken, HttpMethod.Post, $"/api/revisions/{score}/reading/{action}", new { }))
+		using (var revoked = await SendWithAsync(client, session, anonymousCookie, anonymousToken, HttpMethod.Post, $"/api/dateien/{score}/reading/{action}", new { }))
 			Assert.Equal(HttpStatusCode.Unauthorized, revoked.StatusCode);
 		Assert.Equal(ReadingStatus.Failed, (await ReadingRowAsync(factory, score)).Status);
 	}
@@ -346,15 +328,15 @@ public sealed class ReadingApiTests
 			// The competing request wins: its row (still to be sent) is stored first.
 			using var scope = factory!.Services.CreateScope();
 			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-			var revision = await db.FileRevisions.SingleAsync();
-			db.ReadingJobs.Add(ReadingService.CreateForRevision(revision, revision.CreatedByAccountId, 20, DateTimeOffset.UtcNow));
+			var revision = await db.Dateien.SingleAsync();
+			db.ReadingJobs.Add(ReadingService.CreateForDatei(revision, revision.CreatedByAccountId, 20, DateTimeOffset.UtcNow));
 			await db.SaveChangesAsync();
 		}, constraint: "PK_reading_jobs");
 		factory = new AuthApiFactory(readingQueue: queue, saveChangesInterceptor: raced);
 		await using var _ = factory!;
 		var (client, session, score) = await SetupAsync(factory, reading: null, extractionNoText: true);
 
-		using var response = await PostAsync(client, $"/api/revisions/{score}/reading/retry", session);
+		using var response = await PostAsync(client, $"/api/dateien/{score}/reading/retry", session);
 
 		Assert.True(raced.Fired);
 		Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -362,13 +344,13 @@ public sealed class ReadingApiTests
 		Assert.Equal([score], queue.Attempts);
 
 		// Any other constraint is not "a concurrent insert": it must not be dressed up as one.
-		var other = new ReadingRaceInterceptor(() => Task.CompletedTask, constraint: "FK_reading_jobs_file_revisions_RevisionId");
+		var other = new ReadingRaceInterceptor(() => Task.CompletedTask, constraint: "FK_reading_jobs_dateien_DateiId");
 		await using var second = new AuthApiFactory(readingQueue: new FakeReadingQueue(), saveChangesInterceptor: other);
 		var (otherClient, otherSession, otherScore) = await SetupAsync(second, reading: null, extractionNoText: true);
 		HttpStatusCode? status = null;
 		try
 		{
-			using var failed = await PostAsync(otherClient, $"/api/revisions/{otherScore}/reading/retry", otherSession);
+			using var failed = await PostAsync(otherClient, $"/api/dateien/{otherScore}/reading/retry", otherSession);
 			status = failed.StatusCode;
 		}
 		catch (DbUpdateException)
@@ -399,46 +381,12 @@ public sealed class ReadingApiTests
 		}
 	}
 
-	[Fact]
-	public async Task APatchThatChangesNothingKeepsTheRowVersion()
-	{
-		await using var factory = new AuthApiFactory();
-		var (client, session, _) = await SetupAsync(factory, reading: null);
-		Guid assetId;
-		uint before;
-		using (var scope = factory.Services.CreateScope())
-		{
-			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-			var asset = await db.Assets.SingleAsync();
-			asset.VoiceLabel = "Tenor 1";
-			asset.Description = "Chorsatz";
-			await db.SaveChangesAsync();
-			assetId = asset.Id;
-			before = asset.RowVersion;
-		}
-
-		using (var same = await SendAsync(client, session, HttpMethod.Patch, $"/api/assets/{assetId}",
-			new { voiceLabel = "Tenor 1", description = "Chorsatz", assetType = "score" }))
-			Assert.Equal(HttpStatusCode.OK, same.StatusCode);
-		using (var scope = factory.Services.CreateScope())
-		{
-			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-			Assert.Equal(before, (await db.Assets.AsNoTracking().SingleAsync()).RowVersion);
-		}
-
-		// A real change still moves it.
-		using (var changed = await SendAsync(client, session, HttpMethod.Patch, $"/api/assets/{assetId}", new { voiceLabel = "Bass II" }))
-			Assert.Equal(HttpStatusCode.OK, changed.StatusCode);
-		using var check = factory.Services.CreateScope();
-		Assert.True((await check.ServiceProvider.GetRequiredService<ArchiveDbContext>().Assets.AsNoTracking().SingleAsync()).RowVersion > before);
-	}
-
 	// ---- helpers ---------------------------------------------------------
 
 	private static async Task<(HttpClient Client, string Session, Guid RevisionId)> SetupAsync(
 		AuthApiFactory factory, Action<ReadingJob>? reading, ExtractionTextSource extractionSource = ExtractionTextSource.Embedded,
 		bool extractionNoText = false, ExtractionStatus? extractionStatus = null,
-		string assetType = AssetEndpoints.ScoreAssetType, string? extractionText = null)
+		string kind = DateiKinds.Noten, string? extractionText = null)
 	{
 		var accountId = await SeedAccountAsync(factory, Editor, ArchiveRoles.Editor);
 		var session = await SignInAsync(factory, Editor);
@@ -446,26 +394,22 @@ public sealed class ReadingApiTests
 		using var scope = factory.Services.CreateScope();
 		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
 		var now = DateTimeOffset.UtcNow;
-		var song = new Song { Title = "Waldfahrt", CreatedByAccountId = accountId, UpdatedByAccountId = accountId, CreatedAt = now, UpdatedAt = now };
-		var arrangement = new Arrangement { Song = song, Label = "Chorsatz", CreatedByAccountId = accountId, CreatedAt = now };
-		var version = new MusicalVersion { Arrangement = arrangement, Label = "Original", CreatedByAccountId = accountId, CreatedAt = now };
-		var asset = new ArchiveAsset { AssetType = assetType, MusicalVersion = version, CreatedByAccountId = accountId, CreatedAt = now };
-		var revision = new FileRevision
+		var lied = new Lied { Title = "Waldfahrt", CreatedByAccountId = accountId, UpdatedByAccountId = accountId, CreatedAt = now, UpdatedAt = now, RowVersion = 1 };
+		var revision = new Datei
 		{
-			Asset = asset, RevisionNumber = 1, BlobName = $"revisions/{Guid.CreateVersion7():N}.pdf",
-			ContentType = AssetEndpoints.PdfContentType, SizeBytes = 100, CreatedByAccountId = accountId, CreatedAt = now,
+			LiedId = lied.Id, Kind = kind, IsPartitur = kind == DateiKinds.Noten, BlobName = $"dateien/{Guid.CreateVersion7():N}.pdf",
+			ContentType = "application/pdf", SizeBytes = 100, CreatedByAccountId = accountId, CreatedAt = now, RowVersion = 1,
 		};
-		asset.CurrentRevisionId = revision.Id;
-		db.AddRange(song, arrangement, version, asset, revision);
+		db.AddRange(lied, revision);
 		db.ExtractionJobs.Add(new ExtractionJob
 		{
-			RevisionId = revision.Id, AssetId = asset.Id, TriggeredByAccountId = accountId, CreatedAt = now, UpdatedAt = now,
+			DateiId = revision.Id, TriggeredByAccountId = accountId, CreatedAt = now, UpdatedAt = now,
 			Status = extractionStatus ?? (extractionNoText ? ExtractionStatus.NoText : ExtractionStatus.Completed),
 			Text = extractionNoText ? null : extractionText ?? "Text", TextSource = extractionSource, CompletedAt = now,
 		});
 		if (reading is not null)
 		{
-			var row = ReadingService.CreateForRevision(revision, accountId, 20, now);
+			var row = ReadingService.CreateForDatei(revision, accountId, 20, now);
 			reading(row);
 			db.ReadingJobs.Add(row);
 		}
@@ -477,7 +421,7 @@ public sealed class ReadingApiTests
 	{
 		using var scope = factory.Services.CreateScope();
 		return await scope.ServiceProvider.GetRequiredService<ArchiveDbContext>().ReadingJobs.AsNoTracking()
-			.SingleAsync(j => j.RevisionId == revisionId);
+			.SingleAsync(j => j.DateiId == revisionId);
 	}
 
 	private static Task<HttpResponseMessage> PostAsync(HttpClient client, string path, string? session)

@@ -171,13 +171,13 @@ public static class ExtractionDispatcher
 			bool accepted;
 			try
 			{
-				accepted = await queue.SendAsync(job.RevisionId, token);
+				accepted = await queue.SendAsync(job.DateiId, token);
 			}
 			catch (Exception exception) when (exception is not OperationCanceledException)
 			{
 				// Type only: provider messages can carry URLs.
-				logger.LogWarning("Extraction dispatch failed for revision {RevisionId} ({ExceptionType})",
-					job.RevisionId, exception.GetType().Name);
+				logger.LogWarning("Extraction dispatch failed for Datei {DateiId} ({ExceptionType})",
+					job.DateiId, exception.GetType().Name);
 				continue;
 			}
 			if (!accepted)
@@ -192,8 +192,8 @@ public static class ExtractionDispatcher
 			{
 				// The send was accepted; a lost stamp race only costs an
 				// idempotent duplicate later. Type only, next row.
-				logger.LogWarning("Extraction dispatch stamp failed for revision {RevisionId} ({ExceptionType})",
-					job.RevisionId, exception.GetType().Name);
+				logger.LogWarning("Extraction dispatch stamp failed for Datei {DateiId} ({ExceptionType})",
+					job.DateiId, exception.GetType().Name);
 				db.Entry(job).State = EntityState.Detached;
 			}
 		}

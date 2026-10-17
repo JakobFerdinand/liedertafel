@@ -168,15 +168,8 @@ public static class CatalogueTools
 				&& a.CurrentRevisionId != null)
 			.OrderBy(a => a.Id)
 			.ToListAsync();
-		var revisionIds = assets
-			.Where(a => a.AssetType == AssetEndpoints.ScoreAssetType)
-			.Select(a => a.CurrentRevisionId!.Value)
-			.ToList();
-		var texts = await db.ExtractionJobs.AsNoTracking()
-			.Where(j => revisionIds.Contains(j.RevisionId) && j.Status == ExtractionStatus.Completed)
-			.Select(j => new { j.RevisionId, j.Text })
-			.ToListAsync();
-		var analyses = texts.ToDictionary(t => t.RevisionId, t => ScoreTextAnalyzer.Analyze(t.Text));
+		// Extraction text is keyed by Datei since #169; #170 moves the chat to Lieder.
+		var analyses = new Dictionary<Guid, ScoreTextAnalysis>();
 		var budget = ScoreTextBudget;
 		var sent = new HashSet<string>();
 		return arrangements.Select(a => (object)new
