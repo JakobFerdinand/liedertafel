@@ -64,7 +64,7 @@ export function ExtraktionUebersichtProvider({
   const setzeExtraktion = useCallback((info: ExtraktionsInfo) => {
     setStaende((vorher) => ({
       ...vorher,
-      [info.revisionId]: { info, geladen: true, fehler: null },
+      [info.dateiId]: { info, geladen: true, fehler: null },
     }));
   }, []);
 
@@ -88,7 +88,7 @@ export function ExtraktionUebersichtProvider({
             ids.map((id) => [
               id,
               {
-                info: results.find((info) => info.revisionId === id),
+                info: results.find((info) => info.dateiId === id),
                 geladen: true,
                 fehler: null,
               },
@@ -149,16 +149,16 @@ export function ExtraktionUebersichtProvider({
   );
 }
 
-export function useExtraktionStand(revisionId: string, isEditor: boolean) {
+export function useExtraktionStand(dateiId: string, isEditor: boolean) {
   const kontext = useContext(ExtraktionKontext);
   if (!kontext) throw new Error("Auswertungsübersicht fehlt.");
   const { registriere } = kontext;
   useEffect(() => {
     if (!isEditor) return;
-    return registriere(revisionId);
-  }, [revisionId, isEditor, registriere]);
+    return registriere(dateiId);
+  }, [dateiId, isEditor, registriere]);
   return {
-    ...(kontext.staende[revisionId] ?? leer),
+    ...(kontext.staende[dateiId] ?? leer),
     aktualisiereExtraktion: kontext.aktualisiereExtraktion,
     setzeExtraktion: kontext.setzeExtraktion,
   };

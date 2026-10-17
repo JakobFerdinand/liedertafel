@@ -8,8 +8,6 @@
 // Fortsetzen unterbrochener Übertragungen aus dem lokalen Speicher).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ExtraktionStatus } from "@/components/extraktion-status";
-import { ExtraktionUebersichtProvider } from "@/components/extraktion-uebersicht";
 import {
   AbbruchFehler,
   type AssetAccessResponse,
@@ -349,14 +347,6 @@ function DokumentEintrag({
       )}
       {isEditor && (
         <>
-          {dokument.assetType === "document" &&
-            dokument.currentRevision.contentType.toLowerCase() ===
-              "application/pdf" && (
-              <ExtraktionStatus
-                revisionId={dokument.currentRevision.revisionId}
-                isEditor={isEditor}
-              />
-            )}
           <div className="noten-aktionen">
             <button
               type="button"
@@ -989,19 +979,17 @@ export function AuftrittDokumente({
             </ul>
           )}
           {dokumentEintraege.length > 0 && (
-            <ExtraktionUebersichtProvider>
-              <div className="material-liste dokumente-liste">
-                {dokumentEintraege.map((eintrag) => (
-                  <DokumentEintrag
-                    dokument={eintrag}
-                    isEditor={isEditor}
-                    onBearbeitet={() => setErfolg("Änderungen gespeichert.")}
-                    aktualisieren={aktualisieren}
-                    key={eintrag.id}
-                  />
-                ))}
-              </div>
-            </ExtraktionUebersichtProvider>
+            <div className="material-liste dokumente-liste">
+              {dokumentEintraege.map((eintrag) => (
+                <DokumentEintrag
+                  dokument={eintrag}
+                  isEditor={isEditor}
+                  onBearbeitet={() => setErfolg("Änderungen gespeichert.")}
+                  aktualisieren={aktualisieren}
+                  key={eintrag.id}
+                />
+              ))}
+            </div>
           )}
         </>
       ) : (

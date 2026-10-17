@@ -86,7 +86,7 @@ queue and a `diagnostics/<id>.txt` blob, round-trips them and removes them with
 a bounded cleanup token. It never consumes messages from the configured
 extraction queue (`archive-extraction`); the finite `archive-extract` worker is
 the only local consumer, and `POST /api/dev/extraction-duplicate` re-sends one
-extraction envelope for a revision so its idempotent handling can be observed
+extraction envelope for a Datei so its idempotent handling can be observed
 against the real queue.
 AppHost injects emulator connections; there are no production storage credentials
 or `UseDevelopmentStorage=true` shortcuts in application configuration.
@@ -151,7 +151,7 @@ and the Npgsql EF provider to 10.0.3. Lockfiles record the frontend resolution.
   `X-CSRF-TOKEN`, and API status/content types. There is no permissive CORS policy.
 - GET `/api/antiforgery` supplies the request token and HTTP-only SameSite cookie.
   POST `/api/dev/exercise` validates both before side effects, and
-  `POST /api/dev/extraction-duplicate?revisionId=<id>` re-sends one extraction
+  `POST /api/dev/extraction-duplicate?dateiId=<id>` re-sends one extraction
   envelope through the configured queue (502 when no queue backend exists).
   These diagnostics are absent in production. They do not implement member
   authentication.

@@ -55,23 +55,23 @@ public static class DiagnosticEndpoints
         });
 
         // ARC-034 duplicate diagnostic: re-sends one extraction envelope for
-        // the revision through the real queue so the worker's idempotent
+        // the Datei through the real queue so the worker's idempotent
         // duplicate handling can be observed end to end.
         app.MapPost("/api/dev/extraction-duplicate", async (HttpContext context, IAntiforgery antiforgery,
-            IExtractionQueue queue, Guid? revisionId, CancellationToken token) =>
+            IExtractionQueue queue, Guid? dateiId, CancellationToken token) =>
         {
             try { await antiforgery.ValidateRequestAsync(context); }
             catch (AntiforgeryValidationException)
             {
                 return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
             }
-            if (revisionId is null || revisionId == Guid.Empty)
+            if (dateiId is null || dateiId == Guid.Empty)
             {
-                return Results.Problem(statusCode: 400, title: "Es wurde keine Revision angegeben.");
+                return Results.Problem(statusCode: 400, title: "Es wurde keine Datei angegeben.");
             }
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
             timeout.CancelAfter(TimeSpan.FromSeconds(30));
-            if (!await queue.SendAsync(revisionId.Value, timeout.Token))
+            if (!await queue.SendAsync(dateiId.Value, timeout.Token))
             {
                 return Results.Problem(statusCode: 502,
                     title: "Kein Warteschlangen-Endpunkt für die Textauswertung konfiguriert.");

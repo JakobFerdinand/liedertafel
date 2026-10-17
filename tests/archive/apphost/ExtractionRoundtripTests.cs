@@ -77,23 +77,18 @@ public sealed class ExtractionRoundtripTests(ITestOutputHelper output)
 
         var editorSession = await SignInAsync(api, mail, "redaktion@liedertafel.test", token);
 
-        // Editor builds the catalogue row: song → arrangement → version.
-        using var songResponse = await PostJsonAsync(api, "/api/songs",
+        // Editor creates a Lied and uploads its Noten (#169): the Datei is the
+        // unit of extraction, one row per Datei.
+        using var liedResponse = await PostJsonAsync(api, "/api/lieder",
             new { title = "ARC-034 Auswertungslied" }, editorSession, token);
-        Assert.Equal(HttpStatusCode.Created, songResponse.StatusCode);
-        var songBody = await songResponse.Content.ReadFromJsonAsync<JsonElement>(token);
-        var songId = Guid.Parse(songBody.GetProperty("song").GetProperty("id").GetString()!);
-        using var detailResponse = await GetAsync(api, $"/api/songs/{songId}", editorSession, token);
-        detailResponse.EnsureSuccessStatusCode();
-        var detail = await detailResponse.Content.ReadFromJsonAsync<JsonElement>(token);
-        var versionId = Guid.Parse(detail.GetProperty("song").GetProperty("arrangements")[0]
-            .GetProperty("musicalVersions")[0].GetProperty("id").GetString()!);
+        Assert.Equal(HttpStatusCode.Created, liedResponse.StatusCode);
+        var liedBody = await liedResponse.Content.ReadFromJsonAsync<JsonElement>(token);
+        var liedId = Guid.Parse(liedBody.GetProperty("lied").GetProperty("id").GetString()!);
 
-        // First asset: a text-bearing PDF built with the real PdfPig writer,
+        // First Datei: a text-bearing PDF built with the real PdfPig writer,
         // uploaded through the real Azurite transfer protocol.
-        var textAsset = await CreateAssetAsync(api, editorSession, versionId, token);
         var (_, textRevisionId) = await TransferAndFinalizeAsync(
-            api, storage, editorSession, textAsset, TextPdf("Hallo Liedertafel ARC-034"), token);
+            api, storage, editorSession, liedId, TextPdf("Hallo Liedertafel ARC-034"), token);
 
         // Finalize created the extraction row in the same save and the queue
         // send was accepted: the editor sees the queued state.
@@ -122,9 +117,8 @@ public sealed class ExtractionRoundtripTests(ITestOutputHelper output)
 
         // Second asset: a one-page PDF without any text (the scanned case)
         // ends in the explicit noText terminal state after its own run.
-        var scannedAsset = await CreateAssetAsync(api, editorSession, versionId, token);
         var (_, scannedRevisionId) = await TransferAndFinalizeAsync(
-            api, storage, editorSession, scannedAsset, ScannedPdf(), token);
+            api, storage, editorSession, liedId, ScannedPdf(), token);
         await RerunExtractionAsync(app, token);
         var scannedItem = await GetStatusItemAsync(api, editorSession, scannedRevisionId, token);
         Assert.Equal("noText", scannedItem.GetProperty("status").GetString());
@@ -134,7 +128,7 @@ public sealed class ExtractionRoundtripTests(ITestOutputHelper output)
         // diagnostic re-send against the real queue) changes nothing.
         var (dupCookie, dupToken) = await GetCsrfAsync(api, editorSession, token);
         using var duplicate = new HttpRequestMessage(HttpMethod.Post,
-            $"/api/dev/extraction-duplicate?revisionId={textRevisionId}");
+            $"/api/dev/extraction-duplicate?dateiId={textRevisionId}");
         duplicate.Headers.Add("Cookie", $"{dupCookie}; {editorSession}");
         duplicate.Headers.Add("X-CSRF-TOKEN", dupToken);
         duplicate.Content = JsonContent.Create(new { });
@@ -170,9 +164,9 @@ public sealed class ExtractionRoundtripTests(ITestOutputHelper output)
         var textReading = (await GetStatusItemAsync(api, editorSession, textRevisionId, token)).GetProperty("reading");
         Assert.Equal("completed", textReading.GetProperty("status").GetString());
 
-        using var readSong = await GetAsync(api, $"/api/songs/{songId}", editorSession, token);
-        readSong.EnsureSuccessStatusCode();
-        var prefilled = (await readSong.Content.ReadFromJsonAsync<JsonElement>(token)).GetProperty("song");
+        using var readLied = await GetAsync(api, $"/api/lieder/{liedId}", editorSession, token);
+        readLied.EnsureSuccessStatusCode();
+        var prefilled = (await readLied.Content.ReadFromJsonAsync<JsonElement>(token)).GetProperty("lied");
         Assert.Equal("Franz Schubert", prefilled.GetProperty("composer").GetString());
         Assert.Equal("Anna Beispiel", prefilled.GetProperty("lyricist").GetString());
     }
@@ -259,7 +253,7 @@ public sealed class ExtractionRoundtripTests(ITestOutputHelper output)
     private static async Task<JsonElement> GetStatusItemAsync(
         HttpClient api, string sessionCookie, Guid revisionId, CancellationToken token)
     {
-        using var response = await GetAsync(api, $"/api/revisions/extraction?ids={revisionId}", sessionCookie, token);
+        using var response = await GetAsync(api, $"/api/dateien/extraction?ids={revisionId}", sessionCookie, token);
         response.EnsureSuccessStatusCode();
         var body = await response.Content.ReadFromJsonAsync<JsonElement>(token);
         return Assert.Single(body.GetProperty("results").EnumerateArray()).Clone();
@@ -321,34 +315,17 @@ public sealed class ExtractionRoundtripTests(ITestOutputHelper output)
         return await client.SendAsync(request, token);
     }
 
-    private static async Task<Guid> CreateAssetAsync(
-        HttpClient client, string sessionCookie, Guid versionId, CancellationToken token)
-    {
-        using var response = await PostJsonAsync(client,
-            $"/api/musical-versions/{versionId}/assets",
-            new { assetType = "score" }, sessionCookie, token);
-        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        var body = await response.Content.ReadFromJsonAsync<JsonElement>(token);
-        return Guid.Parse(body.GetProperty("id").GetString()!);
-    }
-
-    private static async Task<(Guid SessionId, string UploadUrl)> CreateUploadSessionAsync(
-        HttpClient client, string sessionCookie, Guid assetId, CancellationToken token)
-    {
-        using var response = await PostJsonAsync(client,
-            $"/api/assets/{assetId}/upload-session", new { }, sessionCookie, token);
-        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        var body = await response.Content.ReadFromJsonAsync<JsonElement>(token);
-        return (
-            Guid.Parse(body.GetProperty("uploadSessionId").GetString()!),
-            body.GetProperty("uploadUrl").GetString()!);
-    }
-
-    private static async Task<(Guid UploadSessionId, Guid RevisionId)> TransferAndFinalizeAsync(
-        HttpClient api, HttpClient storage, string sessionCookie, Guid assetId,
+    private static async Task<(Guid UploadSessionId, Guid DateiId)> TransferAndFinalizeAsync(
+        HttpClient api, HttpClient storage, string sessionCookie, Guid liedId,
         byte[] content, CancellationToken token)
     {
-        var (uploadSessionId, uploadUrl) = await CreateUploadSessionAsync(api, sessionCookie, assetId, token);
+        using var sessionResponse = await PostJsonAsync(api, $"/api/lieder/{liedId}/dateien/upload-session",
+            new { kind = "noten", isPartitur = true, fileName = "noten.pdf", sizeBytes = content.Length, contentType = "application/pdf" },
+            sessionCookie, token);
+        Assert.Equal(HttpStatusCode.Created, sessionResponse.StatusCode);
+        var sessionBody = await sessionResponse.Content.ReadFromJsonAsync<JsonElement>(token);
+        var uploadSessionId = Guid.Parse(sessionBody.GetProperty("uploadSessionId").GetString()!);
+        var uploadUrl = sessionBody.GetProperty("uploadUrl").GetString()!;
         using var put = new HttpRequestMessage(HttpMethod.Put, uploadUrl)
         {
             Content = new ByteArrayContent(content),
@@ -365,8 +342,8 @@ public sealed class ExtractionRoundtripTests(ITestOutputHelper output)
             throw new Xunit.Sdk.XunitException(
                 $"Finalize expected OK but was {finalize.StatusCode}.\nuploadUrl: {uploadUrl}\nbody: {body}");
         }
-        var revision = await finalize.Content.ReadFromJsonAsync<JsonElement>(token);
-        return (uploadSessionId, Guid.Parse(revision.GetProperty("revisionId").GetString()!));
+        var datei = await finalize.Content.ReadFromJsonAsync<JsonElement>(token);
+        return (uploadSessionId, Guid.Parse(datei.GetProperty("datei").GetProperty("id").GetString()!));
     }
 
     private static async Task<(string Cookie, string Token)> GetCsrfAsync(HttpClient frontend, string? cookie, CancellationToken token)

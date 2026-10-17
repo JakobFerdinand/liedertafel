@@ -1,125 +1,35 @@
 import { expect, type Page, test } from "@playwright/test";
-import { mockLeereAufnahmen } from "./aufnahmen-mock";
+import {
+  datei,
+  editorMe,
+  json,
+  liedDetail,
+  memberMe,
+  mockSitzung,
+  mondId,
+  problem,
+} from "./lieder-mock";
 
-// ARC-034: Auswertungsstand der PDF-Textauswertung in den Material-Einträgen
-// (Noten und Auftrittsdokumente): ehrliche Zustände, Textvorschau für
-// gelesenen Text, erneuter Versuch für gescheiterte Läufe, Nachfragen nur
-// solange die Auswertung wirklich unterwegs ist, und nichts für Mitglieder.
+// #169: Auswertungsstand der PDF-Textauswertung und des KI-Lesens an den
+// Noten-Dateien der Lied-Seite: ehrliche Zustände, erneuter Versuch für
+// gescheiterte Läufe, Nachfragen nur solange die Auswertung unterwegs ist,
+// „Rest lesen“ für teilweise gelesene Scans und nichts für Mitglieder.
 
-const editorMe = {
-  authenticated: true,
-  accountId: "00000000-0000-0000-0000-000000000001",
-  email: "redaktion@liedertafel.test",
-  displayName: "Redaktion",
-  roles: ["Editor"],
-  verifiedAt: new Date().toISOString(),
-};
+const dateiId = "00000000-0000-0000-0000-00000000b001";
 
-// Auftritts-Oberfläche (Auftritt mit Dokument-PDF).
-const eventId = "00000000-0000-0000-0000-00000000e010";
-const dokumentAssetId = "00000000-0000-0000-0000-00000000e012";
-const dokumentRevisionId = "00000000-0000-0000-0000-00000000f00c";
-
-function json(body: unknown, status = 200) {
-  return {
-    status,
-    contentType: "application/json",
-    body: JSON.stringify(body),
-  };
-}
-
-function problem(title: string, status: number) {
-  return {
-    status,
-    contentType: "application/problem+json",
-    body: JSON.stringify({ title }),
-  };
-}
-
-async function mockSitzung(page: Page, me: unknown) {
-  await mockLeereAufnahmen(page);
-  await page.route("**/api/auth/me", (route) => route.fulfill(json(me)));
-  await page.route("**/api/antiforgery", (route) =>
-    route.fulfill(json({ token: "test" })),
-  );
-}
-
-function pfadTeil(url: string, index: number): string {
-  return new URL(url).pathname.split("/")[index] ?? "";
-}
-
-function revision(revisionId: string) {
-  return {
-    revisionId,
-    revisionNumber: 1,
-    contentType: "application/pdf",
-    sizeBytes: 419430,
-    createdAt: "2026-09-18T10:00:00.000Z",
-  };
-}
-
-function dokumentEintrag() {
-  return {
-    id: dokumentAssetId,
-    assetType: "document",
-    description: "Programmheft des Frühlingskonzerts",
-    createdAt: "2026-09-20T10:00:00.000Z",
-    currentRevision: revision(dokumentRevisionId),
-  };
-}
-
-function auftrittDetail(dokumente: unknown[]) {
-  return {
-    event: {
-      id: eventId,
-      kind: "concert",
-      title: "Frühlingskonzert",
-      venue: "Stadtsaal Mining",
-      dateYear: 1950,
-      dateMonth: 5,
-      dateDay: 12,
-      dateApproximate: false,
-      datePrecision: "day",
-      dateDisplay: "12. Mai 1950",
-      startTime: "19:30",
-      published: true,
-      notes: null,
-      sourceNote: "Programmheft im Vereinsarchiv, Blatt 3.",
-      documents: dokumente,
-      createdAt: "2026-09-01T08:00:00.000Z",
-      updatedAt: "2026-09-24T10:00:00.000Z",
-      publishedAt: "2026-09-20T10:00:00.000Z",
-    },
-  };
-}
-
-function dokumentZugriff(assetId: string) {
-  return {
-    assetId,
-    revisionId: dokumentRevisionId,
-    revisionNumber: 1,
-    contentType: "application/pdf",
-    sizeBytes: 419430,
-    createdAt: "2026-09-24T10:00:00.000Z",
-    viewUrl: `https://speicher.test/ansicht?sig=${assetId}`,
-    downloadUrl: `https://speicher.test/laden?sig=${assetId}`,
-    expiresAt: "2026-09-24T10:15:00.000Z",
-  };
-}
+const partitur = datei(dateiId, {
+  isPartitur: true,
+  stimme: null,
+  fileName: "partitur.pdf",
+});
 
 /** Auswertungszeile des Stapelabrufs (Vertrag StatusPayload). */
-function auswertung(
-  revisionId: string,
-  assetId: string,
-  overwrite: Record<string, unknown> = {},
-) {
+function auswertung(overwrite: Record<string, unknown> = {}) {
   return {
-    revisionId,
-    assetId,
-    revisionNumber: 1,
+    dateiId,
     status: "completed",
     textSource: "embedded",
-    text: "Erste Strophe: Das Wandern ist des Müllers Lust.",
+    text: "Erste Strophe: Der Mond ist aufgegangen.",
     cleanText: null,
     facts: null,
     readingEnabled: false,
@@ -135,19 +45,36 @@ function auswertung(
   };
 }
 
+function lesen(overwrite: Record<string, unknown> = {}) {
+  return {
+    status: "completed",
+    pagesTotal: 6,
+    pagesRead: 3,
+    partial: true,
+    fieldsApplied: 2,
+    failureReason: null,
+    attemptCount: 1,
+    completedAt: "2026-09-24T11:00:00.000Z",
+    updatedAt: "2026-09-24T11:00:00.000Z",
+    rowVersion: 2,
+    ...overwrite,
+  };
+}
+
+async function liedSeite(page: Page, me: unknown) {
+  await mockSitzung(page, me);
+  await page.route(`**/api/lieder/${mondId}`, (route) =>
+    route.fulfill(json(liedDetail([partitur]))),
+  );
+}
+
 test("Gescheiterte Auswertung zeigt den Grund und läuft nach dem erneuten Versuch weiter", async ({
   page,
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await mockSitzung(page, editorMe);
-  await page.route(`**/api/events/${eventId}`, (route) =>
-    route.fulfill(json(auftrittDetail([dokumentEintrag()]))),
-  );
-  await page.route("**/api/assets/*/access", (route) =>
-    route.fulfill(json(dokumentZugriff(pfadTeil(route.request().url(), 3)))),
-  );
-  let stand = auswertung(dokumentRevisionId, dokumentAssetId, {
+  await liedSeite(page, editorMe);
+  let stand = auswertung({
     status: "failed",
     text: null,
     failureReason:
@@ -156,17 +83,19 @@ test("Gescheiterte Auswertung zeigt den Grund und läuft nach dem erneuten Versu
     attemptCount: 2,
   });
   let anfragen = 0;
-  await page.route("**/api/revisions/extraction*", (route) => {
+  await page.route("**/api/dateien/extraction*", (route) => {
     anfragen += 1;
+    expect(new URL(route.request().url()).searchParams.get("ids")).toBe(
+      dateiId,
+    );
     return route.fulfill(json({ results: [stand] }));
   });
   const wiederholAntraege: unknown[] = [];
-  await page.route("**/api/revisions/*/extraction/retry", (route) => {
+  await page.route(`**/api/dateien/${dateiId}/extraction/retry`, (route) => {
     expect(route.request().method()).toBe("POST");
     expect(route.request().headers()["x-csrf-token"]).toBe("test");
-    expect(route.request().postDataJSON()).toEqual({});
     wiederholAntraege.push(route.request().postDataJSON());
-    stand = auswertung(dokumentRevisionId, dokumentAssetId, {
+    stand = auswertung({
       status: "queued",
       text: null,
       failureReason: null,
@@ -178,7 +107,7 @@ test("Gescheiterte Auswertung zeigt den Grund und läuft nach dem erneuten Versu
     return route.fulfill(json(stand));
   });
 
-  await page.goto(`/auftritt/?id=${eventId}`);
+  await page.goto(`/lied/?id=${mondId}`);
   const zeile = page.locator(".extraktion-status");
   await expect(zeile.locator(".extraktion-stand")).toContainText(
     "Textauswertung gescheitert",
@@ -188,43 +117,32 @@ test("Gescheiterte Auswertung zeigt den Grund und läuft nach dem erneuten Versu
   );
 
   await zeile
-    .getByRole("button", {
-      name: "Textauswertung für diese Datei erneut starten",
-    })
+    .getByRole("button", { name: /Textauswertung für .* erneut starten/ })
     .click();
   await expect(zeile.locator(".extraktion-stand")).toHaveText(
     "Textauswertung wartet …",
   );
-  expect(wiederholAntraege).toHaveLength(1);
+  expect(wiederholAntraege).toEqual([{}]);
 
   // Nach dem Anstoßen fragt die Zeile weiter nach, bis sie fertig ist.
-  stand = auswertung(dokumentRevisionId, dokumentAssetId);
+  stand = auswertung();
   await expect(zeile.locator(".extraktion-stand")).toHaveText(
     "Text ausgelesen",
     { timeout: 10_000 },
   );
   expect(anfragen).toBeGreaterThanOrEqual(2);
-
   expect(errors).toEqual([]);
 });
 
 test("Laufende Auswertung erklärt den abgelehnten erneuten Versuch ehrlich", async ({
   page,
 }) => {
-  const errors: string[] = [];
-  page.on("pageerror", (error) => errors.push(error.message));
-  await mockSitzung(page, editorMe);
-  await page.route(`**/api/events/${eventId}`, (route) =>
-    route.fulfill(json(auftrittDetail([dokumentEintrag()]))),
-  );
-  await page.route("**/api/assets/*/access", (route) =>
-    route.fulfill(json(dokumentZugriff(pfadTeil(route.request().url(), 3)))),
-  );
-  await page.route("**/api/revisions/extraction*", (route) =>
+  await liedSeite(page, editorMe);
+  await page.route("**/api/dateien/extraction*", (route) =>
     route.fulfill(
       json({
         results: [
-          auswertung(dokumentRevisionId, dokumentAssetId, {
+          auswertung({
             status: "failed",
             text: null,
             failureReason: "Der Auswertungsdienst hat den Lauf abgebrochen.",
@@ -234,65 +152,90 @@ test("Laufende Auswertung erklärt den abgelehnten erneuten Versuch ehrlich", as
       }),
     ),
   );
-  const wiederholAntraege: unknown[] = [];
-  await page.route("**/api/revisions/*/extraction/retry", (route) => {
-    wiederholAntraege.push(route.request().postDataJSON());
-    return route.fulfill(problem("Die Auswertung läuft bereits.", 409));
-  });
-
-  await page.goto(`/auftritt/?id=${eventId}`);
-  const zeile = page.locator(".extraktion-status");
-  await expect(zeile.locator(".extraktion-stand")).toContainText(
-    "Textauswertung gescheitert",
+  await page.route(`**/api/dateien/${dateiId}/extraction/retry`, (route) =>
+    route.fulfill(problem("Die Auswertung läuft bereits.", 409)),
   );
+
+  await page.goto(`/lied/?id=${mondId}`);
+  const zeile = page.locator(".extraktion-status");
   await zeile
-    .getByRole("button", {
-      name: "Textauswertung für diese Datei erneut starten",
-    })
+    .getByRole("button", { name: /Textauswertung für .* erneut starten/ })
     .click();
   await expect(zeile.locator(".extraktion-stand")).toHaveText(
     "Textauswertung läuft …",
   );
-  expect(wiederholAntraege).toHaveLength(1);
-
-  expect(errors).toEqual([]);
 });
 
-test("Eingescanntes Dokument bleibt ehrlich ohne Text und ohne Knopf", async ({
+test("Eingescannte Noten ohne KI-Lesen bleiben ehrlich ohne Text und ohne Knopf", async ({
   page,
 }) => {
-  const errors: string[] = [];
-  page.on("pageerror", (error) => errors.push(error.message));
-  await mockSitzung(page, editorMe);
-  await page.route(`**/api/events/${eventId}`, (route) =>
-    route.fulfill(json(auftrittDetail([dokumentEintrag()]))),
-  );
-  await page.route("**/api/assets/*/access", (route) =>
-    route.fulfill(json(dokumentZugriff(pfadTeil(route.request().url(), 3)))),
-  );
-  await page.route("**/api/revisions/extraction*", (route) =>
+  await liedSeite(page, editorMe);
+  await page.route("**/api/dateien/extraction*", (route) =>
     route.fulfill(
-      json({
-        results: [
-          auswertung(dokumentRevisionId, dokumentAssetId, {
-            status: "noText",
-            text: null,
-          }),
-        ],
-      }),
+      json({ results: [auswertung({ status: "noText", text: null })] }),
     ),
   );
 
-  await page.goto(`/auftritt/?id=${eventId}`);
+  await page.goto(`/lied/?id=${mondId}`);
   const zeile = page.locator(".extraktion-status");
   await expect(zeile.locator(".extraktion-stand")).toHaveText(
     "Kein Text gefunden — vermutlich eingescannt.",
   );
   await expect(zeile.getByRole("button")).toHaveCount(0);
-  await expect(zeile.locator(".extraktion-vorschau")).toHaveCount(0);
-
-  expect(errors).toEqual([]);
 });
 
-// ARC-034-1: KI-Lesen der Seiten. Der Stand kommt mit der Auswertungszeile
-// ("reading"), in der Form des Vertrags ReadingEndpoints.ReadingPayload.
+test("Teilweise gelesener Scan: „Rest lesen“ stößt die nächsten Seiten an", async ({
+  page,
+}) => {
+  await liedSeite(page, editorMe);
+  await page.route("**/api/dateien/extraction*", (route) =>
+    route.fulfill(
+      json({
+        results: [
+          auswertung({
+            textSource: "reading",
+            readingEnabled: true,
+            reading: lesen(),
+          }),
+        ],
+      }),
+    ),
+  );
+  const anfragen: string[] = [];
+  await page.route(`**/api/dateien/${dateiId}/reading/continue`, (route) => {
+    anfragen.push(route.request().method());
+    return route.fulfill(
+      json({ reading: lesen({ status: "queued", pagesRead: 3 }) }),
+    );
+  });
+
+  await page.goto(`/lied/?id=${mondId}`);
+  await expect(page.locator(".extraktion-status")).toContainText(
+    "Teilweise gelesen (3 von 6 Seiten)",
+  );
+  await page
+    .getByRole("button", { name: /Rest lesen: restliche Seiten von/ })
+    .click();
+  await expect(page.locator(".extraktion-status")).toContainText(
+    "KI-Lesen wartet …",
+  );
+  expect(anfragen).toEqual(["POST"]);
+});
+
+test("Mitglieder sehen keinen Auswertungsstand und es gibt keine Nachfrage", async ({
+  page,
+}) => {
+  await liedSeite(page, memberMe);
+  let anfragen = 0;
+  await page.route("**/api/dateien/extraction*", (route) => {
+    anfragen += 1;
+    return route.fulfill(json({ results: [] }));
+  });
+
+  await page.goto(`/lied/?id=${mondId}`);
+  await expect(
+    page.getByRole("button", { name: "Noten anzeigen" }),
+  ).toBeVisible();
+  await expect(page.locator(".extraktion-status")).toHaveCount(0);
+  expect(anfragen).toBe(0);
+});
