@@ -21,7 +21,6 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { LiedWahl } from "@/components/lied-wahl";
-import { problemTitel } from "@/lib/assets";
 import {
   type AuftrittDetailsMitBelegen,
   aendereNachweis,
@@ -33,6 +32,7 @@ import {
   posteNachweis,
   publishedAtText,
 } from "@/lib/events";
+import { problemTitel } from "@/lib/uebertragung";
 import { ZeitmarkenVorhanden } from "@/lib/zeitmarken";
 
 // Deutsche Vertragstexte (Konstanten in PerformanceEndpoints.cs): die
@@ -93,14 +93,13 @@ function NachweisEintrag({
   stelle: number;
 }) {
   const marke = markeVon(beleg.evidenceStatus);
-  const ziel = liedUrl(beleg.liedId);
   return (
     <li className="nachweis-eintrag">
       <h4 className="nachweis-titel">
         <span className="nachweis-nummer" aria-hidden="true">
           {stelle}.
         </span>{" "}
-        {ziel ? <Link href={ziel}>{titelVon(beleg)}</Link> : titelVon(beleg)}
+        <Link href={liedUrl(beleg.liedId)}>{titelVon(beleg)}</Link>
       </h4>
       {marke && (
         <p className="nachweis-info">
@@ -438,7 +437,6 @@ function BelegZeile({
   }
 
   const stand = standZeile(beleg);
-  const ziel = liedUrl(beleg.liedId);
   return (
     <li className="belege-zeile">
       <div className="belege-zeile-kopf">
@@ -447,13 +445,9 @@ function BelegZeile({
         </span>
         {/* Dieselbe Tiefe wie im Lesesaal: die Werkzeile weist mit denselben
             Parametern auf die Liedseite; Werkzeuge bleiben Werkzeuge. */}
-        {ziel ? (
-          <Link className="belege-zeile-titel" href={ziel}>
-            {titelVon(beleg)}
-          </Link>
-        ) : (
-          <span className="belege-zeile-titel">{titelVon(beleg)}</span>
-        )}
+        <Link className="belege-zeile-titel" href={liedUrl(beleg.liedId)}>
+          {titelVon(beleg)}
+        </Link>
       </div>
       {stand && <p className="nachweis-info">{stand}</p>}
       <p className="belege-quelle">{quelleText(beleg)}</p>

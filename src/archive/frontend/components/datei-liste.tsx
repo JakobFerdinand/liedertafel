@@ -6,9 +6,9 @@ import { DateiSpieler } from "@/components/datei-spieler";
 import { ExtraktionStatus } from "@/components/extraktion-status";
 import { ExtraktionUebersichtProvider } from "@/components/extraktion-uebersicht";
 import { NotenAnsicht } from "@/components/noten-ansicht";
-import { groesseText } from "@/lib/assets";
 import { fetchDateiZugriff } from "@/lib/dateien";
 import { dateiArten, dateiTitel, type LiedDatei } from "@/lib/lieder";
+import { groesseText } from "@/lib/uebertragung";
 
 /**
  * Sonstige Dateien (#166): Name, Größe und Herunterladen. Übe-Dateien und

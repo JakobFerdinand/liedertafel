@@ -161,8 +161,7 @@ export type ProgrammPunkt = {
   // behalten sie über ein Speichern hinweg (ganzer geordneter Ersatz).
   id: string;
   position: number;
-  // Null nur bei historischen Einträgen aus dem alten Katalog (bis #172).
-  liedId: string | null;
+  liedId: string;
   // Anzeigefelder aus dem Lied; Unbekanntes bleibt null (keine
   // erfundenen Plätze).
   liedTitle: string | null;
@@ -300,9 +299,9 @@ export function publishedAtText(zeitstempel: string): string {
   });
 }
 
-/** Liedseite eines Lieds; ohne Lied (historischer Eintrag) kein Link. */
-export function liedUrl(liedId: string | null): string | null {
-  return liedId ? `/lied/?id=${encodeURIComponent(liedId)}` : null;
+/** Liedseite eines Liedes. */
+export function liedUrl(liedId: string): string {
+  return `/lied/?id=${encodeURIComponent(liedId)}`;
 }
 
 // ─── ARC-028: Aufführungsnachweise ───────────────────────────────────
@@ -314,7 +313,7 @@ export function liedUrl(liedId: string | null): string | null {
 
 export type Nachweis = {
   id: string;
-  liedId: string | null;
+  liedId: string;
   liedTitle: string | null;
   evidenceStatus: string;
   position: number;
@@ -413,15 +412,15 @@ export async function loescheNachweis(id: string): Promise<void> {
 // `programme.confirmation` und sehen Plan und tatsächlichen Verlauf
 // getrennt.
 
-export type BestaetigungFassung = {
-  liedId: string | null;
+export type BestaetigungLied = {
+  liedId: string;
   liedTitle: string | null;
   voiceConfiguration: string | null;
   musicalKey: string | null;
 };
 
 // Ein tatsächlich gesungenes Lied im Lesesaal (Mitglieder und Redaktion).
-export type BestaetigungIst = BestaetigungFassung & {
+export type BestaetigungIst = BestaetigungLied & {
   performanceId: string;
   programmeItemId: string | null;
   // Zusätzlich zum Plan gesungen (Zugabe).
@@ -430,7 +429,7 @@ export type BestaetigungIst = BestaetigungFassung & {
 };
 
 // Geplant, aber nicht gesungen.
-export type BestaetigungAusgefallen = BestaetigungFassung & {
+export type BestaetigungAusgefallen = BestaetigungLied & {
   programmeItemId: string;
   position: number;
 };
@@ -450,7 +449,7 @@ export type BestaetigungEmbed = {
 
 export type BestaetigungAusgang = "open" | "sung" | "skipped" | "unconfirmed";
 
-export type BestaetigungNachweis = BestaetigungFassung & {
+export type BestaetigungNachweis = BestaetigungLied & {
   id: string;
   evidenceStatus: string;
   // Redaktionsansicht: eine am Nachweis hinterlegte Quellenangabe.
@@ -462,7 +461,7 @@ export type BestaetigungNachweis = BestaetigungFassung & {
   passageCount: number;
 };
 
-export type BestaetigungPunkt = BestaetigungFassung & {
+export type BestaetigungPunkt = BestaetigungLied & {
   programmeItemId: string;
   position: number;
   note: string | null;

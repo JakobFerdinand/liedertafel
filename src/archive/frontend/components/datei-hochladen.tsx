@@ -2,12 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
-  AbbruchFehler,
-  groesseText,
-  MaterialFehler,
-  problemTitel,
-} from "@/lib/assets";
-import {
   gespeicherteUebertragung,
   inhaltstypFuerDatei,
   ladeDateiHoch,
@@ -21,6 +15,12 @@ import {
   stimmenFuerBesetzung,
   unterbrocheneUebertragungen,
 } from "@/lib/stimmen";
+import {
+  AbbruchFehler,
+  groesseText,
+  MaterialFehler,
+  problemTitel,
+} from "@/lib/uebertragung";
 
 type ZeilenStatus =
   | "bereit"

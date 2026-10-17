@@ -3,7 +3,6 @@
 // Zwischenspeicherung, Fehler als geworfene Antwort, deutsche Zustandstexte.
 
 import { postAuth } from "@/lib/auth";
-import type { NotenAngaben } from "@/lib/songs";
 
 /** Höchstzahl der Dateien je Anfrage (Vertrag ExtractionEndpoints). */
 export const extraktionsLimit = 100;
@@ -182,4 +181,32 @@ export function extraktionsStatusText(status: ExtraktionsStatus): string {
     case "failed":
       return "Textauswertung gescheitert";
   }
+}
+
+/** Aus dem Text der Noten gelesene Angaben (Vertrag ScoreFacts). */
+export type NotenAngaben = {
+  voice: string | null;
+  musicalKey: string | null;
+  timeSignature: string | null;
+  tempo: string | null;
+  composer: string | null;
+  lyricist: string | null;
+  arranger: string | null;
+  copyright: string | null;
+};
+
+/** Erkannte Angaben als lesbare Teile, etwa „Tonart A♭“ und „4/4-Takt“. */
+export function notenAngabenTeile(
+  angaben: NotenAngaben | null | undefined,
+): string[] {
+  if (!angaben) return [];
+  return [
+    angaben.musicalKey ? `Tonart ${angaben.musicalKey}` : null,
+    angaben.timeSignature ? `${angaben.timeSignature}-Takt` : null,
+    angaben.tempo ? `Tempo ${angaben.tempo}` : null,
+    angaben.composer ? `Musik: ${angaben.composer}` : null,
+    angaben.lyricist ? `Text: ${angaben.lyricist}` : null,
+    angaben.arranger ? `Satz: ${angaben.arranger}` : null,
+    angaben.copyright,
+  ].filter((teil): teil is string => Boolean(teil));
 }

@@ -15,11 +15,10 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { LiedWahl } from "@/components/lied-wahl";
-import { problemTitel } from "@/lib/assets";
 import {
   type AuftrittDetailsMitProgramm,
   type BestaetigungAbsenden,
-  type BestaetigungFassung,
+  type BestaetigungLied,
   type BestaetigungNachweis,
   type BestaetigungPruefung,
   fetchBestaetigung,
@@ -27,6 +26,7 @@ import {
   publishedAtText,
   putBestaetigung,
 } from "@/lib/events";
+import { problemTitel } from "@/lib/uebertragung";
 import { ZeitmarkenVorhanden } from "@/lib/zeitmarken";
 
 const ersatzFehler = "Das hat nicht geklappt. Bitte erneut versuchen.";
@@ -67,7 +67,7 @@ type ZusatzZeile = {
 
 /** Meta-Leiter des Liedes: Besetzung und Tonart, Unbekanntes bleibt weg
     (nichts wird erfunden). */
-function liedTeile(lied: BestaetigungFassung): string[] {
+function liedTeile(lied: BestaetigungLied): string[] {
   return [
     lied.voiceConfiguration ? `Besetzung: ${lied.voiceConfiguration}` : null,
     lied.musicalKey ? `Tonart: ${lied.musicalKey}` : null,
@@ -93,20 +93,14 @@ function zeilenAusPruefung(pruefung: BestaetigungPruefung): {
   }
   return {
     ausgang,
-    zusaetze: pruefung.additions.flatMap((nachweis) =>
-      nachweis.liedId
-        ? [
-            {
-              schluessel: nachweis.id,
-              performanceId: nachweis.id,
-              rowVersion: nachweis.rowVersion,
-              clientKey: crypto.randomUUID(),
-              liedId: nachweis.liedId,
-              titel: nachweis.liedTitle,
-            },
-          ]
-        : [],
-    ),
+    zusaetze: pruefung.additions.map((nachweis) => ({
+      schluessel: nachweis.id,
+      performanceId: nachweis.id,
+      rowVersion: nachweis.rowVersion,
+      clientKey: crypto.randomUUID(),
+      liedId: nachweis.liedId,
+      titel: nachweis.liedTitle,
+    })),
   };
 }
 
@@ -230,18 +224,15 @@ function Lesesaal({
                 : null,
               ...liedTeile(eintrag),
             ].filter((teil): teil is string => teil !== null);
-            const ziel = liedUrl(eintrag.liedId);
             return (
               <li className="programm-eintrag" key={eintrag.performanceId}>
                 <h4 className="programm-titel">
                   <span className="programm-nummer" aria-hidden="true">
                     {index + 1}.
                   </span>{" "}
-                  {ziel ? (
-                    <Link href={ziel}>{eintrag.liedTitle ?? "Ohne Titel"}</Link>
-                  ) : (
-                    (eintrag.liedTitle ?? "Ohne Titel")
-                  )}
+                  <Link href={liedUrl(eintrag.liedId)}>
+                    {eintrag.liedTitle ?? "Ohne Titel"}
+                  </Link>
                 </h4>
                 {marken.length > 0 && (
                   <p className="noten-info">{marken.join(" · ")}</p>

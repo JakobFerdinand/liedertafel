@@ -10,16 +10,12 @@ import { patchAuth, postAuth } from "@/lib/auth";
  */
 export type ZeitmarkeZustand = "current" | "needsReview";
 
-export type ZeitmarkeKette = { id: string; label: string };
-
 export type Zeitmarke = {
   id: string;
   recordingId: string;
   performanceId: string;
-  songId: string;
-  songTitle: string;
-  arrangement: ZeitmarkeKette | null;
-  musicalVersion: ZeitmarkeKette | null;
+  liedId: string;
+  liedTitle: string;
   evidenceStatus: string;
   position: number;
   startSeconds: number | null;
@@ -37,10 +33,8 @@ export type Zeitmarke = {
 export type Vorkommen = {
   performanceId: string;
   position: number;
-  songId: string;
-  songTitle: string | null;
-  arrangement: ZeitmarkeKette | null;
-  musicalVersion: ZeitmarkeKette | null;
+  liedId: string;
+  liedTitle: string | null;
   evidenceStatus: string;
   passageId: string | null;
 };

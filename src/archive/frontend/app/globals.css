@@ -92,13 +92,10 @@ h3 {
    – .knopf-leise: leiser Marken-Textknopf, Hover unterstreicht.
    – .knopf-leise-rahmen: umrandete leise Variante, Hover füllt mit
      Markenfarbe. Die Grundform (transparent, 2px currentColor) teilt
-     .knopf-leise-rahmen mit den Marken-Knopfzeilen (.lied-anderer-titel,
-     .noten-laden) — diese behalten ihre eigenen Farb- und Hoverregeln;
-     die Passkey-Zeilen (.passkey-liste) tragen ihre Knöpfe dagegen als
-     leise Textknöpfe (.knopf-leise). Die Fassungs-Knöpfe
-     (.fassungs-liste) sind Vorschlagskacheln nach .chat-vorschlaege
-     (Haarriss-Rahmen auf Papier, gewählt solide) und steigen darum aus
-     der Rahmenfamilie aus. */
+     .knopf-leise-rahmen mit dem Download-Knopf (.noten-laden) — dieser
+     behält seine eigenen Farb- und Hoverregeln; die Passkey-Zeilen
+     (.passkey-liste) tragen ihre Knöpfe dagegen als leise Textknöpfe
+     (.knopf-leise). */
 .hinweis-block,
 .chat-zustand,
 .chat-fehler,
@@ -119,14 +116,12 @@ h3 {
   text-underline-offset: 0.25em;
 }
 .knopf-leise-rahmen,
-.lied-anderer-titel button,
 .noten-laden {
   background: transparent;
   border: 2px solid currentColor;
   border-radius: var(--radius-knopf);
 }
 .knopf-leise-rahmen,
-.lied-anderer-titel button,
 .noten-laden {
   display: inline-block;
   color: var(--brand);
@@ -135,7 +130,6 @@ h3 {
   text-decoration: none;
 }
 .knopf-leise-rahmen:hover:not(:disabled),
-.lied-anderer-titel button:hover:not(:disabled),
 .noten-laden:hover {
   background: var(--brand);
   color: var(--paper);
@@ -955,11 +949,7 @@ dd {
   font-size: clamp(1.35rem, 2vw, 1.6rem);
   overflow-wrap: anywhere;
 }
-.lieder-andere-titel {
-  color: var(--muted);
-  font-size: var(--schrift-neben);
-  margin-block: 0.25rem 0;
-}
+
 .lieder-urheber {
   color: var(--muted);
   font-size: var(--schrift-neben);
@@ -969,14 +959,7 @@ dd {
 .lieder-urheber span {
   display: block;
 }
-.lieder-fundstellen {
-  display: grid;
-  gap: 0.3rem;
-  max-width: 65ch;
-  margin-block: 0.7rem 0;
-  padding-block-start: 0.6rem;
-  border-block-start: 1px solid var(--rule);
-}
+
 .lieder-fundstelle {
   display: flex;
   align-items: baseline;
@@ -1004,22 +987,7 @@ dd {
   padding: 0.1rem 0.5rem;
   margin-block: 0.45rem 0;
 }
-/* Zeilensteuerung: Veröffentlichen/Zurückziehen bleiben volle Knöpfe
-   (zustandsändernd), Bearbeiten trägt den leisen Marken-Textknopf.
-   Berührziele bleiben ≥ 2.75rem. */
-.lieder-aktionen {
-  display: flex;
-  gap: 0.6rem;
-  flex-wrap: wrap;
-  align-items: center;
-  margin-top: 0.4rem;
-}
-.lieder-aktionen button {
-  min-height: 2.75rem;
-  padding: 0.5rem 0.9rem;
-  font-size: var(--schrift-neben);
-  border-radius: var(--radius-knopf);
-}
+
 /* Ein Katalogblatt nutzt die tatsächlich verfügbare Lesebreite. Bei
    offenem Chat entscheidet die Inhalts- statt der Fensterbreite. */
 @container (min-width: 52rem) {
@@ -1045,14 +1013,6 @@ dd {
     grid-area: stand;
     margin-block: 0.2rem 0;
     white-space: nowrap;
-  }
-  .lieder-eintrag > .lieder-aktionen {
-    grid-area: aktionen;
-    margin-top: 0;
-    flex-wrap: nowrap;
-  }
-  .lieder-eintrag > .lieder-fundstellen {
-    grid-area: fund;
   }
   .lieder-eintrag > .lied-bearbeiten {
     grid-area: formular;
@@ -1085,7 +1045,6 @@ dd {
 .material-verwaltung summary,
 .lieder-filter summary,
 .auftritt-anlegen summary,
-.lied-fassungen summary,
 .lied-bearbeiten summary,
 .aufnahme-anlegen summary,
 .programm-verwaltung summary {
@@ -1102,7 +1061,6 @@ dd {
 .material-verwaltung summary::-webkit-details-marker,
 .lieder-filter summary::-webkit-details-marker,
 .auftritt-anlegen summary::-webkit-details-marker,
-.lied-fassungen summary::-webkit-details-marker,
 .lied-bearbeiten summary::-webkit-details-marker,
 .aufnahme-anlegen summary::-webkit-details-marker,
 .programm-verwaltung summary::-webkit-details-marker {
@@ -1113,7 +1071,6 @@ dd {
 .material-verwaltung summary:focus-visible,
 .lieder-filter summary:focus-visible,
 .auftritt-anlegen summary:focus-visible,
-.lied-fassungen summary:focus-visible,
 .lied-bearbeiten summary:focus-visible,
 .aufnahme-anlegen summary:focus-visible,
 .programm-verwaltung summary:focus-visible {
@@ -1125,7 +1082,6 @@ dd {
 .material-verwaltung summary h2,
 .lieder-filter summary h2,
 .auftritt-anlegen summary h2,
-.lied-fassungen summary h2,
 .aufnahme-anlegen summary h2,
 .lied-bearbeiten summary h2 {
   margin-block: 0;
@@ -1136,7 +1092,6 @@ dd {
 .material-verwaltung-umschalter,
 .lieder-filter-umschalter,
 .auftritt-anlegen-umschalter,
-.lied-fassungen-umschalter,
 .lied-bearbeiten-umschalter,
 .aufnahme-anlegen-umschalter,
 .programm-verwaltung-umschalter {
@@ -1149,7 +1104,6 @@ dd {
 .material-verwaltung summary:hover .material-verwaltung-umschalter,
 .lieder-filter summary:hover .lieder-filter-umschalter,
 .auftritt-anlegen summary:hover .auftritt-anlegen-umschalter,
-.lied-fassungen summary:hover .lied-fassungen-umschalter,
 .lied-bearbeiten summary:hover .lied-bearbeiten-umschalter,
 .aufnahme-anlegen summary:hover .aufnahme-anlegen-umschalter,
 .programm-verwaltung summary:hover .programm-verwaltung-umschalter {
@@ -1161,7 +1115,6 @@ dd {
 .material-verwaltung .material-verwaltung-zu,
 .lieder-filter .lieder-filter-zu,
 .auftritt-anlegen .auftritt-anlegen-zu,
-.lied-fassungen .lied-fassungen-zu,
 .lied-bearbeiten .lied-bearbeiten-zu,
 .aufnahme-anlegen .aufnahme-anlegen-zu,
 .programm-verwaltung .programm-verwaltung-zu {
@@ -1172,7 +1125,6 @@ dd {
 .material-verwaltung[open] .material-verwaltung-auf,
 .lieder-filter[open] .lieder-filter-auf,
 .auftritt-anlegen[open] .auftritt-anlegen-auf,
-.lied-fassungen[open] .lied-fassungen-auf,
 .lied-bearbeiten[open] .lied-bearbeiten-auf,
 .aufnahme-anlegen[open] .aufnahme-anlegen-auf,
 .programm-verwaltung[open] .programm-verwaltung-auf {
@@ -1183,7 +1135,6 @@ dd {
 .material-verwaltung[open] .material-verwaltung-zu,
 .lieder-filter[open] .lieder-filter-zu,
 .auftritt-anlegen[open] .auftritt-anlegen-zu,
-.lied-fassungen[open] .lied-fassungen-zu,
 .lied-bearbeiten[open] .lied-bearbeiten-zu,
 .aufnahme-anlegen[open] .aufnahme-anlegen-zu,
 .programm-verwaltung[open] .programm-verwaltung-zu {
@@ -1195,7 +1146,6 @@ dd {
 .mitglied-einladen[open] summary,
 .lieder-filter[open] summary,
 .auftritt-anlegen[open] summary,
-.lied-fassungen[open] summary,
 .lied-bearbeiten[open] summary {
   border-block-end: 1px solid var(--rule);
   padding-block-end: 0.9rem;
@@ -1207,8 +1157,7 @@ dd {
 }
 .lied-ansicht,
 .lied-detail > .lied-historie,
-.lied-detail > .lied-bearbeiten,
-.lied-detail > .lied-fassungen {
+.lied-detail > .lied-bearbeiten {
   max-width: 48rem;
 }
 .lied-ansicht h1 {
@@ -1219,101 +1168,7 @@ dd {
 .lied-ansicht .lieder-urheber {
   margin-block: 0.2rem 0;
 }
-.fassungs-wahl {
-  margin-block: 1.4rem 0;
-}
-.fassungs-wahl legend {
-  padding: 0;
-}
-.fassungs-gruppe {
-  border-top: 1px solid var(--rule);
-  margin-block: 1.2rem;
-  padding-block-start: 1rem;
-}
-.fassungs-gruppe:first-child {
-  border-top: 0;
-  padding-block-start: 0;
-}
-/* Gewählt-Zeichen des Systems: der 4px-Markenlinker bleibt allein der
-   gewählten Arrangementgruppe. */
-.fassungs-gruppe[data-gewaehlt="true"] {
-  border-left: 4px solid var(--brand);
-  padding-left: 0.8rem;
-}
-.fassungs-gruppe h3 {
-  margin-block: 0 0.35rem;
-  font-size: var(--titel-abschnitt);
-}
-.fassungs-gruppe .feld-hinweis {
-  color: var(--muted);
-  font-size: var(--schrift-etikett);
-  margin-block: 0.1rem 0;
-}
-/* Fassungsknöpfe als Vorschlagskacheln nach .chat-vorschlaege:
-   Haarriss-Rahmen auf Papier, Marken-Text linksbündig, Hover wäscht und
-   rahmt in Markenfarbe; die gewählte Fassung bleibt solide Marke. */
-.fassungs-liste {
-  list-style: none;
-  margin: 0.7rem 0 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
-  gap: 0.65rem;
-}
-.fassungs-liste li {
-  display: grid;
-  min-width: 0;
-}
-.fassungs-liste button {
-  min-width: 0;
-  min-height: 2.75rem;
-  padding: 0.9rem;
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-knopf);
-  background: var(--paper);
-  color: var(--brand);
-  font: inherit;
-  font-weight: 600;
-  font-size: var(--schrift-neben);
-  line-height: 1.5;
-  text-align: left;
-  overflow-wrap: anywhere;
-}
-.fassungs-liste button:hover:not([aria-pressed="true"]) {
-  background: var(--wash);
-  border-color: var(--brand);
-}
-.fassungs-liste button[aria-pressed="true"] {
-  background: var(--brand);
-  color: var(--paper);
-  border-color: var(--brand);
-}
-.lied-fassungen {
-  margin-top: 2.5rem;
-}
-.lied-fassungen h3 {
-  margin-block: 1.4rem 0;
-}
-/* Aufklapper der Fassungspflege nach der geteilten Aufklapper-Rezeptur
-   (siehe .lied-anlegen). Zugeklappt gehört die Ruh der Fassungswahl im
-   Lesesaal. */
-.lied-fassung-block {
-  border-top: 1px solid var(--rule);
-  padding-block: 0.8rem;
-}
-.lied-fassung-block:first-of-type {
-  border-top: 0;
-  padding-block-start: 0;
-}
-.lied-fassung-titel {
-  font-weight: 600;
-  margin-block: 0 0.4rem;
-}
-.lied-fassung-version {
-  margin-block: 0.4rem 0;
-  border-top: 1px dashed var(--rule);
-  padding-block: 0.4rem;
-}
+
 .noten-bereich {
   margin-block: 1.4rem 0;
   border-top: 1px solid var(--rule);
@@ -1560,46 +1415,7 @@ fieldset.material-verwaltung {
 }
 /* Dateistände (Redaktion): stille Liste im Materialrhythmus; der aktuelle
    Stand trägt nur ein Wort, keinen eigenen Farbton. */
-.noten-verlauf {
-  margin-top: 0.6rem;
-  border-top: 1px dashed var(--rule);
-  padding-block-start: 0.6rem;
-}
-.noten-verlauf h5 {
-  margin-block: 0 0.2rem;
-  font-size: var(--schrift-etikett);
-}
-.noten-verlauf-liste,
-.noten-verlauf-wechsel ol {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-.noten-verlauf-stand {
-  border-top: 1px solid var(--rule);
-  padding-block: 0.5rem 0.1rem;
-}
-.noten-verlauf-titel {
-  font-weight: 700;
-  margin-block: 0;
-}
-.noten-verlauf-aktuell {
-  color: var(--brand);
-}
-.noten-verlauf-wechsel {
-  margin-block: 0.6rem 0;
-  font-size: var(--schrift-neben);
-}
-.noten-verlauf-wechsel summary {
-  cursor: pointer;
-  min-height: 2.75rem;
-  display: flex;
-  align-items: center;
-  font-weight: 600;
-}
-.noten-verlauf-wechsel li {
-  margin-block: 0.3rem;
-}
+
 .material-bearbeiten label {
   display: block;
   font-size: var(--schrift-neben);
@@ -1666,29 +1482,7 @@ footer {
   color: var(--ink);
   resize: vertical;
 }
-.lied-andere-titel,
-.lied-listen {
-  border: 0;
-  padding: 0;
-  margin-block: 0 0.4rem;
-}
-.lied-andere-titel legend,
-.lied-listen legend {
-  font-weight: 600;
-  padding: 0;
-  margin-block: 0.6rem 0.2rem;
-}
-.lied-anderer-titel {
-  display: flex;
-  gap: 0.6rem;
-  align-items: center;
-  margin-block: 0.4rem;
-}
-.lied-anderer-titel input {
-  width: auto;
-  flex: 1 1 10rem;
-  min-width: 0;
-}
+
 /* Die Suche ist das Hauptwerkzeug; Filter und Anlage bleiben neben ihr
    greifbar und beanspruchen erst geöffnet eine eigene Zeile. */
 .lieder-suche {
@@ -2118,7 +1912,7 @@ footer {
 .auftritte-liste .hinweis-block {
   max-width: 32rem;
 }
-/* Zeilensteuerung nach .lieder-aktionen: zustandsändernde Knöpfe bleiben
+/* Zeilensteuerung: zustandsändernde Knöpfe bleiben
    volle Knöpfe, Bearbeiten trägt den leisen Marken-Textknopf.
    Berührziele bleiben ≥ 2.75rem. */
 .auftritte-aktionen {
@@ -2245,7 +2039,7 @@ footer {
 
 /* ─── Auftritts-Dokumente (ARC-025) ──────────────────────────────────
    Der Lesesaal der Auftrittsmaterialien: Fotografien rasten als kleine
-   Andachtsbilder (Haarriss-Rahmen auf Papier, Raster nach .fassungs-liste),
+   Andachtsbilder (Haarriss-Rahmen auf Papier, Raster nach .material-liste),
    ihre Beschriftung liest sich in der Meta-Leiter; Dokumente laufen als
    Einträge im Materialrhythmus (.material-eintrag/.noten-laden). Die
    Großansicht öffnet als echtes Dialogfenster. Keine neuen Farben —
@@ -2699,15 +2493,6 @@ fieldset.programm-verwaltung {
   display: grid;
   gap: 0.15rem;
 }
-.bestaetigung-fassung {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.4rem 0.8rem;
-}
-.bestaetigung-fassung > .fassungs-wahl {
-  flex-basis: 100%;
-}
 
 /* ─── Programmverzeichnis (ARC-026) ───────────────────────────────────
    Die Zeilen erben die Geometrie des Auftrittsverzeichnisses (Datum in
@@ -2915,10 +2700,6 @@ fieldset.programm-verwaltung {
   color: var(--muted);
   font-weight: 600;
   padding-block-end: 0.4rem;
-}
-.material-erkannt {
-  color: var(--muted);
-  font-size: var(--schrift-neben);
 }
 
 /* Aufnahmen am Auftritt (ARC-030): Einträge im Materialrhythmus, das Bild

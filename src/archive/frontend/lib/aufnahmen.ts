@@ -1,5 +1,5 @@
-import { groesseText } from "@/lib/assets";
 import { patchAuth, postAuth } from "@/lib/auth";
+import { groesseText } from "@/lib/uebertragung";
 
 // ARC-030: ganze Aufnahmen eines Auftritts. Die Typen spiegeln die Antworten
 // von /api/events/{id}/recordings und /api/recordings/{id}/… Feld für Feld.

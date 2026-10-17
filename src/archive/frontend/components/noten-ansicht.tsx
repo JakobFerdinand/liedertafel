@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { groesseText } from "@/lib/assets";
 import { type DateiZugriff, fetchDateiZugriff } from "@/lib/dateien";
 import { dateiTitel, type LiedDatei } from "@/lib/lieder";
+import { groesseText } from "@/lib/uebertragung";
 
 /**
  * Eine Noten-Datei lesen (#166): PDF im Rahmen der Seite, auf Wunsch im

@@ -5,9 +5,9 @@ import { useState } from "react";
 import { AudioSpieler } from "@/components/audio-spieler";
 import { MedienSpieler } from "@/components/medien-spieler";
 import { MidiSpieler } from "@/components/midi-spieler";
-import { groesseText } from "@/lib/assets";
 import { type DateiZugriff, fetchDateiZugriff } from "@/lib/dateien";
 import { dateiTitel, type LiedDatei } from "@/lib/lieder";
+import { groesseText } from "@/lib/uebertragung";
 
 // Übe-Dateien und Aufnahmen eines Liedes (#167): holt den Zugriff erst auf
 // Klick und spielt Ton, MIDI (mit Tempo) oder Video auf den gemeinsamen
@@ -74,7 +74,7 @@ export function DateiSpieler({
           <>
             {art === "midi" ? (
               <MidiSpieler
-                assetId={datei.id}
+                dateiId={datei.id}
                 stimme={name}
                 zugriff={zugriff}
                 holeZugriff={holeZugriff}
@@ -98,7 +98,7 @@ export function DateiSpieler({
               />
             ) : (
               <AudioSpieler
-                assetId={datei.id}
+                dateiId={datei.id}
                 stimme={name}
                 zugriff={zugriff}
                 holeZugriff={holeZugriff}

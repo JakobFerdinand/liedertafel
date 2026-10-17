@@ -2,10 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { SpielerZugriff } from "@/components/medien-spieler";
-import type { AssetAccessResponse, SpielerFehler } from "@/lib/assets";
-import { fetchAssetAccess, ladeFehlerAusUrsache, zeitText } from "@/lib/assets";
 import type { MidiStueck } from "@/lib/midi";
 import { liesMidi, MidiFehler } from "@/lib/midi";
+import {
+  ladeFehlerAusUrsache,
+  type SpielerFehler,
+  zeitText,
+} from "@/lib/uebertragung";
 
 /** Wiederholbare Meldung für vorübergehende Ladefehler. */
 const LadeFehler: SpielerFehler = {
@@ -28,25 +31,21 @@ const ScheitelFaktor = 0.2;
 /** Abstand der Positionsaktualisierungen in Millisekunden. */
 const TaktMs = 100;
 
-export type MidiSpielerProps<
-  Zugriff extends SpielerZugriff = AssetAccessResponse,
-> = {
-  assetId: string;
+export type MidiSpielerProps<Zugriff extends SpielerZugriff> = {
+  dateiId: string;
   /** Beschriftete Stimme (inklusive Vollmix-Ersatz), für Klartext-Labels. */
   stimme: string;
   zugriff: Zugriff;
-  /** Holt ein frisches Ticket; ohne Angabe das Ticket des alten Materials. */
-  holeZugriff?: () => Promise<Zugriff>;
+  /** Holt ein frisches Ticket. */
+  holeZugriff: () => Promise<Zugriff>;
   /** Nur ein Spieler läuft gleichzeitig; inaktive pausieren sich selbst. */
   aktiv: boolean;
   onAbspielen: () => void;
   onErneuert: (zugriff: Zugriff) => void;
 };
 
-export function MidiSpieler<
-  Zugriff extends SpielerZugriff = AssetAccessResponse,
->({
-  assetId,
+export function MidiSpieler<Zugriff extends SpielerZugriff>({
+  dateiId,
   stimme,
   zugriff,
   holeZugriff,
@@ -306,9 +305,7 @@ export function MidiSpieler<
     // holen und dem Besitzer melden, dann die Bytes neu laden.
     let neu: Zugriff;
     try {
-      neu = holeZugriff
-        ? await holeZugriff()
-        : ((await fetchAssetAccess(assetId)) as unknown as Zugriff);
+      neu = await holeZugriff();
     } catch (ursache) {
       setFehler(ladeFehlerAusUrsache(ursache, LadeFehler.meldung));
       return;
@@ -350,11 +347,11 @@ export function MidiSpieler<
         <span className="audio-zeit">{tempo} %</span>
       </div>
       <div className="audio-bereiche">
-        <label className="visually-hidden" htmlFor={`midi-position-${assetId}`}>
+        <label className="visually-hidden" htmlFor={`midi-position-${dateiId}`}>
           Position ({stimme})
         </label>
         <input
-          id={`midi-position-${assetId}`}
+          id={`midi-position-${dateiId}`}
           type="range"
           min={0}
           max={stueck?.dauer ?? 0}
@@ -363,11 +360,11 @@ export function MidiSpieler<
           disabled={stueck === null}
           onChange={beiPosition}
         />
-        <label className="visually-hidden" htmlFor={`midi-tempo-${assetId}`}>
+        <label className="visually-hidden" htmlFor={`midi-tempo-${dateiId}`}>
           Tempo ({stimme})
         </label>
         <input
-          id={`midi-tempo-${assetId}`}
+          id={`midi-tempo-${dateiId}`}
           type="range"
           min={50}
           max={150}
@@ -378,12 +375,12 @@ export function MidiSpieler<
         />
         <label
           className="visually-hidden"
-          htmlFor={`midi-lautstaerke-${assetId}`}
+          htmlFor={`midi-lautstaerke-${dateiId}`}
         >
           Lautstärke ({stimme})
         </label>
         <input
-          id={`midi-lautstaerke-${assetId}`}
+          id={`midi-lautstaerke-${dateiId}`}
           className="audio-lautstaerke"
           type="range"
           min={0}

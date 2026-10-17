@@ -1,3 +1,6 @@
+import type { Aufnahme } from "@/lib/aufnahmen";
+import { patchAuth, postAuth, putAuth } from "@/lib/auth";
+import type { DateiArt, LiedDatei } from "@/lib/lieder";
 import {
   type DateiIdentitaet,
   liesUploadSitzung,
@@ -5,10 +8,7 @@ import {
   setzeUploadFort,
   type UploadSessionResponse,
   uebertrageDatei,
-} from "@/lib/assets";
-import type { Aufnahme } from "@/lib/aufnahmen";
-import { patchAuth, postAuth, putAuth } from "@/lib/auth";
-import type { DateiArt, LiedDatei } from "@/lib/lieder";
+} from "@/lib/uebertragung";
 
 // Dateien eines Liedes (#166): Zugriff und Hochladen über die gemeinsame
 // Übertragung aus lib/assets.ts. Spätere Tickets ergänzen hier nur Exporte.

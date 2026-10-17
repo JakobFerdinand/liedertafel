@@ -11,17 +11,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ExtraktionStatus } from "@/components/extraktion-status";
 import { ExtraktionUebersichtProvider } from "@/components/extraktion-uebersicht";
 import {
-  AbbruchFehler,
-  cancelUploadSession,
-  entferneUploadSitzung,
-  groesseText,
-  liesUploadSitzung,
-  MaterialFehler,
-  type MaterialSchritt,
-  problemTitel,
-  restlaufzeitMs,
-} from "@/lib/assets";
-import {
   aendereDateiBeschreibung,
   auftrittUploadSchluessel,
   type DateiZugriff,
@@ -37,6 +26,17 @@ import {
   type Dokument,
   dokumentArtName,
 } from "@/lib/events";
+import {
+  AbbruchFehler,
+  cancelUploadSession,
+  entferneUploadSitzung,
+  groesseText,
+  liesUploadSitzung,
+  MaterialFehler,
+  type MaterialSchritt,
+  problemTitel,
+  restlaufzeitMs,
+} from "@/lib/uebertragung";
 
 /** Vorlauf vor dem Ticketablauf, zu dem still neue Tickets angefordert werden. */
 const ErneuerungsVorlaufMs = 60_000;

@@ -93,14 +93,14 @@ async function mockKatalog(page: Page) {
   );
 }
 
-const fassung1 = {
+const lied1 = {
   liedId: lied1Id,
   liedTitle: "Das Wandern",
   voiceConfiguration: "SATB",
   musicalKey: "G-Dur",
 };
 
-const fassung2 = {
+const lied2 = {
   liedId: lied2Id,
   liedTitle: "Zugabe-Lied",
   voiceConfiguration: "SATB",
@@ -110,17 +110,17 @@ const fassung2 = {
 function planPunkt(
   id: string,
   position: number,
-  fassung: typeof fassung1,
+  lied: typeof lied1,
   extra: Record<string, unknown> = {},
 ) {
-  return { id, position, note: null, ...fassung, ...extra };
+  return { id, position, note: null, ...lied, ...extra };
 }
 
 const veroeffentlicht = {
   id: revisionId,
   number: 2,
   publishedAt: "2026-09-20T10:00:00.000Z",
-  items: [planPunkt(punktA, 1, fassung1), planPunkt(punktB, 2, fassung2)],
+  items: [planPunkt(punktA, 1, lied1), planPunkt(punktB, 2, lied2)],
 };
 
 function detail(confirmation: unknown) {
@@ -166,14 +166,14 @@ const bestaetigung = {
   upToDate: true,
   actual: [
     {
-      ...fassung1,
+      ...lied1,
       performanceId: nachweisA,
       programmeItemId: punktA,
       added: false,
       evidenceStatus: "confirmed",
     },
     {
-      ...fassung2,
+      ...lied2,
       liedTitle: "Die Zugabe",
       performanceId: nachweisZugabe,
       programmeItemId: null,
@@ -183,7 +183,7 @@ const bestaetigung = {
   ],
   skipped: [
     {
-      ...fassung2,
+      ...lied2,
       programmeItemId: punktB,
       position: 2,
     },
@@ -218,12 +218,12 @@ function pruefung(
   };
 }
 
-function offenerPunkt(id: string, position: number, fassung: typeof fassung1) {
+function offenerPunkt(id: string, position: number, lied: typeof lied1) {
   return {
     programmeItemId: id,
     position,
     note: null,
-    ...fassung,
+    ...lied,
     outcome: "open",
     performance: null,
     suggestedPerformanceId: null,
@@ -240,17 +240,17 @@ const bestaetigungKopf = {
 };
 
 const offeneItems = [
-  offenerPunkt(punktA, 1, fassung1),
-  offenerPunkt(punktB, 2, fassung2),
+  offenerPunkt(punktA, 1, lied1),
+  offenerPunkt(punktB, 2, lied2),
 ];
 
 function nachweis(
   id: string,
-  fassung: typeof fassung1,
+  lied: typeof lied1,
   programmeItemId: string | null,
 ) {
   return {
-    ...fassung,
+    ...lied,
     id,
     evidenceStatus: "confirmed",
     programmeItemId,
@@ -351,12 +351,12 @@ test("Redaktion bestätigt das Programm mit einem Klick unverändert", async ({
               {
                 ...offeneItems[0],
                 outcome: "sung",
-                performance: nachweis(nachweisA, fassung1, punktA),
+                performance: nachweis(nachweisA, lied1, punktA),
               },
               {
                 ...offeneItems[1],
                 outcome: "sung",
-                performance: nachweis("a2", fassung2, punktB),
+                performance: nachweis("a2", lied2, punktB),
               },
             ],
             {
@@ -434,12 +434,12 @@ test("Redaktion entscheidet ausdrücklich: ausgefallen und Zugabe", async ({
               {
                 ...offeneItems[0],
                 outcome: "sung",
-                performance: nachweis(nachweisA, fassung1, punktA),
+                performance: nachweis(nachweisA, lied1, punktA),
               },
               { ...offeneItems[1], outcome: "skipped" },
             ],
             bestaetigungKopf,
-            [nachweis(nachweisZugabe, fassung2, null)],
+            [nachweis(nachweisZugabe, lied2, null)],
           ),
         ),
       );
@@ -672,13 +672,13 @@ test("Vorhandener Nachweis wird vorgeschlagen, übernommen und der Rest gewarnt"
   page,
 }) => {
   const handNachweis = {
-    ...nachweis("a-hand", fassung2, null),
+    ...nachweis("a-hand", lied2, null),
     sourceNote: "Handschriftlich notiert.",
   };
   const items = [
-    offenerPunkt(punktA, 1, fassung1),
+    offenerPunkt(punktA, 1, lied1),
     {
-      ...offenerPunkt(punktB, 2, fassung2),
+      ...offenerPunkt(punktB, 2, lied2),
       suggestedPerformanceId: "a-hand",
       suggestedPerformance: handNachweis,
     },
@@ -722,20 +722,20 @@ test("Entfernen eines Nachweises mit Quellenangabe braucht einen zweiten Klick",
   page,
 }) => {
   const mitNotiz = {
-    ...nachweis(nachweisA, fassung1, punktA),
+    ...nachweis(nachweisA, lied1, punktA),
     sourceNote: "Wichtige Quelle.",
     rowVersion: 7,
   };
   const items = [
     {
-      ...offenerPunkt(punktA, 1, fassung1),
+      ...offenerPunkt(punktA, 1, lied1),
       outcome: "sung",
       performance: mitNotiz,
     },
     {
-      ...offenerPunkt(punktB, 2, fassung2),
+      ...offenerPunkt(punktB, 2, lied2),
       outcome: "sung",
-      performance: nachweis("a2", fassung2, punktB),
+      performance: nachweis("a2", lied2, punktB),
     },
   ];
   const anfragen = await werkbankOeffnen(page, () =>
@@ -770,16 +770,16 @@ test("Nach einer Neuveröffentlichung übernimmt die Werkbank den früheren Nach
   page,
 }) => {
   const frueher = {
-    ...nachweis(nachweisA, fassung1, "alter-punkt"),
+    ...nachweis(nachweisA, lied1, "alter-punkt"),
     rowVersion: 3,
   };
   const items = [
     {
-      ...offenerPunkt(punktA, 1, fassung1),
+      ...offenerPunkt(punktA, 1, lied1),
       suggestedPerformanceId: nachweisA,
       suggestedPerformance: frueher,
     },
-    offenerPunkt(punktB, 2, fassung2),
+    offenerPunkt(punktB, 2, lied2),
   ];
   const anfragen = await werkbankOeffnen(page, () =>
     json(
@@ -841,14 +841,14 @@ test("Zeitmarken an einer Aufführung warnen vor dem Auslassen und sperren ohne 
   const sperre =
     "Zeitmarken vorhanden: „Zweites Lied“ in „Video Kamera 1“. Entferne zuerst diese Zeitmarken in den Aufnahmen.";
   const markiert = {
-    ...offenerPunkt(punktB, 2, fassung2),
+    ...offenerPunkt(punktB, 2, lied2),
     outcome: "sung",
-    performance: { ...nachweis("p2", fassung2, punktB), passageCount: 2 },
+    performance: { ...nachweis("p2", lied2, punktB), passageCount: 2 },
   };
   const unmarkiert = {
-    ...offenerPunkt(punktA, 1, fassung1),
+    ...offenerPunkt(punktA, 1, lied1),
     outcome: "sung",
-    performance: { ...nachweis("p1", fassung1, punktA), passageCount: 0 },
+    performance: { ...nachweis("p1", lied1, punktA), passageCount: 0 },
   };
   const anfragen = await werkbankOeffnen(page, (anfrage) =>
     anfrage.method === "PUT"
@@ -881,17 +881,17 @@ test("Eine einzelne Zeitmarke steht im Singular, und auch eine entfernte Zugabe 
   page,
 }) => {
   const markiert = {
-    ...offenerPunkt(punktA, 1, fassung1),
+    ...offenerPunkt(punktA, 1, lied1),
     outcome: "sung",
-    performance: { ...nachweis("p1", fassung1, punktA), passageCount: 1 },
+    performance: { ...nachweis("p1", lied1, punktA), passageCount: 1 },
   };
   const unmarkiert = {
-    ...offenerPunkt(punktB, 2, fassung2),
+    ...offenerPunkt(punktB, 2, lied2),
     outcome: "sung",
-    performance: { ...nachweis("p2", fassung2, punktB), passageCount: 0 },
+    performance: { ...nachweis("p2", lied2, punktB), passageCount: 0 },
   };
   const zugabe = {
-    ...nachweis("z1", fassung2, null),
+    ...nachweis("z1", lied2, null),
     passageCount: 2,
   };
   await werkbankOeffnen(page, () =>

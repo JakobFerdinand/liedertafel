@@ -53,7 +53,7 @@ function problem(title: string, status: number) {
 type Stelle = {
   id: string;
   performanceId: string;
-  songTitle: string;
+  liedTitle: string;
   position: number;
   start: number;
   ende: number;
@@ -73,10 +73,8 @@ function eintrag(stelle: Stelle, redaktion: boolean) {
     id: stelle.id,
     recordingId: videoId,
     performanceId: stelle.performanceId,
-    songId: `song-${stelle.performanceId}`,
-    songTitle: stelle.songTitle,
-    arrangement: null,
-    musicalVersion: null,
+    liedId: `lied-${stelle.performanceId}`,
+    liedTitle: stelle.liedTitle,
     evidenceStatus: "confirmed",
     position: stelle.position,
     startSeconds: verborgen ? null : stelle.start,
@@ -109,10 +107,8 @@ function stellenStand(stellen: Stelle[], redaktion: boolean, opts = {}) {
     occurrences: Object.entries(lieder).map(([performanceId, lied]) => ({
       performanceId,
       position: lied.position,
-      songId: `song-${performanceId}`,
-      songTitle: lied.titel,
-      arrangement: null,
-      musicalVersion: null,
+      liedId: `lied-${performanceId}`,
+      liedTitle: lied.titel,
       evidenceStatus: "confirmed",
       passageId:
         stellen.find((s) => s.performanceId === performanceId)?.id ?? null,
@@ -270,7 +266,7 @@ async function mockSeite(
 const stelleA: Stelle = {
   id: passageA,
   performanceId: performanceA,
-  songTitle: "Lied A",
+  liedTitle: "Lied A",
   position: 1,
   start: 1,
   ende: 3,
@@ -281,7 +277,7 @@ const stelleA: Stelle = {
 const stelleB: Stelle = {
   id: passageB,
   performanceId: performanceB,
-  songTitle: "Lied B",
+  liedTitle: "Lied B",
   position: 2,
   start: 4,
   ende: 5.5,
@@ -516,7 +512,7 @@ test("Redaktion geht die Lieder der Reihe nach durch und setzt Anfang und Ende m
     const neu: Stelle = {
       id: passageA,
       performanceId: body.performanceId,
-      songTitle: lieder[body.performanceId].titel,
+      liedTitle: lieder[body.performanceId].titel,
       position: lieder[body.performanceId].position,
       start: body.startSeconds,
       ende: body.endSeconds,

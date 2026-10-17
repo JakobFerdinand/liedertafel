@@ -24,7 +24,6 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { LiedWahl } from "@/components/lied-wahl";
-import { problemTitel } from "@/lib/assets";
 import {
   type AuftrittDetailsMitProgramm,
   liedUrl,
@@ -34,6 +33,7 @@ import {
   publishProgramm,
   putProgrammItems,
 } from "@/lib/events";
+import { problemTitel } from "@/lib/uebertragung";
 
 const notizMaximal = 500;
 
@@ -50,8 +50,7 @@ const ungespeicherteAenderungen =
 type WerkZeile = {
   schluessel: string;
   serverId: string | null;
-  // Null nur bei historischen Einträgen aus dem alten Katalog.
-  liedId: string | null;
+  liedId: string;
   liedTitel: string | null;
   notiz: string;
 };
@@ -106,7 +105,7 @@ function zeilenAusRevisionen(
 function synchronstandAusZeilen(zeilen: WerkZeile[]): SynchronZeile[] {
   return zeilen.map((zeile) => ({
     serverId: zeile.serverId,
-    liedId: zeile.liedId ?? "",
+    liedId: zeile.liedId,
     notiz: zeile.notiz,
   }));
 }
@@ -124,7 +123,7 @@ function ungespeichert(
     const bekannt = bekannterStand[index];
     return (
       (zeile.serverId !== null) !== (bekannt.serverId !== null) ||
-      (zeile.liedId ?? "") !== bekannt.liedId ||
+      zeile.liedId !== bekannt.liedId ||
       zeile.notiz.trim() !== bekannt.notiz.trim()
     );
   });
@@ -146,18 +145,15 @@ function VeröffentlichtListe({
             : null,
           punkt.musicalKey ? `Tonart: ${punkt.musicalKey}` : null,
         ].filter((teil): teil is string => teil !== null);
-        const ziel = liedUrl(punkt.liedId);
         return (
           <li className="programm-eintrag" key={punkt.id}>
             <h4 className="programm-titel">
               <span className="programm-nummer" aria-hidden="true">
                 {punkt.position}.
               </span>{" "}
-              {ziel ? (
-                <Link href={ziel}>{punkt.liedTitle ?? "Ohne Titel"}</Link>
-              ) : (
-                (punkt.liedTitle ?? "Ohne Titel")
-              )}
+              <Link href={liedUrl(punkt.liedId)}>
+                {punkt.liedTitle ?? "Ohne Titel"}
+              </Link>
             </h4>
             {zeile.length > 0 && (
               <p className="noten-info">{zeile.join(" · ")}</p>
@@ -192,7 +188,7 @@ function ProgrammZeile({
   onEntfernen: () => void;
 }) {
   const idPraefix = `programm-zeile-${zeile.schluessel}`;
-  const titel = zeile.liedTitel ?? "Lied aus dem alten Katalog";
+  const titel = zeile.liedTitel ?? "Ohne Titel";
   return (
     <li className="programm-zeile">
       <div className="programm-zeile-kopf">
@@ -200,11 +196,6 @@ function ProgrammZeile({
           {stelle}.
         </span>
         <span className="programm-zeile-titel">{titel}</span>
-        {zeile.liedId === null && (
-          <span className="material-datei-status" aria-live="polite">
-            Bitte durch ein Lied ersetzen.
-          </span>
-        )}
       </div>
       <div className="programm-zeile-werkzeuge">
         <button
@@ -359,12 +350,6 @@ export function AuftrittProgramm({
   }
 
   async function speichern() {
-    if (zeilen.some((zeile) => !zeile.liedId)) {
-      setHinweis(
-        "Jeder Eintrag braucht ein Lied, bevor der Entwurf gespeichert werden kann.",
-      );
-      return;
-    }
     setSpeichernBusy(true);
     setHinweis("");
     try {
@@ -375,7 +360,7 @@ export function AuftrittProgramm({
       const einbettung = await putProgrammItems(auftritt.id, {
         items: zeilen.map((zeile) => ({
           ...(zeile.serverId ? { id: zeile.serverId } : {}),
-          liedId: zeile.liedId ?? "",
+          liedId: zeile.liedId,
           note: zeile.notiz.trim(),
         })),
         ...(letzteGeladeneVersion !== null

@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { groesseText } from "@/lib/assets";
 import { fetchMe, type MeResponse } from "@/lib/auth";
 import { fetchPapierkorb, type PapierkorbEintrag } from "@/lib/dateien";
+import { groesseText } from "@/lib/uebertragung";
 
 const artText: Record<string, string> = {
   noten: "Noten",

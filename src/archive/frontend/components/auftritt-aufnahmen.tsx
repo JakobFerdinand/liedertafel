@@ -18,17 +18,6 @@ import {
   type SpielerAbschnitt,
 } from "@/components/medien-spieler";
 import {
-  AbbruchFehler,
-  cancelUploadSession,
-  entferneUploadSitzung,
-  liesUploadSitzung,
-  MaterialFehler,
-  type MaterialSchritt,
-  problemTitel,
-  restlaufzeitMs,
-  zeitText,
-} from "@/lib/assets";
-import {
   type Aufnahme,
   type AufnahmeArt,
   type AufnahmeDatei,
@@ -52,6 +41,17 @@ import {
   setzeAuftrittUebertragungFort,
 } from "@/lib/dateien";
 import type { LiedDatei } from "@/lib/lieder";
+import {
+  AbbruchFehler,
+  cancelUploadSession,
+  entferneUploadSitzung,
+  liesUploadSitzung,
+  MaterialFehler,
+  type MaterialSchritt,
+  problemTitel,
+  restlaufzeitMs,
+  zeitText,
+} from "@/lib/uebertragung";
 import {
   bereichText,
   fetchZeitmarken,
@@ -471,7 +471,7 @@ export function AuftrittAufnahmen({
         [aufnahme.id]: {
           von,
           bis,
-          titel: marke.songTitle,
+          titel: marke.liedTitle,
           marke: (vorher[aufnahme.id]?.marke ?? 0) + 1,
         },
       }));
@@ -483,7 +483,7 @@ export function AuftrittAufnahmen({
         },
       }));
       setMeldung(
-        `Zu „${marke.songTitle}“ gesprungen (${bereichText(von, bis)}). Zum Hören den Spieler starten.`,
+        `Zu „${marke.liedTitle}“ gesprungen (${bereichText(von, bis)}). Zum Hören den Spieler starten.`,
       );
     },
     [oeffnen, dateiPruefen],

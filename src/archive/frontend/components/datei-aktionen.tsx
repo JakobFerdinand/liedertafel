@@ -1,9 +1,13 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { AbbruchFehler, MaterialFehler, problemTitel } from "@/lib/assets";
 import { ersetzeDatei, loescheDatei } from "@/lib/dateien";
 import { dateiTitel, type LiedDatei } from "@/lib/lieder";
+import {
+  AbbruchFehler,
+  MaterialFehler,
+  problemTitel,
+} from "@/lib/uebertragung";
 
 /**
  * Ersetzen und Löschen einer Datei (#168), nur für die Redaktion. Die ersetzte

@@ -1,4 +1,4 @@
-import { liesUploadSitzung } from "@/lib/assets";
+import { liesUploadSitzung } from "@/lib/uebertragung";
 
 const stimmKuerzel: Record<string, string> = {
   s: "Sopran",

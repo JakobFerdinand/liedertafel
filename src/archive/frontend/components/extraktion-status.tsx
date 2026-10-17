@@ -1,16 +1,16 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useExtraktionStand } from "@/components/extraktion-uebersicht";
-import { problemTitel } from "@/lib/assets";
 import {
   extraktionsStatusText,
   type LeseStatus,
   leseRest,
   leseStatusText,
+  notenAngabenTeile,
   starteExtraktionErneut,
   starteLesenErneut,
 } from "@/lib/extraktion";
-import { notenAngabenTeile } from "@/lib/songs";
+import { problemTitel } from "@/lib/uebertragung";
 
 const vorschauLaenge = 4000;
 const ladeFehlerText = "Auswertungsstatus konnte nicht geladen werden.";

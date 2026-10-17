@@ -1,8 +1,6 @@
 import { patchAuth, postAuth } from "@/lib/auth";
 
-// Das flache Lied (#166, ADR-0001): ein Lied mit seinen Dateien. Die alten
-// Typen und Abrufe (Song, Fassung, Material) bleiben in lib/songs.ts, solange
-// die Auftrittsansichten sie noch brauchen (bis #172).
+// Das flache Lied (ADR-0001): ein Lied mit seinen Dateien.
 
 export type DateiArt = "noten" | "uebe" | "aufnahme" | "sonstiges";
 

@@ -32,12 +32,7 @@ async function mockArchiv(page: Page) {
     title: "Das Wandern ist des Müllers Lust",
     composer: "Carl Friedrich Zöllner",
     lyricist: "Wilhelm Müller",
-    published: true,
-    publishedAt: "2026-09-01T10:00:00.000Z",
   };
-  await page.route("**/api/songs", (route) =>
-    route.fulfill(json({ songs: [lied] })),
-  );
   await page.route("**/api/lieder", (route) =>
     route.fulfill(
       json({
@@ -66,18 +61,6 @@ async function mockArchiv(page: Page) {
           updatedAt: "2026-09-01T10:00:00.000Z",
           rowVersion: 1,
           dateien: [],
-        },
-      }),
-    ),
-  );
-  await page.route(`**/api/songs/${wandernId}`, (route) =>
-    route.fulfill(
-      json({
-        song: {
-          ...lied,
-          createdAt: "2026-08-20T08:00:00.000Z",
-          updatedAt: "2026-09-01T10:00:00.000Z",
-          arrangements: [],
         },
       }),
     ),

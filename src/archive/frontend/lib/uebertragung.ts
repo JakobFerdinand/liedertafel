@@ -1,18 +1,8 @@
-import { deleteAuth, patchAuth, postAuth } from "@/lib/auth";
-import type { LiedAsset, LiedRevision } from "@/lib/songs";
+import { deleteAuth, postAuth } from "@/lib/auth";
 
-export type AssetType = "score" | "audio" | "midi";
-
-export type AssetResponse = LiedAsset & {
-  musicalVersionId: string;
-  createdAt: string;
-};
-
-export type AssetMetadata = {
-  assetType?: AssetType;
-  voiceLabel?: string | null;
-  description?: string | null;
-};
+// Gemeinsame Übertragung (blockweises Hochladen in den Speicherdienst mit
+// Fortsetzen nach Unterbrechung) für alle Dateien von Liedern und Auftritten,
+// dazu die kleinen Hilfen der Player.
 
 export type UploadSessionResponse = {
   uploadSessionId: string;
@@ -21,22 +11,6 @@ export type UploadSessionResponse = {
   expiresAt: string;
   maxBytes: number;
   blockBytes: number;
-};
-
-export type RevisionResponse = LiedRevision & {
-  assetId: string;
-};
-
-export type AssetAccessResponse = {
-  assetId: string;
-  revisionId: string;
-  revisionNumber: number;
-  contentType: string;
-  sizeBytes: number;
-  createdAt: string;
-  viewUrl: string;
-  downloadUrl: string;
-  expiresAt: string;
 };
 
 export type MaterialSchritt = "uebertragen" | "geprueft";
@@ -67,15 +41,17 @@ export type GespeicherteUploadSitzung = {
 
 const uploadSpeicherPraefix = "arc-upload-";
 
-function uploadSpeicherSchluessel(assetId: string): string {
-  return `${uploadSpeicherPraefix}${assetId}`;
+function uploadSpeicherSchluessel(schluessel: string): string {
+  return `${uploadSpeicherPraefix}${schluessel}`;
 }
 
 export function liesUploadSitzung(
-  assetId: string,
+  schluessel: string,
 ): GespeicherteUploadSitzung | null {
   try {
-    const roh = window.localStorage.getItem(uploadSpeicherSchluessel(assetId));
+    const roh = window.localStorage.getItem(
+      uploadSpeicherSchluessel(schluessel),
+    );
     if (!roh) return null;
     const eintrag = JSON.parse(roh) as GespeicherteUploadSitzung;
     if (
@@ -94,13 +70,13 @@ export function liesUploadSitzung(
 }
 
 function speichereUploadSitzung(
-  assetId: string,
+  schluessel: string,
   sitzung: UploadSessionResponse,
   datei: File,
 ) {
   try {
     window.localStorage.setItem(
-      uploadSpeicherSchluessel(assetId),
+      uploadSpeicherSchluessel(schluessel),
       JSON.stringify({
         uploadSessionId: sitzung.uploadSessionId,
         fileName: datei.name,
@@ -114,48 +90,12 @@ function speichereUploadSitzung(
   }
 }
 
-export function entferneUploadSitzung(assetId: string) {
+export function entferneUploadSitzung(schluessel: string) {
   try {
-    window.localStorage.removeItem(uploadSpeicherSchluessel(assetId));
+    window.localStorage.removeItem(uploadSpeicherSchluessel(schluessel));
   } catch {
     // Ohne lokalen Speicher entfällt nur das Fortsetzen nach dem Neuladen.
   }
-}
-
-const erlaubteInhaltstypen: Record<AssetType, string[]> = {
-  score: ["application/pdf"],
-  audio: ["audio/mpeg", "audio/mp4", "audio/x-m4a", "audio/wav", "audio/ogg"],
-  midi: ["audio/midi", "audio/x-midi"],
-};
-
-const inhaltstypNachEndung: Record<string, string> = {
-  pdf: "application/pdf",
-  mp3: "audio/mpeg",
-  m4a: "audio/mp4",
-  mp4: "audio/mp4",
-  wav: "audio/wav",
-  ogg: "audio/ogg",
-  mid: "audio/midi",
-  midi: "audio/midi",
-};
-
-const stimmKuerzel: Record<string, string> = {
-  s: "Sopran",
-  a: "Alt",
-  t: "Tenor",
-  b: "Bass",
-};
-
-const stimmNamen: Record<string, string> = {
-  sopran: "Sopran",
-  alt: "Alt",
-  tenor: "Tenor",
-  bass: "Bass",
-  schlagwerk: "Schlagwerk",
-};
-
-function endung(datei: File): string {
-  return datei.name.toLowerCase().split(".").pop() ?? "";
 }
 
 export async function problemTitel(
@@ -173,130 +113,10 @@ export async function problemTitel(
   return ersatz;
 }
 
-export function assetTypFuerDatei(datei: File): AssetType {
-  const inhaltstyp = datei.type.toLowerCase();
-  if (inhaltstyp === "application/pdf") return "score";
-  if (inhaltstyp.startsWith("audio/")) {
-    return inhaltstyp.includes("midi") ? "midi" : "audio";
-  }
-  switch (endung(datei)) {
-    case "pdf":
-      return "score";
-    case "mid":
-    case "midi":
-      return "midi";
-    case "mp3":
-    case "m4a":
-    case "mp4":
-    case "wav":
-    case "ogg":
-      return "audio";
-    default:
-      return "score";
-  }
-}
-
-export function contentTypeFuerAssetTyp(typ: AssetType, datei: File): string {
-  const erlaubt = erlaubteInhaltstypen[typ];
-  const inhaltstyp = datei.type.toLowerCase();
-  if (erlaubt.includes(inhaltstyp)) return inhaltstyp;
-  const nachEndung = inhaltstypNachEndung[endung(datei)];
-  if (nachEndung && erlaubt.includes(nachEndung)) return nachEndung;
-  return erlaubt[0];
-}
-
-export function stimmeAusDateiname(
-  dateiName: string,
-  vorschlaege: string[],
-): string {
-  const teile = dateiName
-    .toLowerCase()
-    .split(/[^a-zäöüß]+/)
-    .filter(Boolean);
-  for (const vorschlag of vorschlaege) {
-    if (teile.includes(vorschlag.toLowerCase())) return vorschlag;
-  }
-  return "";
-}
-
-export function stimmenVorschlaege(konfiguration: string | null): string[] {
-  const vorschlaege = ["Vollmix"];
-  function hinzufuegen(vorschlag: string) {
-    if (
-      !vorschlag ||
-      vorschlaege.some(
-        (vorhanden) => vorhanden.toLowerCase() === vorschlag.toLowerCase(),
-      )
-    ) {
-      return;
-    }
-    vorschlaege.push(vorschlag);
-  }
-  if (konfiguration) {
-    for (const rohteil of konfiguration.split(/[\s,/+]+/)) {
-      const teil = rohteil.trim();
-      if (!teil) continue;
-      const schluessel = teil.toLowerCase();
-      const name = stimmNamen[schluessel];
-      if (name) {
-        hinzufuegen(name);
-        continue;
-      }
-      if (/^[satb]{2,6}$/i.test(schluessel)) {
-        for (const kuerzel of schluessel) {
-          hinzufuegen(stimmKuerzel[kuerzel]);
-        }
-        continue;
-      }
-      if (stimmKuerzel[schluessel]) {
-        hinzufuegen(stimmKuerzel[schluessel]);
-        continue;
-      }
-      hinzufuegen(teil);
-    }
-  }
-  return vorschlaege;
-}
-
-export async function createAsset(
-  versionId: string,
-  body: AssetMetadata = {},
-): Promise<AssetResponse> {
-  const response = await postAuth(
-    `/api/musical-versions/${encodeURIComponent(versionId)}/assets`,
-    body,
-  );
-  if (!response.ok) throw response;
-  return (await response.json()) as AssetResponse;
-}
-
-export async function patchAsset(
-  assetId: string,
-  body: AssetMetadata,
-): Promise<AssetResponse> {
-  const response = await patchAuth(
-    `/api/assets/${encodeURIComponent(assetId)}`,
-    body,
-  );
-  if (!response.ok) throw response;
-  return (await response.json()) as AssetResponse;
-}
 export type DateiIdentitaet = {
   sizeBytes: number;
   fileName: string;
 };
-
-export async function createUploadSession(
-  assetId: string,
-  identitaet?: DateiIdentitaet,
-): Promise<UploadSessionResponse> {
-  const response = await postAuth(
-    `/api/assets/${encodeURIComponent(assetId)}/upload-session`,
-    identitaet ?? {},
-  );
-  if (!response.ok) throw response;
-  return (await response.json()) as UploadSessionResponse;
-}
 
 export async function renewUploadSession(
   uploadSessionId: string,
@@ -315,7 +135,7 @@ export async function cancelUploadSession(uploadSessionId: string) {
   );
 }
 
-export async function finalizeUpload<T = RevisionResponse>(
+export async function finalizeUpload<T>(
   uploadSessionId: string,
   identitaet?: DateiIdentitaet,
 ): Promise<T> {
@@ -325,90 +145,6 @@ export async function finalizeUpload<T = RevisionResponse>(
   );
   if (!response.ok) throw response;
   return (await response.json()) as T;
-}
-
-export async function fetchAssetAccess(
-  assetId: string,
-  signal?: AbortSignal,
-): Promise<AssetAccessResponse> {
-  const response = await fetch(
-    `/api/assets/${encodeURIComponent(assetId)}/access`,
-    {
-      credentials: "same-origin",
-      cache: "no-store",
-      signal,
-    },
-  );
-  if (!response.ok) throw response;
-  return (await response.json()) as AssetAccessResponse;
-}
-
-/** Ein aufbewahrter Dateistand im Redaktionsverlauf (ARC-033). */
-export type DateiStand = LiedRevision & {
-  fileName: string | null;
-  createdBy: string | null;
-  isCurrent: boolean;
-};
-
-/** Ein Eintrag im Verlauf: welcher Dateistand wann aktuell wurde. */
-export type DateiStandWechsel = {
-  kind: "upload" | "restore";
-  revisionId: string;
-  revisionNumber: number | null;
-  previousRevisionNumber: number | null;
-  changedAt: string;
-  changedBy: string | null;
-};
-
-export type DateiVerlauf = {
-  assetId: string;
-  assetType: string;
-  currentRevisionId: string | null;
-  revisions: DateiStand[];
-  changes: DateiStandWechsel[];
-};
-
-/** Nur für die Redaktion: alle aufbewahrten Dateistände eines Materials. */
-export async function fetchDateiVerlauf(
-  assetId: string,
-  signal?: AbortSignal,
-): Promise<DateiVerlauf> {
-  const response = await fetch(
-    `/api/assets/${encodeURIComponent(assetId)}/revisions`,
-    { credentials: "same-origin", cache: "no-store", signal },
-  );
-  if (!response.ok) throw response;
-  return (await response.json()) as DateiVerlauf;
-}
-
-/** Nur für die Redaktion: Datei-Tickets für genau einen Dateistand. */
-export async function fetchDateiStandAccess(
-  assetId: string,
-  revisionId: string,
-): Promise<AssetAccessResponse> {
-  const response = await fetch(
-    `/api/assets/${encodeURIComponent(assetId)}/revisions/${encodeURIComponent(revisionId)}/access`,
-    { credentials: "same-origin", cache: "no-store" },
-  );
-  if (!response.ok) throw response;
-  return (await response.json()) as AssetAccessResponse;
-}
-
-/**
- * Legt einen aufbewahrten Dateistand wieder als aktuell fest. Der erwartete
- * aktuelle Stand schützt davor, auf einem veralteten Verlauf zu handeln.
- */
-export async function setzeAktuellenDateiStand(
-  assetId: string,
-  revisionId: string,
-  expectedCurrentRevisionId: string | null,
-): Promise<DateiVerlauf> {
-  const response = await postAuth(
-    `/api/assets/${encodeURIComponent(assetId)}/current-revision`,
-    { revisionId, expectedCurrentRevisionId },
-  );
-  if (!response.ok) throw response;
-  return (await response.json()) as DateiVerlauf;
 }
 
 /**
@@ -599,13 +335,12 @@ async function verbindeBloecke(
 }
 
 /**
- * Überträgt eine Datei blockweise und schließt die Sitzung ab. `assetId` ist
- * der Speicherschlüssel der Sitzung (arc-upload-<Schlüssel>); für Dateien
- * eines Liedes (#166) legt `optionen.neueSitzung` die Sitzung an und der
- * Rückgabetyp ist die Antwort des Abschlusses.
+ * Überträgt eine Datei blockweise und schließt die Sitzung ab. `schluessel` ist
+ * der Speicherschlüssel der Sitzung (arc-upload-<Schlüssel>); `optionen.neueSitzung`
+ * legt die Sitzung an und der Rückgabetyp ist die Antwort des Abschlusses.
  */
-export async function uebertrageDatei<T = RevisionResponse>(
-  assetId: string,
+export async function uebertrageDatei<T>(
+  schluessel: string,
   datei: File,
   contentType: string,
   onSchritt?: (schritt: MaterialSchritt) => void,
@@ -623,19 +358,21 @@ export async function uebertrageDatei<T = RevisionResponse>(
     sizeBytes: datei.size,
     fileName: datei.name,
   };
-  const sitzung =
-    optionen.sitzung ??
-    (await (optionen.neueSitzung ?? ((i) => createUploadSession(assetId, i)))(
-      identitaet,
-    ));
-  if (optionen.sitzung === undefined) {
-    speichereUploadSitzung(assetId, sitzung, datei);
+  let sitzung = optionen.sitzung;
+  if (sitzung === undefined) {
+    if (optionen.neueSitzung === undefined) {
+      throw new MaterialFehler(
+        "Es gibt keine Übertragung, die begonnen werden kann.",
+      );
+    }
+    sitzung = await optionen.neueSitzung(identitaet);
+    speichereUploadSitzung(schluessel, sitzung, datei);
   }
   if (datei.size > sitzung.maxBytes) {
     throw new MaterialFehler("Die Datei ist zu groß.");
   }
   if (optionen.signal?.aborted) {
-    werfeAbbruch(assetId, sitzung);
+    werfeAbbruch(schluessel, sitzung);
   }
   onSchritt?.("uebertragen");
   const blockBytes = Math.max(1, sitzung.blockBytes);
@@ -665,24 +402,24 @@ export async function uebertrageDatei<T = RevisionResponse>(
     await verbindeBloecke(sitzung.uploadUrl, verbundene, optionen.signal);
   } catch (ursache) {
     if (optionen.signal?.aborted || istAbbruch(ursache)) {
-      werfeAbbruch(assetId, sitzung);
+      werfeAbbruch(schluessel, sitzung);
     }
     throw ursache;
   }
   if (optionen.signal?.aborted) {
-    werfeAbbruch(assetId, sitzung);
+    werfeAbbruch(schluessel, sitzung);
   }
   onSchritt?.("geprueft");
   try {
-    const revision = await schliesseUploadAb<T>(
+    const antwort = await schliesseUploadAb<T>(
       sitzung.uploadSessionId,
       identitaet,
     );
-    entferneUploadSitzung(assetId);
-    return revision;
+    entferneUploadSitzung(schluessel);
+    return antwort;
   } catch (ursache) {
     if (optionen.signal?.aborted) {
-      werfeAbbruch(assetId, sitzung);
+      werfeAbbruch(schluessel, sitzung);
     }
     throw new MaterialFehler(
       await abschlussFehler(ursache),
@@ -691,7 +428,7 @@ export async function uebertrageDatei<T = RevisionResponse>(
   }
 }
 
-/** Vertrag AssetEndpoints.ConcurrencyMessage: gleichzeitige Änderung verloren. */
+/** Vertrag UploadEndpoints.ConcurrencyMessage: gleichzeitige Änderung verloren. */
 const gleichzeitigGeaendert = "Der Eintrag wurde zwischenzeitlich geändert.";
 
 /**
@@ -715,14 +452,17 @@ async function schliesseUploadAb<T>(
   }
 }
 
-function werfeAbbruch(assetId: string, sitzung: UploadSessionResponse): never {
-  entferneUploadSitzung(assetId);
+function werfeAbbruch(
+  schluessel: string,
+  sitzung: UploadSessionResponse,
+): never {
+  entferneUploadSitzung(schluessel);
   void cancelUploadSession(sitzung.uploadSessionId).catch(() => {});
   throw new AbbruchFehler();
 }
 
-export async function setzeUploadFort<T = RevisionResponse>(
-  assetId: string,
+export async function setzeUploadFort<T>(
+  schluessel: string,
   datei: File,
   contentType: string,
   onSchritt?: (schritt: MaterialSchritt) => void,
@@ -731,7 +471,7 @@ export async function setzeUploadFort<T = RevisionResponse>(
     signal?: AbortSignal;
   } = {},
 ): Promise<T> {
-  const eintrag = liesUploadSitzung(assetId);
+  const eintrag = liesUploadSitzung(schluessel);
   if (!eintrag) {
     throw new MaterialFehler(
       "Keine unterbrochene Übertragung vorhanden. Bitte erneut hochladen.",
@@ -750,7 +490,7 @@ export async function setzeUploadFort<T = RevisionResponse>(
     );
   }
   if (optionen.signal?.aborted) {
-    werfeAbbruch(assetId, sitzung);
+    werfeAbbruch(schluessel, sitzung);
   }
   const blockBytes = Math.max(1, sitzung.blockBytes);
   const gesamt = Math.ceil(datei.size / blockBytes);
@@ -763,7 +503,7 @@ export async function setzeUploadFort<T = RevisionResponse>(
   while (abIndex < gesamt && committiert.has(blockIdFolge(abIndex))) {
     abIndex += 1;
   }
-  return await uebertrageDatei<T>(assetId, datei, contentType, onSchritt, {
+  return await uebertrageDatei<T>(schluessel, datei, contentType, onSchritt, {
     ...optionen,
     sitzung,
     committiertAb: abIndex,

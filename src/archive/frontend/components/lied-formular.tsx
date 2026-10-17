@@ -1,13 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { problemTitel } from "@/lib/assets";
 import {
   aendereLied,
   type LiedEingabe,
   type LiedMitDateien,
   legeLiedAn,
 } from "@/lib/lieder";
+import { problemTitel } from "@/lib/uebertragung";
 
 const LEER: LiedEingabe = {
   title: "",
