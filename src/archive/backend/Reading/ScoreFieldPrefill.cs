@@ -1,8 +1,8 @@
 using System.Text.RegularExpressions;
-using Archive.Backend.Assets;
 using Archive.Backend.Catalogue;
 using Archive.Backend.Data;
 using Archive.Backend.Extraction;
+using Archive.Backend.Lieder;
 using Microsoft.EntityFrameworkCore;
 
 namespace Archive.Backend.Reading;
@@ -17,16 +17,17 @@ public sealed class PrefillProgress
 }
 
 /// <summary>
-/// Step two of scan reading (ARC-034-1): fills the still-empty catalogue
-/// fields of a score from its text. Deterministic first: the
+/// Step two of scan reading (ARC-034-1): fills the still-empty fields
+/// of a Lied (Komponist, Textdichter, Bearbeiter, Tonart, Liedtext) from the text of one of
+/// its Noten. Deterministic first: the
 /// <see cref="ScoreTextAnalyzer"/> facts are written with source regex; only
 /// when fields are still empty does the field agent run. Everything the
 /// agent says is data that code verifies — a field is written only when it
 /// is certain ("sicher") and its quote really stands in the text; everything
 /// else is dropped. Writes go through the shared
 /// <see cref="AutomatedFieldWriter"/> only, for fields that are still empty,
-/// and only while the revision is the asset's current file. A value an
-/// editor entered is never overwritten, and a new song identity is never
+/// and only while the Datei is not in the trash. A value an
+/// editor entered is never overwritten, and a new Lied is never
 /// created here.
 /// </summary>
 public sealed class ScoreFieldPrefill(
@@ -44,30 +45,26 @@ public sealed class ScoreFieldPrefill(
 	private const int MinLyricsQuoteLength = 10;
 
 	private static readonly string[] FieldOrder =
-		["composer", "lyricist", "arranger", "musical_key", "voice_label", "lyrics"];
+		["composer", "lyricist", "arranger", "musical_key", "lyrics"];
 
 	public async Task RunAsync(
-		ArchiveAsset asset, FileRevision revision, string text, Guid? accountId, PrefillProgress progress, CancellationToken token)
+		Datei datei, string text, Guid? accountId, PrefillProgress progress, CancellationToken token)
 	{
-		// Only the file the catalogue shows may fill the catalogue: an older
-		// revision keeps its text but never writes fields.
-		if (asset.CurrentRevisionId != revision.Id || asset.MusicalVersionId is not { } versionId
-			|| string.IsNullOrWhiteSpace(text))
+		// Only a Noten Datei that is still in the archive fills its Lied: a
+		// Datei in the trash keeps its text but never writes fields.
+		if (datei.LiedId is not { } liedId || datei.DeletedAt is not null || string.IsNullOrWhiteSpace(text))
 			return;
-		var version = await db.MusicalVersions
-			.Include(v => v.Arrangement).ThenInclude(a => a.Song)
-			.FirstOrDefaultAsync(v => v.Id == versionId, token);
-		if (version is null)
+		var lied = await db.Lieder.FirstOrDefaultAsync(l => l.Id == liedId, token);
+		if (lied is null)
 			return;
 
 		var targets = new Dictionary<string, Target>(StringComparer.Ordinal)
 		{
-			["composer"] = new(FieldCatalog.EntityTypeSong, version.Arrangement.SongId, version.Arrangement.Song.Composer),
-			["lyricist"] = new(FieldCatalog.EntityTypeSong, version.Arrangement.SongId, version.Arrangement.Song.Lyricist),
-			["lyrics"] = new(FieldCatalog.EntityTypeSong, version.Arrangement.SongId, version.Arrangement.Song.Lyrics),
-			["arranger"] = new(FieldCatalog.EntityTypeArrangement, version.ArrangementId, version.Arrangement.Arranger),
-			["musical_key"] = new(FieldCatalog.EntityTypeMusicalVersion, version.Id, version.MusicalKey),
-			["voice_label"] = new(FieldCatalog.EntityTypeAsset, asset.Id, asset.VoiceLabel),
+			["composer"] = new(FieldCatalog.EntityTypeLied, lied.Id, lied.Composer),
+			["lyricist"] = new(FieldCatalog.EntityTypeLied, lied.Id, lied.Lyricist),
+			["lyrics"] = new(FieldCatalog.EntityTypeLied, lied.Id, lied.Lyrics),
+			["arranger"] = new(FieldCatalog.EntityTypeLied, lied.Id, lied.Arranger),
+			["musical_key"] = new(FieldCatalog.EntityTypeLied, lied.Id, lied.MusicalKey),
 		};
 		var open = targets
 			.Where(pair => string.IsNullOrWhiteSpace(pair.Value.Current))
@@ -135,7 +132,7 @@ public sealed class ScoreFieldPrefill(
 		foreach (var entry in db.ChangeTracker.Entries().ToList())
 		{
 			if (entry.State == EntityState.Modified
-				&& entry.Entity is Song or Arrangement or MusicalVersion or ArchiveAsset)
+				&& entry.Entity is Lied)
 				entry.State = EntityState.Detached;
 		}
 	}
@@ -150,8 +147,6 @@ public sealed class ScoreFieldPrefill(
 			yield return ("arranger", arranger);
 		if (facts.MusicalKey is { } key)
 			yield return ("musical_key", key);
-		if (facts.Voice is { } voice)
-			yield return ("voice_label", voice);
 	}
 
 	/// <summary>Trims the value and bounds it; null when it is empty or too long to be a plausible reading.</summary>
@@ -187,9 +182,6 @@ public sealed class ScoreFieldPrefill(
 				return value.Replace("\r\n", "\n").Split('\n').Select(Normalize)
 					.Where(line => line.Length > 0)
 					.All(line => normalizedText.Contains(line, StringComparison.Ordinal));
-			case "voice_label":
-				var head = Regex.Match(value, @"^\p{L}+").Value.ToLowerInvariant();
-				return head.Length > 0 && quote.Contains(head, StringComparison.Ordinal);
 			case "musical_key":
 				var key = Compact(value);
 				return key.Length > 0 && Compact(quote).Contains(key, StringComparison.Ordinal);

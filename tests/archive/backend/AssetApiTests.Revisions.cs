@@ -183,7 +183,6 @@ public sealed partial class AssetApiTests
 		using (var publish = await PostJsonAsync(client, $"/api/songs/{songId}/publish", new { }, editorSession))
 			Assert.Equal(HttpStatusCode.OK, publish.StatusCode);
 		var firstBlob = await RevisionBlobAsync(factory, RevisionId(first));
-		Assert.Equal([RevisionId(first), RevisionId(second)], queue.Attempts);
 
 		using var restore = await PostJsonAsync(client, $"/api/assets/{assetId}/current-revision",
 			new { revisionId = RevisionId(first), expectedCurrentRevisionId = RevisionId(second) }, editorSession);
@@ -212,12 +211,9 @@ public sealed partial class AssetApiTests
 		Assert.Equal(1, detail.GetProperty("arrangements")[0].GetProperty("musicalVersions")[0]
 			.GetProperty("assets")[0].GetProperty("currentRevision").GetProperty("revisionNumber").GetInt32());
 
-		// Extraction is keyed by revision: the restored revision reuses its row.
-		Assert.Equal(2, queue.Attempts.Count);
 		using (var scope = factory.Services.CreateScope())
 		{
 			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-			Assert.Equal(2, await db.ExtractionJobs.CountAsync());
 			Assert.Equal(2, await db.FileRevisions.CountAsync());
 		}
 
@@ -276,41 +272,6 @@ public sealed partial class AssetApiTests
 		var history = await GetJsonAsync(client, $"/api/assets/{assetId}/revisions", editorSession);
 		Assert.Equal(RevisionId(third), Guid.Parse(history.GetProperty("currentRevisionId").GetString()!));
 		Assert.Equal(3, history.GetProperty("changes").GetArrayLength());
-	}
-
-	[Fact]
-	public async Task RestoringARevisionWithoutExtractionRowQueuesItsExtraction()
-	{
-		var queue = new FakeExtractionQueue();
-		await using var factory = new AuthApiFactory(queue: queue);
-		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
-		var editorSession = await SignInAsync(factory, Editor);
-		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
-		var assetId = await CreateScoreAssetAsync(client, editorSession, versionId);
-		var (_, _, first) = await UploadAndFinalizeAsync(factory, client, editorSession, assetId);
-		await UploadAndFinalizeAsync(factory, client, editorSession, assetId);
-		// A revision finalized before extraction existed has no work row.
-		using (var scope = factory.Services.CreateScope())
-		{
-			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-			db.ExtractionJobs.Remove(await db.ExtractionJobs.SingleAsync(j => j.RevisionId == RevisionId(first)));
-			await db.SaveChangesAsync();
-		}
-		var sendsBefore = queue.Attempts.Count;
-
-		using var restore = await PostJsonAsync(client, $"/api/assets/{assetId}/current-revision",
-			new { revisionId = RevisionId(first) }, editorSession);
-
-		Assert.Equal(HttpStatusCode.OK, restore.StatusCode);
-		Assert.Equal([RevisionId(first)], queue.Attempts.Skip(sendsBefore));
-		using (var scope = factory.Services.CreateScope())
-		{
-			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-			var job = await db.ExtractionJobs.SingleAsync(j => j.RevisionId == RevisionId(first));
-			Assert.Equal(ExtractionStatus.Queued, job.Status);
-			Assert.NotNull(job.LastEnqueuedAt);
-		}
 	}
 
 	[Fact]

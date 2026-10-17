@@ -5,6 +5,7 @@ using Archive.Backend.Assets;
 using Archive.Backend.Auth;
 using Archive.Backend.Data;
 using Archive.Backend.Extraction;
+using Archive.Backend.Lieder;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
@@ -37,7 +38,7 @@ public sealed class ExtractionApiTests
 		{
 			// Count the writes, not unchanged entities still tracked during
 			// the later enqueue-stamp save.
-			if (db.ChangeTracker.Entries<FileRevision>().Any(e => e.State == EntityState.Added)
+			if (db.ChangeTracker.Entries<Datei>().Any(e => e.State == EntityState.Added)
 				&& db.ChangeTracker.Entries<ExtractionJob>().Any(e => e.State == EntityState.Added))
 				sharedSaves++;
 			return Task.CompletedTask;
@@ -47,10 +48,10 @@ public sealed class ExtractionApiTests
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
-		var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
+		var assetId = versionId;
 
 		var (_, _, revision) = await UploadAndFinalizeAsync(factory, client, editorSession, assetId);
-		var revisionId = Guid.Parse(revision.GetProperty("revisionId").GetString()!);
+		var revisionId = revision.GetProperty("datei").GetProperty("id").GetGuid();
 
 		// Exactly one queue record carrying the new revision id.
 		Assert.Equal([revisionId], queue.Attempts);
@@ -59,10 +60,10 @@ public sealed class ExtractionApiTests
 		using (var scope = factory.Services.CreateScope())
 		{
 			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-			var job = await db.ExtractionJobs.Include(j => j.Revision).SingleAsync();
-			Assert.Equal(revisionId, job.RevisionId);
-			Assert.Equal(revisionId, job.Revision.Id);
-			Assert.Equal(assetId, job.AssetId);
+			var job = await db.ExtractionJobs.Include(j => j.Datei).SingleAsync();
+			Assert.Equal(revisionId, job.DateiId);
+			Assert.Equal(revisionId, job.Datei.Id);
+			Assert.Equal(assetId, job.Datei.LiedId);
 			Assert.Equal(ExtractionStatus.Queued, job.Status);
 			Assert.Null(job.Text);
 			Assert.Null(job.FailureReason);
@@ -76,9 +77,7 @@ public sealed class ExtractionApiTests
 		Assert.Equal(HttpStatusCode.OK, status);
 		Assert.True(noStore);
 		var item = Assert.Single(body.GetProperty("results").EnumerateArray());
-		Assert.Equal(revisionId, Guid.Parse(item.GetProperty("revisionId").GetString()!));
-		Assert.Equal(assetId, Guid.Parse(item.GetProperty("assetId").GetString()!));
-		Assert.Equal(1, item.GetProperty("revisionNumber").GetInt32());
+		Assert.Equal(revisionId, Guid.Parse(item.GetProperty("dateiId").GetString()!));
 		Assert.Equal("queued", item.GetProperty("status").GetString());
 		Assert.True(item.GetProperty("text").ValueKind is JsonValueKind.Null);
 		Assert.True(item.GetProperty("failureReason").ValueKind is JsonValueKind.Null);
@@ -86,53 +85,6 @@ public sealed class ExtractionApiTests
 		Assert.True(item.GetProperty("completedAt").ValueKind is JsonValueKind.Null);
 		Assert.True(item.GetProperty("lastAttemptAt").ValueKind is JsonValueKind.Null);
 		Assert.True(item.GetProperty("lastEnqueuedAt").ValueKind is JsonValueKind.String);
-	}
-
-	[Fact]
-	public async Task FinalizeCommitFailureKeepsStagedUploadReplayable()
-	{
-		var failOnce = true;
-		var interceptor = new ExtractionSaveInterceptor((db, _) =>
-		{
-			if (failOnce && db.ChangeTracker.Entries<FileRevision>().Any(e => e.State == EntityState.Added))
-			{
-				failOnce = false;
-				throw new DbUpdateConcurrencyException("Simulated finalize conflict.");
-			}
-			return Task.CompletedTask;
-		});
-		var queue = new FakeExtractionQueue();
-		await using var factory = new AuthApiFactory(queue: queue, saveChangesInterceptor: interceptor);
-		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
-		var session = await SignInAsync(factory, Editor);
-		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, session);
-		var assetId = await CreateAssetAsync(client, session, versionId, "score");
-		var (sessionId, uploadUrl, _) = await CreateUploadSessionAsync(client, session, assetId);
-		var stagedBlob = factory.Storage.Find(uploadUrl)!.BlobName;
-		factory.Storage.Store(stagedBlob, ValidPdf(1024));
-
-		using (var failed = await FinalizeAsync(client, session, sessionId))
-			Assert.Equal(HttpStatusCode.Conflict, failed.StatusCode);
-		Assert.True(factory.Storage.Has(stagedBlob));
-		using (var scope = factory.Services.CreateScope())
-		{
-			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-			Assert.Equal(PendingUploadState.Pending, (await db.UploadSessions.SingleAsync()).State);
-			Assert.Empty(await db.FileRevisions.ToListAsync());
-			Assert.Empty(await db.ExtractionJobs.ToListAsync());
-		}
-		Assert.Empty(queue.Attempts);
-
-		using var replay = await FinalizeAsync(client, session, sessionId);
-		Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
-		Assert.False(factory.Storage.Has(stagedBlob));
-		using (var scope = factory.Services.CreateScope())
-		{
-			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-			Assert.Single(await db.ExtractionJobs.ToListAsync());
-			Assert.Equal(PendingUploadState.Finalized, (await db.UploadSessions.SingleAsync()).State);
-		}
 	}
 
 	[Fact]
@@ -155,18 +107,18 @@ public sealed class ExtractionApiTests
 		var session = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, session);
-		var assetId = await CreateAssetAsync(client, session, versionId, "score");
+		var assetId = versionId;
 		var (_, _, revision) = await UploadAndFinalizeAsync(factory, client, session, assetId);
 		Assert.False(failOnce);
 		Assert.Single(queue.Attempts);
 		using (var scope = factory.Services.CreateScope())
 		{
 			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-			Assert.Single(await db.FileRevisions.ToListAsync());
+			Assert.Single(await db.Dateien.ToListAsync());
 			Assert.Null((await db.ExtractionJobs.SingleAsync()).LastEnqueuedAt);
 		}
-		var revisionId = revision.GetProperty("revisionId").GetGuid();
-		using var retry = await PostJsonAsync(client, $"/api/revisions/{revisionId}/extraction/retry", new { }, session);
+		var revisionId = revision.GetProperty("datei").GetProperty("id").GetGuid();
+		using var retry = await PostJsonAsync(client, $"/api/dateien/{revisionId}/extraction/retry", new { }, session);
 		Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
 		Assert.Equal(2, queue.Attempts.Count);
 		using (var scope = factory.Services.CreateScope())
@@ -182,10 +134,8 @@ public sealed class ExtractionApiTests
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
-		var assetId = await CreateAssetAsync(client, editorSession, versionId, "audio");
-		var (sessionId, uploadUrl, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
-		factory.Storage.Store(factory.Storage.Find(uploadUrl)!.BlobName,
-			new byte[512], AssetEndpoints.Mp3ContentType);
+		var (sessionId, uploadUrl, _) = await CreateUploadSessionAsync(client, editorSession, versionId, "uebe", "audio/mpeg");
+		factory.Storage.Store(factory.Storage.Find(uploadUrl)!.BlobName, Mp3Bytes, "audio/mpeg");
 
 		using var finalize = await FinalizeAsync(client, editorSession, sessionId);
 		Assert.Equal(HttpStatusCode.OK, finalize.StatusCode);
@@ -193,7 +143,7 @@ public sealed class ExtractionApiTests
 		using (var scope = factory.Services.CreateScope())
 		{
 			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-			Assert.Equal(1, await db.FileRevisions.CountAsync());
+			Assert.Equal(1, await db.Dateien.CountAsync());
 			Assert.Equal(0, await db.ExtractionJobs.CountAsync());
 		}
 		Assert.Empty(queue.Attempts);
@@ -217,9 +167,9 @@ public sealed class ExtractionApiTests
 			var editorSession = await SignInAsync(factory, Editor);
 			using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 			var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
-			var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
+			var assetId = versionId;
 			var (_, _, revision) = await UploadAndFinalizeAsync(factory, client, editorSession, assetId);
-			var revisionId = Guid.Parse(revision.GetProperty("revisionId").GetString()!);
+			var revisionId = revision.GetProperty("datei").GetProperty("id").GetGuid();
 
 			// The send failure never fails finalize: the row is the durable
 			// work record with a null enqueue stamp for the dispatch sweep.
@@ -240,7 +190,7 @@ public sealed class ExtractionApiTests
 			Assert.Equal(attemptsAfterFinalize, failingQueue.Attempts.Count);
 			// …and the retry action rediscovers the missing enqueue quietly.
 			using var retry = await PostJsonAsync(client,
-				$"/api/revisions/{revisionId}/extraction/retry", new { }, editorSession);
+				$"/api/dateien/{revisionId}/extraction/retry", new { }, editorSession);
 			Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
 			var retryBody = await retry.Content.ReadFromJsonAsync<JsonElement>();
 			Assert.Equal("queued", retryBody.GetProperty("status").GetString());
@@ -260,12 +210,12 @@ public sealed class ExtractionApiTests
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
-		var assetA = await CreateAssetAsync(client, editorSession, versionId, "score");
-		var assetB = await CreateAssetAsync(client, editorSession, versionId, "score");
+		var assetA = versionId;
+		var assetB = versionId;
 		var (_, _, revisionA) = await UploadAndFinalizeAsync(factory, client, editorSession, assetA);
 		var (_, _, revisionB) = await UploadAndFinalizeAsync(factory, client, editorSession, assetB);
-		var idA = Guid.Parse(revisionA.GetProperty("revisionId").GetString()!);
-		var idB = Guid.Parse(revisionB.GetProperty("revisionId").GetString()!);
+		var idA = revisionA.GetProperty("datei").GetProperty("id").GetGuid();
+		var idB = revisionB.GetProperty("datei").GetProperty("id").GetGuid();
 
 		using (var anonymous = await GetExtractionStatusResponseAsync(client, null, $"{idA}"))
 		{
@@ -284,16 +234,16 @@ public sealed class ExtractionApiTests
 		var (_, ordered, _) = await GetExtractionStatusAsync(client, editorSession, $"{idB},{idA}");
 		var orderedResults = ordered.GetProperty("results");
 		Assert.Equal(2, orderedResults.GetArrayLength());
-		Assert.Equal(idB, Guid.Parse(orderedResults[0].GetProperty("revisionId").GetString()!));
-		Assert.Equal(idA, Guid.Parse(orderedResults[1].GetProperty("revisionId").GetString()!));
+		Assert.Equal(idB, Guid.Parse(orderedResults[0].GetProperty("dateiId").GetString()!));
+		Assert.Equal(idA, Guid.Parse(orderedResults[1].GetProperty("dateiId").GetString()!));
 
 		// Unknown ids are skipped and duplicates collapse, order preserved.
 		var (_, filtered, _) = await GetExtractionStatusAsync(client, editorSession,
 			$"{idA},{Guid.CreateVersion7()},{idA},{idB}");
 		var filteredResults = filtered.GetProperty("results");
 		Assert.Equal(2, filteredResults.GetArrayLength());
-		Assert.Equal(idA, Guid.Parse(filteredResults[0].GetProperty("revisionId").GetString()!));
-		Assert.Equal(idB, Guid.Parse(filteredResults[1].GetProperty("revisionId").GetString()!));
+		Assert.Equal(idA, Guid.Parse(filteredResults[0].GetProperty("dateiId").GetString()!));
+		Assert.Equal(idB, Guid.Parse(filteredResults[1].GetProperty("dateiId").GetString()!));
 
 		// More than 100 ids are rejected before any row is loaded.
 		var tooMany = string.Join(",", Enumerable.Range(0, 101).Select(_ => Guid.CreateVersion7()));
@@ -311,9 +261,9 @@ public sealed class ExtractionApiTests
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
-		var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
+		var assetId = versionId;
 		var (_, _, revision) = await UploadAndFinalizeAsync(factory, client, editorSession, assetId);
-		var revisionId = Guid.Parse(revision.GetProperty("revisionId").GetString()!);
+		var revisionId = revision.GetProperty("datei").GetProperty("id").GetGuid();
 		uint rowVersionBefore;
 		using (var scope = factory.Services.CreateScope())
 		{
@@ -329,7 +279,7 @@ public sealed class ExtractionApiTests
 
 		queue.Accept = false;
 		using var retry = await PostJsonAsync(client,
-			$"/api/revisions/{revisionId}/extraction/retry", new { }, editorSession);
+			$"/api/dateien/{revisionId}/extraction/retry", new { }, editorSession);
 		Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
 		var body = await retry.Content.ReadFromJsonAsync<JsonElement>();
 		Assert.Equal("queued", body.GetProperty("status").GetString());
@@ -352,7 +302,7 @@ public sealed class ExtractionApiTests
 		}
 		queue.Accept = true;
 		using var rediscovered = await PostJsonAsync(client,
-			$"/api/revisions/{revisionId}/extraction/retry", new { }, editorSession);
+			$"/api/dateien/{revisionId}/extraction/retry", new { }, editorSession);
 		Assert.Equal(HttpStatusCode.OK, rediscovered.StatusCode);
 		var rediscoveredBody = await rediscovered.Content.ReadFromJsonAsync<JsonElement>();
 		Assert.Equal(0, rediscoveredBody.GetProperty("attemptCount").GetInt32());
@@ -371,9 +321,9 @@ public sealed class ExtractionApiTests
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
-		var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
+		var assetId = versionId;
 		var (_, _, revision) = await UploadAndFinalizeAsync(factory, client, editorSession, assetId);
-		var revisionId = Guid.Parse(revision.GetProperty("revisionId").GetString()!);
+		var revisionId = revision.GetProperty("datei").GetProperty("id").GetGuid();
 
 		// A row deleted from the store stands in for revisions finalized
 		// before ARC-034 existed.
@@ -385,11 +335,10 @@ public sealed class ExtractionApiTests
 		}
 
 		using var retry = await PostJsonAsync(client,
-			$"/api/revisions/{revisionId}/extraction/retry", new { }, editorSession);
+			$"/api/dateien/{revisionId}/extraction/retry", new { }, editorSession);
 		Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
 		var body = await retry.Content.ReadFromJsonAsync<JsonElement>();
 		Assert.Equal("queued", body.GetProperty("status").GetString());
-		Assert.Equal(1, body.GetProperty("revisionNumber").GetInt32());
 		Assert.True(body.GetProperty("lastEnqueuedAt").ValueKind is JsonValueKind.String);
 		Assert.Equal(2, queue.Attempts.Count);
 	}
@@ -403,9 +352,9 @@ public sealed class ExtractionApiTests
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
-		var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
+		var assetId = versionId;
 		var (_, _, revision) = await UploadAndFinalizeAsync(factory, client, editorSession, assetId);
-		var revisionId = Guid.Parse(revision.GetProperty("revisionId").GetString()!);
+		var revisionId = revision.GetProperty("datei").GetProperty("id").GetGuid();
 		using (var scope = factory.Services.CreateScope())
 		{
 			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
@@ -416,7 +365,7 @@ public sealed class ExtractionApiTests
 		}
 
 		using var retry = await PostJsonAsync(client,
-			$"/api/revisions/{revisionId}/extraction/retry", new { }, editorSession);
+			$"/api/dateien/{revisionId}/extraction/retry", new { }, editorSession);
 		Assert.Equal(HttpStatusCode.Conflict, retry.StatusCode);
 		var problem = await retry.Content.ReadFromJsonAsync<JsonElement>();
 		Assert.Equal(ExtractionEndpoints.ExtractionRunningMessage, problem.GetProperty("title").GetString());
@@ -434,9 +383,9 @@ public sealed class ExtractionApiTests
 		var session = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, session);
-		var assetId = await CreateAssetAsync(client, session, versionId, "score");
+		var assetId = versionId;
 		var (_, _, revision) = await UploadAndFinalizeAsync(factory, client, session, assetId);
-		var revisionId = revision.GetProperty("revisionId").GetGuid();
+		var revisionId = revision.GetProperty("datei").GetProperty("id").GetGuid();
 		using (var scope = factory.Services.CreateScope())
 		{
 			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
@@ -448,7 +397,7 @@ public sealed class ExtractionApiTests
 			await db.SaveChangesAsync();
 		}
 
-		using var retry = await PostJsonAsync(client, $"/api/revisions/{revisionId}/extraction/retry", new { }, session);
+		using var retry = await PostJsonAsync(client, $"/api/dateien/{revisionId}/extraction/retry", new { }, session);
 		Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
 		var body = await retry.Content.ReadFromJsonAsync<JsonElement>();
 		Assert.Equal("queued", body.GetProperty("status").GetString());
@@ -494,8 +443,7 @@ public sealed class ExtractionApiTests
 			var winnerDb = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
 			winnerDb.ExtractionJobs.Add(new ExtractionJob
 			{
-				RevisionId = inserted.Entity.RevisionId,
-				AssetId = inserted.Entity.AssetId,
+				DateiId = inserted.Entity.DateiId,
 				Status = winnerStatus,
 				Text = winnerStatus == ExtractionStatus.Completed ? "Gespeicherter Text" : null,
 				AttemptCount = 2,
@@ -516,9 +464,9 @@ public sealed class ExtractionApiTests
 		var session = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, session);
-		var assetId = await CreateAssetAsync(client, session, versionId, "score");
+		var assetId = versionId;
 		var (_, _, revision) = await UploadAndFinalizeAsync(factory, client, session, assetId);
-		var revisionId = revision.GetProperty("revisionId").GetGuid();
+		var revisionId = revision.GetProperty("datei").GetProperty("id").GetGuid();
 		using (var scope = factory.Services.CreateScope())
 		{
 			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
@@ -526,7 +474,7 @@ public sealed class ExtractionApiTests
 			await db.SaveChangesAsync();
 		}
 		raceNextInsert = true;
-		using var retry = await PostJsonAsync(client, $"/api/revisions/{revisionId}/extraction/retry", new { }, session);
+		using var retry = await PostJsonAsync(client, $"/api/dateien/{revisionId}/extraction/retry", new { }, session);
 		Assert.Equal(expected, retry.StatusCode);
 		Assert.Equal(1, conflicts);
 		var body = await retry.Content.ReadFromJsonAsync<JsonElement>();
@@ -567,7 +515,7 @@ public sealed class ExtractionApiTests
 		var session = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, session);
-		var assetId = await CreateAssetAsync(client, session, versionId, "score");
+		var assetId = versionId;
 		var (_, _, revision) = await UploadAndFinalizeAsync(factory, client, session, assetId);
 		using (var scope = factory.Services.CreateScope())
 		{
@@ -577,11 +525,11 @@ public sealed class ExtractionApiTests
 		}
 		failInserts = true;
 		using var retry = await PostJsonAsync(client,
-			$"/api/revisions/{revision.GetProperty("revisionId").GetGuid()}/extraction/retry", new { }, session);
+			$"/api/dateien/{revision.GetProperty("datei").GetProperty("id").GetGuid()}/extraction/retry", new { }, session);
 		Assert.Equal(HttpStatusCode.Conflict, retry.StatusCode);
 		Assert.Equal(2, failedSaves);
 		var problem = await retry.Content.ReadFromJsonAsync<JsonElement>();
-		Assert.Equal(AssetEndpoints.ConcurrencyMessage, problem.GetProperty("title").GetString());
+		Assert.Equal(ExtractionEndpoints.ConcurrencyMessage, problem.GetProperty("title").GetString());
 	}
 
 	[Fact]
@@ -597,9 +545,9 @@ public sealed class ExtractionApiTests
 		var administratorSession = await SignInAsync(factory, administrator);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
-		var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
+		var assetId = versionId;
 		var (_, _, revision) = await UploadAndFinalizeAsync(factory, client, editorSession, assetId);
-		var path = $"/api/revisions/{revision.GetProperty("revisionId").GetGuid()}/extraction/retry";
+		var path = $"/api/dateien/{revision.GetProperty("datei").GetProperty("id").GetGuid()}/extraction/retry";
 
 		var (cookie, token) = await GetCsrfAsync(client);
 		using (var request = AuthedPost(path, new { }, cookie, token))
@@ -641,46 +589,31 @@ public sealed class ExtractionApiTests
 	}
 
 	[Fact]
-	public async Task CompletedScoreTextSuppliesVoiceAndKeyToDetailAndStatus()
+	public async Task CompletedNotenTextSuppliesVoiceAndKeyToTheStatus()
 	{
 		const string text = "Tenor 1 A♭\n44 .å\nHo -\nåê\nsi -\nå\nan -\nå\nna,";
 		await using var factory = new AuthApiFactory(queue: new FakeExtractionQueue());
 		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var (songId, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
-		var current = await CreateAssetAsync(client, editorSession, versionId, "score");
-		var (_, _, replaced) = await UploadAndFinalizeAsync(factory, client, editorSession, current);
-		var (_, _, revision) = await UploadAndFinalizeAsync(factory, client, editorSession, current);
-		var replacedId = Guid.Parse(replaced.GetProperty("revisionId").GetString()!);
-		var revisionId = Guid.Parse(revision.GetProperty("revisionId").GetString()!);
+		var (_, liedId) = await CreateSongWithVersionAsync(factory, client, editorSession);
+		var (_, _, noten) = await UploadAndFinalizeAsync(factory, client, editorSession, liedId);
+		var datei = noten.GetProperty("datei").GetProperty("id").GetGuid();
 		using (var scope = factory.Services.CreateScope())
 		{
 			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-			var jobs = await db.ExtractionJobs.ToListAsync();
-			// The replaced revision's text must never describe the current score.
-			var old = jobs.Single(j => j.RevisionId == replacedId);
-			old.Status = ExtractionStatus.Completed;
-			old.Text = "Bass 2\n34\nveraltet";
-			var job = jobs.Single(j => j.RevisionId == revisionId);
+			var job = await db.ExtractionJobs.SingleAsync(j => j.DateiId == datei);
 			job.Status = ExtractionStatus.Completed;
 			job.Text = text;
-			(await db.Songs.SingleAsync(s => s.Id == songId)).PublishedAt = DateTimeOffset.UtcNow;
 			await db.SaveChangesAsync();
 		}
 
-		var detail = await GetSongDetailAsync(client, editorSession, songId);
-		var detected = detail.GetProperty("arrangements")[0].GetProperty("musicalVersions")[0]
-			.GetProperty("assets")[0].GetProperty("detected");
-		Assert.Equal("Tenor 1", detected.GetProperty("voice").GetString());
-		Assert.Equal("A♭", detected.GetProperty("musicalKey").GetString());
-		Assert.Equal("4/4", detected.GetProperty("timeSignature").GetString());
-
-		var (_, status, _) = await GetExtractionStatusAsync(client, editorSession, revisionId.ToString());
+		var (_, status, _) = await GetExtractionStatusAsync(client, editorSession, datei.ToString());
 		var result = status.GetProperty("results")[0];
 		Assert.Equal(text, result.GetProperty("text").GetString());
 		Assert.Equal("Tenor 1 A♭ 44 Hosianna,", result.GetProperty("cleanText").GetString());
 		Assert.Equal("Tenor 1", result.GetProperty("facts").GetProperty("voice").GetString());
+		Assert.Equal("A♭", result.GetProperty("facts").GetProperty("musicalKey").GetString());
 	}
 
 	[Fact]
@@ -692,28 +625,28 @@ public sealed class ExtractionApiTests
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
-		var assetA = await CreateAssetAsync(client, editorSession, versionId, "score");
-		var assetB = await CreateAssetAsync(client, editorSession, versionId, "score");
+		var assetA = versionId;
+		var assetB = versionId;
 		var (_, _, revisionA) = await UploadAndFinalizeAsync(factory, client, editorSession, assetA);
 		var (_, _, revisionB) = await UploadAndFinalizeAsync(factory, client, editorSession, assetB);
-		var idA = Guid.Parse(revisionA.GetProperty("revisionId").GetString()!);
-		var idB = Guid.Parse(revisionB.GetProperty("revisionId").GetString()!);
+		var idA = revisionA.GetProperty("datei").GetProperty("id").GetGuid();
+		var idB = revisionB.GetProperty("datei").GetProperty("id").GetGuid();
 		Assert.Equal(2, queue.Attempts.Count);
 		using (var scope = factory.Services.CreateScope())
 		{
 			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
 			var jobs = await db.ExtractionJobs.ToListAsync();
-			var jobA = jobs.Single(j => j.RevisionId == idA);
+			var jobA = jobs.Single(j => j.DateiId == idA);
 			jobA.Status = ExtractionStatus.Completed;
 			jobA.Text = "Erster Vers \nNotentext…";
 			jobA.CompletedAt = jobA.CreatedAt;
-			var jobB = jobs.Single(j => j.RevisionId == idB);
+			var jobB = jobs.Single(j => j.DateiId == idB);
 			jobB.Status = ExtractionStatus.NoText;
 			await db.SaveChangesAsync();
 		}
 
 		using (var retryA = await PostJsonAsync(client,
-			$"/api/revisions/{idA}/extraction/retry", new { }, editorSession))
+			$"/api/dateien/{idA}/extraction/retry", new { }, editorSession))
 		{
 			Assert.Equal(HttpStatusCode.OK, retryA.StatusCode);
 			var body = await retryA.Content.ReadFromJsonAsync<JsonElement>();
@@ -722,7 +655,7 @@ public sealed class ExtractionApiTests
 			Assert.Equal(0, body.GetProperty("attemptCount").GetInt32());
 		}
 		using (var retryB = await PostJsonAsync(client,
-			$"/api/revisions/{idB}/extraction/retry", new { }, editorSession))
+			$"/api/dateien/{idB}/extraction/retry", new { }, editorSession))
 		{
 			Assert.Equal(HttpStatusCode.OK, retryB.StatusCode);
 			var body = await retryB.Content.ReadFromJsonAsync<JsonElement>();
@@ -751,17 +684,15 @@ public sealed class ExtractionApiTests
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
-		var assetId = await CreateAssetAsync(client, editorSession, versionId, "audio");
-		var (sessionId, uploadUrl, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
-		factory.Storage.Store(factory.Storage.Find(uploadUrl)!.BlobName,
-			new byte[512], AssetEndpoints.Mp3ContentType);
+		var (sessionId, uploadUrl, _) = await CreateUploadSessionAsync(client, editorSession, versionId, "uebe", "audio/mpeg");
+		factory.Storage.Store(factory.Storage.Find(uploadUrl)!.BlobName, Mp3Bytes, "audio/mpeg");
 		using var finalize = await FinalizeAsync(client, editorSession, sessionId);
 		Assert.Equal(HttpStatusCode.OK, finalize.StatusCode);
 		var revision = await finalize.Content.ReadFromJsonAsync<JsonElement>();
-		var revisionId = Guid.Parse(revision.GetProperty("revisionId").GetString()!);
+		var revisionId = revision.GetProperty("datei").GetProperty("id").GetGuid();
 
 		using var retry = await PostJsonAsync(client,
-			$"/api/revisions/{revisionId}/extraction/retry", new { }, editorSession);
+			$"/api/dateien/{revisionId}/extraction/retry", new { }, editorSession);
 		Assert.Equal(HttpStatusCode.UnprocessableEntity, retry.StatusCode);
 		var problem = await retry.Content.ReadFromJsonAsync<JsonElement>();
 		Assert.Equal(ExtractionEndpoints.ExtractionNotSupportedMessage, problem.GetProperty("title").GetString());
@@ -783,10 +714,10 @@ public sealed class ExtractionApiTests
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 
 		using var retry = await PostJsonAsync(client,
-			$"/api/revisions/{Guid.CreateVersion7()}/extraction/retry", new { }, editorSession);
+			$"/api/dateien/{Guid.CreateVersion7()}/extraction/retry", new { }, editorSession);
 		Assert.Equal(HttpStatusCode.NotFound, retry.StatusCode);
 		var problem = await retry.Content.ReadFromJsonAsync<JsonElement>();
-		Assert.Equal(ExtractionEndpoints.RevisionNotFoundMessage, problem.GetProperty("title").GetString());
+		Assert.Equal(ExtractionEndpoints.DateiNotFoundMessage, problem.GetProperty("title").GetString());
 	}
 
 	[Fact]
@@ -798,14 +729,14 @@ public sealed class ExtractionApiTests
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
-		var assetId = await CreateAssetAsync(client, editorSession, versionId, "score");
+		var assetId = versionId;
 		var (sessionId, _, revision) = await UploadAndFinalizeAsync(factory, client, editorSession, assetId);
-		var revisionId = Guid.Parse(revision.GetProperty("revisionId").GetString()!);
+		var revisionId = revision.GetProperty("datei").GetProperty("id").GetGuid();
 
 		using var retry = await FinalizeAsync(client, editorSession, sessionId);
 		Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
 		var retryBody = await retry.Content.ReadFromJsonAsync<JsonElement>();
-		Assert.Equal(revisionId, Guid.Parse(retryBody.GetProperty("revisionId").GetString()!));
+		Assert.Equal(revisionId, retryBody.GetProperty("datei").GetProperty("id").GetGuid());
 
 		// One row, one queue record: the re-entry branch subscribes nothing.
 		using (var scope = factory.Services.CreateScope())
@@ -829,12 +760,12 @@ public sealed class ExtractionApiTests
 			ExtractionEnvelope.SerializerOptions);
 		var element = JsonDocument.Parse(json).RootElement;
 		Assert.Equal("extraction", element.GetProperty("type").GetString());
-		Assert.Equal(revisionId, Guid.Parse(element.GetProperty("revisionId").GetString()!));
+		Assert.Equal(revisionId, Guid.Parse(element.GetProperty("dateiId").GetString()!));
 		Assert.Equal("00-trace-parent-01", element.GetProperty("traceParent").GetString());
 		Assert.Equal("trace=state", element.GetProperty("traceState").GetString());
 		var roundTrip = JsonSerializer.Deserialize<ExtractionEnvelope>(json, ExtractionEnvelope.SerializerOptions)!;
 		Assert.Equal(ExtractionEnvelope.ExtractionType, roundTrip.Type);
-		Assert.Equal(revisionId, roundTrip.RevisionId);
+		Assert.Equal(revisionId, roundTrip.DateiId);
 	}
 
 	private static async Task<(HttpStatusCode Status, JsonElement Body, bool NoStore)> GetExtractionStatusAsync(
@@ -848,37 +779,32 @@ public sealed class ExtractionApiTests
 	private static async Task<HttpResponseMessage> GetExtractionStatusResponseAsync(
 		HttpClient client, string? session, string ids)
 	{
-		var request = new HttpRequestMessage(HttpMethod.Get, $"/api/revisions/extraction?ids={ids}");
+		var request = new HttpRequestMessage(HttpMethod.Get, $"/api/dateien/extraction?ids={ids}");
 		if (session is not null)
 			request.Headers.Add("Cookie", session);
 		return await client.SendAsync(request);
 	}
 
-	private static async Task<(Guid SongId, Guid VersionId)> CreateSongWithVersionAsync(
+	/// <summary>Creates a Lied; the second value repeats its id (the old tests named it the version).</summary>
+	private static async Task<(Guid LiedId, Guid VersionId)> CreateSongWithVersionAsync(
 		AuthApiFactory factory, HttpClient client, string editorSession, string title = "Notenlied")
 	{
-		var songId = await CreateSongAsync(factory, client, editorSession, title);
-		var detail = await GetSongDetailAsync(client, editorSession, songId);
-		var versionId = Guid.Parse(detail.GetProperty("arrangements")[0]
-			.GetProperty("musicalVersions")[0].GetProperty("id").GetString()!);
-		return (songId, versionId);
-	}
-
-	private static async Task<Guid> CreateAssetAsync(
-		HttpClient client, string editorSession, Guid versionId, string assetType)
-	{
-		using var response = await PostJsonAsync(client,
-			$"/api/musical-versions/{versionId}/assets", new { assetType }, editorSession);
+		var (cookie, token) = await GetCsrfAsync(client, editorSession);
+		using var create = AuthedPost("/api/lieder", new { title }, $"{cookie}; {editorSession}", token);
+		using var response = await client.SendAsync(create);
 		Assert.Equal(HttpStatusCode.Created, response.StatusCode);
 		var body = await response.Content.ReadFromJsonAsync<JsonElement>();
-		return Guid.Parse(body.GetProperty("id").GetString()!);
+		var id = Guid.Parse(body.GetProperty("lied").GetProperty("id").GetString()!);
+		return (id, id);
 	}
 
+	/// <summary>Opens an upload session for a new Noten Datei (or another kind) of the Lied.</summary>
 	private static async Task<(Guid SessionId, string UploadUrl, JsonElement Body)> CreateUploadSessionAsync(
-		HttpClient client, string editorSession, Guid assetId)
+		HttpClient client, string editorSession, Guid liedId, string kind = "noten", string? contentType = null)
 	{
-		using var response = await PostJsonAsync(client,
-			$"/api/assets/{assetId}/upload-session", new { }, editorSession);
+		using var response = await PostJsonAsync(client, $"/api/lieder/{liedId}/dateien/upload-session",
+			new { kind, isPartitur = kind == "noten", stimme = kind == "uebe" ? "Alle" : null, contentType, fileName = "datei", sizeBytes = 1024 },
+			editorSession);
 		Assert.Equal(HttpStatusCode.Created, response.StatusCode);
 		var body = await response.Content.ReadFromJsonAsync<JsonElement>();
 		return (
@@ -887,11 +813,11 @@ public sealed class ExtractionApiTests
 			body);
 	}
 
-	/// <summary>Creates the session, stores a valid PDF and finalizes.</summary>
+	/// <summary>Creates the session, stores a valid PDF and finalizes; returns the finalize body (<c>datei</c>).</summary>
 	private static async Task<(Guid SessionId, string UploadUrl, JsonElement Revision)> UploadAndFinalizeAsync(
-		AuthApiFactory factory, HttpClient client, string editorSession, Guid assetId, long size = 1024)
+		AuthApiFactory factory, HttpClient client, string editorSession, Guid liedId, long size = 1024)
 	{
-		var (sessionId, uploadUrl, _) = await CreateUploadSessionAsync(client, editorSession, assetId);
+		var (sessionId, uploadUrl, _) = await CreateUploadSessionAsync(client, editorSession, liedId);
 		factory.Storage.Store(factory.Storage.Find(uploadUrl)!.BlobName, ValidPdf(size));
 		using var finalize = await FinalizeAsync(client, editorSession, sessionId);
 		Assert.Equal(HttpStatusCode.OK, finalize.StatusCode);
@@ -902,6 +828,8 @@ public sealed class ExtractionApiTests
 	private static async Task<HttpResponseMessage> FinalizeAsync(
 		HttpClient client, string session, Guid sessionId)
 		=> await PostJsonAsync(client, $"/api/upload-sessions/{sessionId}/finalize", new { }, session);
+
+	private static readonly byte[] Mp3Bytes = [0x49, 0x44, 0x33, 0x04, 0x00, .. new byte[1019]];
 
 	private static byte[] ValidPdf(long size)
 	{
@@ -915,17 +843,6 @@ public sealed class ExtractionApiTests
 	{
 		var (cookie, token) = await GetCsrfAsync(client, session);
 		return await client.SendAsync(AuthedPost(path, body, $"{cookie}; {session}", token));
-	}
-
-	private static async Task<Guid> CreateSongAsync(
-		AuthApiFactory factory, HttpClient client, string editorSession, string title)
-	{
-		var (cookie, token) = await GetCsrfAsync(client, editorSession);
-		using var create = AuthedPost("/api/songs", new { title }, $"{cookie}; {editorSession}", token);
-		using var response = await client.SendAsync(create);
-		Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-		var body = await response.Content.ReadFromJsonAsync<JsonElement>();
-		return Guid.Parse(body.GetProperty("song").GetProperty("id").GetString()!);
 	}
 
 	private static async Task<Guid> SeedAsync(AuthApiFactory factory, string email, string role)
@@ -981,16 +898,6 @@ public sealed class ExtractionApiTests
 		request.Content = JsonContent.Create(body);
 		return request;
 	}
-
-	private static async Task<JsonElement> GetSongDetailAsync(HttpClient client, string session, Guid songId)
-	{
-		using var request = new HttpRequestMessage(HttpMethod.Get, $"/api/songs/{songId}");
-		request.Headers.Add("Cookie", session);
-		using var response = await client.SendAsync(request);
-		response.EnsureSuccessStatusCode();
-		var body = await response.Content.ReadFromJsonAsync<JsonElement>();
-		return body.GetProperty("song");
-	}
 }
 
 /// <summary>
@@ -1011,9 +918,9 @@ internal sealed class FakeExtractionQueue(bool accept = true, bool throws = fals
 		get { lock (gate) return [.. attempts]; }
 	}
 
-	public Task<bool> SendAsync(Guid revisionId, CancellationToken token)
+	public Task<bool> SendAsync(Guid dateiId, CancellationToken token)
 	{
-		lock (gate) attempts.Add(revisionId);
+		lock (gate) attempts.Add(dateiId);
 		if (throws)
 			throw new InvalidOperationException("Fake queue outage.");
 		if (failure is not null)

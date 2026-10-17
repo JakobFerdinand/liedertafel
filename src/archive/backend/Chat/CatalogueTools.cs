@@ -3,6 +3,7 @@ using System.Text.Json;
 using Archive.Backend.Catalogue;
 using Archive.Backend.Data;
 using Archive.Backend.Events;
+using Archive.Backend.Extraction;
 using Archive.Backend.Lieder;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
@@ -115,6 +116,11 @@ public static class CatalogueTools
 		return SerializeSearch(ordered.Select(m => m.Lied), requestedPage, matches.Count);
 	}
 
+	/// <summary>Noten text sent per Datei and per Lied (characters).</summary>
+	private const int ScoreTextChars = 2000;
+
+	private const int ScoreTextBudget = 6000;
+
 	private static async Task<string> DetailsAsync(ArchiveDbContext db, string liedId)
 	{
 		if (!Guid.TryParse(liedId, out var id))
@@ -126,11 +132,32 @@ public static class CatalogueTools
 			.FirstOrDefaultAsync();
 		if (lied is null)
 			return "{}";
-		var dateien = await DateiQueries.Visible(db).AsNoTracking()
-			.Where(d => d.LiedId == id)
-			.OrderBy(d => d.Kind).ThenBy(d => d.Id)
-			.Select(d => new { d.Kind, d.IsPartitur, d.Stimme, d.Description })
+		var rows = await (
+			from d in DateiQueries.Visible(db).AsNoTracking()
+			where d.LiedId == id
+			join e in db.ExtractionJobs.AsNoTracking() on d.Id equals e.DateiId into texts
+			from e in texts.DefaultIfEmpty()
+			orderby d.Kind, d.Id
+			select new { d.Kind, d.IsPartitur, d.Stimme, d.Description, e.Status, e.Text })
 			.ToListAsync();
+		// Noten text read from the Dateien (#169): bounded per Datei and per
+		// Lied, and identical text (the same lyrics in every Stimme) goes out once.
+		var budget = ScoreTextBudget;
+		var sent = new HashSet<string>();
+		var dateien = rows.Select(d =>
+		{
+			var analysis = d.Kind == DateiKinds.Noten && d.Status == ExtractionStatus.Completed
+				? ScoreTextAnalyzer.Analyze(d.Text)
+				: null;
+			string? text = null;
+			if (analysis is { CleanText.Length: > 0 } && budget > 0 && sent.Add(analysis.CleanText))
+			{
+				var length = Math.Min(Math.Min(analysis.CleanText.Length, ScoreTextChars), budget);
+				text = analysis.CleanText[..length];
+				budget -= length;
+			}
+			return new { d.Kind, d.IsPartitur, d.Stimme, d.Description, Facts = ExtractionEndpoints.FactsPayload(analysis?.Facts), Text = text };
+		}).ToList();
 		var (gesungen, geplant) = await HistoryAsync(db, id);
 		return JsonSerializer.Serialize(new
 		{
@@ -145,6 +172,8 @@ public static class CatalogueTools
 				partitur = d.IsPartitur,
 				stimme = d.Stimme,
 				beschreibung = d.Description,
+				notenFakten = d.Facts,
+				notenText = d.Text,
 			}),
 			gesungen,
 			geplant,

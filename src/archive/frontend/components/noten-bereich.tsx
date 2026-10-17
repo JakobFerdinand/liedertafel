@@ -766,7 +766,7 @@ export function NotenBereich({
                           revision.contentType.toLowerCase() ===
                             "application/pdf" && (
                             <ExtraktionStatus
-                              revisionId={revision.revisionId}
+                              dateiId={revision.revisionId}
                               isEditor={isEditor}
                               angabenBekannt={erkannt !== null}
                               kannLesen

@@ -8,6 +8,8 @@
 // Speicher, Ersetzen und Löschen über den Papierkorb).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ExtraktionStatus } from "@/components/extraktion-status";
+import { ExtraktionUebersichtProvider } from "@/components/extraktion-uebersicht";
 import {
   AbbruchFehler,
   cancelUploadSession,
@@ -336,6 +338,9 @@ function DokumentEintrag({
             Erneut versuchen
           </button>
         </p>
+      )}
+      {isEditor && dokument.contentType.toLowerCase() === "application/pdf" && (
+        <ExtraktionStatus dateiId={dokument.id} isEditor={isEditor} />
       )}
       {isEditor && (
         <RedaktionsWerkzeug
@@ -916,18 +921,20 @@ export function AuftrittDokumente({
             </ul>
           )}
           {dokumentEintraege.length > 0 && (
-            <div className="material-liste dokumente-liste">
-              {dokumentEintraege.map((eintrag) => (
-                <DokumentEintrag
-                  auftrittId={auftritt.id}
-                  dokument={eintrag}
-                  isEditor={isEditor}
-                  onBearbeitet={() => setErfolg("Änderungen gespeichert.")}
-                  aktualisieren={aktualisieren}
-                  key={eintrag.id}
-                />
-              ))}
-            </div>
+            <ExtraktionUebersichtProvider>
+              <div className="material-liste dokumente-liste">
+                {dokumentEintraege.map((eintrag) => (
+                  <DokumentEintrag
+                    auftrittId={auftritt.id}
+                    dokument={eintrag}
+                    isEditor={isEditor}
+                    onBearbeitet={() => setErfolg("Änderungen gespeichert.")}
+                    aktualisieren={aktualisieren}
+                    key={eintrag.id}
+                  />
+                ))}
+              </div>
+            </ExtraktionUebersichtProvider>
           )}
         </>
       ) : (

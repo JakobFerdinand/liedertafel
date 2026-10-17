@@ -78,12 +78,12 @@ public static class ReadingDispatcher
 			bool accepted;
 			try
 			{
-				accepted = await queue.SendAsync(job.RevisionId, token);
+				accepted = await queue.SendAsync(job.DateiId, token);
 			}
 			catch (Exception exception) when (exception is not OperationCanceledException)
 			{
-				logger.LogWarning("Reading dispatch failed for revision {RevisionId} ({ExceptionType})",
-					job.RevisionId, exception.GetType().Name);
+				logger.LogWarning("Reading dispatch failed for Datei {DateiId} ({ExceptionType})",
+					job.DateiId, exception.GetType().Name);
 				continue;
 			}
 			if (!accepted)
@@ -96,8 +96,8 @@ public static class ReadingDispatcher
 			}
 			catch (DbUpdateException exception)
 			{
-				logger.LogWarning("Reading dispatch stamp failed for revision {RevisionId} ({ExceptionType})",
-					job.RevisionId, exception.GetType().Name);
+				logger.LogWarning("Reading dispatch stamp failed for Datei {DateiId} ({ExceptionType})",
+					job.DateiId, exception.GetType().Name);
 				db.Entry(job).State = EntityState.Detached;
 			}
 		}

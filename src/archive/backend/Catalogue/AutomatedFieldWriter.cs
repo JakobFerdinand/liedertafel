@@ -60,6 +60,7 @@ public sealed class AutomatedFieldWriter(
 
 	private static Guid CreatorOf(object entity) => entity switch
 	{
+		Lieder.Lied lied => lied.CreatedByAccountId,
 		Song song => song.CreatedByAccountId,
 		Arrangement arrangement => arrangement.CreatedByAccountId,
 		MusicalVersion version => version.CreatedByAccountId,

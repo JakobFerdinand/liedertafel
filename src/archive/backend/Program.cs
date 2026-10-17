@@ -266,6 +266,7 @@ builder.Services.AddArchiveAi(builder.Configuration);
 builder.Services.AddScoped<CatalogueWriteService>();
 builder.Services.AddSingleton<ArchiveChatAgent>();
 builder.Services.AddSingleton<Archive.Backend.Lieder.IDateiFinalizedHook, Archive.Backend.Lieder.DateiReplacementHook>();
+builder.Services.AddSingleton<Archive.Backend.Lieder.IDateiFinalizedHook, Archive.Backend.Extraction.DateiExtractionHook>();
 builder.Services.AddScoped<ArchiveChatService>();
 builder.Services.AddArchiveAuth(builder.Configuration, builder.Environment);
 // ARC-011: Container Apps terminates TLS at the front proxy and forwards

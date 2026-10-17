@@ -1,9 +1,9 @@
 using System.Text.Json;
 using Archive.Backend.Ai;
-using Archive.Backend.Assets;
 using Archive.Backend.Catalogue;
 using Archive.Backend.Data;
 using Archive.Backend.Extraction;
+using Archive.Backend.Lieder;
 using Archive.Backend.Reading;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
@@ -104,17 +104,15 @@ internal sealed class FakeReadingQueue(bool accept = true) : IReadingQueue
 
 	public IReadOnlyList<Guid> Attempts { get { lock (attempts) return [.. attempts]; } }
 
-	public Task<bool> SendAsync(Guid revisionId, CancellationToken token)
+	public Task<bool> SendAsync(Guid dateiId, CancellationToken token)
 	{
-		lock (attempts) attempts.Add(revisionId);
+		lock (attempts) attempts.Add(dateiId);
 		return Task.FromResult(Accept);
 	}
 }
 
-/// <summary>A score with its catalogue chain, its current revision, extraction row and reading row.</summary>
-internal sealed record SeededScore(
-	Song Song, Arrangement Arrangement, MusicalVersion Version, ArchiveAsset Asset, FileRevision Revision,
-	ExtractionJob Extraction, ReadingJob Reading);
+/// <summary>A Lied with one Noten Datei, its extraction row and its reading row.</summary>
+internal sealed record SeededScore(Lied Lied, Datei Datei, ExtractionJob Extraction, ReadingJob Reading);
 
 /// <summary>
 /// Hosts the AI reading worker over the EF in-memory database, the real
@@ -195,81 +193,70 @@ internal sealed class ReadingTestHost
 	}
 
 	/// <summary>Runs the worker on a fresh context, like the pump does for every message.</summary>
-	public async Task<MessageDisposition> RunAsync(Guid revisionId, long dequeueCount = 1)
+	public async Task<MessageDisposition> RunAsync(Guid dateiId, long dequeueCount = 1)
 	{
 		await using var db = new ArchiveDbContext(DbOptions);
-		return await NewWorker(db).HandleAsync(Message(revisionId, dequeueCount), Deadline, CancellationToken.None);
+		return await NewWorker(db).HandleAsync(Message(dateiId, dequeueCount), Deadline, CancellationToken.None);
 	}
 
-	public static ExtractionMessage Message(Guid revisionId, long dequeueCount = 1, string? body = null) =>
+	public static ExtractionMessage Message(Guid dateiId, long dequeueCount = 1, string? body = null) =>
 		new(Guid.CreateVersion7().ToString(), $"pop-{Guid.CreateVersion7():N}",
 			body ?? JsonSerializer.Serialize(
-				new ExtractionEnvelope(AzureReadingQueue.ReadingType, revisionId, null, null),
+				new ExtractionEnvelope(AzureReadingQueue.ReadingType, dateiId, null, null),
 				ExtractionEnvelope.SerializerOptions),
 			dequeueCount);
 
 	/// <summary>
-	/// Seeds a song with an empty catalogue (only the required title), one
-	/// arrangement and version, and a score whose current revision holds
-	/// <paramref name="pdf"/>; the extraction row is what the extraction job
-	/// would have left (NoText for a scan, Completed with text otherwise).
+	/// Seeds a Lied with empty fields (only the required title) and one Noten
+	/// Datei holding <paramref name="pdf"/>; the extraction row is what the
+	/// extraction job would have left (NoText for a scan, Completed with text
+	/// otherwise).
 	/// </summary>
-	public SeededScore SeedScore(byte[] pdf, string? embeddedText = null, Action<Song>? song = null, bool current = true)
+	public SeededScore SeedScore(byte[] pdf, string? embeddedText = null, Action<Lied>? lied = null, bool live = true)
 	{
 		var account = Guid.CreateVersion7();
 		var now = DateTimeOffset.UtcNow;
-		var songRow = new Song { Title = "Waldfahrt", CreatedByAccountId = account, UpdatedByAccountId = account, CreatedAt = now, UpdatedAt = now };
-		song?.Invoke(songRow);
-		var arrangement = new Arrangement { Song = songRow, SongId = songRow.Id, Label = "Chorsatz", CreatedByAccountId = account, CreatedAt = now };
-		var version = new MusicalVersion { Arrangement = arrangement, ArrangementId = arrangement.Id, Label = "Original", CreatedByAccountId = account, CreatedAt = now };
-		var asset = new ArchiveAsset
+		var liedRow = new Lied { Title = "Waldfahrt", CreatedByAccountId = account, UpdatedByAccountId = account, CreatedAt = now, UpdatedAt = now, RowVersion = 1 };
+		lied?.Invoke(liedRow);
+		var datei = new Datei
 		{
-			AssetType = AssetEndpoints.ScoreAssetType, MusicalVersion = version, MusicalVersionId = version.Id,
-			CreatedByAccountId = account, CreatedAt = now,
-		};
-		var revision = new FileRevision
-		{
-			Asset = asset, AssetId = asset.Id, RevisionNumber = 1, BlobName = $"revisions/{Guid.CreateVersion7():N}.pdf",
-			ContentType = AssetEndpoints.PdfContentType, SizeBytes = pdf.Length, OriginalFileName = "waldfahrt.pdf",
-			CreatedByAccountId = account, CreatedAt = now,
+			LiedId = liedRow.Id, Kind = DateiKinds.Noten, IsPartitur = true, BlobName = $"dateien/{Guid.CreateVersion7():N}.pdf",
+			ContentType = "application/pdf", SizeBytes = pdf.Length, OriginalFileName = "waldfahrt.pdf",
+			CreatedByAccountId = account, CreatedAt = now, RowVersion = 1,
+			DeletedAt = live ? null : now,
 		};
 		var extraction = new ExtractionJob
 		{
-			RevisionId = revision.Id, AssetId = asset.Id, TriggeredByAccountId = account, CreatedAt = now, UpdatedAt = now, CompletedAt = now,
+			DateiId = datei.Id, TriggeredByAccountId = account, CreatedAt = now, UpdatedAt = now, CompletedAt = now,
 			Status = embeddedText is null ? ExtractionStatus.NoText : ExtractionStatus.Completed, Text = embeddedText,
 		};
-		var reading = ReadingService.CreateForRevision(revision, account, Options.MaxPagesPerRequest, now);
+		var reading = ReadingService.CreateForDatei(datei, account, Options.MaxPagesPerRequest, now);
 		reading.LastEnqueuedAt = now;
-		Db.Songs.Add(songRow);
-		Db.Arrangements.Add(arrangement);
-		Db.MusicalVersions.Add(version);
-		Db.Assets.Add(asset);
-		Db.FileRevisions.Add(revision);
-		if (current)
-			asset.CurrentRevisionId = revision.Id;
+		Db.Lieder.Add(liedRow);
+		Db.Dateien.Add(datei);
 		Db.ExtractionJobs.Add(extraction);
 		Db.ReadingJobs.Add(reading);
 		Db.SaveChanges();
-		Storage.Store(revision.BlobName, pdf);
-		return new SeededScore(songRow, arrangement, version, asset, revision, extraction, reading);
+		Storage.Store(datei.BlobName, pdf);
+		return new SeededScore(liedRow, datei, extraction, reading);
 	}
 
-	public async Task<ReadingJob> ReadingAsync(Guid revisionId)
+	public async Task<ReadingJob> ReadingAsync(Guid dateiId)
 	{
 		await using var db = new ArchiveDbContext(DbOptions);
-		return await db.ReadingJobs.AsNoTracking().SingleAsync(j => j.RevisionId == revisionId);
+		return await db.ReadingJobs.AsNoTracking().SingleAsync(j => j.DateiId == dateiId);
 	}
 
-	public async Task<ExtractionJob> ExtractionAsync(Guid revisionId)
+	public async Task<ExtractionJob> ExtractionAsync(Guid dateiId)
 	{
 		await using var db = new ArchiveDbContext(DbOptions);
-		return await db.ExtractionJobs.AsNoTracking().SingleAsync(j => j.RevisionId == revisionId);
+		return await db.ExtractionJobs.AsNoTracking().SingleAsync(j => j.DateiId == dateiId);
 	}
 
-	public async Task<Song> SongAsync(Guid id)
+	public async Task<Lied> LiedAsync(Guid id)
 	{
 		await using var db = new ArchiveDbContext(DbOptions);
-		return await db.Songs.AsNoTracking().SingleAsync(s => s.Id == id);
+		return await db.Lieder.AsNoTracking().SingleAsync(s => s.Id == id);
 	}
 
 	public async Task<List<AiUsageEntry>> LedgerAsync()

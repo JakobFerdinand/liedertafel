@@ -31,7 +31,7 @@ public sealed class ScanReadingEvaluationTests(ITestOutputHelper output)
 {
 	private const string DirectoryEnvVar = "ARCHIVE_SCAN_EVAL_DIR";
 	private const string ReportEnvVar = "ARCHIVE_SCAN_EVAL_REPORT";
-	private static readonly string[] FieldNames = ["composer", "lyricist", "arranger", "musical_key", "voice_label", "lyrics"];
+	private static readonly string[] FieldNames = ["composer", "lyricist", "arranger", "musical_key", "lyrics"];
 
 	public sealed record EvaluationDocument(string Name, byte[] Pdf, Dictionary<string, string> Expected);
 
@@ -118,18 +118,16 @@ public sealed class ScanReadingEvaluationTests(ITestOutputHelper output)
 	{
 		var host = new ReadingTestHost(provider, modelKey: modelKey, price: price);
 		var score = host.SeedScore(document.Pdf);
-		await host.RunAsync(score.Revision.Id);
+		await host.RunAsync(score.Datei.Id);
 
-		var song = await host.SongAsync(score.Song.Id);
-		await using var db = new ArchiveDbContext(host.DbOptions);
+		var song = await host.LiedAsync(score.Lied.Id);
 		var values = new Dictionary<string, string?>
 		{
 			["composer"] = song.Composer,
 			["lyricist"] = song.Lyricist,
 			["lyrics"] = song.Lyrics,
-			["arranger"] = (await db.Arrangements.AsNoTracking().SingleAsync()).Arranger,
-			["musical_key"] = (await db.MusicalVersions.AsNoTracking().SingleAsync()).MusicalKey,
-			["voice_label"] = (await db.Assets.AsNoTracking().SingleAsync()).VoiceLabel,
+			["arranger"] = song.Arranger,
+			["musical_key"] = song.MusicalKey,
 		};
 		var fields = new List<FieldResult>();
 		foreach (var field in FieldNames)
@@ -154,7 +152,7 @@ public sealed class ScanReadingEvaluationTests(ITestOutputHelper output)
 			fields.Where(f => document.Expected.ContainsKey(f.Field) || f.Outcome.StartsWith("applied")).ToList());
 	}
 
-	/// <summary>Names, key and voice must equal; lyrics must start with the expected first line.</summary>
+	/// <summary>Names and key must equal; lyrics must start with the expected first line.</summary>
 	private static bool Matches(string field, string actual, string expected)
 	{
 		var left = Normalize(actual);
@@ -171,7 +169,6 @@ public sealed class ScanReadingEvaluationTests(ITestOutputHelper output)
 			["composer"] = "Franz Schubert",
 			["lyricist"] = "Anna Beispiel",
 			["musical_key"] = "G-Dur",
-			["voice_label"] = "Tenor 1",
 			["lyrics"] = "Im Wald da singen die Vögel",
 		});
 

@@ -8,7 +8,7 @@ using Microsoft.Extensions.Options;
 namespace Archive.Backend.Extraction;
 
 /// <summary>
-/// Seam for handing one revision's extraction work to the queue backend
+/// Seam for handing one Datei's extraction work to the queue backend
 /// (ARC-034). Implementers report whether a message was accepted so the
 /// caller can stamp the row's <see cref="ExtractionJob.LastEnqueuedAt"/>;
 /// infrastructure failures may throw — the caller owns the retry policy.
@@ -16,7 +16,7 @@ namespace Archive.Backend.Extraction;
 public interface IExtractionQueue
 {
 	/// <summary>Sends the extraction envelope for the revision; true when a message was accepted.</summary>
-	Task<bool> SendAsync(Guid revisionId, CancellationToken token);
+	Task<bool> SendAsync(Guid dateiId, CancellationToken token);
 }
 
 /// <summary>
@@ -25,7 +25,7 @@ public interface IExtractionQueue
 /// finite worker can correlate its <c>archive.queue.process</c> span with the
 /// sender, matching the <c>RunArchiveJobAsync</c> contract.
 /// </summary>
-public sealed record ExtractionEnvelope(string Type, Guid RevisionId, string? TraceParent, string? TraceState)
+public sealed record ExtractionEnvelope(string Type, Guid DateiId, string? TraceParent, string? TraceState)
 {
 	/// <summary>Only extraction messages travel on this queue.</summary>
 	public const string ExtractionType = "extraction";
@@ -70,10 +70,10 @@ public sealed class AzureExtractionQueue(QueueServiceClient client, IOptions<Ext
 {
 	private QueueClient? queueClient;
 
-	public async Task<bool> SendAsync(Guid revisionId, CancellationToken token)
+	public async Task<bool> SendAsync(Guid dateiId, CancellationToken token)
 	{
 		var queue = queueClient ??= client.GetQueueClient(options.Value.QueueName);
-		var envelope = new ExtractionEnvelope(ExtractionEnvelope.ExtractionType, revisionId,
+		var envelope = new ExtractionEnvelope(ExtractionEnvelope.ExtractionType, dateiId,
 			Activity.Current?.Id, Activity.Current?.TraceStateString);
 		await queue.SendMessageAsync(
 			JsonSerializer.Serialize(envelope, ExtractionEnvelope.SerializerOptions), token);
@@ -88,5 +88,5 @@ public sealed class AzureExtractionQueue(QueueServiceClient client, IOptions<Ext
 /// </summary>
 public sealed class NullExtractionQueue : IExtractionQueue
 {
-	public Task<bool> SendAsync(Guid revisionId, CancellationToken token) => Task.FromResult(false);
+	public Task<bool> SendAsync(Guid dateiId, CancellationToken token) => Task.FromResult(false);
 }

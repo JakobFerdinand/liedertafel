@@ -1,5 +1,4 @@
 using Archive.Backend.Data;
-using Archive.Backend.Extraction;
 using Archive.Backend.Recordings;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -53,9 +52,6 @@ public sealed class RevisionChange
 /// consumer sees one behaviour:
 /// - the pointer swap, the token bump and the history entry are staged
 ///   together and committed by the caller's single <c>SaveChanges</c>;
-/// - extraction (ARC-034) is keyed by revision, so the newly current PDF
-///   revision gains its Queued row in the same save when it has none yet;
-///   an existing row (and its text) is reused, never rewritten;
 /// - a recording whose file changes drops its measured duration in the same
 ///   save (ARC-030); later per-file consequences for recordings hook in there;
 /// - search and other readers (ARC-035) resolve text and files through the
@@ -64,11 +60,10 @@ public sealed class RevisionChange
 public static class RevisionChanges
 {
 	/// <summary>
-	/// Stages the swap on the tracked <paramref name="asset"/>. Returns true
-	/// when a new extraction row was staged and the caller should hand it to
-	/// the queue after saving (<see cref="ExtractionService.TryEnqueueAsync"/>).
+	/// Stages the swap on the tracked <paramref name="asset"/>. Text extraction
+	/// no longer follows revisions (#169 moved it to Dateien).
 	/// </summary>
-	public static async Task<bool> MakeCurrentAsync(
+	public static async Task MakeCurrentAsync(
 		ArchiveDbContext db, ArchiveAsset asset, FileRevision revision, RevisionChangeKind kind,
 		Guid accountId, DateTimeOffset now, CancellationToken token)
 	{
@@ -83,13 +78,6 @@ public static class RevisionChanges
 		});
 		asset.CurrentRevisionId = revision.Id;
 		asset.RowVersion++;
-		if (!ExtractionService.IsExtractable(asset.AssetType)
-			|| !string.Equals(revision.ContentType, AssetEndpoints.PdfContentType, StringComparison.OrdinalIgnoreCase))
-			return false;
-		if (await db.ExtractionJobs.AnyAsync(j => j.RevisionId == revision.Id, token))
-			return false;
-		db.ExtractionJobs.Add(ExtractionService.CreateForRevision(asset, revision, accountId, now));
-		return true;
 	}
 
 	/// <summary>

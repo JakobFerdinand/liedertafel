@@ -74,6 +74,48 @@ public sealed class CatalogueToolsTests
 	}
 
 	[Fact]
+	public async Task DetailsCarryTheTextAndFactsOfTheLiedsLiveNoten()
+	{
+		await using var factory = new AuthApiFactory();
+		using var scope = factory.Services.CreateScope();
+		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+		var now = DateTimeOffset.UtcNow;
+		var lied = new Lied { Title = "Hosianna" };
+		var live = NewNoten(lied, now);
+		var trashed = NewNoten(lied, now);
+		trashed.DeletedAt = now;
+		var second = NewNoten(lied, now);
+		db.Lieder.Add(lied);
+		db.Dateien.AddRange(live, trashed, second);
+		db.ExtractionJobs.AddRange(
+			new Archive.Backend.Extraction.ExtractionJob { DateiId = live.Id, Status = Archive.Backend.Extraction.ExtractionStatus.Completed, Text = "Tenor 1 A♭\n44 .å\nHo -\nåê\nsi -\nå\nan -\nå\nna,", CreatedAt = now, UpdatedAt = now },
+			new Archive.Backend.Extraction.ExtractionJob { DateiId = trashed.Id, Status = Archive.Backend.Extraction.ExtractionStatus.Completed, Text = "veraltet", CreatedAt = now, UpdatedAt = now },
+			new Archive.Backend.Extraction.ExtractionJob { DateiId = second.Id, Status = Archive.Backend.Extraction.ExtractionStatus.Completed, Text = "Tenor 1 A♭\n44 .å\nHo -\nåê\nsi -\nå\nan -\nå\nna,", CreatedAt = now, UpdatedAt = now });
+		await db.SaveChangesAsync();
+
+		var details = (AIFunction)CatalogueTools.CreateLiedDetailsTool(db);
+		var result = await details.InvokeAsync(new AIFunctionArguments(new Dictionary<string, object?> { ["liedId"] = lied.Id.ToString() }));
+		using var document = JsonDocument.Parse(result!.ToString()!);
+
+		var dateien = document.RootElement.GetProperty("dateien").EnumerateArray().ToList();
+		Assert.Equal(2, dateien.Count);
+		var texts = dateien.Select(d => d.GetProperty("notenText").GetString()).ToList();
+		// Identical text is sent once; the trashed Datei contributes nothing.
+		Assert.Single(texts, t => t == "Tenor 1 A♭ 44 Hosianna,");
+		Assert.Single(texts, t => t is null);
+		Assert.DoesNotContain("veraltet", result.ToString());
+		Assert.Equal("A♭", dateien.First(d => d.GetProperty("notenText").ValueKind == JsonValueKind.String)
+			.GetProperty("notenFakten").GetProperty("musicalKey").GetString());
+	}
+
+	private static Archive.Backend.Lieder.Datei NewNoten(Lied lied, DateTimeOffset now) => new()
+	{
+		LiedId = lied.Id, Kind = Archive.Backend.Lieder.DateiKinds.Noten, IsPartitur = true,
+		BlobName = $"dateien/{Guid.NewGuid():N}", ContentType = "application/pdf", SizeBytes = 10,
+		CreatedByAccountId = Guid.NewGuid(), CreatedAt = now, RowVersion = 1,
+	};
+
+	[Fact]
 	public async Task DetailsNameOnlyAuftritteAMemberMaySeeAndSeparatePlannedFromSung()
 	{
 		await using var factory = new AuthApiFactory();

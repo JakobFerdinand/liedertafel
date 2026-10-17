@@ -1,4 +1,4 @@
-using Archive.Backend.Assets;
+using Archive.Backend.Lieder;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -9,9 +9,9 @@ public sealed class ExtractionModelConfiguration : IEntityTypeConfiguration<Extr
 	public void Configure(EntityTypeBuilder<ExtractionJob> builder)
 	{
 		builder.ToTable("extraction_jobs");
-		// Revision-keyed idempotency (ARC-034): one row per immutable
-		// revision; late or duplicated messages always land in this same row.
-		builder.HasKey(x => x.RevisionId);
+		// Datei-keyed idempotency (ARC-034): one row per immutable
+		// Datei; late or duplicated messages always land in this same row.
+		builder.HasKey(x => x.DateiId);
 		// The app bounds the extracted text (ExtractionOptions), so the
 		// schema keeps an unbounded text column.
 		builder.Property(x => x.FailureReason).HasMaxLength(300);
@@ -19,13 +19,13 @@ public sealed class ExtractionModelConfiguration : IEntityTypeConfiguration<Extr
 		builder.Property(x => x.TextSource).HasDefaultValue(ExtractionTextSource.Embedded);
 		builder.Property(x => x.RowVersion).IsConcurrencyToken();
 		/// <summary>
-		/// The revision is immutable and deletion flows through the
+		/// The Datei is immutable and deletion flows through the
 		/// retained-reference contract (ARC-037); extraction rows must never
-		/// disappear with a revision row, so the database refuses cascades.
+		/// disappear with a Datei row, so the database refuses cascades.
 		/// </summary>
-		builder.HasOne(x => x.Revision)
+		builder.HasOne(x => x.Datei)
 			.WithMany()
-			.HasForeignKey(x => x.RevisionId)
+			.HasForeignKey(x => x.DateiId)
 			.OnDelete(DeleteBehavior.Restrict);
 	}
 }

@@ -1,6 +1,6 @@
-using Archive.Backend.Assets;
 using Archive.Backend.Data;
 using Archive.Backend.Extraction;
+using Archive.Backend.Lieder;
 using Microsoft.EntityFrameworkCore;
 
 namespace Archive.Backend.Reading;
@@ -15,12 +15,13 @@ public static class ReadingService
 {
 	private const int EnqueueAttempts = 2;
 
-	public static bool IsReadable(string assetType) => assetType == AssetEndpoints.ScoreAssetType;
+	/// <summary>Only Noten of a Lied are read: other Dateien carry no Lied fields.</summary>
+	public static bool IsReadable(Datei datei) =>
+		datei.Kind == DateiKinds.Noten && datei.LiedId is not null && ExtractionService.IsExtractable(datei);
 
-	public static ReadingJob CreateForRevision(FileRevision revision, Guid accountId, int pageLimit, DateTimeOffset now) => new()
+	public static ReadingJob CreateForDatei(Datei datei, Guid accountId, int pageLimit, DateTimeOffset now) => new()
 	{
-		RevisionId = revision.Id,
-		AssetId = revision.AssetId,
+		DateiId = datei.Id,
 		Status = ReadingStatus.Queued,
 		PageLimit = pageLimit,
 		TriggeredByAccountId = accountId,
@@ -29,7 +30,7 @@ public static class ReadingService
 	};
 
 	/// <summary>
-	/// True when the revision's text already fills the persisted bound: more
+	/// True when the Datei's text already fills the persisted bound: more
 	/// pages could not add a character, so "Rest lesen" would loop for nothing.
 	/// </summary>
 	public static bool TextIsFull(ExtractionJob extraction, int maxTextCharacters)
@@ -44,17 +45,17 @@ public static class ReadingService
 	/// rediscovers the row. Only cancellation propagates.
 	/// </summary>
 	public static async Task<bool> TryEnqueueAsync(ArchiveDbContext db, IReadingQueue queue,
-		ILogger logger, Guid revisionId, TimeProvider time, CancellationToken token)
+		ILogger logger, Guid dateiId, TimeProvider time, CancellationToken token)
 	{
 		for (var attempt = 0; attempt < EnqueueAttempts; attempt++)
 		{
 			var accepted = false;
 			try
 			{
-				if (!await queue.SendAsync(revisionId, token))
+				if (!await queue.SendAsync(dateiId, token))
 					return false;
 				accepted = true;
-				var job = await db.ReadingJobs.FirstOrDefaultAsync(j => j.RevisionId == revisionId, token);
+				var job = await db.ReadingJobs.FirstOrDefaultAsync(j => j.DateiId == dateiId, token);
 				if (job is not null)
 				{
 					job.LastEnqueuedAt = time.GetUtcNow();

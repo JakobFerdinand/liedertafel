@@ -1,5 +1,5 @@
-using Archive.Backend.Assets;
 using Archive.Backend.Data;
+using Archive.Backend.Lieder;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -18,34 +18,19 @@ public static class ExtractionService
 	private const int EnqueueAttempts = 2;
 
 	/// <summary>
-	/// Creates the Queued row for a finalized revision (ARC-034); the caller
+	/// Creates the Queued row for a finalized Datei (ARC-034); the caller
 	/// adds it to the change tracker so it is written in the same
-	/// <c>SaveChanges</c> as the revision (outbox).
+	/// <c>SaveChanges</c> as the Datei (outbox). Also the worker's self-healing
+	/// path: the Datei itself supplies the triggering account.
 	/// </summary>
-	public static ExtractionJob CreateForRevision(ArchiveAsset asset,
-		FileRevision revision, Guid accountId, DateTimeOffset now) =>
-		CreateForRevision(asset.Id, revision, accountId, now);
-
-	private static ExtractionJob CreateForRevision(Guid assetId,
-		FileRevision revision, Guid accountId, DateTimeOffset now)
+	public static ExtractionJob CreateForDatei(Datei datei, DateTimeOffset now) => new()
 	{
-		return new ExtractionJob
-		{
-			RevisionId = revision.Id,
-			AssetId = assetId,
-			Status = ExtractionStatus.Queued,
-			TriggeredByAccountId = accountId,
-			CreatedAt = now,
-			UpdatedAt = now,
-		};
-	}
-
-	/// <summary>
-	/// Revision-carried overload for the worker's self-healing path (ARC-034):
-	/// the revision itself supplies asset id and triggering account.
-	/// </summary>
-	public static ExtractionJob CreateForRevision(FileRevision revision, DateTimeOffset now) =>
-		CreateForRevision(revision.AssetId, revision, revision.CreatedByAccountId, now);
+		DateiId = datei.Id,
+		Status = ExtractionStatus.Queued,
+		TriggeredByAccountId = datei.CreatedByAccountId,
+		CreatedAt = now,
+		UpdatedAt = now,
+	};
 
 	/// <summary>Shared lease rule for worker recovery and the editor's retry action.</summary>
 	public static bool HasStaleLease(ExtractionJob job, DateTimeOffset now, ExtractionOptions options) =>
@@ -59,19 +44,19 @@ public static class ExtractionService
 	/// sweeper rediscovers the row.
 	/// </summary>
 	public static async Task<bool> TryEnqueueAsync(ArchiveDbContext db, IExtractionQueue queue,
-		ILogger logger, Guid revisionId, TimeProvider time, CancellationToken token)
+		ILogger logger, Guid dateiId, TimeProvider time, CancellationToken token)
 	{
 		for (var attempt = 0; attempt < EnqueueAttempts; attempt++)
 		{
 			var accepted = false;
 			try
 			{
-				if (!await queue.SendAsync(revisionId, token))
+				if (!await queue.SendAsync(dateiId, token))
 					return false;
 				accepted = true;
 				// Identity resolution returns the tracked row when the caller
 				// just saved it, so the stamp rides the same context.
-				var job = await db.ExtractionJobs.FirstOrDefaultAsync(j => j.RevisionId == revisionId, token);
+				var job = await db.ExtractionJobs.FirstOrDefaultAsync(j => j.DateiId == dateiId, token);
 				if (job is not null)
 				{
 					job.LastEnqueuedAt = time.GetUtcNow();
@@ -93,9 +78,11 @@ public static class ExtractionService
 	}
 
 	/// <summary>
-	/// ARC-034 subscribes only to the PDF-based material kinds; audio, MIDI
-	/// and photographs never create extraction work.
+	/// ARC-034 subscribes only to PDF Dateien of the kinds that carry text:
+	/// Noten and sonstige Dateien. Audio, MIDI, recordings and photographs
+	/// never create extraction work.
 	/// </summary>
-	public static bool IsExtractable(string assetType) =>
-		assetType is AssetEndpoints.ScoreAssetType or AssetEndpoints.DocumentAssetType;
+	public static bool IsExtractable(Datei datei) =>
+		datei.Kind is DateiKinds.Noten or DateiKinds.Sonstiges
+		&& string.Equals(datei.ContentType, "application/pdf", StringComparison.OrdinalIgnoreCase);
 }

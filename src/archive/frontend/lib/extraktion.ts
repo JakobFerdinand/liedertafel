@@ -5,7 +5,7 @@
 import { postAuth } from "@/lib/auth";
 import type { NotenAngaben } from "@/lib/songs";
 
-/** Höchstzahl der Revisionen je Anfrage (Vertrag ExtractionEndpoints). */
+/** Höchstzahl der Dateien je Anfrage (Vertrag ExtractionEndpoints). */
 export const extraktionsLimit = 100;
 
 /** Zustände eines Auswertungslaufs (Vertrag ExtractionEndpoints). */
@@ -41,9 +41,7 @@ export type LeseInfo = {
 
 /** Eine Auswertungszeile des Stapelabrufs (Vertrag StatusPayload). */
 export type ExtraktionsInfo = {
-  revisionId: string;
-  assetId: string;
-  revisionNumber: number;
+  dateiId: string;
   status: ExtraktionsStatus;
   /** Woher der Text stammt: eingebettet oder von der KI aus dem Scan gelesen. */
   textSource?: "embedded" | "reading";
@@ -66,20 +64,20 @@ export type ExtraktionsInfo = {
 };
 
 /**
- * Auswertungsstand mehrerer Revisionen, in der Reihenfolge der Anfrage;
+ * Auswertungsstand mehrerer Dateien, in der Reihenfolge der Anfrage;
  * unbekannte Kennungen fehlen in der Antwort still. Ohne Kennungen
  * entsteht keine Anfrage. Größere Listen werden nacheinander abgefragt.
  */
 export async function holeExtraktionStatus(
-  revisionIds: string[],
+  dateiIds: string[],
   signal?: AbortSignal,
 ): Promise<ExtraktionsInfo[]> {
   const results: ExtraktionsInfo[] = [];
-  for (let start = 0; start < revisionIds.length; start += extraktionsLimit) {
+  for (let start = 0; start < dateiIds.length; start += extraktionsLimit) {
     const parameter = new URLSearchParams({
-      ids: revisionIds.slice(start, start + extraktionsLimit).join(","),
+      ids: dateiIds.slice(start, start + extraktionsLimit).join(","),
     });
-    const response = await fetch(`/api/revisions/extraction?${parameter}`, {
+    const response = await fetch(`/api/dateien/extraction?${parameter}`, {
       credentials: "same-origin",
       cache: "no-store",
       signal,
@@ -92,15 +90,15 @@ export async function holeExtraktionStatus(
 }
 
 /**
- * Startet die Auswertung einer Revision erneut (oder legt die fehlende
- * Zeile an); die Antwort trägt den aktuellen Stand dieser einen Revision.
+ * Startet die Auswertung einer Datei erneut (oder legt die fehlende
+ * Zeile an); die Antwort trägt den aktuellen Stand dieser einen Datei.
  */
 export async function starteExtraktionErneut(
-  revisionId: string,
+  dateiId: string,
   signal?: AbortSignal,
 ): Promise<ExtraktionsInfo> {
   const response = await postAuth(
-    `/api/revisions/${encodeURIComponent(revisionId)}/extraction/retry`,
+    `/api/dateien/${encodeURIComponent(dateiId)}/extraction/retry`,
     {},
     signal,
   );
@@ -109,12 +107,12 @@ export async function starteExtraktionErneut(
 }
 
 async function lesenAnstossen(
-  revisionId: string,
+  dateiId: string,
   aktion: "retry" | "continue",
   signal?: AbortSignal,
 ): Promise<LeseInfo> {
   const response = await postAuth(
-    `/api/revisions/${encodeURIComponent(revisionId)}/reading/${aktion}`,
+    `/api/dateien/${encodeURIComponent(dateiId)}/reading/${aktion}`,
     {},
     signal,
   );
@@ -123,13 +121,13 @@ async function lesenAnstossen(
 }
 
 /** Startet das KI-Lesen erneut (oder legt die fehlende Zeile an). */
-export function starteLesenErneut(revisionId: string, signal?: AbortSignal) {
-  return lesenAnstossen(revisionId, "retry", signal);
+export function starteLesenErneut(dateiId: string, signal?: AbortSignal) {
+  return lesenAnstossen(dateiId, "retry", signal);
 }
 
 /** „Rest lesen“: die nächsten Seiten einer teilweise gelesenen Datei. */
-export function leseRest(revisionId: string, signal?: AbortSignal) {
-  return lesenAnstossen(revisionId, "continue", signal);
+export function leseRest(dateiId: string, signal?: AbortSignal) {
+  return lesenAnstossen(dateiId, "continue", signal);
 }
 
 /** Läuft das KI-Lesen noch (die Liste fragt dann weiter nach)? */

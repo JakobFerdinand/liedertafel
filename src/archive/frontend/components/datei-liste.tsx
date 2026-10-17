@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { DateiAktionen } from "@/components/datei-aktionen";
 import { DateiSpieler } from "@/components/datei-spieler";
+import { ExtraktionStatus } from "@/components/extraktion-status";
+import { ExtraktionUebersichtProvider } from "@/components/extraktion-uebersicht";
 import { NotenAnsicht } from "@/components/noten-ansicht";
 import { groesseText } from "@/lib/assets";
 import { fetchDateiZugriff } from "@/lib/dateien";
@@ -69,38 +71,52 @@ export function DateiListe({
     return <p className="noten-info">Noch keine Dateien hochgeladen.</p>;
   }
   return (
-    <div className="material-liste">
-      {dateiArten.map(([art, titel]) => {
-        const gruppe = dateien.filter((datei) => datei.kind === art);
-        if (gruppe.length === 0) return null;
-        return (
-          <div className="material-gruppe" key={art}>
-            <h4>{titel}</h4>
-            {gruppe.map((datei) => (
-              <div key={datei.id}>
-                {art === "noten" ? (
-                  <NotenAnsicht datei={datei} />
-                ) : art === "uebe" || art === "aufnahme" ? (
-                  <DateiSpieler
-                    datei={datei}
-                    aktiv={spielendeDatei === datei.id}
-                    onAbspielen={() => setSpielendeDatei(datei.id)}
-                  />
-                ) : (
-                  <EinfacheDatei datei={datei} />
-                )}
-                {liedId && onGeaendert && (
-                  <DateiAktionen
-                    liedId={liedId}
-                    datei={datei}
-                    onGeaendert={onGeaendert}
-                  />
-                )}
-              </div>
-            ))}
-          </div>
-        );
-      })}
-    </div>
+    <ExtraktionUebersichtProvider>
+      <div className="material-liste">
+        {dateiArten.map(([art, titel]) => {
+          const gruppe = dateien.filter((datei) => datei.kind === art);
+          if (gruppe.length === 0) return null;
+          return (
+            <div className="material-gruppe" key={art}>
+              <h4>{titel}</h4>
+              {gruppe.map((datei) => (
+                <div key={datei.id}>
+                  {art === "noten" ? (
+                    <>
+                      <NotenAnsicht datei={datei} />
+                      {liedId && onGeaendert && (
+                        <ExtraktionStatus
+                          dateiId={datei.id}
+                          isEditor
+                          kannLesen
+                          angabenBekannt
+                          bezeichnung={dateiTitel(datei)}
+                          onErkannt={onGeaendert}
+                        />
+                      )}
+                    </>
+                  ) : art === "uebe" || art === "aufnahme" ? (
+                    <DateiSpieler
+                      datei={datei}
+                      aktiv={spielendeDatei === datei.id}
+                      onAbspielen={() => setSpielendeDatei(datei.id)}
+                    />
+                  ) : (
+                    <EinfacheDatei datei={datei} />
+                  )}
+                  {liedId && onGeaendert && (
+                    <DateiAktionen
+                      liedId={liedId}
+                      datei={datei}
+                      onGeaendert={onGeaendert}
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          );
+        })}
+      </div>
+    </ExtraktionUebersichtProvider>
   );
 }

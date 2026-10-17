@@ -100,6 +100,8 @@ public sealed class CatalogueWriteService(ArchiveDbContext db)
 	public async Task<object?> LoadEntityAsync(string entityType, Guid entityId, CancellationToken token)
 		=> entityType switch
 		{
+			FieldCatalog.EntityTypeLied => await db.Lieder
+				.FirstOrDefaultAsync(l => l.Id == entityId, token),
 			FieldCatalog.EntityTypeSong => await db.Songs
 				.Include(s => s.AlternateTitles)
 				.Include(s => s.Tags)
@@ -120,6 +122,7 @@ public sealed class CatalogueWriteService(ArchiveDbContext db)
 	/// <summary>The optimistic row version of any of the five target entity types.</summary>
 	public static uint RowVersionOf(object entity) => entity switch
 	{
+		Lieder.Lied lied => lied.RowVersion,
 		Song song => song.RowVersion,
 		Arrangement arrangement => arrangement.RowVersion,
 		MusicalVersion musicalVersion => musicalVersion.RowVersion,
@@ -137,6 +140,11 @@ public sealed class CatalogueWriteService(ArchiveDbContext db)
 	{
 		switch (entity, field)
 		{
+			case (Lieder.Lied lied, "composer"): return lied.Composer;
+			case (Lieder.Lied lied, "lyricist"): return lied.Lyricist;
+			case (Lieder.Lied lied, "arranger"): return lied.Arranger;
+			case (Lieder.Lied lied, "musical_key"): return lied.MusicalKey;
+			case (Lieder.Lied lied, "lyrics"): return lied.Lyrics;
 			case (Song song, "title"): return song.Title;
 			case (Song song, "composer"): return song.Composer;
 			case (Song song, "lyricist"): return song.Lyricist;
@@ -173,6 +181,8 @@ public sealed class CatalogueWriteService(ArchiveDbContext db)
 	{
 		switch (entity, field)
 		{
+			case (Lieder.Lied lied, var f) when FieldCatalog.IsKnownField(FieldCatalog.EntityTypeLied, f):
+				return await WriteLiedFieldAsync(lied, f, value, actor, automated, token);
 			case (Song song, var f) when FieldCatalog.IsKnownField(FieldCatalog.EntityTypeSong, f):
 				return await PatchSongAsync(song, SingleFieldSongRequest(f, value), null, actor, automated, token);
 			case (Arrangement arrangement, var f) when FieldCatalog.IsKnownField(FieldCatalog.EntityTypeArrangement, f):
@@ -192,6 +202,38 @@ public sealed class CatalogueWriteService(ArchiveDbContext db)
 			default:
 				return WriteOutcome.Invalid(UnknownFieldMessage);
 		}
+	}
+
+	// ---- Lieder ------------------------------------------------------------
+
+	/// <summary>
+	/// Writes one Lied field (the automated reading fills only these). Values
+	/// are trimmed and bounded like the editor's patch; an automated write
+	/// leaves the editor attribution of the Lied untouched.
+	/// </summary>
+	private async Task<WriteOutcome> WriteLiedFieldAsync(
+		Lieder.Lied lied, string field, string? value, WriteActor actor, bool automated, CancellationToken token)
+	{
+		var clean = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+		var max = field == "lyrics" ? Lieder.LiedEndpoints.LyricsMaxLength : Lieder.LiedEndpoints.FieldMaxLength;
+		if (clean is not null && clean.Length > max)
+			return WriteOutcome.Invalid("Der Wert ist zu lang.");
+		switch (field)
+		{
+			case "composer": lied.Composer = clean; break;
+			case "lyricist": lied.Lyricist = clean; break;
+			case "arranger": lied.Arranger = clean; break;
+			case "musical_key": lied.MusicalKey = clean; break;
+			case "lyrics": lied.Lyrics = clean; break;
+			default: return WriteOutcome.Invalid(UnknownFieldMessage);
+		}
+		lied.UpdatedAt = actor.Now;
+		if (!automated)
+			lied.UpdatedByAccountId = actor.AccountId;
+		lied.RowVersion++;
+		try { await db.SaveChangesAsync(token); }
+		catch (DbUpdateConcurrencyException) { return WriteOutcome.Stale(CatalogueEndpoints.ConcurrencyMessage); }
+		return WriteOutcome.Saved();
 	}
 
 	// ---- Songs -------------------------------------------------------------

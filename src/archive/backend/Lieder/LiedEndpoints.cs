@@ -41,6 +41,24 @@ public static class LiedEndpoints
 
 	public const int LyricsMaxLength = 5000;
 
+	/// <summary>
+	/// The folded extracted text of every Lied's live Noten, joined per Lied.
+	/// Dateien in the trash contribute nothing, so a replaced or deleted Noten
+	/// stops being found.
+	/// </summary>
+	private static async Task<Dictionary<Guid, string>> LoadNotenTextsAsync(ArchiveDbContext db, CancellationToken token)
+	{
+		var texts = await (
+			from job in db.ExtractionJobs.AsNoTracking()
+			join datei in DateiQueries.Visible(db) on job.DateiId equals datei.Id
+			where datei.LiedId != null && datei.Kind == DateiKinds.Noten
+				&& job.Status == Extraction.ExtractionStatus.Completed && job.Text != null
+			select new { LiedId = datei.LiedId!.Value, job.Text })
+			.ToListAsync(token);
+		return texts.GroupBy(t => t.LiedId)
+			.ToDictionary(g => g.Key, g => string.Join('\n', g.Select(t => CatalogueText.Fold(t.Text))));
+	}
+
 	public static void MapLiedEndpoints(this IEndpointRouteBuilder app)
 	{
 		app.MapGet("/api/lieder", async (
@@ -77,6 +95,12 @@ public static class LiedEndpoints
 			var kindsByLied = kindRows.GroupBy(k => k.LiedId)
 				.ToDictionary(g => g.Key, g => g.Select(k => k.Kind).ToHashSet());
 
+			// Plain search also reads the text of each Lied's live Noten (#169):
+			// every word must stand in the title or in that text.
+			var noteTexts = tokens.Count == 0
+				? []
+				: await LoadNotenTextsAsync(db, token);
+
 			var matches = rows
 				.Where(r => voiceFilter.Length == 0 || CatalogueText.Fold(r.VoiceConfiguration) == voiceFilter)
 				.Where(r => occasionFilter.Length == 0 || CatalogueText.Fold(r.Occasion) == occasionFilter)
@@ -85,7 +109,8 @@ public static class LiedEndpoints
 				.Where(r =>
 				{
 					var title = CatalogueText.Fold(r.Title);
-					return tokens.All(title.Contains);
+					var notes = noteTexts.GetValueOrDefault(r.Id) ?? string.Empty;
+					return tokens.All(t => title.Contains(t) || notes.Contains(t));
 				})
 				.OrderBy(r => CatalogueText.Fold(r.Title), StringComparer.Ordinal)
 				.ThenBy(r => r.Id)

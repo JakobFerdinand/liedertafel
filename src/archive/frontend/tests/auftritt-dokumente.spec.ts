@@ -111,6 +111,10 @@ function detail(dokumente: unknown[] = []) {
 
 async function mockSitzung(page: Page, me: unknown) {
   await mockLeereAufnahmen(page);
+  // #169: PDF-Dokumente fragen ihren Auswertungsstand ab (hier: nichts bekannt).
+  await page.route("**/api/dateien/extraction*", (route) =>
+    route.fulfill(json({ results: [] })),
+  );
   await page.route("**/api/auth/me", (route) => route.fulfill(json(me)));
   await page.route("**/api/antiforgery", (route) =>
     route.fulfill(json({ token: "test" })),
