@@ -160,11 +160,9 @@ public sealed class DateiUploadTests
 		Assert.Equal(HttpStatusCode.BadRequest, noStimme.StatusCode);
 		using var unknownKind = await host.PostAsync(path, new { kind = "video" }, editor);
 		Assert.Equal(HttpStatusCode.UnprocessableEntity, unknownKind.StatusCode);
-		using var notYet = await host.PostAsync(path, new { kind = "uebe", stimme = "Alle" }, editor);
-		Assert.Equal(HttpStatusCode.UnprocessableEntity, notYet.StatusCode);
-		using var replace = await host.PostAsync(path,
+		using var replaceUnknown = await host.PostAsync(path,
 			new { kind = "noten", isPartitur = true, replacesDateiId = Guid.NewGuid() }, editor);
-		Assert.Equal(HttpStatusCode.UnprocessableEntity, replace.StatusCode);
+		Assert.Equal(HttpStatusCode.NotFound, replaceUnknown.StatusCode);
 		using var tooBig = await host.PostAsync(path, new { kind = "noten", isPartitur = true, sizeBytes = 4096 }, editor);
 		Assert.Equal(HttpStatusCode.RequestEntityTooLarge, tooBig.StatusCode);
 		using var missing = await host.PostAsync($"/api/lieder/{Guid.NewGuid()}/dateien/upload-session",

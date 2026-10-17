@@ -1,14 +1,16 @@
 "use client";
 
 import { useState } from "react";
+import { DateiAktionen } from "@/components/datei-aktionen";
+import { DateiSpieler } from "@/components/datei-spieler";
 import { NotenAnsicht } from "@/components/noten-ansicht";
 import { groesseText } from "@/lib/assets";
 import { fetchDateiZugriff } from "@/lib/dateien";
 import { dateiArten, dateiTitel, type LiedDatei } from "@/lib/lieder";
 
 /**
- * Andere Dateien als Noten (#166): Name, Größe und Herunterladen. #167 ersetzt
- * für Übe-Dateien und Aufnahmen den Eintrag durch einen Spieler, #168 ergänzt
+ * Sonstige Dateien (#166): Name, Größe und Herunterladen. Übe-Dateien und
+ * Aufnahmen spielt DateiSpieler (#167); #168 ergänzt
  * Ersetzen und Löschen; beides in eigenen Komponenten, hier nur die Einhängung.
  */
 function EinfacheDatei({ datei }: { datei: LiedDatei }) {
@@ -52,7 +54,17 @@ function EinfacheDatei({ datei }: { datei: LiedDatei }) {
 }
 
 /** Die Dateien eines Liedes, gruppiert nach Art (Noten, Übe-Dateien, …). */
-export function DateiListe({ dateien }: { dateien: LiedDatei[] }) {
+export function DateiListe({
+  dateien,
+  liedId,
+  onGeaendert,
+}: {
+  dateien: LiedDatei[];
+  /** Mit `liedId` und `onGeaendert` zeigt jede Datei Ersetzen und Löschen (#168, nur Redaktion). */
+  liedId?: string;
+  onGeaendert?: () => void;
+}) {
+  const [spielendeDatei, setSpielendeDatei] = useState<string | null>(null);
   if (dateien.length === 0) {
     return <p className="noten-info">Noch keine Dateien hochgeladen.</p>;
   }
@@ -64,13 +76,28 @@ export function DateiListe({ dateien }: { dateien: LiedDatei[] }) {
         return (
           <div className="material-gruppe" key={art}>
             <h4>{titel}</h4>
-            {gruppe.map((datei) =>
-              art === "noten" ? (
-                <NotenAnsicht key={datei.id} datei={datei} />
-              ) : (
-                <EinfacheDatei key={datei.id} datei={datei} />
-              ),
-            )}
+            {gruppe.map((datei) => (
+              <div key={datei.id}>
+                {art === "noten" ? (
+                  <NotenAnsicht datei={datei} />
+                ) : art === "uebe" || art === "aufnahme" ? (
+                  <DateiSpieler
+                    datei={datei}
+                    aktiv={spielendeDatei === datei.id}
+                    onAbspielen={() => setSpielendeDatei(datei.id)}
+                  />
+                ) : (
+                  <EinfacheDatei datei={datei} />
+                )}
+                {liedId && onGeaendert && (
+                  <DateiAktionen
+                    liedId={liedId}
+                    datei={datei}
+                    onGeaendert={onGeaendert}
+                  />
+                )}
+              </div>
+            ))}
           </div>
         );
       })}

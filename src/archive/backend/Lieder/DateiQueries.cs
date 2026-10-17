@@ -11,4 +11,8 @@ public static class DateiQueries
 {
 	public static IQueryable<Datei> Visible(ArchiveDbContext db) =>
 		db.Dateien.Where(d => d.DeletedAt == null);
+
+	/// <summary>The trash: deleted or replaced Dateien, for the editor list only.</summary>
+	public static IQueryable<Datei> Trashed(ArchiveDbContext db) =>
+		db.Dateien.Where(d => d.DeletedAt != null);
 }

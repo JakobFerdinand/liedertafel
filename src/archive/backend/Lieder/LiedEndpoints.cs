@@ -1,3 +1,4 @@
+using Archive.Backend.Events;
 using Archive.Backend.Auth;
 using Archive.Backend.Catalogue;
 using Archive.Backend.Data;
@@ -129,13 +130,13 @@ public static class LiedEndpoints
 			Guid id, CancellationToken token) =>
 		{
 			context.Response.Headers.CacheControl = "no-store";
-			var (_, error) = await LiedAccess.RequireMemberAsync(context, accessor, access);
+			var (decision, error) = await LiedAccess.RequireMemberAsync(context, accessor, access);
 			if (error is not null)
 				return error;
 			var lied = await db.Lieder.AsNoTracking().FirstOrDefaultAsync(l => l.Id == id, token);
 			if (lied is null)
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
-			return Results.Ok(new { lied = await DetailAsync(db, lied, token) });
+			return Results.Ok(new { lied = await DetailAsync(db, lied, LiedAccess.IsEditor(decision!), token) });
 		});
 
 		app.MapPost("/api/lieder", async (
@@ -170,7 +171,7 @@ public static class LiedEndpoints
 				return problem;
 			db.Lieder.Add(lied);
 			await db.SaveChangesAsync(token);
-			return Results.Created($"/api/lieder/{lied.Id}", new { lied = await DetailAsync(db, lied, token) });
+			return Results.Created($"/api/lieder/{lied.Id}", new { lied = await DetailAsync(db, lied, true, token) });
 		}).DisableAntiforgery();
 
 		app.MapPatch("/api/lieder/{id}", async (
@@ -218,7 +219,7 @@ public static class LiedEndpoints
 			{
 				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
 			}
-			return Results.Ok(new { lied = await DetailAsync(db, lied, token) });
+			return Results.Ok(new { lied = await DetailAsync(db, lied, true, token) });
 		}).DisableAntiforgery();
 	}
 
@@ -258,11 +259,18 @@ public static class LiedEndpoints
 			.OrderBy(v => CatalogueText.Fold(v), StringComparer.Ordinal)
 			.ToArray();
 
-	private static async Task<object> DetailAsync(ArchiveDbContext db, Lied lied, CancellationToken token)
+	private static async Task<object> DetailAsync(ArchiveDbContext db, Lied lied, bool isEditor, CancellationToken token)
 	{
 		var dateien = await DateiQueries.Visible(db).AsNoTracking()
 			.Where(d => d.LiedId == lied.Id)
 			.ToListAsync(token);
+		// An Aufnahme names its Auftritt; members only get the link while the Auftritt is published.
+		var eventIds = dateien.Where(d => d.RecordedAtEventId != null).Select(d => d.RecordedAtEventId!.Value).Distinct().ToList();
+		var events = eventIds.Count == 0
+			? []
+			: (await db.Events.AsNoTracking().Where(e => eventIds.Contains(e.Id)).ToListAsync(token))
+				.Where(e => isEditor || EventVisibility.IsMemberVisible(e))
+				.ToDictionary(e => e.Id);
 		return new
 		{
 			id = lied.Id,
@@ -284,7 +292,9 @@ public static class LiedEndpoints
 				.ThenBy(d => d.Stimme, StringComparer.OrdinalIgnoreCase)
 				.ThenBy(d => d.CreatedAt)
 				.ThenBy(d => d.Id)
-				.Select(DateiPayloads.Summary),
+				.Select(d => DateiPayloads.Summary(d, d.RecordedAtEventId is { } id && events.TryGetValue(id, out var e)
+					? new { id = e.Id, title = e.Title, dateDisplay = EventDate.Display(e.DateYear, e.DateMonth, e.DateDay, e.DateApproximate) }
+					: null)),
 		};
 	}
 
@@ -295,7 +305,7 @@ public static class LiedEndpoints
 /// <summary>Wire shape of a Datei, shared by every endpoint that returns one.</summary>
 public static class DateiPayloads
 {
-	public static object Summary(Datei d) => new
+	public static object Summary(Datei d, object? recordedAtEvent = null) => new
 	{
 		id = d.Id,
 		kind = d.Kind,
@@ -306,6 +316,8 @@ public static class DateiPayloads
 		contentType = d.ContentType,
 		sizeBytes = d.SizeBytes,
 		createdAt = d.CreatedAt,
+		rowVersion = d.RowVersion,
+		recordedAtEvent,
 	};
 }
 
