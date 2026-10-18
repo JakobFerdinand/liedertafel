@@ -1,6 +1,7 @@
 using Archive.Backend.Auth;
 using Archive.Backend.Data;
 using Archive.Backend.Events;
+using Archive.Backend.Lieder;
 using Microsoft.EntityFrameworkCore;
 
 namespace Archive.Backend.Catalogue;
@@ -53,9 +54,6 @@ public sealed class CatalogueWriteService(ArchiveDbContext db)
 {
 	public const string UnknownFieldMessage = "Unbekanntes Feld.";
 
-	public static bool IsEditor(ArchiveAccessDecision decision)
-		=> decision.IsAdministrator || decision.Roles.Contains(ArchiveRoles.Editor);
-
 	/// <summary>
 	/// Loads the entity an automated field write points at (tracked, so
 	/// the caller can write through it). Returns null for unknown ids or an
@@ -71,33 +69,16 @@ public sealed class CatalogueWriteService(ArchiveDbContext db)
 			_ => null,
 		};
 
-	/// <summary>The optimistic row version of any of a target entity type.</summary>
-	public static uint RowVersionOf(object entity) => entity switch
-	{
-		Lieder.Lied lied => lied.RowVersion,
-		ChoirEvent choirEvent => choirEvent.RowVersion,
-		_ => throw new InvalidOperationException(
-			$"Unbekannter Eintragstyp in RowVersionOf ({entity.GetType().Name})."),
-	};
-
 	/// <summary>
 	/// The current value of one catalogued field in its joined-string form
 	/// (list fields newline-joined); null is an unset field.
 	/// </summary>
-	public static string? CurrentFieldValue(object entity, string field)
+	public static string? CurrentFieldValue(object entity, string field) => entity switch
 	{
-		switch (entity, field)
-		{
-			case (Lieder.Lied lied, "composer"): return lied.Composer;
-			case (Lieder.Lied lied, "lyricist"): return lied.Lyricist;
-			case (Lieder.Lied lied, "arranger"): return lied.Arranger;
-			case (Lieder.Lied lied, "musical_key"): return lied.MusicalKey;
-			case (Lieder.Lied lied, "lyrics"): return lied.Lyrics;
-			case (ChoirEvent choirEvent, "notes"): return choirEvent.Notes;
-			case (ChoirEvent choirEvent, "source_note"): return choirEvent.SourceNote;
-			default: throw new InvalidOperationException($"Unbekanntes Feld {field} in CurrentFieldValue.");
-		}
-	}
+		Lieder.Lied lied when FieldCatalog.AutomatedLiedField(field) is { } liedField => liedField.Get(lied),
+		ChoirEvent choirEvent when FieldCatalog.AutomatedEventField(field) is { } eventField => eventField.Get(choirEvent),
+		_ => throw new InvalidOperationException($"Unbekanntes Feld {field} in CurrentFieldValue."),
+	};
 
 	/// <summary>
 	/// Writes exactly one catalogued field with the given value through the
@@ -106,16 +87,13 @@ public sealed class CatalogueWriteService(ArchiveDbContext db)
 	public async Task<WriteOutcome> WriteFieldAsync(
 		object entity, string field, string? value, WriteActor actor, bool automated, CancellationToken token)
 	{
-		switch (entity, field)
+		switch (entity)
 		{
-			case (Lieder.Lied lied, var f) when FieldCatalog.IsKnownField(FieldCatalog.EntityTypeLied, f):
-				return await WriteLiedFieldAsync(lied, f, value, actor, automated, token);
-			case (ChoirEvent choirEvent, var f) when FieldCatalog.IsKnownField(FieldCatalog.EntityTypeEvent, f):
-				return await PatchEventAsync(choirEvent, new PatchEventRequest(
-					Title: null, Kind: null, Venue: null, Date: null, StartTime: null,
-					Notes: f == "notes" ? value : null,
-					SourceNote: f == "source_note" ? value : null,
-					ExpectedRowVersion: null), actor, automated, token);
+			case Lieder.Lied lied when FieldCatalog.AutomatedLiedField(field) is { } liedField:
+				// An automated write clears nothing it was not given: null is an empty value here.
+				return await PatchLiedAsync(lied, null, [(liedField, value ?? string.Empty)], null, actor, automated, token);
+			case ChoirEvent choirEvent when FieldCatalog.AutomatedEventField(field) is { } eventField:
+				return await PatchEventAsync(choirEvent, eventField.ToPatch(value), actor, automated, token);
 			default:
 				return WriteOutcome.Invalid(UnknownFieldMessage);
 		}
@@ -124,26 +102,62 @@ public sealed class CatalogueWriteService(ArchiveDbContext db)
 	// ---- Lieder ------------------------------------------------------------
 
 	/// <summary>
-	/// Writes one Lied field (the automated reading fills only these). Values
-	/// are trimmed and bounded like the editor's patch; an automated write
-	/// leaves the editor attribution of the Lied untouched.
+	/// Creates a Lied: title required, every field trimmed and bounded like a
+	/// patch. The Lied is attributed to the actor.
 	/// </summary>
-	private async Task<WriteOutcome> WriteLiedFieldAsync(
-		Lieder.Lied lied, string field, string? value, WriteActor actor, bool automated, CancellationToken token)
+	public async Task<(WriteOutcome Outcome, Lieder.Lied? Lied)> CreateLiedAsync(
+		string? rawTitle, LiedFieldValues fields, WriteActor actor, CancellationToken token)
 	{
-		var clean = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-		var max = field == "lyrics" ? Lieder.LiedEndpoints.LyricsMaxLength : Lieder.LiedEndpoints.FieldMaxLength;
-		if (clean is not null && clean.Length > max)
-			return WriteOutcome.Invalid("Der Wert ist zu lang.");
-		switch (field)
+		var title = rawTitle?.Trim();
+		if (string.IsNullOrEmpty(title))
+			return (WriteOutcome.Invalid(Lieder.LiedEndpoints.TitleRequiredMessage), null);
+		if (title.Length > Lieder.LiedEndpoints.FieldMaxLength)
+			return (WriteOutcome.Invalid(Lieder.LiedEndpoints.FieldTooLongMessage), null);
+		var lied = new Lieder.Lied
 		{
-			case "composer": lied.Composer = clean; break;
-			case "lyricist": lied.Lyricist = clean; break;
-			case "arranger": lied.Arranger = clean; break;
-			case "musical_key": lied.MusicalKey = clean; break;
-			case "lyrics": lied.Lyrics = clean; break;
-			default: return WriteOutcome.Invalid(UnknownFieldMessage);
+			Title = title,
+			CreatedAt = actor.Now,
+			CreatedByAccountId = actor.AccountId,
+			UpdatedAt = actor.Now,
+			UpdatedByAccountId = actor.AccountId,
+			RowVersion = 1,
+		};
+		if (ApplyLiedFields(lied, Changes(fields)) is { } invalid)
+			return (invalid, null);
+		db.Lieder.Add(lied);
+		await db.SaveChangesAsync(token);
+		return (WriteOutcome.Saved(), lied);
+	}
+
+	/// <summary>
+	/// Patches a Lied: a null title or field stays, an empty field clears.
+	/// Values are trimmed and bounded; an automated write leaves the editor
+	/// attribution of the Lied untouched.
+	/// </summary>
+	public Task<WriteOutcome> PatchLiedAsync(
+		Lieder.Lied lied, string? rawTitle, LiedFieldValues fields, uint? expectedRowVersion,
+		WriteActor actor, bool automated, CancellationToken token)
+		=> PatchLiedAsync(lied, rawTitle, Changes(fields), expectedRowVersion, actor, automated, token);
+
+	private async Task<WriteOutcome> PatchLiedAsync(
+		Lieder.Lied lied, string? rawTitle, IReadOnlyList<(LiedField Field, string? Value)> changes,
+		uint? expectedRowVersion, WriteActor actor, bool automated, CancellationToken token)
+	{
+		if (expectedRowVersion is { } expected && expected != lied.RowVersion)
+			return WriteOutcome.Stale(Lieder.LiedEndpoints.ConcurrencyMessage);
+		string? title = null;
+		if (rawTitle is not null)
+		{
+			title = rawTitle.Trim();
+			if (title.Length == 0)
+				return WriteOutcome.Invalid(Lieder.LiedEndpoints.TitleRequiredMessage);
+			if (title.Length > Lieder.LiedEndpoints.FieldMaxLength)
+				return WriteOutcome.Invalid(Lieder.LiedEndpoints.FieldTooLongMessage);
 		}
+		if (ApplyLiedFields(lied, changes) is { } invalid)
+			return invalid;
+		if (title is not null)
+			lied.Title = title;
 		lied.UpdatedAt = actor.Now;
 		if (!automated)
 			lied.UpdatedByAccountId = actor.AccountId;
@@ -151,6 +165,22 @@ public sealed class CatalogueWriteService(ArchiveDbContext db)
 		try { await db.SaveChangesAsync(token); }
 		catch (DbUpdateConcurrencyException) { return WriteOutcome.Stale(Lieder.LiedEndpoints.ConcurrencyMessage); }
 		return WriteOutcome.Saved();
+	}
+
+	private static IReadOnlyList<(LiedField Field, string? Value)> Changes(LiedFieldValues values)
+		=> [.. FieldCatalog.LiedFields.Select(f => (f, f.From(values)))];
+
+	/// <summary>Validates every given field first, then applies them; null leaves a value, empty clears it.</summary>
+	private static WriteOutcome? ApplyLiedFields(Lieder.Lied lied, IReadOnlyList<(LiedField Field, string? Value)> changes)
+	{
+		if (changes.Any(c => c.Value?.Trim().Length > c.Field.MaxLength))
+			return WriteOutcome.Invalid(Lieder.LiedEndpoints.FieldTooLongMessage);
+		foreach (var (field, value) in changes)
+		{
+			if (value?.Trim() is { } trimmed)
+				field.Set(lied, trimmed.Length == 0 ? null : trimmed);
+		}
+		return null;
 	}
 
 	// ---- Events ------------------------------------------------------------

@@ -24,9 +24,8 @@ public static class DateiKinds
 /// <summary>
 /// A Datei (GLOSSARY) of exactly one Lied or one Auftritt. Replacing a Datei
 /// replaces it, there is no revision history: the replaced Datei is soft-deleted
-/// (<see cref="DeletedAt"/>) and points at its successor. The whole shape of
-/// every Datei kind is laid down here so the later tickets (#167 players,
-/// #168 trash and replace, #171 Auftritt Dateien) need no migration.
+/// (<see cref="DeletedAt"/>) and points at its successor. One table holds
+/// every Datei kind, for a Lied or an Auftritt, live or in the trash.
 /// </summary>
 public sealed class Datei
 {

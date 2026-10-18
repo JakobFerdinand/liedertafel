@@ -80,7 +80,7 @@ public static class UploadEndpoints
 				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
 			}
 			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await RequireEditorAsync(context, accessor, access);
+			var (decision, error) = await Lieder.LiedAccess.RequireEditorAsync(context, accessor, access);
 			if (error is not null)
 				return error;
 			var session = await db.UploadSessions.FirstOrDefaultAsync(s => s.Id == id, token);
@@ -132,7 +132,7 @@ public static class UploadEndpoints
 				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
 			}
 			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await RequireEditorAsync(context, accessor, access);
+			var (decision, error) = await Lieder.LiedAccess.RequireEditorAsync(context, accessor, access);
 			if (error is not null)
 				return error;
 			var session = await db.UploadSessions.FirstOrDefaultAsync(s => s.Id == id, token);
@@ -165,7 +165,7 @@ public static class UploadEndpoints
 				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
 			}
 			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await RequireEditorAsync(context, accessor, access);
+			var (decision, error) = await Lieder.LiedAccess.RequireEditorAsync(context, accessor, access);
 			if (error is not null)
 				return error;
 			var session = await db.UploadSessions.FirstOrDefaultAsync(s => s.Id == id, token);
@@ -188,22 +188,6 @@ public static class UploadEndpoints
 		catch (InvalidOperationException)
 		{
 		}
-	}
-
-	private static bool IsEditor(ArchiveAccessDecision decision)
-		=> decision.IsAdministrator || decision.Roles.Contains(ArchiveRoles.Editor);
-
-	private static async Task<(ArchiveAccessDecision? Decision, IResult? Error)> RequireEditorAsync(
-		HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access)
-	{
-		if (accessor.Current is null)
-			return (null, Results.Problem(statusCode: 401, title: "Anmeldung erforderlich."));
-		var decision = await access.GetDecisionAsync(context.User);
-		if (decision is null || !decision.IsActive)
-			return (null, Results.Problem(statusCode: 401, title: "Anmeldung erforderlich."));
-		if (!IsEditor(decision))
-			return (null, Results.Problem(statusCode: 403, title: "Keine Berechtigung für das Liedverzeichnis."));
-		return (decision, null);
 	}
 }
 

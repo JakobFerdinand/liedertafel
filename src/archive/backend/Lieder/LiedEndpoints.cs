@@ -7,14 +7,25 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Archive.Backend.Lieder;
 
+/// <summary>The free-text fields of a Lied as a request carries them: null leaves a value, empty clears it.</summary>
+public sealed record LiedFieldValues(
+	string? Composer, string? Arranger, string? Lyricist, string? VoiceConfiguration,
+	string? MusicalKey, string? Language, string? Lyrics, string? Occasion);
+
 public sealed record CreateLiedRequest(
 	string? Title, string? Composer, string? Arranger, string? Lyricist, string? VoiceConfiguration,
-	string? MusicalKey, string? Language, string? Lyrics, string? Occasion);
+	string? MusicalKey, string? Language, string? Lyrics, string? Occasion)
+{
+	public LiedFieldValues Fields => new(Composer, Arranger, Lyricist, VoiceConfiguration, MusicalKey, Language, Lyrics, Occasion);
+}
 
 /// <summary>PATCH semantics: a missing field stays, an empty string clears it.</summary>
 public sealed record PatchLiedRequest(
 	string? Title, string? Composer, string? Arranger, string? Lyricist, string? VoiceConfiguration,
-	string? MusicalKey, string? Language, string? Lyrics, string? Occasion, uint? RowVersion);
+	string? MusicalKey, string? Language, string? Lyrics, string? Occasion, uint? RowVersion)
+{
+	public LiedFieldValues Fields => new(Composer, Arranger, Lyricist, VoiceConfiguration, MusicalKey, Language, Lyrics, Occasion);
+}
 
 /// <summary>
 /// The flat Lied API (#166). Every active member reads every Lied: there is no
@@ -168,7 +179,7 @@ public static class LiedEndpoints
 
 		app.MapPost("/api/lieder", async (
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
-			ArchiveDbContext db, TimeProvider time, CancellationToken token, CreateLiedRequest? body) =>
+			ArchiveDbContext db, CatalogueWriteService writes, TimeProvider time, CancellationToken token, CreateLiedRequest? body) =>
 		{
 			try { await antiforgery.ValidateRequestAsync(context); }
 			catch (AntiforgeryValidationException)
@@ -179,31 +190,17 @@ public static class LiedEndpoints
 			var (decision, error) = await LiedAccess.RequireEditorAsync(context, accessor, access);
 			if (error is not null)
 				return error;
-			var title = body?.Title?.Trim();
-			if (string.IsNullOrEmpty(title))
-				return Results.Problem(statusCode: 400, title: TitleRequiredMessage);
-			var now = time.GetUtcNow();
-			var lied = new Lied
-			{
-				Title = title,
-				CreatedAt = now,
-				CreatedByAccountId = decision!.AccountId,
-				UpdatedAt = now,
-				UpdatedByAccountId = decision.AccountId,
-				RowVersion = 1,
-			};
-			var problem = Apply(lied, body!.Composer, body.Arranger, body.Lyricist, body.VoiceConfiguration,
-				body.MusicalKey, body.Language, body.Lyrics, body.Occasion);
-			if (problem is not null)
-				return problem;
-			db.Lieder.Add(lied);
-			await db.SaveChangesAsync(token);
-			return Results.Created($"/api/lieder/{lied.Id}", new { lied = await DetailAsync(db, lied, true, token) });
+			var (outcome, lied) = await writes.CreateLiedAsync(
+				body?.Title, body?.Fields ?? new LiedFieldValues(null, null, null, null, null, null, null, null),
+				new WriteActor(decision!.AccountId, time.GetUtcNow()), token);
+			if (!outcome.IsSaved)
+				return Results.Problem(statusCode: outcome.HttpCode, title: outcome.Title);
+			return Results.Created($"/api/lieder/{lied!.Id}", new { lied = await DetailAsync(db, lied, true, token) });
 		}).DisableAntiforgery();
 
 		app.MapPatch("/api/lieder/{id}", async (
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
-			ArchiveDbContext db, TimeProvider time, Guid id, CancellationToken token, PatchLiedRequest? body) =>
+			ArchiveDbContext db, CatalogueWriteService writes, TimeProvider time, Guid id, CancellationToken token, PatchLiedRequest? body) =>
 		{
 			try { await antiforgery.ValidateRequestAsync(context); }
 			catch (AntiforgeryValidationException)
@@ -217,60 +214,13 @@ public static class LiedEndpoints
 			var lied = await db.Lieder.FirstOrDefaultAsync(l => l.Id == id, token);
 			if (lied is null)
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
-			if (body?.RowVersion is { } expected && expected != lied.RowVersion)
-				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
-			if (body?.Title is not null)
-			{
-				var title = body.Title.Trim();
-				if (title.Length == 0)
-					return Results.Problem(statusCode: 400, title: TitleRequiredMessage);
-				if (title.Length > FieldMaxLength)
-					return Results.Problem(statusCode: 400, title: FieldTooLongMessage);
-				lied.Title = title;
-			}
-			if (body is not null)
-			{
-				var problem = Apply(lied, body.Composer, body.Arranger, body.Lyricist, body.VoiceConfiguration,
-					body.MusicalKey, body.Language, body.Lyrics, body.Occasion);
-				if (problem is not null)
-					return problem;
-			}
-			lied.UpdatedAt = time.GetUtcNow();
-			lied.UpdatedByAccountId = decision!.AccountId;
-			lied.RowVersion++;
-			try
-			{
-				await db.SaveChangesAsync(token);
-			}
-			catch (DbUpdateConcurrencyException)
-			{
-				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
-			}
+			var outcome = await writes.PatchLiedAsync(
+				lied, body?.Title, body?.Fields ?? new LiedFieldValues(null, null, null, null, null, null, null, null),
+				body?.RowVersion, new WriteActor(decision!.AccountId, time.GetUtcNow()), automated: false, token);
+			if (!outcome.IsSaved)
+				return Results.Problem(statusCode: outcome.HttpCode, title: outcome.Title);
 			return Results.Ok(new { lied = await DetailAsync(db, lied, true, token) });
 		}).DisableAntiforgery();
-	}
-
-	/// <summary>Applies the optional fields: null leaves a value, empty clears it.</summary>
-	private static IResult? Apply(Lied lied, string? composer, string? arranger, string? lyricist,
-		string? voiceConfiguration, string? musicalKey, string? language, string? lyrics, string? occasion)
-	{
-		var limits = new (string? Value, int Max)[]
-		{
-			(composer, FieldMaxLength), (arranger, FieldMaxLength), (lyricist, FieldMaxLength),
-			(voiceConfiguration, FieldMaxLength), (musicalKey, FieldMaxLength), (language, FieldMaxLength),
-			(lyrics, LyricsMaxLength), (occasion, FieldMaxLength),
-		};
-		if (limits.Any(l => l.Value is not null && l.Value.Trim().Length > l.Max))
-			return Results.Problem(statusCode: 400, title: FieldTooLongMessage);
-		if (composer is not null) lied.Composer = Clean(composer);
-		if (arranger is not null) lied.Arranger = Clean(arranger);
-		if (lyricist is not null) lied.Lyricist = Clean(lyricist);
-		if (voiceConfiguration is not null) lied.VoiceConfiguration = Clean(voiceConfiguration);
-		if (musicalKey is not null) lied.MusicalKey = Clean(musicalKey);
-		if (language is not null) lied.Language = Clean(language);
-		if (lyrics is not null) lied.Lyrics = Clean(lyrics);
-		if (occasion is not null) lied.Occasion = Clean(occasion);
-		return null;
 	}
 
 	private static string? Clean(string? value)
