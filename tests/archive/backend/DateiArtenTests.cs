@@ -16,6 +16,7 @@ public sealed class DateiArtenTests
 
 	private static readonly byte[] Midi = Pad("MThd"u8.ToArray(), 200);
 
+	private static readonly byte[] QuickTimeVideo = Pad([0, 0, 0, 0x14, .. "ftypqt  "u8], 600);
 	private static readonly byte[] Mp4Video = Pad([0, 0, 0, 0x18, .. "ftypisom"u8], 600);
 
 	private static byte[] Pad(byte[] start, int size)
@@ -141,6 +142,20 @@ public sealed class DateiArtenTests
 		var lied = (await host.GetJsonAsync($"/api/lieder/{liedId}", editor)).GetProperty("lied");
 		Assert.All(lied.GetProperty("dateien").EnumerateArray(),
 			d => Assert.Equal(JsonValueKind.Null, d.GetProperty("recordedAtEvent").ValueKind));
+	}
+
+	[Fact]
+	public async Task AufnahmeAcceptsAPhoneQuickTimeMovie()
+	{
+		await using var host = new LiedTestHost();
+		var editor = await host.EditorAsync();
+		var liedId = await host.CreateLiedIdAsync(editor, "Lied");
+
+		var (status, body) = await UploadAsync(host, editor, liedId,
+			new { kind = "aufnahme", fileName = "probe.mov", contentType = "video/quicktime" }, QuickTimeVideo, "video/quicktime");
+
+		Assert.Equal(HttpStatusCode.OK, status);
+		Assert.Equal("video/quicktime", body.GetProperty("datei").GetProperty("contentType").GetString());
 	}
 
 	[Fact]

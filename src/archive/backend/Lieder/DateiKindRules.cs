@@ -6,8 +6,8 @@ namespace Archive.Backend.Lieder;
 /// <summary>
 /// What an upload of one <see cref="DateiKinds"/> value must look like: the
 /// accepted content types, the magic-byte gate and the German rejection text.
-/// Tickets add their kind by registering one rule in <see cref="DateiKindRules"/>;
-/// the shared session/finalize code in <see cref="DateiUploads"/> stays untouched.
+/// Each kind has one rule in <see cref="DateiKindRules"/>; the shared
+/// session/finalize code in <see cref="DateiUploads"/> only looks the rule up.
 /// </summary>
 public sealed record DateiKindRule(
 	IReadOnlyList<string> ContentTypes,
@@ -61,7 +61,7 @@ public static class DateiKindRules
 			(header, type) => MatchesMedia(header, type, video: false)),
 		// Aufnahme: audio or video of the choir.
 		[DateiKinds.Aufnahme] = new DateiKindRule(
-			[.. AudioTypes, "audio/webm", "video/mp4", "video/webm"],
+			[.. AudioTypes, "audio/webm", "video/mp4", "video/quicktime", "video/webm"],
 			InvalidAufnahmeMessage,
 			(header, type) => MatchesMedia(header, type, video: type.StartsWith("video/", StringComparison.Ordinal))),
 		// Sonstiges: a short whitelist of document and image types, downloaded not played.
