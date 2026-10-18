@@ -1,28 +1,29 @@
 using System.ComponentModel;
 using System.Text.Json;
-using Archive.Backend.Assets;
 using Archive.Backend.Catalogue;
 using Archive.Backend.Data;
+using Archive.Backend.Events;
 using Archive.Backend.Extraction;
+using Archive.Backend.Lieder;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 
 namespace Archive.Backend.Chat;
 
 /// <summary>
-/// The chat tool allow-list (ARC-021 first slice): authorized retrieval
-/// functions only, built per request so the delegates capture the scoped
-/// <see cref="ArchiveDbContext"/>. Authorization is
-/// enforced INSIDE every tool — results are restricted to member-visible
-/// (published) songs exactly like the member catalogue API, so drafts and
-/// unpublished records can never reach the model or the thread content. No
-/// editing tools, no web access.
+/// The chat tool allow-list: authorized retrieval functions only, built per
+/// request so the delegates capture the scoped <see cref="ArchiveDbContext"/>.
+/// Authorization is enforced INSIDE every tool: every saved Lied is visible to
+/// a member (ADR-0001), but a Lied's history only names performances and
+/// planned appearances at member-visible (published) Auftritte, so drafts can
+/// never reach the model or the thread content. No editing tools, no web
+/// access.
 /// </summary>
 public static class CatalogueTools
 {
 	public const string SearchToolName = "catalogue_search";
 
-	public const string DetailsToolName = "song_details";
+	public const string DetailsToolName = "lied_details";
 
 	private const int MaxQueryChars = 200;
 
@@ -32,45 +33,43 @@ public static class CatalogueTools
 
 	private const int ExcerptChars = 300;
 
-	/// <summary>Sung text handed to the model per score and per song.</summary>
-	private const int ScoreTextChars = 1500;
-
-	private const int ScoreTextBudget = 6000;
+	/// <summary>Auftritte listed per Lied in the history part of the details.</summary>
+	private const int MaxHistoryEntries = 20;
 
 	private const string SearchToolDescription =
-		"Sucht im veröffentlichten Liedverzeichnis nach Titeln, Komponisten, Textdichtern und Liedtexten. "
+		"Sucht im Liedverzeichnis nach Titeln, Komponisten, Bearbeitern, Textdichtern und Liedtexten. "
 		+ "Ein leerer Suchtext listet vorhandene Lieder auf. Liefert höchstens 10 Lieder pro Seite, "
 		+ "totalCount, nextPage und limitReached; höchstens 5 Seiten. Nur zurückgegebene Lieder zitieren.";
 
 	/// <summary>Creates the bounded catalogue search tool for one chat run.</summary>
 	public static AITool CreateCatalogueSearchTool(ArchiveDbContext db) =>
 		AIFunctionFactory.Create(
-			async ([Description("Suchtext; leer (\"\") für eine Übersicht aller Lieder. Sonst müssen alle Begriffe im Titel, in einem anderen Titel, beim Komponisten, Textdichter oder im Liedtext vorkommen.")] string query,
+			async ([Description("Suchtext; leer (\"\") für eine Übersicht aller Lieder. Sonst müssen alle Begriffe im Titel, beim Komponisten, Bearbeiter, Textdichter oder im Liedtext vorkommen.")] string query,
 				[Description("Seitennummer ab 1, höchstens 5; für weitere Treffer nextPage aus dem Ergebnis verwenden.")] int page = 1,
 				CancellationToken cancellationToken = default) => await SearchAsync(db, query, page, cancellationToken),
 			name: SearchToolName,
 			description: SearchToolDescription);
 
-	/// <summary>Creates the single-song lookup tool for one chat run.</summary>
-	public static AITool CreateSongDetailsTool(ArchiveDbContext db) =>
+	/// <summary>Creates the single-Lied lookup tool for one chat run.</summary>
+	public static AITool CreateLiedDetailsTool(ArchiveDbContext db) =>
 		AIFunctionFactory.Create(
-			async ([Description("ID des gesuchten Liedes aus dem Liedverzeichnis.")] string songId) => await DetailsAsync(db, songId),
+			async ([Description("ID des gesuchten Liedes aus dem Liedverzeichnis.")] string liedId) => await DetailsAsync(db, liedId),
 			name: DetailsToolName,
-			description: "Liest ein einzelnes veröffentlichtes Lied aus dem Verzeichnis, mit Arrangements, Fassungen und "
-				+ "Material. Zu Noten liefert scoreFacts die aus dem PDF gelesenen Angaben (Stimme, Tonart, Taktart, "
-				+ "Tempo, Urheber) und scoreText den gesungenen Text aus den aktuellen Noten.");
+			description: "Liest ein einzelnes Lied aus dem Verzeichnis mit seinen Angaben (Besetzung, Tonart, Sprache, Anlass), "
+				+ "den vorhandenen Dateien und seiner Aufführungsgeschichte: gesungen nennt die Auftritte, bei denen das Lied "
+				+ "belegt gesungen wurde (nachweis bestaetigt) oder nur erwähnt ist (nachweis erwaehnt); geplant nennt "
+				+ "veröffentlichte Programme, in denen das Lied steht und deren Ablauf noch nicht bestätigt ist.");
 
 	private static async Task<string> SearchAsync(ArchiveDbContext db, string query, int page, CancellationToken token)
 	{
-		// Same folding and tokenized AND semantics as the member catalogue
-		// search; bounds are enforced inside the tool so the model cannot
-		// push past them.
+		// Same folding and tokenized AND semantics as the member Lied search;
+		// bounds are enforced inside the tool so the model cannot push past them.
 		var queryText = (query ?? string.Empty).Trim();
 		if (queryText.Length > MaxQueryChars)
 			queryText = queryText[..MaxQueryChars];
 		var requestedPage = Math.Max(1, page);
 		if (requestedPage > MaxPage)
-			return JsonSerializer.Serialize(new { songs = Array.Empty<object>(), error = "Höchstens 5 Seiten abrufbar. Bitte die Suche eingrenzen.", limitReached = true });
+			return JsonSerializer.Serialize(new { lieder = Array.Empty<object>(), error = "Höchstens 5 Seiten abrufbar. Bitte die Suche eingrenzen.", limitReached = true });
 		var tokens = queryText
 			.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
 			.Select(CatalogueText.Fold)
@@ -79,143 +78,163 @@ public static class CatalogueTools
 		if (tokens.Count == 0)
 		{
 			// Browsing is a bounded database page, not an empty search result.
-			// Count and page both apply the member-visible predicate before reading data.
-			var catalogue = db.Songs.AsNoTracking().Where(s => s.PublishedAt != null);
-			var total = await catalogue.CountAsync(token);
-			var songs = await catalogue.OrderBy(s => s.Title).ThenBy(s => s.Id)
+			var total = await db.Lieder.AsNoTracking().CountAsync(token);
+			var lieder = await db.Lieder.AsNoTracking().OrderBy(l => l.Title).ThenBy(l => l.Id)
 				.Skip((requestedPage - 1) * PageSize).Take(PageSize)
-				.Select(s => new SearchRow(s.Id, s.Title, s.Composer, s.Lyricist, s.PublishedAt, s.Lyrics))
+				.Select(l => new SearchRow(l.Id, l.Title, l.Composer, l.Arranger, l.Lyricist, l.Lyrics))
 				.ToListAsync(token);
-			return SerializeSearch(songs, requestedPage, total);
+			return SerializeSearch(lieder, requestedPage, total);
 		}
 
-		var visible = await db.Songs.AsNoTracking()
-			.Where(s => s.PublishedAt != null)
-			.OrderBy(s => s.Id)
-			.Select(s => new SearchRow(s.Id, s.Title, s.Composer, s.Lyricist, s.PublishedAt, s.Lyrics))
+		var all = await db.Lieder.AsNoTracking()
+			.OrderBy(l => l.Id)
+			.Select(l => new SearchRow(l.Id, l.Title, l.Composer, l.Arranger, l.Lyricist, l.Lyrics))
 			.ToListAsync(token);
-		var visibleIds = visible.Select(s => s.Id).ToList();
-		var alternateTitles = await db.SongTitles.AsNoTracking()
-			.Where(t => visibleIds.Contains(t.SongId))
-			.OrderBy(t => t.SongId).ThenBy(t => t.Position).ThenBy(t => t.Id)
-			.Select(t => new { t.SongId, t.Value })
-			.ToListAsync(token);
-		var titlesBySong = alternateTitles
-			.GroupBy(t => t.SongId)
-			.ToDictionary(g => g.Key, g => g.Select(t => t.Value).ToList());
-
 		var queryFold = CatalogueText.Fold(queryText);
-		var matches = new List<(SearchRow Song, int Rank)>();
-		foreach (var song in visible)
+		var matches = new List<(SearchRow Lied, int Rank)>();
+		foreach (var lied in all)
 		{
-			var titleFold = CatalogueText.Fold(song.Title);
-			var titles = titlesBySong.TryGetValue(song.Id, out var titles_) ? titles_.Select(CatalogueText.Fold).ToList() : [];
-			var composerFold = CatalogueText.Fold(song.Composer);
-			var lyricistFold = CatalogueText.Fold(song.Lyricist);
-			var lyricsFold = CatalogueText.Fold(song.Lyrics);
-			if (!tokens.All(t => titleFold.Contains(t) || titles.Any(x => CatalogueText.Fold(x).Contains(t))
-				|| composerFold.Contains(t) || lyricistFold.Contains(t) || lyricsFold.Contains(t)))
+			var titleFold = CatalogueText.Fold(lied.Title);
+			var composerFold = CatalogueText.Fold(lied.Composer);
+			var arrangerFold = CatalogueText.Fold(lied.Arranger);
+			var lyricistFold = CatalogueText.Fold(lied.Lyricist);
+			var lyricsFold = CatalogueText.Fold(lied.Lyrics);
+			if (!tokens.All(t => titleFold.Contains(t) || composerFold.Contains(t) || arrangerFold.Contains(t)
+				|| lyricistFold.Contains(t) || lyricsFold.Contains(t)))
 				continue;
 			var rank = titleFold == queryFold ? 0
 				: tokens.All(t => titleFold.Contains(t)) ? 1
 				: 2;
-			matches.Add((song, rank));
+			matches.Add((lied, rank));
 		}
 		var ordered = matches
 			.OrderBy(m => m.Rank)
-			.ThenBy(m => m.Song.Id)
+			.ThenBy(m => m.Lied.Id)
 			.Skip((requestedPage - 1) * PageSize)
 			.Take(PageSize)
 			.ToList();
-		return SerializeSearch(ordered.Select(m => m.Song), requestedPage, matches.Count);
+		return SerializeSearch(ordered.Select(m => m.Lied), requestedPage, matches.Count);
 	}
 
-	private static async Task<string> DetailsAsync(ArchiveDbContext db, string songId)
+	/// <summary>Noten text sent per Datei and per Lied (characters).</summary>
+	private const int ScoreTextChars = 2000;
+
+	private const int ScoreTextBudget = 6000;
+
+	private static async Task<string> DetailsAsync(ArchiveDbContext db, string liedId)
 	{
-		if (!Guid.TryParse(songId, out var id))
+		if (!Guid.TryParse(liedId, out var id))
 			return "{}";
-		// Invisible or unknown ids return the same empty payload: the chat
-		// surface never distinguishes drafts from nonexistent songs.
-		var song = await db.Songs.AsNoTracking()
-			.Where(s => s.Id == id && s.PublishedAt != null)
-			.Select(s => new SearchRow(s.Id, s.Title, s.Composer, s.Lyricist, s.PublishedAt, s.Lyrics))
+		// Unknown ids return the same empty payload: the chat surface never
+		// distinguishes a missing Lied from a malformed id.
+		var lied = await db.Lieder.AsNoTracking()
+			.Where(l => l.Id == id)
 			.FirstOrDefaultAsync();
-		if (song is null)
+		if (lied is null)
 			return "{}";
+		var rows = await (
+			from d in DateiQueries.Visible(db).AsNoTracking()
+			where d.LiedId == id
+			join e in db.ExtractionJobs.AsNoTracking() on d.Id equals e.DateiId into texts
+			from e in texts.DefaultIfEmpty()
+			orderby d.Kind, d.Id
+			select new { d.Kind, d.IsPartitur, d.Stimme, d.Description, e.Status, e.Text })
+			.ToListAsync();
+		// Noten text read from the Dateien (#169): bounded per Datei and per
+		// Lied, and identical text (the same lyrics in every Stimme) goes out once.
+		var budget = ScoreTextBudget;
+		var sent = new HashSet<string>();
+		var dateien = rows.Select(d =>
+		{
+			var analysis = d.Kind == DateiKinds.Noten && d.Status == ExtractionStatus.Completed
+				? ScoreTextAnalyzer.Analyze(d.Text)
+				: null;
+			string? text = null;
+			if (analysis is { CleanText.Length: > 0 } && budget > 0 && sent.Add(analysis.CleanText))
+			{
+				var length = Math.Min(Math.Min(analysis.CleanText.Length, ScoreTextChars), budget);
+				text = analysis.CleanText[..length];
+				budget -= length;
+			}
+			return new { d.Kind, d.IsPartitur, d.Stimme, d.Description, Facts = ExtractionEndpoints.FactsPayload(analysis?.Facts), Text = text };
+		}).ToList();
+		var (gesungen, geplant) = await HistoryAsync(db, id);
 		return JsonSerializer.Serialize(new
 		{
-			songs = SongPayload([song]),
-			arrangements = await ArrangementPayloadAsync(db, id),
+			lieder = LiedPayload([new SearchRow(lied.Id, lied.Title, lied.Composer, lied.Arranger, lied.Lyricist, lied.Lyrics)]),
+			besetzung = lied.VoiceConfiguration,
+			tonart = lied.MusicalKey,
+			sprache = lied.Language,
+			anlass = lied.Occasion,
+			dateien = dateien.Select(d => new
+			{
+				art = d.Kind,
+				partitur = d.IsPartitur,
+				stimme = d.Stimme,
+				beschreibung = d.Description,
+				notenFakten = d.Facts,
+				notenText = d.Text,
+			}),
+			gesungen,
+			geplant,
 		});
 	}
 
 	/// <summary>
-	/// Arrangements, versions and current material of one published song.
-	/// Scores carry the facts and sung text read from their current
-	/// revision's extraction; the text is bounded per score and per song, and
-	/// identical text (the same lyrics in every voice part) is sent once.
+	/// Where the Lied was sung or is planned, from member-visible Auftritte
+	/// only (published events), newest first and bounded. Source notes and
+	/// editor attribution never leave this method.
 	/// </summary>
-	private static async Task<List<object>> ArrangementPayloadAsync(ArchiveDbContext db, Guid songId)
+	private static async Task<(List<object> Gesungen, List<object> Geplant)> HistoryAsync(ArchiveDbContext db, Guid liedId)
 	{
-		var arrangements = await db.Arrangements.AsNoTracking()
-			.Include(a => a.MusicalVersions)
-			.Where(a => a.SongId == songId)
-			.OrderBy(a => a.Id)
+		var sung = await db.Performances.AsNoTracking()
+			.Where(p => p.LiedId == liedId && p.Event.PublishedAt != null)
+			.Select(p => new SungRow(p.Event.Title, p.Event.Kind, p.Event.Venue,
+				p.Event.DateYear, p.Event.DateMonth, p.Event.DateDay, p.Event.DateApproximate, p.EvidenceStatus))
 			.ToListAsync();
-		var versionIds = arrangements.SelectMany(a => a.MusicalVersions).Select(v => v.Id).ToList();
-		var assets = await db.Assets.AsNoTracking()
-			.Where(a => a.MusicalVersionId != null && versionIds.Contains(a.MusicalVersionId.Value)
-				&& a.CurrentRevisionId != null)
-			.OrderBy(a => a.Id)
-			.ToListAsync();
-		var revisionIds = assets
-			.Where(a => a.AssetType == AssetEndpoints.ScoreAssetType)
-			.Select(a => a.CurrentRevisionId!.Value)
-			.ToList();
-		var texts = await db.ExtractionJobs.AsNoTracking()
-			.Where(j => revisionIds.Contains(j.RevisionId) && j.Status == ExtractionStatus.Completed)
-			.Select(j => new { j.RevisionId, j.Text })
-			.ToListAsync();
-		var analyses = texts.ToDictionary(t => t.RevisionId, t => ScoreTextAnalyzer.Analyze(t.Text));
-		var budget = ScoreTextBudget;
-		var sent = new HashSet<string>();
-		return arrangements.Select(a => (object)new
-		{
-			label = a.Label,
-			arranger = a.Arranger,
-			voiceConfiguration = a.VoiceConfiguration,
-			accompaniment = a.Accompaniment,
-			versions = a.MusicalVersions.OrderBy(v => v.Id).Select(v => new
+		sung.Sort((a, b) => EventDate.CompareNewestFirst(a.DateYear, a.DateMonth, a.DateDay, b.DateYear, b.DateMonth, b.DateDay));
+		var gesungen = sung
+			.Take(MaxHistoryEntries)
+			.Select(p => (object)new
 			{
-				label = v.Label,
-				creator = v.Creator,
-				musicalKey = v.MusicalKey,
-				material = assets.Where(asset => asset.MusicalVersionId == v.Id).Select(asset =>
-				{
-					var analysis = analyses.GetValueOrDefault(asset.CurrentRevisionId!.Value);
-					string? scoreText = null;
-					if (analysis is { CleanText.Length: > 0 } && budget > 0 && sent.Add(analysis.CleanText))
-					{
-						var length = Math.Min(Math.Min(analysis.CleanText.Length, ScoreTextChars), budget);
-						scoreText = analysis.CleanText[..length];
-						budget -= length;
-					}
-					return new
-					{
-						type = asset.AssetType,
-						voice = asset.VoiceLabel ?? analysis?.Facts.Voice,
-						description = asset.Description,
-						scoreFacts = ExtractionEndpoints.FactsPayload(analysis?.Facts),
-						scoreText,
-					};
-				}).ToList(),
-			}).ToList(),
-		}).ToList();
+				auftritt = p.Title,
+				art = p.Kind,
+				ort = p.Venue,
+				datum = EventDate.Display(p.DateYear, p.DateMonth, p.DateDay, p.DateApproximate),
+				nachweis = p.EvidenceStatus == PerformanceEvidenceStatus.Confirmed ? "bestaetigt" : "erwaehnt",
+			})
+			.ToList();
+
+		// Planned: the newest published revision of a published event's
+		// programme names the Lied and no confirmation states what was sung.
+		var programmes = await db.Programmes.AsNoTracking()
+			.Where(p => p.Event.PublishedAt != null)
+			.Include(p => p.Event)
+			.Include(p => p.Revisions).ThenInclude(r => r.Items)
+			.ToListAsync();
+		var confirmed = (await db.ProgrammeConfirmations.AsNoTracking()
+			.Select(c => c.ProgrammeId).ToListAsync()).ToHashSet();
+		var planned = programmes
+			.Where(p => !confirmed.Contains(p.Id)
+				&& ProgrammeVisibility.NewestPublished(p) is { } newest
+				&& newest.Items.Any(i => i.LiedId == liedId))
+			.OrderBy(p => p, Comparer<EventProgramme>.Create((a, b) => EventDate.CompareNewestFirst(
+				a.Event.DateYear, a.Event.DateMonth, a.Event.DateDay, b.Event.DateYear, b.Event.DateMonth, b.Event.DateDay)))
+			.Take(MaxHistoryEntries)
+			.Select(p => (object)new
+			{
+				auftritt = p.Event.Title,
+				art = p.Event.Kind,
+				ort = p.Event.Venue,
+				datum = EventDate.Display(p.Event.DateYear, p.Event.DateMonth, p.Event.DateDay, p.Event.DateApproximate),
+			})
+			.ToList();
+		return (gesungen, planned);
 	}
 
-	private static string SerializeSearch(IEnumerable<SearchRow> songs, int page, int totalCount) => JsonSerializer.Serialize(new
+	private static string SerializeSearch(IEnumerable<SearchRow> lieder, int page, int totalCount) => JsonSerializer.Serialize(new
 	{
-		songs = SongPayload(songs),
+		lieder = LiedPayload(lieder),
 		page,
 		pageSize = PageSize,
 		totalCount,
@@ -224,18 +243,20 @@ public static class CatalogueTools
 		limitReached = page == MaxPage && page * PageSize < totalCount,
 	});
 
-	private static IEnumerable<object> SongPayload(IEnumerable<SearchRow> songs) => songs.Select(s => new
+	private static IEnumerable<object> LiedPayload(IEnumerable<SearchRow> lieder) => lieder.Select(l => new
 		{
-			id = s.Id,
-			title = s.Title,
-			composer = s.Composer,
-			lyricist = s.Lyricist,
-			publishedYear = s.PublishedAt?.Year,
-			lyricsExcerpt = s.Lyrics is { Length: > 0 }
-				? (s.Lyrics.Length > ExcerptChars ? s.Lyrics[..ExcerptChars] : s.Lyrics)
+			id = l.Id,
+			title = l.Title,
+			composer = l.Composer,
+			arranger = l.Arranger,
+			lyricist = l.Lyricist,
+			lyricsExcerpt = l.Lyrics is { Length: > 0 }
+				? (l.Lyrics.Length > ExcerptChars ? l.Lyrics[..ExcerptChars] : l.Lyrics)
 				: null,
 		});
 
-	private sealed record SearchRow(Guid Id, string Title, string? Composer, string? Lyricist,
-		DateTimeOffset? PublishedAt, string? Lyrics);
+	private sealed record SungRow(string Title, string Kind, string? Venue,
+		int? DateYear, int? DateMonth, int? DateDay, bool DateApproximate, string EvidenceStatus);
+
+	private sealed record SearchRow(Guid Id, string Title, string? Composer, string? Arranger, string? Lyricist, string? Lyrics);
 }

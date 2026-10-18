@@ -315,11 +315,7 @@ a.belege-zeile-titel:hover {
   margin-block: 0.2rem;
   font-weight: 600;
 }
-.belege-fassung-titel {
-  font-weight: 600;
-  font-size: var(--schrift-neben);
-  margin-block: 0.3rem 0.3rem;
-}
+
 .belege-art {
   border: 0;
   padding: 0;

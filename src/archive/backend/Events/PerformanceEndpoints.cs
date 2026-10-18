@@ -1,6 +1,5 @@
 using System.Text.Json;
 using Archive.Backend.Auth;
-using Archive.Backend.Catalogue;
 using Archive.Backend.Data;
 using Archive.Backend.Recordings;
 using Microsoft.AspNetCore.Antiforgery;
@@ -8,7 +7,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Archive.Backend.Events;
 
-public sealed record CreatePerformanceRequest(Guid? SongId, Guid? MusicalVersionId, string? EvidenceStatus, string? SourceNote, string? IdempotencyKey);
+public sealed record CreatePerformanceRequest(Guid? LiedId, string? EvidenceStatus, string? SourceNote, string? IdempotencyKey);
 
 /// <summary>
 /// PATCH body (ARC-028): raw JSON elements keep "absent" and "explicitly
@@ -17,15 +16,12 @@ public sealed record CreatePerformanceRequest(Guid? SongId, Guid? MusicalVersion
 /// ValueKind.Null clears it. The evidence status only accepts the closed
 /// set; an explicit null is not in the set and is rejected.
 /// </summary>
-public sealed record PatchPerformanceRequest(uint RowVersion, JsonElement EvidenceStatus, JsonElement MusicalVersionId, JsonElement SourceNote);
+public sealed record PatchPerformanceRequest(uint RowVersion, JsonElement EvidenceStatus, JsonElement SourceNote);
 
 /// <summary>
-/// Performance evidence API (ARC-028): editors record occurrences of a song
+/// Performance evidence API (ARC-028): editors record occurrences of a Lied
 /// at one historical event as a confirmed performance or an unconfirmed
-/// programme mention (see <see cref="PerformanceEvidenceStatus"/>), with an
-/// optional known arrangement/version chain resolved like the programme
-/// items (version must belong to the arrangement and the song; an unknown
-/// chain is a first-class null state). Every occurrence keeps its stable
+/// programme mention (see <see cref="PerformanceEvidenceStatus"/>). Every occurrence keeps its stable
 /// identity, editor attribution and an application-bumped concurrency token
 /// (ARC-007 pattern); mutations never touch the referenced event row.
 /// Re-submissions answer via the per-event idempotency key (returns the
@@ -42,15 +38,13 @@ public static class PerformanceEndpoints
 
 	public const string NotFoundMessage = "Aufführungsnachweis nicht gefunden.";
 
-	public const string SongNotFoundMessage = "Lied nicht gefunden.";
+	public const string LiedNotFoundMessage = "Lied nicht gefunden.";
 
 	public const string InvalidEvidenceStatusMessage = "Der Nachweiswert ist ungültig.";
 
 	public const string EvidenceNoteRequiredMessage = "Ein unverifizierter Programmhinweis braucht eine Quellenangabe.";
 
 	public const string NoteTooLongMessage = "Die Quellenangabe ist zu lang.";
-
-	public const string FassungPasstNichtMessage = "Die gewählte Fassung gehört nicht zu diesem Lied.";
 
 	public const string DuplicateOccurrenceMessage = "Für dieses Lied existiert bereits ein gleicher Nachweis.";
 
@@ -86,25 +80,9 @@ public static class PerformanceEndpoints
 				.FirstOrDefaultAsync(e => e.Id == eventId, token);
 			if (choirEvent is null)
 				return Results.Problem(statusCode: 404, title: EventEndpoints.NotFoundMessage);
-			if (body?.SongId is not { } songId || !await db.Songs.AsNoTracking()
-				.AnyAsync(s => s.Id == songId, token))
-				return Results.Problem(statusCode: 404, title: SongNotFoundMessage);
-			// Chain validation mirrors the programme items: the version must
-			// exist with its arrangement and song, and the song must match
-			// the version's arrangement parent. Unknown chains stay null on
-			// both columns ("Fassung unbekannt").
-			Guid? arrangementId = null;
-			Guid? musicalVersionId = null;
-			if (body?.MusicalVersionId is { } requestedVersionId)
-			{
-				var version = await db.MusicalVersions.AsNoTracking()
-					.Include(v => v.Arrangement)
-					.FirstOrDefaultAsync(v => v.Id == requestedVersionId, token);
-				if (version is null || version.Arrangement?.SongId != songId)
-					return Results.Problem(statusCode: 404, title: FassungPasstNichtMessage);
-				arrangementId = version.ArrangementId;
-				musicalVersionId = version.Id;
-			}
+			if (body?.LiedId is not { } liedId
+				|| !await db.Lieder.AsNoTracking().AnyAsync(l => l.Id == liedId, token))
+				return Results.Problem(statusCode: 404, title: LiedNotFoundMessage);
 			// Any capitalization matches the closed set; the canonical value
 			// is stored. An explicit null (body absent) is not in the set.
 			var evidenceStatus = body?.EvidenceStatus?.Trim() is { } rawStatus
@@ -132,19 +110,18 @@ public static class PerformanceEndpoints
 			if (idempotencyKey is not null
 				&& await db.Performances.AsNoTracking().FirstOrDefaultAsync(
 					p => p.EventId == eventId && p.IdempotencyKey == idempotencyKey, token) is { } replay)
-				return Results.Ok(new { performance = PerformanceEmbed(replay) });
+				return Results.Ok(new { performance = PerformanceEmbed(replay, await LiedTitlesAsync(db, [replay], token)) });
 			// A second editor re-submitting the same content without a retry
-			// key is refused: same song, same evidence value, same chain and
-			// the same normalized source note already exist on this event. A
+			// key is refused: same Lied, same evidence value and the same
+			// normalized source note already exist on this event. A
 			// supplied key marks an explicit second submission instead, so
 			// the content guard does not apply to it.
 			if (idempotencyKey is null)
 			{
 				var existing = await db.Performances.AsNoTracking()
-					.Where(p => p.EventId == eventId && p.SongId == songId)
+					.Where(p => p.EventId == eventId && p.LiedId == liedId)
 					.ToListAsync(token);
 				if (existing.Any(p => string.Equals(p.EvidenceStatus, evidenceStatus, StringComparison.OrdinalIgnoreCase)
-					&& p.MusicalVersionId == musicalVersionId
 					&& string.Equals(p.SourceNote, note, StringComparison.Ordinal)))
 					return Results.Problem(statusCode: 409, title: DuplicateOccurrenceMessage);
 			}
@@ -152,9 +129,7 @@ public static class PerformanceEndpoints
 			var performance = new Performance
 			{
 				EventId = eventId,
-				SongId = songId,
-				ArrangementId = arrangementId,
-				MusicalVersionId = musicalVersionId,
+				LiedId = liedId,
 				Position = (maxPosition ?? 0) + 1,
 				EvidenceStatus = evidenceStatus,
 				SourceNote = note,
@@ -181,11 +156,11 @@ public static class PerformanceEndpoints
 				if (idempotencyKey is not null
 					&& await db.Performances.AsNoTracking().FirstOrDefaultAsync(
 						p => p.EventId == eventId && p.IdempotencyKey == idempotencyKey, token) is { } stored)
-					return Results.Ok(new { performance = PerformanceEmbed(stored) });
+					return Results.Ok(new { performance = PerformanceEmbed(stored, await LiedTitlesAsync(db, [stored], token)) });
 				throw;
 			}
 			return Results.Created($"/api/performances/{performance.Id}",
-				new { performance = PerformanceEmbed(performance) });
+				new { performance = PerformanceEmbed(performance, await LiedTitlesAsync(db, [performance], token)) });
 		}).DisableAntiforgery();
 
 		app.MapPatch("/api/performances/{id}", async (
@@ -243,32 +218,6 @@ public static class PerformanceEndpoints
 					return Results.Problem(statusCode: 400, title: NoteTooLongMessage);
 				}
 			}
-			// Absent chain keeps the stored one; explicit null clears both
-			// columns ("Fassung unbekannt"). A set version is re-resolved and
-			// the arrangement is rewritten from the resolved chain atomically.
-			if (body.MusicalVersionId.ValueKind is not JsonValueKind.Undefined)
-			{
-				if (body.MusicalVersionId.ValueKind is JsonValueKind.Null)
-				{
-					performance.ArrangementId = null;
-					performance.MusicalVersionId = null;
-				}
-				else if (body.MusicalVersionId.ValueKind is JsonValueKind.String
-					&& Guid.TryParse(body.MusicalVersionId.GetString(), out var requestedVersionId))
-				{
-					var version = await db.MusicalVersions.AsNoTracking()
-						.Include(v => v.Arrangement)
-						.FirstOrDefaultAsync(v => v.Id == requestedVersionId, token);
-					if (version is null || version.Arrangement?.SongId != performance.SongId)
-						return Results.Problem(statusCode: 404, title: FassungPasstNichtMessage);
-					performance.ArrangementId = version.ArrangementId;
-					performance.MusicalVersionId = version.Id;
-				}
-				else
-				{
-					return Results.Problem(statusCode: 404, title: FassungPasstNichtMessage);
-				}
-			}
 			var effectiveNote = performance.SourceNote;
 			if (performance.EvidenceStatus == PerformanceEvidenceStatus.Mention && effectiveNote is null)
 				return Results.Problem(statusCode: 400, title: EvidenceNoteRequiredMessage);
@@ -284,7 +233,7 @@ public static class PerformanceEndpoints
 			{
 				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
 			}
-			return Results.Ok(new { performance = PerformanceEmbed(performance) });
+			return Results.Ok(new { performance = PerformanceEmbed(performance, await LiedTitlesAsync(db, [performance], token)) });
 		}).DisableAntiforgery();
 
 		app.MapPost("/api/performances/{id}/delete", async (
@@ -352,7 +301,8 @@ public static class PerformanceEndpoints
 				.Where(p => p.EventId == eventId)
 				.OrderBy(p => p.Position).ThenBy(p => p.Id)
 				.ToListAsync(token);
-			return Results.Ok(new { performances = rows.Select(PerformanceEmbed) });
+			var titles = await LiedTitlesAsync(db, rows, token);
+			return Results.Ok(new { performances = rows.Select(row => PerformanceEmbed(row, titles)) });
 		});
 	}
 
@@ -369,18 +319,29 @@ public static class PerformanceEndpoints
 			.Where(p => p.EventId == eventId)
 			.OrderBy(p => p.Position).ThenBy(p => p.Id)
 			.ToListAsync(token);
+		var titles = await LiedTitlesAsync(db, rows, token);
 		return rows
-			.Select(p => isEditor ? (object)PerformanceEmbed(p) : (object)MemberEmbed(p))
+			.Select(p => isEditor ? (object)PerformanceEmbed(p, titles) : (object)MemberEmbed(p, titles))
 			.ToList();
 	}
 
-	private static object PerformanceEmbed(Performance performance) => new
+	/// <summary>Titles of the Lieder the given occurrences name, keyed by Lied id.</summary>
+	private static async Task<IReadOnlyDictionary<Guid, string>> LiedTitlesAsync(
+		ArchiveDbContext db, IEnumerable<Performance> rows, CancellationToken token)
+	{
+		var ids = rows.Select(p => p.LiedId).Distinct().ToList();
+		if (ids.Count == 0)
+			return new Dictionary<Guid, string>();
+		return await db.Lieder.AsNoTracking().Where(l => ids.Contains(l.Id))
+			.ToDictionaryAsync(l => l.Id, l => l.Title, token);
+	}
+
+	private static object PerformanceEmbed(Performance performance, IReadOnlyDictionary<Guid, string> titles) => new
 	{
 		id = performance.Id,
 		eventId = performance.EventId,
-		songId = performance.SongId,
-		arrangementId = performance.ArrangementId,
-		musicalVersionId = performance.MusicalVersionId,
+		liedId = performance.LiedId,
+		liedTitle = titles.GetValueOrDefault(performance.LiedId),
 		position = performance.Position,
 		// ARC-029: the planned entry this occurrence confirms (null for
 		// historical evidence and encores) and the owning confirmation.
@@ -395,12 +356,11 @@ public static class PerformanceEndpoints
 		rowVersion = performance.RowVersion,
 	};
 
-	private static object MemberEmbed(Performance performance) => new
+	private static object MemberEmbed(Performance performance, IReadOnlyDictionary<Guid, string> titles) => new
 	{
 		id = performance.Id,
-		songId = performance.SongId,
-		arrangementId = performance.ArrangementId,
-		musicalVersionId = performance.MusicalVersionId,
+		liedId = performance.LiedId,
+		liedTitle = titles.GetValueOrDefault(performance.LiedId),
 		evidenceStatus = performance.EvidenceStatus,
 		position = performance.Position,
 	};

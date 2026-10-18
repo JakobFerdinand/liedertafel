@@ -32,7 +32,7 @@ public static class EventVisibility
 
 	/// <summary>
 	/// The same decision as a query filter for rows that hang off an event
-	/// (ARC-031 song history): occurrences of unpublished events must never
+	/// (ARC-031 Lied history): occurrences of unpublished events must never
 	/// reach a member response or aggregate. Later deletion/trash states
 	/// (ARC-040) extend this one place.
 	/// </summary>

@@ -3,9 +3,8 @@
 // Zwischenspeicherung, Fehler als geworfene Antwort, deutsche Zustandstexte.
 
 import { postAuth } from "@/lib/auth";
-import type { NotenAngaben } from "@/lib/songs";
 
-/** Höchstzahl der Revisionen je Anfrage (Vertrag ExtractionEndpoints). */
+/** Höchstzahl der Dateien je Anfrage (Vertrag ExtractionEndpoints). */
 export const extraktionsLimit = 100;
 
 /** Zustände eines Auswertungslaufs (Vertrag ExtractionEndpoints). */
@@ -32,7 +31,6 @@ export type LeseInfo = {
   /** „teilweise gelesen“: die Datei hat mehr Seiten als bisher gelesen wurden. */
   partial: boolean;
   fieldsApplied: number;
-  fieldsProposed: number;
   failureReason: string | null;
   attemptCount: number;
   completedAt: string | null;
@@ -42,9 +40,7 @@ export type LeseInfo = {
 
 /** Eine Auswertungszeile des Stapelabrufs (Vertrag StatusPayload). */
 export type ExtraktionsInfo = {
-  revisionId: string;
-  assetId: string;
-  revisionNumber: number;
+  dateiId: string;
   status: ExtraktionsStatus;
   /** Woher der Text stammt: eingebettet oder von der KI aus dem Scan gelesen. */
   textSource?: "embedded" | "reading";
@@ -67,20 +63,20 @@ export type ExtraktionsInfo = {
 };
 
 /**
- * Auswertungsstand mehrerer Revisionen, in der Reihenfolge der Anfrage;
+ * Auswertungsstand mehrerer Dateien, in der Reihenfolge der Anfrage;
  * unbekannte Kennungen fehlen in der Antwort still. Ohne Kennungen
  * entsteht keine Anfrage. Größere Listen werden nacheinander abgefragt.
  */
 export async function holeExtraktionStatus(
-  revisionIds: string[],
+  dateiIds: string[],
   signal?: AbortSignal,
 ): Promise<ExtraktionsInfo[]> {
   const results: ExtraktionsInfo[] = [];
-  for (let start = 0; start < revisionIds.length; start += extraktionsLimit) {
+  for (let start = 0; start < dateiIds.length; start += extraktionsLimit) {
     const parameter = new URLSearchParams({
-      ids: revisionIds.slice(start, start + extraktionsLimit).join(","),
+      ids: dateiIds.slice(start, start + extraktionsLimit).join(","),
     });
-    const response = await fetch(`/api/revisions/extraction?${parameter}`, {
+    const response = await fetch(`/api/dateien/extraction?${parameter}`, {
       credentials: "same-origin",
       cache: "no-store",
       signal,
@@ -93,15 +89,15 @@ export async function holeExtraktionStatus(
 }
 
 /**
- * Startet die Auswertung einer Revision erneut (oder legt die fehlende
- * Zeile an); die Antwort trägt den aktuellen Stand dieser einen Revision.
+ * Startet die Auswertung einer Datei erneut (oder legt die fehlende
+ * Zeile an); die Antwort trägt den aktuellen Stand dieser einen Datei.
  */
 export async function starteExtraktionErneut(
-  revisionId: string,
+  dateiId: string,
   signal?: AbortSignal,
 ): Promise<ExtraktionsInfo> {
   const response = await postAuth(
-    `/api/revisions/${encodeURIComponent(revisionId)}/extraction/retry`,
+    `/api/dateien/${encodeURIComponent(dateiId)}/extraction/retry`,
     {},
     signal,
   );
@@ -110,12 +106,12 @@ export async function starteExtraktionErneut(
 }
 
 async function lesenAnstossen(
-  revisionId: string,
+  dateiId: string,
   aktion: "retry" | "continue",
   signal?: AbortSignal,
 ): Promise<LeseInfo> {
   const response = await postAuth(
-    `/api/revisions/${encodeURIComponent(revisionId)}/reading/${aktion}`,
+    `/api/dateien/${encodeURIComponent(dateiId)}/reading/${aktion}`,
     {},
     signal,
   );
@@ -124,13 +120,13 @@ async function lesenAnstossen(
 }
 
 /** Startet das KI-Lesen erneut (oder legt die fehlende Zeile an). */
-export function starteLesenErneut(revisionId: string, signal?: AbortSignal) {
-  return lesenAnstossen(revisionId, "retry", signal);
+export function starteLesenErneut(dateiId: string, signal?: AbortSignal) {
+  return lesenAnstossen(dateiId, "retry", signal);
 }
 
 /** „Rest lesen“: die nächsten Seiten einer teilweise gelesenen Datei. */
-export function leseRest(revisionId: string, signal?: AbortSignal) {
-  return lesenAnstossen(revisionId, "continue", signal);
+export function leseRest(dateiId: string, signal?: AbortSignal) {
+  return lesenAnstossen(dateiId, "continue", signal);
 }
 
 /** Läuft das KI-Lesen noch (die Liste fragt dann weiter nach)? */
@@ -165,7 +161,6 @@ export function leseStatusText(info: LeseInfo): string {
             ? `Alle ${info.pagesTotal} ${info.pagesTotal === 1 ? "Seite" : "Seiten"} gelesen`
             : "Angaben aus dem Text geprüft",
         mehrzahl(info.fieldsApplied, "Angabe übernommen", "Angaben übernommen"),
-        mehrzahl(info.fieldsProposed, "Vorschlag", "Vorschläge"),
       ];
       return teile.join(" · ");
     }
@@ -186,4 +181,32 @@ export function extraktionsStatusText(status: ExtraktionsStatus): string {
     case "failed":
       return "Textauswertung gescheitert";
   }
+}
+
+/** Aus dem Text der Noten gelesene Angaben (Vertrag ScoreFacts). */
+export type NotenAngaben = {
+  voice: string | null;
+  musicalKey: string | null;
+  timeSignature: string | null;
+  tempo: string | null;
+  composer: string | null;
+  lyricist: string | null;
+  arranger: string | null;
+  copyright: string | null;
+};
+
+/** Erkannte Angaben als lesbare Teile, etwa „Tonart A♭“ und „4/4-Takt“. */
+export function notenAngabenTeile(
+  angaben: NotenAngaben | null | undefined,
+): string[] {
+  if (!angaben) return [];
+  return [
+    angaben.musicalKey ? `Tonart ${angaben.musicalKey}` : null,
+    angaben.timeSignature ? `${angaben.timeSignature}-Takt` : null,
+    angaben.tempo ? `Tempo ${angaben.tempo}` : null,
+    angaben.composer ? `Musik: ${angaben.composer}` : null,
+    angaben.lyricist ? `Text: ${angaben.lyricist}` : null,
+    angaben.arranger ? `Satz: ${angaben.arranger}` : null,
+    angaben.copyright,
+  ].filter((teil): teil is string => Boolean(teil));
 }

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using Archive.Backend.Assets;
+using Archive.Backend.Lieder;
 using Archive.Backend.Data;
 using Archive.Backend.Maintenance;
 using Archive.Backend.Reading;
@@ -26,7 +27,7 @@ public sealed record MessageDisposition(bool Abandon, TimeSpan Visibility)
 /// <summary>
 /// ARC-034 per-message extraction handling. The pump hands received messages
 /// here; the worker parses the envelope, opens the correlated consumer span,
-/// applies the idempotency matrix on the revision-keyed row and runs the
+/// applies the idempotency matrix on the Datei-keyed row and runs the
 /// bounded PdfPig extraction. It never throws except parent cancellation:
 /// deterministic problems delete the message, infrastructure problems take
 /// the bounded transient path (row back to Queued, message abandoned with
@@ -61,7 +62,7 @@ public sealed class ExtractionWorker(
 	/// <param name="token">Parent cancellation, distinct from deadline expiry.</param>
 	public async Task<MessageDisposition> HandleAsync(ExtractionMessage message, DateTimeOffset deadline, CancellationToken token)
 	{
-		// 1. Envelope: malformed JSON, a missing/unparsable revision id or a
+		// 1. Envelope: malformed JSON, a missing/unparsable Datei id or a
 		// foreign type is poison on this extraction-only queue — it can never
 		// succeed, so the message is deleted. The body itself is never logged.
 		ExtractionEnvelope? envelope = null;
@@ -73,7 +74,7 @@ public sealed class ExtractionWorker(
 		{
 			// Falls through to the poison disposition below.
 		}
-		if (envelope is null || envelope.Type != ExtractionEnvelope.ExtractionType || envelope.RevisionId == Guid.Empty)
+		if (envelope is null || envelope.Type != ExtractionEnvelope.ExtractionType || envelope.DateiId == Guid.Empty)
 		{
 			logger.LogWarning("Extraction message discarded: not a valid extraction envelope");
 			return MessageDisposition.Delete;
@@ -84,11 +85,11 @@ public sealed class ExtractionWorker(
 		ActivityContext.TryParse(envelope.TraceParent, envelope.TraceState, isRemote: true, out var parent);
 		using (Extensions.Activities.StartActivity("archive.queue.process", ActivityKind.Consumer, parent))
 		{
-			return await ProcessAsync(envelope.RevisionId, message, deadline, token);
+			return await ProcessAsync(envelope.DateiId, message, deadline, token);
 		}
 	}
 
-	private async Task<MessageDisposition> ProcessAsync(Guid revisionId, ExtractionMessage message, DateTimeOffset deadline, CancellationToken token)
+	private async Task<MessageDisposition> ProcessAsync(Guid dateiId, ExtractionMessage message, DateTimeOffset deadline, CancellationToken token)
 	{
 		using var budget = CancellationTokenSource.CreateLinkedTokenSource(token);
 		var remaining = deadline - time.GetUtcNow();
@@ -100,28 +101,28 @@ public sealed class ExtractionWorker(
 		try
 		{
 			budget.Token.ThrowIfCancellationRequested();
-			return await ProcessAttemptAsync(revisionId, message, budget, attempt, token);
+			return await ProcessAttemptAsync(dateiId, message, budget, attempt, token);
 		}
 		catch (OperationCanceledException) when (budget.IsCancellationRequested && !token.IsCancellationRequested)
 		{
-			logger.LogWarning("Extraction for revision {RevisionId} exceeded its time budget", revisionId);
+			logger.LogWarning("Extraction for Datei {DateiId} exceeded its time budget", dateiId);
 			// Recovery must survive the expired processing token. Discard any
 			// unsaved transition before checking the durable lease identity.
 			db.ChangeTracker.Clear();
 			if (!attempt.LeaseTaken)
 				return new MessageDisposition(Abandon: true, Visibility: Backoff(message.DequeueCount));
-			var job = await db.ExtractionJobs.FirstOrDefaultAsync(j => j.RevisionId == revisionId, token);
+			var job = await db.ExtractionJobs.FirstOrDefaultAsync(j => j.DateiId == dateiId, token);
 			if (job is null)
 				return new MessageDisposition(Abandon: true, Visibility: Backoff(message.DequeueCount));
 			if (job.Status is ExtractionStatus.Completed or ExtractionStatus.NoText or ExtractionStatus.Failed)
 				return MessageDisposition.Delete;
 			if (job.Status != ExtractionStatus.Running || job.RowVersion != attempt.LeaseRowVersion)
 				return new MessageDisposition(Abandon: true, Visibility: Backoff(message.DequeueCount));
-			return await RetryAsync(job, revisionId, message, attempt.LeaseAttemptCount, token);
+			return await RetryAsync(job, dateiId, message, attempt.LeaseAttemptCount, token);
 		}
 	}
 
-	private async Task<MessageDisposition> ProcessAttemptAsync(Guid revisionId, ExtractionMessage message,
+	private async Task<MessageDisposition> ProcessAttemptAsync(Guid dateiId, ExtractionMessage message,
 		CancellationTokenSource budget, AttemptState attempt, CancellationToken parentToken)
 	{
 		var token = budget.Token;
@@ -129,54 +130,53 @@ public sealed class ExtractionWorker(
 		// redisplay after the backoff window; the pump stops the run itself.
 		if (MaintenanceConfiguration.IsEnabled(configuration))
 		{
-			logger.LogInformation("Extraction paused by maintenance mode for revision {RevisionId}", revisionId);
+			logger.LogInformation("Extraction paused by maintenance mode for Datei {DateiId}", dateiId);
 			return new MessageDisposition(Abandon: true, Visibility: options.Value.VisibilityBackoff);
 		}
 
-		// 4. The revision is the ownership anchor of the result.
-		var revision = await db.FileRevisions
-			.Include(r => r.Asset)
-			.FirstOrDefaultAsync(r => r.Id == revisionId, token);
-		if (revision is null)
+		// 4. The Datei is the ownership anchor of the result; a Datei in the
+		// trash is no longer worked on.
+		var datei = await DateiQueries.Visible(db)
+			.FirstOrDefaultAsync(d => d.Id == dateiId, token);
+		if (datei is null)
 		{
-			logger.LogInformation("Extraction revision {RevisionId} vanished; message deleted", revisionId);
+			logger.LogInformation("Extraction Datei {DateiId} vanished or is in the trash; message deleted", dateiId);
 			return MessageDisposition.Delete;
 		}
 
-		// 5. Stale/foreign material: only PDF-based kinds carry extraction work.
-		if (!ExtractionService.IsExtractable(revision.Asset.AssetType)
-			|| !string.Equals(revision.ContentType, AssetEndpoints.PdfContentType, StringComparison.OrdinalIgnoreCase))
+		// 5. Stale/foreign material: only PDF Dateien carry extraction work.
+		if (!ExtractionService.IsExtractable(datei))
 		{
-			logger.LogInformation("Extraction revision {RevisionId} is not extractable material; message deleted", revisionId);
+			logger.LogInformation("Extraction Datei {DateiId} is not extractable material; message deleted", dateiId);
 			return MessageDisposition.Delete;
 		}
 
 		var now = time.GetUtcNow();
 
-		// 6. Self-healing for revisions finalized before ARC-034: the row —
+		// 6. Self-healing for Dateien finalized before ARC-034: the row —
 		// not the message — is the durable work record.
 		var job = await db.ExtractionJobs
-			.FirstOrDefaultAsync(j => j.RevisionId == revisionId, token);
+			.FirstOrDefaultAsync(j => j.DateiId == dateiId, token);
 		if (job is null)
 		{
-			job = ExtractionService.CreateForRevision(revision, now);
+			job = ExtractionService.CreateForDatei(datei, now);
 			db.ExtractionJobs.Add(job);
 			await db.SaveChangesAsync(token);
 		}
 
-		// 7. Idempotency on the revision-keyed row: results are never
+		// 7. Idempotency on the Datei-keyed row: results are never
 		// rewritten by a duplicate, and rework runs only through the editor's
 		// explicit retry action.
 		switch (job.Status)
 		{
 			case ExtractionStatus.Completed or ExtractionStatus.NoText:
-				logger.LogDebug("Extraction for revision {RevisionId} is already terminal; duplicate deleted", revisionId);
+				logger.LogDebug("Extraction for Datei {DateiId} is already terminal; duplicate deleted", dateiId);
 				return MessageDisposition.Delete;
 			case ExtractionStatus.Failed:
-				logger.LogDebug("Extraction for revision {RevisionId} is failed; duplicate of the original send deleted", revisionId);
+				logger.LogDebug("Extraction for Datei {DateiId} is failed; duplicate of the original send deleted", dateiId);
 				return MessageDisposition.Delete;
 			case ExtractionStatus.Running when !ExtractionService.HasStaleLease(job, now, options.Value):
-				logger.LogInformation("Extraction for revision {RevisionId} is already running; message abandoned", revisionId);
+				logger.LogInformation("Extraction for Datei {DateiId} is already running; message abandoned", dateiId);
 				return new MessageDisposition(Abandon: true, Visibility: options.Value.VisibilityBackoff);
 		}
 
@@ -184,27 +184,27 @@ public sealed class ExtractionWorker(
 		// Conclude before re-taking the lease without claiming another attempt.
 		if (job.AttemptCount >= options.Value.MaxAttempts)
 		{
-			logger.LogWarning("Extraction for revision {RevisionId} exhausted its attempts", revisionId);
+			logger.LogWarning("Extraction for Datei {DateiId} exhausted its attempts", dateiId);
 			job.Status = ExtractionStatus.Failed;
 			job.FailureReason = ExhaustedReason;
 			job.CompletedAt = null;
 			job.LastAttemptAt = now;
 			job.UpdatedAt = now;
 			job.RowVersion++;
-			return await SaveAndConcludeAsync(job, revisionId, MessageDisposition.Delete, token);
+			return await SaveAndConcludeAsync(job, dateiId, MessageDisposition.Delete, token);
 		}
 
 		// 8. Oversize precheck: the blob is never opened for a document the
 		// bounds forbid; the failure is deterministic.
-		if (job.Status != ExtractionStatus.Running && revision.SizeBytes > options.Value.MaxPdfBytes)
+		if (job.Status != ExtractionStatus.Running && datei.SizeBytes > options.Value.MaxPdfBytes)
 		{
-			logger.LogInformation("Extraction for revision {RevisionId} refused: the document is too large", revisionId);
+			logger.LogInformation("Extraction for Datei {DateiId} refused: the document is too large", dateiId);
 			job.Status = ExtractionStatus.Failed;
 			job.FailureReason = TooLargeReason;
 			job.LastAttemptAt = now;
 			job.UpdatedAt = now;
 			job.RowVersion++;
-			return await SaveAndConcludeAsync(job, revisionId, MessageDisposition.Delete, token);
+			return await SaveAndConcludeAsync(job, dateiId, MessageDisposition.Delete, token);
 		}
 
 		// 9. Counted attempt transition; a concurrent writer may win the row —
@@ -225,18 +225,18 @@ public sealed class ExtractionWorker(
 		{
 			// The loser must not poison the shared context's later saves.
 			db.Entry(job).State = EntityState.Detached;
-			logger.LogInformation("Extraction for revision {RevisionId} lost the running transition; message abandoned", revisionId);
+			logger.LogInformation("Extraction for Datei {DateiId} lost the running transition; message abandoned", dateiId);
 			return new MessageDisposition(Abandon: true, Visibility: options.Value.VisibilityBackoff);
 		}
 
 		// A stale Running lease with budget remaining is re-taken and counted before the
-		// deterministic bounds are reapplied, even for an oversize revision.
-		if (revision.SizeBytes > options.Value.MaxPdfBytes)
+		// deterministic bounds are reapplied, even for an oversize Datei.
+		if (datei.SizeBytes > options.Value.MaxPdfBytes)
 		{
 			job.Status = ExtractionStatus.Failed;
 			job.FailureReason = TooLargeReason;
 			job.RowVersion++;
-			return await SaveAndConcludeAsync(job, revisionId, MessageDisposition.Delete, token);
+			return await SaveAndConcludeAsync(job, dateiId, MessageDisposition.Delete, token);
 		}
 
 		// 10. Blob open and parsing share the database work's deadline token.
@@ -245,10 +245,10 @@ public sealed class ExtractionWorker(
 		var transient = false;
 		try
 		{
-			stream = await storage.OpenReadAsync(revision.BlobName, budget.Token);
+			stream = await storage.OpenReadAsync(datei.BlobName, budget.Token);
 			if (stream is null)
 			{
-				// The revision row exists but its object is missing — not a
+				// The Datei row exists but its object is missing — not a
 				// property of the document bytes, so not deterministic.
 				transient = true;
 			}
@@ -262,7 +262,7 @@ public sealed class ExtractionWorker(
 		{
 			// Infrastructure failure (storage/network): type only, never
 			// provider details or URLs.
-			logger.LogWarning("Extraction failed for revision {RevisionId} ({ExceptionType})", revisionId, exception.GetType().Name);
+			logger.LogWarning("Extraction failed for Datei {DateiId} ({ExceptionType})", dateiId, exception.GetType().Name);
 			transient = true;
 		}
 		finally
@@ -286,42 +286,42 @@ public sealed class ExtractionWorker(
 				job.Text = null;
 				job.FailureReason = outcome.FailureReason;
 				job.CompletedAt = null;
-				logger.LogWarning("Extraction for revision {RevisionId} failed deterministically", revisionId);
-				return await SaveAndConcludeAsync(job, revisionId, MessageDisposition.Delete, token);
+				logger.LogWarning("Extraction for Datei {DateiId} failed deterministically", dateiId);
+				return await SaveAndConcludeAsync(job, dateiId, MessageDisposition.Delete, token);
 			}
 			job.Status = outcome.NoText ? ExtractionStatus.NoText : ExtractionStatus.Completed;
 			job.Text = outcome.NoText ? null : outcome.Text;
 			job.FailureReason = null;
 			job.CompletedAt = completedAt;
-			logger.LogInformation("Extraction completed for revision {RevisionId} with status {Status}", revisionId, job.Status);
+			logger.LogInformation("Extraction completed for Datei {DateiId} with status {Status}", dateiId, job.Status);
 			// ARC-034-1: this job stays model-free and hands every score over to
 			// the AI reading job — scans (no text) and texts with gaps alike. The
 			// row rides this save (outbox); the queue send follows the commit.
-			var handoff = await AddReadingHandoffAsync(revision, job, completedAt, token);
-			var disposition = await SaveAndConcludeAsync(job, revisionId, MessageDisposition.Delete, token);
+			var handoff = await AddReadingHandoffAsync(datei, job, completedAt, token);
+			var disposition = await SaveAndConcludeAsync(job, dateiId, MessageDisposition.Delete, token);
 			if (handoff && readingQueue is not null)
-				await ReadingService.TryEnqueueAsync(db, readingQueue, logger, revisionId, time, parentToken);
+				await ReadingService.TryEnqueueAsync(db, readingQueue, logger, dateiId, time, parentToken);
 			return disposition;
 		}
 
-		return await RetryAsync(job, revisionId, message, job.AttemptCount, parentToken);
+		return await RetryAsync(job, dateiId, message, job.AttemptCount, parentToken);
 	}
 
-	/// <summary>Adds the Queued reading row of a finished score extraction; false when reading is off, the row exists or the material is not a score.</summary>
-	private async Task<bool> AddReadingHandoffAsync(FileRevision revision, ExtractionJob job, DateTimeOffset now, CancellationToken token)
+	/// <summary>Adds the Queued reading row of a finished Noten extraction; false when reading is off, the row exists or the Datei is not Noten of a Lied.</summary>
+	private async Task<bool> AddReadingHandoffAsync(Datei datei, ExtractionJob job, DateTimeOffset now, CancellationToken token)
 	{
 		// Off until the hosted reading job exists (Archive:Reading:Enabled): no
 		// row, no message, nothing waiting for a worker that never runs.
 		if (readingOptions?.Value.Enabled != true
-			|| !ReadingService.IsReadable(revision.Asset.AssetType)
-			|| await db.ReadingJobs.AnyAsync(r => r.RevisionId == revision.Id, token))
+			|| !ReadingService.IsReadable(datei)
+			|| await db.ReadingJobs.AnyAsync(r => r.DateiId == datei.Id, token))
 			return false;
-		db.ReadingJobs.Add(ReadingService.CreateForRevision(revision, job.TriggeredByAccountId,
+		db.ReadingJobs.Add(ReadingService.CreateForDatei(datei, job.TriggeredByAccountId,
 			(readingOptions?.Value ?? new ReadingOptions()).MaxPagesPerRequest, now));
 		return true;
 	}
 
-	private async Task<MessageDisposition> RetryAsync(ExtractionJob job, Guid revisionId,
+	private async Task<MessageDisposition> RetryAsync(ExtractionJob job, Guid dateiId,
 		ExtractionMessage message, int attemptCount, CancellationToken token)
 	{
 		// Transient path: exhaustion (row budget or the message's own dequeue
@@ -329,13 +329,13 @@ public sealed class ExtractionWorker(
 		// the work; the editor's retry action restarts it fresh.
 		if (attemptCount >= options.Value.MaxAttempts || message.DequeueCount >= options.Value.MaxAttempts)
 		{
-			logger.LogWarning("Extraction for revision {RevisionId} exhausted its attempts", revisionId);
+			logger.LogWarning("Extraction for Datei {DateiId} exhausted its attempts", dateiId);
 			job.Status = ExtractionStatus.Failed;
 			job.FailureReason = ExhaustedReason;
 			job.CompletedAt = null;
 			job.UpdatedAt = time.GetUtcNow();
 			job.RowVersion++;
-			return await SaveAndConcludeAsync(job, revisionId, MessageDisposition.Delete, token);
+			return await SaveAndConcludeAsync(job, dateiId, MessageDisposition.Delete, token);
 		}
 
 		// The row must return to Queued before the message is abandoned — a
@@ -344,7 +344,7 @@ public sealed class ExtractionWorker(
 		job.UpdatedAt = time.GetUtcNow();
 		job.RowVersion++;
 		var visibility = Backoff(message.DequeueCount);
-		return await SaveAndConcludeAsync(job, revisionId,
+		return await SaveAndConcludeAsync(job, dateiId,
 			new MessageDisposition(Abandon: true, Visibility: visibility), token);
 	}
 
@@ -360,7 +360,7 @@ public sealed class ExtractionWorker(
 	/// reloaded fresh: a terminal winner means the work is done (delete),
 	/// anything else keeps the message for another pass (abandon).
 	/// </summary>
-	private async Task<MessageDisposition> SaveAndConcludeAsync(ExtractionJob job, Guid revisionId,
+	private async Task<MessageDisposition> SaveAndConcludeAsync(ExtractionJob job, Guid dateiId,
 		MessageDisposition onSaved, CancellationToken token)
 	{
 		try
@@ -372,14 +372,14 @@ public sealed class ExtractionWorker(
 		{
 			db.Entry(job).State = EntityState.Detached;
 			var fresh = await db.ExtractionJobs.AsNoTracking()
-				.FirstOrDefaultAsync(j => j.RevisionId == revisionId, token);
+				.FirstOrDefaultAsync(j => j.DateiId == dateiId, token);
 			if (fresh is not null
 				&& fresh.Status is ExtractionStatus.Completed or ExtractionStatus.NoText or ExtractionStatus.Failed)
 			{
-				logger.LogInformation("Extraction for revision {RevisionId} reached a terminal state concurrently", revisionId);
+				logger.LogInformation("Extraction for Datei {DateiId} reached a terminal state concurrently", dateiId);
 				return MessageDisposition.Delete;
 			}
-			logger.LogInformation("Extraction for revision {RevisionId} raced another writer; message abandoned", revisionId);
+			logger.LogInformation("Extraction for Datei {DateiId} raced another writer; message abandoned", dateiId);
 			return new MessageDisposition(Abandon: true, Visibility: options.Value.VisibilityBackoff);
 		}
 	}

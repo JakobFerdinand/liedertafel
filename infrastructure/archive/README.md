@@ -531,6 +531,32 @@ aoai-liedertafel-archive -g RG-Liedertafel-Archive --query id -o tsv)` shows
 journey check (upload a scan, watch the reading) is in
 [ARC-034-1 (#141)](https://github.com/JakobFerdinand/liedertafel/issues/141).
 
+## One-off blob cleanup after the contract migration (#172)
+
+The migration that dropped the asset/revision model cannot reach Blob storage.
+After the release that applied it, release the old objects once with the finite
+`--cleanup-dropped-blobs` command of the application image. It deletes
+everything under `revisions/` and staged `pending/` objects no upload session
+refers to any more, and never touches `dateien/` (the Dateien of the flat model)
+or any other name; `--dry-run` only counts. It needs the storage identity the
+extraction job already has (Blob data access to the assets account) and the
+database connection of the runtime role.
+
+```bash
+# (Check `az containerapp job start --help`: the container arguments are
+# passed with --args/--command depending on the CLI version.)
+# Dry run first: count only, nothing is deleted. Reuse ja-archive-extract's
+# identity and image by overriding the command for this one execution.
+az containerapp job start -n ja-archive-extract -g RG-Liedertafel-Archive \
+  --args "--cleanup-dropped-blobs" "--dry-run"
+# Read the "Dropped-blob cleanup (dry run)" log line, then run it for real:
+az containerapp job start -n ja-archive-extract -g RG-Liedertafel-Archive \
+  --args "--cleanup-dropped-blobs"
+```
+
+Check the logs for `Dropped-blob cleanup finished`; a second run reports 0.
+Do not run it before the migration: until then `revisions/` is still live data.
+
 ## Controlled database releases (ARC-012)
 
 Releases carrying a schema change run inside a maintenance window owned by

@@ -8,16 +8,9 @@ import { katalogId, oberflaeche } from "./chat-mock";
 const liedId = "00000000-0000-0000-0000-0000000002a1";
 const liedKarte = { component: "LiedKarte", liedId, titel: "Lied" };
 
-test("Der Katalog hat genau die sechs Komponenten des Archivs", () => {
+test("Der Katalog hat genau die vier Komponenten des Archivs", () => {
   expect([...a2uiKomponentenNamen].sort()).toEqual(
-    [
-      "AenderungsVorschau",
-      "AuftrittKarte",
-      "LiedKarte",
-      "ProgrammListe",
-      "Quellen",
-      "VorschlagKarte",
-    ].sort(),
+    ["AuftrittKarte", "LiedKarte", "ProgrammListe", "Quellen"].sort(),
   );
 });
 

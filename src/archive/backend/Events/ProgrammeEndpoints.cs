@@ -1,5 +1,4 @@
 using Archive.Backend.Auth;
-using Archive.Backend.Catalogue;
 using Archive.Backend.Data;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.EntityFrameworkCore;
@@ -8,13 +7,16 @@ namespace Archive.Backend.Events;
 
 public sealed record SaveProgrammeItemsRequest(List<ProgrammeItemRequest>? Items, uint RowVersion);
 
-/// <summary>One requested programme entry; the array order defines the position.</summary>
-public sealed record ProgrammeItemRequest(Guid? Id, Guid? SongId, Guid? MusicalVersionId, string? Note);
+/// <summary>
+/// One requested programme entry; the array order defines the position. An
+/// entry names a Lied.
+/// </summary>
+public sealed record ProgrammeItemRequest(Guid? Id, Guid? LiedId, string? Note);
 
 public sealed record PublishProgrammeRequest(uint RowVersion);
 
 /// <summary>
-/// Programme API (ARC-026/027): editors order songs for an event's
+/// Programme API (ARC-026/027): editors order Lieder for an event's
 /// appearance and explicitly publish the revision members should follow.
 /// ARC-027 surfaces the frozen published-revision history to editors and
 /// guards publishing against an outdated base revision. Reads use the
@@ -33,9 +35,7 @@ public static class ProgrammeEndpoints
 
 	public const string EmptyProgrammeMessage = "Das Programm enthält keine Lieder.";
 
-	public const string UnavailableVersionsMessage = "Das Programm enthält nicht verfügbare Liedfassungen.";
-
-	public const string MissingVersionMessage = "Ein Programmpunkt verweist auf eine nicht vorhandene Liedfassung.";
+	public const string MissingLiedMessage = "Ein Programmpunkt verweist auf ein nicht vorhandenes Lied.";
 
 	public const string NoteTooLongMessage = "Die Notiz ist zu lang.";
 
@@ -146,18 +146,14 @@ public static class ProgrammeEndpoints
 					item = new ProgrammeItem
 					{
 						RevisionId = working.Id,
-						SongId = entry.SongId,
-						ArrangementId = entry.ArrangementId,
-						MusicalVersionId = entry.MusicalVersionId,
+						LiedId = entry.LiedId,
 						Note = entry.Note,
 					};
 					db.ProgrammeItems.Add(item);
 				}
 				else
 				{
-					item.SongId = entry.SongId;
-					item.ArrangementId = entry.ArrangementId;
-					item.MusicalVersionId = entry.MusicalVersionId;
+					item.LiedId = entry.LiedId;
 					item.Note = entry.Note;
 				}
 				item.Position = ++parkedPosition;
@@ -232,22 +228,10 @@ public static class ProgrammeEndpoints
 				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
 			if (working.Items.Count == 0)
 				return Results.Problem(statusCode: 400, title: EmptyProgrammeMessage);
-			// Draft selections were allowed while drafting; only member-
-			// visible, still existing chains may be published. The referenced
-			// chains are resolved directly from the catalogue so the check
-			// never depends on the working draft's loaded navigation.
-			var itemVersionIds = working.Items.Select(i => i.MusicalVersionId).ToList();
-			var availableVersions = await db.MusicalVersions.AsNoTracking()
-				.Include(v => v.Arrangement).ThenInclude(a => a.Song)
-				.Where(v => itemVersionIds.Contains(v.Id) && v.Arrangement.Song.PublishedAt != null)
-				.Select(v => v.Id)
-				.ToListAsync(token);
-			if (working.Items.Any(item => !availableVersions.Contains(item.MusicalVersionId)))
-				return Results.Problem(statusCode: 409, title: UnavailableVersionsMessage);
 			// The publication stamp and the programme bump commit together in
 			// one save. Nothing else is written: no performance records, the
 			// event row (and its own publish stamps) stays untouched — merely
-			// passing the event date never marks songs performed.
+			// passing the event date never marks Lieder performed.
 			working.PublishedAt = time.GetUtcNow();
 			working.PublishedByAccountId = decision!.AccountId;
 			programme.RowVersion++;
@@ -325,15 +309,14 @@ public static class ProgrammeEndpoints
 	}
 
 	/// <summary>
-	/// The programme with every revision, its items and the display chain
-	/// (musical version, arrangement, song), untracked — shared by the
+	/// The programme with every revision, its items and their Lieder, untracked — shared by the
 	/// detail embed and the ARC-029 confirmation review.
 	/// </summary>
 	internal static Task<EventProgramme?> LoadProgrammeWithChainAsync(
 		ArchiveDbContext db, Guid eventId, CancellationToken token)
 		=> db.Programmes.AsNoTracking()
 			.Include(p => p.Revisions).ThenInclude(r => r.Items)
-			.ThenInclude(i => i.MusicalVersion).ThenInclude(v => v!.Arrangement).ThenInclude(a => a.Song)
+			.ThenInclude(i => i.Lied)
 			.FirstOrDefaultAsync(p => p.EventId == eventId, token);
 
 	private static object Embed(
@@ -384,24 +367,16 @@ public static class ProgrammeEndpoints
 	{
 		id = item.Id,
 		position = item.Position,
-		songId = item.SongId,
-		arrangementId = item.ArrangementId,
-		musicalVersionId = item.MusicalVersionId,
-		// Display fields come from the referenced chain; unknown values stay
-		// null instead of inventing "unbekannt" placeholders (ARC-026).
-		songTitle = item.MusicalVersion?.Arrangement?.Song?.Title,
-		arrangementLabel = item.MusicalVersion?.Arrangement?.Label,
-		voiceConfiguration = item.MusicalVersion?.Arrangement?.VoiceConfiguration,
-		musicalVersionLabel = item.MusicalVersion?.Label,
-		musicalKey = item.MusicalVersion?.MusicalKey,
+		liedId = item.LiedId,
+		liedTitle = item.Lied?.Title,
+		voiceConfiguration = item.Lied?.VoiceConfiguration,
+		musicalKey = item.Lied?.MusicalKey,
 		note = item.Note,
 	};
 
 	/// <summary>
-	/// Validates every requested entry against the catalogue before any row
-	/// is written: the musical version must exist with its arrangement and
-	/// song, and the song must match the version's arrangement parent.
-	/// Returns the resolved entries in request order or the German
+	/// Validates every requested entry against the Lieder before any row is
+	/// written. Returns the resolved entries in request order or the German
 	/// ProblemDetails error.
 	/// </summary>
 	private static async Task<(List<ResolvedItem> Items, IResult? Error)> ResolveItemsAsync(
@@ -414,34 +389,28 @@ public static class ProgrammeEndpoints
 		if (requested.Where(i => i.Id is not null)
 			.GroupBy(i => i.Id!.Value).Any(group => group.Count() > 1))
 			return ([], Results.Problem(statusCode: 400, title: InvalidItemMessage));
-		var versionIds = requested
-			.Where(i => i.MusicalVersionId is not null)
-			.Select(i => i.MusicalVersionId!.Value)
+		var liedIds = requested
+			.Where(i => i.LiedId is not null)
+			.Select(i => i.LiedId!.Value)
 			.Distinct()
 			.ToList();
-		var versions = await db.MusicalVersions.AsNoTracking()
-			.Include(v => v.Arrangement).ThenInclude(a => a.Song)
-			.Where(v => versionIds.Contains(v.Id))
-			.ToDictionaryAsync(v => v.Id, token);
+		var knownLieder = (await db.Lieder.AsNoTracking()
+			.Where(l => liedIds.Contains(l.Id)).Select(l => l.Id).ToListAsync(token)).ToHashSet();
 		var resolved = new List<ResolvedItem>(requested.Count);
 		foreach (var entry in requested)
 		{
-			if (entry.SongId is not { } songId
-				|| !versions.TryGetValue(entry.MusicalVersionId ?? Guid.Empty, out var version)
-				|| version.Arrangement?.Song is null
-				|| version.Arrangement.SongId != songId)
-				return ([], Results.Problem(statusCode: 400, title: MissingVersionMessage));
 			var note = entry.Note?.Trim();
 			if (note is { Length: > NoteMaxLength })
 				return ([], Results.Problem(statusCode: 400, title: NoteTooLongMessage));
-			resolved.Add(new ResolvedItem(entry.Id, songId, version.ArrangementId, version.Id,
-				string.IsNullOrEmpty(note) ? null : note));
+			var cleanNote = string.IsNullOrEmpty(note) ? null : note;
+			if (entry.LiedId is not { } liedId || !knownLieder.Contains(liedId))
+				return ([], Results.Problem(statusCode: 400, title: MissingLiedMessage));
+			resolved.Add(new ResolvedItem(entry.Id, liedId, cleanNote));
 		}
 		return (resolved, null);
 	}
 
-	private sealed record ResolvedItem(
-		Guid? RequestedId, Guid SongId, Guid ArrangementId, Guid MusicalVersionId, string? Note);
+	private sealed record ResolvedItem(Guid? RequestedId, Guid LiedId, string? Note);
 
 	/// <summary>
 	/// Honest precision-aware ARC-026 "upcoming" decision: exact dates count

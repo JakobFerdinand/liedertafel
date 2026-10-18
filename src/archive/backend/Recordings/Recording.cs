@@ -1,5 +1,5 @@
-using Archive.Backend.Assets;
 using Archive.Backend.Events;
+using Archive.Backend.Lieder;
 
 namespace Archive.Backend.Recordings;
 
@@ -8,13 +8,13 @@ namespace Archive.Backend.Recordings;
 /// that later slices key on (ARC-032 passages). An event may carry several
 /// independently labelled recordings; a recording is material about the
 /// event and never a performance occurrence.
-/// Files live in two event-owned <see cref="ArchiveAsset"/> slots that reuse
-/// the ARC-015 revision and ticket contracts:
-/// - <see cref="OriginalAssetId"/> is the preserved original, whatever its
+/// Files are event-owned Aufnahme <see cref="Datei"/>en (#171) in two slots:
+/// - <see cref="OriginalDateiId"/> is the preserved original, whatever its
 ///   format;
-/// - <see cref="PlaybackAssetId"/> is an optional, externally converted
+/// - <see cref="PlaybackDateiId"/> is an optional, externally converted
 ///   playback copy. While it has no file, a playable original serves both
 ///   roles as one object (no duplicate is created).
+/// Replacing a slot sends the earlier Datei to the trash.
 /// Publication is explicit and separate from the event's: members see a
 /// recording only when both are published.
 /// </summary>
@@ -33,13 +33,15 @@ public sealed class Recording
 	/// <summary>Closed media kind from <see cref="RecordingKinds.Known"/>.</summary>
 	public required string Kind { get; set; }
 
-	public Guid OriginalAssetId { get; set; }
+	/// <summary>The preserved original; null until its file is attached.</summary>
+	public Guid? OriginalDateiId { get; set; }
 
-	public ArchiveAsset OriginalAsset { get; set; } = null!;
+	public Datei? OriginalDatei { get; set; }
 
-	public Guid? PlaybackAssetId { get; set; }
+	/// <summary>The converted playback copy; null while there is none.</summary>
+	public Guid? PlaybackDateiId { get; set; }
 
-	public ArchiveAsset? PlaybackAsset { get; set; }
+	public Datei? PlaybackDatei { get; set; }
 
 	/// <summary>
 	/// Length of the file members play, in seconds, as measured by the
@@ -90,8 +92,7 @@ public static class RecordingVisibility
 	/// <summary>
 	/// The same decision as a query filter for passages (ARC-032): a passage
 	/// is member-visible with its recording. ARC-040 trash conditions extend
-	/// this and <see cref="EventVisibility"/>; the song's own publication is
-	/// applied where the song is read.
+	/// this and <see cref="EventVisibility"/>.
 	/// </summary>
 	public static IQueryable<RecordingPassage> OfMemberVisible(IQueryable<RecordingPassage> passages) =>
 		passages.Where(p => p.Recording.PublishedAt != null && p.Recording.Event.PublishedAt != null);

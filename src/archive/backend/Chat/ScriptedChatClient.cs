@@ -35,15 +35,24 @@ public sealed class ScriptedChatClient : IChatClient
 	public const string UnknownAnswer =
 		"Das ist mir nicht bekannt. Solche Angaben sind im Archiv nicht verzeichnet.";
 
-	/// <summary>Answer for performance questions while no performance data is exposed to the chat.</summary>
+	/// <summary>
+	/// Answer for questions about whole Auftritte ("Konzert mit ..."): the chat
+	/// has no Auftritt tools, only the history of a single Lied (<c>lied_details</c>).
+	/// </summary>
 	public const string NoPerformanceDataAnswer =
 		"Dazu liegen mir derzeit keine Aufführungsdaten vor.";
+
+	/// <summary>Answer when a "wann gesungen" question names no Lied and the thread has none.</summary>
+	public const string WhichLiedAnswer =
+		"Welches Lied meinst du? Nenne mir bitte den Titel.";
 
 	/// <summary>Polite refusal for non-archive questions.</summary>
 	public const string OffTopicRefusal =
 		"Dazu kann ich nur Fragen zum Vereinsarchiv beantworten.";
 
 	private const string SearchToolName = "catalogue_search";
+
+	private const string DetailsToolName = "lied_details";
 
 	private const string ResponseId = "resp-scripted";
 
@@ -92,10 +101,32 @@ public sealed class ScriptedChatClient : IChatClient
 		{
 			var askedQuestion = conversation.LastOrDefault(m => m.Role == ChatRole.User)?.Text ?? string.Empty;
 			var offersCards = options?.Tools?.Any(t => t.Name == A2uiCatalog.ToolName) == true;
-			// A question that asks for a card: after the search, show the first
-			// song found, then answer from the search result as usual.
-			if (offersCards && AsksForCard(askedQuestion) && CalledTool(conversation, result) == SearchToolName
-				&& ParseSongs(result.Result) is [{ } first, ..])
+			var calledTool = CalledTool(conversation, result);
+			var asksHistory = AsksWhenSung(askedQuestion);
+			// "Wann gesungen": the search found the Lied, now read its history.
+			if (asksHistory && calledTool == SearchToolName)
+			{
+				var wanted = HistoryTitle(askedQuestion, conversation);
+				var found = ParseLieder(result.Result);
+				var lied = found.FirstOrDefault(l => CatalogueFold(l.Title) == CatalogueFold(wanted ?? string.Empty))
+					?? found.FirstOrDefault();
+				if (lied is not null)
+				{
+					yield return new ChatResponseUpdate
+					{
+						MessageId = MessageId,
+						Contents = [new FunctionCallContent($"call_{conversation.Count(HasFunctionCall) + 1}", DetailsToolName,
+							new Dictionary<string, object?> { ["liedId"] = lied.Id })],
+					};
+					yield break;
+				}
+			}
+			// A question that asks for a card, or a history answer about one
+			// Lied: after the lookup, show the first Lied found, then answer
+			// from the lookup result as usual.
+			var cardSource = asksHistory ? DetailsToolName : SearchToolName;
+			if (offersCards && (asksHistory || AsksForCard(askedQuestion)) && calledTool == cardSource
+				&& ParseLieder(result.Result) is [{ } first, ..])
 			{
 				yield return new ChatResponseUpdate
 				{
@@ -109,20 +140,39 @@ public sealed class ScriptedChatClient : IChatClient
 				};
 				yield break;
 			}
-			// After the surface: the answer is built from the search result.
-			if (CalledTool(conversation, result) == A2uiCatalog.ToolName)
+			// After the surface: the answer is built from the lookup result.
+			if (calledTool == A2uiCatalog.ToolName)
 				result = conversation.SelectMany(m => m.Contents.OfType<FunctionResultContent>())
-					.LastOrDefault(r => CalledTool(conversation, r) == SearchToolName) ?? result;
-			foreach (var update in AnswerFromToolResults(result))
+					.LastOrDefault(r => CalledTool(conversation, r) is SearchToolName or DetailsToolName) ?? result;
+			foreach (var update in AnswerFromToolResults(result, CalledTool(conversation, result) == DetailsToolName))
 				yield return update;
 			yield break;
 		}
 
 		var question = last?.Text ?? string.Empty;
 
-		// Performance/event questions: the chat exposes no performance data
-		// yet (first question type is grounded catalogue retrieval), so the
-		// honest answer states the gap instead of calling a tool.
+		// "Wann haben wir dieses Lied gesungen?": find the Lied (named in the
+		// question or cited in the thread) and read its history.
+		if (AsksWhenSung(question))
+		{
+			var title = HistoryTitle(question, conversation);
+			if (title is null)
+			{
+				yield return Text(WhichLiedAnswer);
+				yield return Usage(question, WhichLiedAnswer);
+				yield break;
+			}
+			yield return new ChatResponseUpdate
+			{
+				MessageId = MessageId,
+				Contents = [new FunctionCallContent($"call_{conversation.Count(HasFunctionCall) + 1}", SearchToolName,
+					new Dictionary<string, object?> { ["query"] = title, ["page"] = 1 })],
+			};
+			yield break;
+		}
+
+		// Questions about whole Auftritte: the chat has no Auftritt tools, so
+		// the honest answer states the gap instead of calling a tool.
 		if (ContainsAny(question, "wann wurde", "aufgeführt", "konzert"))
 		{
 			yield return Text(NoPerformanceDataAnswer);
@@ -168,11 +218,11 @@ public sealed class ScriptedChatClient : IChatClient
 	{
 	}
 
-	private static List<ChatResponseUpdate> AnswerFromToolResults(FunctionResultContent result)
+	private static List<ChatResponseUpdate> AnswerFromToolResults(FunctionResultContent result, bool history)
 	{
 		var updates = new List<ChatResponseUpdate>();
-		var songs = ParseSongs(result.Result);
-		if (songs.Count == 0)
+		var lieder = ParseLieder(result.Result);
+		if (lieder.Count == 0)
 		{
 			updates.Add(Text(UnknownAnswer));
 			updates.Add(Usage(result.Result?.ToString() ?? string.Empty, UnknownAnswer));
@@ -180,11 +230,21 @@ public sealed class ScriptedChatClient : IChatClient
 		}
 		var builder = new System.Text.StringBuilder();
 		var embeddedInstruction = false;
-		foreach (var song in songs)
+		if (history && result.Result is string detailsJson)
 		{
-			builder.Append("Der Titel „").Append(song.Title).Append("“ ist im Archiv verzeichnet.");
-			builder.Append(' ').Append(CitationMarkerPrefix).Append(song.Title).Append("] ");
-			if (song.LyricsExcerpt is not null && song.LyricsExcerpt.Contains(EmbeddedInstructionMarker, StringComparison.OrdinalIgnoreCase))
+			var lied = lieder[0];
+			builder.Append(HistorySentences(lied.Title, detailsJson));
+			builder.Append(' ').Append(CitationMarkerPrefix).Append(lied.Title).Append(']');
+			var historyAnswer = builder.ToString().TrimEnd();
+			updates.Add(Text(historyAnswer));
+			updates.Add(Usage(detailsJson, historyAnswer));
+			return updates;
+		}
+		foreach (var lied in lieder)
+		{
+			builder.Append("Der Titel „").Append(lied.Title).Append("“ ist im Archiv verzeichnet.");
+			builder.Append(' ').Append(CitationMarkerPrefix).Append(lied.Title).Append("] ");
+			if (lied.LyricsExcerpt is not null && lied.LyricsExcerpt.Contains(EmbeddedInstructionMarker, StringComparison.OrdinalIgnoreCase))
 				embeddedInstruction = true;
 		}
 		var answer = builder.ToString().TrimEnd();
@@ -223,27 +283,27 @@ public sealed class ScriptedChatClient : IChatClient
 			],
 		};
 
-	private static List<ScriptedSong> ParseSongs(object? result)
+	private static List<ScriptedLied> ParseLieder(object? result)
 	{
 		if (result is not string json || json.Length == 0)
 			return [];
 		try
 		{
 			using var document = JsonDocument.Parse(json);
-			if (!document.RootElement.TryGetProperty("songs", out var songsElement)
-				|| songsElement.ValueKind is not JsonValueKind.Array)
+			if (!document.RootElement.TryGetProperty("lieder", out var liederElement)
+				|| liederElement.ValueKind is not JsonValueKind.Array)
 				return [];
-			var songs = new List<ScriptedSong>();
-			foreach (var element in songsElement.EnumerateArray())
+			var lieder = new List<ScriptedLied>();
+			foreach (var element in liederElement.EnumerateArray())
 			{
-				songs.Add(new ScriptedSong(
+				lieder.Add(new ScriptedLied(
 					element.TryGetProperty("id", out var id) ? id.GetString() ?? string.Empty : string.Empty,
 					element.TryGetProperty("title", out var title) ? title.GetString() ?? string.Empty : string.Empty,
 					element.TryGetProperty("lyricsExcerpt", out var excerpt) && excerpt.ValueKind is JsonValueKind.String
 						? excerpt.GetString()
 						: null));
 			}
-			return songs;
+			return lieder;
 		}
 		catch (JsonException)
 		{
@@ -262,6 +322,75 @@ public sealed class ScriptedChatClient : IChatClient
 		return false;
 	}
 
+	/// <summary>"Wann haben wir (dieses Lied) gesungen / wurde X aufgeführt?"</summary>
+	private static bool AsksWhenSung(string question)
+		=> ContainsAny(question, "wann") && ContainsAny(question, "gesungen", "aufgeführt", "aufgefuehrt");
+
+	private static readonly HashSet<string> HistoryFillerWords = new(StringComparer.OrdinalIgnoreCase)
+	{
+		"wann", "wurde", "wurden", "haben", "hat", "wir", "ihr", "das", "dieses", "diesem", "dieser", "lied", "gesungen",
+		"aufgeführt", "aufgefuehrt", "schon", "mal", "eigentlich", "zuletzt", "denn",
+	};
+
+	/// <summary>
+	/// The Lied a "wann gesungen" question is about: the title words left in
+	/// the question, else the title the previous answer cited, else null.
+	/// </summary>
+	private static string? HistoryTitle(string question, List<AiChatMessage> conversation)
+	{
+		var named = string.Join(' ', question
+			.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+			.Select(word => word.Trim('?', '!', '.', ',', '„', '“', '"'))
+			.Where(word => word.Length > 0 && !HistoryFillerWords.Contains(word)));
+		if (named.Length > 0)
+			return named;
+		var previous = conversation.LastOrDefault(m => m.Role == ChatRole.Assistant)?.Text;
+		if (previous is null)
+			return null;
+		var start = previous.IndexOf(CitationMarkerPrefix, StringComparison.Ordinal);
+		if (start < 0)
+			return null;
+		var end = previous.IndexOf(']', start);
+		return end < 0 ? null : previous[(start + CitationMarkerPrefix.Length)..end].Trim();
+	}
+
+	private static string CatalogueFold(string text) => Archive.Backend.Catalogue.CatalogueText.Fold(text);
+
+	/// <summary>The German answer sentences for a Lied's history, from the details result only.</summary>
+	private static string HistorySentences(string title, string detailsJson)
+	{
+		var sentences = new List<string>();
+		try
+		{
+			using var document = JsonDocument.Parse(detailsJson);
+			foreach (var entry in Entries(document.RootElement, "gesungen"))
+			{
+				var how = entry.Nachweis == "bestaetigt" ? "gesungen" : "nur erwähnt (Nachweis nicht bestätigt)";
+				sentences.Add($"„{title}“ wurde beim Auftritt „{entry.Auftritt}“ ({entry.Datum}) {how}.");
+			}
+			foreach (var entry in Entries(document.RootElement, "geplant"))
+				sentences.Add($"„{title}“ steht im Programm des Auftritts „{entry.Auftritt}“ ({entry.Datum}), bestätigt ist der Ablauf noch nicht.");
+		}
+		catch (JsonException)
+		{
+			// Malformed tool output stays unknown instead of inventing content.
+		}
+		return sentences.Count == 0
+			? $"Zu „{title}“ sind im Archiv keine Auftritte verzeichnet."
+			: string.Join(' ', sentences);
+
+		static IEnumerable<(string Auftritt, string Datum, string? Nachweis)> Entries(JsonElement root, string name)
+		{
+			if (!root.TryGetProperty(name, out var list) || list.ValueKind is not JsonValueKind.Array)
+				yield break;
+			foreach (var item in list.EnumerateArray())
+				yield return (
+					item.TryGetProperty("auftritt", out var a) ? a.GetString() ?? string.Empty : string.Empty,
+					item.TryGetProperty("datum", out var d) ? d.GetString() ?? string.Empty : string.Empty,
+					item.TryGetProperty("nachweis", out var n) ? n.GetString() : null);
+		}
+	}
+
 	private static bool IsNextPageRequest(string question) => ContainsAny(question, "weitere lieder", "nächste seite");
 
 	private static string CatalogueQuery(string question) =>
@@ -269,7 +398,7 @@ public sealed class ScriptedChatClient : IChatClient
 			? string.Empty
 			: AsksForCard(question) ? WithoutCardWords(question) : question;
 
-	/// <summary>A question that asks for the song "als Karte" (ARC-022-4).</summary>
+	/// <summary>A question that asks for the Lied "als Karte" (ARC-022-4).</summary>
 	private static bool AsksForCard(string question) => ContainsAny(question, " als karte");
 
 	private static string WithoutCardWords(string question) => string.Join(' ',
@@ -287,5 +416,5 @@ public sealed class ScriptedChatClient : IChatClient
 	private static bool HasFunctionCall(AiChatMessage message)
 		=> message.Contents.OfType<FunctionCallContent>().Any();
 
-	private sealed record ScriptedSong(string Id, string Title, string? LyricsExcerpt);
+	private sealed record ScriptedLied(string Id, string Title, string? LyricsExcerpt);
 }

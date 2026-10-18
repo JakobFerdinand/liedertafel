@@ -1,10 +1,8 @@
 // ARC-024: Auftritte des Chores mit ehrlicher Datumsdarstellung. Die
 // Abrufhelfer folgen dem Muster der Lieder (deutsche Fehler als geworfene
 // Antworten, keine Zwischenspeicherung).
-// ARC-025: an einem Auftritt hängende Dokumente und Fotografien nutzen
-// denselben Drei-Schritte-Upload wie die Noten (Sitzung, Übertragung zum
-// Ticket, Abschluss); die Helfer hier formen nur die Ereignis-spezifische
-// Vertragssprache (Arten, Beschreibung statt Stimme).
+// ARC-025/#171: Dokumente und Fotografien eines Auftritts sind Dateien und
+// nutzen den Upload aus lib/dateien.ts.
 
 import { patchAuth, postAuth, putAuth } from "@/lib/auth";
 
@@ -37,38 +35,22 @@ export type Auftritt = {
   published: boolean;
 };
 
-// ARC-025: Dokumente und Fotografien am Auftritt. „document" ist ein
-// eingescanntes Programm oder Schriftstück (PDF), „photo" eine historische
-// Fotografie (JPEG/PNG/WEBP). Die Beschreibung steht als sichtbare
+// ARC-025/#171: Dokumente und Fotografien am Auftritt sind Dateien des
+// Auftritts. „document" ist ein eingescanntes Programm oder Schriftstück
+// (PDF), „photo" eine historische Fotografie (JPEG/PNG/WEBP) – der Server
+// unterscheidet sie am Inhaltstyp. Die Beschreibung steht als sichtbare
 // Bildunterschrift und dient zugleich als Vorlesetext (alt) des Bildes.
-export type DokumentTyp = "document" | "photo";
-
-// Dieselbe Revisionsangabe wie bei den Noten (lib/songs.ts): Fassung,
-// Inhaltstyp und Größe des hochgeladenen Standes. Ohne abgeschlossenen
-// Upload bleibt currentRevision null – der Eintrag ist dann noch nicht
-// hochgeladen und trägt keine Tickets.
-export type DokumentRevision = {
-  revisionId: string;
-  revisionNumber: number;
-  contentType: string;
-  sizeBytes: number;
-  createdAt: string;
-};
+export type DokumentArt = "document" | "photo";
 
 export type Dokument = {
   id: string;
-  assetType: DokumentTyp;
+  art: DokumentArt;
   description: string | null;
+  fileName: string | null;
+  contentType: string;
+  sizeBytes: number;
   createdAt: string;
-  currentRevision: DokumentRevision | null;
-};
-
-// Antwortform der Anlage- und Änderungsaufrufe (Asset-Eignervertrag):
-// dieselben Felder wie Dokument, dazu die Eigner-Kennzeichnung.
-export type EventAssetAntwort = Dokument & {
-  eventId: string | null;
-  musicalVersionId: string | null;
-  voiceLabel: string | null;
+  rowVersion: number;
 };
 
 export type AuftrittDetails = Auftritt & {
@@ -144,13 +126,6 @@ export async function fetchEvent(
   return data.event;
 }
 
-// Erlaubte Inhaltstypen je Materialart (Spiegel der Backend-Whitelist:
-// Dokumente nur PDF, Fotografien JPEG/PNG/WEBP).
-const erlaubteDokumentInhaltstypen: Record<DokumentTyp, string[]> = {
-  document: ["application/pdf"],
-  photo: ["image/jpeg", "image/png", "image/webp"],
-};
-
 const dokumentInhaltstypNachEndung: Record<string, string> = {
   pdf: "application/pdf",
   jpg: "image/jpeg",
@@ -159,80 +134,24 @@ const dokumentInhaltstypNachEndung: Record<string, string> = {
   webp: "image/webp",
 };
 
-export function istDokumentTyp(typ: string): typ is DokumentTyp {
-  return typ === "document" || typ === "photo";
-}
-
-/** Vorwahl der Materialart aus dem MIME-Typ; unbekanntes gilt als Dokument. */
-export function dokumentTypFuerDatei(datei: File): DokumentTyp {
+/** Wirksamer Inhaltstyp einer gewählten Datei: erkannter Typ, sonst die Endung. */
+export function contentTypeFuerDokument(datei: File): string {
   const inhaltstyp = datei.type.toLowerCase();
-  if (inhaltstyp.startsWith("image/")) return "photo";
-  if (inhaltstyp === "application/pdf") return "document";
-  const endung = datei.name.toLowerCase().split(".").pop() ?? "";
-  if (
-    endung === "jpg" ||
-    endung === "jpeg" ||
-    endung === "png" ||
-    endung === "webp"
-  ) {
-    return "photo";
+  if (Object.values(dokumentInhaltstypNachEndung).includes(inhaltstyp)) {
+    return inhaltstyp;
   }
-  return "document";
-}
-
-/** Wirksamer Inhaltstyp der Übertragung: erkannter Typ, sonst Whitelist-Ersatz. */
-export function contentTypeFuerDokument(typ: DokumentTyp, datei: File): string {
-  const erlaubt = erlaubteDokumentInhaltstypen[typ];
-  const inhaltstyp = datei.type.toLowerCase();
-  if (erlaubt.includes(inhaltstyp)) return inhaltstyp;
   const endung = datei.name.toLowerCase().split(".").pop() ?? "";
-  const nachEndung = dokumentInhaltstypNachEndung[endung];
-  if (nachEndung && erlaubt.includes(nachEndung)) return nachEndung;
-  return erlaubt[0];
+  return dokumentInhaltstypNachEndung[endung] ?? "application/pdf";
 }
 
 /** Deutscher Name der Materialart für Zeilen und Etiketten. */
-export function dokumentTypName(typ: DokumentTyp): string {
-  return typ === "photo" ? "Fotografie" : "Dokument";
-}
-
-/**
- * ARC-025: hängt ein neues Dokument/eine neue Fotografie an den Auftritt.
- * Der Aufruf legt nur den Eigner-Eintrag an; am Auftritt selbst ändert
- * sich nichts (kein Programm, keine bestätigte Aufführung).
- */
-export async function createEventAsset(
-  eventId: string,
-  body: { assetType: DokumentTyp; description?: string },
-): Promise<EventAssetAntwort> {
-  const response = await postAuth(
-    `/api/events/${encodeURIComponent(eventId)}/assets`,
-    body,
-  );
-  if (!response.ok) throw response;
-  return (await response.json()) as EventAssetAntwort;
-}
-
-/**
- * Ändert Materialart und/oder Beschreibung eines Auftritts-Materials
- * (PATCH: abwesende Felder bleiben unverändert). Der Typ bleibt nach dem
- * ersten Hochladen gesperrt; der Server antwortet dann mit 409.
- */
-export async function patchEventAsset(
-  assetId: string,
-  body: { assetType?: DokumentTyp; description?: string | null },
-): Promise<EventAssetAntwort> {
-  const response = await patchAuth(
-    `/api/assets/${encodeURIComponent(assetId)}`,
-    body,
-  );
-  if (!response.ok) throw response;
-  return (await response.json()) as EventAssetAntwort;
+export function dokumentArtName(art: DokumentArt): string {
+  return art === "photo" ? "Fotografie" : "Dokument";
 }
 
 // ─── ARC-026: Programm des Auftritts ─────────────────────────────────
 // Ein Programm gehört zu genau einem Auftritt; ein Programmpunkt verweist
-// auf eine Liedfassung (Arrangement + musikalische Version). Dasselbe
+// auf ein Lied (#170). Dasselbe
 // Lied darf doppelt stehen — zwei eigene Einträge mit eigener stabiler
 // Programmpunkt-Id. Vor der ersten Veröffentlichung sehen Mitglieder
 // nichts (das eingebettete Programm bleibt null).
@@ -242,15 +161,11 @@ export type ProgrammPunkt = {
   // behalten sie über ein Speichern hinweg (ganzer geordneter Ersatz).
   id: string;
   position: number;
-  songId: string;
-  arrangementId: string;
-  musicalVersionId: string;
-  // Anzeigefelder aus der Kette; Unbekanntes bleibt null (keine
+  liedId: string;
+  // Anzeigefelder aus dem Lied; Unbekanntes bleibt null (keine
   // erfundenen Plätze).
-  songTitle: string | null;
-  arrangementLabel: string | null;
+  liedTitle: string | null;
   voiceConfiguration: string | null;
-  musicalVersionLabel: string | null;
   musicalKey: string | null;
   note: string | null;
 };
@@ -323,8 +238,7 @@ export async function putProgrammItems(
   body: {
     items: Array<{
       id?: string;
-      songId: string;
-      musicalVersionId: string;
+      liedId: string;
       note?: string;
     }>;
     rowVersion?: number;
@@ -385,49 +299,22 @@ export function publishedAtText(zeitstempel: string): string {
   });
 }
 
-/**
- * Tief verlinkte Liedseite des Programmpunkts: das Mitglied landet direkt
- * bei der Liedfassung und musikalischen Version des Eintrags.
- */
-export function programmPunktUrl(punkt: ProgrammPunkt): string {
-  const parameter = new URLSearchParams();
-  parameter.set("id", punkt.songId);
-  parameter.set("fassung", punkt.arrangementId);
-  parameter.set("version", punkt.musicalVersionId);
-  return `/lied/?${parameter.toString()}`;
-}
-
-/**
- * Tief verlinkte Liedseite des Aufführungsnachweises (ARC-028): mit
- * bekannter Fassungskette fahren Fassung und Version in der Adresse
- * (dieselbe Rezeptur wie der Programmpunkt); ohne Kette weist der Port
- * nur auf das Lied — nichts wird erfunden.
- */
-export function nachweisUrl(beleg: Nachweis): string {
-  const parameter = new URLSearchParams();
-  parameter.set("id", beleg.songId);
-  if (beleg.arrangementId && beleg.musicalVersionId) {
-    parameter.set("fassung", beleg.arrangementId);
-    parameter.set("version", beleg.musicalVersionId);
-  }
-  const query = parameter.toString();
-  return query ? `/lied/?${query}` : "/lied/";
+/** Liedseite eines Liedes. */
+export function liedUrl(liedId: string): string {
+  return `/lied/?id=${encodeURIComponent(liedId)}`;
 }
 
 // ─── ARC-028: Aufführungsnachweise ───────────────────────────────────
 // Nachweise sammeln die überlieferten Belege eines Auftritts: eine
 // bestätigte Aufführung („confirmed“) oder nur ein unverifizierter
-// Programmhinweis („mention“). Die Fassungskette (Arrangement +
-// musikalische Version) ist optional — ohne sie bleiben beide Ids null
-// („Fassung unbekannt“). Die Einbettung liest sich aus den
+// Programmhinweis („mention“). Ein Nachweis nennt ein Lied (#170). Die Einbettung liest sich aus den
 // Auftrittsdetails hinter `programme`; ältere Antworten ohne das Feld
 // bleiben zulässig.
 
 export type Nachweis = {
   id: string;
-  songId: string;
-  arrangementId: string | null;
-  musicalVersionId: string | null;
+  liedId: string;
+  liedTitle: string | null;
   evidenceStatus: string;
   position: number;
 };
@@ -453,12 +340,10 @@ export type AuftrittDetailsMitBelegen = AuftrittDetails & {
   performances?: Nachweis[] | null;
 };
 
-/** Körper des Erfassungsaufrufs: die Fassungskette entfällt bei
-    „Fassung unbekannt“, leere Quellenangaben werden weggelassen. */
+/** Körper des Erfassungsaufrufs: leere Quellenangaben werden weggelassen. */
 export type NachweisErfassung = {
-  songId: string;
+  liedId: string;
   evidenceStatus: string;
-  musicalVersionId?: string;
   sourceNote?: string;
   // Wiederholungsschlüssel gegen verlorene Doppelklicks: derselbe
   // Schlüssel liefert denselben Nachweis zurück, statt neu anzulegen.
@@ -466,10 +351,9 @@ export type NachweisErfassung = {
 };
 
 /** PATCH-Körper: abwesend = unverändert, explizit null räumt ab
-    (musicalVersionId null klart die Kette, sourceNote null die Angabe). */
+    (sourceNote null die Angabe). */
 export type NachweisAenderung = {
   evidenceStatus?: string;
-  musicalVersionId?: string | null;
   sourceNote?: string | null;
   rowVersion: number;
 };
@@ -493,7 +377,7 @@ export async function posteNachweis(
 }
 
 /**
- * Ändert Nachweisart, Fassungskette und/oder Quellenangabe (PATCH:
+ * Ändert Nachweisart und/oder Quellenangabe (PATCH:
  * abwesende Felder bleiben unverändert). Ein veralteter rowVersion-Stand
  * antwortet mit 409 — der frische Stand kommt dann über den Eltern-Nachlauf.
  */
@@ -528,31 +412,24 @@ export async function loescheNachweis(id: string): Promise<void> {
 // `programme.confirmation` und sehen Plan und tatsächlichen Verlauf
 // getrennt.
 
-export type BestaetigungFassung = {
-  songId: string;
-  songTitle: string | null;
-  arrangementId: string | null;
-  musicalVersionId: string | null;
-  arrangementLabel: string | null;
+export type BestaetigungLied = {
+  liedId: string;
+  liedTitle: string | null;
   voiceConfiguration: string | null;
-  musicalVersionLabel: string | null;
   musicalKey: string | null;
 };
 
 // Ein tatsächlich gesungenes Lied im Lesesaal (Mitglieder und Redaktion).
-export type BestaetigungIst = BestaetigungFassung & {
+export type BestaetigungIst = BestaetigungLied & {
   performanceId: string;
   programmeItemId: string | null;
   // Zusätzlich zum Plan gesungen (Zugabe).
   added: boolean;
-  // Eine andere Fassung als geplant wurde gesungen.
-  differsFromPlan: boolean;
-  plannedMusicalVersionLabel: string | null;
   evidenceStatus: string;
 };
 
 // Geplant, aber nicht gesungen.
-export type BestaetigungAusgefallen = BestaetigungFassung & {
+export type BestaetigungAusgefallen = BestaetigungLied & {
   programmeItemId: string;
   position: number;
 };
@@ -572,7 +449,7 @@ export type BestaetigungEmbed = {
 
 export type BestaetigungAusgang = "open" | "sung" | "skipped" | "unconfirmed";
 
-export type BestaetigungNachweis = BestaetigungFassung & {
+export type BestaetigungNachweis = BestaetigungLied & {
   id: string;
   evidenceStatus: string;
   // Redaktionsansicht: eine am Nachweis hinterlegte Quellenangabe.
@@ -584,7 +461,7 @@ export type BestaetigungNachweis = BestaetigungFassung & {
   passageCount: number;
 };
 
-export type BestaetigungPunkt = BestaetigungFassung & {
+export type BestaetigungPunkt = BestaetigungLied & {
   programmeItemId: string;
   position: number;
   note: string | null;
@@ -593,7 +470,7 @@ export type BestaetigungPunkt = BestaetigungFassung & {
   // Nach einer Neuveröffentlichung: bisheriger Nachweis desselben Liedes,
   // den die Redaktion ausdrücklich übernehmen kann.
   suggestedPerformanceId: string | null;
-  // Dieser Vorschlag samt Fassungskette und Marke; er kann ein früherer
+  // Dieser Vorschlag samt Marke; er kann ein früherer
   // Nachweis (nach einer Neuveröffentlichung) oder ein von Hand erfasster
   // Nachweis desselben Liedes sein.
   suggestedPerformance: BestaetigungNachweis | null;
@@ -628,8 +505,6 @@ export type BestaetigungEintrag = {
   outcome: "sung" | "skipped";
   performanceId?: string;
   rowVersion?: number;
-  // Korrigierte Fassung desselben Liedes; abwesend = wie geplant.
-  musicalVersionId?: string;
 };
 
 export type BestaetigungZusatz = {
@@ -637,8 +512,7 @@ export type BestaetigungZusatz = {
   // Client-Schlüssel gegen Doppelanlage: derselbe Schlüssel liefert
   // denselben Nachweis zurück.
   clientKey?: string;
-  songId: string;
-  musicalVersionId?: string;
+  liedId: string;
   rowVersion?: number;
 };
 
@@ -686,19 +560,4 @@ export async function putBestaetigung(
   if (!response.ok) throw response;
   const data = (await response.json()) as { review: BestaetigungPruefung };
   return data.review;
-}
-
-/** Tiefer Leseport auf die gesungene Fassung; ohne Kette nur aufs Lied. */
-export function bestaetigungUrl(eintrag: {
-  songId: string;
-  arrangementId: string | null;
-  musicalVersionId: string | null;
-}): string {
-  const parameter = new URLSearchParams();
-  parameter.set("id", eintrag.songId);
-  if (eintrag.arrangementId && eintrag.musicalVersionId) {
-    parameter.set("fassung", eintrag.arrangementId);
-    parameter.set("version", eintrag.musicalVersionId);
-  }
-  return `/lied/?${parameter.toString()}`;
 }

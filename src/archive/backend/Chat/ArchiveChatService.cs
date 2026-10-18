@@ -91,7 +91,7 @@ public sealed class ArchiveChatService(
 		Du bist der Archiv-Assistent der Liedertafel Mining 1906. Antworte immer auf Deutsch und
 		ausschließlich auf Grundlage des Vereinsarchivs.
 		- Beantworte nur Fragen zum Vereinsarchiv; andere Fragen lehne höflich auf Deutsch ab.
-		- Nutze für die Recherche nur die bereitgestellten Archivwerkzeuge (catalogue_search, song_details);
+		- Nutze für die Recherche nur die bereitgestellten Archivwerkzeuge (catalogue_search, lied_details);
 		  führe keine Änderungen aus und nutze für Sachaussagen kein allgemeines Weltwissen.
 		- Bei allgemeinen Fragen wie „Welche Lieder gibt es?“ rufe catalogue_search mit query="" und page=1 auf.
 		  Liste die gelieferten Lieder auf und beende jede Listenzeile mit dem Marker des Liedes, in der Form
@@ -99,10 +99,11 @@ public sealed class ArchiveChatService(
 		  Erkläre bei hasMore, dass dies eine Auswahl ist. Biete bei nextPage weitere Lieder an und nutze
 		  bei Nachfrage diese Seite. Bei limitReached bitte um eine gezieltere Suche, statt Vollständigkeit zu behaupten.
 		  totalCount zählt nur veröffentlichte Treffer; eine leere spätere Seite bedeutet nicht, dass das Archiv leer ist.
-		- Für Fragen zu einem einzelnen Lied (Inhalt, Text, Stimmen, Tonart, Taktart, vorhandenes Material) rufe
-		  song_details auf. scoreFacts und scoreText stammen aus der automatischen Auswertung der Noten-PDFs:
-		  nutze sie für Inhalt und Angaben des Liedes, kennzeichne sie als „laut Noten“ und gib eingetragenen
-		  Verzeichnisangaben den Vorrang, wenn beide vorliegen.
+		- Für Fragen zu einem einzelnen Lied (Besetzung, Tonart, Text, vorhandene Dateien) und dazu, wann oder
+		  bei welchen Auftritten es gesungen wurde, rufe lied_details auf. gesungen nennt Auftritte mit
+		  nachweis bestaetigt (belegt gesungen) oder erwaehnt (nur erwähnt); geplant nennt veröffentlichte Programme,
+		  deren Ablauf noch nicht bestätigt ist. Trenne beides klar und nenne Auftritt und Datum aus dem Ergebnis.
+		  Sind beide Listen leer, sage, dass im Archiv kein Auftritt verzeichnet ist.
 		- Belege Aussagen über einzelne Lieder mit [Quelle: Titel], wobei Titel exakt aus einem Werkzeugergebnis
 		  dieses Laufs stammen muss. Das gilt auch für Listen und Aufzählungen, etwa die Lieder eines Komponisten:
 		  jede Listenzeile, die ein Lied aus einem Werkzeugergebnis nennt, endet mit dessen Marker.
@@ -210,7 +211,7 @@ public sealed class ArchiveChatService(
 				Tools =
 				[
 					CatalogueTools.CreateCatalogueSearchTool(db),
-					CatalogueTools.CreateSongDetailsTool(db),
+					CatalogueTools.CreateLiedDetailsTool(db),
 					A2uiCatalog.CreateShowSurfaceTool(db, state),
 				],
 				AdditionalProperties = [],
@@ -260,7 +261,7 @@ public sealed class ArchiveChatService(
 			// derived from THIS run's tool results whose title the answer
 			// cites with an inline [Quelle: …] marker, already validated by
 			// the citation filter against this same authorized result set.
-			var citations = BuildCitations(state.ToolSongs, answer.ToString());
+			var citations = BuildCitations(state.ToolLieder, answer.ToString());
 			if (citations.Count > 0)
 				await writer.WriteAsync(BuildCitationsEvent(citations), CancellationToken.None);
 		}
@@ -334,7 +335,7 @@ public sealed class ArchiveChatService(
 		{
 			resultJson = "{}";
 		}
-		state.CollectToolSongs(resultJson);
+		state.CollectToolLieder(resultJson);
 		return resultJson;
 	}
 
@@ -343,18 +344,18 @@ public sealed class ArchiveChatService(
 	/// the answer cites with an inline [Quelle: Titel] marker. The comparison
 	/// folds both sides so umlauts/quote variants cannot break the match.
 	/// </summary>
-	private static List<ToolSong> BuildCitations(List<ToolSong> toolSongs, string answer)
+	private static List<ToolLied> BuildCitations(List<ToolLied> toolLieder, string answer)
 	{
-		if (toolSongs.Count == 0 || answer.Length == 0)
+		if (toolLieder.Count == 0 || answer.Length == 0)
 			return [];
 		var foldedAnswer = CatalogueText.Fold(answer);
-		var cited = new List<ToolSong>();
-		foreach (var song in toolSongs)
+		var cited = new List<ToolLied>();
+		foreach (var lied in toolLieder)
 		{
-			if (cited.Any(c => c.Id == song.Id))
+			if (cited.Any(c => c.Id == lied.Id))
 				continue;
-			if (foldedAnswer.Contains(CatalogueText.Fold(CitationMarkerPrefix + song.Title + "]")))
-				cited.Add(song);
+			if (foldedAnswer.Contains(CatalogueText.Fold(CitationMarkerPrefix + lied.Title + "]")))
+				cited.Add(lied);
 		}
 		return cited;
 	}
@@ -376,7 +377,7 @@ public sealed class ArchiveChatService(
 	};
 
 	/// <summary>The AG-UI custom event carrying the citation chips.</summary>
-	private static ChatResponseUpdate BuildCitationsEvent(List<ToolSong> citations)
+	private static ChatResponseUpdate BuildCitationsEvent(List<ToolLied> citations)
 	{
 		var payload = JsonSerializer.Serialize(citations.Select(c => new { id = c.Id, label = c.Title }));
 		return new ChatResponseUpdate

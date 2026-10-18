@@ -1,4 +1,5 @@
 using Archive.Backend.Catalogue;
+using Archive.Backend.Lieder;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -48,27 +49,12 @@ public sealed class EventProgrammeModelConfiguration
 			.HasForeignKey(x => x.RevisionId)
 			.OnDelete(DeleteBehavior.Cascade);
 		builder.HasIndex(x => new { x.RevisionId, x.Position }).IsUnique();
-		/// <summary>
-		/// Catalogue references (ARC-026): the musical version determines its
-		/// arrangement parent; song/arrangement columns mirror the resolved
-		/// chain. Restrict keeps catalogue deletion from cascading into
-		/// programme history (the retained-reference contract, ARC-037).
-		/// </summary>
-		builder.HasOne(x => x.MusicalVersion)
+		// Restrict keeps Lied deletion from cascading into programme history (ARC-037).
+		builder.HasOne(x => x.Lied)
 			.WithMany()
-			.HasForeignKey(x => x.MusicalVersionId)
+			.HasForeignKey(x => x.LiedId)
 			.OnDelete(DeleteBehavior.Restrict);
-		builder.HasIndex(x => x.MusicalVersionId);
-		builder.HasOne<Song>()
-			.WithMany()
-			.HasForeignKey(x => x.SongId)
-			.OnDelete(DeleteBehavior.Restrict);
-		builder.HasIndex(x => x.SongId);
-		builder.HasOne<Arrangement>()
-			.WithMany()
-			.HasForeignKey(x => x.ArrangementId)
-			.OnDelete(DeleteBehavior.Restrict);
-		builder.HasIndex(x => x.ArrangementId);
+		builder.HasIndex(x => x.LiedId);
 	}
 
 	public void Configure(EntityTypeBuilder<ProgrammeConfirmation> builder)

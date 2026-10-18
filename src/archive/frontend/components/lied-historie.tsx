@@ -12,13 +12,13 @@ import {
 // ARC-031: wo ein Lied dokumentiert ist. Bestätigte Aufführungen und
 // unbestätigte Programmangaben stehen getrennt, die Zahlen sind als
 // „nach erfasster Überlieferung“ gekennzeichnet (keine Chronik von 120
-// Jahren), unsichere Daten, unbekannte Fassungen und mögliche
+// Jahren), unsichere Daten und mögliche
 // Doppelerfassungen bleiben sichtbar statt geglättet.
 
 type ErweiterungsPlatz = (zeile: HistorieZeile) => ReactNode;
 
 type LiedHistorieProps = {
-  songId: string;
+  liedId: string;
   isEditor: boolean;
   // Erweiterungsplatz je Aufführung (Schlüssel: stabile Aufführungs-Id):
   // ARC-032 hängt hier Aufnahmen und Passagen ein. Ohne Angabe bleibt der
@@ -32,13 +32,6 @@ function anzahl(zahl: number, einzahl: string, mehrzahl: string): string {
 
 function auftrittUrl(zeile: HistorieZeile): string {
   return `/auftritt/?id=${encodeURIComponent(zeile.eventId)}`;
-}
-
-function fassungText(zeile: HistorieZeile): string {
-  if (!zeile.arrangement) return "Fassung unbekannt";
-  return zeile.musicalVersion
-    ? `${zeile.arrangement.label} · ${zeile.musicalVersion.label}`
-    : zeile.arrangement.label;
 }
 
 // Herkunft der Zeile: „Im Programm bestätigt“ gilt nur für bestätigte
@@ -148,8 +141,6 @@ function Eintrag({
         {auftrittArtName(zeile.eventKind)}
         {" · "}
         {herkunftText(zeile)}
-        {" · "}
-        {fassungText(zeile)}
       </p>
       {zeile.possiblyDuplicateAtEvent && zeile.occurrence ? (
         <p className="noten-info historie-hinweis">
@@ -195,14 +186,13 @@ function Eintrag({
 }
 
 export function LiedHistorie({
-  songId,
+  liedId,
   isEditor,
   erweiterung,
 }: LiedHistorieProps) {
   const kennung = useId();
   const [seite, setSeite] = useState(1);
   const [evidenz, setEvidenz] = useState("");
-  const [fassung, setFassung] = useState("");
   const [versuch, setVersuch] = useState(0);
   const [historie, setHistorie] = useState<HistorieAntwort | null>(null);
   const [fehler, setFehler] = useState("");
@@ -214,11 +204,7 @@ export function LiedHistorie({
     void versuch;
     setFehler("");
     setLaedt(true);
-    fetchLiedHistorie(
-      songId,
-      { page: seite, evidence: evidenz, arrangementId: fassung },
-      abort.signal,
-    )
+    fetchLiedHistorie(liedId, { page: seite, evidence: evidenz }, abort.signal)
       .then((stand) => {
         if (abort.signal.aborted) return;
         setHistorie(stand);
@@ -239,7 +225,7 @@ export function LiedHistorie({
         );
       });
     return () => abort.abort();
-  }, [songId, seite, evidenz, fassung, versuch]);
+  }, [liedId, seite, evidenz, versuch]);
 
   function filterAendern(setzen: (wert: string) => void, wert: string) {
     setzen(wert);
@@ -249,13 +235,7 @@ export function LiedHistorie({
   const seitenZahl = historie
     ? Math.max(1, Math.ceil(historie.total / historie.pageSize))
     : 1;
-  const filterAktiv = evidenz !== "" || fassung !== "";
-  const fassungenBekannt =
-    historie !== null &&
-    (historie.arrangements.length > 1 ||
-      historie.unknownArrangement.confirmed +
-        historie.unknownArrangement.unconfirmed >
-        0);
+  const filterAktiv = evidenz !== "";
 
   return (
     <section
@@ -301,31 +281,6 @@ export function LiedHistorie({
                   <option value="mention">Programmangaben</option>
                 </select>
               </div>
-              {(fassungenBekannt || fassung !== "") && (
-                <div>
-                  <label htmlFor={`${kennung}-fassung`}>Fassung</label>
-                  <select
-                    id={`${kennung}-fassung`}
-                    value={fassung}
-                    onChange={(event) =>
-                      filterAendern(setFassung, event.target.value)
-                    }
-                  >
-                    <option value="">Alle Fassungen</option>
-                    {historie.arrangements.map((arrangement) => (
-                      <option key={arrangement.id} value={arrangement.id}>
-                        {arrangement.label} ({arrangement.confirmed} bestätigt,{" "}
-                        {arrangement.unconfirmed} unbestätigt)
-                      </option>
-                    ))}
-                    <option value="unknown">
-                      Fassung unbekannt ({historie.unknownArrangement.confirmed}{" "}
-                      bestätigt, {historie.unknownArrangement.unconfirmed}{" "}
-                      unbestätigt)
-                    </option>
-                  </select>
-                </div>
-              )}
             </form>
           )}
           <output className="visually-hidden">
@@ -340,8 +295,7 @@ export function LiedHistorie({
               )}{" "}
               zu unveröffentlichten Auftritten und{" "}
               {historie.counts.draftEventOccurrences === 1 ? "ist" : "sind"} in
-              keiner Zahl und keiner Fassungsangabe mitgezählt. Die Liste kann
-              sie enthalten.
+              keiner Zahl mitgezählt. Die Liste kann sie enthalten.
             </p>
           )}
           <div className="historie-bereich" aria-busy={laedt}>

@@ -1,7 +1,7 @@
 using Archive.Backend.Assets;
 using Archive.Backend.Auth;
+using Archive.Backend.Catalogue;
 using Archive.Backend.Data;
-using Archive.Backend.Provenance;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.EntityFrameworkCore;
 
@@ -217,11 +217,11 @@ public static class EventEndpoints
 				.FirstOrDefaultAsync(e => e.Id == id, token);
 			if (choirEvent is null)
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
-			// ARC-013-1: the event patch moved into the shared write service
-			// (validation, attribution and the notes/sourceNote provenance).
+			// The event patch runs through the shared write service
+			// (validation and attribution).
 			var outcome = await writes.PatchEventAsync(choirEvent,
 				body ?? new(null, null, null, null, null, null, null, null),
-				new WriteActor(decision!.AccountId, time.GetUtcNow()), null, token);
+				new WriteActor(decision!.AccountId, time.GetUtcNow()), automated: false, token);
 			if (!outcome.IsSaved)
 				return Results.Problem(statusCode: outcome.HttpCode, title: outcome.Title);
 			var documents = await LoadEventDocumentsAsync(db, IsEditor(decision), id, token);
@@ -247,8 +247,8 @@ public static class EventEndpoints
 			var choirEvent = await db.Events.FirstOrDefaultAsync(e => e.Id == id, token);
 			if (choirEvent is null)
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
-			// Publication is proposal-only for automated writers; the human
-			// endpoint keeps idempotent first-publication semantics.
+			// Publication is never automated; the editor's endpoint keeps
+			// idempotent first-publication semantics.
 			var outcome = await writes.PublishEventAsync(choirEvent, new WriteActor(decision!.AccountId, time.GetUtcNow()), null, token);
 			if (!outcome.IsSaved)
 				return Results.Problem(statusCode: outcome.HttpCode, title: outcome.Title);
@@ -289,7 +289,7 @@ public static class EventEndpoints
 	/// Deterministic ARC-024 list order, newest first: known year descending;
 	/// within a year, day-precision entries first (month then day, both
 	/// descending), then month-only entries, then year-only entries;
-	/// unknown-year events sort last, by Id (shared with the song history via
+	/// unknown-year events sort last, by Id (shared with the Lied history via
 	/// <see cref="EventDate.CompareNewestFirst"/>). Pure C# so InMemory tests
 	/// and PostgreSQL agree.
 	/// </summary>
@@ -346,41 +346,28 @@ public static class EventEndpoints
 	};
 
 	/// <summary>
-	/// ARC-025: documents/photos attached to the event, sorted by createdAt
-	/// then id. Members only see assets that already carry a current revision
-	/// (the same rule as the song detail); pending items expose no tickets and
-	/// stay editor-only, and draft events never reach members at all.
+	/// Documents and photos of the event (#171): its live <c>sonstiges</c>
+	/// Dateien, sorted by createdAt then id. A photo is told from a document
+	/// by its content type. Draft events never reach members at all.
 	/// </summary>
 	private static async Task<List<object>> LoadEventDocumentsAsync(
 		ArchiveDbContext db, bool isEditor, Guid eventId, CancellationToken token)
 	{
-		var assets = await db.Assets.AsNoTracking()
-			.Include(a => a.CurrentRevision)
-			// ARC-030: a recording's files belong to the recording, not to
-			// the document list.
-			.Where(a => a.EventId == eventId
-				&& a.AssetType != AssetEndpoints.RecordingOriginalAssetType
-				&& a.AssetType != AssetEndpoints.RecordingPlaybackAssetType)
-			.OrderBy(a => a.CreatedAt).ThenBy(a => a.Id)
+		var dateien = await Lieder.DateiQueries.Visible(db).AsNoTracking()
+			.Where(d => d.EventId == eventId && d.Kind == Lieder.DateiKinds.Sonstiges)
+			.OrderBy(d => d.CreatedAt).ThenBy(d => d.Id)
 			.ToListAsync(token);
-		return assets
-			.Where(a => isEditor || a.CurrentRevisionId is not null)
-			.Select(a => (object)new
+		return dateien
+			.Select(d => (object)new
 			{
-				id = a.Id,
-				assetType = a.AssetType,
-				description = a.Description,
-				createdAt = a.CreatedAt,
-				currentRevision = a.CurrentRevision is null
-					? null
-					: (object)new
-					{
-						revisionId = a.CurrentRevision.Id,
-						revisionNumber = a.CurrentRevision.RevisionNumber,
-						contentType = a.CurrentRevision.ContentType,
-						sizeBytes = a.CurrentRevision.SizeBytes,
-						createdAt = a.CurrentRevision.CreatedAt,
-					},
+				id = d.Id,
+				art = d.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) ? "photo" : "document",
+				description = d.Description,
+				fileName = d.OriginalFileName,
+				contentType = d.ContentType,
+				sizeBytes = d.SizeBytes,
+				createdAt = d.CreatedAt,
+				rowVersion = d.RowVersion,
 			})
 			.ToList();
 	}

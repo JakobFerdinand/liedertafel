@@ -6,9 +6,7 @@ import {
 } from "@a2ui/react/v0_9";
 import { Catalog } from "@a2ui/web_core/v0_9";
 import Link from "next/link";
-import { useState } from "react";
 import {
-  type AenderungsVorschauEigenschaften,
   type AuftrittKarteEigenschaften,
   a2uiKatalogId,
   a2uiKomponentenApis,
@@ -18,19 +16,11 @@ import {
   liedAdresse,
   type ProgrammListeEigenschaften,
   type QuellenEigenschaften,
-  type VorschlagKarteEigenschaften,
 } from "@/lib/a2ui";
 import { auftrittArtName } from "@/lib/events";
-import {
-  ablehnenVorschlag,
-  annehmenVorschlag,
-  leseKonflikt,
-} from "@/lib/provenanz";
 
 // Die Komponenten des Archivs für A2UI (ARC-022-4). Sie zeigen nur, was der
 // Server aufgelöst hat; Verweise entstehen hier aus den IDs, nie aus Text.
-// Klicks gehen an die REST-Schnittstellen des Archivs, nicht zurück an den
-// Chat.
 
 function LiedKarte({ props }: { props: LiedKarteEigenschaften }) {
   return (
@@ -145,102 +135,6 @@ function Quellen({ props }: { props: QuellenEigenschaften }) {
   );
 }
 
-type Entscheidung = "offen" | "laeuft" | "angenommen" | "abgelehnt";
-
-// Annehmen und Ablehnen sind Klicks auf die vorhandenen REST-Schnittstellen
-// der Vorschläge; die Bestätigung bleibt eine Entscheidung des Menschen.
-function VorschlagKarte({ props }: { props: VorschlagKarteEigenschaften }) {
-  const [entscheidung, setEntscheidung] = useState<Entscheidung>("offen");
-  const [meldung, setMeldung] = useState("");
-
-  async function entscheide(annehmen: boolean) {
-    setEntscheidung("laeuft");
-    setMeldung("");
-    try {
-      const antwort = annehmen
-        ? await annehmenVorschlag(props.vorschlagId)
-        : await ablehnenVorschlag(props.vorschlagId);
-      if (antwort.ok) {
-        setEntscheidung(annehmen ? "angenommen" : "abgelehnt");
-        setMeldung(annehmen ? "Vorschlag angenommen." : "Vorschlag abgelehnt.");
-        return;
-      }
-      const konflikt = await leseKonflikt(antwort);
-      setMeldung(
-        konflikt?.titel ??
-          "Der Vorschlag konnte nicht bearbeitet werden. Bitte später erneut versuchen.",
-      );
-    } catch {
-      setMeldung("Das Archiv antwortet nicht. Bitte später erneut versuchen.");
-    }
-    setEntscheidung("offen");
-  }
-
-  const entschieden =
-    entscheidung === "angenommen" || entscheidung === "abgelehnt";
-  return (
-    <article className="a2ui-karte" aria-label={`Vorschlag: ${props.titel}`}>
-      <h3 className="a2ui-titel">{props.titel}</h3>
-      <p className="a2ui-textanfang">{props.grund}</p>
-      {props.vertrauen && (
-        <p className="a2ui-notiz">Einschätzung: {props.vertrauen}</p>
-      )}
-      <div className="a2ui-aktionen">
-        <button
-          type="button"
-          disabled={entschieden || entscheidung === "laeuft"}
-          onClick={() => void entscheide(true)}
-          aria-label={`Vorschlag annehmen: ${props.titel}`}
-        >
-          Annehmen
-        </button>
-        <button
-          type="button"
-          disabled={entschieden || entscheidung === "laeuft"}
-          onClick={() => void entscheide(false)}
-          aria-label={`Vorschlag ablehnen: ${props.titel}`}
-        >
-          Ablehnen
-        </button>
-      </div>
-      <output className="a2ui-meldung">{meldung}</output>
-    </article>
-  );
-}
-
-function AenderungsVorschau({
-  props,
-}: {
-  props: AenderungsVorschauEigenschaften;
-}) {
-  return (
-    <section
-      className="a2ui-karte"
-      aria-label={`Änderungsvorschau: ${props.titel}`}
-    >
-      <h3 className="a2ui-titel">{props.titel}</h3>
-      <table className="a2ui-aenderungen">
-        <thead>
-          <tr>
-            <th scope="col">Feld</th>
-            <th scope="col">Bisher</th>
-            <th scope="col">Neu</th>
-          </tr>
-        </thead>
-        <tbody>
-          {props.aenderungen.map((aenderung) => (
-            <tr key={aenderung.feld}>
-              <th scope="row">{aenderung.feld}</th>
-              <td>{aenderung.bisher ?? "leer"}</td>
-              <td>{aenderung.neu}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </section>
-  );
-}
-
 // Wie der Generic Binder die Eigenschaften reicht, ist Sache der Bibliothek;
 // die Schemas in lib/a2ui.ts sind strikt und lassen nur einfache Werte zu,
 // daher sind die aufgelösten Eigenschaften genau diese Typen.
@@ -251,12 +145,6 @@ const ansichten: Record<string, (eigenschaften: never) => React.ReactNode> = {
   ),
   ProgrammListe: (props: ProgrammListeEigenschaften) => (
     <ProgrammListe props={props} />
-  ),
-  VorschlagKarte: (props: VorschlagKarteEigenschaften) => (
-    <VorschlagKarte props={props} />
-  ),
-  AenderungsVorschau: (props: AenderungsVorschauEigenschaften) => (
-    <AenderungsVorschau props={props} />
   ),
   Quellen: (props: QuellenEigenschaften) => <Quellen props={props} />,
 };
@@ -270,7 +158,7 @@ const implementierungen: ReactComponentImplementation[] =
     ),
   );
 
-// Der Katalog besteht nur aus den sechs Komponenten des Archivs und hat keine
+// Der Katalog besteht nur aus den vier Komponenten des Archivs und hat keine
 // Funktionen; ein Basis-Katalog wird nicht eingebunden.
 export const archivKatalog = new Catalog<ReactComponentImplementation>(
   a2uiKatalogId,

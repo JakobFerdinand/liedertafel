@@ -1,18 +1,16 @@
 "use client";
-
-import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useExtraktionStand } from "@/components/extraktion-uebersicht";
-import { problemTitel } from "@/lib/assets";
 import {
   extraktionsStatusText,
   type LeseStatus,
   leseRest,
   leseStatusText,
+  notenAngabenTeile,
   starteExtraktionErneut,
   starteLesenErneut,
 } from "@/lib/extraktion";
-import { notenAngabenTeile } from "@/lib/songs";
+import { problemTitel } from "@/lib/uebertragung";
 
 const vorschauLaenge = 4000;
 const ladeFehlerText = "Auswertungsstatus konnte nicht geladen werden.";
@@ -22,14 +20,14 @@ const lesenErsatz =
   "Das Lesen konnte nicht gestartet werden. Bitte erneut versuchen.";
 
 export function ExtraktionStatus({
-  revisionId,
+  dateiId,
   isEditor,
   angabenBekannt = true,
   kannLesen = false,
   bezeichnung = "diese Datei",
   onErkannt,
 }: {
-  revisionId: string;
+  dateiId: string;
   isEditor: boolean;
   /** Noten können von der KI gelesen werden; Auftrittsdokumente nicht. */
   kannLesen?: boolean;
@@ -41,10 +39,10 @@ export function ExtraktionStatus({
   onErkannt?: () => void;
 }) {
   const { info, geladen, fehler, aktualisiereExtraktion, setzeExtraktion } =
-    useExtraktionStand(revisionId, isEditor);
+    useExtraktionStand(dateiId, isEditor);
   const abbruchRef = useRef<AbortController | null>(null);
   const [interaktion, setInteraktion] = useState({
-    revisionId,
+    dateiId,
     schickt: false,
     offen: false,
     titel: "",
@@ -52,7 +50,7 @@ export function ExtraktionStatus({
     lesenSchickt: false,
     lesenTitel: "",
   });
-  const aktuell = interaktion.revisionId === revisionId;
+  const aktuell = interaktion.dateiId === dateiId;
   const schickt = aktuell && interaktion.schickt;
   const offen = aktuell && interaktion.offen;
   const titel = aktuell ? interaktion.titel : "";
@@ -61,7 +59,7 @@ export function ExtraktionStatus({
 
   useEffect(() => {
     setInteraktion({
-      revisionId,
+      dateiId,
       schickt: false,
       offen: false,
       titel: "",
@@ -73,38 +71,38 @@ export function ExtraktionStatus({
       abbruchRef.current?.abort();
       abbruchRef.current = null;
     };
-  }, [revisionId]);
+  }, [dateiId]);
 
   // Eine eben fertige Auswertung benennt den Eintrag ohne Neuladen der
-  // Seite; je Revision höchstens eine Nachfrage.
+  // Seite; je Datei höchstens eine Nachfrage.
   const gemeldetRef = useRef<string | null>(null);
   const neuErkannt =
     !angabenBekannt && info?.status === "completed" && Boolean(info.facts);
   useEffect(() => {
-    if (!neuErkannt || gemeldetRef.current === revisionId) return;
-    gemeldetRef.current = revisionId;
+    if (!neuErkannt || gemeldetRef.current === dateiId) return;
+    gemeldetRef.current = dateiId;
     onErkannt?.();
-  }, [neuErkannt, revisionId, onErkannt]);
+  }, [neuErkannt, dateiId, onErkannt]);
 
   // ARC-034-1: Hat die KI die Seiten eben fertig gelesen, hat sie vielleicht
   // Felder des Liedes gefüllt; der Eintrag lädt dann neu (frische Werte und
   // „KI“-Abzeichen). Nur der Wechsel von laufend auf fertig löst das aus.
   const leseStand: LeseStatus | null = info?.reading?.status ?? null;
   const vorherLeseRef = useRef<{ id: string; status: LeseStatus | null }>({
-    id: revisionId,
+    id: dateiId,
     status: null,
   });
   useEffect(() => {
     const vorher = vorherLeseRef.current;
-    vorherLeseRef.current = { id: revisionId, status: leseStand };
+    vorherLeseRef.current = { id: dateiId, status: leseStand };
     if (
-      vorher.id === revisionId &&
+      vorher.id === dateiId &&
       (vorher.status === "queued" || vorher.status === "running") &&
       leseStand === "completed"
     ) {
       onErkannt?.();
     }
-  }, [leseStand, revisionId, onErkannt]);
+  }, [leseStand, dateiId, onErkannt]);
 
   const lesenRef = useRef<HTMLOutputElement>(null);
   const [fokusLesen, setFokusLesen] = useState(false);
@@ -127,7 +125,7 @@ export function ExtraktionStatus({
     }));
     try {
       const reading = await (aktion === "retry" ? starteLesenErneut : leseRest)(
-        revisionId,
+        dateiId,
         abbruch.signal,
       );
       if (abbruch.signal.aborted) return;
@@ -162,7 +160,7 @@ export function ExtraktionStatus({
     abbruchRef.current = abbruch;
     setInteraktion((vorher) => ({ ...vorher, schickt: true, titel: "" }));
     try {
-      const neu = await starteExtraktionErneut(revisionId, abbruch.signal);
+      const neu = await starteExtraktionErneut(dateiId, abbruch.signal);
       if (abbruch.signal.aborted) return;
       setzeExtraktion(neu);
       aktualisiereExtraktion();
@@ -216,7 +214,7 @@ export function ExtraktionStatus({
   ].filter((teil): teil is string => Boolean(teil));
   const grund =
     info?.status === "failed" ? (info.failureReason?.trim() ?? "") : "";
-  const vorschauId = `extraktion-vorschau-${revisionId}`;
+  const vorschauId = `extraktion-vorschau-${dateiId}`;
   // Ist das KI-Lesen auf dem Server nicht eingerichtet, bleibt die Zeile bei
   // der Textauswertung: weder Stand noch Knöpfe.
   const lesenAn = info?.readingEnabled === true;
@@ -249,11 +247,6 @@ export function ExtraktionStatus({
             <span className="extraktion-grund"> — {lesenGrund}</span>
           ) : null}
         </output>
-      )}
-      {lesen?.status === "completed" && lesen.fieldsProposed > 0 && (
-        <Link className="knopf-leise" href="/verwaltung/vorschlaege/">
-          Vorschläge ansehen
-        </Link>
       )}
       {lesenAngebot && (
         <button

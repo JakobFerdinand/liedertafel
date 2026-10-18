@@ -1,89 +1,31 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { FassungsFormular } from "@/components/fassungs-formular";
-import { FassungsWahl } from "@/components/fassungs-wahl";
+import { DateiHochladen } from "@/components/datei-hochladen";
+import { DateiListe } from "@/components/datei-liste";
 import { HistorieAufnahmen } from "@/components/historie-aufnahmen";
 import { LiedFormular } from "@/components/lied-formular";
 import { LiedHistorie } from "@/components/lied-historie";
-import { NotenBereich } from "@/components/noten-bereich";
-import { fetchMe, type MeResponse, postAuth } from "@/lib/auth";
-import { fetchSong, type LiedDetails } from "@/lib/songs";
+import { LiedKopf } from "@/components/lied-kopf";
+import { fetchMe, type MeResponse } from "@/lib/auth";
+import { fetchLied, type LiedDatei, type LiedMitDateien } from "@/lib/lieder";
 
-type FassungsAuswahl = {
-  arrangementId: string;
-  versionId: string;
-};
-
-function bestimmeFassung(
-  lied: LiedDetails,
-  fassungParameter: string | null,
-  versionParameter: string | null,
-): FassungsAuswahl | null {
-  const arrangement =
-    lied.arrangements.find((eintrag) => eintrag.id === fassungParameter) ??
-    lied.arrangements[0];
-  if (!arrangement) return null;
-  const fassung =
-    arrangement.musicalVersions.find(
-      (eintrag) => eintrag.id === versionParameter,
-    ) ?? arrangement.musicalVersions[0];
-  return {
-    arrangementId: arrangement.id,
-    versionId: fassung ? fassung.id : "",
-  };
-}
-
-// Noten-Assets hängen an jeder Fassung; Schreibaktionen liefern derzeit
-// Fassungen ohne Assets zurück, deshalb bleiben die letzten bekannten
-// Noten beim Ersetzen des Liedes erhalten (ARC-015).
-function notenErhalten(vorher: LiedDetails | null, naechstes: LiedDetails) {
-  if (!vorher) return naechstes;
-  return {
-    ...naechstes,
-    arrangements: naechstes.arrangements.map((arrangement) => {
-      const alt = vorher.arrangements.find(
-        (eintrag) => eintrag.id === arrangement.id,
-      );
-      return {
-        ...arrangement,
-        musicalVersions: arrangement.musicalVersions.map((fassung) => {
-          const fassungAlt = alt?.musicalVersions.find(
-            (eintrag) => eintrag.id === fassung.id,
-          );
-          return (fassung.assets?.length ?? 0) === 0 && fassungAlt
-            ? { ...fassung, assets: fassungAlt.assets ?? [] }
-            : fassung;
-        }),
-      };
-    }),
-  };
-}
-
+/**
+ * Die Lied-Seite (#166). Sie lädt das Lied und setzt die Teile zusammen; jeder
+ * Teil hat seine eigene Komponente: LiedKopf (Angaben), DateiListe (Dateien,
+ * darin NotenAnsicht), DateiHochladen (nur Redaktion), LiedFormular (nur
+ * Redaktion). Folgetickets hängen ihre Teile mit je einer Zeile unten ein.
+ */
 export function LiedDetail() {
   const suchParameter = useSearchParams();
-  const router = useRouter();
   const id = suchParameter.get("id");
-  const fassungParameter = suchParameter.get("fassung");
-  const versionParameter = suchParameter.get("version");
   const [me, setMe] = useState<MeResponse | null>(null);
-  const [lied, setLied] = useState<LiedDetails | null>(null);
+  const [lied, setLied] = useState<LiedMitDateien | null>(null);
   const [nichtGefunden, setNichtGefunden] = useState(false);
   const [fehler, setFehler] = useState("");
-  const [hinweis, setHinweis] = useState("");
   const [erfolg, setErfolg] = useState("");
-  const [aktionBusy, setAktionBusy] = useState("");
-  const [arrangementBearbeitet, setArrangementBearbeitet] = useState<
-    string | null
-  >(null);
-  const [fassungHinzufuegen, setFassungHinzufuegen] = useState<string | null>(
-    null,
-  );
-  const [fassungBearbeitet, setFassungBearbeitet] = useState<string | null>(
-    null,
-  );
   const [versuch, setVersuch] = useState(0);
 
   const editor =
@@ -100,7 +42,7 @@ export function LiedDetail() {
         return;
       }
       try {
-        const details = await fetchSong(id, signal);
+        const details = await fetchLied(id, signal);
         if (!signal?.aborted) setLied(details);
       } catch (ursache) {
         if (ursache instanceof Response && ursache.status === 401) {
@@ -113,33 +55,23 @@ export function LiedDetail() {
     [id],
   );
 
-  const notenAktualisieren = useCallback(async () => {
-    if (!id) return;
-    try {
-      const details = await fetchSong(id);
-      setLied((vorher) => notenErhalten(vorher, details));
-    } catch {
-      // Eine fehlgeschlagene Aktualisierung darf die Ansicht nicht abbrechen.
-    }
-  }, [id]);
-
-  // ARC-013-1: lädt nach dem Zurückholen eines KI-Feldes die Ansicht neu
-  // (gesicherter Wert, frische Herkunft und Zeilenstand), ohne die Ansicht
-  // bei einem fehlgeschlagenen Aufruf abzubrechen.
-  const neuLaden = useCallback(async () => {
-    if (!id) return;
-    try {
-      const details = await fetchSong(id);
-      setLied((vorher) => notenErhalten(vorher, details));
-    } catch {
-      // bleibt bei den zuletzt bekannten Angaben
-    }
-  }, [id]);
+  // Nach einem Upload wird das Lied neu geladen, damit die Dateiliste stimmt;
+  // eine fehlgeschlagene Aktualisierung bricht die Ansicht nicht ab.
+  const dateienAktualisieren = useCallback(
+    async (_datei?: LiedDatei) => {
+      if (!id) return;
+      try {
+        setLied(await fetchLied(id));
+      } catch {
+        // Der nächste Aufruf der Seite lädt neu.
+      }
+    },
+    [id],
+  );
 
   useEffect(() => {
     const abort = new AbortController();
-    // Ein erneuter Versuch führt die Wirkung erneut aus; im Hintergrund wird
-    // nicht nachgeladen.
+    // Ein erneuter Versuch führt die Wirkung erneut aus.
     void versuch;
     setNichtGefunden(false);
     laden(abort.signal).catch((ursache) => {
@@ -159,43 +91,18 @@ export function LiedDetail() {
     return () => abort.abort();
   }, [laden, versuch]);
 
-  async function veroeffentlichen(pfad: string, meldung: string) {
-    setHinweis("");
-    setErfolg("");
-    setAktionBusy(pfad);
-    try {
-      const response = await postAuth(pfad, {});
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        setHinweis(
-          payload?.title ?? "Das hat nicht geklappt. Bitte erneut versuchen.",
-        );
-        return;
-      }
-      if (payload?.song) setLied(payload.song);
-      setErfolg(meldung);
-    } catch {
-      setHinweis(
-        "Sicherheitstoken konnte nicht geladen werden. Seite neu laden.",
-      );
-    } finally {
-      setAktionBusy("");
-    }
-  }
-
-  function fassungWaehlen(arrangementId: string, versionId: string) {
-    const parameter = new URLSearchParams(suchParameter);
-    parameter.set("fassung", arrangementId);
-    parameter.set("version", versionId);
-    router.replace(`/lied/?${parameter.toString()}`, { scroll: false });
-  }
-
   if (fehler) {
     return (
       <div className="detail-zustand" aria-live="polite">
         <h1>Lied nicht verfügbar</h1>
         <p>{fehler}</p>
-        <button type="button" onClick={() => setVersuch(versuch + 1)}>
+        <button
+          type="button"
+          onClick={() => {
+            setFehler("");
+            setVersuch(versuch + 1);
+          }}
+        >
           Erneut versuchen
         </button>
       </div>
@@ -222,8 +129,7 @@ export function LiedDetail() {
       <div aria-live="polite">
         <h1>Lied nicht gefunden</h1>
         <p>
-          Dieses Lied wurde nicht gefunden. Es ist entweder nicht veröffentlicht
-          oder die Adresse ist nicht mehr gültig.
+          Dieses Lied wurde nicht gefunden. Die Adresse ist nicht mehr gültig.
         </p>
         <Link href="/lieder/">Zum Liederkatalog</Link>
       </div>
@@ -237,225 +143,39 @@ export function LiedDetail() {
     );
   }
 
-  const auswahl = bestimmeFassung(lied, fassungParameter, versionParameter);
-
-  const ausgewaehlteFassung = lied.arrangements
-    .find((eintrag) => eintrag.id === auswahl?.arrangementId)
-    ?.musicalVersions.find((eintrag) => eintrag.id === auswahl?.versionId);
-
-  function gesichertSpeichern(gespeichert: LiedDetails, meldung: string) {
-    setLied((vorher) => notenErhalten(vorher, gespeichert));
-    setErfolg(meldung);
-    setHinweis("");
-  }
-
   return (
     <div className="lied-detail">
-      <article className="lied-ansicht">
-        <h1>{lied.title}</h1>
-        {editor && (
-          <p className="lieder-status lied-status-kopf">
-            {lied.published ? "Veröffentlicht" : "Entwurf"}
-          </p>
-        )}
-        {(lied.composer || lied.lyricist) && (
-          <p className="lieder-urheber">
-            {[
-              lied.composer ? `Komponist: ${lied.composer}` : null,
-              lied.lyricist ? `Text: ${lied.lyricist}` : null,
-            ]
-              .filter(Boolean)
-              .join(" · ")}
-          </p>
-        )}
-        {lied.arrangements.length === 0 ? (
-          <p>Für dieses Lied ist noch keine Fassung erfasst.</p>
-        ) : (
-          auswahl && (
-            <FassungsWahl
-              lied={lied}
-              arrangementId={auswahl.arrangementId}
-              versionId={auswahl.versionId}
-              onSelect={fassungWaehlen}
-            />
-          )
-        )}
-      </article>
+      <LiedKopf lied={lied} />
 
-      {auswahl && ausgewaehlteFassung && (
-        <NotenBereich
-          fassungId={ausgewaehlteFassung.id}
-          fassungLabel={ausgewaehlteFassung.label}
-          stimmenKonfiguration={
-            lied.arrangements.find(
-              (eintrag) => eintrag.id === auswahl?.arrangementId,
-            )?.voiceConfiguration ?? null
-          }
-          assets={ausgewaehlteFassung.assets ?? []}
-          isEditor={editor === true}
-          herkunft={lied.provenance}
-          aktualisieren={() => void notenAktualisieren()}
+      <section className="noten-bereich materialien" aria-label="Dateien">
+        <h3 id="material-titel">Dateien</h3>
+        <DateiListe
+          dateien={lied.dateien}
+          liedId={editor ? lied.id : undefined}
+          onGeaendert={editor ? () => void dateienAktualisieren() : undefined}
         />
-      )}
+      </section>
 
       <LiedHistorie
-        key={lied.id}
-        songId={lied.id}
-        isEditor={editor === true}
+        liedId={lied.id}
+        isEditor={Boolean(editor)}
         erweiterung={(zeile) =>
-          zeile.recordings && zeile.recordings.length > 0 ? (
+          (zeile.recordings ?? []).length > 0 ? (
             <HistorieAufnahmen
               zeile={zeile}
               liedTitel={lied.title}
-              isEditor={editor === true}
+              isEditor={Boolean(editor)}
             />
           ) : null
         }
       />
 
       {editor && (
-        <details
-          className="auth-karte lied-fassungen"
-          aria-labelledby="lied-fassungen-titel"
-        >
-          <summary>
-            <h2 id="lied-fassungen-titel">Fassungen pflegen</h2>
-            <span className="lied-fassungen-umschalter" aria-hidden="true">
-              <span className="lied-fassungen-auf">Ausklappen</span>
-              <span className="lied-fassungen-zu">Einklappen</span>
-            </span>
-          </summary>
-          {lied.arrangements.map((arrangement) => (
-            <div key={arrangement.id} className="lied-fassung-block">
-              <p className="lied-fassung-titel">{arrangement.label}</p>
-              <div className="lieder-aktionen">
-                <button
-                  type="button"
-                  className="knopf-leise"
-                  onClick={() => {
-                    setArrangementBearbeitet(
-                      arrangementBearbeitet === arrangement.id
-                        ? null
-                        : arrangement.id,
-                    );
-                    setFassungHinzufuegen(null);
-                    setFassungBearbeitet(null);
-                  }}
-                >
-                  {arrangementBearbeitet === arrangement.id
-                    ? "Bearbeiten schließen"
-                    : "Arrangement bearbeiten"}
-                </button>
-                <button
-                  type="button"
-                  className="knopf-leise"
-                  onClick={() => {
-                    setFassungHinzufuegen(
-                      fassungHinzufuegen === arrangement.id
-                        ? null
-                        : arrangement.id,
-                    );
-                    setArrangementBearbeitet(null);
-                    setFassungBearbeitet(null);
-                  }}
-                >
-                  {fassungHinzufuegen === arrangement.id
-                    ? "Hinzufügen schließen"
-                    : "Fassung hinzufügen"}
-                </button>
-              </div>
-              {arrangementBearbeitet === arrangement.id && (
-                <FassungsFormular
-                  variante="arrangement"
-                  methode="patch"
-                  pfad={`/api/arrangements/${encodeURIComponent(arrangement.id)}`}
-                  idPraefix={`arrangement-${arrangement.id}`}
-                  absendenText="Arrangement speichern"
-                  anfang={{
-                    label: arrangement.label,
-                    person: arrangement.arranger ?? "",
-                    zusatz: arrangement.voiceConfiguration ?? "",
-                    begleitung: arrangement.accompaniment ?? "",
-                  }}
-                  feldHerkunftListe={lied.provenance}
-                  zielId={arrangement.id}
-                  rowVersion={arrangement.rowVersion}
-                  neuLaden={neuLaden}
-                  onSuccess={(gespeichert, meldung) => {
-                    gesichertSpeichern(gespeichert, meldung);
-                    setArrangementBearbeitet(null);
-                  }}
-                />
-              )}
-              {fassungHinzufuegen === arrangement.id && (
-                <FassungsFormular
-                  variante="version"
-                  methode="post"
-                  pfad={`/api/arrangements/${encodeURIComponent(arrangement.id)}/versions`}
-                  idPraefix={`fassung-${arrangement.id}`}
-                  absendenText="Fassung anlegen"
-                  onSuccess={(gespeichert, meldung) => {
-                    gesichertSpeichern(gespeichert, meldung);
-                    setFassungHinzufuegen(null);
-                  }}
-                />
-              )}
-              {arrangement.musicalVersions.map((fassung) => (
-                <div key={fassung.id} className="lied-fassung-version">
-                  <p className="lied-fassung-titel">{fassung.label}</p>
-                  <div className="lieder-aktionen">
-                    <button
-                      type="button"
-                      className="knopf-leise"
-                      onClick={() => {
-                        setFassungBearbeitet(
-                          fassungBearbeitet === fassung.id ? null : fassung.id,
-                        );
-                        setArrangementBearbeitet(null);
-                        setFassungHinzufuegen(null);
-                      }}
-                    >
-                      {fassungBearbeitet === fassung.id
-                        ? "Bearbeiten schließen"
-                        : "Fassung bearbeiten"}
-                    </button>
-                  </div>
-                  {fassungBearbeitet === fassung.id && (
-                    <FassungsFormular
-                      variante="version"
-                      methode="patch"
-                      pfad={`/api/musical-versions/${encodeURIComponent(fassung.id)}`}
-                      idPraefix={`fassung-bearbeiten-${fassung.id}`}
-                      absendenText="Fassung speichern"
-                      anfang={{
-                        label: fassung.label,
-                        person: fassung.creator ?? "",
-                        zusatz: fassung.musicalKey ?? "",
-                      }}
-                      feldHerkunftListe={lied.provenance}
-                      zielId={fassung.id}
-                      rowVersion={fassung.rowVersion}
-                      neuLaden={neuLaden}
-                      onSuccess={(gespeichert, meldung) => {
-                        gesichertSpeichern(gespeichert, meldung);
-                        setFassungBearbeitet(null);
-                      }}
-                    />
-                  )}
-                </div>
-              ))}
-            </div>
-          ))}
-          <h3>Neues Arrangement</h3>
-          <FassungsFormular
-            variante="arrangement"
-            methode="post"
-            pfad={`/api/songs/${encodeURIComponent(lied.id)}/arrangements`}
-            idPraefix="neues-arrangement"
-            absendenText="Arrangement anlegen"
-            onSuccess={gesichertSpeichern}
-          />
-        </details>
+        <DateiHochladen
+          liedId={lied.id}
+          besetzung={lied.voiceConfiguration}
+          onGespeichert={() => void dateienAktualisieren()}
+        />
       )}
 
       {editor && (
@@ -471,62 +191,20 @@ export function LiedDetail() {
             </span>
           </summary>
           <LiedFormular
+            key={lied.rowVersion}
             lied={lied}
             absendenText="Änderungen speichern"
-            neuLaden={neuLaden}
             onSuccess={(gespeichert) => {
-              setLied(gespeichert as LiedDetails);
+              setLied(gespeichert);
               setErfolg("Änderungen gespeichert.");
-              setHinweis("");
             }}
           />
-          <div className="auth-aktionen">
-            {lied.published ? (
-              <button
-                type="button"
-                disabled={aktionBusy !== ""}
-                onClick={() =>
-                  veroeffentlichen(
-                    `/api/songs/${encodeURIComponent(lied.id)}/unpublish`,
-                    "Lied zurückgezogen. Es ist für Mitglieder nicht mehr sichtbar.",
-                  )
-                }
-              >
-                {aktionBusy !== ""
-                  ? "Wird zurückgezogen …"
-                  : "Veröffentlichung zurückziehen"}
-              </button>
-            ) : (
-              <button
-                type="button"
-                disabled={aktionBusy !== ""}
-                onClick={() =>
-                  veroeffentlichen(
-                    `/api/songs/${encodeURIComponent(lied.id)}/publish`,
-                    "Lied veröffentlicht. Mitglieder sehen es ab sofort.",
-                  )
-                }
-              >
-                {aktionBusy !== ""
-                  ? "Wird veröffentlicht …"
-                  : "Veröffentlichen"}
-              </button>
-            )}
-          </div>
         </details>
       )}
 
       {erfolg && (
         <output aria-live="polite" className="auth-erfolg">
           {erfolg}
-        </output>
-      )}
-      {hinweis && (
-        <output aria-live="polite" className="feld-fehler">
-          {hinweis}{" "}
-          {hinweis.includes("erneute Anmeldung") && (
-            <Link href="/anmelden/">Anmelden</Link>
-          )}
         </output>
       )}
     </div>

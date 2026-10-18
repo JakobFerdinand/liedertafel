@@ -1,4 +1,4 @@
-// ARC-031: Aufführungsgeschichte eines Liedes. Die Zeilen sind die
+// ARC-031 / #170: Aufführungsgeschichte eines Liedes. Die Zeilen sind die
 // Aufführungsnachweise (ARC-028) mit ihrer stabilen Id — daran hängt die
 // Aufnahmenverknüpfung (ARC-032). Die Zahlen sind ehrlich begrenzt: sie
 // beschreiben nur die erfasste Überlieferung, bestätigte Aufführungen und
@@ -7,10 +7,9 @@
 
 import type { HistorieAufnahme } from "@/lib/zeitmarken";
 
-export type HistorieSong = {
+export type HistorieLied = {
   id: string;
   title: string;
-  published: boolean;
 };
 
 export type HistorieZaehlung = {
@@ -34,13 +33,6 @@ export type HistorieZaehlung = {
   draftEventOccurrences: number | null;
 };
 
-export type HistorieFassungZahl = {
-  id: string;
-  label: string;
-  confirmed: number;
-  unconfirmed: number;
-};
-
 export type HistorieZeile = {
   id: string;
   eventId: string;
@@ -59,8 +51,6 @@ export type HistorieZeile = {
   // einer Herabstufung zur Programmangabe; record = aus einer Archivquelle
   // erfasst (ARC-028). Nur zusammen mit evidenceStatus lesen.
   origin: "programme" | "record";
-  arrangement: { id: string; label: string } | null;
-  musicalVersion: { id: string; label: string } | null;
   // Stelle unter den bestätigten Aufführungen des Liedes an diesem Auftritt.
   occurrence: { index: number; of: number } | null;
   possiblyDuplicate: boolean;
@@ -77,13 +67,11 @@ export type HistorieZeile = {
 };
 
 export type LiedHistorie = {
-  song: HistorieSong;
+  lied: HistorieLied;
   page: number;
   pageSize: number;
   total: number;
   counts: HistorieZaehlung;
-  arrangements: HistorieFassungZahl[];
-  unknownArrangement: { confirmed: number; unconfirmed: number };
   performances: HistorieZeile[];
 };
 
@@ -91,12 +79,10 @@ export type HistorieAuswahl = {
   page?: number;
   // "confirmed" | "mention"; leer = alle Nachweise.
   evidence?: string;
-  // Arrangement-Id oder "unknown"; leer = alle Fassungen.
-  arrangementId?: string;
 };
 
 export function historieUrlPfad(
-  songId: string,
+  liedId: string,
   auswahl: HistorieAuswahl = {},
 ): string {
   const parameter = new URLSearchParams();
@@ -104,20 +90,17 @@ export function historieUrlPfad(
     parameter.set("page", String(auswahl.page));
   }
   if (auswahl.evidence) parameter.set("evidence", auswahl.evidence);
-  if (auswahl.arrangementId) {
-    parameter.set("arrangementId", auswahl.arrangementId);
-  }
   const zeichenkette = parameter.toString();
-  const pfad = `/api/songs/${encodeURIComponent(songId)}/performances`;
+  const pfad = `/api/lieder/${encodeURIComponent(liedId)}/performances`;
   return zeichenkette ? `${pfad}?${zeichenkette}` : pfad;
 }
 
 export async function fetchLiedHistorie(
-  songId: string,
+  liedId: string,
   auswahl: HistorieAuswahl = {},
   signal?: AbortSignal,
 ): Promise<LiedHistorie> {
-  const response = await fetch(historieUrlPfad(songId, auswahl), {
+  const response = await fetch(historieUrlPfad(liedId, auswahl), {
     credentials: "same-origin",
     cache: "no-store",
     signal,

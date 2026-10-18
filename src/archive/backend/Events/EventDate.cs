@@ -28,7 +28,7 @@ public static class EventDate
 			: "unknown";
 
 	/// <summary>
-	/// The one newest-first date order shared by the event list and the song
+	/// The one newest-first date order shared by the event list and the Lied
 	/// history: known year descending; within a year day-precision entries
 	/// first (month then day descending), then month-only, then year-only;
 	/// unknown years last. 0 means equal dates; callers add their own

@@ -56,11 +56,10 @@ public sealed class ProgrammeConfirmationApiTests
 		Assert.False(confirmed.GetProperty("confirmation").ValueKind is JsonValueKind.Null);
 		// The PUT answer carries the planned display fields (the workbench
 		// renders them straight after a save).
-		Assert.Equal("Erstes Lied", confirmedItems[0].GetProperty("songTitle").GetString());
-		Assert.Equal("Grundtonart", confirmedItems[0].GetProperty("musicalVersionLabel").GetString());
-		Assert.Equal("Zweites Lied", confirmedItems[1].GetProperty("songTitle").GetString());
+		Assert.Equal("Erstes Lied", confirmedItems[0].GetProperty("liedTitle").GetString());
+		Assert.Equal("Zweites Lied", confirmedItems[1].GetProperty("liedTitle").GetString());
 
-		// Each planned entry owns its own occurrence: the repeated song is
+		// Each planned entry owns its own occurrence: the repeated Lied is
 		// two distinct occurrences, all confirmed and linked to the item.
 		var performanceIds = confirmedItems
 			.Select(i => i.GetProperty("performance").GetProperty("id").GetString()!).ToList();
@@ -71,8 +70,8 @@ public sealed class ProgrammeConfirmationApiTests
 			Assert.Equal("confirmed", performance.GetProperty("evidenceStatus").GetString());
 			Assert.Equal(item.GetProperty("programmeItemId").GetString(),
 				performance.GetProperty("programmeItemId").GetString());
-			Assert.Equal(item.GetProperty("musicalVersionId").GetString(),
-				performance.GetProperty("musicalVersionId").GetString());
+			Assert.Equal(item.GetProperty("liedId").GetString(),
+				performance.GetProperty("liedId").GetString());
 		});
 
 		// The ARC-028 evidence list carries them (editor embed shows the link).
@@ -118,32 +117,26 @@ public sealed class ProgrammeConfirmationApiTests
 		var retryReview = await ReviewOfAsync(retry);
 		Assert.Equal(firstIds, PerformanceIds(retryReview));
 		// The unchanged-retry answer is as complete as the writing one.
-		Assert.Equal("Erstes Lied", retryReview.GetProperty("items")[0].GetProperty("songTitle").GetString());
-		Assert.Equal("Grundtonart", retryReview.GetProperty("items")[0].GetProperty("musicalVersionLabel").GetString());
+		Assert.Equal("Erstes Lied", retryReview.GetProperty("items")[0].GetProperty("liedTitle").GetString());
 		Assert.Equal(firstReview.GetProperty("rowVersion").GetUInt32(),
 			retryReview.GetProperty("rowVersion").GetUInt32());
 		Assert.Equal(3, await scenario.CountPerformancesAsync());
 
-		// A deliberate re-confirmation with the fresh token and one corrected
-		// version updates that occurrence in place; the others stay byte-equal.
+		// A deliberate re-confirmation with the fresh token and one entry
+		// skipped removes only that occurrence; the others stay byte-equal.
 		var current = await scenario.ReviewAsync();
-		var corrected = scenario.AllSung(current, correctFirstTo: scenario.TransposedA);
-		using var update = await scenario.ConfirmAsync(corrected);
+		using var update = await scenario.ConfirmAsync(scenario.Body(current, skip: [1]));
 		Assert.Equal(HttpStatusCode.OK, update.StatusCode);
 		var updated = await ReviewOfAsync(update);
-		Assert.Equal(firstIds, PerformanceIds(updated));
-		Assert.Equal(scenario.TransposedA,
-			Guid.Parse(updated.GetProperty("items")[0].GetProperty("performance")
-				.GetProperty("musicalVersionId").GetString()!));
 		Assert.Equal(2u, updated.GetProperty("rowVersion").GetUInt32());
 		Assert.Equal(
-			firstReview.GetProperty("items")[1].GetProperty("performance").GetRawText(),
-			updated.GetProperty("items")[1].GetProperty("performance").GetRawText());
-		Assert.Equal(3, await scenario.CountPerformancesAsync());
+			firstReview.GetProperty("items")[0].GetProperty("performance").GetRawText(),
+			updated.GetProperty("items")[0].GetProperty("performance").GetRawText());
+		Assert.Equal(2, await scenario.CountPerformancesAsync());
 	}
 
 	[Fact]
-	public async Task SkippedEntryCorrectedVersionAndEncoreKeepThePlanIntact()
+	public async Task SkippedEntryAndEncoreKeepThePlanIntact()
 	{
 		await using var scenario = await Scenario.CreateAsync();
 		var programmeBefore = await scenario.EditorProgrammeAsync();
@@ -151,8 +144,7 @@ public sealed class ProgrammeConfirmationApiTests
 		var encoreKey = Guid.CreateVersion7();
 		var body = scenario.Body(review,
 			skip: [1],
-			correctFirstTo: scenario.TransposedA,
-			additions: [new { clientKey = encoreKey, songId = scenario.SongD.SongId, musicalVersionId = scenario.SongD.VersionId }]);
+			additions: [new { clientKey = encoreKey, liedId = scenario.LiedD }]);
 		using var response = await scenario.ConfirmAsync(body);
 		Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 		var result = await ReviewOfAsync(response);
@@ -161,17 +153,11 @@ public sealed class ProgrammeConfirmationApiTests
 		Assert.Equal("skipped", items[1].GetProperty("outcome").GetString());
 		Assert.True(items[1].GetProperty("performance").ValueKind is JsonValueKind.Null);
 		Assert.Equal("sung", items[2].GetProperty("outcome").GetString());
-		// The planned version of the corrected entry stays visible next to
-		// the sung one.
-		Assert.Equal(scenario.SongA.VersionId,
-			Guid.Parse(items[0].GetProperty("musicalVersionId").GetString()!));
-		Assert.Equal(scenario.TransposedA,
-			Guid.Parse(items[0].GetProperty("performance").GetProperty("musicalVersionId").GetString()!));
 		var additions = result.GetProperty("additions").EnumerateArray().ToList();
 		var encore = Assert.Single(additions);
-		Assert.Equal(scenario.SongD.SongId, Guid.Parse(encore.GetProperty("songId").GetString()!));
+		Assert.Equal(scenario.LiedD, Guid.Parse(encore.GetProperty("liedId").GetString()!));
 		Assert.True(encore.GetProperty("programmeItemId").ValueKind is JsonValueKind.Null);
-		Assert.Equal("Zugabe", encore.GetProperty("songTitle").GetString());
+		Assert.Equal("Zugabe", encore.GetProperty("liedTitle").GetString());
 		var encoreId = encore.GetProperty("id").GetString()!;
 		Assert.Equal(3, await scenario.CountPerformancesAsync());
 
@@ -179,8 +165,7 @@ public sealed class ProgrammeConfirmationApiTests
 		var fresh = await scenario.ReviewAsync();
 		var again = scenario.Body(fresh,
 			skip: [1],
-			correctFirstTo: scenario.TransposedA,
-			additions: [new { clientKey = encoreKey, songId = scenario.SongD.SongId, musicalVersionId = scenario.SongD.VersionId }]);
+			additions: [new { clientKey = encoreKey, liedId = scenario.LiedD }]);
 		using var retry = await scenario.ConfirmAsync(again);
 		Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
 		var retried = await ReviewOfAsync(retry);
@@ -203,16 +188,13 @@ public sealed class ProgrammeConfirmationApiTests
 		Assert.Equal(3, actual.Count);
 		Assert.Equal(new[] { false, false, true },
 			actual.Select(a => a.GetProperty("added").GetBoolean()).ToArray());
-		Assert.True(actual[0].GetProperty("differsFromPlan").GetBoolean());
-		Assert.False(actual[1].GetProperty("differsFromPlan").GetBoolean());
 		var skipped = Assert.Single(memberConfirmation.GetProperty("skipped").EnumerateArray());
-		Assert.Equal("Zweites Lied", skipped.GetProperty("songTitle").GetString());
+		Assert.Equal("Zweites Lied", skipped.GetProperty("liedTitle").GetString());
 
 		// Un-skipping later restores an occurrence for that planned entry.
 		var later = await scenario.ReviewAsync();
 		using var restore = await scenario.ConfirmAsync(scenario.Body(later,
-			correctFirstTo: scenario.TransposedA,
-			additions: [new { clientKey = encoreKey, songId = scenario.SongD.SongId, musicalVersionId = scenario.SongD.VersionId }]));
+			additions: [new { clientKey = encoreKey, liedId = scenario.LiedD }]));
 		Assert.Equal(HttpStatusCode.OK, restore.StatusCode);
 		var restored = await ReviewOfAsync(restore);
 		Assert.Equal("sung", restored.GetProperty("items")[1].GetProperty("outcome").GetString());
@@ -220,16 +202,16 @@ public sealed class ProgrammeConfirmationApiTests
 	}
 
 	[Fact]
-	public async Task GenuineRepeatedSongsStayDistinctOccurrences()
+	public async Task GenuineRepeatedLiederStayDistinctOccurrences()
 	{
 		await using var scenario = await Scenario.CreateAsync();
 		var review = await scenario.ReviewAsync();
-		// Song A is planned twice and sung a third time as an encore: three
-		// distinct occurrences of the same song at one event.
+		// Lied A is planned twice and sung twice more as an encore: four
+		// distinct occurrences of the same Lied at one event.
 		using var response = await scenario.ConfirmAsync(scenario.Body(review, additions:
 		[
-			new { clientKey = Guid.CreateVersion7(), songId = scenario.SongA.SongId, musicalVersionId = scenario.SongA.VersionId },
-			new { clientKey = Guid.CreateVersion7(), songId = scenario.SongA.SongId, musicalVersionId = scenario.SongA.VersionId },
+			new { clientKey = Guid.CreateVersion7(), liedId = scenario.LiedA },
+			new { clientKey = Guid.CreateVersion7(), liedId = scenario.LiedA },
 		]));
 		Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 		var result = await ReviewOfAsync(response);
@@ -240,23 +222,23 @@ public sealed class ProgrammeConfirmationApiTests
 			.ToList();
 		Assert.Equal(5, ids.Distinct().Count());
 
-		// Only confirmed occurrences count: the song history lists song A
+		// Only confirmed occurrences count: the Lied history lists Lied A
 		// four times (two planned, two added).
-		var history = await scenario.SongHistoryAsync(scenario.SongA.SongId);
+		var history = await scenario.LiedHistoryAsync(scenario.LiedA);
 		Assert.Equal(4, history.GetArrayLength());
 		Assert.All(history.EnumerateArray(), row => Assert.Equal("confirmed", row.GetProperty("evidenceStatus").GetString()));
 	}
 
 	[Fact]
-	public async Task SkippedSongsDoNotCountAsPerformed()
+	public async Task SkippedLiederDoNotCountAsPerformed()
 	{
 		await using var scenario = await Scenario.CreateAsync();
 		var review = await scenario.ReviewAsync();
 		using var response = await scenario.ConfirmAsync(scenario.Body(review, skip: [1]));
 		Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-		// Song B was planned but skipped: it has no history at all.
-		Assert.Equal(0, (await scenario.SongHistoryAsync(scenario.SongB.SongId)).GetArrayLength());
-		Assert.Equal(2, (await scenario.SongHistoryAsync(scenario.SongA.SongId)).GetArrayLength());
+		// Lied B was planned but skipped: it has no history at all.
+		Assert.Equal(0, (await scenario.LiedHistoryAsync(scenario.LiedB)).GetArrayLength());
+		Assert.Equal(2, (await scenario.LiedHistoryAsync(scenario.LiedA)).GetArrayLength());
 	}
 
 	[Fact]
@@ -271,7 +253,7 @@ public sealed class ProgrammeConfirmationApiTests
 
 		// The plan is revised and republished: revision 2 supersedes 1.
 		var secondRevisionId = await scenario.RepublishAsync(
-			[(scenario.SongA, scenario.SongA.VersionId), (scenario.SongB, scenario.SongB.VersionId)]);
+			[scenario.LiedA, scenario.LiedB]);
 		Assert.NotEqual(scenario.RevisionId, secondRevisionId);
 
 		// A submission against the superseded revision is refused with the
@@ -290,7 +272,7 @@ public sealed class ProgrammeConfirmationApiTests
 			item => Assert.Equal("sung", item.GetProperty("outcome").GetString()));
 
 		// The default review is the newest revision: open entries with
-		// suggested carry-over of the earlier occurrences (same song, in
+		// suggested carry-over of the earlier occurrences (same Lied, in
 		// order), which the editor adopts explicitly.
 		var newest = await scenario.ReviewAsync();
 		Assert.Equal(secondRevisionId, Guid.Parse(newest.GetProperty("revision").GetProperty("id").GetString()!));
@@ -402,12 +384,11 @@ public sealed class ProgrammeConfirmationApiTests
 			items = entries.ToArray(),
 			additions = additions ?? [],
 		};
-		object Sung(Guid id, Guid? performanceId = null, Guid? version = null) => new
+		object Sung(Guid id, Guid? performanceId = null) => new
 		{
 			programmeItemId = id,
 			outcome = "sung",
 			performanceId,
-			musicalVersionId = version,
 		};
 
 		// The revision belongs to another event's programme: 404.
@@ -444,21 +425,11 @@ public sealed class ProgrammeConfirmationApiTests
 		using var duplicate = await scenario.ConfirmAsync(Plan(
 			[Sung(itemIds[0]), Sung(itemIds[0]), Sung(itemIds[2])]));
 		Assert.Equal(HttpStatusCode.BadRequest, duplicate.StatusCode);
-		// A sung version of another song does not belong to the entry.
-		using var wrongVersion = await scenario.ConfirmAsync(Plan(
-			[Sung(itemIds[0], version: scenario.SongB.VersionId), Sung(itemIds[1]), Sung(itemIds[2])]));
-		Assert.Equal(HttpStatusCode.BadRequest, wrongVersion.StatusCode);
-		Assert.Equal(ProgrammeConfirmationEndpoints.VersionMismatchMessage,
-			(await wrongVersion.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("title").GetString());
-		// An encore must name an existing song and a matching version.
-		using var unknownSong = await scenario.ConfirmAsync(Plan(
+		// An encore must name an existing Lied.
+		using var unknownLied = await scenario.ConfirmAsync(Plan(
 			itemIds.Select(id => Sung(id)),
-			additions: [new { clientKey = Guid.NewGuid(), songId = Guid.NewGuid() }]));
-		Assert.Equal(HttpStatusCode.NotFound, unknownSong.StatusCode);
-		using var mismatchedEncore = await scenario.ConfirmAsync(Plan(
-			itemIds.Select(id => Sung(id)),
-			additions: [new { clientKey = Guid.NewGuid(), songId = scenario.SongC.SongId, musicalVersionId = scenario.SongB.VersionId }]));
-		Assert.Equal(HttpStatusCode.NotFound, mismatchedEncore.StatusCode);
+			additions: [new { clientKey = Guid.NewGuid(), liedId = Guid.NewGuid() }]));
+		Assert.Equal(HttpStatusCode.NotFound, unknownLied.StatusCode);
 		// A malformed body is a German 400.
 		using var empty = await scenario.ConfirmAsync(new { });
 		Assert.Equal(HttpStatusCode.BadRequest, empty.StatusCode);
@@ -576,14 +547,14 @@ public sealed class ProgrammeConfirmationApiTests
 	}
 
 	[Fact]
-	public async Task AdoptingAnOccurrenceOfAnotherSongIsRejected()
+	public async Task AdoptingAnOccurrenceOfAnotherLiedIsRejected()
 	{
 		await using var scenario = await Scenario.CreateAsync();
 		var review = await scenario.ReviewAsync();
-		// The confirmation owns three planned occurrences and an encore of song D.
+		// The confirmation owns three planned occurrences and an encore of Lied D.
 		using var confirm = await scenario.ConfirmAsync(scenario.Body(review, additions:
 		[
-			new { clientKey = Guid.CreateVersion7(), songId = scenario.SongD.SongId },
+			new { clientKey = Guid.CreateVersion7(), liedId = scenario.LiedD },
 		]));
 		var confirmed = await ReviewOfAsync(confirm);
 		var encoreId = Guid.Parse(Assert.Single(confirmed.GetProperty("additions").EnumerateArray())
@@ -591,7 +562,7 @@ public sealed class ProgrammeConfirmationApiTests
 		var itemIds = confirmed.GetProperty("items").EnumerateArray()
 			.Select(i => Guid.Parse(i.GetProperty("programmeItemId").GetString()!)).ToList();
 
-		// Pointing planned entry 1 (song A) at the encore (song D) is refused.
+		// Pointing planned entry 1 (Lied A) at the encore (Lied D) is refused.
 		using var crossItem = await scenario.ConfirmAsync(new
 		{
 			revisionId = scenario.RevisionId,
@@ -605,7 +576,7 @@ public sealed class ProgrammeConfirmationApiTests
 			additions = Array.Empty<object>(),
 		});
 		Assert.Equal(HttpStatusCode.BadRequest, crossItem.StatusCode);
-		// Likewise an encore of song C cannot adopt the song D occurrence.
+		// Likewise an encore of Lied C cannot adopt the Lied D occurrence.
 		using var crossAddition = await scenario.ConfirmAsync(new
 		{
 			revisionId = scenario.RevisionId,
@@ -613,15 +584,15 @@ public sealed class ProgrammeConfirmationApiTests
 			items = itemIds.Select(id => new { programmeItemId = id, outcome = "sung" }).ToArray(),
 			additions = new object[]
 			{
-				new { performanceId = encoreId, songId = scenario.SongC.SongId },
+				new { performanceId = encoreId, liedId = scenario.LiedC },
 			},
 		});
 		Assert.Equal(HttpStatusCode.BadRequest, crossAddition.StatusCode);
-		// Nothing moved: the encore still belongs to song D and has no entry.
+		// Nothing moved: the encore still belongs to Lied D and has no entry.
 		using var scope = scenario.Factory.Services.CreateScope();
 		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
 		var row = await db.Performances.SingleAsync(p => p.Id == encoreId);
-		Assert.Equal(scenario.SongD.SongId, row.SongId);
+		Assert.Equal(scenario.LiedD, row.LiedId);
 		Assert.Null(row.ProgrammeItemId);
 		Assert.Equal(4, await db.Performances.CountAsync(p => p.EventId == scenario.EventId));
 	}
@@ -631,39 +602,32 @@ public sealed class ProgrammeConfirmationApiTests
 	{
 		await using var scenario = await Scenario.CreateAsync();
 		var review = await scenario.ReviewAsync();
-		using var confirm = await scenario.ConfirmAsync(scenario.Body(review,
-			skip: [1], correctFirstTo: scenario.TransposedA));
+		using var confirm = await scenario.ConfirmAsync(scenario.Body(review, skip: [1]));
 		Assert.Equal(HttpStatusCode.OK, confirm.StatusCode);
 		var current = (await scenario.DetailAsync(scenario.MemberSession))
 			.GetProperty("programme").GetProperty("confirmation");
 		Assert.Single(current.GetProperty("skipped").EnumerateArray());
-		Assert.True(current.GetProperty("actual")[0].GetProperty("differsFromPlan").GetBoolean());
 
-		await scenario.RepublishAsync([(scenario.SongA, scenario.SongA.VersionId)]);
+		await scenario.RepublishAsync([scenario.LiedA]);
 		var stale = (await scenario.DetailAsync(scenario.MemberSession))
 			.GetProperty("programme").GetProperty("confirmation");
 		Assert.False(stale.GetProperty("upToDate").GetBoolean());
-		// The actual songs stay readable; nothing of the superseded plan does.
+		// The actual Lieder stay readable; nothing of the superseded plan does.
 		Assert.Equal(2, stale.GetProperty("actual").GetArrayLength());
 		Assert.Empty(stale.GetProperty("skipped").EnumerateArray());
-		Assert.All(stale.GetProperty("actual").EnumerateArray(), entry =>
-		{
-			Assert.False(entry.GetProperty("differsFromPlan").GetBoolean());
-			Assert.True(entry.GetProperty("plannedMusicalVersionLabel").ValueKind is JsonValueKind.Null);
-		});
 		// Editors keep the full picture.
 		var editor = (await scenario.EditorProgrammeAsync()).GetProperty("confirmation");
 		Assert.Single(editor.GetProperty("skipped").EnumerateArray());
 	}
 
 	[Fact]
-	public async Task HandEnteredOccurrenceOfSameSongIsSuggestedAndAdoptedWithItsNote()
+	public async Task HandEnteredOccurrenceOfSameLiedIsSuggestedAndAdoptedWithItsNote()
 	{
 		await using var scenario = await Scenario.CreateAsync();
-		// An editor recorded song B by hand (ARC-028) with a source note.
+		// An editor recorded Lied B by hand (ARC-028) with a source note.
 		using var manual = await PostJsonAsync(scenario.Client,
 			$"/api/events/{scenario.EventId}/performances",
-			new { songId = scenario.SongB.SongId, evidenceStatus = "confirmed", sourceNote = "Handschriftlich notiert." },
+			new { liedId = scenario.LiedB, evidenceStatus = "confirmed", sourceNote = "Handschriftlich notiert." },
 			scenario.EditorSession);
 		Assert.Equal(HttpStatusCode.Created, manual.StatusCode);
 		var manualId = (await manual.Content.ReadFromJsonAsync<JsonElement>())
@@ -678,7 +642,7 @@ public sealed class ProgrammeConfirmationApiTests
 		var unowned = Assert.Single(review.GetProperty("unownedOccurrences").EnumerateArray());
 		Assert.Equal(manualId, unowned.GetProperty("id").GetString());
 
-		// Ignoring the suggestion creates a second occurrence of song B.
+		// Ignoring the suggestion creates a second occurrence of Lied B.
 		using var ignoring = await scenario.ConfirmAsync(scenario.AllSung(review));
 		Assert.Equal(HttpStatusCode.OK, ignoring.StatusCode);
 		Assert.Equal(4, await scenario.CountPerformancesAsync());
@@ -692,7 +656,7 @@ public sealed class ProgrammeConfirmationApiTests
 		await using var scenario = await Scenario.CreateAsync();
 		using var manual = await PostJsonAsync(scenario.Client,
 			$"/api/events/{scenario.EventId}/performances",
-			new { songId = scenario.SongB.SongId, evidenceStatus = "mention", sourceNote = "Programmheft." },
+			new { liedId = scenario.LiedB, evidenceStatus = "mention", sourceNote = "Programmheft." },
 			scenario.EditorSession);
 		var manualId = Guid.Parse((await manual.Content.ReadFromJsonAsync<JsonElement>())
 			.GetProperty("performance").GetProperty("id").GetString()!);
@@ -788,8 +752,8 @@ public sealed class ProgrammeConfirmationApiTests
 		var key = Guid.CreateVersion7();
 		using var response = await scenario.ConfirmAsync(scenario.Body(review, additions:
 		[
-			new { clientKey = key, songId = scenario.SongD.SongId },
-			new { clientKey = key, songId = scenario.SongD.SongId },
+			new { clientKey = key, liedId = scenario.LiedD },
+			new { clientKey = key, liedId = scenario.LiedD },
 		]));
 		Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
 		Assert.Equal(ProgrammeConfirmationEndpoints.DuplicateKeyMessage,
@@ -805,7 +769,7 @@ public sealed class ProgrammeConfirmationApiTests
 		var key = Guid.CreateVersion7();
 		using var first = await scenario.ConfirmAsync(scenario.Body(review, additions:
 		[
-			new { clientKey = key, songId = scenario.SongA.SongId, musicalVersionId = scenario.SongA.VersionId },
+			new { clientKey = key, liedId = scenario.LiedA },
 		]));
 		Assert.Equal(HttpStatusCode.OK, first.StatusCode);
 		var confirmed = await ReviewOfAsync(first);
@@ -813,11 +777,9 @@ public sealed class ProgrammeConfirmationApiTests
 			.GetProperty("id").GetString()!);
 		var ids = PerformanceIds(confirmed);
 
-		// Republish with a fourth entry (song A again) and adopt every old row;
+		// Republish with a fourth entry (Lied A again) and adopt every old row;
 		// the old encore becomes planned entry 4.
-		await scenario.RepublishAsync([
-			(scenario.SongA, scenario.SongA.VersionId), (scenario.SongB, scenario.SongB.VersionId),
-			(scenario.SongA, scenario.SongA.VersionId), (scenario.SongA, scenario.SongA.VersionId)]);
+		await scenario.RepublishAsync([scenario.LiedA, scenario.LiedB, scenario.LiedA, scenario.LiedA]);
 		var newest = await scenario.ReviewAsync();
 		var newItems = newest.GetProperty("items").EnumerateArray()
 			.Select(i => Guid.Parse(i.GetProperty("programmeItemId").GetString()!)).ToList();
@@ -848,8 +810,8 @@ public sealed class ProgrammeConfirmationApiTests
 
 	/// <summary>
 	/// A published concert with a member, two editors and the catalogue the
-	/// confirmation scenarios draw on: songs A (planned twice, with a
-	/// transposed version), B, C and D ("Zugabe", sung only as an encore).
+	/// confirmation scenarios draw on: Lieder A (planned twice), B, C and D
+	/// ("Zugabe", sung only as an encore).
 	/// The programme is [A, B, A], published as revision 1.
 	/// </summary>
 	private sealed class Scenario : IAsyncDisposable
@@ -861,11 +823,10 @@ public sealed class ProgrammeConfirmationApiTests
 		public required string SecondEditorSession { get; init; }
 		public required Guid EventId { get; init; }
 		public required Guid RevisionId { get; init; }
-		public required (Guid SongId, Guid ArrangementId, Guid VersionId) SongA { get; init; }
-		public required (Guid SongId, Guid ArrangementId, Guid VersionId) SongB { get; init; }
-		public required (Guid SongId, Guid ArrangementId, Guid VersionId) SongC { get; init; }
-		public required (Guid SongId, Guid ArrangementId, Guid VersionId) SongD { get; init; }
-		public required Guid TransposedA { get; init; }
+		public required Guid LiedA { get; init; }
+		public required Guid LiedB { get; init; }
+		public required Guid LiedC { get; init; }
+		public required Guid LiedD { get; init; }
 
 		public string ConfirmationPath => $"/api/events/{EventId}/programme/confirmation";
 
@@ -879,11 +840,10 @@ public sealed class ProgrammeConfirmationApiTests
 			var editorSession = await SignInAsync(factory, Editor);
 			var secondSession = await SignInAsync(factory, Zweitredaktion);
 			var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-			var songA = await CreateSongAsync(client, editorSession, "Erstes Lied", versionLabel: "Grundtonart", musicalKey: "G-Dur");
-			var songB = await CreateSongAsync(client, editorSession, "Zweites Lied");
-			var songC = await CreateSongAsync(client, editorSession, "Drittes Lied");
-			var songD = await CreateSongAsync(client, editorSession, "Zugabe");
-			var transposed = await CreateVersionAsync(client, editorSession, songA.ArrangementId, "Tiefe Tonart", "F-Dur");
+			var liedA = await CreateLiedAsync(client, editorSession, "Erstes Lied", musicalKey: "G-Dur");
+			var liedB = await CreateLiedAsync(client, editorSession, "Zweites Lied");
+			var liedC = await CreateLiedAsync(client, editorSession, "Drittes Lied");
+			var liedD = await CreateLiedAsync(client, editorSession, "Zugabe");
 			var eventId = await CreateEventAsync(client, editorSession, new
 			{
 				kind = "concert",
@@ -894,7 +854,7 @@ public sealed class ProgrammeConfirmationApiTests
 			});
 			await PublishEventAsync(client, editorSession, eventId);
 			var revisionId = await SaveAndPublishProgrammeAsync(client, editorSession, eventId,
-				[(songA, songA.VersionId), (songB, songB.VersionId), (songA, songA.VersionId)]);
+				[liedA, liedB, liedA]);
 			return new Scenario
 			{
 				Factory = factory,
@@ -904,11 +864,10 @@ public sealed class ProgrammeConfirmationApiTests
 				SecondEditorSession = secondSession,
 				EventId = eventId,
 				RevisionId = revisionId,
-				SongA = songA,
-				SongB = songB,
-				SongC = songC,
-				SongD = songD,
-				TransposedA = transposed,
+				LiedA = liedA,
+				LiedB = liedB,
+				LiedC = liedC,
+				LiedD = liedD,
 			};
 		}
 
@@ -919,8 +878,7 @@ public sealed class ProgrammeConfirmationApiTests
 		}
 
 		/// <summary>Publishes a new revision (the draft starts after the last publication).</summary>
-		public Task<Guid> RepublishAsync(
-			IEnumerable<((Guid SongId, Guid ArrangementId, Guid VersionId) Song, Guid VersionId)> entries)
+		public Task<Guid> RepublishAsync(IEnumerable<Guid> entries)
 			=> SaveAndPublishProgrammeAsync(Client, EditorSession, EventId, entries);
 
 		public async Task<JsonElement> ReviewAsync(Guid? revisionId = null, string? session = null)
@@ -948,9 +906,9 @@ public sealed class ProgrammeConfirmationApiTests
 		public async Task<JsonElement> EditorProgrammeAsync()
 			=> (await DetailAsync(EditorSession)).GetProperty("programme");
 
-		public async Task<JsonElement> SongHistoryAsync(Guid songId)
+		public async Task<JsonElement> LiedHistoryAsync(Guid liedId)
 		{
-			using var request = new HttpRequestMessage(HttpMethod.Get, $"/api/songs/{songId}/performances");
+			using var request = new HttpRequestMessage(HttpMethod.Get, $"/api/lieder/{liedId}/performances");
 			request.Headers.Add("Cookie", EditorSession);
 			using var response = await Client.SendAsync(request);
 			response.EnsureSuccessStatusCode();
@@ -966,23 +924,21 @@ public sealed class ProgrammeConfirmationApiTests
 		}
 
 		/// <summary>Body confirming every planned entry as planned.</summary>
-		public object AllSung(JsonElement review, Guid? correctFirstTo = null)
-			=> Body(review, correctFirstTo: correctFirstTo);
+		public object AllSung(JsonElement review)
+			=> Body(review);
 
 		/// <summary>
 		/// Builds the PUT body from a fetched review: every planned entry
 		/// sung unless its index is skipped; existing occurrences ride along
 		/// with their ids so a confirmation keeps their identity.
 		/// </summary>
-		public object Body(JsonElement review, int[]? skip = null, Guid? correctFirstTo = null,
-			object[]? additions = null)
+		public object Body(JsonElement review, int[]? skip = null, object[]? additions = null)
 		{
 			var skipped = skip ?? [];
 			var entries = review.GetProperty("items").EnumerateArray().Select((item, index) => new
 			{
 				programmeItemId = Guid.Parse(item.GetProperty("programmeItemId").GetString()!),
 				outcome = skipped.Contains(index) ? "skipped" : "sung",
-				musicalVersionId = index == 0 ? correctFirstTo : null,
 			}).ToArray();
 			return new
 			{
@@ -1002,7 +958,7 @@ public sealed class ProgrammeConfirmationApiTests
 				dateYear = 1960,
 			});
 			var revisionId = await SaveAndPublishProgrammeAsync(Client, EditorSession, eventId,
-				[(SongC, SongC.VersionId)]);
+				[LiedC]);
 			using var scope = Factory.Services.CreateScope();
 			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
 			var itemIds = await db.ProgrammeItems.Where(i => i.RevisionId == revisionId)
@@ -1031,11 +987,11 @@ public sealed class ProgrammeConfirmationApiTests
 	/// </summary>
 	private static async Task<Guid> SaveAndPublishProgrammeAsync(
 		HttpClient client, string editorSession, Guid eventId,
-		IEnumerable<((Guid SongId, Guid ArrangementId, Guid VersionId) Song, Guid VersionId)> entries)
+		IEnumerable<Guid> entries)
 	{
 		var detail = await GetEventDetailAsync(client, editorSession, eventId);
 		var programme = detail.GetProperty("programme");
-		var items = entries.Select(e => (object)new { songId = e.Song.SongId, musicalVersionId = e.VersionId }).ToArray();
+		var items = entries.Select(e => (object)new { liedId = e }).ToArray();
 		object body = programme.ValueKind is JsonValueKind.Null
 			? new { items }
 			: new { items, rowVersion = programme.GetProperty("rowVersion").GetUInt32() };
@@ -1080,49 +1036,10 @@ public sealed class ProgrammeConfirmationApiTests
 		Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 	}
 
-	private static async Task<(Guid SongId, Guid ArrangementId, Guid VersionId)> CreateSongAsync(
+	private static Task<Guid> CreateLiedAsync(
 		HttpClient client, string editorSession, string title,
-		string? versionLabel = null, string? musicalKey = null)
-	{
-		var (cookie, token) = await GetCsrfAsync(client, editorSession);
-		using var create = AuthedPost("/api/songs", new { title }, $"{cookie}; {editorSession}", token);
-		using var createResponse = await client.SendAsync(create);
-		Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
-		var song = (await createResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("song");
-		var songId = Guid.Parse(song.GetProperty("id").GetString()!);
-		var arrangement = song.GetProperty("arrangements").EnumerateArray().Single();
-		var arrangementId = Guid.Parse(arrangement.GetProperty("id").GetString()!);
-		var version = arrangement.GetProperty("musicalVersions").EnumerateArray().Single();
-		var versionId = Guid.Parse(version.GetProperty("id").GetString()!);
-		if (versionLabel is not null || musicalKey is not null)
-		{
-			using var patch = AuthedPatch($"/api/musical-versions/{versionId}",
-				new { label = versionLabel, musicalKey }, $"{cookie}; {editorSession}", token);
-			using var patchResponse = await client.SendAsync(patch);
-			Assert.Equal(HttpStatusCode.OK, patchResponse.StatusCode);
-		}
-		using var publishSong = AuthedPost($"/api/songs/{songId}/publish", new { },
-			$"{cookie}; {editorSession}", token);
-		using var publishResponse = await client.SendAsync(publishSong);
-		Assert.Equal(HttpStatusCode.OK, publishResponse.StatusCode);
-		return (songId, arrangementId, versionId);
-	}
-
-	private static async Task<Guid> CreateVersionAsync(
-		HttpClient client, string editorSession, Guid arrangementId, string label, string? musicalKey = null)
-	{
-		var (cookie, token) = await GetCsrfAsync(client, editorSession);
-		using var create = AuthedPost($"/api/arrangements/{arrangementId}/versions",
-			new { label, musicalKey }, $"{cookie}; {editorSession}", token);
-		using var response = await client.SendAsync(create);
-		Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-		var song = (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("song");
-		var arrangement = song.GetProperty("arrangements").EnumerateArray()
-			.Single(a => Guid.Parse(a.GetProperty("id").GetString()!) == arrangementId);
-		var version = arrangement.GetProperty("musicalVersions").EnumerateArray()
-			.Single(v => v.GetProperty("label").GetString() == label);
-		return Guid.Parse(version.GetProperty("id").GetString()!);
-	}
+		string? voiceConfiguration = null, string? musicalKey = null)
+		=> LiedFixtures.CreateLiedAsync(client, editorSession, title, voiceConfiguration, musicalKey);
 
 	private static async Task<HttpResponseMessage> PutJsonAsync(
 		HttpClient client, string path, object body, string session)

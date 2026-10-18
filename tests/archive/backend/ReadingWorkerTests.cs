@@ -3,7 +3,7 @@ using Archive.Backend.Ai;
 using Archive.Backend.Assets;
 using Archive.Backend.Data;
 using Archive.Backend.Extraction;
-using Archive.Backend.Provenance;
+using Archive.Backend.Lieder;
 using Archive.Backend.Reading;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -16,7 +16,7 @@ namespace Archive.Backend.Tests;
 /// below it and the real PDFium renderer: a scan is transcribed into the
 /// revision's text and its still-empty catalogue fields are prefilled
 /// (regex first, then the field agent), nothing a human wrote is touched,
-/// uncertain or unverifiable readings become proposals, instructions inside a
+/// uncertain or unverifiable readings are dropped, instructions inside a
 /// scan stay data, a reached cap parks the row, and progress that was paid
 /// for is never read twice.
 /// </summary>
@@ -39,17 +39,17 @@ public sealed class ReadingWorkerTests
 			Field("lyrics", "Im Wald da singen die Vögel\nUnd alle stimmen mit ein", "sicher", "Im Wald da singen die Vögel"));
 		var score = host.SeedScore(ScanFixtures.ScanPdf(["Seite 1"], ["Seite 2"], ["Seite 3"]));
 
-		var disposition = await host.RunAsync(score.Revision.Id);
+		var disposition = await host.RunAsync(score.Datei.Id);
 
 		Assert.False(disposition.Abandon);
-		var reading = await host.ReadingAsync(score.Revision.Id);
+		var reading = await host.ReadingAsync(score.Datei.Id);
 		Assert.Equal(ReadingStatus.Completed, reading.Status);
 		Assert.Equal((3, 3), (reading.PagesRead, reading.PagesTotal));
 		Assert.False(reading.IsPartial);
 		Assert.Null(reading.FailureReason);
 
 		// The transcription is the revision's text, marked as read from a scan.
-		var extraction = await host.ExtractionAsync(score.Revision.Id);
+		var extraction = await host.ExtractionAsync(score.Datei.Id);
 		Assert.Equal(ExtractionStatus.Completed, extraction.Status);
 		Assert.Equal(ExtractionTextSource.Reading, extraction.TextSource);
 		Assert.Contains("Im Wald da singen die Vögel", extraction.Text);
@@ -60,24 +60,14 @@ public sealed class ReadingWorkerTests
 		Assert.Equal(3, transcription.Images);
 		Assert.Single(host.Model.FieldCalls);
 
-		// What the regex analyzer read is badged "regex"; the lyrics it cannot read are "AI".
-		var song = await host.SongAsync(score.Song.Id);
+		// The regex analyzer fills what it can read; the field agent fills the lyrics.
+		var song = await host.LiedAsync(score.Lied.Id);
 		Assert.Equal("Franz Schubert", song.Composer);
 		Assert.Equal("Anna Beispiel", song.Lyricist);
 		Assert.Equal("Im Wald da singen die Vögel\nUnd alle stimmen mit ein", song.Lyrics);
-		Assert.Equal(ProvenanceSource.Regex, (await host.ProvenanceAsync("song", song.Id, "composer"))!.Source);
-		var lyrics = (await host.ProvenanceAsync("song", song.Id, "lyrics"))!;
-		Assert.Equal((ProvenanceSource.Ai, ProvenanceConfidence.Sicher, ReadingTestHost.ModelKey, ScanPrompts.FieldsVersion, false),
-			(lyrics.Source, lyrics.Confidence, lyrics.Model, lyrics.PromptVersion, lyrics.Locked));
-		await using (var db = new Archive.Backend.Data.ArchiveDbContext(host.DbOptions))
-		{
-			var version = await db.MusicalVersions.AsNoTracking().SingleAsync();
-			Assert.Equal("G-Dur", version.MusicalKey);
-			Assert.Equal("Tenor 1", (await db.Assets.AsNoTracking().SingleAsync()).VoiceLabel);
-		}
-		// Five fields written (composer, lyricist, key, voice, lyrics); none left for a proposal.
-		Assert.Equal((5, 0), (reading.FieldsApplied, reading.FieldsProposed));
-		Assert.Empty(await host.ProposalsAsync());
+		Assert.Equal("G-Dur", song.MusicalKey);
+		// Four fields written: composer, lyricist, key, lyrics.
+		Assert.Equal(4, reading.FieldsApplied);
 	}
 
 	[Fact]
@@ -88,7 +78,7 @@ public sealed class ReadingWorkerTests
 		host.Model.FieldsJson = Fields();
 		var score = host.SeedScore(ScanFixtures.ScanPdf(["Seite 1"], ["Seite 2"]));
 
-		await host.RunAsync(score.Revision.Id);
+		await host.RunAsync(score.Datei.Id);
 
 		var features = (await host.LedgerAsync()).Select(e => e.Feature).Order().ToList();
 		Assert.Equal([ScanPrompts.FieldsFeature, ScanPrompts.TranscriptionFeature], features);
@@ -106,18 +96,18 @@ public sealed class ReadingWorkerTests
 		// the analyzer or already in the catalogue: the model has nothing to do.
 		var score = host.SeedScore(ScanFixtures.TextPdf("Text"), embeddedText:
 			"Waldfahrt\nMusik: Franz Schubert\nText: Anna Beispiel\nSatz: Hans Huber\nTenor I\nG-Dur\nIm Wald da singen die Vögel",
-			song: song => song.Lyrics = "Schon da");
+			lied: song => song.Lyrics = "Schon da");
 
-		await host.RunAsync(score.Revision.Id);
+		await host.RunAsync(score.Datei.Id);
 
 		Assert.Empty(host.Model.Calls);
 		Assert.Empty(await host.LedgerAsync());
-		var reading = await host.ReadingAsync(score.Revision.Id);
+		var reading = await host.ReadingAsync(score.Datei.Id);
 		Assert.Equal(ReadingStatus.Completed, reading.Status);
-		Assert.Equal((5, 0), (reading.FieldsApplied, reading.FieldsProposed));
-		Assert.Equal(ExtractionTextSource.Embedded, (await host.ExtractionAsync(score.Revision.Id)).TextSource);
-		await using var db = new Archive.Backend.Data.ArchiveDbContext(host.DbOptions);
-		Assert.Equal("Hans Huber", (await db.Arrangements.AsNoTracking().SingleAsync()).Arranger);
+		// Composer, lyricist, arranger and key; the lyrics were already there.
+		Assert.Equal(4, reading.FieldsApplied);
+		Assert.Equal(ExtractionTextSource.Embedded, (await host.ExtractionAsync(score.Datei.Id)).TextSource);
+		Assert.Equal("Hans Huber", (await host.LiedAsync(score.Lied.Id)).Arranger);
 	}
 
 	[Fact]
@@ -127,12 +117,12 @@ public sealed class ReadingWorkerTests
 		host.Model.FieldsJson = Fields();
 		var score = host.SeedScore(ScanFixtures.TextPdf("Text"),
 			embeddedText: "Waldfahrt\nIm Wald da singen die Vögel\nUnd alle stimmen mit ein",
-			song: song => song.Composer = "Eigene Eingabe");
+			lied: song => song.Composer = "Eigene Eingabe");
 
-		await host.RunAsync(score.Revision.Id);
+		await host.RunAsync(score.Datei.Id);
 
 		var call = Assert.Single(host.Model.FieldCalls);
-		Assert.Contains("Gesuchte Felder: lyricist, arranger, musical_key, voice_label, lyrics", call.Text);
+		Assert.Contains("Gesuchte Felder: lyricist, arranger, musical_key, lyrics", call.Text);
 		Assert.DoesNotContain("composer", call.Text.Split('\n')[1]);
 	}
 
@@ -144,24 +134,16 @@ public sealed class ReadingWorkerTests
 		host.Model.FieldsJson = Fields(
 			Field("composer", "Franz Schubert", "sicher", "Musik: Franz Schubert"),
 			Field("lyricist", "Anna Beispiel", "sicher", "Text: Anna Beispiel"));
-		var score = host.SeedScore(ScanFixtures.ScanPdf(["Seite 1"]), song: song => song.Lyricist = "Eigener Textdichter");
-		// The editor cleared the composer on purpose: a human lock on an empty field.
-		await using (var db = new Archive.Backend.Data.ArchiveDbContext(host.DbOptions))
+		var score = host.SeedScore(ScanFixtures.ScanPdf(["Seite 1"]), lied: song =>
 		{
-			db.FieldProvenance.Add(new FieldProvenance
-			{
-				EntityType = "song", EntityId = score.Song.Id, Field = "composer", Source = ProvenanceSource.Human,
-				Confidence = ProvenanceConfidence.Sicher, Locked = true, ChangedAt = DateTimeOffset.UtcNow,
-			});
-			await db.SaveChangesAsync();
-		}
+			song.Composer = "Eigener Komponist";
+			song.Lyricist = "Eigener Textdichter";
+		});
 
-		await host.RunAsync(score.Revision.Id);
+		await host.RunAsync(score.Datei.Id);
 
-		var song = await host.SongAsync(score.Song.Id);
-		Assert.Null(song.Composer);
-		Assert.Equal("Eigener Textdichter", song.Lyricist);
-		Assert.Empty(await host.ProposalsAsync());
+		var song = await host.LiedAsync(score.Lied.Id);
+		Assert.Equal(("Eigener Komponist", "Eigener Textdichter"), (song.Composer, song.Lyricist));
 		// Running it again changes nothing either.
 		await using (var db = new Archive.Backend.Data.ArchiveDbContext(host.DbOptions))
 		{
@@ -171,17 +153,16 @@ public sealed class ReadingWorkerTests
 			job.RowVersion++;
 			await db.SaveChangesAsync();
 		}
-		await host.RunAsync(score.Revision.Id);
-		song = await host.SongAsync(score.Song.Id);
-		Assert.Equal((null, "Eigener Textdichter"), (song.Composer, song.Lyricist));
+		await host.RunAsync(score.Datei.Id);
+		song = await host.LiedAsync(score.Lied.Id);
+		Assert.Equal(("Eigener Komponist", "Eigener Textdichter"), (song.Composer, song.Lyricist));
 	}
 
 	[Fact]
-	public async Task UncertainOrUnverifiableReadingsBecomeProposalsEvenWhenTheThresholdWouldApplyThem()
+	public async Task UncertainOrUnverifiableReadingsAreDropped()
 	{
-		// The deployment is configured to auto-apply uncertain values; reading
-		// still offers them to an editor: only certain, quoted values apply.
-		var host = new ReadingTestHost(autoApply: "unsicher");
+		// Only certain, quote-verified values are written; the rest is dropped.
+		var host = new ReadingTestHost();
 		host.Model.Transcriptions.Add("Waldfahrt\nIm Wald da singen die Vögel\nUnd alle stimmen mit ein\nBass II\nBarcarole in F-Dur");
 		host.Model.FieldsJson = Fields(
 			// Certain, but the quote is not in the text.
@@ -192,51 +173,42 @@ public sealed class ReadingWorkerTests
 			Field("lyricist", "Wilhelm Müller", "sicher", "Und alle stimmen mit ein"));
 		var score = host.SeedScore(ScanFixtures.ScanPdf(["Seite 1"]));
 
-		await host.RunAsync(score.Revision.Id);
+		await host.RunAsync(score.Datei.Id);
 
-		var song = await host.SongAsync(score.Song.Id);
+		var song = await host.LiedAsync(score.Lied.Id);
 		Assert.Equal((null, null, null), (song.Composer, song.Lyricist, song.Lyrics));
-		var proposals = await host.ProposalsAsync();
-		Assert.Equal(["composer", "lyricist", "lyrics"], proposals
-			.Select(p => JsonDocument.Parse(p.Payload).RootElement.GetProperty("field").GetString()!).Order().ToList());
-		Assert.All(proposals, proposal => Assert.Equal(
-			(ProposalKind.FieldSuggestion, ProposalStatus.Open, ProvenanceSource.Ai, ProvenanceConfidence.Unsicher, ScanPrompts.FieldsVersion),
-			(proposal.Kind, proposal.Status, proposal.Source, proposal.Confidence, proposal.PromptVersion)));
-		Assert.Contains(proposals, p => p.Reason == ScoreFieldPrefill.UnverifiedReason);
-		// The analyzer read the key and the voice with certainty (regex); the
-		// model's three readings are all proposals.
-		var reading = await host.ReadingAsync(score.Revision.Id);
-		Assert.Equal((2, 3), (reading.FieldsApplied, reading.FieldsProposed));
+		// The analyzer read the key with certainty; the model's three readings are dropped.
+		var reading = await host.ReadingAsync(score.Datei.Id);
+		Assert.Equal(1, reading.FieldsApplied);
 	}
 
 	private const string PlainScanText =
 		"Waldfahrt\nVon Franz Schubert\nWorte Anna Beispiel\nChorstimme links\nIm Wald da singen die Vögel\nUnd alle stimmen mit ein";
 
-	private static ProposalDecisions Decisions(ArchiveDbContext db)
-		=> new(db, new ProposalHandlers([new FieldSuggestionHandler(new CatalogueWriteService(db))]), TimeProvider.System);
-
 	[Fact]
-	public async Task AProposalMadeBeforeAnAppliedValueOnTheSameSongCanStillBeAccepted()
+	public async Task AValueAnEditorEntersWhileTheModelReadsIsNeverOverwritten()
 	{
-		// composer is only a proposal, lyricist is applied afterwards: the
-		// apply moves the song's row version, so a proposal that kept the old
-		// one would answer 409 on its first accept.
 		var host = new ReadingTestHost();
 		host.Model.FieldsJson = Fields(
-			Field("composer", "Franz Schubert", "unsicher", "Von Franz Schubert"),
+			Field("composer", "Franz Schubert", "sicher", "Von Franz Schubert"),
 			Field("lyricist", "Anna Beispiel", "sicher", "Worte Anna Beispiel"));
 		var score = host.SeedScore(ScanFixtures.TextPdf("Text"), embeddedText: PlainScanText);
+		host.Model.BeforeFieldAnswer = async () =>
+		{
+			// The editor saves the composer while the field request is running.
+			await using var db = new ArchiveDbContext(host.DbOptions);
+			var song = await db.Lieder.SingleAsync();
+			song.Composer = "Eigene Eingabe";
+			song.RowVersion++;
+			await db.SaveChangesAsync();
+		};
 
-		await host.RunAsync(score.Revision.Id);
+		await host.RunAsync(score.Datei.Id);
 
-		var song = await host.SongAsync(score.Song.Id);
-		Assert.Equal((null, "Anna Beispiel"), (song.Composer, song.Lyricist));
-		var proposal = Assert.Single(await host.ProposalsAsync());
-		Assert.Equal(song.RowVersion, proposal.TargetRowVersion);
-		await using var db = new ArchiveDbContext(host.DbOptions);
-		var result = await Decisions(db).AcceptAsync(proposal.Id, Guid.CreateVersion7(), CancellationToken.None);
-		Assert.True(result.Ok, result.Title);
-		Assert.Equal("Franz Schubert", (await host.SongAsync(score.Song.Id)).Composer);
+		var stored = await host.LiedAsync(score.Lied.Id);
+		Assert.Equal(("Eigene Eingabe", "Anna Beispiel"), (stored.Composer, stored.Lyricist));
+		var reading = await host.ReadingAsync(score.Datei.Id);
+		Assert.Equal((ReadingStatus.Completed, 1), (reading.Status, reading.FieldsApplied));
 	}
 
 	[Fact]
@@ -247,71 +219,36 @@ public sealed class ReadingWorkerTests
 			Field("lyrics", "Im Wald da singen die Vögel\nEine ganz erfundene zweite Strophe", "sicher", "Im Wald da singen die Vögel"));
 		var score = host.SeedScore(ScanFixtures.TextPdf("Text"), embeddedText: PlainScanText);
 
-		await host.RunAsync(score.Revision.Id);
+		await host.RunAsync(score.Datei.Id);
 
-		Assert.Null((await host.SongAsync(score.Song.Id)).Lyrics);
-		var proposal = Assert.Single(await host.ProposalsAsync());
-		Assert.Equal(ScoreFieldPrefill.UnverifiedReason, proposal.Reason);
+		Assert.Null((await host.LiedAsync(score.Lied.Id)).Lyrics);
 	}
 
 	[Fact]
-	public async Task AVoiceOrKeyThatIsNotInItsQuoteIsOnlyAProposal()
+	public async Task AVoiceOrKeyThatIsNotInItsQuoteIsDropped()
 	{
 		var host = new ReadingTestHost();
 		host.Model.FieldsJson = Fields(
 			// Real quotes, but neither names the value.
-			Field("voice_label", "Tenor 1", "sicher", "Chorstimme links"),
 			Field("musical_key", "G-Dur", "sicher", "Im Wald da singen die Vögel"));
 		var score = host.SeedScore(ScanFixtures.TextPdf("Text"), embeddedText: PlainScanText);
 
-		await host.RunAsync(score.Revision.Id);
+		await host.RunAsync(score.Datei.Id);
 
-		await using var db = new ArchiveDbContext(host.DbOptions);
-		Assert.Null((await db.Assets.AsNoTracking().SingleAsync()).VoiceLabel);
-		Assert.Null((await db.MusicalVersions.AsNoTracking().SingleAsync()).MusicalKey);
-		Assert.Equal(2, (await host.ProposalsAsync()).Count);
+		Assert.Null((await host.LiedAsync(score.Lied.Id)).MusicalKey);
 	}
 
 	[Fact]
-	public async Task AVoiceThatStandsInItsQuoteIsApplied()
+	public async Task AKeyThatStandsInItsQuoteIsApplied()
 	{
 		var host = new ReadingTestHost();
-		host.Model.FieldsJson = Fields(Field("voice_label", "Partitur", "sicher", "Partitur Chorsatz"));
+		host.Model.FieldsJson = Fields(Field("musical_key", "Es-Dur", "sicher", "Tonart Es-Dur"));
 		var score = host.SeedScore(ScanFixtures.TextPdf("Text"),
-			embeddedText: "Waldfahrt\nPartitur Chorsatz\nIm Wald da singen die Vögel");
+			embeddedText: "Waldfahrt\nTonart Es-Dur\nIm Wald da singen die Vögel");
 
-		await host.RunAsync(score.Revision.Id);
+		await host.RunAsync(score.Datei.Id);
 
-		await using var check = new ArchiveDbContext(host.DbOptions);
-		Assert.Equal("Partitur", (await check.Assets.AsNoTracking().SingleAsync()).VoiceLabel);
-		Assert.Empty(await host.ProposalsAsync());
-	}
-
-	[Fact]
-	public async Task ARejectedProposalIsNotOfferedAgainByARerun()
-	{
-		var host = new ReadingTestHost();
-		host.Model.FieldsJson = Fields(Field("composer", "Franz Schubert", "unsicher", "Von Franz Schubert"));
-		var score = host.SeedScore(ScanFixtures.TextPdf("Text"), embeddedText: PlainScanText);
-		await host.RunAsync(score.Revision.Id);
-		var first = Assert.Single(await host.ProposalsAsync());
-		await using (var db = new ArchiveDbContext(host.DbOptions))
-			Assert.True((await Decisions(db).RejectAsync(first.Id, Guid.CreateVersion7(), CancellationToken.None)).Ok);
-
-		// "Rest lesen" asks for the fields again.
-		await using (var db = new ArchiveDbContext(host.DbOptions))
-		{
-			var job = await db.ReadingJobs.SingleAsync();
-			job.Status = ReadingStatus.Queued;
-			job.FieldsDone = false;
-			job.AttemptCount = 0;
-			job.RowVersion++;
-			await db.SaveChangesAsync();
-		}
-		await host.RunAsync(score.Revision.Id);
-
-		var proposal = Assert.Single(await host.ProposalsAsync());
-		Assert.Equal(ProposalStatus.Rejected, proposal.Status);
+		Assert.Equal("Es-Dur", (await host.LiedAsync(score.Lied.Id)).MusicalKey);
 	}
 
 	[Fact]
@@ -324,15 +261,14 @@ public sealed class ReadingWorkerTests
 			Field("lyricist", "Anna Beispiel", "sicher", "Worte Anna Beispiel"));
 		var score = host.SeedScore(ScanFixtures.TextPdf("Text"), embeddedText: PlainScanText);
 
-		await host.RunAsync(score.Revision.Id);
+		await host.RunAsync(score.Datei.Id);
 
 		Assert.True(interceptor.Fired);
 		// The composer save lost its race: the abandoned edit must not ride
 		// along with the lyricist's save.
-		var song = await host.SongAsync(score.Song.Id);
+		var song = await host.LiedAsync(score.Lied.Id);
 		Assert.Equal((null, "Anna Beispiel"), (song.Composer, song.Lyricist));
-		Assert.Null(await host.ProvenanceAsync("song", song.Id, "composer"));
-		var reading = await host.ReadingAsync(score.Revision.Id);
+		var reading = await host.ReadingAsync(score.Datei.Id);
 		Assert.Equal((ReadingStatus.Completed, 1, 1), (reading.Status, reading.AttemptCount, reading.FieldsApplied));
 		Assert.Single(host.Model.FieldCalls);
 	}
@@ -345,7 +281,7 @@ public sealed class ReadingWorkerTests
 			Microsoft.EntityFrameworkCore.Diagnostics.DbContextEventData eventData,
 			Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int> result, CancellationToken cancellationToken = default)
 		{
-			if (!Fired && eventData.Context!.ChangeTracker.Entries<Archive.Backend.Catalogue.Song>()
+			if (!Fired && eventData.Context!.ChangeTracker.Entries<Archive.Backend.Lieder.Lied>()
 				.Any(e => e.State == EntityState.Modified))
 			{
 				Fired = true;
@@ -368,32 +304,30 @@ public sealed class ReadingWorkerTests
 			Field("composer", "Franz Schubert", "sicher", "Musik: Franz Schubert"),
 			Field("lyrics", "Im Wald da singen die Vögel", "sicher", "Im Wald da singen die Vögel"),
 			Field("lyrics", "Zweiter Eintrag", "sicher", "Im Wald da singen die Vögel"));
-		var score = host.SeedScore(ScanFixtures.ScanPdf(["Seite 1"]), song: song => song.Composer = "Schon eingetragen");
+		var score = host.SeedScore(ScanFixtures.ScanPdf(["Seite 1"]), lied: song => song.Composer = "Schon eingetragen");
 
-		await host.RunAsync(score.Revision.Id);
+		await host.RunAsync(score.Datei.Id);
 
-		var song = await host.SongAsync(score.Song.Id);
+		var song = await host.LiedAsync(score.Lied.Id);
 		Assert.Equal("Waldfahrt", song.Title);
-		Assert.Null(song.PublishedAt);
 		Assert.Equal("Schon eingetragen", song.Composer);
 		// The field was named once; the second answer for it is ignored.
 		Assert.Equal("Im Wald da singen die Vögel", song.Lyrics);
-		Assert.Empty(await host.ProposalsAsync());
 	}
 
 	[Fact]
-	public async Task AnOlderRevisionKeepsItsTextButNeverFillsTheCatalogue()
+	public async Task ADateiInTheTrashIsNotReadAtAll()
 	{
 		var host = new ReadingTestHost();
 		host.Model.Transcriptions.Add(ScanText);
-		var score = host.SeedScore(ScanFixtures.ScanPdf(["Seite 1"]), current: false);
+		var score = host.SeedScore(ScanFixtures.ScanPdf(["Seite 1"]), live: false);
 
-		await host.RunAsync(score.Revision.Id);
+		var disposition = await host.RunAsync(score.Datei.Id);
 
-		Assert.Equal(ReadingStatus.Completed, (await host.ReadingAsync(score.Revision.Id)).Status);
-		Assert.Contains("Franz Schubert", (await host.ExtractionAsync(score.Revision.Id)).Text);
-		Assert.Empty(host.Model.FieldCalls);
-		Assert.Null((await host.SongAsync(score.Song.Id)).Composer);
+		Assert.False(disposition.Abandon);
+		Assert.Equal(ReadingStatus.Queued, (await host.ReadingAsync(score.Datei.Id)).Status);
+		Assert.Empty(host.Model.Calls);
+		Assert.Null((await host.LiedAsync(score.Lied.Id)).Composer);
 	}
 
 	[Fact]
@@ -403,12 +337,12 @@ public sealed class ReadingWorkerTests
 		host.Model.Transcriptions.AddRange(["Seite eins und zwei", "Seite drei"]);
 		var score = host.SeedScore(ScanFixtures.ScanPdf(["1"], ["2"], ["3"], ["4"], ["5"]));
 
-		await host.RunAsync(score.Revision.Id);
+		await host.RunAsync(score.Datei.Id);
 
 		Assert.Equal([2, 1], host.Model.TranscriptionCalls.Select(c => c.Images));
-		var reading = await host.ReadingAsync(score.Revision.Id);
+		var reading = await host.ReadingAsync(score.Datei.Id);
 		Assert.Equal((ReadingStatus.Completed, 3, 5, true), (reading.Status, reading.PagesRead, reading.PagesTotal, reading.IsPartial));
-		Assert.Equal("Seite eins und zwei\nSeite drei", (await host.ExtractionAsync(score.Revision.Id)).Text);
+		Assert.Equal("Seite eins und zwei\nSeite drei", (await host.ExtractionAsync(score.Datei.Id)).Text);
 	}
 
 	[Fact]
@@ -417,8 +351,8 @@ public sealed class ReadingWorkerTests
 		var host = new ReadingTestHost(configure: o => { o.MaxPagesPerRequest = 2; o.ImagesPerCall = 2; });
 		host.Model.Transcriptions.AddRange(["Eins zwei", "Drei vier"]);
 		var score = host.SeedScore(ScanFixtures.ScanPdf(["1"], ["2"], ["3"], ["4"], ["5"]));
-		await host.RunAsync(score.Revision.Id);
-		Assert.Equal(2, (await host.ReadingAsync(score.Revision.Id)).PagesRead);
+		await host.RunAsync(score.Datei.Id);
+		Assert.Equal(2, (await host.ReadingAsync(score.Datei.Id)).PagesRead);
 
 		// The editor asks for the rest: the endpoint raises the limit and requeues.
 		await using (var db = new Archive.Backend.Data.ArchiveDbContext(host.DbOptions))
@@ -431,12 +365,12 @@ public sealed class ReadingWorkerTests
 			job.RowVersion++;
 			await db.SaveChangesAsync();
 		}
-		await host.RunAsync(score.Revision.Id);
+		await host.RunAsync(score.Datei.Id);
 
 		Assert.Equal([2, 2], host.Model.TranscriptionCalls.Select(c => c.Images));
-		var reading = await host.ReadingAsync(score.Revision.Id);
+		var reading = await host.ReadingAsync(score.Datei.Id);
 		Assert.Equal((4, 5), (reading.PagesRead, reading.PagesTotal));
-		Assert.Equal("Eins zwei\nDrei vier", (await host.ExtractionAsync(score.Revision.Id)).Text);
+		Assert.Equal("Eins zwei\nDrei vier", (await host.ExtractionAsync(score.Datei.Id)).Text);
 	}
 
 	[Fact]
@@ -446,11 +380,11 @@ public sealed class ReadingWorkerTests
 		host.Model.Transcriptions.Add(ScanText);
 		var score = host.SeedScore(ScanFixtures.ScanPdf(["Seite 1"]));
 
-		var disposition = await host.RunAsync(score.Revision.Id);
+		var disposition = await host.RunAsync(score.Datei.Id);
 
 		// Acknowledged, not abandoned: the message is gone and the row waits.
 		Assert.False(disposition.Abandon);
-		var parked = await host.ReadingAsync(score.Revision.Id);
+		var parked = await host.ReadingAsync(score.Datei.Id);
 		Assert.Equal((ReadingStatus.WaitingForBudget, 0), (parked.Status, parked.AttemptCount));
 		Assert.Empty(host.Model.Calls);
 
@@ -462,7 +396,7 @@ public sealed class ReadingWorkerTests
 				Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, CancellationToken.None);
 			Assert.Equal(0, sent);
 		}
-		Assert.Equal(ReadingStatus.WaitingForBudget, (await host.ReadingAsync(score.Revision.Id)).Status);
+		Assert.Equal(ReadingStatus.WaitingForBudget, (await host.ReadingAsync(score.Datei.Id)).Status);
 		Assert.Empty(host.Queue.Attempts);
 
 		// The cap is raised: the sweep re-queues the row and hands it to the queue.
@@ -474,13 +408,13 @@ public sealed class ReadingWorkerTests
 				Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, CancellationToken.None);
 			Assert.Equal(1, sent);
 		}
-		Assert.Equal([score.Revision.Id], host.Queue.Attempts);
-		var requeued = await host.ReadingAsync(score.Revision.Id);
+		Assert.Equal([score.Datei.Id], host.Queue.Attempts);
+		var requeued = await host.ReadingAsync(score.Datei.Id);
 		Assert.Equal(ReadingStatus.Queued, requeued.Status);
 		Assert.NotNull(requeued.LastEnqueuedAt);
 
-		await host.RunAsync(score.Revision.Id);
-		Assert.Equal(ReadingStatus.Completed, (await host.ReadingAsync(score.Revision.Id)).Status);
+		await host.RunAsync(score.Datei.Id);
+		Assert.Equal(ReadingStatus.Completed, (await host.ReadingAsync(score.Datei.Id)).Status);
 	}
 
 	[Fact]
@@ -492,11 +426,11 @@ public sealed class ReadingWorkerTests
 		// Room for exactly one request: the ledger refuses the second.
 		host.AiOptions.MonthlyCapEur = 0.0035m;
 
-		await host.RunAsync(score.Revision.Id);
+		await host.RunAsync(score.Datei.Id);
 
-		var reading = await host.ReadingAsync(score.Revision.Id);
+		var reading = await host.ReadingAsync(score.Datei.Id);
 		Assert.Equal((ReadingStatus.WaitingForBudget, 2), (reading.Status, reading.PagesRead));
-		Assert.Equal("Eins zwei", (await host.ExtractionAsync(score.Revision.Id)).Text);
+		Assert.Equal("Eins zwei", (await host.ExtractionAsync(score.Datei.Id)).Text);
 		Assert.Single(host.Model.TranscriptionCalls);
 
 		// Resumed later: only the pages that are left are read and paid for.
@@ -508,9 +442,9 @@ public sealed class ReadingWorkerTests
 			job.RowVersion++;
 			await db.SaveChangesAsync();
 		}
-		await host.RunAsync(score.Revision.Id);
+		await host.RunAsync(score.Datei.Id);
 		Assert.Equal([2, 2], host.Model.TranscriptionCalls.Select(c => c.Images));
-		Assert.Equal("Eins zwei\nDrei vier", (await host.ExtractionAsync(score.Revision.Id)).Text);
+		Assert.Equal("Eins zwei\nDrei vier", (await host.ExtractionAsync(score.Datei.Id)).Text);
 	}
 
 	[Fact]
@@ -521,18 +455,18 @@ public sealed class ReadingWorkerTests
 		host.Model.FailTranscriptionNumber = 2;
 		var score = host.SeedScore(ScanFixtures.ScanPdf(["1"], ["2"], ["3"], ["4"]));
 
-		var first = await host.RunAsync(score.Revision.Id);
+		var first = await host.RunAsync(score.Datei.Id);
 
 		Assert.True(first.Abandon);
-		var reading = await host.ReadingAsync(score.Revision.Id);
+		var reading = await host.ReadingAsync(score.Datei.Id);
 		Assert.Equal((ReadingStatus.Queued, 2, 1), (reading.Status, reading.PagesRead, reading.AttemptCount));
 
 		host.Model.FailTranscriptionNumber = null;
-		var second = await host.RunAsync(score.Revision.Id, dequeueCount: 2);
+		var second = await host.RunAsync(score.Datei.Id, dequeueCount: 2);
 
 		Assert.False(second.Abandon);
 		Assert.Equal([2, 2, 2], host.Model.TranscriptionCalls.Select(c => c.Images));
-		reading = await host.ReadingAsync(score.Revision.Id);
+		reading = await host.ReadingAsync(score.Datei.Id);
 		Assert.Equal((ReadingStatus.Completed, 4), (reading.Status, reading.PagesRead));
 	}
 
@@ -544,10 +478,10 @@ public sealed class ReadingWorkerTests
 		host.Model.FailTranscriptionNumber = 1;
 		var score = host.SeedScore(ScanFixtures.ScanPdf(["1"]));
 
-		var disposition = await host.RunAsync(score.Revision.Id);
+		var disposition = await host.RunAsync(score.Datei.Id);
 
 		Assert.False(disposition.Abandon);
-		var reading = await host.ReadingAsync(score.Revision.Id);
+		var reading = await host.ReadingAsync(score.Datei.Id);
 		Assert.Equal((ReadingStatus.Failed, ReadingWorker.ExhaustedReason), (reading.Status, reading.FailureReason));
 	}
 
@@ -557,10 +491,10 @@ public sealed class ReadingWorkerTests
 		var host = new ReadingTestHost();
 		var score = host.SeedScore("%PDF-1.7\n%%EOF\n"u8.ToArray());
 
-		var disposition = await host.RunAsync(score.Revision.Id);
+		var disposition = await host.RunAsync(score.Datei.Id);
 
 		Assert.False(disposition.Abandon);
-		var reading = await host.ReadingAsync(score.Revision.Id);
+		var reading = await host.ReadingAsync(score.Datei.Id);
 		Assert.Equal((ReadingStatus.Failed, ReadingWorker.UnreadableReason), (reading.Status, reading.FailureReason));
 		Assert.Empty(host.Model.Calls);
 	}
@@ -572,11 +506,11 @@ public sealed class ReadingWorkerTests
 		host.Model.Transcriptions.Add("   ");
 		var score = host.SeedScore(ScanFixtures.ScanPdf(["1"]));
 
-		await host.RunAsync(score.Revision.Id);
+		await host.RunAsync(score.Datei.Id);
 
-		var reading = await host.ReadingAsync(score.Revision.Id);
+		var reading = await host.ReadingAsync(score.Datei.Id);
 		Assert.Equal((ReadingStatus.Failed, ReadingWorker.NothingReadReason), (reading.Status, reading.FailureReason));
-		Assert.Equal(ExtractionStatus.NoText, (await host.ExtractionAsync(score.Revision.Id)).Status);
+		Assert.Equal(ExtractionStatus.NoText, (await host.ExtractionAsync(score.Datei.Id)).Status);
 	}
 
 	[Fact]
@@ -585,9 +519,9 @@ public sealed class ReadingWorkerTests
 		var host = new ReadingTestHost(configure: o => o.MaxPdfBytes = 1000);
 		var score = host.SeedScore(ScanFixtures.ScanPdf(["1"]));
 
-		await host.RunAsync(score.Revision.Id);
+		await host.RunAsync(score.Datei.Id);
 
-		var reading = await host.ReadingAsync(score.Revision.Id);
+		var reading = await host.ReadingAsync(score.Datei.Id);
 		Assert.Equal((ReadingStatus.Failed, ReadingWorker.TooLargeReason), (reading.Status, reading.FailureReason));
 		Assert.Empty(host.Model.Calls);
 	}
@@ -598,23 +532,23 @@ public sealed class ReadingWorkerTests
 		var host = new ReadingTestHost();
 		host.Model.Transcriptions.Add(ScanText);
 		var score = host.SeedScore(ScanFixtures.ScanPdf(["1"]));
-		await host.RunAsync(score.Revision.Id);
+		await host.RunAsync(score.Datei.Id);
 		var callsAfterFirstRun = host.Model.Calls.Count;
 
 		// A duplicate of a finished row is deleted and costs nothing.
-		Assert.False((await host.RunAsync(score.Revision.Id)).Abandon);
+		Assert.False((await host.RunAsync(score.Datei.Id)).Abandon);
 		Assert.Equal(callsAfterFirstRun, host.Model.Calls.Count);
 
 		// Poison: foreign type, malformed body, empty id.
 		var worker = host.Worker;
-		foreach (var body in new[] { "{\"type\":\"extraction\",\"revisionId\":\"" + score.Revision.Id + "\"}", "kein json", "{\"type\":\"reading\"}" })
-			Assert.False((await worker.HandleAsync(ReadingTestHost.Message(score.Revision.Id, body: body), host.Deadline, CancellationToken.None)).Abandon);
+		foreach (var body in new[] { "{\"type\":\"extraction\",\"revisionId\":\"" + score.Datei.Id + "\"}", "kein json", "{\"type\":\"reading\"}" })
+			Assert.False((await worker.HandleAsync(ReadingTestHost.Message(score.Datei.Id, body: body), host.Deadline, CancellationToken.None)).Abandon);
 
 		var paused = new ReadingTestHost(maintenance: true);
 		var other = paused.SeedScore(ScanFixtures.ScanPdf(["1"]));
-		var disposition = await paused.RunAsync(other.Revision.Id);
+		var disposition = await paused.RunAsync(other.Datei.Id);
 		Assert.True(disposition.Abandon);
-		Assert.Equal(ReadingStatus.Queued, (await paused.ReadingAsync(other.Revision.Id)).Status);
+		Assert.Equal(ReadingStatus.Queued, (await paused.ReadingAsync(other.Datei.Id)).Status);
 		Assert.Empty(paused.Model.Calls);
 	}
 
@@ -631,7 +565,7 @@ public sealed class ReadingWorkerTests
 			await db.SaveChangesAsync();
 		}
 
-		var disposition = await host.RunAsync(score.Revision.Id);
+		var disposition = await host.RunAsync(score.Datei.Id);
 
 		Assert.True(disposition.Abandon);
 		Assert.Empty(host.Model.Calls);
@@ -649,10 +583,10 @@ public sealed class ReadingWorkerTests
 			await db.SaveChangesAsync();
 		}
 
-		var disposition = await host.RunAsync(score.Revision.Id);
+		var disposition = await host.RunAsync(score.Datei.Id);
 
 		Assert.True(disposition.Abandon);
-		Assert.Equal(ReadingStatus.Queued, (await host.ReadingAsync(score.Revision.Id)).Status);
+		Assert.Equal(ReadingStatus.Queued, (await host.ReadingAsync(score.Datei.Id)).Status);
 		Assert.Empty(host.Model.Calls);
 	}
 
@@ -664,23 +598,22 @@ public sealed class ReadingWorkerTests
 		var host = new ReadingTestHost(provider: new Archive.Backend.Chat.ScriptedChatClient());
 		var score = host.SeedScore(ScanFixtures.ScanPdf(["Seite 1"], ["Seite 2"]));
 
-		await host.RunAsync(score.Revision.Id);
+		await host.RunAsync(score.Datei.Id);
 
-		var reading = await host.ReadingAsync(score.Revision.Id);
+		var reading = await host.ReadingAsync(score.Datei.Id);
 		Assert.Equal(ReadingStatus.Completed, reading.Status);
-		var song = await host.SongAsync(score.Song.Id);
+		var song = await host.LiedAsync(score.Lied.Id);
 		Assert.Equal("Franz Schubert", song.Composer);
 		Assert.Contains("Im Wald da singen die Vögel", song.Lyrics);
-		Assert.Equal(ProvenanceSource.Ai, (await host.ProvenanceAsync("song", song.Id, "lyrics"))!.Source);
 	}
 
 	[Fact]
 	public async Task TheExtractionJobHandsEveryScoreOverAndNothingElse()
 	{
 		var (host, queue, scan, text, rows) = await RunHandoffAsync(enabled: true);
-		Assert.Equal(new[] { scan.Revision.Id, text.Revision.Id }.Order(), rows.Select(r => r.RevisionId).Order());
+		Assert.Equal(new[] { scan.Datei.Id, text.Datei.Id }.Order(), rows.Select(r => r.DateiId).Order());
 		Assert.All(rows, row => Assert.Equal(ReadingStatus.Queued, row.Status));
-		Assert.Equal(new[] { scan.Revision.Id, text.Revision.Id }.Order(), queue.Attempts.Order());
+		Assert.Equal(new[] { scan.Datei.Id, text.Datei.Id }.Order(), queue.Attempts.Order());
 		Assert.All(rows, row => Assert.NotNull(row.LastEnqueuedAt));
 		Assert.Empty(host.Model.Calls);
 	}
@@ -709,13 +642,17 @@ public sealed class ReadingWorkerTests
 		foreach (var seeded in new[] { scan, text, document })
 		{
 			await using var db = new Archive.Backend.Data.ArchiveDbContext(host.DbOptions);
-			db.ReadingJobs.Remove(await db.ReadingJobs.SingleAsync(j => j.RevisionId == seeded.Revision.Id));
-			var extraction = await db.ExtractionJobs.SingleAsync(j => j.RevisionId == seeded.Revision.Id);
+			db.ReadingJobs.Remove(await db.ReadingJobs.SingleAsync(j => j.DateiId == seeded.Datei.Id));
+			var extraction = await db.ExtractionJobs.SingleAsync(j => j.DateiId == seeded.Datei.Id);
 			extraction.Status = ExtractionStatus.Queued;
 			extraction.Text = null;
 			extraction.CompletedAt = null;
 			if (seeded == document)
-				(await db.Assets.SingleAsync(a => a.Id == seeded.Asset.Id)).AssetType = AssetEndpoints.DocumentAssetType;
+				{
+				var sonstige = await db.Dateien.SingleAsync(d => d.Id == seeded.Datei.Id);
+				sonstige.Kind = DateiKinds.Sonstiges;
+				sonstige.IsPartitur = false;
+			}
 			await db.SaveChangesAsync();
 		}
 
@@ -726,7 +663,7 @@ public sealed class ReadingWorkerTests
 				host.Configuration, TimeProvider.System, Microsoft.Extensions.Logging.Abstractions.NullLogger<ExtractionWorker>.Instance,
 				queue, Microsoft.Extensions.Options.Options.Create(host.Options));
 			var message = new ExtractionMessage("m", "p", JsonSerializer.Serialize(
-				new ExtractionEnvelope(ExtractionEnvelope.ExtractionType, seeded.Revision.Id, null, null), ExtractionEnvelope.SerializerOptions), 1);
+				new ExtractionEnvelope(ExtractionEnvelope.ExtractionType, seeded.Datei.Id, null, null), ExtractionEnvelope.SerializerOptions), 1);
 			Assert.False((await worker.HandleAsync(message, host.Deadline, CancellationToken.None)).Abandon);
 		}
 
@@ -741,7 +678,7 @@ public sealed class ReadingWorkerTests
 		host.Model.Transcriptions.Add(ScanText);
 		var first = host.SeedScore(ScanFixtures.ScanPdf(["1"]));
 		var second = host.SeedScore(ScanFixtures.ScanPdf(["1"]));
-		var source = new FakeReadingMessageSource(ReadingTestHost.Message(first.Revision.Id), ReadingTestHost.Message(second.Revision.Id));
+		var source = new FakeReadingMessageSource(ReadingTestHost.Message(first.Datei.Id), ReadingTestHost.Message(second.Datei.Id));
 		var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection()
 			.AddScoped(_ => new Archive.Backend.Data.ArchiveDbContext(host.DbOptions))
 			.AddScoped(sp => host.NewWorker(sp.GetRequiredService<Archive.Backend.Data.ArchiveDbContext>()))
@@ -756,8 +693,8 @@ public sealed class ReadingWorkerTests
 		Assert.Equal(2, source.Inner.Deleted.Count);
 		Assert.Empty(source.Inner.Abandoned);
 		Assert.Equal(0, source.Inner.PendingCount);
-		Assert.Equal(ReadingStatus.Completed, (await host.ReadingAsync(first.Revision.Id)).Status);
-		Assert.Equal(ReadingStatus.Completed, (await host.ReadingAsync(second.Revision.Id)).Status);
+		Assert.Equal(ReadingStatus.Completed, (await host.ReadingAsync(first.Datei.Id)).Status);
+		Assert.Equal(ReadingStatus.Completed, (await host.ReadingAsync(second.Datei.Id)).Status);
 	}
 }
 

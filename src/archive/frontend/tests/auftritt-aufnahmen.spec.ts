@@ -76,8 +76,7 @@ function detail() {
 }
 
 type Datei = {
-  revisionId: string;
-  revisionNumber: number;
+  dateiId: string;
   contentType: string;
   sizeBytes: number;
   fileName: string | null;
@@ -87,8 +86,7 @@ type Datei = {
 
 function datei(aenderung: Partial<Datei> = {}): Datei {
   return {
-    revisionId: "00000000-0000-0000-0000-00000000f030",
-    revisionNumber: 1,
+    dateiId: "00000000-0000-0000-0000-00000000f030",
     contentType: "video/webm",
     sizeBytes: 1610612736,
     fileName: "advent.webm",
@@ -102,8 +100,8 @@ type RedaktionsBlock = {
   version: number;
   canChangeFiles: boolean;
   publishedAt: string | null;
-  original: { assetId: string; file: Datei | null };
-  playbackCopy: { assetId: string; file: Datei | null } | null;
+  original: { file: Datei | null };
+  playbackCopy: { file: Datei | null };
 };
 
 type AufnahmeForm = {
@@ -117,7 +115,7 @@ type AufnahmeForm = {
   playback: {
     state: "ready" | "needsPlaybackCopy" | "missing";
     source: "original" | "playbackCopy" | null;
-    revisionId: string | null;
+    dateiId: string | null;
     contentType: string | null;
     sizeBytes: number | null;
   };
@@ -137,7 +135,7 @@ function aufnahme(aenderung: Partial<AufnahmeForm> = {}): AufnahmeForm {
     playback: {
       state: "ready",
       source: "original",
-      revisionId: "00000000-0000-0000-0000-00000000f030",
+      dateiId: "00000000-0000-0000-0000-00000000f030",
       contentType: "video/webm",
       sizeBytes: 1610612736,
     },
@@ -157,7 +155,7 @@ function tonAufnahme(aenderung: Partial<AufnahmeForm> = {}): AufnahmeForm {
     playback: {
       state: "ready",
       source: "original",
-      revisionId: "00000000-0000-0000-0000-00000000f032",
+      dateiId: "00000000-0000-0000-0000-00000000f032",
       contentType: "audio/wav",
       sizeBytes: 3145728,
     },
@@ -171,10 +169,9 @@ function redaktion(aenderung: Partial<RedaktionsBlock> = {}): RedaktionsBlock {
     canChangeFiles: true,
     publishedAt: "2026-10-01T11:00:00.000Z",
     original: {
-      assetId: "00000000-0000-0000-0000-00000000b031",
       file: datei(),
     },
-    playbackCopy: null,
+    playbackCopy: { file: null },
     ...aenderung,
   };
 }
@@ -192,7 +189,7 @@ function zugriff(
     playbackState: "ready",
     source: "original",
     // Das Ticket nennt dieselbe Datei wie die Liste (die Seite vergleicht sie).
-    revisionId:
+    dateiId:
       recordingId === tonId
         ? "00000000-0000-0000-0000-00000000f032"
         : "00000000-0000-0000-0000-00000000f030",
@@ -704,7 +701,7 @@ test("Fehlende Abspielfassung, nicht abspielbare Datei und leere Liste erklären
       playback: {
         state: "needsPlaybackCopy",
         source: null,
-        revisionId: null,
+        dateiId: null,
         contentType: null,
         sizeBytes: null,
       },
@@ -829,8 +826,7 @@ test("Redaktion legt eine Aufnahme an, überträgt das Original und meldet die D
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  const originalAsset = "00000000-0000-0000-0000-00000000b034";
-  const revisionId = "00000000-0000-0000-0000-00000000f034";
+  const dateiId = "00000000-0000-0000-0000-00000000f034";
   let stand: AufnahmeForm | null = null;
   await mockSeite(page, editorMe, () => (stand ? [stand] : []));
   const angelegt: unknown[] = [];
@@ -850,35 +846,38 @@ test("Redaktion legt eine Aufnahme an, überträgt das Original und meldet die D
       playback: {
         state: "missing",
         source: null,
-        revisionId: null,
+        dateiId: null,
         contentType: null,
         sizeBytes: null,
       },
       editor: redaktion({
         version: 0,
         publishedAt: null,
-        original: { assetId: originalAsset, file: null },
+        original: { file: null },
       }),
     });
     return route.fulfill(json({ recording: stand }, 201));
   });
   const sitzungen: unknown[] = [];
-  await page.route(`**/api/assets/${originalAsset}/upload-session`, (route) => {
-    sitzungen.push(route.request().postDataJSON());
-    return route.fulfill(
-      json(
-        {
-          uploadSessionId: "sitz-neu",
-          blobName: null,
-          uploadUrl: "https://speicher.test/uebertragung?sig=neu",
-          expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
-          maxBytes: 10737418240,
-          blockBytes: 16000,
-        },
-        201,
-      ),
-    );
-  });
+  await page.route(
+    `**/api/events/${eventId}/dateien/upload-session`,
+    (route) => {
+      sitzungen.push(route.request().postDataJSON());
+      return route.fulfill(
+        json(
+          {
+            uploadSessionId: "sitz-neu",
+            blobName: null,
+            uploadUrl: "https://speicher.test/uebertragung?sig=neu",
+            expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+            maxBytes: 10737418240,
+            blockBytes: 16000,
+          },
+          201,
+        ),
+      );
+    },
+  );
   const bloecke: string[] = [];
   await page.route(/speicher\.test\/uebertragung/, (route) => {
     bloecke.push(new URL(route.request().url()).searchParams.get("comp") ?? "");
@@ -887,9 +886,25 @@ test("Redaktion legt eine Aufnahme an, überträgt das Original und meldet die D
   const abschluesse: unknown[] = [];
   await page.route("**/api/upload-sessions/sitz-neu/finalize", (route) => {
     abschluesse.push(route.request().postDataJSON());
+    return route.fulfill(
+      json({
+        datei: {
+          id: dateiId,
+          kind: "aufnahme",
+          contentType: "audio/wav",
+          sizeBytes: 64044,
+          fileName: "mischpult.wav",
+          createdAt: "2026-10-05T10:00:00.000Z",
+        },
+      }),
+    );
+  });
+  const anhaenge: unknown[] = [];
+  await page.route(`**/api/recordings/${neuId}/dateien/original`, (route) => {
+    anhaenge.push(route.request().postDataJSON());
     if (stand?.editor) {
       const gespeichert = datei({
-        revisionId,
+        dateiId,
         contentType: "audio/wav",
         sizeBytes: 64044,
         fileName: "mischpult.wav",
@@ -899,27 +914,18 @@ test("Redaktion legt eine Aufnahme an, überträgt das Original und meldet die D
         playback: {
           state: "ready",
           source: "original",
-          revisionId,
+          dateiId,
           contentType: "audio/wav",
           sizeBytes: 64044,
         },
         editor: {
           ...stand.editor,
           version: 1,
-          original: { assetId: originalAsset, file: gespeichert },
+          original: { file: gespeichert },
         },
       };
     }
-    return route.fulfill(
-      json({
-        assetId: originalAsset,
-        revisionId,
-        revisionNumber: 1,
-        contentType: "audio/wav",
-        sizeBytes: 64044,
-        createdAt: "2026-10-05T10:00:00.000Z",
-      }),
-    );
+    return route.fulfill(json({ recording: stand }));
   });
   const aenderungen: Record<string, unknown>[] = [];
   await page.route(`**/api/recordings/${neuId}`, (route) => {
@@ -957,7 +963,16 @@ test("Redaktion legt eine Aufnahme an, überträgt das Original und meldet die D
     page.getByText("Original für „Ton vom Mischpult“ gespeichert."),
   ).toBeVisible({ timeout: 20_000 });
   expect(angelegt).toEqual([{ label: "Ton vom Mischpult", kind: "audio" }]);
-  expect(sitzungen).toEqual([{ sizeBytes: 64044, fileName: "mischpult.wav" }]);
+  expect(sitzungen).toEqual([
+    {
+      kind: "aufnahme",
+      contentType: "audio/wav",
+      description: null,
+      sizeBytes: 64044,
+      fileName: "mischpult.wav",
+    },
+  ]);
+  expect(anhaenge).toEqual([{ dateiId }]);
   // Fünf Blöcke zu 16000 Byte, dann die Blockliste.
   expect(bloecke).toEqual([
     "block",
@@ -982,7 +997,7 @@ test("Redaktion legt eine Aufnahme an, überträgt das Original und meldet die D
     eintrag.getByText("Entwurf · Herunterladen gesperrt"),
   ).toBeVisible();
   await expect(
-    eintrag.getByText("mischpult.wav · WAV · 62,5 kB · Dateistand 1"),
+    eintrag.getByText("mischpult.wav · WAV · 62,5 kB"),
   ).toBeVisible();
   await expect(
     eintrag.getByText(
@@ -1056,13 +1071,13 @@ test("Veralteter Stand lädt neu, ein unerlaubter Zustand lässt die Eingabe ste
     playback: {
       state: "missing",
       source: null,
-      revisionId: null,
+      dateiId: null,
       contentType: null,
       sizeBytes: null,
     },
     editor: redaktion({
       publishedAt: null,
-      original: { assetId: "00000000-0000-0000-0000-00000000b031", file: null },
+      original: { file: null },
     }),
   });
   let listen = 0;
@@ -1138,7 +1153,6 @@ test("Veralteter Stand lädt neu, ein unerlaubter Zustand lässt die Eingabe ste
 test("Nicht abspielbares Original bleibt erhalten; eine Abspielfassung wird erst nach Prüfung übernommen", async ({
   page,
 }) => {
-  const kopieAsset = "00000000-0000-0000-0000-00000000b039";
   const mov = datei({
     contentType: "video/quicktime",
     fileName: "kamera.mov",
@@ -1152,76 +1166,87 @@ test("Nicht abspielbares Original bleibt erhalten; eine Abspielfassung wird erst
     playback: {
       state: "needsPlaybackCopy",
       source: null,
-      revisionId: null,
+      dateiId: null,
       contentType: null,
       sizeBytes: null,
     },
     editor: redaktion({
-      original: { assetId: "00000000-0000-0000-0000-00000000b038", file: mov },
+      original: { file: mov },
     }),
   });
   await mockSeite(page, editorMe, () => [stand]);
-  let plaetze = 0;
-  await page.route(`**/api/recordings/${rohId}/playback`, (route) => {
-    plaetze += 1;
-    if (stand.editor && stand.editor.playbackCopy === null) {
-      stand = {
-        ...stand,
-        editor: {
-          ...stand.editor,
-          version: stand.editor.version + 1,
-          playbackCopy: { assetId: kopieAsset, file: null },
-        },
-      };
-    }
-    return route.fulfill(json({ recording: stand }));
-  });
   let sitzung = 0;
-  await page.route(`**/api/assets/${kopieAsset}/upload-session`, (route) => {
-    sitzung += 1;
-    return route.fulfill(
-      json(
-        {
-          uploadSessionId: `sitz-kopie-${sitzung}`,
-          blobName: null,
-          uploadUrl: `https://speicher.test/uebertragung?sig=kopie-${sitzung}`,
-          expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
-          maxBytes: 10737418240,
-          blockBytes: 8388608,
-        },
-        201,
-      ),
-    );
-  });
+  await page.route(
+    `**/api/events/${eventId}/dateien/upload-session`,
+    (route) => {
+      sitzung += 1;
+      return route.fulfill(
+        json(
+          {
+            uploadSessionId: `sitz-kopie-${sitzung}`,
+            blobName: null,
+            uploadUrl: `https://speicher.test/uebertragung?sig=kopie-${sitzung}`,
+            expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+            maxBytes: 10737418240,
+            blockBytes: 8388608,
+          },
+          201,
+        ),
+      );
+    },
+  );
   await page.route(/speicher\.test\/uebertragung/, (route) =>
     route.fulfill(json({}, 201)),
   );
-  await page.route("**/api/upload-sessions/sitz-kopie-1/finalize", (route) =>
-    route.fulfill(
-      problem(
-        "Die Datei ist keine im Browser abspielbare Fassung. Geeignet sind MP4, WebM, MP3, M4A oder WAV, passend zur Art der Aufnahme.",
-        422,
-      ),
-    ),
-  );
   const kopieRevision = "00000000-0000-0000-0000-00000000f039";
-  await page.route("**/api/upload-sessions/sitz-kopie-2/finalize", (route) => {
+  await page.route("**/api/upload-sessions/sitz-kopie-*/finalize", (route) => {
+    const nummer = route.request().url().endsWith("sitz-kopie-1/finalize")
+      ? 1
+      : 2;
+    return route.fulfill(
+      json({
+        datei: {
+          id:
+            nummer === 1
+              ? "00000000-0000-0000-0000-00000000f038"
+              : kopieRevision,
+          kind: "aufnahme",
+          contentType: nummer === 1 ? "video/quicktime" : "video/webm",
+          sizeBytes: nummer === 1 ? 23 : 1573,
+          fileName: nummer === 1 ? "kamera-klein.mov" : "kamera-web.webm",
+          createdAt: "2026-10-05T10:00:00.000Z",
+        },
+      }),
+    );
+  });
+  // Die Prüfung der Abspielfassung geschieht beim Anhängen: das erste Mal
+  // lehnt der Server die MOV-Datei ab, das zweite Mal besteht das WebM.
+  const anhaenge: unknown[] = [];
+  await page.route(`**/api/recordings/${rohId}/dateien/playback`, (route) => {
+    anhaenge.push(route.request().postDataJSON());
+    if (anhaenge.length === 1) {
+      return route.fulfill(
+        problem(
+          "Die Datei ist keine im Browser abspielbare Fassung. Geeignet sind MP4, WebM, MP3, M4A oder WAV, passend zur Art der Aufnahme.",
+          422,
+        ),
+      );
+    }
     if (stand.editor) {
       stand = {
         ...stand,
         playback: {
           state: "ready",
           source: "playbackCopy",
-          revisionId: kopieRevision,
+          dateiId: kopieRevision,
           contentType: "video/webm",
           sizeBytes: 1573,
         },
         editor: {
           ...stand.editor,
           playbackCopy: {
-            assetId: kopieAsset,
             file: datei({
-              revisionId: kopieRevision,
+              dateiId: kopieRevision,
               fileName: "kamera-web.webm",
               sizeBytes: 1573,
             }),
@@ -1229,16 +1254,7 @@ test("Nicht abspielbares Original bleibt erhalten; eine Abspielfassung wird erst
         },
       };
     }
-    return route.fulfill(
-      json({
-        assetId: kopieAsset,
-        revisionId: kopieRevision,
-        revisionNumber: 1,
-        contentType: "video/webm",
-        sizeBytes: 1573,
-        createdAt: "2026-10-05T10:00:00.000Z",
-      }),
-    );
+    return route.fulfill(json({ recording: stand }));
   });
   const dauern: unknown[] = [];
   await page.route(`**/api/recordings/${rohId}`, (route) => {
@@ -1251,7 +1267,7 @@ test("Nicht abspielbares Original bleibt erhalten; eine Abspielfassung wird erst
   await page.goto(`/auftritt/?id=${eventId}`);
   const eintrag = page.getByRole("article", { name: "Kamera Empore" });
   await expect(
-    eintrag.getByText("kamera.mov · QuickTime (MOV) · 8 GB · Dateistand 1"),
+    eintrag.getByText("kamera.mov · QuickTime (MOV) · 8 GB"),
   ).toBeVisible();
   await expect(
     eintrag.getByText(
@@ -1294,16 +1310,16 @@ test("Nicht abspielbares Original bleibt erhalten; eine Abspielfassung wird erst
     page.getByText("Abspielfassung für „Kamera Empore“ gespeichert."),
   ).toBeVisible({ timeout: 20_000 });
   await expect(
-    eintrag.getByText("kamera-web.webm · WebM · 1,5 kB · Dateistand 1"),
+    eintrag.getByText("kamera-web.webm · WebM · 1,5 kB"),
   ).toBeVisible();
   await expect(
     eintrag.getByRole("button", { name: "Kamera Empore ansehen" }),
   ).toBeVisible();
   // Das Original steht unverändert daneben.
   await expect(
-    eintrag.getByText("kamera.mov · QuickTime (MOV) · 8 GB · Dateistand 1"),
+    eintrag.getByText("kamera.mov · QuickTime (MOV) · 8 GB"),
   ).toBeVisible();
-  expect(plaetze).toBe(1);
+  expect(anhaenge).toHaveLength(2);
   expect(dauern).toHaveLength(1);
   expect(
     (dauern[0] as { durationSeconds: number }).durationSeconds,
@@ -1405,7 +1421,10 @@ test("Die Zeitangabe des Verweises übersteht einen gescheiterten ersten Ladever
 });
 
 /** Redaktionsseite mit einer Aufnahme, deren Abspielfassung noch fehlt. */
-async function mockAbspielfassungFehlt(page: Page, kopieAsset: string) {
+async function mockAbspielfassungFehlt(
+  page: Page,
+  anhaengen?: (route: Route) => Promise<void> | void,
+) {
   const stand = aufnahme({
     id: rohId,
     label: "Kamera Empore",
@@ -1413,20 +1432,19 @@ async function mockAbspielfassungFehlt(page: Page, kopieAsset: string) {
     playback: {
       state: "needsPlaybackCopy",
       source: null,
-      revisionId: null,
+      dateiId: null,
       contentType: null,
       sizeBytes: null,
     },
     editor: redaktion({
       original: {
-        assetId: "00000000-0000-0000-0000-00000000b038",
         file: datei({
           contentType: "video/quicktime",
           fileName: "kamera.mov",
           playable: false,
         }),
       },
-      playbackCopy: { assetId: kopieAsset, file: null },
+      playbackCopy: { file: null },
     }),
   });
   await mockSeite(page, editorMe, () => [stand]);
@@ -1436,6 +1454,22 @@ async function mockAbspielfassungFehlt(page: Page, kopieAsset: string) {
   await page.route(`**/api/recordings/${rohId}`, (route) =>
     route.fulfill(json({ recording: stand })),
   );
+  await page.route(`**/api/recordings/${rohId}/dateien/playback`, (route) =>
+    anhaengen ? anhaengen(route) : route.fulfill(json({ recording: stand })),
+  );
+}
+
+function dateiAntwort(kennung: string) {
+  return json({
+    datei: {
+      id: "00000000-0000-0000-0000-00000000f041",
+      kind: "aufnahme",
+      contentType: "video/webm",
+      sizeBytes: 1573,
+      fileName: `${kennung}.webm`,
+      createdAt: "2026-10-05T10:00:00.000Z",
+    },
+  });
 }
 
 /**
@@ -1477,13 +1511,27 @@ function sitzungsAntwort(kennung: string) {
 test("Nach einer abgelehnten Datei beginnt dieselbe Datei eine frische Übertragung", async ({
   page,
 }) => {
-  const kopieAsset = "00000000-0000-0000-0000-00000000b041";
-  await mockAbspielfassungFehlt(page, kopieAsset);
-  let sitzungen = 0;
-  await page.route(`**/api/assets/${kopieAsset}/upload-session`, (route) => {
-    sitzungen += 1;
-    return route.fulfill(sitzungsAntwort(`sitz-ablehnung-${sitzungen}`));
+  let anhaenge = 0;
+  await mockAbspielfassungFehlt(page, (route) => {
+    anhaenge += 1;
+    // Die erste Prüfung lehnt ab; die Datei wird nicht übernommen.
+    return route.fulfill(
+      anhaenge === 1
+        ? problem(
+            "Die Datei ist keine im Browser abspielbare Fassung. Geeignet sind MP4, WebM, MP3, M4A oder WAV, passend zur Art der Aufnahme.",
+            422,
+          )
+        : json({ recording: aufnahme({ id: rohId }) }),
+    );
   });
+  let sitzungen = 0;
+  await page.route(
+    `**/api/events/${eventId}/dateien/upload-session`,
+    (route) => {
+      sitzungen += 1;
+      return route.fulfill(sitzungsAntwort(`sitz-ablehnung-${sitzungen}`));
+    },
+  );
   let erneuerungen = 0;
   await page.route("**/api/upload-sessions/*/renew", (route) => {
     erneuerungen += 1;
@@ -1493,37 +1541,25 @@ test("Nach einer abgelehnten Datei beginnt dieselbe Datei eine frische Übertrag
   await page.route("**/api/upload-sessions/*/finalize", (route) => {
     const kennung = new URL(route.request().url()).pathname.split("/")[3];
     abschluesse.push(kennung);
-    // Die erste Prüfung lehnt ab und beendet ihre Sitzung endgültig.
-    return kennung === "sitz-ablehnung-1"
-      ? route.fulfill(
-          problem(
-            "Die Datei ist keine im Browser abspielbare Fassung. Geeignet sind MP4, WebM, MP3, M4A oder WAV, passend zur Art der Aufnahme.",
-            422,
-          ),
-        )
-      : route.fulfill(
-          json({
-            assetId: kopieAsset,
-            revisionId: "00000000-0000-0000-0000-00000000f041",
-            revisionNumber: 1,
-            contentType: "video/webm",
-            sizeBytes: 1573,
-            createdAt: "2026-10-05T10:00:00.000Z",
-          }),
-        );
+    return route.fulfill(dateiAntwort(kennung));
   });
 
   await page.goto(`/auftritt/?id=${eventId}`);
   const eintrag = page.getByRole("article", { name: "Kamera Empore" });
   const wahl = `aufnahme-datei-abspielfassung-${rohId}`;
   await waehleDieselbeDatei(page, wahl);
+  await expect(
+    eintrag.getByText(
+      "Die Datei ist keine im Browser abspielbare Fassung. Geeignet sind MP4, WebM, MP3, M4A oder WAV, passend zur Art der Aufnahme.",
+    ),
+  ).toBeVisible();
   await expect(eintrag.getByText("kamera-web.webm: gescheitert")).toBeVisible();
   // Nichts bleibt als „unterbrochen“ gemerkt.
   await expect(eintrag.getByText(/wurde unterbrochen/)).toHaveCount(0);
   expect(
     await page.evaluate(
       (schluessel) => window.localStorage.getItem(schluessel),
-      `arc-upload-${kopieAsset}`,
+      `arc-upload-auftritt-${rohId}-abspielfassung`,
     ),
   ).toBeNull();
 
@@ -1539,9 +1575,8 @@ test("Nach einer abgelehnten Datei beginnt dieselbe Datei eine frische Übertrag
 test("Eine gemerkte, serverseitig beendete Übertragung weicht einer frischen Sitzung", async ({
   page,
 }) => {
-  const kopieAsset = "00000000-0000-0000-0000-00000000b042";
   const inhalt = Buffer.from(webmBase64, "base64");
-  await mockAbspielfassungFehlt(page, kopieAsset);
+  await mockAbspielfassungFehlt(page);
   await page.addInitScript(
     ([schluessel, groesse]) => {
       window.localStorage.setItem(
@@ -1555,7 +1590,7 @@ test("Eine gemerkte, serverseitig beendete Übertragung weicht einer frischen Si
         }),
       );
     },
-    [`arc-upload-${kopieAsset}`, inhalt.length] as const,
+    [`arc-upload-auftritt-${rohId}-abspielfassung`, inhalt.length] as const,
   );
   const erneuerungen: string[] = [];
   await page.route("**/api/upload-sessions/*/renew", (route) => {
@@ -1563,21 +1598,15 @@ test("Eine gemerkte, serverseitig beendete Übertragung weicht einer frischen Si
     return route.fulfill(problem("Upload wurde abgebrochen.", 409));
   });
   let sitzungen = 0;
-  await page.route(`**/api/assets/${kopieAsset}/upload-session`, (route) => {
-    sitzungen += 1;
-    return route.fulfill(sitzungsAntwort("sitz-frisch"));
-  });
+  await page.route(
+    `**/api/events/${eventId}/dateien/upload-session`,
+    (route) => {
+      sitzungen += 1;
+      return route.fulfill(sitzungsAntwort("sitz-frisch"));
+    },
+  );
   await page.route("**/api/upload-sessions/sitz-frisch/finalize", (route) =>
-    route.fulfill(
-      json({
-        assetId: kopieAsset,
-        revisionId: "00000000-0000-0000-0000-00000000f042",
-        revisionNumber: 1,
-        contentType: "video/webm",
-        sizeBytes: 1573,
-        createdAt: "2026-10-05T10:00:00.000Z",
-      }),
-    ),
+    route.fulfill(dateiAntwort("kamera-web")),
   );
 
   await page.goto(`/auftritt/?id=${eventId}`);

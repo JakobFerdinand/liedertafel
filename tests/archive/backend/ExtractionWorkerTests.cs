@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using Archive.Backend.Assets;
 using Archive.Backend.Data;
 using Archive.Backend.Extraction;
+using Archive.Backend.Lieder;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -578,8 +579,7 @@ public sealed class ExtractionWorkerTests
 
 		Assert.False(disposition.Abandon);
 		var job = await host.Db.ExtractionJobs.SingleAsync();
-		Assert.Equal(revision.Id, job.RevisionId);
-		Assert.Equal(revision.AssetId, job.AssetId);
+		Assert.Equal(revision.Id, job.DateiId);
 		Assert.Equal(revision.CreatedByAccountId, job.TriggeredByAccountId);
 		Assert.Equal(ExtractionStatus.Completed, job.Status);
 		Assert.Contains("Selbstheilung", job.Text);
@@ -627,14 +627,14 @@ public sealed class ExtractionWorkerTests
 	[Fact]
 	public async Task NonPdfOrForeignRevisionsAreDeleted()
 	{
-		foreach (var (assetType, contentType) in new[]
+		foreach (var (kind, contentType) in new[]
 		{
-			(AssetEndpoints.AudioAssetType, AssetEndpoints.Mp3ContentType),
-			(AssetEndpoints.ScoreAssetType, "application/octet-stream"),
+			(DateiKinds.Uebe, "audio/mpeg"),
+			(DateiKinds.Noten, "application/octet-stream"),
 		})
 		{
 			var host = new WorkerHost();
-			var (_, revision) = SeedRevision(host, assetType: assetType, contentType: contentType);
+			var (_, revision) = SeedRevision(host, kind: kind, contentType: contentType);
 			host.Storage.Store(revision.BlobName, TextPdf("Nie gelesen"));
 
 			var disposition = await host.Worker.HandleAsync(Message(revision.Id), host.Deadline, CancellationToken.None);
@@ -643,6 +643,21 @@ public sealed class ExtractionWorkerTests
 			Assert.Empty(await host.Db.ExtractionJobs.ToListAsync());
 			Assert.Equal(0, host.Storage.OpenReadCalls);
 		}
+	}
+
+	[Fact]
+	public async Task DateiInTheTrashIsNotExtracted()
+	{
+		var host = new WorkerHost();
+		var (_, datei) = SeedRevision(host, trashed: true);
+		SeedJob(host, datei);
+		host.Storage.Store(datei.BlobName, TextPdf("Nie gelesen"));
+
+		var disposition = await host.Worker.HandleAsync(Message(datei.Id), host.Deadline, CancellationToken.None);
+
+		Assert.False(disposition.Abandon);
+		Assert.Equal(ExtractionStatus.Queued, (await host.Db.ExtractionJobs.SingleAsync()).Status);
+		Assert.Equal(0, host.Storage.OpenReadCalls);
 	}
 
 	[Fact]
@@ -656,7 +671,7 @@ public sealed class ExtractionWorkerTests
 		foreach (var body in new[]
 		{
 			"not json",
-			JsonSerializer.Serialize(new { type = "import", revisionId = revision.Id }),
+			JsonSerializer.Serialize(new { type = "import", dateiId = revision.Id }),
 			JsonSerializer.Serialize(new { type = ExtractionEnvelope.ExtractionType, traceParent = "", traceState = "" },
 				ExtractionEnvelope.SerializerOptions),
 		})
@@ -671,19 +686,12 @@ public sealed class ExtractionWorkerTests
 	}
 
 	[Fact]
-	public async Task VersionedRevisionsKeepTheirOwnExtractionResults()
+	public async Task SeveralDateienOfOneLiedKeepTheirOwnExtractionResults()
 	{
 		var host = new WorkerHost();
-		var asset = new ArchiveAsset
-		{
-			AssetType = AssetEndpoints.ScoreAssetType,
-			CreatedByAccountId = Guid.CreateVersion7(),
-			CreatedAt = DateTimeOffset.UtcNow,
-		};
-		host.Db.Assets.Add(asset);
-		var first = NewRevision(asset, number: 1);
-		var second = NewRevision(asset, number: 2);
-		host.Db.FileRevisions.AddRange(first, second);
+		var (lied, first) = SeedRevision(host);
+		var second = NewDatei(lied);
+		host.Db.Dateien.Add(second);
 		host.Db.SaveChanges();
 		SeedJob(host, first);
 		SeedJob(host, second);
@@ -695,7 +703,7 @@ public sealed class ExtractionWorkerTests
 		var lateDuplicate = await host.Worker.HandleAsync(Message(first.Id), host.Deadline, CancellationToken.None);
 
 		Assert.False(lateDuplicate.Abandon);
-		var jobs = await host.Db.ExtractionJobs.ToDictionaryAsync(j => j.RevisionId);
+		var jobs = await host.Db.ExtractionJobs.ToDictionaryAsync(j => j.DateiId);
 		Assert.Equal(ExtractionStatus.Completed, jobs[first.Id].Status);
 		Assert.Contains("Erste Fassung", jobs[first.Id].Text);
 		Assert.Equal(ExtractionStatus.Completed, jobs[second.Id].Status);
@@ -867,12 +875,12 @@ public sealed class ExtractionWorkerTests
 			NullLogger.Instance, CancellationToken.None);
 
 		Assert.Equal(2, dispatched);
-		Assert.Equal([unstamped.RevisionId, stale.RevisionId], queue.Attempts);
-		var jobs = await host.Db.ExtractionJobs.ToDictionaryAsync(j => j.RevisionId);
-		Assert.NotNull(jobs[unstamped.RevisionId].LastEnqueuedAt);
-		Assert.NotNull(jobs[stale.RevisionId].LastEnqueuedAt);
-		Assert.Equal(now, jobs[fresh.RevisionId].LastEnqueuedAt);
-		Assert.Null(jobs[running.RevisionId].LastEnqueuedAt);
+		Assert.Equal([unstamped.DateiId, stale.DateiId], queue.Attempts);
+		var jobs = await host.Db.ExtractionJobs.ToDictionaryAsync(j => j.DateiId);
+		Assert.NotNull(jobs[unstamped.DateiId].LastEnqueuedAt);
+		Assert.NotNull(jobs[stale.DateiId].LastEnqueuedAt);
+		Assert.Equal(now, jobs[fresh.DateiId].LastEnqueuedAt);
+		Assert.Null(jobs[running.DateiId].LastEnqueuedAt);
 	}
 
 	[Fact]
@@ -889,8 +897,8 @@ public sealed class ExtractionWorkerTests
 			NullLogger.Instance, CancellationToken.None);
 
 		Assert.Equal(1, dispatched);
-		Assert.Equal([oldest.RevisionId], queue.Attempts);
-		Assert.Null((await host.Db.ExtractionJobs.AsNoTracking().SingleAsync(j => j.RevisionId == newer.RevisionId)).LastEnqueuedAt);
+		Assert.Equal([oldest.DateiId], queue.Attempts);
+		Assert.Null((await host.Db.ExtractionJobs.AsNoTracking().SingleAsync(j => j.DateiId == newer.DateiId)).LastEnqueuedAt);
 	}
 
 	[Fact]
@@ -899,16 +907,16 @@ public sealed class ExtractionWorkerTests
 		var host = new WorkerHost();
 		var broken = SeedJob(host, SeedRevision(host).Revision, createdAt: DateTimeOffset.UtcNow.AddMinutes(-20));
 		var healthy = SeedJob(host, SeedRevision(host).Revision, createdAt: DateTimeOffset.UtcNow.AddMinutes(-10));
-		var queue = new SelectivelyFailingQueue(broken.RevisionId);
+		var queue = new SelectivelyFailingQueue(broken.DateiId);
 
 		var dispatched = await ExtractionDispatcher.DispatchPendingAsync(
 			host.Db, queue, Options.Create(host.Options), TimeProvider.System,
 			NullLogger.Instance, CancellationToken.None);
 
 		Assert.Equal(1, dispatched);
-		Assert.Equal([broken.RevisionId, healthy.RevisionId], queue.Attempts);
-		Assert.Null((await host.Db.ExtractionJobs.AsNoTracking().SingleAsync(j => j.RevisionId == broken.RevisionId)).LastEnqueuedAt);
-		Assert.NotNull((await host.Db.ExtractionJobs.AsNoTracking().SingleAsync(j => j.RevisionId == healthy.RevisionId)).LastEnqueuedAt);
+		Assert.Equal([broken.DateiId, healthy.DateiId], queue.Attempts);
+		Assert.Null((await host.Db.ExtractionJobs.AsNoTracking().SingleAsync(j => j.DateiId == broken.DateiId)).LastEnqueuedAt);
+		Assert.NotNull((await host.Db.ExtractionJobs.AsNoTracking().SingleAsync(j => j.DateiId == healthy.DateiId)).LastEnqueuedAt);
 	}
 
 	// ---- fixtures ----
@@ -1001,44 +1009,47 @@ public sealed class ExtractionWorkerTests
 		Assert.Equal(1, options.VisibilityFitBatchSize);
 	}
 
-	private static (ArchiveAsset Asset, FileRevision Revision) SeedRevision(WorkerHost host,
-		long sizeBytes = 2048, string assetType = AssetEndpoints.ScoreAssetType,
-		string contentType = AssetEndpoints.PdfContentType)
+	private static (Lied Lied, Datei Revision) SeedRevision(WorkerHost host,
+		long sizeBytes = 2048, string kind = DateiKinds.Noten,
+		string contentType = "application/pdf", bool trashed = false)
 	{
-		var asset = new ArchiveAsset
+		var account = Guid.CreateVersion7();
+		var now = DateTimeOffset.UtcNow;
+		var lied = new Lied
 		{
-			AssetType = assetType,
-			CreatedByAccountId = Guid.CreateVersion7(),
-			CreatedAt = DateTimeOffset.UtcNow,
+			Title = "Testlied", CreatedByAccountId = account, UpdatedByAccountId = account,
+			CreatedAt = now, UpdatedAt = now, RowVersion = 1,
 		};
-		var revision = NewRevision(asset, number: 1, sizeBytes, contentType);
-		host.Db.Assets.Add(asset);
-		host.Db.FileRevisions.Add(revision);
+		var datei = NewDatei(lied, sizeBytes, contentType, kind);
+		if (trashed)
+			datei.DeletedAt = now;
+		host.Db.Lieder.Add(lied);
+		host.Db.Dateien.Add(datei);
 		host.Db.SaveChanges();
-		return (asset, revision);
+		return (lied, datei);
 	}
 
-	private static FileRevision NewRevision(ArchiveAsset asset, int number,
-		long sizeBytes = 2048, string contentType = AssetEndpoints.PdfContentType) =>
+	private static Datei NewDatei(Lied lied, long sizeBytes = 2048,
+		string contentType = "application/pdf", string kind = DateiKinds.Noten) =>
 		new()
 		{
-			Asset = asset,
-			AssetId = asset.Id,
-			RevisionNumber = number,
-			BlobName = $"revisions/{Guid.CreateVersion7():N}.pdf",
+			LiedId = lied.Id,
+			Kind = kind,
+			IsPartitur = kind == DateiKinds.Noten,
+			BlobName = $"dateien/{Guid.CreateVersion7():N}.pdf",
 			ContentType = contentType,
 			SizeBytes = sizeBytes,
-			CreatedByAccountId = asset.CreatedByAccountId,
-			CreatedAt = asset.CreatedAt,
+			CreatedByAccountId = lied.CreatedByAccountId,
+			CreatedAt = lied.CreatedAt,
+			RowVersion = 1,
 		};
 
-	private static ExtractionJob SeedJob(WorkerHost host, FileRevision revision,
+	private static ExtractionJob SeedJob(WorkerHost host, Datei revision,
 		DateTimeOffset? createdAt = null, DateTimeOffset? lastEnqueuedAt = null)
 	{
 		var job = new ExtractionJob
 		{
-			RevisionId = revision.Id,
-			AssetId = revision.AssetId,
+			DateiId = revision.Id,
 			Status = ExtractionStatus.Queued,
 			TriggeredByAccountId = revision.CreatedByAccountId,
 			CreatedAt = createdAt ?? DateTimeOffset.UtcNow,
@@ -1050,10 +1061,10 @@ public sealed class ExtractionWorkerTests
 		return job;
 	}
 
-	private static ExtractionMessage Message(Guid revisionId, long dequeueCount = 1, string? body = null) =>
+	private static ExtractionMessage Message(Guid dateiId, long dequeueCount = 1, string? body = null) =>
 		new(Guid.CreateVersion7().ToString(), $"pop-{Guid.CreateVersion7():N}",
 			body ?? JsonSerializer.Serialize(
-				new ExtractionEnvelope(ExtractionEnvelope.ExtractionType, revisionId, null, null),
+				new ExtractionEnvelope(ExtractionEnvelope.ExtractionType, dateiId, null, null),
 				ExtractionEnvelope.SerializerOptions),
 			dequeueCount);
 
@@ -1247,6 +1258,9 @@ public sealed class ExtractionWorkerTests
 
 		public Task DeleteAsync(string blobName, CancellationToken cancellationToken) =>
 			inner.DeleteAsync(blobName, cancellationToken);
+
+		public IAsyncEnumerable<string> ListAsync(string prefix, CancellationToken cancellationToken) =>
+			inner.ListAsync(prefix, cancellationToken);
 	}
 
 	/// <summary>Dispatch fake that fails exactly one revision, like a row-specific outage.</summary>
@@ -1254,10 +1268,10 @@ public sealed class ExtractionWorkerTests
 	{
 		public List<Guid> Attempts { get; } = [];
 
-		public Task<bool> SendAsync(Guid revisionId, CancellationToken token)
+		public Task<bool> SendAsync(Guid dateiId, CancellationToken token)
 		{
-			Attempts.Add(revisionId);
-			if (revisionId == failingRevisionId)
+			Attempts.Add(dateiId);
+			if (dateiId == failingRevisionId)
 				throw new InvalidOperationException("Fake queue outage.");
 			return Task.FromResult(true);
 		}

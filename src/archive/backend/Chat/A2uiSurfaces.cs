@@ -12,7 +12,7 @@ namespace Archive.Backend.Chat;
 /// <summary>
 /// The archive's A2UI component catalog on the server (ARC-022-4): which
 /// components exist, which record id each is built from, and which of them the
-/// member chat can resolve. The browser registers the same six components and
+/// member chat can resolve. The browser registers the same four components and
 /// nothing else (no basic catalog). The model supplies record ids and a
 /// component name only; the server resolves every id against what a member may
 /// see, builds the component properties itself and drops everything else
@@ -39,7 +39,7 @@ public static class A2uiCatalog
 	/// <summary>Requests of one tool call that are looked at; the rest counts as dropped.</summary>
 	internal const int MaxRequestsPerCall = 12;
 
-	/// <summary>Songs one <c>Quellen</c> list shows.</summary>
+	/// <summary>Lieder one <c>Quellen</c> list shows.</summary>
 	internal const int MaxSources = 10;
 
 	private const int MaxTitleChars = 200;
@@ -52,20 +52,17 @@ public static class A2uiCatalog
 	internal static IReadOnlyList<A2uiComponent> Components { get; } =
 	[
 		new("LiedKarte", A2uiArgument.LiedId,
-			"Karte zu einem einzelnen veröffentlichten Lied (Titel, Komponist, Textdichter, Textanfang) mit Verweis ins Archiv.",
-			ResolveSongCardAsync),
+			"Karte zu einem einzelnen Lied (Titel, Komponist, Textdichter, Textanfang) mit Verweis ins Archiv.",
+			ResolveLiedCardAsync),
 		new("AuftrittKarte", A2uiArgument.AuftrittId,
 			"Karte zu einem veröffentlichten Auftritt (Titel, Art, Datum, Ort) mit Verweis ins Archiv.",
 			ResolveEventCardAsync),
 		new("Quellen", A2uiArgument.LiedIds,
-			"Liste von bis zu 10 veröffentlichten Liedern als Verweise ins Archiv.",
+			"Liste von bis zu 10 Liedern als Verweise ins Archiv.",
 			ResolveSourcesAsync),
 		// Defined and validated, but not yet resolvable in the member chat: the
-		// event tools (ARC-022-1) and the editor assistant (ARC-022-2) bring
-		// their resolvers with their own visibility rules.
+		// event tools (ARC-022-1) bring its resolver with their own visibility rules.
 		new("ProgrammListe", A2uiArgument.AuftrittId, "Programm eines Auftritts.", null),
-		new("VorschlagKarte", A2uiArgument.VorschlagId, "Ein Vorschlag zur Bestätigung.", null),
-		new("AenderungsVorschau", A2uiArgument.VorschlagId, "Vorher-nachher-Vorschau einer vorgeschlagenen Änderung.", null),
 	];
 
 	/// <summary>Short German description of the components a run's tool offers.</summary>
@@ -158,7 +155,7 @@ public static class A2uiCatalog
 	private static string ShownKey(JsonObject props)
 	{
 		var ids = new StringBuilder(StringOf(props["component"]));
-		foreach (var key in new[] { "liedId", "auftrittId", "vorschlagId" })
+		foreach (var key in new[] { "liedId", "auftrittId" })
 			ids.Append('|').Append(StringOf(props[key]));
 		if (props["quellen"] is JsonArray sources)
 			ids.Append('|').Append(string.Join(',', sources.Select(s => StringOf(s?["liedId"]))));
@@ -234,7 +231,6 @@ public static class A2uiCatalog
 		{
 			A2uiArgument.LiedId => new SurfaceRequest(name, LiedId: StringOf(component["liedId"])),
 			A2uiArgument.AuftrittId => new SurfaceRequest(name, AuftrittId: StringOf(component["auftrittId"])),
-			A2uiArgument.VorschlagId => new SurfaceRequest(name, VorschlagId: StringOf(component["vorschlagId"])),
 			A2uiArgument.LiedIds => new SurfaceRequest(name,
 				LiedIds: (component["quellen"] as JsonArray)?.Select(q => StringOf((q as JsonObject)?["liedId"]) ?? string.Empty).ToList()),
 			_ => null,
@@ -244,22 +240,22 @@ public static class A2uiCatalog
 	/// <summary>A JSON string value, or null for anything else (never throws on a foreign JSON type).</summary>
 	private static string? StringOf(JsonNode? node) => node is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
 
-	// ---- resolvers (published records only) ----
+	// ---- resolvers (what a member may see: every saved Lied, published Auftritte) ----
 
-	private static async Task<JsonObject?> ResolveSongCardAsync(ArchiveDbContext db, SurfaceRequest request, CancellationToken token)
+	private static async Task<JsonObject?> ResolveLiedCardAsync(ArchiveDbContext db, SurfaceRequest request, CancellationToken token)
 	{
 		if (!Guid.TryParse(request.LiedId, out var id))
 			return null;
-		var song = await db.Songs.AsNoTracking()
-			.Where(s => s.Id == id && s.PublishedAt != null)
+		var lied = await db.Lieder.AsNoTracking()
+			.Where(s => s.Id == id)
 			.Select(s => new { s.Id, s.Title, s.Composer, s.Lyricist, s.Lyrics })
 			.FirstOrDefaultAsync(token);
-		if (song is null)
+		if (lied is null)
 			return null;
-		var card = new JsonObject { ["liedId"] = song.Id.ToString(), ["titel"] = Clip(song.Title, MaxTitleChars) };
-		SetIfPresent(card, "komponist", song.Composer);
-		SetIfPresent(card, "textdichter", song.Lyricist);
-		SetIfPresent(card, "textanfang", Beginning(song.Lyrics));
+		var card = new JsonObject { ["liedId"] = lied.Id.ToString(), ["titel"] = Clip(lied.Title, MaxTitleChars) };
+		SetIfPresent(card, "komponist", lied.Composer);
+		SetIfPresent(card, "textdichter", lied.Lyricist);
+		SetIfPresent(card, "textanfang", Beginning(lied.Lyrics));
 		return card;
 	}
 
@@ -291,20 +287,20 @@ public static class A2uiCatalog
 			.OfType<Guid>().Distinct().Take(MaxSources).ToList();
 		if (ids.Count == 0)
 			return null;
-		var songs = await db.Songs.AsNoTracking()
-			.Where(s => ids.Contains(s.Id) && s.PublishedAt != null)
+		var lieder = await db.Lieder.AsNoTracking()
+			.Where(s => ids.Contains(s.Id))
 			.Select(s => new { s.Id, s.Title, s.Composer })
 			.ToListAsync(token);
-		if (songs.Count == 0)
+		if (lieder.Count == 0)
 			return null;
 		var sources = new JsonArray();
 		foreach (var id in ids)
 		{
-			var song = songs.FirstOrDefault(s => s.Id == id);
-			if (song is null)
+			var lied = lieder.FirstOrDefault(s => s.Id == id);
+			if (lied is null)
 				continue;
-			var entry = new JsonObject { ["liedId"] = song.Id.ToString(), ["titel"] = Clip(song.Title, MaxTitleChars) };
-			SetIfPresent(entry, "komponist", song.Composer);
+			var entry = new JsonObject { ["liedId"] = lied.Id.ToString(), ["titel"] = Clip(lied.Title, MaxTitleChars) };
+			SetIfPresent(entry, "komponist", lied.Composer);
 			sources.Add(entry);
 		}
 		return new JsonObject { ["quellen"] = sources };
@@ -354,8 +350,7 @@ public sealed record SurfaceRequest(
 	[property: Description("Name der Komponente.")] string? Komponente,
 	[property: Description("ID des Liedes (für LiedKarte).")] string? LiedId = null,
 	[property: Description("IDs der Lieder (für Quellen), höchstens 10.")] List<string>? LiedIds = null,
-	[property: Description("ID des Auftritts (für AuftrittKarte).")] string? AuftrittId = null,
-	[property: Description("ID eines Vorschlags; im Mitglieder-Chat nicht verfügbar.")] string? VorschlagId = null)
+	[property: Description("ID des Auftritts (für AuftrittKarte).")] string? AuftrittId = null)
 {
 	/// <summary>
 	/// True when the request carries the given id field and no other. A field
@@ -365,8 +360,7 @@ public sealed record SurfaceRequest(
 	internal bool UsesOnly(A2uiArgument argument) =>
 		Present(LiedId) == (argument == A2uiArgument.LiedId)
 		&& (LiedIds is { Count: > 0 }) == (argument == A2uiArgument.LiedIds)
-		&& Present(AuftrittId) == (argument == A2uiArgument.AuftrittId)
-		&& Present(VorschlagId) == (argument == A2uiArgument.VorschlagId);
+		&& Present(AuftrittId) == (argument == A2uiArgument.AuftrittId);
 
 	private static bool Present(string? value) => !string.IsNullOrWhiteSpace(value);
 }
@@ -377,7 +371,6 @@ internal enum A2uiArgument
 	LiedId,
 	LiedIds,
 	AuftrittId,
-	VorschlagId,
 }
 
 internal static class A2uiArgumentExtensions
@@ -386,8 +379,7 @@ internal static class A2uiArgumentExtensions
 	{
 		A2uiArgument.LiedId => "liedId",
 		A2uiArgument.LiedIds => "liedIds",
-		A2uiArgument.AuftrittId => "auftrittId",
-		_ => "vorschlagId",
+		_ => "auftrittId",
 	};
 }
 

@@ -19,21 +19,10 @@ const memberMe = {
   verifiedAt: new Date().toISOString(),
 };
 
-const editorTwo = {
-  authenticated: true,
-  accountId: "00000000-0000-0000-0000-000000000003",
-  email: "zweitredaktion@liedertafel.test",
-  displayName: "Zweitredaktion",
-  roles: ["Editor"],
-  verifiedAt: new Date().toISOString(),
-};
-
 const eventId = "00000000-0000-0000-0000-00000000e010";
 const fotoId = "00000000-0000-0000-0000-00000000e011";
 const dokumentAssetId = "00000000-0000-0000-0000-00000000e012";
 const fotoAssetId = "00000000-0000-0000-0000-00000000e017";
-const unausgeliefertId = "00000000-0000-0000-0000-00000000e013";
-const konfliktId = "00000000-0000-0000-0000-00000000e014";
 
 function json(body: unknown, status = 200) {
   return {
@@ -53,8 +42,7 @@ function problem(title: string, status: number) {
 
 function revision(overwrite: Record<string, unknown> = {}) {
   return {
-    revisionId: "00000000-0000-0000-0000-00000000f00a",
-    revisionNumber: 1,
+    dateiId: "00000000-0000-0000-0000-00000000f00a",
     contentType: "image/jpeg",
     sizeBytes: 1258291,
     createdAt: "2026-09-24T10:00:00.000Z",
@@ -62,33 +50,37 @@ function revision(overwrite: Record<string, unknown> = {}) {
   };
 }
 
-function zugriff(assetId: string, overwrite: Record<string, unknown> = {}) {
+function zugriff(dateiId: string, overwrite: Record<string, unknown> = {}) {
   return {
-    assetId,
-    revisionId: "00000000-0000-0000-0000-00000000f00a",
-    revisionNumber: 1,
+    dateiId,
+    kind: "sonstiges",
     contentType: "image/jpeg",
     sizeBytes: 1258291,
+    fileName: "datei.jpg",
     createdAt: "2026-09-24T10:00:00.000Z",
-    viewUrl: `https://speicher.test/ansicht?sig=${assetId}`,
-    downloadUrl: `https://speicher.test/laden?sig=${assetId}`,
+    viewUrl: `https://speicher.test/ansicht?sig=${dateiId}`,
+    downloadUrl: `https://speicher.test/laden?sig=${dateiId}`,
     expiresAt: "2026-09-24T10:15:00.000Z",
     ...overwrite,
   };
 }
 
+/** Dokument oder Foto des Auftritts, wie es die Auftrittsdetails liefern. */
 function materialEintrag(
-  assetId: string,
-  assetType: string,
+  dateiId: string,
+  art: string,
   description: string | null,
-  revision: Record<string, unknown> | null,
+  datei: Record<string, unknown>,
 ) {
   return {
-    id: assetId,
-    assetType,
+    id: dateiId,
+    art,
     description,
+    fileName: art === "photo" ? "bild.jpg" : "dokument.pdf",
+    contentType: datei.contentType,
+    sizeBytes: datei.sizeBytes,
     createdAt: "2026-09-20T10:00:00.000Z",
-    currentRevision: revision,
+    rowVersion: 1,
   };
 }
 
@@ -119,6 +111,10 @@ function detail(dokumente: unknown[] = []) {
 
 async function mockSitzung(page: Page, me: unknown) {
   await mockLeereAufnahmen(page);
+  // #169: PDF-Dokumente fragen ihren Auswertungsstand ab (hier: nichts bekannt).
+  await page.route("**/api/dateien/extraction*", (route) =>
+    route.fulfill(json({ results: [] })),
+  );
   await page.route("**/api/auth/me", (route) => route.fulfill(json(me)));
   await page.route("**/api/antiforgery", (route) =>
     route.fulfill(json({ token: "test" })),
@@ -163,7 +159,7 @@ test("Mitglied liest Fotografien und Dokumente mit Textbeschriftung", async ({
             "photo",
             null,
             revision({
-              revisionId: "00000000-0000-0000-0000-00000000f00b",
+              dateiId: "00000000-0000-0000-0000-00000000f00b",
               contentType: "image/png",
               sizeBytes: 20480,
             }),
@@ -173,7 +169,7 @@ test("Mitglied liest Fotografien und Dokumente mit Textbeschriftung", async ({
             "document",
             "Programmheft des Frühlingskonzerts",
             revision({
-              revisionId: "00000000-0000-0000-0000-00000000f00c",
+              dateiId: "00000000-0000-0000-0000-00000000f00c",
               contentType: "application/pdf",
               sizeBytes: 419430,
             }),
@@ -182,7 +178,7 @@ test("Mitglied liest Fotografien und Dokumente mit Textbeschriftung", async ({
       ),
     ),
   );
-  await page.route("**/api/assets/*/access", (route) => {
+  await page.route("**/api/dateien/*/access", (route) => {
     const assetId = pfadTeil(route.request().url(), 3);
     return route.fulfill(json(zugriff(assetId)));
   });
@@ -233,9 +229,7 @@ test("Mitglied liest Fotografien und Dokumente mit Textbeschriftung", async ({
     `https://speicher.test/laden?sig=${dokumentAssetId}`,
   );
 
-  // Der unausgelieferte Eintrag bleibt der Redaktion vorbehalten; der
-  // Leerzustand erscheint nicht neben vorhandenem Material.
-  await expect(page.getByText("Noch nicht hochgeladen")).toHaveCount(0);
+  // Der Leerzustand erscheint nicht neben vorhandenem Material.
   await expect(
     page.getByText("Zu diesem Auftritt sind noch keine Dokumente hinterlegt."),
   ).toHaveCount(0);
@@ -277,14 +271,14 @@ test("Fehlende Tickets erklären sich pro Material und bieten den erneuten Versu
             gestoertId,
             "photo",
             "Gruppenbild auf dem Festplatz",
-            revision({ revisionId: "00000000-0000-0000-0000-00000000f00b" }),
+            revision({ dateiId: "00000000-0000-0000-0000-00000000f00b" }),
           ),
           materialEintrag(
             dokumentAssetId,
             "document",
             "Programmheft des Frühlingskonzerts",
             revision({
-              revisionId: "00000000-0000-0000-0000-00000000f00c",
+              dateiId: "00000000-0000-0000-0000-00000000f00c",
               contentType: "application/pdf",
               sizeBytes: 419430,
             }),
@@ -293,7 +287,7 @@ test("Fehlende Tickets erklären sich pro Material und bieten den erneuten Versu
       ),
     ),
   );
-  await page.route("**/api/assets/*/access", (route) => {
+  await page.route("**/api/dateien/*/access", (route) => {
     const assetId = pfadTeil(route.request().url(), 3);
     if (assetId === fotoId) {
       return route.fulfill(problem("Material nicht gefunden.", 404));
@@ -323,7 +317,7 @@ test("Fehlende Tickets erklären sich pro Material und bieten den erneuten Versu
 
   // Der gestörte Abruf bleibt registriert; der spätere Erfolg tritt an
   // seine Stelle (die zuletzt angemeldete Route gewinnt).
-  await page.route(`**/api/assets/${gestoertId}/access`, (route) =>
+  await page.route(`**/api/dateien/${gestoertId}/access`, (route) =>
     route.fulfill(json(zugriff(gestoertId))),
   );
   await gestoert.getByRole("button", { name: "Erneut versuchen" }).click();
@@ -345,7 +339,7 @@ test("Ohne hinterlegtes Material bleibt der Abschnitt ehrlich leer", async ({
   await page.route(`**/api/events/${eventId}`, (route) =>
     route.fulfill(json(detail())),
   );
-  await page.route("**/api/assets/*/access", (route) => {
+  await page.route("**/api/dateien/*/access", (route) => {
     zugriffe += 1;
     return route.fulfill(json({}));
   });
@@ -356,13 +350,12 @@ test("Ohne hinterlegtes Material bleibt der Abschnitt ehrlich leer", async ({
   ).toBeVisible();
   await expect(page.locator("img")).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Öffnen" })).toHaveCount(0);
-  await expect(page.getByText("Noch nicht hochgeladen")).toHaveCount(0);
   expect(zugriffe).toBe(0);
 
   expect(errors).toEqual([]);
 });
 
-test("Redaktion hängt Dokument und Fotografie an, überträgt sie und sieht das fertige Material", async ({
+test("Redaktion überträgt Dokument und Fotografie; eine abgelehnte Datei wird erneut versucht", async ({
   page,
 }) => {
   const errors: string[] = [];
@@ -373,87 +366,35 @@ test("Redaktion hängt Dokument und Fotografie an, überträgt sie und sieht das
   await page.route(`**/api/events/${eventId}`, (route) =>
     route.fulfill(json(detail(dokumente))),
   );
-  await page.route("**/api/assets/*/access", (route) => {
-    const assetId = pfadTeil(route.request().url(), 3);
-    return route.fulfill(json(zugriff(assetId)));
+  await page.route("**/api/dateien/*/access", (route) => {
+    const dateiId = pfadTeil(route.request().url(), 3);
+    return route.fulfill(json(zugriff(dateiId)));
   });
-  // ARC-034: die Auswertungszeile des fertigen Dokuments liest ihren Stand
-  // ohne Nachfragen und ohne Knopf (fertig, ehrlich), damit die Zählung der
-  // Wiederholknöpfe die Werkbankzeile allein betrachtet.
-  await page.route("**/api/revisions/extraction*", (route) =>
-    route.fulfill(
-      json({
-        results: [
-          {
-            revisionId: `rev-${dokumentAssetId}`,
-            assetId: dokumentAssetId,
-            revisionNumber: 1,
-            status: "noText",
-            text: null,
-            failureReason: null,
-            attemptCount: 1,
-            completedAt: "2026-09-24T12:00:00.000Z",
-            lastAttemptAt: "2026-09-24T11:59:00.000Z",
-            lastEnqueuedAt: null,
-            updatedAt: "2026-09-24T12:00:00.000Z",
-            rowVersion: 1,
-          },
-        ],
-      }),
-    ),
-  );
 
-  const antraege: Record<string, unknown>[] = [];
-  await page.route(`**/api/events/${eventId}/assets`, (route) => {
-    antraege.push(route.request().postDataJSON() as Record<string, unknown>);
-    expect(route.request().method()).toBe("POST");
-    expect(route.request().headers()["x-csrf-token"]).toBe("test");
-    const anfrage = route.request().postDataJSON() as {
-      assetType?: string;
-      description?: string;
-    };
-    const assetId =
-      anfrage.assetType === "photo" ? fotoAssetId : dokumentAssetId;
-    dokumente.push(
-      materialEintrag(
-        assetId,
-        anfrage.assetType ?? "document",
-        anfrage.description ?? null,
-        null,
-      ),
-    );
-    return route.fulfill(
-      json(
-        {
-          id: assetId,
-          eventId,
-          musicalVersionId: null,
-          voiceLabel: null,
-          assetType: anfrage.assetType ?? "document",
-          description: anfrage.description ?? null,
-          createdAt: "2026-09-24T12:00:00.000Z",
-          currentRevision: null,
-        },
-        201,
-      ),
-    );
-  });
-  await page.route(/\/api\/assets\/[^/]+\/upload-session$/, (route) => {
-    const assetId = pfadTeil(route.request().url(), 3);
-    return route.fulfill(
-      json(
-        {
-          uploadSessionId: `sitz-${assetId}`,
-          blobName: null,
-          uploadUrl: `https://speicher.test/ubertragung?sig=${assetId}`,
-          expiresAt: "2026-09-24T12:15:00.000Z",
-          maxBytes: 5242880,
-          blockBytes: 5242880,
-        },
-        201,
-      ),
-    );
-  });
+  const sitzungen: Record<string, unknown>[] = [];
+  await page.route(
+    `**/api/events/${eventId}/dateien/upload-session`,
+    (route) => {
+      expect(route.request().method()).toBe("POST");
+      expect(route.request().headers()["x-csrf-token"]).toBe("test");
+      const anfrage = route.request().postDataJSON() as Record<string, unknown>;
+      sitzungen.push(anfrage);
+      const kennung = String(anfrage.fileName).replace(/\W/g, "");
+      return route.fulfill(
+        json(
+          {
+            uploadSessionId: `sitz-${kennung}-${sitzungen.length}`,
+            blobName: null,
+            uploadUrl: `https://speicher.test/ubertragung?sig=${kennung}`,
+            expiresAt: "2026-09-24T12:15:00.000Z",
+            maxBytes: 5242880,
+            blockBytes: 5242880,
+          },
+          201,
+        ),
+      );
+    },
+  );
   const inhaltstypen: string[] = [];
   await page.route(/speicher\.test\/ubertragung/, (route) => {
     if (!route.request().url().includes("comp=blocklist")) {
@@ -462,70 +403,45 @@ test("Redaktion hängt Dokument und Fotografie an, überträgt sie und sieht das
     return route.fulfill(json({}, 201));
   });
   const abschluesse: Record<string, unknown>[] = [];
-  const gescheiterteVersuche = new Set<string>();
+  let fotoVersuche = 0;
   await page.route("**/api/upload-sessions/*/finalize", (route) => {
     const sitzungsId = pfadTeil(route.request().url(), 3);
-    const assetId = sitzungsId.replace("sitz-", "");
+    const istFoto = sitzungsId.startsWith("sitz-chorpng");
     abschluesse.push(route.request().postDataJSON() as Record<string, unknown>);
-    // Die Fotografie scheitert beim ersten Abschluss, bleibt aber
-    // wiederholbar (Sitzung weiterverwendbar).
-    if (assetId === fotoAssetId && !gescheiterteVersuche.has(assetId)) {
-      gescheiterteVersuche.add(assetId);
-      return route.fulfill(problem("Die Datei ist kein gültiges Bild.", 422));
-    }
-    const istFoto = assetId === fotoAssetId;
-    const contentType = istFoto ? "image/png" : "application/pdf";
-    const stelle = dokumente.findIndex((eintrag) => eintrag.id === assetId);
-    if (stelle >= 0) {
-      dokumente[stelle] = materialEintrag(
-        assetId,
-        istFoto ? "photo" : "document",
-        istFoto ? "Chor am Stadtsaal" : null,
-        revision({ revisionId: `rev-${assetId}`, contentType }),
+    // Die Fotografie scheitert beim ersten Abschluss; der Versuch wiederholt
+    // mit einer frischen Sitzung.
+    if (istFoto && fotoVersuche === 0) {
+      fotoVersuche += 1;
+      return route.fulfill(
+        problem("Die Datei passt nicht zu ihrem Dateityp.", 422),
       );
     }
-    return route.fulfill(
-      json({
-        assetId,
-        revisionId: `rev-${assetId}`,
-        revisionNumber: 1,
-        contentType,
-        sizeBytes: 419430,
-        createdAt: "2026-09-24T12:00:00.000Z",
-      }),
+    const dateiId = istFoto ? fotoAssetId : dokumentAssetId;
+    const contentType = istFoto ? "image/png" : "application/pdf";
+    dokumente.push(
+      materialEintrag(
+        dateiId,
+        istFoto ? "photo" : "document",
+        istFoto ? "Chor am Stadtsaal" : null,
+        revision({ contentType }),
+      ),
     );
-  });
-  const patchAntraege: Record<string, unknown>[] = [];
-  await page.route(/\/api\/assets\/[^/]+$/, (route) => {
-    expect(route.request().method()).toBe("PATCH");
-    expect(route.request().headers()["x-csrf-token"]).toBe("test");
-    const assetId = pfadTeil(route.request().url(), 3);
-    const anfrage = route.request().postDataJSON() as Record<string, unknown>;
-    patchAntraege.push(anfrage);
-    const stelle = dokumente.findIndex((eintrag) => eintrag.id === assetId);
-    if (stelle >= 0) {
-      dokumente[stelle] = {
-        ...dokumente[stelle],
-        ...anfrage,
-      };
-    }
     return route.fulfill(
       json({
-        id: assetId,
-        eventId,
-        musicalVersionId: null,
-        voiceLabel: null,
-        ...(stelle >= 0 ? dokumente[stelle] : { currentRevision: null }),
+        datei: {
+          id: dateiId,
+          kind: "sonstiges",
+          contentType,
+          sizeBytes: 419430,
+          fileName: istFoto ? "chor.png" : "programm.pdf",
+          createdAt: "2026-09-24T12:00:00.000Z",
+        },
       }),
     );
   });
 
   await page.goto(`/auftritt/?id=${eventId}`);
   await dokumenteVerwaltungAufklappen(page);
-  await expect(
-    page.getByRole("button", { name: "Dokument/Fotografie hinzufügen" }),
-  ).toBeVisible();
-
   const wahl = page.waitForEvent("filechooser");
   await page
     .getByRole("button", { name: "Dokument/Fotografie hinzufügen" })
@@ -536,14 +452,9 @@ test("Redaktion hängt Dokument und Fotografie an, überträgt sie und sieht das
     dateiPfad("chor.png", "image/png", "png-bild"),
   ]);
   await expect(page.locator(".material-datei")).toHaveCount(2);
-  const zeileProgramm = page
-    .locator(".material-datei")
-    .filter({ hasText: "programm.pdf" });
-  await expect(zeileProgramm.locator("select")).toHaveValue("document");
   const zeileChor = page
     .locator(".material-datei")
     .filter({ hasText: "chor.png" });
-  await expect(zeileChor.locator("select")).toHaveValue("photo");
   await zeileChor
     .getByLabel("Beschreibung (wird als Text zum Bild vorgelesen)")
     .fill("Chor am Stadtsaal");
@@ -551,213 +462,216 @@ test("Redaktion hängt Dokument und Fotografie an, überträgt sie und sieht das
   await page.getByRole("button", { name: "Material übertragen" }).click();
   await expect(page.getByText("1 von 2 Dateien gespeichert.")).toBeVisible();
   await expect(
-    page.getByText("Die Datei ist kein gültiges Bild."),
+    page.getByText("Die Datei passt nicht zu ihrem Dateityp."),
   ).toBeVisible();
   await expect(zeileChor.getByText("gescheitert")).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Erneut versuchen" }),
   ).toHaveCount(1);
 
-  expect(antraege).toHaveLength(2);
-  expect(antraege).toContainEqual({ assetType: "document" });
-  expect(antraege).toContainEqual({
-    assetType: "photo",
+  expect(sitzungen).toHaveLength(2);
+  expect(sitzungen).toContainEqual({
+    kind: "sonstiges",
+    contentType: "application/pdf",
+    description: null,
+    fileName: "programm.pdf",
+    sizeBytes: 17,
+  });
+  expect(sitzungen).toContainEqual({
+    kind: "sonstiges",
+    contentType: "image/png",
     description: "Chor am Stadtsaal",
+    fileName: "chor.png",
+    sizeBytes: 8,
   });
   expect([...inhaltstypen].sort()).toEqual(["application/pdf", "image/png"]);
   expect(abschluesse).toContainEqual({ fileName: "chor.png", sizeBytes: 8 });
 
-  // Der erneute Versuch nutzt das bestehende Material: kein zweiter
-  // Anlage-Aufruf, nur eine neue Übertragungssitzung.
   await page.getByRole("button", { name: "Erneut versuchen" }).click();
   await expect(page.getByText("2 von 2 Dateien gespeichert.")).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Erneut versuchen" }),
   ).toHaveCount(0);
-  expect(antraege).toHaveLength(2);
+  expect(sitzungen).toHaveLength(3);
 
-  // Nach der Aktualisierung liest sich das fertige Material wie beim
-  // Mitglied; der unausgelieferte Eintrag ist verschwunden.
+  // Nach der Aktualisierung liest sich das fertige Material wie beim Mitglied.
   await expect(page.locator("img")).toHaveCount(1);
   await expect(page.getByText("Chor am Stadtsaal")).toBeVisible();
   await expect(page.getByRole("link", { name: "Öffnen" })).toBeVisible();
-  await expect(page.getByText("Noch nicht hochgeladen")).toHaveCount(0);
   await expect(
     page.getByText("Zu diesem Auftritt sind noch keine Dokumente hinterlegt."),
   ).toHaveCount(0);
 
-  expect(patchAntraege.length).toBeGreaterThanOrEqual(1);
-
   expect(errors).toEqual([]);
 });
 
-test("Redaktion bessert Beschreibung und Materialart nach; abgelehnte Änderungen erklären sich", async ({
+test("Redaktion bessert die Beschreibung nach, ersetzt und löscht; Mitglieder sehen keine Werkzeuge", async ({
   page,
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await mockSitzung(page, editorMe);
+  const dokumente: Array<Record<string, unknown>> = [
+    materialEintrag(
+      dokumentAssetId,
+      "document",
+      "Programmheft",
+      revision({ contentType: "application/pdf", sizeBytes: 419430 }),
+    ),
+  ];
+  await page.route(`**/api/events/${eventId}`, (route) =>
+    route.fulfill(json(detail(dokumente))),
+  );
+  await page.route("**/api/dateien/*/access", (route) =>
+    route.fulfill(json(zugriff(pfadTeil(route.request().url(), 3)))),
+  );
+  const aenderungen: Record<string, unknown>[] = [];
+  await page.route(`**/api/dateien/${dokumentAssetId}`, (route) => {
+    expect(route.request().method()).toBe("PATCH");
+    expect(route.request().headers()["x-csrf-token"]).toBe("test");
+    const anfrage = route.request().postDataJSON() as Record<string, unknown>;
+    aenderungen.push(anfrage);
+    if (anfrage.description === "ablehnen") {
+      return route.fulfill(problem("Die Beschreibung ist zu lang.", 400));
+    }
+    dokumente[0] = { ...dokumente[0], description: anfrage.description };
+    return route.fulfill(json({ datei: dokumente[0] }));
+  });
+  const ersetzSitzungen: Record<string, unknown>[] = [];
+  await page.route(
+    `**/api/events/${eventId}/dateien/upload-session`,
+    (route) => {
+      ersetzSitzungen.push(
+        route.request().postDataJSON() as Record<string, unknown>,
+      );
+      return route.fulfill(
+        json(
+          {
+            uploadSessionId: "sitz-ersatz",
+            blobName: null,
+            uploadUrl: "https://speicher.test/ubertragung?sig=ersatz",
+            expiresAt: "2026-09-24T12:15:00.000Z",
+            maxBytes: 5242880,
+            blockBytes: 5242880,
+          },
+          201,
+        ),
+      );
+    },
+  );
+  await page.route(/speicher\.test\/ubertragung/, (route) =>
+    route.fulfill(json({}, 201)),
+  );
+  await page.route("**/api/upload-sessions/sitz-ersatz/finalize", (route) => {
+    dokumente[0] = {
+      ...materialEintrag(
+        "00000000-0000-0000-0000-00000000e0aa",
+        "document",
+        "Programmheft",
+        revision({ contentType: "application/pdf", sizeBytes: 100 }),
+      ),
+    };
+    return route.fulfill(
+      json({
+        datei: {
+          id: "00000000-0000-0000-0000-00000000e0aa",
+          kind: "sonstiges",
+          contentType: "application/pdf",
+          sizeBytes: 100,
+          fileName: "neu.pdf",
+          createdAt: "2026-09-24T12:00:00.000Z",
+        },
+      }),
+    );
+  });
+  const loeschungen: Record<string, unknown>[] = [];
+  await page.route("**/api/dateien/*/delete", (route) => {
+    loeschungen.push({
+      id: pfadTeil(route.request().url(), 3),
+      ...(route.request().postDataJSON() as Record<string, unknown>),
+    });
+    dokumente.length = 0;
+    return route.fulfill({ status: 204 });
+  });
+
+  await page.goto(`/auftritt/?id=${eventId}`);
+  const eintrag = page.getByRole("article", { name: "Programmheft" });
+  await eintrag
+    .getByRole("button", { name: "Beschreibung bearbeiten" })
+    .click();
+  const feld = eintrag.getByLabel(
+    "Beschreibung (wird als Text zum Bild vorgelesen)",
+  );
+  await feld.fill("ablehnen");
+  await eintrag.getByRole("button", { name: "Änderungen speichern" }).click();
+  await expect(page.getByText("Die Beschreibung ist zu lang.")).toBeVisible();
+  await feld.fill("Programmheft 1950");
+  await eintrag.getByRole("button", { name: "Änderungen speichern" }).click();
+  await expect(page.getByText("Änderungen gespeichert.")).toBeVisible();
+  expect(aenderungen).toEqual([
+    { description: "ablehnen" },
+    { description: "Programmheft 1950" },
+  ]);
+
+  // Ersetzen: eine neue Sitzung nennt die alte Datei, die Liste lädt neu.
+  const neuer = page.getByRole("article", { name: "Programmheft 1950" });
+  await neuer
+    .getByLabel("Neue Datei für Programmheft 1950")
+    .setInputFiles(dateiPfad("neu.pdf", "application/pdf", "%PDF-1.4 neu"));
+  await expect(
+    page.getByRole("article", { name: "Programmheft" }),
+  ).toBeVisible();
+  expect(ersetzSitzungen).toEqual([
+    {
+      kind: "sonstiges",
+      contentType: "application/pdf",
+      description: null,
+      replacesDateiId: dokumentAssetId,
+      fileName: "neu.pdf",
+      sizeBytes: 12,
+    },
+  ]);
+
+  // Löschen verlangt eine Bestätigung und legt die Datei in den Papierkorb.
+  const ersetzt = page.getByRole("article", { name: "Programmheft" });
+  await ersetzt.getByRole("button", { name: "Löschen · Programmheft" }).click();
+  await ersetzt.getByRole("button", { name: "Ja, löschen" }).click();
+  await expect(
+    page.getByText("Zu diesem Auftritt sind noch keine Dokumente hinterlegt."),
+  ).toBeVisible();
+  expect(loeschungen).toEqual([
+    { id: "00000000-0000-0000-0000-00000000e0aa", rowVersion: 1 },
+  ]);
+
+  expect(errors).toEqual([]);
+});
+
+test("Mitglieder sehen weder Werkbank noch Redaktionswerkzeuge", async ({
+  page,
+}) => {
+  await mockSitzung(page, memberMe);
   await page.route(`**/api/events/${eventId}`, (route) =>
     route.fulfill(
       json(
         detail([
-          materialEintrag(fotoId, "photo", "Chor am Stadtsaal", revision()),
-          materialEintrag(unausgeliefertId, "document", null, null),
           materialEintrag(
-            konfliktId,
-            "photo",
-            "Gruppenbild auf dem Festplatz",
-            null,
+            dokumentAssetId,
+            "document",
+            "Programmheft",
+            revision({ contentType: "application/pdf", sizeBytes: 419430 }),
           ),
         ]),
       ),
     ),
   );
-  const patchAntraege: Record<string, unknown>[] = [];
-  await page.route(/\/api\/assets\/[^/]+$/, (route) => {
-    const assetId = pfadTeil(route.request().url(), 3);
-    const anfrage = route.request().postDataJSON() as Record<string, unknown>;
-    patchAntraege.push({ assetId, ...anfrage });
-    if (assetId === konfliktId) {
-      // Ein anderer Beitrag hat das Material zwischenzeitlich geändert:
-      // der Server lehnt den veralteten Stand mit 409 ab.
-      return route.fulfill(
-        problem("Der Eintrag wurde zwischenzeitlich geändert.", 409),
-      );
-    }
-    const antwort: Record<string, unknown> = {
-      id: assetId,
-      eventId,
-      musicalVersionId: null,
-      assetType: (anfrage.assetType as string) ?? "document",
-      voiceLabel: null,
-      description: (anfrage.description as string | null) ?? null,
-      createdAt: "2026-09-20T10:05:00.000Z",
-      currentRevision: null,
-    };
-    if (assetId === fotoId) {
-      antwort.currentRevision = revision();
-      antwort.assetType = "photo";
-    }
-    return route.fulfill(json(antwort));
-  });
-  await page.route("**/api/assets/*/access", (route) => {
-    const assetId = pfadTeil(route.request().url(), 3);
-    return route.fulfill(json(zugriff(assetId)));
-  });
-
+  await page.route("**/api/dateien/*/access", (route) =>
+    route.fulfill(json(zugriff(pfadTeil(route.request().url(), 3)))),
+  );
   await page.goto(`/auftritt/?id=${eventId}`);
-  await dokumenteVerwaltungAufklappen(page);
-  await expect(page.getByText("Noch nicht hochgeladen")).toBeVisible();
-
-  // Unausgelieferter Eintrag: Beschreibung und Materialart gehen als
-  // Änderungsvorschlag in denselben PATCH.
-  const zeileProgramm = page
-    .locator(".material-fortsetzung")
-    .filter({ hasText: "Dokument" });
-  await zeileProgramm.getByRole("button", { name: "Bearbeiten" }).click();
-  await zeileProgramm
-    .getByLabel("Beschreibung (wird als Text zum Bild vorgelesen)")
-    .fill("Programmheft des Frühlingskonzerts");
-  await zeileProgramm.locator("select").selectOption({ label: "Fotografie" });
-  await zeileProgramm
-    .getByRole("button", { name: "Änderungen speichern" })
-    .click();
-  await expect(page.getByText("Änderungen gespeichert.")).toBeVisible();
-  expect(patchAntraege[0]).toEqual({
-    assetId: unausgeliefertId,
-    assetType: "photo",
-    description: "Programmheft des Frühlingskonzerts",
-  });
-
-  // Fertige Fotografie: Beschreibung korrigierbar, Typ bleibt gesperrt.
-  // Die Redaktionswerkzeuge laufen neben der Figur, daher zählt die Zeile.
-  const fotoEintrag = page
-    .locator(".dokumente-fotos li")
-    .filter({ hasText: "Chor am Stadtsaal" });
-  await fotoEintrag
-    .getByRole("button", { name: "Beschreibung bearbeiten" })
-    .click();
-  await expect(fotoEintrag.getByText("Materialtyp: Fotografie")).toBeVisible();
-  await fotoEintrag
-    .getByLabel("Beschreibung (wird als Text zum Bild vorgelesen)")
-    .fill("Chor auf der Bühne des Stadtsaals, Mai 1950");
-  await fotoEintrag
-    .getByRole("button", { name: "Änderungen speichern" })
-    .click();
-  await expect(fotoEintrag.locator("select")).toHaveCount(0);
-  expect(patchAntraege[1]).toEqual({
-    assetId: fotoId,
-    description: "Chor auf der Bühne des Stadtsaals, Mai 1950",
-  });
-
-  // Die abgelehnte Änderung erklärt sich mit der Vertragssprache.
-  const zeileGesamt = page
-    .locator(".material-fortsetzung")
-    .filter({ hasText: "Gruppenbild auf dem Festplatz" });
-  await zeileGesamt.getByRole("button", { name: "Bearbeiten" }).click();
-  await zeileGesamt.locator("select").selectOption({ label: "Dokument (PDF)" });
-  await zeileGesamt
-    .getByRole("button", { name: "Änderungen speichern" })
-    .click();
+  await expect(page.getByRole("link", { name: "Öffnen" })).toBeVisible();
+  await expect(page.locator("details.material-verwaltung")).toHaveCount(0);
   await expect(
-    page.getByText("Der Eintrag wurde zwischenzeitlich geändert."),
-  ).toBeVisible();
-
-  expect(errors).toEqual([]);
-});
-
-test("Zweitredaktion scheitert am fremden Material und liest die Ablehnung in der Zeile", async ({
-  page,
-}) => {
-  const errors: string[] = [];
-  page.on("pageerror", (error) => errors.push(error.message));
-  // Der unausgelieferte Eintrag wurde von der ersten Redaktion angelegt
-  // (accountId …0001); die angemeldete Zweitredaktion (…0003) darf das
-  // fremde Material weder ändern noch hochladen — der Server lehnt den
-  // PATCH mit 403 ab (Vertrag: AssetOwnerMessage).
-  await mockSitzung(page, editorTwo);
-  await page.route(`**/api/events/${eventId}`, (route) =>
-    route.fulfill(
-      json(detail([materialEintrag(unausgeliefertId, "document", null, null)])),
-    ),
-  );
-  const antraege: Record<string, unknown>[] = [];
-  await page.route(`**/api/events/${eventId}/assets`, (route) => {
-    antraege.push(route.request().postDataJSON() as Record<string, unknown>);
-    return route.fulfill(json({}, 500));
-  });
-  await page.route(/\/api\/assets\/[^/]+$/, (route) => {
-    expect(route.request().method()).toBe("PATCH");
-    expect(route.request().headers()["x-csrf-token"]).toBe("test");
-    return route.fulfill(
-      problem("Nur die anlegendende Person kann das Material bearbeiten.", 403),
-    );
-  });
-
-  await page.goto(`/auftritt/?id=${eventId}`);
-  await dokumenteVerwaltungAufklappen(page);
-  await expect(page.getByText("Noch nicht hochgeladen")).toBeVisible();
-
-  const wahl = page.waitForEvent("filechooser");
-  await page.getByRole("button", { name: "Hochladen" }).click();
-  await (await wahl).setFiles([
-    dateiPfad("programm.pdf", "application/pdf", "%PDF-1.4 programm"),
-  ]);
-
-  // Die Ablehnung erklärt sich in der gescheiterten Zeile; aus dem
-  // Fehlschlag entsteht kein zweiter wartender Eintrag und keine
-  // Ersatzanfrage an die Materialanlage.
-  const zeileFremd = page
-    .locator(".material-datei")
-    .filter({ hasText: "programm.pdf" });
-  await expect(zeileFremd).toHaveCount(1);
-  await expect(zeileFremd).toHaveAttribute("data-status", "gescheitert");
-  await expect(zeileFremd.locator("output.feld-fehler")).toHaveText(
-    "Nur die anlegendende Person kann das Material bearbeiten.",
-  );
-  expect(antraege).toHaveLength(0);
-  await expect(page.locator(".material-fortsetzung")).toHaveCount(0);
-
-  expect(errors).toEqual([]);
+    page.getByRole("button", { name: "Beschreibung bearbeiten" }),
+  ).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Löschen ·/ })).toHaveCount(0);
 });

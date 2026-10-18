@@ -9,8 +9,8 @@
 // oder von Hand. Eine Aufnahme ohne Marken bleibt als Ganzes abspielbar.
 
 import { useEffect, useRef, useState } from "react";
-import { problemTitel } from "@/lib/assets";
 import type { Aufnahme } from "@/lib/aufnahmen";
+import { problemTitel } from "@/lib/uebertragung";
 import {
   bereichText,
   bestaetigeZeitmarken,
@@ -29,17 +29,7 @@ import {
 const SpeicherErsatz = "Das hat nicht geklappt. Bitte erneut versuchen.";
 
 function titelVon(vorkommen: Vorkommen): string {
-  return vorkommen.songTitle ?? "Ohne Titel";
-}
-
-function fassungVon(vorkommen: {
-  arrangement: { label: string } | null;
-  musicalVersion: { label: string } | null;
-}): string | null {
-  if (!vorkommen.arrangement) return null;
-  return vorkommen.musicalVersion
-    ? `${vorkommen.arrangement.label} · ${vorkommen.musicalVersion.label}`
-    : vorkommen.arrangement.label;
+  return vorkommen.liedTitle ?? "Ohne Titel";
 }
 
 function anzahlText(zahl: number, einzahl: string, mehrzahl: string): string {
@@ -69,7 +59,7 @@ export function ZeitmarkenListe({
             marke.startSeconds !== null && marke.endSeconds !== null;
           return (
             <li key={marke.id} className="zeitmarke-eintrag">
-              <span className="zeitmarke-lied">{marke.songTitle}</span>
+              <span className="zeitmarke-lied">{marke.liedTitle}</span>
               {hatZeiten && !pruefen ? (
                 <span className="zeitmarke-zeit">
                   {bereichText(marke.startSeconds ?? 0, marke.endSeconds ?? 0)}
@@ -83,7 +73,7 @@ export function ZeitmarkenListe({
                 <button
                   type="button"
                   className="knopf-leise"
-                  aria-label={`Zu „${marke.songTitle}“ springen`}
+                  aria-label={`Zu „${marke.liedTitle}“ springen`}
                   onClick={() => onSpringen(marke)}
                 >
                   Springen
@@ -274,7 +264,7 @@ export function ZeitmarkenRedaktion({
     }
     // Zeiten werden immer an der Datei festgehalten, die die Redaktion beim
     // Bauen dieser Ansicht gesehen hat; ohne abspielbare Datei gibt es keine.
-    const revision = stand.playbackRevisionId ?? null;
+    const revision = stand.playbackDateiId ?? null;
     if (revision === null) {
       meldeFehler(
         `„${titel}“: Die Aufnahme hat noch keine abspielbare Datei, an der sich Zeitmarken setzen lassen.`,
@@ -289,14 +279,14 @@ export function ZeitmarkenRedaktion({
           startSeconds: ergebnis.start,
           endSeconds: ergebnis.ende,
           expectedVersion: marke.editor.version,
-          expectedPlaybackRevisionId: revision,
+          expectedPlaybackDateiId: revision,
         });
       } else {
         await createZeitmarke(aufnahme.id, {
           performanceId: eintrag.performanceId,
           startSeconds: ergebnis.start,
           endSeconds: ergebnis.ende,
-          expectedPlaybackRevisionId: revision,
+          expectedPlaybackDateiId: revision,
         });
       }
       setEntwuerfe((vorher) => {
@@ -390,7 +380,7 @@ export function ZeitmarkenRedaktion({
   async function allePruefen() {
     if (busy) return;
     setFehler("");
-    const revision = stand.playbackRevisionId ?? null;
+    const revision = stand.playbackDateiId ?? null;
     if (revision === null) {
       meldeFehler(
         "Die Aufnahme hat noch keine abspielbare Datei, an der sich Zeitmarken bestätigen lassen.",
@@ -468,7 +458,7 @@ export function ZeitmarkenRedaktion({
         (kandidat.endSeconds ?? 0) > (marke.startSeconds ?? 0),
     );
     if (andere.length === 0) return null;
-    return `Überschneidet sich mit ${andere.map((kandidat) => `„${kandidat.songTitle}“`).join(", ")}.`;
+    return `Überschneidet sich mit ${andere.map((kandidat) => `„${kandidat.liedTitle}“`).join(", ")}.`;
   }
 
   return (
@@ -530,7 +520,6 @@ export function ZeitmarkenRedaktion({
               const werte = wertVon(eintrag);
               const beschaeftigt = busy === eintrag.performanceId;
               const hinweis = marke ? ueberschneidung(marke) : null;
-              const fassung = fassungVon(eintrag);
               const idStart = `zeitmarke-start-${aufnahme.id}-${eintrag.performanceId}`;
               const idEnde = `zeitmarke-ende-${aufnahme.id}-${eintrag.performanceId}`;
               return (
@@ -541,7 +530,6 @@ export function ZeitmarkenRedaktion({
                 >
                   <div className="zeitmarke-kopf">
                     <strong>{titel}</strong>
-                    {fassung && <span className="noten-info">{fassung}</span>}
                     {eintrag.evidenceStatus !== "confirmed" && (
                       <span className="noten-info">Programmangabe</span>
                     )}

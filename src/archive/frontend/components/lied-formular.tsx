@@ -1,178 +1,79 @@
 "use client";
 
 import { useState } from "react";
-import { feldHerkunft, KiAbzeichen } from "@/components/ki-abzeichen";
-import { patchAuth, postAuth } from "@/lib/auth";
-import type { FeldHerkunft, Lied, LiedDetails } from "@/lib/songs";
+import {
+  aendereLied,
+  type LiedEingabe,
+  type LiedMitDateien,
+  legeLiedAn,
+} from "@/lib/lieder";
+import { problemTitel } from "@/lib/uebertragung";
 
-type ListenZeile = { schluessel: number; wert: string };
-
-/** Eine Abzeichenzeile, nur wenn das Feld eine automatische Herkunft trägt. */
-function FeldAbzeichenRow({
-  herkunft,
-  feldbezeichnung,
-  zurueckgeholt,
-  meldungsziel,
-}: {
-  herkunft?: FeldHerkunft;
-  feldbezeichnung: string;
-  zurueckgeholt?: () => void;
-  meldungsziel?: (text: string) => void;
-}) {
-  if (!herkunft) return null;
-  return (
-    <div className="feld-abzeichen">
-      <KiAbzeichen
-        herkunft={herkunft}
-        feldbezeichnung={feldbezeichnung}
-        zurueckgeholt={zurueckgeholt}
-        meldungsziel={meldungsziel}
-      />
-    </div>
-  );
-}
-
-type LiedFormularWerte = {
-  title: string;
-  composer: string;
-  lyricist: string;
-  sprache: string;
-  anlass: string;
-  arrangementLabel: string;
-  versionLabel: string;
-  lyrics: string;
-  andereTitel: ListenZeile[];
-  schlagwoerter: ListenZeile[];
-};
-
-const LEER: LiedFormularWerte = {
+const LEER: LiedEingabe = {
   title: "",
   composer: "",
+  arranger: "",
   lyricist: "",
-  sprache: "",
-  anlass: "",
-  arrangementLabel: "",
-  versionLabel: "",
+  voiceConfiguration: "",
+  musicalKey: "",
+  language: "",
   lyrics: "",
-  andereTitel: [],
-  schlagwoerter: [],
+  occasion: "",
 };
 
+function ausLied(lied: LiedMitDateien): LiedEingabe {
+  return {
+    title: lied.title,
+    composer: lied.composer ?? "",
+    arranger: lied.arranger ?? "",
+    lyricist: lied.lyricist ?? "",
+    voiceConfiguration: lied.voiceConfiguration ?? "",
+    musicalKey: lied.musicalKey ?? "",
+    language: lied.language ?? "",
+    lyrics: lied.lyrics ?? "",
+    occasion: lied.occasion ?? "",
+  };
+}
+
+const kurzeFelder: [keyof LiedEingabe, string, string][] = [
+  ["composer", "komponist", "Komponist (optional)"],
+  ["arranger", "bearbeiter", "Bearbeiter (optional)"],
+  ["lyricist", "texter", "Texter (optional)"],
+  ["voiceConfiguration", "besetzung", "Besetzung (optional)"],
+  ["musicalKey", "tonart", "Tonart (optional)"],
+  ["language", "sprache", "Sprache (optional)"],
+  ["occasion", "anlass", "Anlass (optional)"],
+];
+
+/**
+ * Formular für ein Lied von Hand (#166): Titel, Komponist, Bearbeiter, Texter,
+ * Besetzung, Tonart, Sprache, Liedtext und Anlass. Ohne `lied` legt es ein
+ * neues an, mit `lied` ändert es das vorhandene.
+ */
 export function LiedFormular({
   lied,
   absendenText,
   onSuccess,
-  neuLaden,
-  meldungsziel,
 }: {
-  lied?:
-    | (Lied & {
-        lyrics?: string | null;
-        language?: string | null;
-        occasion?: string | null;
-        tags?: string[];
-        rowVersion?: number;
-        provenance?: FeldHerkunft[];
-      })
-    | LiedDetails
-    | null;
+  lied?: LiedMitDateien | null;
   absendenText: string;
-  onSuccess: (lied: Lied, meldung: string) => void;
-  /** ARC-013-1: lädt die Detailansicht neu, z. B. nach dem Zurückholen. */
-  neuLaden?: () => void;
-  /** Statusregion für Zurückholen-Meldungen. */
-  meldungsziel?: (text: string) => void;
+  onSuccess: (lied: LiedMitDateien, meldung: string) => void;
 }) {
   const idPraefix = lied ? `lied-${lied.id}` : "lied";
-  // Nur die Detailansicht liefert den bisherigen Liedtext mit; im Katalog
-  // bleibt das Feld ohne bekannten Wert.
-  const kenntText = lied?.lyrics !== undefined;
-  // Gleiches Muster für Sprache, Anlass und Schlagwörter (ARC-023): die
-  // Detailansicht kennt die bisherigen Werte, der Katalog nicht.
-  const kenntSprache = lied?.language !== undefined;
-  const kenntAnlass = lied?.occasion !== undefined;
-  const kenntSchlagwoerter = lied?.tags !== undefined;
-  // ARC-013-1: die gespeicherte Feldherkunft der Detailansicht; im Katalog
-  // gibt es keine Herkunft und damit kein Abzeichen.
-  const herkunft = lied?.provenance;
-  const [werte, setWerte] = useState<LiedFormularWerte>(
-    lied
-      ? {
-          title: lied.title,
-          composer: lied.composer ?? "",
-          lyricist: lied.lyricist ?? "",
-          sprache: lied.language ?? "",
-          anlass: lied.occasion ?? "",
-          arrangementLabel: "",
-          versionLabel: "",
-          // Nur die Detailansicht kennt den bisherigen Liedtext; im Katalog
-          // bleibt das Feld leer und ein leerer Text lässt ihn unverändert.
-          lyrics: lied.lyrics ?? "",
-          andereTitel: (lied.alternateTitles ?? []).map((wert, index) => ({
-            schluessel: index,
-            wert,
-          })),
-          schlagwoerter: (lied.tags ?? []).map((wert, index) => ({
-            schluessel: index,
-            wert,
-          })),
-        }
-      : LEER,
-  );
+  const [werte, setWerte] = useState<LiedEingabe>(lied ? ausLied(lied) : LEER);
   const [titelFehler, setTitelFehler] = useState("");
   const [textFehler, setTextFehler] = useState("");
-  const [andereFehler, setAndereFehler] = useState("");
-  const [spracheFehler, setSpracheFehler] = useState("");
-  const [anlassFehler, setAnlassFehler] = useState("");
-  const [schlagwortFehler, setSchlagwortFehler] = useState("");
   const [hinweis, setHinweis] = useState("");
   const [busy, setBusy] = useState(false);
-  // Zurückholen-Meldungen landen in der Statusregion des Formulars.
-  const melde = meldungsziel ?? setHinweis;
 
-  function setzen(feld: keyof LiedFormularWerte, wert: string) {
+  function setzen(feld: keyof LiedEingabe, wert: string) {
     setWerte((bisher) => ({ ...bisher, [feld]: wert }));
-  }
-
-  type ListenFeld = "andereTitel" | "schlagwoerter";
-
-  function zeileÄndern(feld: ListenFeld, index: number, wert: string) {
-    setWerte((bisher) => ({
-      ...bisher,
-      [feld]: bisher[feld].map((zeile, stelle) =>
-        stelle === index ? { ...zeile, wert } : zeile,
-      ),
-    }));
-  }
-
-  function zeileHinzufügen(feld: ListenFeld) {
-    setWerte((bisher) => {
-      const zeilen = bisher[feld];
-      if (zeilen.length >= 10) return bisher;
-      const schluessel =
-        zeilen.reduce((max, zeile) => Math.max(max, zeile.schluessel), -1) + 1;
-      return {
-        ...bisher,
-        [feld]: [...zeilen, { schluessel, wert: "" }],
-      };
-    });
-  }
-
-  function zeileEntfernen(feld: ListenFeld, index: number) {
-    setWerte((bisher) => ({
-      ...bisher,
-      [feld]: bisher[feld].filter((_, stelle) => stelle !== index),
-    }));
   }
 
   async function speichern(event: React.FormEvent) {
     event.preventDefault();
     setTitelFehler("");
     setTextFehler("");
-    setAndereFehler("");
-    setSpracheFehler("");
-    setAnlassFehler("");
-    setSchlagwortFehler("");
     setHinweis("");
     const titel = werte.title.trim();
     if (!titel) {
@@ -183,91 +84,22 @@ export function LiedFormular({
       setTextFehler("Der Liedtext ist zu lang.");
       return;
     }
-    const andere = werte.andereTitel.map((zeile) => zeile.wert.trim());
-    if (andere.some((eintrag) => eintrag.length > 200)) {
-      setAndereFehler("Ein anderer Titel ist zu lang.");
-      return;
-    }
-    const sprache = werte.sprache.trim();
-    if (sprache.length > 200) {
-      setSpracheFehler("Die Sprache ist zu lang.");
-      return;
-    }
-    const anlass = werte.anlass.trim();
-    if (anlass.length > 200) {
-      setAnlassFehler("Der Anlass ist zu lang.");
-      return;
-    }
-    // Leere Zeilen fallen still weg, wie bei den anderen Titeln.
-    const schlagwoerter = werte.schlagwoerter
-      .map((zeile) => zeile.wert.trim())
-      .filter(Boolean);
-    if (werte.schlagwoerter.some((zeile) => zeile.wert.trim().length > 60)) {
-      setSchlagwortFehler("Das Schlagwort ist zu lang.");
-      return;
-    }
     setBusy(true);
     try {
-      const text = werte.lyrics.trim();
-      // Bekannter Liedtext (Detailansicht): ein geleertes Feld räumt ihn weg.
-      // Unbekannter bisheriger Text (Katalogbearbeitung): nur ein getippter
-      // Text wird geschickt, ein leeres Feld lässt den bisherigen
-      // unangetastet. Die anderen Titel werden stets als ganze Liste ersetzt.
-      const kern = {
-        title: titel,
-        composer: werte.composer.trim() ? werte.composer.trim() : null,
-        lyricist: werte.lyricist.trim() ? werte.lyricist.trim() : null,
-      };
-      const body: Record<string, unknown> = lied
-        ? {
-            ...kern,
-            alternateTitles: andere.filter((eintrag) => eintrag.length > 0),
-          }
-        : {
-            ...kern,
-            language: sprache ? sprache : null,
-            occasion: anlass ? anlass : null,
-            tags: schlagwoerter,
-            arrangementLabel: werte.arrangementLabel.trim()
-              ? werte.arrangementLabel.trim()
-              : null,
-            versionLabel: werte.versionLabel.trim()
-              ? werte.versionLabel.trim()
-              : null,
-          };
-      if (lied && (kenntText || text)) body.lyrics = text;
-      // Bekannte Werte (Detailansicht) gehen stets mit, ein geleertes Feld
-      // räumt sie weg; im Katalog bleibt ein leeres Feld wirkungslos.
-      if (lied && (kenntSprache || sprache)) body.language = sprache;
-      if (lied && (kenntAnlass || anlass)) body.occasion = anlass;
-      if (lied && (kenntSchlagwoerter || schlagwoerter.length > 0))
-        body.tags = schlagwoerter;
-      // ARC-013-1: der optimistische Zeiger nummeriert den Stand der Reise.
-      if (lied && lied.rowVersion !== undefined)
-        body.rowVersion = lied.rowVersion;
-      const response = lied
-        ? await patchAuth(`/api/songs/${encodeURIComponent(lied.id)}`, body)
-        : await postAuth("/api/songs", body);
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        setHinweis(
-          payload?.title ?? "Das hat nicht geklappt. Bitte erneut versuchen.",
-        );
-        return;
-      }
-      const gespeichert = payload?.song as Lied | undefined;
-      if (gespeichert) {
-        onSuccess(
-          gespeichert,
-          lied ? "Änderungen gespeichert." : "Lied angelegt.",
-        );
-        if (!lied) setWerte(LEER);
-      } else {
-        setHinweis("Das hat nicht geklappt. Bitte erneut versuchen.");
-      }
-    } catch {
+      const gespeichert = lied
+        ? await aendereLied(lied.id, werte, lied.rowVersion)
+        : await legeLiedAn(werte);
+      onSuccess(
+        gespeichert,
+        lied ? "Änderungen gespeichert." : "Lied angelegt.",
+      );
+      if (!lied) setWerte(LEER);
+    } catch (ursache) {
       setHinweis(
-        "Sicherheitstoken konnte nicht geladen werden. Seite neu laden.",
+        await problemTitel(
+          ursache,
+          "Das hat nicht geklappt. Bitte erneut versuchen.",
+        ),
       );
     } finally {
       setBusy(false);
@@ -277,19 +109,11 @@ export function LiedFormular({
   return (
     <form onSubmit={speichern} noValidate>
       <label htmlFor={`${idPraefix}-titel`}>Titel</label>
-      {lied && (
-        <FeldAbzeichenRow
-          herkunft={feldHerkunft(herkunft, "song", lied.id, "title")}
-          feldbezeichnung="Titel"
-          zurueckgeholt={neuLaden}
-          meldungsziel={melde}
-        />
-      )}
       <input
         id={`${idPraefix}-titel`}
         type="text"
         required
-        maxLength={300}
+        maxLength={200}
         value={werte.title}
         onChange={(event) => setzen("title", event.target.value)}
         aria-invalid={titelFehler ? true : undefined}
@@ -304,237 +128,40 @@ export function LiedFormular({
           {titelFehler}
         </p>
       )}
-      <label htmlFor={`${idPraefix}-komponist`}>Komponist (optional)</label>
-      {lied && (
-        <FeldAbzeichenRow
-          herkunft={feldHerkunft(herkunft, "song", lied.id, "composer")}
-          feldbezeichnung="Komponist"
-          zurueckgeholt={neuLaden}
-          meldungsziel={melde}
-        />
-      )}
-      <input
-        id={`${idPraefix}-komponist`}
-        type="text"
-        maxLength={300}
-        value={werte.composer}
-        onChange={(event) => setzen("composer", event.target.value)}
+      {kurzeFelder.map(([feld, name, beschriftung]) => (
+        <div key={feld}>
+          <label htmlFor={`${idPraefix}-${name}`}>{beschriftung}</label>
+          <input
+            id={`${idPraefix}-${name}`}
+            type="text"
+            maxLength={200}
+            value={werte[feld]}
+            onChange={(event) => setzen(feld, event.target.value)}
+          />
+        </div>
+      ))}
+      <label htmlFor={`${idPraefix}-liedtext`}>Liedtext (optional)</label>
+      <textarea
+        id={`${idPraefix}-liedtext`}
+        rows={4}
+        maxLength={5000}
+        value={werte.lyrics}
+        onChange={(event) => setzen("lyrics", event.target.value)}
+        aria-invalid={textFehler ? true : undefined}
+        aria-describedby={`${idPraefix}-liedtext-hinweis`}
       />
-      <label htmlFor={`${idPraefix}-texter`}>Textdichter (optional)</label>
-      {lied && (
-        <FeldAbzeichenRow
-          herkunft={feldHerkunft(herkunft, "song", lied.id, "lyricist")}
-          feldbezeichnung="Textdichter"
-          zurueckgeholt={neuLaden}
-          meldungsziel={melde}
-        />
-      )}
-      <input
-        id={`${idPraefix}-texter`}
-        type="text"
-        maxLength={300}
-        value={werte.lyricist}
-        onChange={(event) => setzen("lyricist", event.target.value)}
-      />
-      <label htmlFor={`${idPraefix}-sprache`}>Sprache (optional)</label>
-      {lied && (
-        <FeldAbzeichenRow
-          herkunft={feldHerkunft(herkunft, "song", lied.id, "language")}
-          feldbezeichnung="Sprache"
-          zurueckgeholt={neuLaden}
-          meldungsziel={melde}
-        />
-      )}
-      <input
-        id={`${idPraefix}-sprache`}
-        type="text"
-        maxLength={200}
-        value={werte.sprache}
-        onChange={(event) => setzen("sprache", event.target.value)}
-        aria-invalid={spracheFehler ? true : undefined}
-        aria-describedby={`${idPraefix}-sprache-fehler`}
-      />
-      {spracheFehler && (
+      {textFehler && (
         <p
-          id={`${idPraefix}-sprache-fehler`}
+          id={`${idPraefix}-liedtext-fehler`}
           role="alert"
           className="feld-fehler"
         >
-          {spracheFehler}
+          {textFehler}
         </p>
       )}
-      <label htmlFor={`${idPraefix}-anlass`}>Anlass (optional)</label>
-      {lied && (
-        <FeldAbzeichenRow
-          herkunft={feldHerkunft(herkunft, "song", lied.id, "occasion")}
-          feldbezeichnung="Anlass"
-          zurueckgeholt={neuLaden}
-          meldungsziel={melde}
-        />
-      )}
-      <input
-        id={`${idPraefix}-anlass`}
-        type="text"
-        maxLength={200}
-        value={werte.anlass}
-        onChange={(event) => setzen("anlass", event.target.value)}
-        aria-invalid={anlassFehler ? true : undefined}
-        aria-describedby={`${idPraefix}-anlass-fehler`}
-      />
-      {anlassFehler && (
-        <p
-          id={`${idPraefix}-anlass-fehler`}
-          role="alert"
-          className="feld-fehler"
-        >
-          {anlassFehler}
-        </p>
-      )}
-      {lied ? (
-        <>
-          <label htmlFor={`${idPraefix}-liedtext`}>Liedtext (optional)</label>
-          {lied && (
-            <FeldAbzeichenRow
-              herkunft={feldHerkunft(herkunft, "song", lied.id, "lyrics")}
-              feldbezeichnung="Liedtext"
-              zurueckgeholt={neuLaden}
-              meldungsziel={melde}
-            />
-          )}
-          <textarea
-            id={`${idPraefix}-liedtext`}
-            rows={4}
-            maxLength={5000}
-            value={werte.lyrics}
-            onChange={(event) => setzen("lyrics", event.target.value)}
-            aria-invalid={textFehler ? true : undefined}
-            aria-describedby={`${idPraefix}-liedtext-hinweis`}
-          />
-          {textFehler && (
-            <p
-              id={`${idPraefix}-liedtext-fehler`}
-              role="alert"
-              className="feld-fehler"
-            >
-              {textFehler}
-            </p>
-          )}
-          <p id={`${idPraefix}-liedtext-hinweis`} className="feld-hinweis">
-            {kenntText
-              ? "Anfangsworte genügen. Ein geleerter Text wird entfernt."
-              : "Anfangsworte genügen. Leer lassen ändert den bisherigen Text nicht."}
-          </p>
-          <fieldset className="lied-andere-titel">
-            <legend>Andere Titel</legend>
-            <p className="feld-hinweis">
-              Beispielsweise frühere Namen oder Kürzel, unter denen das Lied
-              bekannt ist.
-            </p>
-            {werte.andereTitel.map((zeile, index) => (
-              <div key={zeile.schluessel} className="lied-anderer-titel">
-                <input
-                  id={`${idPraefix}-anderer-titel-${index}`}
-                  type="text"
-                  maxLength={200}
-                  value={zeile.wert}
-                  onChange={(event) =>
-                    zeileÄndern("andereTitel", index, event.target.value)
-                  }
-                  aria-label={`Anderer Titel ${index + 1}`}
-                />
-                <button
-                  type="button"
-                  onClick={() => zeileEntfernen("andereTitel", index)}
-                  aria-label={`Anderen Titel ${index + 1} entfernen`}
-                >
-                  Entfernen
-                </button>
-              </div>
-            ))}
-            {andereFehler && (
-              <p role="alert" className="feld-fehler">
-                {andereFehler}
-              </p>
-            )}
-            <button
-              type="button"
-              disabled={werte.andereTitel.length >= 10}
-              onClick={() => zeileHinzufügen("andereTitel")}
-            >
-              Anderen Titel hinzufügen
-            </button>
-          </fieldset>
-        </>
-      ) : (
-        <>
-          <label htmlFor={`${idPraefix}-arrangement`}>
-            Arrangement (optional)
-          </label>
-          <input
-            id={`${idPraefix}-arrangement`}
-            type="text"
-            maxLength={300}
-            placeholder="Standardfassung"
-            value={werte.arrangementLabel}
-            onChange={(event) => setzen("arrangementLabel", event.target.value)}
-          />
-          <label htmlFor={`${idPraefix}-version`}>
-            Musikalische Fassung (optional)
-          </label>
-          <input
-            id={`${idPraefix}-version`}
-            type="text"
-            maxLength={300}
-            placeholder="Standardfassung"
-            value={werte.versionLabel}
-            onChange={(event) => setzen("versionLabel", event.target.value)}
-          />
-          <p className="feld-hinweis">
-            Ohne Angabe werden Arrangement und Fassung als „Standardfassung"
-            angelegt.
-          </p>
-        </>
-      )}
-      <fieldset className="lied-listen">
-        <legend>Schlagwörter</legend>
-        <p className="feld-hinweis">
-          Freie Merkworte, unter denen sich das Lied im Katalog wiederfinden
-          lässt.
-        </p>
-        {werte.schlagwoerter.map((zeile, index) => (
-          <div key={zeile.schluessel} className="lied-anderer-titel">
-            <input
-              id={`${idPraefix}-schlagwort-${index}`}
-              type="text"
-              maxLength={60}
-              value={zeile.wert}
-              onChange={(event) =>
-                zeileÄndern("schlagwoerter", index, event.target.value)
-              }
-              aria-label={`Schlagwort ${index + 1}`}
-            />
-            <button
-              type="button"
-              onClick={() => zeileEntfernen("schlagwoerter", index)}
-              aria-label={`Schlagwort ${index + 1} entfernen`}
-            >
-              Entfernen
-            </button>
-          </div>
-        ))}
-        {schlagwortFehler && (
-          <p role="alert" className="feld-fehler">
-            {schlagwortFehler}
-          </p>
-        )}
-        <button
-          type="button"
-          disabled={werte.schlagwoerter.length >= 10}
-          onClick={() => zeileHinzufügen("schlagwoerter")}
-        >
-          Schlagwort hinzufügen
-        </button>
-      </fieldset>
+      <p id={`${idPraefix}-liedtext-hinweis`} className="feld-hinweis">
+        Anfangsworte genügen. Ein geleerter Text wird entfernt.
+      </p>
       {hinweis && (
         <output aria-live="polite" className="feld-fehler">
           {hinweis}

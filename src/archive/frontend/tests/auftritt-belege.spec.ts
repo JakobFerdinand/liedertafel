@@ -2,7 +2,7 @@ import { expect, type Page, test } from "@playwright/test";
 import { mockLeereAufnahmen } from "./aufnahmen-mock";
 
 // ARC-028: Aufführungsnachweise des Auftritts — der Lesesaal der
-// Mitglieder (Titel, Bestätigungsstand, Fassungskette, ohne
+// Mitglieder (Titel, Bestätigungsstand, ohne
 // Quellenangabe) und die Werkbank der Redaktion (Erfassen mit
 // Wiederholungsschlüssel, Bearbeiten mit rowVersion, Löschen mit
 // einmaliger Bestätigung in der Zeile). Die Rezepturen folgen
@@ -31,24 +31,18 @@ const memberMe = {
 const eventId = "00000000-0000-0000-0000-00000000e040";
 const lied1Id = "00000000-0000-0000-0000-0000000000b1";
 const lied2Id = "00000000-0000-0000-0000-0000000000b2";
-const lied2FassungId = "00000000-0000-0000-0000-00000000d0b2";
-const lied2ArrangementId = "00000000-0000-0000-0000-00000000c0b2";
-const arrangement1Id = "00000000-0000-0000-0000-00000000c0b1";
-const standardId = "00000000-0000-0000-0000-00000000d0b1";
 const nachweisAId = "00000000-0000-0000-0000-00000000f0a1";
 const nachweisBId = "00000000-0000-0000-0000-00000000f0a2";
 
-// Nachweis A: bestätigte Aufführung mit bekannter Kette (Standardfassung
-// des gemischten Satzes) und ohne Quellenangabe — der ehrliche Leerstand.
-// Nachweis B: unverifizierte Programmangabe ohne Kette („Fassung
-// unbekannt") mit Pflichtquellenangabe.
+// Nachweis A: bestätigte Aufführung ohne Quellenangabe — der ehrliche
+// Leerstand. Nachweis B: unverifizierte Programmangabe mit
+// Pflichtquellenangabe.
 function nachweisA(aenderungen: Record<string, unknown> = {}) {
   return {
     id: nachweisAId,
     eventId,
-    songId: lied1Id,
-    arrangementId: arrangement1Id,
-    musicalVersionId: standardId,
+    liedId: lied1Id,
+    liedTitle: "Das Wandern ist des Müllers Lust",
     position: 1,
     evidenceStatus: "confirmed",
     sourceNote: null,
@@ -64,9 +58,8 @@ function nachweisB(aenderungen: Record<string, unknown> = {}) {
   return {
     id: nachweisBId,
     eventId,
-    songId: lied2Id,
-    arrangementId: null,
-    musicalVersionId: null,
+    liedId: lied2Id,
+    liedTitle: "Aurora",
     position: 2,
     evidenceStatus: "mention",
     sourceNote: "Programmblatt im Stadtarchiv.",
@@ -105,130 +98,43 @@ async function mockSitzung(page: Page, me: unknown) {
   );
 }
 
-// Lieddetails für Titel- und Kettenauflösung; dieselben Lieder dient
-// die Katalogsuche der Erfassung.
+// Die Katalogsuche der Erfassung liefert beide Lieder.
 async function mockKatalog(page: Page) {
-  await page.route(/\/api\/songs\?.*/, (route) =>
+  await page.route(/\/api\/lieder\?.*/, (route) =>
     route.fulfill(
       json({
         query: "",
         page: 1,
         pageSize: 20,
         total: 2,
-        songs: [
+        filters: { voiceConfiguration: null, occasion: null, dateiTypen: [] },
+        options: { voiceConfigurations: [], occasions: [] },
+        lieder: [
           {
             id: lied1Id,
             title: "Das Wandern ist des Müllers Lust",
             composer: null,
+            arranger: null,
             lyricist: null,
-            published: true,
-            publishedAt: null,
-            alternateTitles: [],
-            arrangements: [],
-            matchedIn: [],
-            matchedArrangements: [],
+            voiceConfiguration: "SATB",
+            musicalKey: "G-Dur",
             language: null,
             occasion: null,
-            tags: [],
+            dateiTypen: [],
           },
           {
             id: lied2Id,
             title: "Aurora",
             composer: null,
+            arranger: null,
             lyricist: null,
-            published: true,
-            publishedAt: null,
-            alternateTitles: [],
-            arrangements: [],
-            matchedIn: [],
-            matchedArrangements: [],
+            voiceConfiguration: "SATB",
+            musicalKey: null,
             language: null,
             occasion: null,
-            tags: [],
+            dateiTypen: [],
           },
         ],
-      }),
-    ),
-  );
-  await page.route(`**/api/songs/${lied1Id}`, (route) =>
-    route.fulfill(
-      json({
-        song: {
-          id: lied1Id,
-          title: "Das Wandern ist des Müllers Lust",
-          composer: "Carl Friedrich Zöllner",
-          lyricist: "Wilhelm Müller",
-          published: true,
-          publishedAt: null,
-          alternateTitles: [],
-          matchedIn: [],
-          matchedArrangements: [],
-          createdAt: "2026-08-20T08:00:00.000Z",
-          updatedAt: "2026-09-01T10:00:00.000Z",
-          lyrics: null,
-          language: null,
-          occasion: null,
-          tags: [],
-          arrangements: [
-            {
-              id: arrangement1Id,
-              label: "Satz für gemischten Chor",
-              arranger: "Josef Gabriel",
-              voiceConfiguration: "SATB",
-              accompaniment: null,
-              musicalVersions: [
-                {
-                  id: standardId,
-                  label: "Standardfassung",
-                  creator: "Josef Gabriel",
-                  musicalKey: "G-Dur",
-                  assets: [],
-                },
-              ],
-            },
-          ],
-        },
-      }),
-    ),
-  );
-  await page.route(`**/api/songs/${lied2Id}`, (route) =>
-    route.fulfill(
-      json({
-        song: {
-          id: lied2Id,
-          title: "Aurora",
-          composer: null,
-          lyricist: null,
-          published: true,
-          publishedAt: null,
-          alternateTitles: [],
-          matchedIn: [],
-          matchedArrangements: [],
-          createdAt: "2026-08-20T08:00:00.000Z",
-          updatedAt: "2026-09-01T10:00:00.000Z",
-          lyrics: null,
-          language: null,
-          occasion: null,
-          tags: [],
-          arrangements: [
-            {
-              id: lied2ArrangementId,
-              label: "Satz für gemischten Chor",
-              arranger: null,
-              voiceConfiguration: "SATB",
-              accompaniment: null,
-              musicalVersions: [
-                {
-                  id: lied2FassungId,
-                  label: "Standardfassung",
-                  creator: null,
-                  musicalKey: "G-Dur",
-                  assets: [],
-                },
-              ],
-            },
-          ],
-        },
       }),
     ),
   );
@@ -294,13 +200,9 @@ test("Mitglied liest die Nachweise mit Standmarke, ohne Quellenangabe", async ({
   await expect(punkte.nth(0)).toContainText("Das Wandern ist des Müllers Lust");
   await expect(punkte.nth(1)).toContainText("2.");
   await expect(punkte.nth(1)).toContainText("Aurora");
-  // Ehrliche Fassungsangaben: bekannte Kette gegen „Fassung unbekannt“.
-  await expect(punkte.nth(0)).toContainText(
-    "Bestätigt · SATB · Satz für gemischten Chor · Standardfassung · Tonart: G-Dur",
-  );
-  await expect(punkte.nth(1)).toContainText(
-    "Programmangabe · Fassung unbekannt",
-  );
+  // Die Standmarke je Zeile.
+  await expect(punkte.nth(0)).toContainText("Bestätigt");
+  await expect(punkte.nth(1)).toContainText("Programmangabe");
   // Die Marken tragen ihren Stand (Bestätigung in Markenfarbe).
   await expect(punkte.nth(0).locator(".nachweis-marke")).toHaveAttribute(
     "data-art",
@@ -310,12 +212,10 @@ test("Mitglied liest die Nachweise mit Standmarke, ohne Quellenangabe", async ({
     "data-art",
     "mention",
   );
-  // Tiefe Leseporte wie im Programm: die bekannte Kette fährt Fassung
-  // und Version in der Adresse, der Nachweis ohne Kette weist nur aufs
-  // Lied — nichts wird erfunden.
+  // Tiefe Leseporte wie im Programm: jede Zeile weist aufs Lied.
   await expect(punkte.nth(0).getByRole("link")).toHaveAttribute(
     "href",
-    `/lied/?id=${lied1Id}&fassung=${arrangement1Id}&version=${standardId}`,
+    `/lied/?id=${lied1Id}`,
   );
   await expect(punkte.nth(1).getByRole("link")).toHaveAttribute(
     "href",
@@ -385,24 +285,14 @@ test("Redaktion erfasst zweimal; der Wiederholungsschlüssel wandert weiter", as
   // Der Bestand wandert mit: die zuletzt gelesene Einbettung trägt die
   // erfassten Nachweise hinter den beiden Anfangszeilen.
   const erfasst: Array<Record<string, unknown>> = [];
-  const neoFassung = (anfrage: Record<string, unknown>, stelle: number) => {
-    const songId = anfrage.songId as string;
-    const fassungId =
-      songId === lied2Id
-        ? lied2FassungId
-        : "musicalVersionId" in anfrage
-          ? (anfrage.musicalVersionId as string)
-          : null;
+  const neoNachweis = (anfrage: Record<string, unknown>, stelle: number) => {
+    const liedId = anfrage.liedId as string;
     return {
       id: `00000000-0000-0000-0000-00000000f1a${stelle}`,
       eventId,
-      songId,
-      arrangementId: fassungId
-        ? songId === lied2Id
-          ? lied2ArrangementId
-          : arrangement1Id
-        : null,
-      musicalVersionId: fassungId,
+      liedId,
+      liedTitle:
+        liedId === lied2Id ? "Aurora" : "Das Wandern ist des Müllers Lust",
       position: stelle,
       evidenceStatus: anfrage.evidenceStatus,
       sourceNote: (anfrage.sourceNote as string | undefined) ?? null,
@@ -426,7 +316,7 @@ test("Redaktion erfasst zweimal; der Wiederholungsschlüssel wandert weiter", as
     expect(route.request().headers()["x-csrf-token"]).toBe("test");
     const anfrage = route.request().postDataJSON() as Record<string, unknown>;
     erfassungen.push(anfrage);
-    const neu = neoFassung(anfrage, erfasst.length + 3);
+    const neu = neoNachweis(anfrage, erfasst.length + 3);
     erfasst.push(neu);
     return route.fulfill(json({ performance: neu }, 201));
   });
@@ -439,34 +329,22 @@ test("Redaktion erfasst zweimal; der Wiederholungsschlüssel wandert weiter", as
     "",
   );
 
-  // Erstes Lied über die Katalogsuche; die Fassung kommt aus dem
-  // Lieddetail (Standardfassung in G-Dur).
+  // Erstes Lied über die Katalogsuche.
   await page.getByLabel("Lied für den Nachweis suchen").fill("Wandern");
   await page.getByRole("button", { name: "Suchen" }).click();
   await page
     .locator(".belege-lied-treffer")
     .getByRole("button", { name: "Das Wandern ist des Müllers Lust" })
     .click();
-  await page
-    .locator(".belege-fassung")
-    .getByRole("button", { name: "Fassung unbekannt" })
-    .click();
-  // Die konkrete Fassung kommt aus dem Lieddetail (Standardfassung in
-  // G-Dur) und reist als musikalische Version in der Erfassung.
-  await page
-    .locator(".belege-erfassung")
-    .getByRole("button", { name: /Standardfassung/ })
-    .click();
   await page.getByRole("radio", { name: "Bestätigte Aufführung" }).check();
   await page.getByRole("button", { name: "Nachweis erfassen" }).click();
   await expect(page.getByText("Nachweis erfasst.")).toBeVisible();
   expect(erfassungen).toHaveLength(1);
   // Der erste Erfassungswunsch trägt den Wiederholungsschlüssel; leere
-  // Quellenangabe bleibt abwesend, die gewählte Kette reist mit.
+  // Quellenangabe bleibt abwesend.
   expect(erfassungen[0]).toEqual({
-    songId: lied1Id,
+    liedId: lied1Id,
     evidenceStatus: "confirmed",
-    musicalVersionId: standardId,
     idempotencyKey: expect.stringMatching(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
     ),
@@ -483,17 +361,12 @@ test("Redaktion erfasst zweimal; der Wiederholungsschlüssel wandert weiter", as
   ).toBeVisible();
   await expect(page.getByLabel("Lied für den Nachweis suchen")).toBeVisible();
 
-  // Zweite Erfassung: Programmangabe mit Pflichtquellenangabe, Fassung
-  // unbekannt (kein musicalVersionId im Körper).
+  // Zweite Erfassung: Programmangabe mit Pflichtquellenangabe.
   await page.getByLabel("Lied für den Nachweis suchen").fill("Aurora");
   await page.getByRole("button", { name: "Suchen" }).click();
   await page
     .locator(".belege-lied-treffer")
     .getByRole("button", { name: "Aurora" })
-    .click();
-  await page
-    .locator(".belege-fassung")
-    .getByRole("button", { name: "Fassung unbekannt" })
     .click();
   await page.getByRole("radio", { name: /Programmangabe/ }).check();
 
@@ -514,7 +387,7 @@ test("Redaktion erfasst zweimal; der Wiederholungsschlüssel wandert weiter", as
   await expect(page.getByText("Nachweis erfasst.")).toBeVisible();
   expect(erfassungen).toHaveLength(2);
   expect(erfassungen[1]).toEqual({
-    songId: lied2Id,
+    liedId: lied2Id,
     evidenceStatus: "mention",
     sourceNote: "Programmheft im Stadtarchiv.",
     idempotencyKey: expect.stringMatching(

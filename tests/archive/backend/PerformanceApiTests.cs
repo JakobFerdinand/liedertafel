@@ -12,7 +12,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Archive.Backend.Tests;
 
 /// <summary>
-/// ARC-028 performance evidence: editors record occurrences of a song at one
+/// ARC-028 performance evidence: editors record occurrences of a Lied at one
 /// event as confirmed or unconfirmed programme mention (closed evidence set,
 /// required note for mentions, unknown chain as first-class null), with
 /// stable occurrence identity, editor attribution, appended positions, the
@@ -31,44 +31,32 @@ public sealed class PerformanceApiTests
 	private const string Zweitredaktion = "zweitredaktion@liedertafel.test";
 
 	[Fact]
-	public async Task CreatingConfirmedOccurrenceWithUnknownKeepsChainOptional()
+	public async Task CreatingConfirmedOccurrencesAppendsThemInPositionOrder()
 	{
 		await using var factory = new AuthApiFactory();
 		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var song = await CreateSongAsync(client, editorSession, "Historisches Lied",
-			versionLabel: "Grundtonart", musicalKey: "G-Dur");
-		var transposed = await CreateVersionAsync(client, editorSession, song.ArrangementId,
-			"Tiefe Tonart", "F-Dur");
+		var lied = await CreateLiedAsync(client, editorSession, "Historisches Lied", musicalKey: "G-Dur");
 		var eventId = await CreateEventAsync(client, editorSession,
 			new { kind = "concert", title = "Frühjahrskonzert" });
 
-		// First occurrence without a known chain: both columns stay null
-		// ("Fassung unbekannt") and the entry appends at position 1.
 		using var first = await PostJsonAsync(client, $"/api/events/{eventId}/performances",
-			new { songId = song.SongId, evidenceStatus = "confirmed" }, editorSession);
+			new { liedId = lied, evidenceStatus = "confirmed" }, editorSession);
 		Assert.Equal(HttpStatusCode.Created, first.StatusCode);
 		var firstEmbed = PerformanceOf(first);
 		Assert.Equal(eventId, Guid.Parse(firstEmbed.GetProperty("eventId").GetString()!));
-		Assert.Equal(song.SongId, Guid.Parse(firstEmbed.GetProperty("songId").GetString()!));
-		Assert.True(firstEmbed.GetProperty("musicalVersionId").ValueKind is JsonValueKind.Null);
-		Assert.True(firstEmbed.GetProperty("arrangementId").ValueKind is JsonValueKind.Null);
+		Assert.Equal(lied, Guid.Parse(firstEmbed.GetProperty("liedId").GetString()!));
+		Assert.Equal("Historisches Lied", firstEmbed.GetProperty("liedTitle").GetString());
 		Assert.Equal("confirmed", firstEmbed.GetProperty("evidenceStatus").GetString());
 		Assert.True(firstEmbed.GetProperty("sourceNote").ValueKind is JsonValueKind.Null);
 		Assert.Equal(1, firstEmbed.GetProperty("position").GetInt32());
 		var firstId = firstEmbed.GetProperty("id").GetString()!;
 
-		// Second occurrence with the explicit version: the resolved chain
-		// fills both columns and the position appends.
 		using var second = await PostJsonAsync(client, $"/api/events/{eventId}/performances",
-			new { songId = song.SongId, musicalVersionId = transposed, evidenceStatus = "confirmed" },
-			editorSession);
+			new { liedId = lied, evidenceStatus = "confirmed", sourceNote = "Zugabe" }, editorSession);
 		Assert.Equal(HttpStatusCode.Created, second.StatusCode);
-		var secondEmbed = PerformanceOf(second);
-		Assert.Equal(2, secondEmbed.GetProperty("position").GetInt32());
-		Assert.Equal(transposed, Guid.Parse(secondEmbed.GetProperty("musicalVersionId").GetString()!));
-		Assert.Equal(song.ArrangementId, Guid.Parse(secondEmbed.GetProperty("arrangementId").GetString()!));
+		Assert.Equal(2, PerformanceOf(second).GetProperty("position").GetInt32());
 
 		// The editor list shows both in position order.
 		var rows = (await GetPerformancesAsync(client, editorSession,
@@ -79,64 +67,19 @@ public sealed class PerformanceApiTests
 	}
 
 	[Fact]
-	public async Task OccurrenceWithMismatchedVersionIsRejected()
-	{
-		await using var factory = new AuthApiFactory();
-		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
-		var editorSession = await SignInAsync(factory, Editor);
-		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var songA = await CreateSongAsync(client, editorSession, "Erstes Lied");
-		var songB = await CreateSongAsync(client, editorSession, "Zweites Lied");
-		var eventId = await CreateEventAsync(client, editorSession,
-			new { kind = "concert", title = "Fassungstest" });
-
-		// The version exists but belongs to the other song.
-		using var mismatch = await PostJsonAsync(client, $"/api/events/{eventId}/performances",
-			new { songId = songA.SongId, musicalVersionId = songB.VersionId, evidenceStatus = "confirmed" },
-			editorSession);
-		Assert.Equal(HttpStatusCode.NotFound, mismatch.StatusCode);
-		var mismatchProblem = await mismatch.Content.ReadFromJsonAsync<JsonElement>();
-		Assert.Equal(PerformanceEndpoints.FassungPasstNichtMessage,
-			mismatchProblem.GetProperty("title").GetString());
-
-		// A genuine occurrence is rejected when a PATCH tries to move it to
-		// another song's version; the refusal writes nothing.
-		using var create = await PostJsonAsync(client, $"/api/events/{eventId}/performances",
-			new { songId = songA.SongId, evidenceStatus = "confirmed" }, editorSession);
-		Assert.Equal(HttpStatusCode.Created, create.StatusCode);
-		var embed = PerformanceOf(create);
-		var id = embed.GetProperty("id").GetString()!;
-		var rowVersion = embed.GetProperty("rowVersion").GetUInt32();
-
-		using var patch = await PatchJsonAsync(client, $"/api/performances/{id}",
-			new { rowVersion, musicalVersionId = songB.VersionId }, editorSession);
-		Assert.Equal(HttpStatusCode.NotFound, patch.StatusCode);
-		var patchProblem = await patch.Content.ReadFromJsonAsync<JsonElement>();
-		Assert.Equal(PerformanceEndpoints.FassungPasstNichtMessage,
-			patchProblem.GetProperty("title").GetString());
-
-		// The refusal left the row exactly as before: no chain, no bump.
-		var rows = (await GetPerformancesAsync(client, editorSession,
-			$"/api/events/{eventId}/performances")).EnumerateArray().ToList();
-		var kept = rows.Single(r => r.GetProperty("id").GetString() == id);
-		Assert.True(kept.GetProperty("musicalVersionId").ValueKind is JsonValueKind.Null);
-		Assert.Equal(rowVersion, kept.GetProperty("rowVersion").GetUInt32());
-	}
-
-	[Fact]
 	public async Task MentionRequiresSourceNoteWhileConfirmedCanOmitIt()
 	{
 		await using var factory = new AuthApiFactory();
 		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var song = await CreateSongAsync(client, editorSession, "Programmlied");
+		var lied = await CreateLiedAsync(client, editorSession, "Programmlied");
 		var eventId = await CreateEventAsync(client, editorSession,
 			new { kind = "concert", title = "Programmtest" });
 
 		// A mention without a usable note is refused.
 		using var bareMention = await PostJsonAsync(client, $"/api/events/{eventId}/performances",
-			new { songId = song.SongId, evidenceStatus = "mention", sourceNote = "" }, editorSession);
+			new { liedId = lied, evidenceStatus = "mention", sourceNote = "" }, editorSession);
 		Assert.Equal(HttpStatusCode.BadRequest, bareMention.StatusCode);
 		var bareProblem = await bareMention.Content.ReadFromJsonAsync<JsonElement>();
 		Assert.Equal(PerformanceEndpoints.EvidenceNoteRequiredMessage,
@@ -144,7 +87,7 @@ public sealed class PerformanceApiTests
 
 		// A mention with a note within the limit lands (the note trims).
 		using var notedMention = await PostJsonAsync(client, $"/api/events/{eventId}/performances",
-			new { songId = song.SongId, evidenceStatus = "mention", sourceNote = "  Programmheft 1972, Blatt 3.  " },
+			new { liedId = lied, evidenceStatus = "mention", sourceNote = "  Programmheft 1972, Blatt 3.  " },
 			editorSession);
 		Assert.Equal(HttpStatusCode.Created, notedMention.StatusCode);
 		var notedEmbed = PerformanceOf(notedMention);
@@ -154,7 +97,7 @@ public sealed class PerformanceApiTests
 
 		// A confirmed performance may omit the note entirely.
 		using var confirmed = await PostJsonAsync(client, $"/api/events/{eventId}/performances",
-			new { songId = song.SongId, evidenceStatus = "confirmed" }, editorSession);
+			new { liedId = lied, evidenceStatus = "confirmed" }, editorSession);
 		Assert.Equal(HttpStatusCode.Created, confirmed.StatusCode);
 		var confirmedEmbed = PerformanceOf(confirmed);
 		Assert.True(confirmedEmbed.GetProperty("sourceNote").ValueKind is JsonValueKind.Null);
@@ -162,7 +105,7 @@ public sealed class PerformanceApiTests
 		// An oversized note is refused and an unknown value out of the
 		// closed evidence set likewise.
 		using var tooLong = await PostJsonAsync(client, $"/api/events/{eventId}/performances",
-			new { songId = song.SongId, evidenceStatus = "confirmed", sourceNote = new string('x', 2001) },
+			new { liedId = lied, evidenceStatus = "confirmed", sourceNote = new string('x', 2001) },
 			editorSession);
 		Assert.Equal(HttpStatusCode.BadRequest, tooLong.StatusCode);
 		var tooLongProblem = await tooLong.Content.ReadFromJsonAsync<JsonElement>();
@@ -170,7 +113,7 @@ public sealed class PerformanceApiTests
 		var unknown = "certainly-sung";
 		Assert.DoesNotContain(unknown, PerformanceEvidenceStatus.Known);
 		using var unknownStatus = await PostJsonAsync(client, $"/api/events/{eventId}/performances",
-			new { songId = song.SongId, evidenceStatus = unknown }, editorSession);
+			new { liedId = lied, evidenceStatus = unknown }, editorSession);
 		Assert.Equal(HttpStatusCode.BadRequest, unknownStatus.StatusCode);
 		var unknownProblem = await unknownStatus.Content.ReadFromJsonAsync<JsonElement>();
 		Assert.Equal(PerformanceEndpoints.InvalidEvidenceStatusMessage,
@@ -192,20 +135,20 @@ public sealed class PerformanceApiTests
 		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var song = await CreateSongAsync(client, editorSession, "Wiederholungslied");
+		var lied = await CreateLiedAsync(client, editorSession, "Wiederholungslied");
 		var eventId = await CreateEventAsync(client, editorSession,
 			new { kind = "concert", title = "Wiederholungstest" });
 
 		// First submission with a retry key creates the occurrence.
 		using var first = await PostJsonAsync(client, $"/api/events/{eventId}/performances",
-			new { songId = song.SongId, evidenceStatus = "confirmed", idempotencyKey = "erster-versuch" },
+			new { liedId = lied, evidenceStatus = "confirmed", idempotencyKey = "erster-versuch" },
 			editorSession);
 		Assert.Equal(HttpStatusCode.Created, first.StatusCode);
 		var storedId = PerformanceOf(first).GetProperty("id").GetString()!;
 
 		// An oversized retry key is refused before any lookup or write.
 		using var tooLongKey = await PostJsonAsync(client, $"/api/events/{eventId}/performances",
-			new { songId = song.SongId, evidenceStatus = "confirmed", idempotencyKey = new string('x', 201) },
+			new { liedId = lied, evidenceStatus = "confirmed", idempotencyKey = new string('x', 201) },
 			editorSession);
 		Assert.Equal(HttpStatusCode.BadRequest, tooLongKey.StatusCode);
 		var tooLongKeyProblem = await tooLongKey.Content.ReadFromJsonAsync<JsonElement>();
@@ -215,7 +158,7 @@ public sealed class PerformanceApiTests
 		// The identical retry with the same key returns the stored row (200,
 		// not a second 201) without inflating the list or mutating it.
 		using var retry = await PostJsonAsync(client, $"/api/events/{eventId}/performances",
-			new { songId = song.SongId, evidenceStatus = "confirmed", idempotencyKey = "erster-versuch" },
+			new { liedId = lied, evidenceStatus = "confirmed", idempotencyKey = "erster-versuch" },
 			editorSession);
 		Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
 		Assert.Equal(storedId, PerformanceOf(retry).GetProperty("id").GetString());
@@ -226,7 +169,7 @@ public sealed class PerformanceApiTests
 
 		// A different retry key marks a new submission: a fresh row lands.
 		using var secondKey = await PostJsonAsync(client, $"/api/events/{eventId}/performances",
-			new { songId = song.SongId, evidenceStatus = "confirmed", idempotencyKey = "zweiter-versuch" },
+			new { liedId = lied, evidenceStatus = "confirmed", idempotencyKey = "zweiter-versuch" },
 			editorSession);
 		Assert.Equal(HttpStatusCode.Created, secondKey.StatusCode);
 		rows = (await GetPerformancesAsync(client, editorSession,
@@ -236,7 +179,7 @@ public sealed class PerformanceApiTests
 		// The direct duplicate guard: the same content without a retry key
 		// is refused with the German 409 title and the total stays the same.
 		using var duplicate = await PostJsonAsync(client, $"/api/events/{eventId}/performances",
-			new { songId = song.SongId, evidenceStatus = "confirmed" }, editorSession);
+			new { liedId = lied, evidenceStatus = "confirmed" }, editorSession);
 		Assert.Equal(HttpStatusCode.Conflict, duplicate.StatusCode);
 		var duplicateProblem = await duplicate.Content.ReadFromJsonAsync<JsonElement>();
 		Assert.Equal(PerformanceEndpoints.DuplicateOccurrenceMessage,
@@ -247,7 +190,7 @@ public sealed class PerformanceApiTests
 
 		// A distinguishing note separates a genuine repeat from a duplicate.
 		using var genuine = await PostJsonAsync(client, $"/api/events/{eventId}/performances",
-			new { songId = song.SongId, evidenceStatus = "confirmed", sourceNote = "Zugabe" },
+			new { liedId = lied, evidenceStatus = "confirmed", sourceNote = "Zugabe" },
 			editorSession);
 		Assert.Equal(HttpStatusCode.Created, genuine.StatusCode);
 	}
@@ -259,18 +202,18 @@ public sealed class PerformanceApiTests
 		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var song = await CreateSongAsync(client, editorSession, "Zweimal gesungen");
+		var lied = await CreateLiedAsync(client, editorSession, "Zweimal gesungen");
 		var eventId = await CreateEventAsync(client, editorSession,
 			new { kind = "concert", title = "Wiederholung" });
 
-		// Two genuine occurrences of the same song differ by their notes.
+		// Two genuine occurrences of the same Lied differ by their notes.
 		using var first = await PostJsonAsync(client, $"/api/events/{eventId}/performances",
-			new { songId = song.SongId, evidenceStatus = "confirmed", sourceNote = "Stück Remark" },
+			new { liedId = lied, evidenceStatus = "confirmed", sourceNote = "Stück Remark" },
 			editorSession);
 		Assert.Equal(HttpStatusCode.Created, first.StatusCode);
 		var firstId = PerformanceOf(first).GetProperty("id").GetString()!;
 		using var second = await PostJsonAsync(client, $"/api/events/{eventId}/performances",
-			new { songId = song.SongId, evidenceStatus = "confirmed", sourceNote = "2. Teil des Abends" },
+			new { liedId = lied, evidenceStatus = "confirmed", sourceNote = "2. Teil des Abends" },
 			editorSession);
 		Assert.Equal(HttpStatusCode.Created, second.StatusCode);
 		var secondEmbed = PerformanceOf(second);
@@ -297,11 +240,11 @@ public sealed class PerformanceApiTests
 		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var song = await CreateSongAsync(client, editorSession, "Nachweislied");
+		var lied = await CreateLiedAsync(client, editorSession, "Nachweislied");
 		var eventId = await CreateEventAsync(client, editorSession,
 			new { kind = "concert", title = "Bearbeitungstest" });
 		using var create = await PostJsonAsync(client, $"/api/events/{eventId}/performances",
-			new { songId = song.SongId, evidenceStatus = "confirmed", idempotencyKey = "basis" },
+			new { liedId = lied, evidenceStatus = "confirmed", idempotencyKey = "basis" },
 			editorSession);
 		Assert.Equal(HttpStatusCode.Created, create.StatusCode);
 		var embed = PerformanceOf(create);
@@ -346,18 +289,17 @@ public sealed class PerformanceApiTests
 	}
 
 	[Fact]
-	public async Task ExplicitNullPatchClearsChainAndNote()
+	public async Task ExplicitNullPatchClearsTheNote()
 	{
 		await using var factory = new AuthApiFactory();
 		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var song = await CreateSongAsync(client, editorSession, "Nullierungslied",
-			versionLabel: "Grundtonart", musicalKey: "G-Dur");
+		var lied = await CreateLiedAsync(client, editorSession, "Nullierungslied", musicalKey: "G-Dur");
 		var eventId = await CreateEventAsync(client, editorSession,
 			new { kind = "concert", title = "Nulltest" });
 		using var create = await PostJsonAsync(client, $"/api/events/{eventId}/performances",
-			new { songId = song.SongId, musicalVersionId = song.VersionId, evidenceStatus = "confirmed",
+			new { liedId = lied, evidenceStatus = "confirmed",
 				sourceNote = "Chorsaalnotiz", idempotencyKey = "basis" }, editorSession);
 		Assert.Equal(HttpStatusCode.Created, create.StatusCode);
 		var embed = PerformanceOf(create);
@@ -374,26 +316,15 @@ public sealed class PerformanceApiTests
 		Assert.True(clearedNote.GetProperty("sourceNote").ValueKind is JsonValueKind.Null);
 		Assert.Equal(rowVersion + 1, clearedNote.GetProperty("rowVersion").GetUInt32());
 
-		// An explicit null chain clears BOTH columns ("Fassung unbekannt").
-		using var clearChain = await PatchJsonAsync(client, $"/api/performances/{id}",
-			new { rowVersion = clearedNote.GetProperty("rowVersion").GetUInt32(),
-				musicalVersionId = (Guid?)null }, editorSession);
-		Assert.Equal(HttpStatusCode.OK, clearChain.StatusCode);
-		var clearedChain = PerformanceOf(clearChain);
-		Assert.True(clearedChain.GetProperty("musicalVersionId").ValueKind is JsonValueKind.Null);
-		Assert.True(clearedChain.GetProperty("arrangementId").ValueKind is JsonValueKind.Null);
-		Assert.Equal(song.SongId, Guid.Parse(clearedChain.GetProperty("songId").GetString()!));
-		Assert.Equal(rowVersion + 2, clearedChain.GetProperty("rowVersion").GetUInt32());
-
 		// Absent fields stay unchanged: a patch without the note field keeps
 		// the cleared state instead of restoring anything.
 		using var absent = await PatchJsonAsync(client, $"/api/performances/{id}",
-			new { rowVersion = clearedChain.GetProperty("rowVersion").GetUInt32(),
+			new { rowVersion = clearedNote.GetProperty("rowVersion").GetUInt32(),
 				evidenceStatus = "confirmed" }, editorSession);
 		Assert.Equal(HttpStatusCode.OK, absent.StatusCode);
 		var kept = PerformanceOf(absent);
 		Assert.True(kept.GetProperty("sourceNote").ValueKind is JsonValueKind.Null);
-		Assert.True(kept.GetProperty("musicalVersionId").ValueKind is JsonValueKind.Null);
+		Assert.Equal(lied, Guid.Parse(kept.GetProperty("liedId").GetString()!));
 	}
 
 	[Fact]
@@ -403,16 +334,16 @@ public sealed class PerformanceApiTests
 		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var song = await CreateSongAsync(client, editorSession, "Tilgungslied");
+		var lied = await CreateLiedAsync(client, editorSession, "Tilgungslied");
 		var eventId = await CreateEventAsync(client, editorSession,
 			new { kind = "concert", title = "Tilgungstest" });
 		using var first = await PostJsonAsync(client, $"/api/events/{eventId}/performances",
-			new { songId = song.SongId, evidenceStatus = "confirmed", sourceNote = "Erster Eintrag" },
+			new { liedId = lied, evidenceStatus = "confirmed", sourceNote = "Erster Eintrag" },
 			editorSession);
 		Assert.Equal(HttpStatusCode.Created, first.StatusCode);
 		var firstId = PerformanceOf(first).GetProperty("id").GetString()!;
 		using var second = await PostJsonAsync(client, $"/api/events/{eventId}/performances",
-			new { songId = song.SongId, evidenceStatus = "confirmed", sourceNote = "Zweiter Eintrag" },
+			new { liedId = lied, evidenceStatus = "confirmed", sourceNote = "Zweiter Eintrag" },
 			editorSession);
 		Assert.Equal(HttpStatusCode.Created, second.StatusCode);
 		var secondId = PerformanceOf(second).GetProperty("id").GetString()!;
@@ -461,17 +392,17 @@ public sealed class PerformanceApiTests
 		var memberSession = await SignInAsync(factory, Member);
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var song = await CreateSongAsync(client, editorSession, "Mitgliedslied");
+		var lied = await CreateLiedAsync(client, editorSession, "Mitgliedslied");
 		var eventId = await CreateEventAsync(client, editorSession,
 			new { kind = "concert", title = "Mitgliederblick" });
 		await PublishEventAsync(client, editorSession, eventId);
 		using var confirmedPost = await PostJsonAsync(client, $"/api/events/{eventId}/performances",
-			new { songId = song.SongId, evidenceStatus = "confirmed", idempotencyKey = "bestätigt" },
+			new { liedId = lied, evidenceStatus = "confirmed", idempotencyKey = "bestätigt" },
 			editorSession);
 		Assert.Equal(HttpStatusCode.Created, confirmedPost.StatusCode);
 		var confirmedId = PerformanceOf(confirmedPost).GetProperty("id").GetString()!;
 		using var mentionPost = await PostJsonAsync(client, $"/api/events/{eventId}/performances",
-			new { songId = song.SongId, evidenceStatus = "mention", sourceNote = "Programm von 1968", idempotencyKey = "hinweis" },
+			new { liedId = lied, evidenceStatus = "mention", sourceNote = "Programm von 1968", idempotencyKey = "hinweis" },
 			editorSession);
 		Assert.Equal(HttpStatusCode.Created, mentionPost.StatusCode);
 		var mentionId = PerformanceOf(mentionPost).GetProperty("id").GetString()!;
@@ -486,7 +417,7 @@ public sealed class PerformanceApiTests
 			memberRows.Select(r => r.GetProperty("id").GetString()!).ToList());
 		Assert.Equal(new[] { "confirmed", "mention" },
 			memberRows.Select(r => r.GetProperty("evidenceStatus").GetString()!).ToList());
-		Assert.Equal(song.SongId, Guid.Parse(memberRows[0].GetProperty("songId").GetString()!));
+		Assert.Equal(lied, Guid.Parse(memberRows[0].GetProperty("liedId").GetString()!));
 		// The occurrence embeds never carry a source note (or any audit
 		// field); the event's own top-level sourceNote field is outside this
 		// slice, so the recursive scan runs over the evidence embeds only.
@@ -507,12 +438,12 @@ public sealed class PerformanceApiTests
 		Assert.Equal(HttpStatusCode.Forbidden, memberListResponse.StatusCode);
 		var memberListProblem = await memberListResponse.Content.ReadFromJsonAsync<JsonElement>();
 		Assert.Equal(PerformanceEndpoints.ForbiddenMessage, memberListProblem.GetProperty("title").GetString());
-		// The song history is member-readable since ARC-031 (published
-		// events only, never source notes; see SongHistoryApiTests).
-		using var memberSongList = new HttpRequestMessage(HttpMethod.Get, $"/api/songs/{song.SongId}/performances");
-		memberSongList.Headers.Add("Cookie", memberSession);
-		using var memberSongListResponse = await client.SendAsync(memberSongList);
-		Assert.Equal(HttpStatusCode.OK, memberSongListResponse.StatusCode);
+		// The Lied history is member-readable since ARC-031 (published
+		// events only, never source notes; see LiedHistoryApiTests).
+		using var memberLiedList = new HttpRequestMessage(HttpMethod.Get, $"/api/lieder/{lied}/performances");
+		memberLiedList.Headers.Add("Cookie", memberSession);
+		using var memberLiedListResponse = await client.SendAsync(memberLiedList);
+		Assert.Equal(HttpStatusCode.OK, memberLiedListResponse.StatusCode);
 		using var anonymousList = new HttpRequestMessage(HttpMethod.Get, $"/api/events/{eventId}/performances");
 		using var anonymousListResponse = await client.SendAsync(anonymousList);
 		Assert.Equal(HttpStatusCode.Unauthorized, anonymousListResponse.StatusCode);
@@ -527,7 +458,7 @@ public sealed class PerformanceApiTests
 		var memberSession = await SignInAsync(factory, Member);
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var song = await CreateSongAsync(client, editorSession, "Unberührtes Lied");
+		var lied = await CreateLiedAsync(client, editorSession, "Unberührtes Lied");
 		var eventId = await CreateEventAsync(client, editorSession, new
 		{
 			kind = "concert",
@@ -569,9 +500,7 @@ public sealed class PerformanceApiTests
 			{
 				RevisionId = revision.Id,
 				Position = 1,
-				SongId = song.SongId,
-				ArrangementId = song.ArrangementId,
-				MusicalVersionId = song.VersionId,
+				LiedId = lied,
 			});
 			programme.Revisions.Add(revision);
 			db.Programmes.Add(programme);
@@ -580,7 +509,7 @@ public sealed class PerformanceApiTests
 
 		// Add, patch and delete evidence; the event row keeps every stamp.
 		using var create = await PostJsonAsync(client, $"/api/events/{eventId}/performances",
-			new { songId = song.SongId, evidenceStatus = "confirmed", idempotencyKey = "eins" },
+			new { liedId = lied, evidenceStatus = "confirmed", idempotencyKey = "eins" },
 			editorSession);
 		Assert.Equal(HttpStatusCode.Created, create.StatusCode);
 		var embed = PerformanceOf(create);
@@ -596,7 +525,7 @@ public sealed class PerformanceApiTests
 		// A fresh occurrence re-enters at position 1 after the delete, and
 		// the member detail still shows the untouched programme embed.
 		using var recreated = await PostJsonAsync(client, $"/api/events/{eventId}/performances",
-			new { songId = song.SongId, evidenceStatus = "mention", sourceNote = "Noch ein Hinweis" },
+			new { liedId = lied, evidenceStatus = "mention", sourceNote = "Noch ein Hinweis" },
 			editorSession);
 		Assert.Equal(HttpStatusCode.Created, recreated.StatusCode);
 		Assert.Equal(1, PerformanceOf(recreated).GetProperty("position").GetInt32());
@@ -625,14 +554,14 @@ public sealed class PerformanceApiTests
 		var memberSession = await SignInAsync(factory, Member);
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var song = await CreateSongAsync(client, editorSession, "Entwurfslied");
+		var lied = await CreateLiedAsync(client, editorSession, "Entwurfslied");
 		var eventId = await CreateEventAsync(client, editorSession,
 			new { kind = "concert", title = "Entwurfsauftritt" });
 
 		// Evidence on a draft event is allowed for editors (entry first,
 		// publication later, draft songs included).
 		using var create = await PostJsonAsync(client, $"/api/events/{eventId}/performances",
-			new { songId = song.SongId, evidenceStatus = "confirmed", idempotencyKey = "entwurf" },
+			new { liedId = lied, evidenceStatus = "confirmed", idempotencyKey = "entwurf" },
 			editorSession);
 		Assert.Equal(HttpStatusCode.Created, create.StatusCode);
 		var embed = PerformanceOf(create);
@@ -662,14 +591,14 @@ public sealed class PerformanceApiTests
 		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var songA = await CreateSongAsync(client, editorSession, "Erstes Lied");
-		var songB = await CreateSongAsync(client, editorSession, "Zweites Lied");
+		var liedA = await CreateLiedAsync(client, editorSession, "Erstes Lied");
+		var liedB = await CreateLiedAsync(client, editorSession, "Zweites Lied");
 		var eventId = await CreateEventAsync(client, editorSession,
 			new { kind = "concert", title = "Programm ohne Nachweis" });
 		var items = new object[]
 		{
-			new { songId = songA.SongId, musicalVersionId = songA.VersionId },
-			new { songId = songB.SongId, musicalVersionId = songB.VersionId },
+			new { liedId = liedA },
+			new { liedId = liedB },
 		};
 		using var saveResponse = await PutJsonAsync(client, $"/api/events/{eventId}/programme/items",
 			new { items }, editorSession);
@@ -700,7 +629,7 @@ public sealed class PerformanceApiTests
 		var memberSession = await SignInAsync(factory, Member);
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var song = await CreateSongAsync(client, editorSession, "Fehlerlied");
+		var lied = await CreateLiedAsync(client, editorSession, "Fehlerlied");
 		var eventId = await CreateEventAsync(client, editorSession,
 			new { kind = "concert", title = "Fehlertest" });
 
@@ -708,7 +637,7 @@ public sealed class PerformanceApiTests
 		var (anonymousCookie, anonymousToken) = await GetCsrfAsync(client);
 		using var noCsrf = new HttpRequestMessage(HttpMethod.Post, $"/api/events/{eventId}/performances")
 		{
-			Content = JsonContent.Create(new { songId = song.SongId, evidenceStatus = "confirmed" }),
+			Content = JsonContent.Create(new { liedId = lied, evidenceStatus = "confirmed" }),
 		};
 		noCsrf.Headers.Add("Cookie", anonymousCookie);
 		using var noCsrfResponse = await client.SendAsync(noCsrf);
@@ -720,12 +649,12 @@ public sealed class PerformanceApiTests
 		// cannot either (401) — the anonymous request reuses the fresh CSRF
 		// pair so the antiforgery gate passes before the auth decision.
 		using var memberPost = await PostJsonAsync(client, $"/api/events/{eventId}/performances",
-			new { songId = song.SongId, evidenceStatus = "confirmed" }, memberSession);
+			new { liedId = lied, evidenceStatus = "confirmed" }, memberSession);
 		Assert.Equal(HttpStatusCode.Forbidden, memberPost.StatusCode);
 		var memberProblem = await memberPost.Content.ReadFromJsonAsync<JsonElement>();
 		Assert.Equal(PerformanceEndpoints.ForbiddenMessage, memberProblem.GetProperty("title").GetString());
 		using var anonymousPost = AuthedPost($"/api/events/{eventId}/performances",
-			new { songId = song.SongId, evidenceStatus = "confirmed" },
+			new { liedId = lied, evidenceStatus = "confirmed" },
 			anonymousCookie, anonymousToken);
 		using var anonymousPostResponse = await client.SendAsync(anonymousPost);
 		Assert.Equal(HttpStatusCode.Unauthorized, anonymousPostResponse.StatusCode);
@@ -741,23 +670,23 @@ public sealed class PerformanceApiTests
 		var unknownProblem = await unknownPatchResponse.Content.ReadFromJsonAsync<JsonElement>();
 		Assert.Equal(PerformanceEndpoints.NotFoundMessage, unknownProblem.GetProperty("title").GetString());
 
-		// An unknown song id answers the German 404 on create.
-		using var unknownSong = await PostJsonAsync(client, $"/api/events/{eventId}/performances",
-			new { songId = Guid.NewGuid(), evidenceStatus = "confirmed" }, editorSession);
-		Assert.Equal(HttpStatusCode.NotFound, unknownSong.StatusCode);
-		var unknownSongProblem = await unknownSong.Content.ReadFromJsonAsync<JsonElement>();
-		Assert.Equal(PerformanceEndpoints.SongNotFoundMessage,
-			unknownSongProblem.GetProperty("title").GetString());
+		// An unknown Lied id answers the German 404 on create.
+		using var unknownLied = await PostJsonAsync(client, $"/api/events/{eventId}/performances",
+			new { liedId = Guid.NewGuid(), evidenceStatus = "confirmed" }, editorSession);
+		Assert.Equal(HttpStatusCode.NotFound, unknownLied.StatusCode);
+		var unknownLiedProblem = await unknownLied.Content.ReadFromJsonAsync<JsonElement>();
+		Assert.Equal(PerformanceEndpoints.LiedNotFoundMessage,
+			unknownLiedProblem.GetProperty("title").GetString());
 	}
 
 	[Fact]
-	public async Task SongHistoryOrdersByEventDateDescending()
+	public async Task LiedHistoryOrdersByEventDateDescending()
 	{
 		await using var factory = new AuthApiFactory();
 		await SeedAsync(factory, Editor, ArchiveRoles.Editor);
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var song = await CreateSongAsync(client, editorSession, "Geschichtslied");
+		var lied = await CreateLiedAsync(client, editorSession, "Geschichtslied");
 		var newer = await CreateEventAsync(client, editorSession, new
 		{
 			kind = "concert",
@@ -777,15 +706,15 @@ public sealed class PerformanceApiTests
 		var undated = await CreateEventAsync(client, editorSession,
 			new { kind = "other", title = "Undatierter Auftritt" });
 		await PostJsonAsync(client, $"/api/events/{older}/performances",
-			new { songId = song.SongId, evidenceStatus = "confirmed" }, editorSession);
+			new { liedId = lied, evidenceStatus = "confirmed" }, editorSession);
 		await PostJsonAsync(client, $"/api/events/{undated}/performances",
-			new { songId = song.SongId, evidenceStatus = "confirmed" }, editorSession);
+			new { liedId = lied, evidenceStatus = "confirmed" }, editorSession);
 		await PostJsonAsync(client, $"/api/events/{newer}/performances",
-			new { songId = song.SongId, evidenceStatus = "mention", sourceNote = "Programm 1975" }, editorSession);
+			new { liedId = lied, evidenceStatus = "mention", sourceNote = "Programm 1975" }, editorSession);
 
-		// The song history reads newest first, unknown-year events last.
+		// The Lied history reads newest first, unknown-year events last.
 		var history = (await GetPerformancesAsync(client, editorSession,
-			$"/api/songs/{song.SongId}/performances")).EnumerateArray().ToList();
+			$"/api/lieder/{lied}/performances")).EnumerateArray().ToList();
 		Assert.Equal(3, history.Count);
 		Assert.Equal(newer, Guid.Parse(history[0].GetProperty("eventId").GetString()!));
 		Assert.Equal(undated, Guid.Parse(history[2].GetProperty("eventId").GetString()!));
@@ -809,11 +738,11 @@ public sealed class PerformanceApiTests
 		var editorSession = await SignInAsync(factory, Editor);
 		var secondSession = await SignInAsync(factory, Zweitredaktion);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var song = await CreateSongAsync(client, editorSession, "Autorenlied");
+		var lied = await CreateLiedAsync(client, editorSession, "Autorenlied");
 		var eventId = await CreateEventAsync(client, editorSession,
 			new { kind = "concert", title = "Autorentest" });
 		using var create = await PostJsonAsync(client, $"/api/events/{eventId}/performances",
-			new { songId = song.SongId, evidenceStatus = "confirmed", idempotencyKey = "urheber" },
+			new { liedId = lied, evidenceStatus = "confirmed", idempotencyKey = "urheber" },
 			editorSession);
 		Assert.Equal(HttpStatusCode.Created, create.StatusCode);
 		var embed = PerformanceOf(create);
@@ -908,66 +837,10 @@ public sealed class PerformanceApiTests
 		Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 	}
 
-	/// <summary>
-	/// Creates a song with its POST /api/songs default chain (one arrangement
-	/// carrying one musical version), optionally labels both and publishes
-	/// the song, so evidence can reference the chain like the programme does.
-	/// </summary>
-	private static async Task<(Guid SongId, Guid ArrangementId, Guid VersionId)> CreateSongAsync(
+	private static Task<Guid> CreateLiedAsync(
 		HttpClient client, string editorSession, string title,
-		string? arrangementLabel = null, string? voiceConfiguration = null,
-		string? versionLabel = null, string? musicalKey = null, bool publish = true)
-	{
-		var (cookie, token) = await GetCsrfAsync(client, editorSession);
-		using var create = AuthedPost("/api/songs", new { title }, $"{cookie}; {editorSession}", token);
-		using var createResponse = await client.SendAsync(create);
-		Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
-		var song = (await createResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("song");
-		var songId = Guid.Parse(song.GetProperty("id").GetString()!);
-		var arrangement = song.GetProperty("arrangements").EnumerateArray().Single();
-		var arrangementId = Guid.Parse(arrangement.GetProperty("id").GetString()!);
-		var version = arrangement.GetProperty("musicalVersions").EnumerateArray().Single();
-		var versionId = Guid.Parse(version.GetProperty("id").GetString()!);
-		if (arrangementLabel is not null || voiceConfiguration is not null)
-		{
-			using var patch = AuthedPatch($"/api/arrangements/{arrangementId}",
-				new { label = arrangementLabel, voiceConfiguration }, $"{cookie}; {editorSession}", token);
-			using var patchResponse = await client.SendAsync(patch);
-			Assert.Equal(HttpStatusCode.OK, patchResponse.StatusCode);
-		}
-		if (versionLabel is not null || musicalKey is not null)
-		{
-			using var patch = AuthedPatch($"/api/musical-versions/{versionId}",
-				new { label = versionLabel, musicalKey }, $"{cookie}; {editorSession}", token);
-			using var patchResponse = await client.SendAsync(patch);
-			Assert.Equal(HttpStatusCode.OK, patchResponse.StatusCode);
-		}
-		if (publish)
-		{
-			using var publishSong = AuthedPost($"/api/songs/{songId}/publish", new { },
-				$"{cookie}; {editorSession}", token);
-			using var publishResponse = await client.SendAsync(publishSong);
-			Assert.Equal(HttpStatusCode.OK, publishResponse.StatusCode);
-		}
-		return (songId, arrangementId, versionId);
-	}
-
-	/// <summary>Adds a further labelled musical version to the arrangement.</summary>
-	private static async Task<Guid> CreateVersionAsync(
-		HttpClient client, string editorSession, Guid arrangementId, string label, string? musicalKey = null)
-	{
-		var (cookie, token) = await GetCsrfAsync(client, editorSession);
-		using var create = AuthedPost($"/api/arrangements/{arrangementId}/versions",
-			new { label, musicalKey }, $"{cookie}; {editorSession}", token);
-		using var response = await client.SendAsync(create);
-		Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-		var song = (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("song");
-		var arrangement = song.GetProperty("arrangements").EnumerateArray()
-			.Single(a => Guid.Parse(a.GetProperty("id").GetString()!) == arrangementId);
-		var version = arrangement.GetProperty("musicalVersions").EnumerateArray()
-			.Single(v => v.GetProperty("label").GetString() == label);
-		return Guid.Parse(version.GetProperty("id").GetString()!);
-	}
+		string? voiceConfiguration = null, string? musicalKey = null)
+		=> LiedFixtures.CreateLiedAsync(client, editorSession, title, voiceConfiguration, musicalKey);
 
 	private static async Task<JsonElement> ProgrammeOfAsync(HttpResponseMessage response)
 		=> (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("programme");

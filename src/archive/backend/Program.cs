@@ -9,8 +9,8 @@ using Archive.Backend.Data;
 using Archive.Backend.Development;
 using Archive.Backend.Events;
 using Archive.Backend.Extraction;
+using Archive.Backend.Lieder;
 using Archive.Backend.Maintenance;
-using Archive.Backend.Provenance;
 using Archive.Backend.Reading;
 using Archive.Backend.Recordings;
 using Microsoft.AspNetCore.Antiforgery;
@@ -23,7 +23,7 @@ using Microsoft.Extensions.Options;
 using ChatOptions = Archive.Backend.Chat.ChatOptions;
 
 var command = args.FirstOrDefault();
-if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" or "--bootstrap-admin" or "--repair-admin" or "--seed-dev-auth" or "--send-test-mail" or "--cleanup-uploads" or "--extract-queue" or "--dispatch-extraction" or "--read-queue" or "--dispatch-reading")
+if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" or "--bootstrap-admin" or "--repair-admin" or "--seed-dev-auth" or "--send-test-mail" or "--cleanup-uploads" or "--cleanup-dropped-blobs" or "--extract-queue" or "--dispatch-extraction" or "--read-queue" or "--dispatch-reading")
 {
     var jobs = Host.CreateApplicationBuilder(args.Skip(1).ToArray());
     jobs.AddServiceDefaults();
@@ -40,6 +40,7 @@ if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" o
     jobs.Services.AddSingleton<BlobAssetStorageAdapter>();
     jobs.Services.AddSingleton<IAssetStorageAdapter>(sp => sp.GetRequiredService<BlobAssetStorageAdapter>());
     jobs.Services.AddScoped<UploadSessionCleaner>();
+    jobs.Services.AddScoped<DroppedBlobCleaner>();
     // ARC-034: the extraction worker stack for the finite commands. The
     // message source is built from the same shared queue client factory as
     // the sender; an explicitly started consumer without any queue backend
@@ -68,7 +69,6 @@ if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" o
     });
     jobs.Services.AddSingleton<IPdfPageRenderer, PdfiumPageRenderer>();
     jobs.Services.AddArchiveAi(jobs.Configuration);
-    jobs.Services.AddOptions<ProvenanceOptions>().BindConfiguration(ProvenanceOptions.SectionName);
     jobs.Services.AddScoped<CatalogueWriteService>();
     jobs.Services.AddScoped<AutomatedFieldWriter>();
     jobs.Services.AddSingleton<ScanReadingModel>();
@@ -113,6 +113,16 @@ if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" o
                 .CleanAsync(token);
             provider.GetRequiredService<ILoggerFactory>().CreateLogger("Archive.Jobs")
                 .LogInformation("Cleanup marked {AbandonedCount} upload sessions abandoned", cleaned);
+        }
+        else if (command == "--cleanup-dropped-blobs")
+        {
+            // #172 one-off operator command after the contract migration:
+            // releases the blobs of the dropped asset/revision model, keeps
+            // every Datei. --dry-run only counts.
+            var dropped = await provider.GetRequiredService<DroppedBlobCleaner>()
+                .CleanAsync(args.Contains("--dry-run"), token);
+            provider.GetRequiredService<ILoggerFactory>().CreateLogger("Archive.Jobs")
+                .LogInformation("Dropped-blob cleanup finished: {Result}", dropped);
         }
         else if (command == "--extract-queue")
         {
@@ -263,20 +273,11 @@ builder.Services.AddOptions<ChatOptions>()
 // ARC-022-3: provider selection, model keys, usage ledger, hard monthly cap
 // and the gateway. Whatever injects IChatClient gets the budgeted pipeline.
 builder.Services.AddArchiveAi(builder.Configuration);
-// ARC-013-1: the shared write path with per-field provenance and proposals.
-builder.Services.AddOptions<ProvenanceOptions>()
-	.BindConfiguration(ProvenanceOptions.SectionName);
+// The shared, validated write path of the catalogue and event endpoints.
 builder.Services.AddScoped<CatalogueWriteService>();
-builder.Services.AddScoped<AutomatedFieldWriter>();
-builder.Services.AddScoped<IProposalHandler, FieldSuggestionHandler>();
-builder.Services.AddScoped<IProposalHandler, SongCreationHandler>();
-builder.Services.AddScoped<IProposalHandler, SongPublicationHandler>();
-builder.Services.AddScoped<FieldSuggestionHandler>();
-builder.Services.AddScoped<SongCreationHandler>();
-builder.Services.AddScoped<SongPublicationHandler>();
-builder.Services.AddScoped<ProposalHandlers>();
-builder.Services.AddScoped<ProposalDecisions>();
 builder.Services.AddSingleton<ArchiveChatAgent>();
+builder.Services.AddSingleton<IDateiFinalizedHook, DateiReplacementHook>();
+builder.Services.AddSingleton<IDateiFinalizedHook, DateiExtractionHook>();
 builder.Services.AddScoped<ArchiveChatService>();
 builder.Services.AddArchiveAuth(builder.Configuration, builder.Environment);
 // ARC-011: Container Apps terminates TLS at the front proxy and forwards
@@ -369,19 +370,20 @@ app.MapMaintenanceEndpoints();
 app.MapAuthEndpoints();
 app.MapPasskeyEndpoints();
 app.MapMemberAdminEndpoints();
-app.MapCatalogueEndpoints();
 app.MapEventEndpoints();
 app.MapProgrammeEndpoints();
 app.MapPerformanceEndpoints();
-app.MapSongHistoryEndpoints();
 app.MapProgrammeConfirmationEndpoints();
 app.MapChatEndpoints();
-app.MapAssetEndpoints();
+app.MapUploadEndpoints();
 app.MapRecordingEndpoints();
 app.MapRecordingPassageEndpoints();
 app.MapExtractionEndpoints();
 app.MapReadingEndpoints();
-app.MapProvenanceEndpoints();
+app.MapLiedEndpoints();
+app.MapDateiEndpoints();
+app.MapDateiTrashEndpoints();
+app.MapLiedHistoryEndpoints();
 app.MapDevelopmentDiagnostics();
 
 // A specific fallback reserves the entire API namespace, including missing files.

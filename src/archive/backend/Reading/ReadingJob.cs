@@ -1,9 +1,9 @@
-using Archive.Backend.Assets;
+using Archive.Backend.Lieder;
 
 namespace Archive.Backend.Reading;
 
 /// <summary>
-/// ARC-034-1 lifecycle of one revision's AI reading: <see cref="Queued"/>
+/// ARC-034-1 lifecycle of one Datei's AI reading: <see cref="Queued"/>
 /// rows wait for the queue handoff, <see cref="Running"/> marks an accepted
 /// worker run, <see cref="WaitingForBudget"/> parks work the monthly cap
 /// refused (its queue message is acknowledged; the dispatch sweep re-queues
@@ -20,24 +20,22 @@ public enum ReadingStatus
 }
 
 /// <summary>
-/// One persisted AI reading work item per <see cref="FileRevision"/> of a
-/// score (ARC-034-1). Like <c>ExtractionJob</c> it is keyed by the immutable
-/// revision, so a late or duplicated queue message can only ever land in the
-/// row of the revision it names. The extraction worker inserts the row in the
+/// One persisted AI reading work item per Noten <see cref="Datei"/> of a
+/// Lied (ARC-034-1, re-keyed by #169). Like <c>ExtractionJob</c> it is keyed by the
+/// immutable Datei, so a late or duplicated queue message can only ever land in the
+/// row of the Datei it names. The extraction worker inserts the row in the
 /// same save that completes the extraction (outbox); the model-free
 /// extraction job therefore hands every score over, whether it found text or
-/// not. Results never leave the revision: the transcription goes into the
-/// revision's extraction row, catalogue fields go through the shared write
-/// path, and only while the revision is still the asset's current file.
+/// not. Results never leave the Datei: the transcription goes into the
+/// Datei's extraction row, Lied fields go through the shared write
+/// path, and only while the Datei is not in the trash.
 /// </summary>
 public sealed class ReadingJob
 {
-	/// <summary>Primary key; always the owning revision's id, never generated.</summary>
-	public Guid RevisionId { get; set; }
+	/// <summary>Primary key; always the owning Datei's id, never generated.</summary>
+	public Guid DateiId { get; set; }
 
-	public FileRevision Revision { get; set; } = null!;
-
-	public Guid AssetId { get; set; }
+	public Datei Datei { get; set; } = null!;
 
 	public ReadingStatus Status { get; set; }
 
@@ -56,11 +54,8 @@ public sealed class ReadingJob
 	/// <summary>True once the catalogue-field step ran for the current text; a resumed run skips it.</summary>
 	public bool FieldsDone { get; set; }
 
-	/// <summary>Fields written with a badge (regex or AI), summed over every field step of this file (a "Rest lesen" adds to it).</summary>
+	/// <summary>Empty fields filled (regex or AI), summed over every field step of this file (a "Rest lesen" adds to it).</summary>
 	public int FieldsApplied { get; set; }
-
-	/// <summary>Fields handed to the "Vorschläge" queue instead of being written, summed like <see cref="FieldsApplied"/>.</summary>
-	public int FieldsProposed { get; set; }
 
 	/// <summary>German reason; null unless <see cref="Status"/> is <see cref="ReadingStatus.Failed"/>.</summary>
 	public string? FailureReason { get; set; }

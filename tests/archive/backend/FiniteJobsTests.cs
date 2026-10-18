@@ -18,6 +18,7 @@ public sealed class FiniteJobsTests
 	[InlineData("--dispatch-extraction", false)]
 	[InlineData("--read-queue", false)]
 	[InlineData("--dispatch-reading", false)]
+	[InlineData("--cleanup-dropped-blobs", false)]
 	[InlineData("--worker-smoke", true)]
 	[InlineData("--cleanup-uploads", true)]
 	[InlineData("--initialize-local-storage", true)]

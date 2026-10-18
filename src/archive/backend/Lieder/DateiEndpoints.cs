@@ -1,0 +1,148 @@
+using Archive.Backend.Assets;
+using Archive.Backend.Auth;
+using Archive.Backend.Data;
+using Archive.Backend.Events;
+using Microsoft.AspNetCore.Antiforgery;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+
+namespace Archive.Backend.Lieder;
+
+/// <summary>
+/// Datei endpoints (#166): opening an upload session for a Lied and the
+/// scoped read tickets. Renew, cancel and finalize are the shared
+/// <c>/api/upload-sessions/{id}/...</c> routes in <see cref="UploadEndpoints"/>,
+/// which hand Datei sessions to <see cref="DateiUploads"/>.
+/// </summary>
+public sealed record PatchDateiRequest(string? Description, uint? RowVersion);
+
+public static class DateiEndpoints
+{
+	public static void MapDateiEndpoints(this IEndpointRouteBuilder app)
+	{
+		app.MapPost("/api/lieder/{id}/dateien/upload-session", async (
+			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
+			ArchiveDbContext db, TimeProvider time, IOptions<AssetStorageOptions> options, IAssetStorageAdapter storage,
+			Guid id, CancellationToken token, CreateDateiUploadRequest? body) =>
+		{
+			try { await antiforgery.ValidateRequestAsync(context); }
+			catch (AntiforgeryValidationException)
+			{
+				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
+			}
+			context.Response.Headers.CacheControl = "no-store";
+			var (decision, error) = await LiedAccess.RequireEditorAsync(context, accessor, access);
+			if (error is not null)
+				return error;
+			return await DateiUploads.CreateForLiedAsync(
+				db, time, options.Value, storage, decision!.AccountId, id, body, token);
+		}).DisableAntiforgery();
+
+		// #171: Dateien of an Auftritt (documents, photos, concert files).
+		app.MapPost("/api/events/{id}/dateien/upload-session", async (
+			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
+			ArchiveDbContext db, TimeProvider time, IOptions<AssetStorageOptions> options, IAssetStorageAdapter storage,
+			Guid id, CancellationToken token, CreateDateiUploadRequest? body) =>
+		{
+			try { await antiforgery.ValidateRequestAsync(context); }
+			catch (AntiforgeryValidationException)
+			{
+				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
+			}
+			context.Response.Headers.CacheControl = "no-store";
+			var (decision, error) = await LiedAccess.RequireEditorAsync(context, accessor, access);
+			if (error is not null)
+				return error;
+			return await DateiUploads.CreateForEventAsync(
+				db, time, options.Value, storage, decision!.AccountId, id, body, token);
+		}).DisableAntiforgery();
+
+		// The description of a document or photo of an Auftritt.
+		app.MapPatch("/api/dateien/{id}", async (
+			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
+			ArchiveDbContext db, Guid id, CancellationToken token, PatchDateiRequest? body) =>
+		{
+			try { await antiforgery.ValidateRequestAsync(context); }
+			catch (AntiforgeryValidationException)
+			{
+				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
+			}
+			context.Response.Headers.CacheControl = "no-store";
+			var (_, error) = await LiedAccess.RequireEditorAsync(context, accessor, access);
+			if (error is not null)
+				return error;
+			var datei = await DateiQueries.Visible(db)
+				.FirstOrDefaultAsync(d => d.Id == id && d.EventId != null && d.Kind == DateiKinds.Sonstiges, token);
+			if (datei is null)
+				return Results.Problem(statusCode: 404, title: DateiUploads.DateiNotFoundMessage);
+			var description = body?.Description?.Trim();
+			if (description is { Length: > 500 })
+				return Results.Problem(statusCode: 400, title: UploadEndpoints.DescriptionTooLongMessage);
+			if (body?.RowVersion is { } expected && expected != datei.RowVersion)
+				return Results.Problem(statusCode: 409, title: UploadEndpoints.ConcurrencyMessage);
+			if (body?.Description is not null && (description ?? string.Empty) != (datei.Description ?? string.Empty))
+			{
+				datei.Description = string.IsNullOrEmpty(description) ? null : description;
+				datei.RowVersion++;
+				try
+				{
+					await db.SaveChangesAsync(token);
+				}
+				catch (DbUpdateConcurrencyException)
+				{
+					return Results.Problem(statusCode: 409, title: UploadEndpoints.ConcurrencyMessage);
+				}
+			}
+			return Results.Ok(new { datei = DateiPayloads.Summary(datei) });
+		}).DisableAntiforgery();
+
+		app.MapGet("/api/dateien/{id}/access", async (
+			HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access, ArchiveDbContext db,
+			TimeProvider time, IOptions<AssetStorageOptions> options, IAssetStorageAdapter storage,
+			Guid id, CancellationToken token) =>
+		{
+			context.Response.Headers.CacheControl = "no-store";
+			var (decision, error) = await LiedAccess.RequireMemberAsync(context, accessor, access);
+			if (error is not null)
+				return error;
+			var datei = await DateiQueries.Visible(db).AsNoTracking()
+				.Include(d => d.Event)
+				.FirstOrDefaultAsync(d => d.Id == id, token);
+			if (datei is null)
+				return Results.Problem(statusCode: 404, title: DateiUploads.DateiNotFoundMessage);
+			// #171: Dateien of an Auftritt follow the Auftritt's visibility;
+			// members get concert files only through their recording's own
+			// ticket (publication and download switch), editors may also fetch
+			// the preserved original here.
+			if (datei.Event is not null && !LiedAccess.IsEditor(decision!)
+				&& (datei.Kind == DateiKinds.Aufnahme || !EventVisibility.IsMemberVisible(datei.Event)))
+				return Results.Problem(statusCode: 404, title: DateiUploads.DateiNotFoundMessage);
+			var lifetime = options.Value.ReadTicketLifetime;
+			string viewUrl;
+			string downloadUrl;
+			try
+			{
+				viewUrl = await storage.CreateReadTicketAsync(
+					datei.BlobName, lifetime, asDownload: false, contentType: datei.ContentType, token);
+				downloadUrl = await storage.CreateReadTicketAsync(
+					datei.BlobName, lifetime, asDownload: true, contentType: datei.ContentType, token);
+			}
+			catch (InvalidOperationException)
+			{
+				return Results.Problem(statusCode: 502, title: UploadEndpoints.StorageFailureMessage);
+			}
+			return Results.Ok(new
+			{
+				dateiId = datei.Id,
+				kind = datei.Kind,
+				contentType = datei.ContentType,
+				sizeBytes = datei.SizeBytes,
+				fileName = datei.OriginalFileName,
+				createdAt = datei.CreatedAt,
+				viewUrl,
+				downloadUrl,
+				expiresAt = time.GetUtcNow() + lifetime,
+			});
+		});
+	}
+}

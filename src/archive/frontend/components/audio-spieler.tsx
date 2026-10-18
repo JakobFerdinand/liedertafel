@@ -1,35 +1,40 @@
 "use client";
 
-import { MedienSpieler } from "@/components/medien-spieler";
-import { type AssetAccessResponse, fetchAssetAccess } from "@/lib/assets";
+import {
+  MedienSpieler,
+  type SpielerZugriff,
+} from "@/components/medien-spieler";
 
-export type AudioSpielerProps = {
-  assetId: string;
+export type AudioSpielerProps<Zugriff extends SpielerZugriff> = {
+  dateiId: string;
   /** Beschriftete Stimme (inklusive Vollmix-Ersatz), für Klartext-Labels. */
   stimme: string;
-  zugriff: AssetAccessResponse;
+  zugriff: Zugriff;
+  /** Holt ein frisches Ticket. */
+  holeZugriff: () => Promise<Zugriff>;
   /** Nur ein Spieler läuft gleichzeitig; inaktive pausieren sich selbst. */
   aktiv: boolean;
   onAbspielen: () => void;
-  onErneuert: (zugriff: AssetAccessResponse) => void;
+  onErneuert: (zugriff: Zugriff) => void;
 };
 
-/** Stimmaufnahme eines Liedes (ARC-018) auf dem gemeinsamen Spieler. */
-export function AudioSpieler({
-  assetId,
+/** Audio-Datei eines Liedes auf dem gemeinsamen Spieler. */
+export function AudioSpieler<Zugriff extends SpielerZugriff>({
+  dateiId,
   stimme,
   zugriff,
+  holeZugriff,
   aktiv,
   onAbspielen,
   onErneuert,
-}: AudioSpielerProps) {
+}: AudioSpielerProps<Zugriff>) {
   return (
     <MedienSpieler
-      kennung={assetId}
+      kennung={dateiId}
       art="audio"
       name={stimme}
       zugriff={zugriff}
-      holeZugriff={() => fetchAssetAccess(assetId)}
+      holeZugriff={holeZugriff}
       aktiv={aktiv}
       onAbspielen={onAbspielen}
       onErneuert={onErneuert}

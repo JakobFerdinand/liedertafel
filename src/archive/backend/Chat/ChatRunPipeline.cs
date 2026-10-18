@@ -10,13 +10,13 @@ using AiChatMessage = Microsoft.Extensions.AI.ChatMessage;
 using AiChatOptions = Microsoft.Extensions.AI.ChatOptions;
 
 /// <summary>One citation candidate collected from this run's catalogue tool results.</summary>
-internal sealed record ToolSong(string Id, string Title);
+internal sealed record ToolLied(string Id, string Title);
 
 /// <summary>What one chat run learns while it runs; shared by the run's pipeline parts.</summary>
 internal sealed class ChatRunState
 {
 	/// <summary>Records the authorized tools returned in this run: the only citable sources.</summary>
-	public List<ToolSong> ToolSongs { get; } = [];
+	public List<ToolLied> ToolLieder { get; } = [];
 
 	/// <summary>Model calls of this run; a repeated first call counts once.</summary>
 	public int ModelCalls { get; set; }
@@ -46,28 +46,28 @@ internal sealed class ChatRunState
 	public bool IsCitable(string title)
 	{
 		var folded = CatalogueText.Fold(title);
-		return ToolSongs.Any(s => CatalogueText.Fold(s.Title) == folded);
+		return ToolLieder.Any(s => CatalogueText.Fold(s.Title) == folded);
 	}
 
 	/// <summary>
 	/// Collects the (id, title) pairs a catalogue tool result carries; these
 	/// are the citation candidates for this run's answer.
 	/// </summary>
-	public void CollectToolSongs(string resultJson)
+	public void CollectToolLieder(string resultJson)
 	{
 		try
 		{
 			using var document = JsonDocument.Parse(resultJson);
 			if (document.RootElement.ValueKind is not JsonValueKind.Object
-				|| !document.RootElement.TryGetProperty("songs", out var songsElement)
-				|| songsElement.ValueKind is not JsonValueKind.Array)
+				|| !document.RootElement.TryGetProperty("lieder", out var liederElement)
+				|| liederElement.ValueKind is not JsonValueKind.Array)
 				return;
-			foreach (var element in songsElement.EnumerateArray())
+			foreach (var element in liederElement.EnumerateArray())
 			{
 				var id = element.TryGetProperty("id", out var idElement) ? idElement.GetString() : null;
 				var title = element.TryGetProperty("title", out var titleElement) ? titleElement.GetString() : null;
 				if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(title))
-					ToolSongs.Add(new ToolSong(id, title));
+					ToolLieder.Add(new ToolLied(id, title));
 			}
 		}
 		catch (JsonException)

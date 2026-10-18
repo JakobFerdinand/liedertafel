@@ -10,16 +10,12 @@ import { patchAuth, postAuth } from "@/lib/auth";
  */
 export type ZeitmarkeZustand = "current" | "needsReview";
 
-export type ZeitmarkeKette = { id: string; label: string };
-
 export type Zeitmarke = {
   id: string;
   recordingId: string;
   performanceId: string;
-  songId: string;
-  songTitle: string;
-  arrangement: ZeitmarkeKette | null;
-  musicalVersion: ZeitmarkeKette | null;
+  liedId: string;
+  liedTitle: string;
   evidenceStatus: string;
   position: number;
   startSeconds: number | null;
@@ -28,7 +24,7 @@ export type Zeitmarke = {
   /** Nur für die Redaktion. */
   editor: {
     version: number;
-    playbackRevisionId: string;
+    playbackDateiId: string;
     updatedAt: string;
   } | null;
 };
@@ -37,10 +33,8 @@ export type Zeitmarke = {
 export type Vorkommen = {
   performanceId: string;
   position: number;
-  songId: string;
-  songTitle: string | null;
-  arrangement: ZeitmarkeKette | null;
-  musicalVersion: ZeitmarkeKette | null;
+  liedId: string;
+  liedTitle: string | null;
   evidenceStatus: string;
   passageId: string | null;
 };
@@ -50,7 +44,7 @@ export type ZeitmarkenStand = {
   eventId: string;
   passages: Zeitmarke[];
   // Nur für die Redaktion.
-  playbackRevisionId?: string | null;
+  playbackDateiId?: string | null;
   durationSeconds?: number | null;
   occurrences?: Vorkommen[];
   hasPublishedProgramme?: boolean;
@@ -104,8 +98,8 @@ export async function createZeitmarke(
     performanceId: string;
     startSeconds: number;
     endSeconds: number;
-    // Die Datei, an der die Zeiten genommen wurden (playbackRevisionId der Ansicht).
-    expectedPlaybackRevisionId: string;
+    // Die Datei, an der die Zeiten genommen wurden (playbackDateiId der Ansicht).
+    expectedPlaybackDateiId: string;
   },
 ): Promise<Zeitmarke> {
   const response = await postAuth(basis(recordingId), body);
@@ -120,7 +114,7 @@ export async function patchZeitmarke(
     startSeconds: number;
     endSeconds: number;
     expectedVersion: number;
-    expectedPlaybackRevisionId: string;
+    expectedPlaybackDateiId: string;
   },
 ): Promise<Zeitmarke> {
   const response = await patchAuth(
@@ -149,11 +143,11 @@ export async function deleteZeitmarke(
  */
 export async function bestaetigeZeitmarken(
   recordingId: string,
-  expectedPlaybackRevisionId: string,
+  expectedPlaybackDateiId: string,
   passages: { id: string; expectedVersion: number }[],
 ): Promise<{ passages: Zeitmarke[] }> {
   const response = await postAuth(`${basis(recordingId)}/review`, {
-    expectedPlaybackRevisionId,
+    expectedPlaybackDateiId,
     passages,
   });
   if (!response.ok) throw response;

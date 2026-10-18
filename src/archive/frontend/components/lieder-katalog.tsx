@@ -4,13 +4,14 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { LiedFormular } from "@/components/lied-formular";
-import { fetchMe, type MeResponse, postAuth } from "@/lib/auth";
+import { fetchMe, type MeResponse } from "@/lib/auth";
 import {
-  fetchSongSearch,
-  type Lied,
-  type LiedSuchErgebnis,
-  materialAdressWerte,
-} from "@/lib/songs";
+  type DateiArt,
+  dateiArten,
+  dateiArtText,
+  fetchLiedSuche,
+  type LiedListe,
+} from "@/lib/lieder";
 
 function istEditor(me: MeResponse): boolean {
   return (
@@ -19,46 +20,15 @@ function istEditor(me: MeResponse): boolean {
   );
 }
 
-// „matchedIn" wird zu deutschen Fundstellen; ein Arrangement-Treffer nennt
-// zusätzlich die erste getroffene Fassung (ARC-020). Der Rückgriff auf leere
-// Felder hält alte Bestände ohne Suchdaten darstellbar.
-function fundstellen(lied: Lied): string[] {
-  const felder = lied.matchedIn ?? [];
-  const stellen: string[] = [];
-  const fassung = lied.arrangements?.[0];
-  if (felder.includes("arrangements") && fassung) {
-    stellen.push(`Getroffen: Fassung „${fassung.label}“`);
-  }
-  if (felder.includes("lyrics")) stellen.push("Getroffen im Liedtext.");
-  return stellen;
-}
-
-// Freitextfilter der Katalogadresse (ARC-023) mit ihren Formularnamen; die
-// Materialwerte werden beim Abholen in die Materialarten übersetzt.
-const filterTextfelder = [
-  ["stimmbesetzung", "Stimmverteilung"],
-  ["begleitung", "Begleitung"],
-  ["tonart", "Tonart"],
-  ["sprache", "Sprache"],
-  ["anlass", "Anlass"],
-  ["tag", "Schlagwort"],
-] as const;
-
-const materialOptionen = [
-  ["noten", "Noten"],
-  ["audio", "Audio"],
-  ["midi", "MIDI"],
-  ["aufnahme", "Aufnahme mit markierter Stelle"],
-] as const;
-
-// Materialwerte der Adresse: kommagetrennt, beschnitten, ohne leere oder
-// unbekannte Einträge (ein eigenhändig verbogener Wert filtert nicht).
-function materialAusAdresse(wert: string | null): string[] {
-  const bekannte = new Set(materialAdressWerte);
+// Dateiarten der Adresse: kommagetrennt, ohne leere oder unbekannte Werte.
+function dateiArtenAusAdresse(wert: string | null): DateiArt[] {
+  const bekannt = dateiArten.map(([art]) => art);
   return (wert ?? "")
     .split(",")
     .map((eintrag) => eintrag.trim())
-    .filter((eintrag) => bekannte.has(eintrag));
+    .filter((eintrag): eintrag is DateiArt =>
+      bekannt.includes(eintrag as DateiArt),
+    );
 }
 
 export function LiederKatalog() {
@@ -68,64 +38,37 @@ export function LiederKatalog() {
   const seiteWert = Number.parseInt(suchParameter.get("seite") ?? "1", 10);
   const seite = seiteWert > 1 ? seiteWert : 1;
   const abfrage = suchWort?.trim() ? suchWort.trim() : null;
-  // Filterzustand lebt in der Adresse und wird dort beschnitten gelesen;
-  // die Materialwerte stehen kommagetrennt (noten,audio,midi).
-  const stimmbesetzung = (suchParameter.get("stimmbesetzung") ?? "").trim();
-  const begleitung = (suchParameter.get("begleitung") ?? "").trim();
-  const tonart = (suchParameter.get("tonart") ?? "").trim();
-  const sprache = (suchParameter.get("sprache") ?? "").trim();
+  // Der Filterzustand lebt in der Adresse: besetzung, anlass und dateityp
+  // (kommagetrennt).
+  const besetzung = (suchParameter.get("besetzung") ?? "").trim();
   const anlass = (suchParameter.get("anlass") ?? "").trim();
-  const schlagwort = (suchParameter.get("tag") ?? "").trim();
-  const materialParameter = suchParameter.get("material") ?? "";
-  const materialWerte = materialAusAdresse(materialParameter);
-  // Anfangswerte der Filterfelder für die Aufklapper-Eingaben.
-  const filterAnfang: Record<string, string> = {
-    stimmbesetzung,
-    begleitung,
-    tonart,
-    sprache,
-    anlass,
-    tag: schlagwort,
-  };
+  const dateiTypParameter = suchParameter.get("dateityp") ?? "";
+  const dateiTypen = dateiArtenAusAdresse(dateiTypParameter);
   const hatFilter =
-    [stimmbesetzung, begleitung, tonart, sprache, anlass, schlagwort].some(
-      Boolean,
-    ) || materialWerte.length > 0;
+    besetzung.length > 0 || anlass.length > 0 || dateiTypen.length > 0;
   const aktiveFilter = [
-    ...filterTextfelder.flatMap(([name, beschriftung]) =>
-      filterAnfang[name]
-        ? [{ name, beschriftung, wert: filterAnfang[name] }]
-        : [],
-    ),
-    ...materialOptionen.flatMap(([wert, beschriftung]) =>
-      materialWerte.includes(wert)
-        ? [
-            {
-              name: "material",
-              beschriftung: "Material",
-              wert: beschriftung,
-              materialWert: wert,
-            },
-          ]
-        : [],
-    ),
+    ...(besetzung
+      ? [{ name: "besetzung", beschriftung: "Besetzung", wert: besetzung }]
+      : []),
+    ...(anlass
+      ? [{ name: "anlass", beschriftung: "Anlass", wert: anlass }]
+      : []),
+    ...dateiTypen.map((art) => ({
+      name: "dateityp",
+      beschriftung: "Dateityp",
+      wert: dateiArtText(art),
+      art,
+    })),
   ];
-  // Fassungsfilter (Stimmverteilung, Begleitung, Tonart, Dateiarten) lassen
-  // die Treffer die passende Fassung nennen; reine Liedfilter tun das nicht,
-  // und „Aufnahme“ allein ist ein Liedfilter (ARC-032).
-  const hatFassungsFilter =
-    stimmbesetzung.length > 0 ||
-    begleitung.length > 0 ||
-    tonart.length > 0 ||
-    materialWerte.some((wert) => wert !== "aufnahme");
 
   const [me, setMe] = useState<MeResponse | null>(null);
-  const [ergebnis, setErgebnis] = useState<LiedSuchErgebnis | null>(null);
+  const [ergebnis, setErgebnis] = useState<LiedListe | null>(null);
+  // Die Auswahllisten der Filter bleiben auch bei leerem Ergebnis erhalten.
+  const [optionen, setOptionen] = useState<LiedListe["options"]>({
+    voiceConfigurations: [],
+    occasions: [],
+  });
   const [fehler, setFehler] = useState("");
-  const [hinweis, setHinweis] = useState("");
-  const [erfolg, setErfolg] = useState("");
-  const [aktionBusy, setAktionBusy] = useState("");
-  const [bearbeitet, setBearbeitet] = useState<string | null>(null);
   const [versuch, setVersuch] = useState(0);
   const filterRef = useRef<HTMLDetailsElement>(null);
 
@@ -138,16 +81,15 @@ export function LiederKatalog() {
       if (!signal?.aborted) setMe(antwort);
       if (!antwort.authenticated) return;
       try {
-        const neu = await fetchSongSearch(abfrage, seite, signal, {
-          stimmbesetzung,
-          begleitung,
-          tonart,
-          sprache,
+        const neu = await fetchLiedSuche(abfrage, seite, signal, {
+          besetzung,
           anlass,
-          tag: schlagwort,
-          materialien: materialAusAdresse(materialParameter),
+          dateiTypen: dateiArtenAusAdresse(dateiTypParameter),
         });
-        if (!signal?.aborted) setErgebnis(neu);
+        if (!signal?.aborted) {
+          setErgebnis(neu);
+          setOptionen(neu.options);
+        }
       } catch (ursache) {
         if (
           ursache instanceof Response &&
@@ -160,25 +102,12 @@ export function LiederKatalog() {
         throw ursache;
       }
     },
-    // Nur die beschnittenen URL-Werte fließen hier ein; so bleibt der
-    // Abruf stabil, solange die Adresse unverändert bleibt.
-    [
-      abfrage,
-      seite,
-      stimmbesetzung,
-      begleitung,
-      tonart,
-      sprache,
-      anlass,
-      schlagwort,
-      materialParameter,
-    ],
+    [abfrage, seite, besetzung, anlass, dateiTypParameter],
   );
 
   useEffect(() => {
     const abort = new AbortController();
-    // Ein erneuter Versuch führt die Wirkung erneut aus; im Hintergrund wird
-    // nicht nachgeladen.
+    // Ein erneuter Versuch führt die Wirkung erneut aus.
     void versuch;
     laden(abort.signal).catch(() => {
       if (!abort.signal.aborted)
@@ -187,125 +116,70 @@ export function LiederKatalog() {
     return () => abort.abort();
   }, [laden, versuch]);
 
-  async function liedAktion(
-    schluessel: string,
-    pfad: string,
-    erfolgsMeldung: string,
-  ) {
-    setHinweis("");
-    setErfolg("");
-    setAktionBusy(schluessel);
-    try {
-      const response = await postAuth(pfad, {});
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        setHinweis(
-          payload?.title ?? "Das hat nicht geklappt. Bitte erneut versuchen.",
-        );
-        return;
-      }
-      if (payload?.song) {
-        setErgebnis((bisher) =>
-          bisher
-            ? {
-                ...bisher,
-                songs: bisher.songs.map((eintrag) =>
-                  eintrag.id === payload.song.id ? payload.song : eintrag,
-                ),
-              }
-            : bisher,
-        );
-      }
-      setErfolg(erfolgsMeldung);
-    } catch {
-      setHinweis(
-        "Sicherheitstoken konnte nicht geladen werden. Seite neu laden.",
-      );
-    } finally {
-      setAktionBusy("");
-    }
-  }
-
-  function suchen(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const begriff = new FormData(event.currentTarget)
-      .get("suche")
-      ?.toString()
-      .trim();
-    if (begriff) {
-      // Eine neue Suche startet vorne, hält aber die gesetzten Filter fest.
-      router.push(katalogPfad(begriff, filterParameter(suchParameter), 1));
-      return;
-    }
-    router.push("/lieder/");
-  }
-
-  // Filterwerte aus der Adresse oder dem Filterformular: beschnitten,
-  // leere bleiben weg, Material in Formularreihenfolge.
-  function filterParameter(
-    quelle: FormData | URLSearchParams,
-  ): URLSearchParams {
-    const parameter = new URLSearchParams();
-    for (const [name] of filterTextfelder) {
-      const wert = quelle.get(name)?.toString().trim() ?? "";
-      if (wert) parameter.set(name, wert);
-    }
-    const materialien = quelle
-      .getAll("material")
-      .map((wert) => wert.toString().trim())
-      .filter(Boolean);
-    if (materialien.length > 0)
-      parameter.set("material", materialien.join(","));
-    return parameter;
-  }
-
-  // Katalogadresse: Suchbegriff plus Filterwerte, Seite gesetzt oder auf 1
-  // zurückgesetzt (Suchen und Filtern starten vorne).
+  // Adresse des Katalogs: Suchbegriff plus Filter; Suchen und Filtern
+  // starten auf der ersten Seite.
   function katalogPfad(
     begriff: string | null,
-    filter: URLSearchParams,
+    filter: { besetzung: string; anlass: string; dateiTypen: DateiArt[] },
     naechsteSeite: number,
   ): string {
     const parameter = new URLSearchParams();
     if (begriff) parameter.set("suche", begriff);
-    for (const [name, wert] of filter) parameter.set(name, wert);
-    parameter.set("seite", String(naechsteSeite));
-    return `/lieder/?${parameter.toString()}`;
+    if (filter.besetzung) parameter.set("besetzung", filter.besetzung);
+    if (filter.anlass) parameter.set("anlass", filter.anlass);
+    if (filter.dateiTypen.length > 0)
+      parameter.set("dateityp", filter.dateiTypen.join(","));
+    if (naechsteSeite > 1) parameter.set("seite", String(naechsteSeite));
+    const zeichenkette = parameter.toString();
+    return zeichenkette ? `/lieder/?${zeichenkette}` : "/lieder/";
+  }
+
+  const aktuellerFilter = { besetzung, anlass, dateiTypen };
+
+  function suchen(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const begriff =
+      new FormData(event.currentTarget).get("suche")?.toString().trim() || null;
+    router.push(katalogPfad(begriff, aktuellerFilter, 1));
   }
 
   function filterAnwenden(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const daten = new FormData(event.currentTarget);
     filterSchliessen();
     router.push(
       katalogPfad(
         abfrage,
-        filterParameter(new FormData(event.currentTarget)),
+        {
+          besetzung: daten.get("besetzung")?.toString().trim() ?? "",
+          anlass: daten.get("anlass")?.toString().trim() ?? "",
+          dateiTypen: dateiArtenAusAdresse(daten.getAll("dateityp").join(",")),
+        },
         1,
       ),
     );
   }
 
-  // Zurücksetzen löscht die Filter, behält aber die laufende Suche; die
-  // Seite fällt auf den Anfang zurück (ohne seite-Parameter).
   function filterZuruecksetzen() {
     filterSchliessen();
-    const parameter = new URLSearchParams();
-    if (abfrage) parameter.set("suche", abfrage);
-    const zeichenkette = parameter.toString();
-    router.push(zeichenkette ? `/lieder/?${zeichenkette}` : "/lieder/");
+    router.push(
+      katalogPfad(abfrage, { besetzung: "", anlass: "", dateiTypen: [] }, 1),
+    );
   }
 
-  function filterEntfernen(name: string, materialWert?: string) {
-    const filter = filterParameter(suchParameter);
-    if (materialWert) {
-      const verbleibend = materialWerte.filter((wert) => wert !== materialWert);
-      if (verbleibend.length > 0) filter.set("material", verbleibend.join(","));
-      else filter.delete("material");
-    } else {
-      filter.delete(name);
-    }
+  function filterEntfernen(name: string, art?: DateiArt) {
     filterSchliessen();
-    router.push(katalogPfad(abfrage, filter, 1));
+    router.push(
+      katalogPfad(
+        abfrage,
+        {
+          besetzung: name === "besetzung" ? "" : besetzung,
+          anlass: name === "anlass" ? "" : anlass,
+          dateiTypen: art ? dateiTypen.filter((w) => w !== art) : dateiTypen,
+        },
+        1,
+      ),
+    );
   }
 
   function filterSchliessen() {
@@ -313,10 +187,6 @@ export function LiederKatalog() {
       filterRef.current.open = false;
       filterRef.current.querySelector("summary")?.focus();
     }
-  }
-
-  function seiteWechseln(naechste: number) {
-    router.push(katalogPfad(abfrage, filterParameter(suchParameter), naechste));
   }
 
   if (fehler) {
@@ -345,10 +215,20 @@ export function LiederKatalog() {
     );
   }
 
-  const lieder = ergebnis?.songs ?? null;
+  const lieder = ergebnis?.lieder ?? null;
   const gesamt = ergebnis?.total ?? 0;
-  const seitenGröße = ergebnis?.pageSize ?? 20;
-  const seitenZahl = Math.max(1, Math.ceil(gesamt / seitenGröße));
+  const seitenGroesse = ergebnis?.pageSize ?? 20;
+  const seitenZahl = Math.max(1, Math.ceil(gesamt / seitenGroesse));
+  // Ein gesetzter Wert bleibt wählbar, auch wenn er (noch) kein Lied trägt.
+  const besetzungen = [
+    ...new Set([
+      ...optionen.voiceConfigurations,
+      ...(besetzung ? [besetzung] : []),
+    ]),
+  ];
+  const anlaesse = [
+    ...new Set([...optionen.occasions, ...(anlass ? [anlass] : [])]),
+  ];
 
   return (
     <div>
@@ -365,7 +245,7 @@ export function LiederKatalog() {
                 name="suche"
                 type="search"
                 maxLength={200}
-                placeholder="Titel, Urheber, Text …"
+                placeholder="Titel …"
                 defaultValue={suchWort ?? ""}
               />
               <button type="submit">Suchen</button>
@@ -373,7 +253,6 @@ export function LiederKatalog() {
           </form>
         </section>
 
-        {/* Repertoirefilter (ARC-023): der Bestand bleibt auch gefiltert vorn. */}
         <details
           ref={filterRef}
           className="lieder-filter"
@@ -384,34 +263,54 @@ export function LiederKatalog() {
           </summary>
           <form onSubmit={filterAnwenden}>
             <div className="lieder-filter-felder">
-              {filterTextfelder.map(([name, beschriftung]) => (
-                <div key={name}>
-                  <label htmlFor={`lieder-filter-${name}`}>
-                    {beschriftung}
-                  </label>
-                  <input
-                    key={filterAnfang[name]}
-                    id={`lieder-filter-${name}`}
-                    name={name}
-                    type="text"
-                    maxLength={200}
-                    defaultValue={filterAnfang[name]}
-                  />
-                </div>
-              ))}
+              <div>
+                <label htmlFor="lieder-filter-besetzung">Besetzung</label>
+                <select
+                  key={besetzung}
+                  id="lieder-filter-besetzung"
+                  name="besetzung"
+                  defaultValue={besetzung}
+                >
+                  <option value="">Alle</option>
+                  {besetzungen.map((wert) => (
+                    <option key={wert} value={wert}>
+                      {wert}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="lieder-filter-anlass">Anlass</label>
+                <select
+                  key={anlass}
+                  id="lieder-filter-anlass"
+                  name="anlass"
+                  defaultValue={anlass}
+                >
+                  <option value="">Alle</option>
+                  {anlaesse.map((wert) => (
+                    <option key={wert} value={wert}>
+                      {wert}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
             <fieldset className="lieder-filter-material">
-              <legend>Material</legend>
+              <legend>Dateityp</legend>
+              <p className="lieder-filter-hinweis">
+                Lied hat alle gewählten Dateiarten.
+              </p>
               <div className="lieder-filter-auswahl">
-                {materialOptionen.map(([wert, beschriftung]) => (
-                  <label key={wert} htmlFor={`lieder-filter-material-${wert}`}>
+                {dateiArten.map(([art, beschriftung]) => (
+                  <label key={art} htmlFor={`lieder-filter-dateityp-${art}`}>
                     <input
-                      key={`${wert}:${materialWerte.includes(wert)}`}
-                      id={`lieder-filter-material-${wert}`}
-                      name="material"
+                      key={`${art}:${dateiTypen.includes(art)}`}
+                      id={`lieder-filter-dateityp-${art}`}
+                      name="dateityp"
                       type="checkbox"
-                      value={wert}
-                      defaultChecked={materialWerte.includes(wert)}
+                      value={art}
+                      defaultChecked={dateiTypen.includes(art)}
                     />
                     {beschriftung}
                   </label>
@@ -441,18 +340,9 @@ export function LiederKatalog() {
             </summary>
             <LiedFormular
               absendenText="Lied anlegen"
-              onSuccess={(gespeichert) => {
-                setErgebnis((bisher) =>
-                  bisher
-                    ? {
-                        ...bisher,
-                        total: bisher.total + 1,
-                        songs: [...bisher.songs, gespeichert],
-                      }
-                    : bisher,
-                );
-                setErfolg("Lied angelegt.");
-                setHinweis("");
+              onSuccess={(angelegt) => {
+                // Nach dem Anlegen geht es zum Lied, um Dateien hinzuzufügen.
+                router.push(`/lied/?id=${encodeURIComponent(angelegt.id)}`);
               }}
             />
           </details>
@@ -471,9 +361,7 @@ export function LiederKatalog() {
                   onClick={() =>
                     filterEntfernen(
                       filter.name,
-                      "materialWert" in filter
-                        ? filter.materialWert
-                        : undefined,
+                      "art" in filter ? filter.art : undefined,
                     )
                   }
                 >
@@ -491,20 +379,6 @@ export function LiederKatalog() {
             Alle Filter zurücksetzen
           </button>
         </nav>
-      )}
-
-      {erfolg && (
-        <output aria-live="polite" className="auth-erfolg">
-          {erfolg}
-        </output>
-      )}
-      {hinweis && (
-        <output aria-live="polite" className="auth-fehler">
-          {hinweis}{" "}
-          {hinweis.includes("erneute Anmeldung") && (
-            <Link href="/anmelden/">Anmelden</Link>
-          )}
-        </output>
       )}
 
       <section
@@ -525,10 +399,7 @@ export function LiederKatalog() {
         ) : lieder.length === 0 ? (
           abfrage || hatFilter ? (
             <>
-              <p>
-                Keine Lieder gefunden. Bitte versuche andere Worte, etwa einen
-                Kurztitel, einen Urheber oder die ersten Textzeilen.
-              </p>
+              <p>Keine Lieder gefunden. Bitte versuche einen anderen Titel.</p>
               {hatFilter && (
                 <p className="lieder-filter-leer">
                   <button
@@ -548,35 +419,19 @@ export function LiederKatalog() {
           <>
             <ul className="lieder-liste-einträge">
               {lieder.map((lied) => {
-                const stellen = abfrage ? fundstellen(lied) : [];
-                // Mit Fassungsfilter nennt jeder Treffer die Fassungen,
-                // die die Fassungsbedingungen wirklich erfüllen (ARC-023).
-                const passende = hatFassungsFilter
-                  ? (lied.matchedArrangements ?? []).map(
-                      (fassung) => `Passende Fassung: „${fassung.label}“`,
-                    )
-                  : [];
-                const hinweise = [...new Set([...stellen, ...passende])];
-                const andere = lied.alternateTitles ?? [];
+                const angaben = [
+                  lied.voiceConfiguration,
+                  lied.occasion,
+                  ...lied.dateiTypen.map(dateiArtText),
+                ].filter(Boolean);
                 return (
                   <li key={lied.id} className="lieder-eintrag">
                     <div className="lieder-titelgruppe">
                       <h3>
-                        {lied.published ? (
-                          <Link
-                            href={`/lied/?id=${encodeURIComponent(lied.id)}`}
-                          >
-                            {lied.title}
-                          </Link>
-                        ) : (
-                          lied.title
-                        )}
+                        <Link href={`/lied/?id=${encodeURIComponent(lied.id)}`}>
+                          {lied.title}
+                        </Link>
                       </h3>
-                      {andere.length > 0 && (
-                        <p className="lieder-andere-titel">
-                          Auch bekannt als: {andere.join(", ")}
-                        </p>
-                      )}
                     </div>
                     <p className="lieder-urheber">
                       {lied.composer && <span>Komponist: {lied.composer}</span>}
@@ -585,103 +440,8 @@ export function LiederKatalog() {
                         !lied.lyricist &&
                         "Urheber nicht erfasst"}
                     </p>
-                    {hinweise.length > 0 && (
-                      <div className="lieder-fundstellen">
-                        {hinweise.map((stelle) => (
-                          <p key={stelle} className="lieder-fundstelle">
-                            {stelle}
-                          </p>
-                        ))}
-                      </div>
-                    )}
-                    {editor && (
-                      <p className="lieder-status">
-                        {lied.published ? "Veröffentlicht" : "Entwurf"}
-                      </p>
-                    )}
-                    {editor && (
-                      <div className="lieder-aktionen">
-                        <button
-                          type="button"
-                          className="knopf-leise"
-                          aria-expanded={bearbeitet === lied.id}
-                          aria-controls={`lied-bearbeiten-${lied.id}`}
-                          disabled={aktionBusy !== ""}
-                          onClick={() =>
-                            setBearbeitet(
-                              bearbeitet === lied.id ? null : lied.id,
-                            )
-                          }
-                        >
-                          {bearbeitet === lied.id
-                            ? "Bearbeiten schließen"
-                            : "Bearbeiten"}
-                        </button>
-                        {lied.published ? (
-                          <button
-                            type="button"
-                            disabled={aktionBusy !== ""}
-                            onClick={() =>
-                              liedAktion(
-                                `unpublish:${lied.id}`,
-                                `/api/songs/${encodeURIComponent(lied.id)}/unpublish`,
-                                "Lied zurückgezogen. Es ist für Mitglieder nicht mehr sichtbar.",
-                              )
-                            }
-                          >
-                            {aktionBusy === `unpublish:${lied.id}`
-                              ? "Wird zurückgezogen …"
-                              : "Zurückziehen"}
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            disabled={aktionBusy !== ""}
-                            onClick={() =>
-                              liedAktion(
-                                `publish:${lied.id}`,
-                                `/api/songs/${encodeURIComponent(lied.id)}/publish`,
-                                "Lied veröffentlicht. Mitglieder sehen es ab sofort.",
-                              )
-                            }
-                          >
-                            {aktionBusy === `publish:${lied.id}`
-                              ? "Wird veröffentlicht …"
-                              : "Veröffentlichen"}
-                          </button>
-                        )}
-                      </div>
-                    )}
-                    {editor && (
-                      <div
-                        id={`lied-bearbeiten-${lied.id}`}
-                        className="lied-bearbeiten auth-karte"
-                        hidden={bearbeitet !== lied.id}
-                      >
-                        {bearbeitet === lied.id && (
-                          <LiedFormular
-                            lied={lied}
-                            absendenText="Änderungen speichern"
-                            onSuccess={(gespeichert) => {
-                              setErgebnis((bisher) =>
-                                bisher
-                                  ? {
-                                      ...bisher,
-                                      songs: bisher.songs.map((eintrag) =>
-                                        eintrag.id === gespeichert.id
-                                          ? gespeichert
-                                          : eintrag,
-                                      ),
-                                    }
-                                  : bisher,
-                              );
-                              setErfolg("Änderungen gespeichert.");
-                              setHinweis("");
-                              setBearbeitet(null);
-                            }}
-                          />
-                        )}
-                      </div>
+                    {angaben.length > 0 && (
+                      <p className="lieder-fundstelle">{angaben.join(" · ")}</p>
                     )}
                   </li>
                 );
@@ -692,7 +452,11 @@ export function LiederKatalog() {
                 <button
                   type="button"
                   disabled={seite <= 1}
-                  onClick={() => seiteWechseln(seite - 1)}
+                  onClick={() =>
+                    router.push(
+                      katalogPfad(abfrage, aktuellerFilter, seite - 1),
+                    )
+                  }
                 >
                   Zurück
                 </button>
@@ -702,7 +466,11 @@ export function LiederKatalog() {
                 <button
                   type="button"
                   disabled={seite >= seitenZahl}
-                  onClick={() => seiteWechseln(seite + 1)}
+                  onClick={() =>
+                    router.push(
+                      katalogPfad(abfrage, aktuellerFilter, seite + 1),
+                    )
+                  }
                 >
                   Weiter
                 </button>

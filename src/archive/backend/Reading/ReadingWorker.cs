@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using Archive.Backend.Ai;
 using Archive.Backend.Assets;
+using Archive.Backend.Lieder;
 using Archive.Backend.Data;
 using Archive.Backend.Extraction;
 using Archive.Backend.Maintenance;
@@ -12,9 +13,9 @@ namespace Archive.Backend.Reading;
 
 /// <summary>
 /// ARC-034-1 per-message handling of the "AI reading" job. It mirrors the
-/// extraction worker's contract — revision-keyed row, counted lease, bounded
+/// extraction worker's contract — Datei-keyed row, counted lease, bounded
 /// retries, never throws except parent cancellation — and adds what the model
-/// needs: step one transcribes the pages of a scan into the revision's text
+/// needs: step one transcribes the pages of a scan into the Datei's text
 /// (saving progress after each request), step two fills empty catalogue
 /// fields from that text through <see cref="ScoreFieldPrefill"/>. A reached
 /// monthly cap parks the row as <see cref="ReadingStatus.WaitingForBudget"/>
@@ -56,7 +57,7 @@ public sealed class ReadingWorker(
 		{
 			// Poison below.
 		}
-		if (envelope is null || envelope.Type != AzureReadingQueue.ReadingType || envelope.RevisionId == Guid.Empty)
+		if (envelope is null || envelope.Type != AzureReadingQueue.ReadingType || envelope.DateiId == Guid.Empty)
 		{
 			logger.LogWarning("Reading message discarded: not a valid reading envelope");
 			return MessageDisposition.Delete;
@@ -64,11 +65,11 @@ public sealed class ReadingWorker(
 		ActivityContext.TryParse(envelope.TraceParent, envelope.TraceState, isRemote: true, out var parent);
 		using (Extensions.Activities.StartActivity("archive.queue.process", ActivityKind.Consumer, parent))
 		{
-			return await ProcessAsync(envelope.RevisionId, message, deadline, token);
+			return await ProcessAsync(envelope.DateiId, message, deadline, token);
 		}
 	}
 
-	private async Task<MessageDisposition> ProcessAsync(Guid revisionId, ExtractionMessage message, DateTimeOffset deadline, CancellationToken token)
+	private async Task<MessageDisposition> ProcessAsync(Guid dateiId, ExtractionMessage message, DateTimeOffset deadline, CancellationToken token)
 	{
 		using var budget = CancellationTokenSource.CreateLinkedTokenSource(token);
 		var remaining = deadline - time.GetUtcNow();
@@ -80,59 +81,59 @@ public sealed class ReadingWorker(
 		try
 		{
 			budget.Token.ThrowIfCancellationRequested();
-			return await ProcessAttemptAsync(revisionId, message, budget.Token, attempt, token);
+			return await ProcessAttemptAsync(dateiId, message, budget.Token, attempt, token);
 		}
 		catch (OperationCanceledException) when (budget.IsCancellationRequested && !token.IsCancellationRequested)
 		{
-			logger.LogWarning("Reading for revision {RevisionId} exceeded its time budget", revisionId);
-			return await RecoverAsync(revisionId, message, attempt, token);
+			logger.LogWarning("Reading for Datei {DateiId} exceeded its time budget", dateiId);
+			return await RecoverAsync(dateiId, message, attempt, token);
 		}
 		catch (DbUpdateConcurrencyException)
 		{
 			// The editor changed the row while the job ran (retry, continue).
 			db.ChangeTracker.Clear();
-			logger.LogInformation("Reading for revision {RevisionId} raced another writer; message abandoned", revisionId);
+			logger.LogInformation("Reading for Datei {DateiId} raced another writer; message abandoned", dateiId);
 			return new MessageDisposition(Abandon: true, Visibility: options.Value.VisibilityBackoff);
 		}
 	}
 
 	/// <summary>After an expired deadline: re-decide from the durable row, never from the interrupted run.</summary>
-	private async Task<MessageDisposition> RecoverAsync(Guid revisionId, ExtractionMessage message, AttemptState attempt, CancellationToken token)
+	private async Task<MessageDisposition> RecoverAsync(Guid dateiId, ExtractionMessage message, AttemptState attempt, CancellationToken token)
 	{
 		db.ChangeTracker.Clear();
 		if (!attempt.LeaseTaken)
 			return new MessageDisposition(Abandon: true, Visibility: Backoff(message.DequeueCount));
-		var job = await db.ReadingJobs.FirstOrDefaultAsync(j => j.RevisionId == revisionId, token);
+		var job = await db.ReadingJobs.FirstOrDefaultAsync(j => j.DateiId == dateiId, token);
 		if (job is null)
 			return new MessageDisposition(Abandon: true, Visibility: Backoff(message.DequeueCount));
 		if (job.Status is ReadingStatus.Completed or ReadingStatus.Failed or ReadingStatus.WaitingForBudget)
 			return MessageDisposition.Delete;
 		if (job.Status != ReadingStatus.Running || job.RowVersion < attempt.LeaseRowVersion)
 			return new MessageDisposition(Abandon: true, Visibility: Backoff(message.DequeueCount));
-		return await RetryAsync(job, revisionId, message, token);
+		return await RetryAsync(job, dateiId, message, token);
 	}
 
-	private async Task<MessageDisposition> ProcessAttemptAsync(Guid revisionId, ExtractionMessage message,
+	private async Task<MessageDisposition> ProcessAttemptAsync(Guid dateiId, ExtractionMessage message,
 		CancellationToken budget, AttemptState attempt, CancellationToken parentToken)
 	{
 		if (MaintenanceConfiguration.IsEnabled(configuration))
 		{
-			logger.LogInformation("Reading paused by maintenance mode for revision {RevisionId}", revisionId);
+			logger.LogInformation("Reading paused by maintenance mode for Datei {DateiId}", dateiId);
 			return new MessageDisposition(Abandon: true, Visibility: options.Value.VisibilityBackoff);
 		}
-		var revision = await db.FileRevisions.Include(r => r.Asset)
-			.FirstOrDefaultAsync(r => r.Id == revisionId, budget);
-		if (revision is null || !ReadingService.IsReadable(revision.Asset.AssetType)
-			|| !string.Equals(revision.ContentType, AssetEndpoints.PdfContentType, StringComparison.OrdinalIgnoreCase))
+		// A Datei in the trash is no longer read.
+		var datei = await DateiQueries.Visible(db)
+			.FirstOrDefaultAsync(d => d.Id == dateiId, budget);
+		if (datei is null || !ReadingService.IsReadable(datei))
 		{
-			logger.LogInformation("Reading revision {RevisionId} is not readable material; message deleted", revisionId);
+			logger.LogInformation("Reading Datei {DateiId} is not readable material; message deleted", dateiId);
 			return MessageDisposition.Delete;
 		}
 		// The row, not the message, is the durable work record.
-		var job = await db.ReadingJobs.FirstOrDefaultAsync(j => j.RevisionId == revisionId, budget);
+		var job = await db.ReadingJobs.FirstOrDefaultAsync(j => j.DateiId == dateiId, budget);
 		if (job is null)
 		{
-			logger.LogInformation("Reading revision {RevisionId} has no work row; message deleted", revisionId);
+			logger.LogInformation("Reading Datei {DateiId} has no work row; message deleted", dateiId);
 			return MessageDisposition.Delete;
 		}
 		var now = time.GetUtcNow();
@@ -166,9 +167,9 @@ public sealed class ReadingWorker(
 			return new MessageDisposition(Abandon: true, Visibility: options.Value.VisibilityBackoff);
 		}
 
-		var extraction = await db.ExtractionJobs.FirstOrDefaultAsync(j => j.RevisionId == revisionId, budget);
+		var extraction = await db.ExtractionJobs.FirstOrDefaultAsync(j => j.DateiId == dateiId, budget);
 		if (extraction is null || extraction.Status is ExtractionStatus.Queued or ExtractionStatus.Running)
-			return await RetryAsync(job, revisionId, message, parentToken);
+			return await RetryAsync(job, dateiId, message, parentToken);
 		if (extraction.Status == ExtractionStatus.Failed)
 			return await FinishAsync(job, ReadingStatus.Failed, ExtractionFailedReason, time.GetUtcNow(), token: budget);
 
@@ -176,7 +177,7 @@ public sealed class ReadingWorker(
 		var progress = new PrefillProgress();
 		try
 		{
-			outcome = await ExecuteAsync(job, extraction, revision, progress, budget);
+			outcome = await ExecuteAsync(job, extraction, datei, progress, budget);
 		}
 		catch (OperationCanceledException) when (budget.IsCancellationRequested)
 		{
@@ -202,13 +203,12 @@ public sealed class ReadingWorker(
 		{
 			// Provider, storage or parsing trouble: type only, never the
 			// message (it can carry URLs or text of the scan).
-			logger.LogWarning("Reading failed for revision {RevisionId} ({ExceptionType})", revisionId, exception.GetType().Name);
+			logger.LogWarning("Reading failed for Datei {DateiId} ({ExceptionType})", dateiId, exception.GetType().Name);
 			outcome = StepOutcome.Transient;
 		}
 		finally
 		{
 			job.FieldsApplied += progress.Applied;
-			job.FieldsProposed += progress.Proposed;
 		}
 
 		var finished = time.GetUtcNow();
@@ -224,12 +224,12 @@ public sealed class ReadingWorker(
 				job.AttemptCount = Math.Max(0, job.AttemptCount - 1);
 				return await FinishAsync(job, ReadingStatus.WaitingForBudget, null, finished, token: parentToken);
 			default:
-				return await RetryAsync(job, revisionId, message, parentToken);
+				return await RetryAsync(job, dateiId, message, parentToken);
 		}
 	}
 
 	/// <summary>Runs step one (pages to text) and step two (text to fields) with progress saved as it goes.</summary>
-	private async Task<StepOutcome> ExecuteAsync(ReadingJob job, ExtractionJob extraction, FileRevision revision,
+	private async Task<StepOutcome> ExecuteAsync(ReadingJob job, ExtractionJob extraction, Datei datei,
 		PrefillProgress progress, CancellationToken token)
 	{
 		var settings = options.Value;
@@ -244,9 +244,9 @@ public sealed class ReadingWorker(
 					break;
 				if (pdf is null)
 				{
-					if (revision.SizeBytes > settings.MaxPdfBytes)
+					if (datei.SizeBytes > settings.MaxPdfBytes)
 						return StepOutcome.Fail(TooLargeReason);
-					pdf = await LoadPdfAsync(revision, token);
+					pdf = await LoadPdfAsync(datei, token);
 					if (pdf is null)
 						return StepOutcome.Transient;
 				}
@@ -274,12 +274,12 @@ public sealed class ReadingWorker(
 		}
 		if (!job.FieldsDone && !string.IsNullOrWhiteSpace(extraction.Text))
 		{
-			await prefill.RunAsync(revision.Asset, revision, extraction.Text, job.TriggeredByAccountId, progress, token);
+			await prefill.RunAsync(datei, extraction.Text, job.TriggeredByAccountId, progress, token);
 		}
 		return StepOutcome.Finished;
 	}
 
-	/// <summary>Adds a transcription to the revision's text (bounded) and makes the row a text row.</summary>
+	/// <summary>Adds a transcription to the Datei's text (bounded) and makes the row a text row.</summary>
 	private static void Append(ExtractionJob extraction, string transcription, int cap, DateTimeOffset now)
 	{
 		if (string.IsNullOrWhiteSpace(transcription))
@@ -295,9 +295,9 @@ public sealed class ReadingWorker(
 		extraction.RowVersion++;
 	}
 
-	private async Task<byte[]?> LoadPdfAsync(FileRevision revision, CancellationToken token)
+	private async Task<byte[]?> LoadPdfAsync(Datei datei, CancellationToken token)
 	{
-		await using var stream = await storage.OpenReadAsync(revision.BlobName, token);
+		await using var stream = await storage.OpenReadAsync(datei.BlobName, token);
 		if (stream is null)
 			return null;
 		using var buffer = new MemoryStream();
@@ -321,18 +321,18 @@ public sealed class ReadingWorker(
 		catch (DbUpdateConcurrencyException)
 		{
 			db.ChangeTracker.Clear();
-			var fresh = await db.ReadingJobs.AsNoTracking().FirstOrDefaultAsync(j => j.RevisionId == job.RevisionId, token);
+			var fresh = await db.ReadingJobs.AsNoTracking().FirstOrDefaultAsync(j => j.DateiId == job.DateiId, token);
 			if (fresh is not null && fresh.Status is ReadingStatus.Completed or ReadingStatus.Failed or ReadingStatus.WaitingForBudget)
 				return MessageDisposition.Delete;
 			return new MessageDisposition(Abandon: true, Visibility: options.Value.VisibilityBackoff);
 		}
 	}
 
-	private async Task<MessageDisposition> RetryAsync(ReadingJob job, Guid revisionId, ExtractionMessage message, CancellationToken token)
+	private async Task<MessageDisposition> RetryAsync(ReadingJob job, Guid dateiId, ExtractionMessage message, CancellationToken token)
 	{
 		if (job.AttemptCount >= options.Value.MaxAttempts || message.DequeueCount >= options.Value.MaxAttempts)
 		{
-			logger.LogWarning("Reading for revision {RevisionId} exhausted its attempts", revisionId);
+			logger.LogWarning("Reading for Datei {DateiId} exhausted its attempts", dateiId);
 			return await FinishAsync(job, ReadingStatus.Failed, ExhaustedReason, time.GetUtcNow(), token);
 		}
 		// Back to Queued before the message is abandoned: a Running row would

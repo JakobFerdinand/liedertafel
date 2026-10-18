@@ -13,7 +13,7 @@ namespace Archive.Backend.Tests;
 public sealed partial class RecordingPassageApiTests
 {
 	/// <summary>
-	/// Reusable API scaffolding in the style of the other suites: songs,
+	/// Reusable API scaffolding in the style of the other suites: Lieder,
 	/// events, occurrences, recordings with a real (fake-stored) MP4 file.
 	/// </summary>
 	private sealed class Scenario : IAsyncDisposable
@@ -46,53 +46,12 @@ public sealed partial class RecordingPassageApiTests
 			await Factory.DisposeAsync();
 		}
 
-		public async Task<(Guid SongId, Guid ArrangementId, Guid VersionId)> CreateSongAsync(
-			string title, string? versionLabel = null, bool publish = true)
+		public async Task<Guid> CreateLiedAsync(string title)
 		{
-			using var create = await SendAsync(HttpMethod.Post, "/api/songs", new { title }, EditorSession);
+			using var create = await SendAsync(HttpMethod.Post, "/api/lieder", new { title }, EditorSession);
 			Assert.Equal(HttpStatusCode.Created, create.StatusCode);
-			var song = (await create.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("song");
-			var songId = Guid.Parse(song.GetProperty("id").GetString()!);
-			var arrangement = song.GetProperty("arrangements").EnumerateArray().Single();
-			var arrangementId = Guid.Parse(arrangement.GetProperty("id").GetString()!);
-			var versionId = Guid.Parse(arrangement.GetProperty("musicalVersions").EnumerateArray().Single()
-				.GetProperty("id").GetString()!);
-			if (versionLabel is not null)
-			{
-				using var patch = await SendAsync(HttpMethod.Patch, $"/api/musical-versions/{versionId}",
-					new { label = versionLabel }, EditorSession);
-				Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
-			}
-			if (publish)
-			{
-				using var published = await SendAsync(HttpMethod.Post, $"/api/songs/{songId}/publish", new { }, EditorSession);
-				Assert.Equal(HttpStatusCode.OK, published.StatusCode);
-			}
-			return (songId, arrangementId, versionId);
-		}
-
-		public async Task<(Guid ArrangementId, Guid VersionId)> AddArrangementAsync(Guid songId, string label)
-		{
-			using var response = await SendAsync(HttpMethod.Post, $"/api/songs/{songId}/arrangements", new { label }, EditorSession);
-			Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-			var song = (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("song");
-			var arrangementId = Guid.Parse(song.GetProperty("arrangements").EnumerateArray()
-				.Single(a => a.GetProperty("label").GetString() == label).GetProperty("id").GetString()!);
-			using var version = await SendAsync(HttpMethod.Post, $"/api/arrangements/{arrangementId}/versions",
-				new { label = $"{label} (Fassung)" }, EditorSession);
-			Assert.Equal(HttpStatusCode.Created, version.StatusCode);
-			var created = (await version.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("song")
-				.GetProperty("arrangements").EnumerateArray()
-				.Single(a => Guid.Parse(a.GetProperty("id").GetString()!) == arrangementId)
-				.GetProperty("musicalVersions")[0].GetProperty("id").GetString()!;
-			return (arrangementId, Guid.Parse(created));
-		}
-
-		public async Task SetVoiceAsync(Guid arrangementId, string voice)
-		{
-			using var response = await SendAsync(HttpMethod.Patch, $"/api/arrangements/{arrangementId}",
-				new { voiceConfiguration = voice }, EditorSession);
-			Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+			return Guid.Parse((await create.Content.ReadFromJsonAsync<JsonElement>())
+				.GetProperty("lied").GetProperty("id").GetString()!);
 		}
 
 		public async Task<Guid> CreateEventAsync(string title, int? year, int? month, int? day, bool published = false)
@@ -115,14 +74,13 @@ public sealed partial class RecordingPassageApiTests
 		}
 
 		/// <summary>Records one confirmed (or mention) occurrence and returns its stable id.</summary>
-		public async Task<string> RecordAsync(Guid eventId, Guid songId, Guid? versionId = null, string? note = null)
+		public async Task<string> RecordAsync(Guid eventId, Guid liedId, string? note = null)
 		{
 			using var response = await SendAsync(HttpMethod.Post, $"/api/events/{eventId}/performances", new
 			{
-				songId,
+				liedId,
 				evidenceStatus = "confirmed",
 				sourceNote = note,
-				musicalVersionId = versionId,
 				idempotencyKey = Guid.NewGuid().ToString("N"),
 			}, EditorSession);
 			Assert.Equal(HttpStatusCode.Created, response.StatusCode);
@@ -130,10 +88,9 @@ public sealed partial class RecordingPassageApiTests
 				.GetProperty("performance").GetProperty("id").GetString()!;
 		}
 
-		public async Task PublishProgrammeAsync(Guid eventId,
-			IEnumerable<(Guid SongId, Guid ArrangementId, Guid VersionId)> songs)
+		public async Task PublishProgrammeAsync(Guid eventId, IEnumerable<Guid> lieder)
 		{
-			var items = songs.Select(s => (object)new { songId = s.SongId, musicalVersionId = s.VersionId }).ToArray();
+			var items = lieder.Select(l => (object)new { liedId = l }).ToArray();
 			using var save = await SendAsync(HttpMethod.Put, $"/api/events/{eventId}/programme/items", new { items }, EditorSession);
 			Assert.Equal(HttpStatusCode.OK, save.StatusCode);
 			var saved = (await save.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("programme");
@@ -179,45 +136,52 @@ public sealed partial class RecordingPassageApiTests
 			var id = Guid.Parse(recording.GetProperty("id").GetString()!);
 			if (!upload)
 				return id;
-			var assetId = Guid.Parse(recording.GetProperty("editor").GetProperty("original").GetProperty("assetId").GetString()!);
-			originalAssets[id] = assetId;
-			await UploadAsync(assetId, kind == "audio" ? Mp4(4096, "M4A ") : Mp4(4096), kind == "audio" ? "ton.m4a" : "bild.mp4");
+			await AttachAsync(id, "original", kind == "audio" ? Mp4(4096, "M4A ") : Mp4(4096),
+				kind == "audio" ? "ton.m4a" : "bild.mp4", kind == "audio" ? "audio/mp4" : "video/mp4");
 			if (duration is { } seconds)
 				await PatchRecordingAsync(id, new { durationSeconds = seconds });
 			return id;
 		}
 
-		private readonly Dictionary<Guid, Guid> originalAssets = [];
-
 		/// <summary>Replaces the original with a QuickTime file: preserved, but not playable.</summary>
 		public async Task ReplaceOriginalWithUnplayableAsync(Guid recordingId) =>
-			await UploadAsync(originalAssets[recordingId], Mp4(2048, "qt  "), "alt.mov");
+			await AttachAsync(recordingId, "original", Mp4(2048, "qt  "), "alt.mov", "video/quicktime");
 
-		/// <summary>The playback revision the editor's list was built against.</summary>
-		public async Task<Guid?> PlaybackRevisionAsync(Guid recordingId)
+		/// <summary>The playback Datei the editor's list was built against.</summary>
+		public async Task<Guid?> PlaybackDateiAsync(Guid recordingId)
 		{
 			var view = await PassagesAsync(recordingId, EditorSession);
-			var revision = view.GetProperty("playbackRevisionId");
-			return revision.ValueKind is JsonValueKind.Null ? null : Guid.Parse(revision.GetString()!);
+			var datei = view.GetProperty("playbackDateiId");
+			return datei.ValueKind is JsonValueKind.Null ? null : Guid.Parse(datei.GetString()!);
 		}
 
-		public async Task RestoreRevisionAsync(Guid assetId, Guid revisionId)
+		/// <summary>Replaces the playback copy; answers the new Datei.</summary>
+		public async Task<Guid> ReplacePlaybackFileAsync(Guid recordingId)
 		{
-			using var response = await SendAsync(HttpMethod.Post, $"/api/assets/{assetId}/current-revision",
-				new { revisionId }, EditorSession);
-			Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+			var kind = await KindAsync(recordingId);
+			return await AttachAsync(recordingId, "playback", kind == "audio" ? Mp4(2048, "M4A ") : Mp4(2048),
+				"kopie.mp4", kind == "audio" ? "audio/mp4" : "video/mp4");
 		}
 
-		/// <summary>Replaces the playback copy; answers its asset and the new revision.</summary>
-		public async Task<(Guid AssetId, Guid RevisionId)> ReplacePlaybackFileAsync(Guid recordingId)
+		private async Task<string> KindAsync(Guid recordingId)
 		{
-			using var open = await SendAsync(HttpMethod.Post, $"/api/recordings/{recordingId}/playback", new { }, EditorSession);
-			Assert.Equal(HttpStatusCode.OK, open.StatusCode);
-			var recording = (await open.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("recording");
-			var assetId = Guid.Parse(recording.GetProperty("editor").GetProperty("playbackCopy").GetProperty("assetId").GetString()!);
-			var kind = recording.GetProperty("kind").GetString();
-			var revision = await UploadAsync(assetId, kind == "audio" ? Mp4(2048, "M4A ") : Mp4(2048), "kopie.mp4");
-			return (assetId, revision);
+			using var scope = Factory.Services.CreateScope();
+			return (await scope.ServiceProvider.GetRequiredService<ArchiveDbContext>().Recordings
+				.SingleAsync(r => r.Id == recordingId)).Kind;
+		}
+
+		/// <summary>Uploads an Aufnahme Datei to the recording's Auftritt and attaches it to a slot; answers the Datei id.</summary>
+		private async Task<Guid> AttachAsync(Guid recordingId, string slot, byte[] content, string fileName, string contentType)
+		{
+			Guid eventId;
+			using (var scope = Factory.Services.CreateScope())
+				eventId = (await scope.ServiceProvider.GetRequiredService<ArchiveDbContext>().Recordings
+					.SingleAsync(r => r.Id == recordingId)).EventId;
+			var dateiId = await UploadAsync(eventId, content, fileName, contentType);
+			using var attach = await SendAsync(HttpMethod.Put, $"/api/recordings/{recordingId}/dateien/{slot}",
+				new { dateiId }, EditorSession);
+			Assert.Equal(HttpStatusCode.OK, attach.StatusCode);
+			return dateiId;
 		}
 
 		public async Task PublishRecordingAsync(Guid recordingId) => await PatchRecordingAsync(recordingId, new { isPublished = true });
@@ -228,10 +192,10 @@ public sealed partial class RecordingPassageApiTests
 			Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 		}
 
-		private async Task<Guid> UploadAsync(Guid assetId, byte[] content, string fileName)
+		private async Task<Guid> UploadAsync(Guid eventId, byte[] content, string fileName, string contentType)
 		{
-			using var start = await SendAsync(HttpMethod.Post, $"/api/assets/{assetId}/upload-session",
-				new { sizeBytes = content.LongLength, fileName }, EditorSession);
+			using var start = await SendAsync(HttpMethod.Post, $"/api/events/{eventId}/dateien/upload-session",
+				new { kind = "aufnahme", contentType, sizeBytes = content.LongLength, fileName }, EditorSession);
 			Assert.Equal(HttpStatusCode.Created, start.StatusCode);
 			var json = await start.Content.ReadFromJsonAsync<JsonElement>();
 			var sessionId = Guid.Parse(json.GetProperty("uploadSessionId").GetString()!);
@@ -239,7 +203,7 @@ public sealed partial class RecordingPassageApiTests
 			using var finalize = await SendAsync(HttpMethod.Post, $"/api/upload-sessions/{sessionId}/finalize",
 				new { sizeBytes = content.LongLength, fileName }, EditorSession);
 			Assert.Equal(HttpStatusCode.OK, finalize.StatusCode);
-			return Guid.Parse((await finalize.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("revisionId").GetString()!);
+			return Guid.Parse((await finalize.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("datei").GetProperty("id").GetString()!);
 		}
 
 		private static byte[] Mp4(int size, string brand = "isom")
@@ -253,9 +217,9 @@ public sealed partial class RecordingPassageApiTests
 
 		public async Task<JsonElement> AddPassageAsync(Guid recordingId, string performanceId, double start, double end)
 		{
-			var revision = await PlaybackRevisionAsync(recordingId);
+			var revision = await PlaybackDateiAsync(recordingId);
 			using var response = await SendAsync(HttpMethod.Post, $"/api/recordings/{recordingId}/passages",
-				new { performanceId, startSeconds = start, endSeconds = end, expectedPlaybackRevisionId = revision }, EditorSession);
+				new { performanceId, startSeconds = start, endSeconds = end, expectedPlaybackDateiId = revision }, EditorSession);
 			Assert.Equal(HttpStatusCode.Created, response.StatusCode);
 			return (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("passage").Clone();
 		}
@@ -275,16 +239,9 @@ public sealed partial class RecordingPassageApiTests
 			return (await response.Content.ReadFromJsonAsync<JsonElement>()).Clone();
 		}
 
-		public async Task<JsonElement> HistoryAsync(Guid songId, string session)
+		public async Task<JsonElement> HistoryAsync(Guid liedId, string session)
 		{
-			using var response = await GetAsync($"/api/songs/{songId}/performances", session);
-			Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-			return (await response.Content.ReadFromJsonAsync<JsonElement>()).Clone();
-		}
-
-		public async Task<JsonElement> ListSongsAsync(string session, string query)
-		{
-			using var response = await GetAsync($"/api/songs?{query}", session);
+			using var response = await GetAsync($"/api/lieder/{liedId}/performances", session);
 			Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 			return (await response.Content.ReadFromJsonAsync<JsonElement>()).Clone();
 		}

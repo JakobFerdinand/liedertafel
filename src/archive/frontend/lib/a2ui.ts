@@ -4,7 +4,7 @@ import { z } from "zod";
 // ARC-022-4: der Katalog des Archivs für A2UI. Der Server baut jede
 // Oberfläche selbst aus Datensatz-IDs und prüft sie gegen den Katalog;
 // der Browser prüft trotzdem jede Nachricht noch einmal, bevor etwas
-// gezeigt wird, und kennt genau diese sechs Komponenten. Der Basis-Katalog
+// gezeigt wird, und kennt genau diese vier Komponenten. Der Basis-Katalog
 // von A2UI ist nicht registriert. Kein Feld trägt eine Adresse: Verweise
 // leitet der Browser aus den IDs ab.
 
@@ -57,34 +57,6 @@ const programmListeSchema = z
   })
   .strict();
 
-const vorschlagKarteSchema = z
-  .object({
-    vorschlagId: kennung,
-    titel,
-    grund: kurzerText(500),
-    vertrauen: z.enum(["Sicher", "Unsicher"]).optional(),
-  })
-  .strict();
-
-const aenderungsVorschauSchema = z
-  .object({
-    vorschlagId: kennung,
-    titel,
-    aenderungen: z
-      .array(
-        z
-          .object({
-            feld: kurzerText(80),
-            bisher: kurzerText(500).optional(),
-            neu: kurzerText(500),
-          })
-          .strict(),
-      )
-      .min(1)
-      .max(20),
-  })
-  .strict();
-
 const quellenSchema = z
   .object({
     quellen: z
@@ -101,10 +73,6 @@ const quellenSchema = z
 export type LiedKarteEigenschaften = z.infer<typeof liedKarteSchema>;
 export type AuftrittKarteEigenschaften = z.infer<typeof auftrittKarteSchema>;
 export type ProgrammListeEigenschaften = z.infer<typeof programmListeSchema>;
-export type VorschlagKarteEigenschaften = z.infer<typeof vorschlagKarteSchema>;
-export type AenderungsVorschauEigenschaften = z.infer<
-  typeof aenderungsVorschauSchema
->;
 export type QuellenEigenschaften = z.infer<typeof quellenSchema>;
 
 // Eigenschaften je Komponente; die Schlüssel sind die Namen im Katalog.
@@ -112,8 +80,6 @@ export const a2uiKomponentenSchemas = {
   LiedKarte: liedKarteSchema,
   AuftrittKarte: auftrittKarteSchema,
   ProgrammListe: programmListeSchema,
-  VorschlagKarte: vorschlagKarteSchema,
-  AenderungsVorschau: aenderungsVorschauSchema,
   Quellen: quellenSchema,
 } as const;
 

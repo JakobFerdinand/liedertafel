@@ -1,5 +1,5 @@
-import { groesseText } from "@/lib/assets";
 import { patchAuth, postAuth } from "@/lib/auth";
+import { groesseText } from "@/lib/uebertragung";
 
 // ARC-030: ganze Aufnahmen eines Auftritts. Die Typen spiegeln die Antworten
 // von /api/events/{id}/recordings und /api/recordings/{id}/… Feld für Feld.
@@ -10,8 +10,7 @@ export type AufnahmeArt = "audio" | "video";
 export type AbspielZustand = "ready" | "needsPlaybackCopy" | "missing";
 
 export type AufnahmeDatei = {
-  revisionId: string;
-  revisionNumber: number;
+  dateiId: string;
   contentType: string;
   sizeBytes: number;
   fileName: string | null;
@@ -21,7 +20,6 @@ export type AufnahmeDatei = {
 };
 
 export type AufnahmePlatz = {
-  assetId: string;
   file: AufnahmeDatei | null;
 };
 
@@ -36,7 +34,7 @@ export type Aufnahme = {
   playback: {
     state: AbspielZustand;
     source: "original" | "playbackCopy" | null;
-    revisionId: string | null;
+    dateiId: string | null;
     contentType: string | null;
     sizeBytes: number | null;
   };
@@ -48,7 +46,7 @@ export type Aufnahme = {
     canChangeFiles: boolean;
     publishedAt: string | null;
     original: AufnahmePlatz;
-    playbackCopy: AufnahmePlatz | null;
+    playbackCopy: AufnahmePlatz;
   } | null;
 };
 
@@ -57,7 +55,7 @@ export type AufnahmeZugriff = {
   kind: AufnahmeArt;
   playbackState: AbspielZustand;
   source: "original" | "playbackCopy" | null;
-  revisionId: string;
+  dateiId: string;
   contentType: string;
   sizeBytes: number;
   durationSeconds: number | null;
@@ -95,7 +93,8 @@ export async function fetchAufnahmen(
 }
 
 /**
- * Legt die Aufnahme samt leerem Original-Platz an. Am Auftritt selbst ändert
+ * Legt die Aufnahme mit leeren Plätzen an; die Dateien folgen als Dateien des
+ * Auftritts (lib/dateien.ts, haengeAufnahmeDateiAn). Am Auftritt selbst ändert
  * sich nichts: kein Programm, keine Aufführung.
  */
 export async function createAufnahme(
@@ -117,16 +116,6 @@ export async function patchAufnahme(
   const response = await patchAuth(
     `/api/recordings/${encodeURIComponent(id)}`,
     body,
-  );
-  if (!response.ok) throw response;
-  return ((await response.json()) as { recording: Aufnahme }).recording;
-}
-
-/** Öffnet den Platz für eine umgewandelte Abspielfassung (wiederholbar). */
-export async function oeffneAbspielfassung(id: string): Promise<Aufnahme> {
-  const response = await postAuth(
-    `/api/recordings/${encodeURIComponent(id)}/playback`,
-    {},
   );
   if (!response.ok) throw response;
   return ((await response.json()) as { recording: Aufnahme }).recording;

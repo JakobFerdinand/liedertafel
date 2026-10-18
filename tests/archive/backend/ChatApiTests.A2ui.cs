@@ -1,7 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using Archive.Backend.Catalogue;
 using Archive.Backend.Chat;
 using Archive.Backend.Data;
 using Archive.Backend.Events;
@@ -32,7 +31,7 @@ public sealed partial class ChatApiTests
 	{
 		await using var factory = ChatFactory();
 		var ownerId = await SeedMemberAsync(factory, MemberA);
-		var (publishedId, _, _) = await SeedSongsAsync(factory, ownerId);
+		var (publishedId, _, _) = await SeedLiederAsync(factory, ownerId);
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 
@@ -76,7 +75,7 @@ public sealed partial class ChatApiTests
 		// refuses explicit nulls such as usage[].model; absent is what they mean.
 		await using var factory = ChatFactory();
 		var ownerId = await SeedMemberAsync(factory, MemberA);
-		await SeedSongsAsync(factory, ownerId);
+		await SeedLiederAsync(factory, ownerId);
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 
@@ -101,7 +100,7 @@ public sealed partial class ChatApiTests
 	{
 		await using var factory = ChatFactory();
 		var ownerId = await SeedMemberAsync(factory, MemberA);
-		var (publishedId, _, _) = await SeedSongsAsync(factory, ownerId);
+		var (publishedId, _, _) = await SeedLiederAsync(factory, ownerId);
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 		var threadId = Guid.NewGuid();
@@ -128,11 +127,11 @@ public sealed partial class ChatApiTests
 	}
 
 	[Fact]
-	public async Task ReloadDropsTheCardOfASinceUnpublishedSongAndKeepsTheText()
+	public async Task ReloadDropsTheCardOfASinceDeletedLiedAndKeepsTheText()
 	{
 		await using var factory = ChatFactory();
 		var ownerId = await SeedMemberAsync(factory, MemberA);
-		var (publishedId, _, _) = await SeedSongsAsync(factory, ownerId);
+		var (publishedId, _, _) = await SeedLiederAsync(factory, ownerId);
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 		var threadId = Guid.NewGuid();
@@ -142,8 +141,8 @@ public sealed partial class ChatApiTests
 		await using (var scope = factory.Services.CreateAsyncScope())
 		{
 			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-			var song = await db.Songs.SingleAsync(s => s.Id == publishedId);
-			song.PublishedAt = null;
+			var song = await db.Lieder.SingleAsync(s => s.Id == publishedId);
+			db.Lieder.Remove(song);
 			await db.SaveChangesAsync();
 		}
 
@@ -161,7 +160,7 @@ public sealed partial class ChatApiTests
 	{
 		await using var factory = ChatFactory();
 		var ownerId = await SeedMemberAsync(factory, MemberA);
-		var (publishedId, draftId, _) = await SeedSongsAsync(factory, ownerId);
+		var (publishedId, draftId, _) = await SeedLiederAsync(factory, ownerId);
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 		var threadId = Guid.NewGuid();
@@ -197,7 +196,7 @@ public sealed partial class ChatApiTests
 	{
 		await using var factory = ChatFactory();
 		var ownerId = await SeedMemberAsync(factory, MemberA);
-		var (publishedId, draftId, _) = await SeedSongsAsync(factory, ownerId);
+		var (publishedId, draftId, _) = await SeedLiederAsync(factory, ownerId);
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 		var threadId = Guid.NewGuid();
@@ -233,7 +232,7 @@ public sealed partial class ChatApiTests
 	{
 		await using var factory = ChatFactory();
 		var ownerId = await SeedMemberAsync(factory, MemberA);
-		await SeedSongsAsync(factory, ownerId);
+		await SeedLiederAsync(factory, ownerId);
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 		var threadId = Guid.NewGuid();
@@ -262,7 +261,7 @@ public sealed partial class ChatApiTests
 		var provider = new ShowSurfaceChatClient();
 		await using var factory = ChatFactory(chatClient: provider);
 		var ownerId = await SeedMemberAsync(factory, MemberA);
-		var (publishedId, draftId, _) = await SeedSongsAsync(factory, ownerId);
+		var (publishedId, draftId, _) = await SeedLiederAsync(factory, ownerId);
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 		provider.Request = $$"""
@@ -303,7 +302,7 @@ public sealed partial class ChatApiTests
 		var provider = new ShowSurfaceChatClient();
 		await using var factory = ChatFactory(chatClient: provider);
 		var ownerId = await SeedMemberAsync(factory, MemberA);
-		var (_, draftId, _) = await SeedSongsAsync(factory, ownerId);
+		var (_, draftId, _) = await SeedLiederAsync(factory, ownerId);
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 		provider.Request = $$"""[{"komponente":"LiedKarte","liedId":"{{draftId}}"},{"komponente":"Unbekannt"}]""";
@@ -322,7 +321,6 @@ public sealed partial class ChatApiTests
 
 	[Theory]
 	[InlineData("liedId", "auftrittId")]
-	[InlineData("liedId", "vorschlagId")]
 	[InlineData("liedId", "liedIds")]
 	public async Task AnEntryCarryingAnIdItsComponentDoesNotTakeIsDroppedEvenForAVisibleRecord(string own, string foreign)
 	{
@@ -331,7 +329,7 @@ public sealed partial class ChatApiTests
 		var provider = new ShowSurfaceChatClient();
 		await using var factory = ChatFactory(chatClient: provider);
 		var ownerId = await SeedMemberAsync(factory, MemberA);
-		var (publishedId, _, _) = await SeedSongsAsync(factory, ownerId);
+		var (publishedId, _, _) = await SeedLiederAsync(factory, ownerId);
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 		var foreignValue = foreign == "liedIds" ? $"[\"{publishedId}\"]" : $"\"{Guid.NewGuid()}\"";
@@ -351,7 +349,7 @@ public sealed partial class ChatApiTests
 		var provider = new ShowSurfaceChatClient();
 		await using var factory = ChatFactory(chatClient: provider);
 		var ownerId = await SeedMemberAsync(factory, MemberA);
-		var (publishedId, draftId, _) = await SeedSongsAsync(factory, ownerId);
+		var (publishedId, draftId, _) = await SeedLiederAsync(factory, ownerId);
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 
@@ -373,11 +371,11 @@ public sealed partial class ChatApiTests
 		var provider = new ShowSurfaceChatClient();
 		await using var factory = ChatFactory(chatClient: provider);
 		var ownerId = await SeedMemberAsync(factory, MemberA);
-		var (publishedId, _, _) = await SeedSongsAsync(factory, ownerId);
+		var (publishedId, _, _) = await SeedLiederAsync(factory, ownerId);
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 		provider.Request = $$"""
-			[{"komponente":"LiedKarte","liedId":"{{publishedId}}","liedIds":[],"auftrittId":"","vorschlagId":null}]
+			[{"komponente":"LiedKarte","liedId":"{{publishedId}}","liedIds":[],"auftrittId":""}]
 			""";
 
 		using var response = await RunChatAsync(client, session, Guid.NewGuid().ToString(), "Zeige etwas");
@@ -392,7 +390,7 @@ public sealed partial class ChatApiTests
 	{
 		await using var factory = ChatFactory();
 		var ownerId = await SeedMemberAsync(factory, MemberA);
-		await SeedSongsAsync(factory, ownerId);
+		await SeedLiederAsync(factory, ownerId);
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 		var threadId = Guid.NewGuid();
@@ -418,7 +416,7 @@ public sealed partial class ChatApiTests
 		var provider = new ShowSurfaceChatClient { Request = request };
 		await using var factory = ChatFactory(chatClient: provider);
 		var ownerId = await SeedMemberAsync(factory, MemberA);
-		await SeedSongsAsync(factory, ownerId);
+		await SeedLiederAsync(factory, ownerId);
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 
@@ -435,13 +433,13 @@ public sealed partial class ChatApiTests
 	[InlineData("ProgrammListe")]
 	[InlineData("VorschlagKarte")]
 	[InlineData("AenderungsVorschau")]
-	public async Task CatalogComponentsWithoutAMemberResolverAreDroppedAndNeverOffered(string component)
+	public async Task CatalogComponentsWithoutAMemberResolverAndRemovedOnesAreDroppedAndNeverOffered(string component)
 	{
 		var provider = new ShowSurfaceChatClient();
 		await using var factory = ChatFactory(chatClient: provider);
 		var ownerId = await SeedMemberAsync(factory, MemberA);
 		var eventId = await SeedEventAsync(factory, ownerId, "Frühlingskonzert", published: true);
-		await SeedSongsAsync(factory, ownerId);
+		await SeedLiederAsync(factory, ownerId);
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 		var argument = component == "ProgrammListe" ? $"\"auftrittId\":\"{eventId}\"" : $"\"vorschlagId\":\"{Guid.NewGuid()}\"";
@@ -456,28 +454,29 @@ public sealed partial class ChatApiTests
 		Assert.Contains("LiedKarte", provider.ToolDescription);
 		Assert.Contains("AuftrittKarte", provider.ToolDescription);
 		Assert.Contains("Quellen", provider.ToolDescription);
-		Assert.DoesNotContain("VorschlagKarte", provider.ToolDescription);
-		Assert.DoesNotContain("AenderungsVorschau", provider.ToolDescription);
 		Assert.DoesNotContain("ProgrammListe", provider.ToolDescription);
+		// Suggestions are no longer part of the catalog: not even as an argument.
+		Assert.DoesNotContain("orschlag", provider.ToolDescription, StringComparison.OrdinalIgnoreCase);
+		Assert.DoesNotContain("AenderungsVorschau", provider.ToolDescription);
 	}
 
 	[Fact]
-	public async Task AuftrittKarteShowsPublishedEventsOnlyAndQuellenOnlyPublishedSongs()
+	public async Task AuftrittKarteShowsPublishedEventsOnlyAndQuellenOnlyKnownLieder()
 	{
 		var provider = new ShowSurfaceChatClient();
 		await using var factory = ChatFactory(chatClient: provider);
 		var ownerId = await SeedMemberAsync(factory, MemberA);
 		var published = await SeedEventAsync(factory, ownerId, "Frühlingskonzert 1932", published: true);
 		var draft = await SeedEventAsync(factory, ownerId, "Interne Beratung", published: false);
-		var (songId, draftSong, _) = await SeedSongsAsync(factory, ownerId);
+		var (liedId, unknownLied, _) = await SeedLiederAsync(factory, ownerId);
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 		provider.Request = $$"""
 			[
 			 {"komponente":"AuftrittKarte","auftrittId":"{{published}}"},
 			 {"komponente":"AuftrittKarte","auftrittId":"{{draft}}"},
-			 {"komponente":"Quellen","liedIds":["{{songId}}","{{draftSong}}","kein-guid"]},
-			 {"komponente":"Quellen","liedIds":["{{draftSong}}"]}
+			 {"komponente":"Quellen","liedIds":["{{liedId}}","{{unknownLied}}","kein-guid"]},
+			 {"komponente":"Quellen","liedIds":["{{unknownLied}}"]}
 			]
 			""";
 
@@ -495,7 +494,7 @@ public sealed partial class ChatApiTests
 		Assert.Equal("concert", components[0].GetProperty("art").GetString());
 		Assert.Equal("Quellen", components[1].GetProperty("component").GetString());
 		var sources = components[1].GetProperty("quellen").EnumerateArray().ToList();
-		Assert.Equal(songId.ToString(), Assert.Single(sources).GetProperty("liedId").GetString());
+		Assert.Equal(liedId.ToString(), Assert.Single(sources).GetProperty("liedId").GetString());
 		Assert.DoesNotContain("Interne Beratung", body);
 		Assert.DoesNotContain("Geheime Probe", body);
 	}
@@ -506,7 +505,7 @@ public sealed partial class ChatApiTests
 		var provider = new ShowSurfaceChatClient();
 		await using var factory = ChatFactory(chatClient: provider);
 		var ownerId = await SeedMemberAsync(factory, MemberA);
-		var (publishedId, _, instructionId) = await SeedSongsAsync(factory, ownerId);
+		var (publishedId, _, instructionId) = await SeedLiederAsync(factory, ownerId);
 		var events = new List<Guid>();
 		for (var i = 0; i < 4; i++)
 			events.Add(await SeedEventAsync(factory, ownerId, $"Konzert {i}", published: true));
@@ -530,7 +529,7 @@ public sealed partial class ChatApiTests
 		await using var factory = ChatFactory();
 		var ownerId = await SeedMemberAsync(factory, MemberA);
 		await SeedMemberAsync(factory, MemberB);
-		await SeedSongsAsync(factory, ownerId);
+		await SeedLiederAsync(factory, ownerId);
 		var sessionA = await SignInAsync(factory, MemberA);
 		var sessionB = await SignInAsync(factory, MemberB);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });

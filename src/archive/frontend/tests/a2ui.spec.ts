@@ -1,11 +1,5 @@
-import { expect, type Page, type Route, test } from "@playwright/test";
-import {
-  antwortStrom,
-  json,
-  liedDetailAntwort,
-  mockSitzung,
-  oberflaeche,
-} from "./chat-mock";
+import { expect, type Page, test } from "@playwright/test";
+import { antwortStrom, json, mockSitzung, oberflaeche } from "./chat-mock";
 
 // ARC-022-4: Antworten des Chats zeigen Karten aus dem Katalog des Archivs.
 // Der Browser rendert nur, was der Server geprüft schickt und was dem Katalog
@@ -14,7 +8,6 @@ import {
 const threadId = "00000000-0000-0000-0000-00000000c0de";
 const liedId = "00000000-0000-0000-0000-0000000002a1";
 const auftrittId = "00000000-0000-0000-0000-0000000003b1";
-const vorschlagId = "00000000-0000-0000-0000-0000000004c1";
 const titel = "Das Wandern ist des Müllers Lust";
 
 const liedKarte = {
@@ -30,16 +23,26 @@ const frage = "Zeige mir das Wandernlied als Karte";
 
 async function mockArchiv(page: Page) {
   await mockSitzung(page);
-  await page.route(`**/api/songs/${liedId}`, (route) =>
+  await page.route(`**/api/lieder/${liedId}`, (route) =>
     route.fulfill(
-      json(
-        liedDetailAntwort({
+      json({
+        lied: {
           id: liedId,
           title: titel,
           composer: "Carl Friedrich Zöllner",
+          arranger: null,
           lyricist: "Wilhelm Müller",
-        }),
-      ),
+          voiceConfiguration: null,
+          musicalKey: null,
+          language: null,
+          lyrics: null,
+          occasion: null,
+          createdAt: "2026-08-20T08:00:00.000Z",
+          updatedAt: "2026-09-01T10:00:00.000Z",
+          rowVersion: 1,
+          dateien: [],
+        },
+      }),
     ),
   );
 }
@@ -123,7 +126,7 @@ test("Eine Liedkarte erscheint zur Antwort, führt ins Archiv und bleibt nach de
   ).toBeVisible();
 
   // Der Klick ruft keine Chat-Schnittstelle auf, sondern öffnet die Seite des
-  // Archivs, die ihre Daten selbst von /api/songs holt.
+  // Archivs, die ihre Daten selbst von /api/lieder holt.
   const chatAnfragen: string[] = [];
   page.on("request", (anfrage) => {
     if (/\/api\/chat$/.test(anfrage.url())) chatAnfragen.push(anfrage.url());
@@ -325,18 +328,6 @@ test("Die übrigen Komponenten des Katalogs zeigen ihre Angaben und Verweise", a
           },
           "s3",
         ),
-        ...oberflaeche(
-          {
-            component: "AenderungsVorschau",
-            vorschlagId,
-            titel: "Komponist ergänzen",
-            aenderungen: [
-              { feld: "Komponist", neu: "Friedrich Silcher" },
-              { feld: "Tonart", bisher: "C-Dur", neu: "D-Dur" },
-            ],
-          },
-          "s4",
-        ),
       ],
     }),
   );
@@ -365,114 +356,7 @@ test("Die übrigen Komponenten des Katalogs zeigen ihre Angaben und Verweise", a
   await expect(
     quellen.getByRole("link", { name: `Lied im Archiv öffnen: ${titel}` }),
   ).toHaveAttribute("href", `/lied/?id=${liedId}`);
-  const vorschau = page.getByRole("region", {
-    name: "Änderungsvorschau: Komponist ergänzen",
-  });
   // Die Karten entstehen erst nach dem Nachladen der Bibliothek; der Verlauf
   // wandert mit, sodass die letzte Karte nicht unter dem Rand verschwindet.
-  await expect(vorschau).toBeInViewport({ ratio: 0.5 });
-  await expect(vorschau.getByRole("row")).toHaveCount(3);
-  await expect(vorschau.getByText("D-Dur")).toBeVisible();
-  await expect(vorschau.getByText("leer")).toBeVisible();
-});
-
-async function zeigeVorschlag(page: Page) {
-  await mockArchiv(page);
-  await mockLauf(
-    page,
-    antwortStrom(threadId, ["Ein Vorschlag."], {
-      oberflaechen: oberflaeche({
-        component: "VorschlagKarte",
-        vorschlagId,
-        titel: "Komponist ergänzen",
-        grund: "Der Notentext nennt Friedrich Silcher.",
-        vertrauen: "Sicher",
-      }),
-    }),
-  );
-  await stelleFrage(page);
-  await expect(
-    page.getByRole("article", { name: "Vorschlag: Komponist ergänzen" }),
-  ).toBeVisible();
-}
-
-test("Annehmen in einer Vorschlagskarte ruft die REST-Schnittstelle der Vorschläge auf", async ({
-  page,
-}) => {
-  const aufrufe: Array<{ pfad: string; token: string | undefined }> = [];
-  await page.route(`**/api/proposals/${vorschlagId}/accept`, (route: Route) => {
-    aufrufe.push({
-      pfad: new URL(route.request().url()).pathname,
-      token: route.request().headers()["x-csrf-token"],
-    });
-    return route.fulfill(json({ status: "Accepted" }));
-  });
-  await zeigeVorschlag(page);
-
-  await page
-    .getByRole("button", { name: "Vorschlag annehmen: Komponist ergänzen" })
-    .click();
-
-  await expect(page.getByText("Vorschlag angenommen.")).toBeVisible();
-  expect(aufrufe).toEqual([
-    { pfad: `/api/proposals/${vorschlagId}/accept`, token: "test" },
-  ]);
-  await expect(
-    page.getByRole("button", {
-      name: "Vorschlag annehmen: Komponist ergänzen",
-    }),
-  ).toBeDisabled();
-  await expect(
-    page.getByRole("button", {
-      name: "Vorschlag ablehnen: Komponist ergänzen",
-    }),
-  ).toBeDisabled();
-});
-
-test("Ein veralteter Vorschlag zeigt den Hinweis des Servers und bleibt bedienbar", async ({
-  page,
-}) => {
-  await page.route(`**/api/proposals/${vorschlagId}/accept`, (route) =>
-    route.fulfill({
-      status: 409,
-      contentType: "application/problem+json",
-      body: JSON.stringify({
-        title: "Der Vorschlag ist veraltet; bitte neu prüfen.",
-        currentValue: "Silcher",
-        proposedValue: "Zöllner",
-      }),
-    }),
-  );
-  await zeigeVorschlag(page);
-
-  await page
-    .getByRole("button", { name: "Vorschlag annehmen: Komponist ergänzen" })
-    .click();
-
-  await expect(
-    page.getByText("Der Vorschlag ist veraltet; bitte neu prüfen."),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("button", {
-      name: "Vorschlag annehmen: Komponist ergänzen",
-    }),
-  ).toBeEnabled();
-});
-
-test("Ablehnen in einer Vorschlagskarte ruft die Ablehnen-Schnittstelle auf", async ({
-  page,
-}) => {
-  let abgelehnt = 0;
-  await page.route(`**/api/proposals/${vorschlagId}/reject`, (route) => {
-    abgelehnt += 1;
-    return route.fulfill(json({ status: "Rejected" }));
-  });
-  await zeigeVorschlag(page);
-
-  await page
-    .getByRole("button", { name: "Vorschlag ablehnen: Komponist ergänzen" })
-    .click();
-
-  await expect(page.getByText("Vorschlag abgelehnt.")).toBeVisible();
-  expect(abgelehnt).toBe(1);
+  await expect(quellen).toBeInViewport({ ratio: 0.5 });
 });

@@ -13,7 +13,7 @@ internal static class FiniteJobs
 	/// <summary>True when the command may only run under Development.</summary>
 	public static bool IsDevelopmentRequired(string? command) => command switch
 	{
-		"--migrate" or "--bootstrap-admin" or "--repair-admin"
+		"--migrate" or "--bootstrap-admin" or "--repair-admin" or "--cleanup-dropped-blobs"
 			or "--extract-queue" or "--dispatch-extraction"
 			or "--read-queue" or "--dispatch-reading" => false,
 		_ => true,

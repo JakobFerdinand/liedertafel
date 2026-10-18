@@ -1,9 +1,9 @@
-using Archive.Backend.Assets;
+using Archive.Backend.Lieder;
 
 namespace Archive.Backend.Extraction;
 
 /// <summary>
-/// ARC-034 lifecycle of one revision's text extraction: <see cref="Queued"/>
+/// ARC-034 lifecycle of one Datei's text extraction: <see cref="Queued"/>
 /// rows wait for the queue handoff (finalize outbox or a later dispatch
 /// sweep), <see cref="Running"/> marks an accepted worker run and
 /// <see cref="Completed"/> (text stored), <see cref="NoText"/> (scanned PDF
@@ -21,7 +21,7 @@ public enum ExtractionStatus
 	Failed = 4,
 }
 
-/// <summary>Where a revision's stored text came from.</summary>
+/// <summary>Where a Datei's stored text came from.</summary>
 public enum ExtractionTextSource
 {
 	/// <summary>Embedded PDF text, read by the model-free extraction job.</summary>
@@ -32,24 +32,22 @@ public enum ExtractionTextSource
 }
 
 /// <summary>
-/// One persisted extraction work item per <see cref="FileRevision"/>
-/// (ARC-034). Rows are keyed by revision, which is the versioning and
-/// idempotency anchor: late or duplicated queue messages can never overwrite
-/// another revision's text because every result is written only into the row
-/// of the revision it belongs to, and a completed row is never rewritten by
-/// a second message. A finalize insert rides the revision's own SaveChanges
+/// One persisted extraction work item per <see cref="Datei"/>
+/// (ARC-034, re-keyed from file revisions by #169). A Datei is immutable (a
+/// replacement is a new Datei), so its id is the idempotency anchor: late or
+/// duplicated queue messages can never overwrite another Datei's text because
+/// every result is written only into the row of the Datei it belongs to, and
+/// a completed row is never rewritten by a second message. A finalize insert
+/// rides the Datei's own SaveChanges
 /// (outbox), so a committed upload never loses its extraction request even
 /// when the web application stops before the queue send succeeds.
 /// </summary>
 public sealed class ExtractionJob
 {
-	/// <summary>Primary key; always the owning revision's id, never generated.</summary>
-	public Guid RevisionId { get; set; }
+	/// <summary>Primary key; always the owning Datei's id, never generated.</summary>
+	public Guid DateiId { get; set; }
 
-	public FileRevision Revision { get; set; } = null!;
-
-	/// <summary>Denormalized join key for consumers that group by asset.</summary>
-	public Guid AssetId { get; set; }
+	public Datei Datei { get; set; } = null!;
 
 	public ExtractionStatus Status { get; set; }
 
@@ -89,6 +87,6 @@ public sealed class ExtractionJob
 
 	public DateTimeOffset UpdatedAt { get; set; }
 
-	/// <summary>Application-bumped optimistic-concurrency token, like <see cref="ArchiveAsset.RowVersion"/>.</summary>
+	/// <summary>Application-bumped optimistic-concurrency token, .</summary>
 	public uint RowVersion { get; set; }
 }

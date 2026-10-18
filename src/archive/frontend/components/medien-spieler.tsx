@@ -1,8 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { SpielerFehler } from "@/lib/assets";
-import { ladeFehlerAusUrsache, restlaufzeitMs, zeitText } from "@/lib/assets";
+import type { SpielerFehler } from "@/lib/uebertragung";
+import {
+  ladeFehlerAusUrsache,
+  restlaufzeitMs,
+  zeitText,
+} from "@/lib/uebertragung";
 import { bereichText } from "@/lib/zeitmarken";
 
 // Gemeinsamer Spieler für Stimmaufnahmen (ARC-018) und ganze

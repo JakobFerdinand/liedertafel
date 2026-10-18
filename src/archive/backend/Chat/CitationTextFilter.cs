@@ -30,7 +30,7 @@ internal sealed class CitationTextFilter(Func<string, bool> isAuthorizedTitle)
 			}
 			output.Append(pending[..start]);
 			pending = pending[start..];
-			// A song title may itself contain brackets, e.g. Abendlied [SATB].
+			// A Lied title may itself contain brackets, e.g. Abendlied [SATB].
 			// Only the closing bracket of the whole marker terminates the title.
 			var depth = 1;
 			var end = -1;

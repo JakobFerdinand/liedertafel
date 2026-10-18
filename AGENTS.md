@@ -130,9 +130,13 @@ uses its generated Next.js/Biome conventions and local `AGENTS.md`.
 
 - [ADR-0001](docs/adr/0001-flat-lied-and-upload-first.md) simplifies the archive:
   flat Lied → Dateien, upload-first editing, AI suggestions only inline (no
-  review queue or provenance), one editable Programm per Auftritt. Until the
-  Vereinfachung issues land, parts of the code below still follow the old
-  design; the ADR and `GLOSSARY.md` win for new work.
+  review queue or per-field origin), one editable Programm per Auftritt. The old
+  catalogue (songs, arrangements, musical versions, assets, file revisions) is
+  gone from code and schema (migration `DropOldCatalogue`); a Datei is
+  immutable and replaced or deleted into the Papierkorb, and is read through
+  `DateiQueries.Visible`. Blobs of the dropped model are released by the finite
+  `--cleanup-dropped-blobs` command, which never touches `dateien/`. The ADR and
+  `GLOSSARY.md` win for new work.
 - Keep Next.js statically exportable; ASP.NET serves the only production origin.
   Browser APIs use relative `/api/*`; API errors must never fall back to HTML.
 - Every archive C# host calls `AddServiceDefaults()`. Development requires
@@ -158,8 +162,10 @@ uses its generated Next.js/Biome conventions and local `AGENTS.md`.
 - The AI reading job (ARC-034-1, `--read-queue` / `--dispatch-reading`, `backend/Reading`)
   reads page images (PDFium through the `PDFtoImage` package, native libraries
   ship in the package) and text, and writes catalogue fields only through
-  `AutomatedFieldWriter`: only certain, quote-verified values are applied,
-  everything else is a proposal. Keep input per call below
+  `AutomatedFieldWriter`: only certain, quote-verified values are written, and
+  only into fields that are still empty; everything else is dropped. A value an
+  editor entered is never overwritten, and nothing records where a value came
+  from. Keep input per call below
   `Archive:Ai:MaxInputTokensPerCall` (Luna's long-context tier). Every finite
   command registers `AddArchiveAi`; what differs is the identity the hosted job
   runs under. It stays switched off (`Archive:Reading:Enabled`, false in

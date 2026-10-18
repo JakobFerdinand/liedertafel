@@ -31,14 +31,14 @@ public sealed class AssetStorageFailureTests
 		await SeedAsync(factory, Editor);
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
-		var assetId = await CreateAssetAsync(client, editorSession, versionId);
+		var liedId = await CreateLiedAsync(client, editorSession);
 
 		using var response = await PostJsonAsync(client,
-			$"/api/assets/{assetId}/upload-session", new { }, editorSession);
+			$"/api/lieder/{liedId}/dateien/upload-session",
+			new { kind = "noten", isPartitur = true }, editorSession);
 		Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
 		var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
-		Assert.Equal(AssetEndpoints.StorageFailureMessage, problem.GetProperty("title").GetString());
+		Assert.Equal(UploadEndpoints.StorageFailureMessage, problem.GetProperty("title").GetString());
 	}
 
 	[Fact]
@@ -48,8 +48,7 @@ public sealed class AssetStorageFailureTests
 		var accountId = await SeedAsync(factory, Editor);
 		var editorSession = await SignInAsync(factory, Editor);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var (_, versionId) = await CreateSongWithVersionAsync(factory, client, editorSession);
-		var assetId = await CreateAssetAsync(client, editorSession, versionId);
+		var liedId = await CreateLiedAsync(client, editorSession);
 
 		// A pending session row exists from before the outage; renewal must
 		// translate the ticket failure, not die on it.
@@ -59,9 +58,10 @@ public sealed class AssetStorageFailureTests
 			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
 			var pending = new PendingUpload
 			{
-				AssetId = assetId,
+				LiedId = liedId,
+				DateiKind = "noten",
 				BlobName = $"pending/{Guid.CreateVersion7()}",
-				ContentType = AssetEndpoints.PdfContentType,
+				ContentType = UploadEndpoints.PdfContentType,
 				MaxSizeBytes = 4096,
 				UploadTicketExpiresAt = DateTimeOffset.UtcNow.AddMinutes(30),
 				State = PendingUploadState.Pending,
@@ -77,7 +77,7 @@ public sealed class AssetStorageFailureTests
 			$"/api/upload-sessions/{sessionId}/renew", new { }, editorSession);
 		Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
 		var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
-		Assert.Equal(AssetEndpoints.StorageFailureMessage, problem.GetProperty("title").GetString());
+		Assert.Equal(UploadEndpoints.StorageFailureMessage, problem.GetProperty("title").GetString());
 	}
 
 	[Fact]
@@ -131,10 +131,10 @@ public sealed class AssetStorageFailureTests
 
 		var view = await adapter.CreateReadTicketAsync(
 			"revisions/x", TimeSpan.FromMinutes(15), asDownload: false,
-			contentType: AssetEndpoints.PdfContentType, CancellationToken.None);
+			contentType: UploadEndpoints.PdfContentType, CancellationToken.None);
 		var download = await adapter.CreateReadTicketAsync(
 			"revisions/x", TimeSpan.FromMinutes(15), asDownload: true,
-			contentType: AssetEndpoints.PdfContentType, CancellationToken.None);
+			contentType: UploadEndpoints.PdfContentType, CancellationToken.None);
 		// Response-header overrides ride the signed query string and beat the
 		// blob's stored properties at serve time.
 		Assert.Contains("rsct=application%2Fpdf", view);
@@ -164,6 +164,9 @@ public sealed class AssetStorageFailureTests
 			throw new InvalidOperationException("Speicherdienst nicht erreichbar.");
 
 		public Task DeleteAsync(string blobName, CancellationToken cancellationToken) =>
+			throw new InvalidOperationException("Speicherdienst nicht erreichbar.");
+
+		public IAsyncEnumerable<string> ListAsync(string prefix, CancellationToken cancellationToken) =>
 			throw new InvalidOperationException("Speicherdienst nicht erreichbar.");
 	}
 
@@ -200,34 +203,12 @@ public sealed class AssetStorageFailureTests
 		return Assert.Single(verifyResponse.Headers.GetValues("Set-Cookie")).Split(';')[0];
 	}
 
-	private static async Task<(Guid SongId, Guid VersionId)> CreateSongWithVersionAsync(
-		AuthApiFactory factory, HttpClient client, string editorSession)
+	private static async Task<Guid> CreateLiedAsync(HttpClient client, string editorSession)
 	{
-		var (cookie, token) = await GetCsrfAsync(client, editorSession);
-		using var create = AuthedPost("/api/songs", new { title = "Notenlied" }, $"{cookie}; {editorSession}", token);
-		using var response = await client.SendAsync(create);
+		using var response = await PostJsonAsync(client, "/api/lieder", new { title = "Notenlied" }, editorSession);
 		Assert.Equal(HttpStatusCode.Created, response.StatusCode);
 		var body = await response.Content.ReadFromJsonAsync<JsonElement>();
-		var songId = Guid.Parse(body.GetProperty("song").GetProperty("id").GetString()!);
-
-		using var detailRequest = new HttpRequestMessage(HttpMethod.Get, $"/api/songs/{songId}");
-		detailRequest.Headers.Add("Cookie", editorSession);
-		using var detailResponse = await client.SendAsync(detailRequest);
-		detailResponse.EnsureSuccessStatusCode();
-		var detail = await detailResponse.Content.ReadFromJsonAsync<JsonElement>();
-		var versionId = Guid.Parse(detail.GetProperty("song").GetProperty("arrangements")[0]
-			.GetProperty("musicalVersions")[0].GetProperty("id").GetString()!);
-		return (songId, versionId);
-	}
-
-	private static async Task<Guid> CreateAssetAsync(
-		HttpClient client, string editorSession, Guid versionId)
-	{
-		using var response = await PostJsonAsync(client,
-			$"/api/musical-versions/{versionId}/assets", new { assetType = "score" }, editorSession);
-		Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-		var body = await response.Content.ReadFromJsonAsync<JsonElement>();
-		return Guid.Parse(body.GetProperty("id").GetString()!);
+		return Guid.Parse(body.GetProperty("lied").GetProperty("id").GetString()!);
 	}
 
 	private static async Task<HttpResponseMessage> PostJsonAsync(
