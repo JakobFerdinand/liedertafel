@@ -8,7 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Archive.Backend.Tests;
 
-/// <summary>#171: documents, photos and Aufnahmen of an Auftritt are Dateien; nothing writes Asset or FileRevision rows.</summary>
+/// <summary>#171: documents, photos and Aufnahmen of an Auftritt are Dateien; nothing writes asset or revision rows (the tables are gone).</summary>
 public sealed class AuftrittDateienTests
 {
 	private const string PdfType = "application/pdf";

@@ -48,16 +48,13 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
             .Select(e => e.GetString() ?? string.Empty).ToList();
         Assert.Contains(pending, m => m.EndsWith("_AuthSignIn", StringComparison.Ordinal));
         Assert.Contains(pending, m => m.EndsWith("_AuthSignInConcurrency", StringComparison.Ordinal));
-        Assert.Contains(pending, m => m.EndsWith("_CatalogueSongs", StringComparison.Ordinal));
-        Assert.Contains(pending, m => m.EndsWith("_ArrangementVoiceConfigurationAndVersionKeys", StringComparison.Ordinal));
-        Assert.Contains(pending, m => m.EndsWith("_SongAlternateTitlesAndLyrics", StringComparison.Ordinal));
-        Assert.Contains(pending, m => m.EndsWith("_RepertoireFilters", StringComparison.Ordinal));
         Assert.Contains(pending, m => m.EndsWith("_HistoricalEvents", StringComparison.Ordinal));
         Assert.Contains(pending, m => m.EndsWith("_EventProgrammes", StringComparison.Ordinal));
         Assert.Contains(pending, m => m.EndsWith("_PerformanceEvidence", StringComparison.Ordinal));
         Assert.Contains(pending, m => m.EndsWith("_ProgrammeConfirmation", StringComparison.Ordinal));
         Assert.Contains(pending, m => m.EndsWith("_RecordingPassages", StringComparison.Ordinal));
-        Assert.Contains(pending, m => m.EndsWith("_ArchiveAssetsAndUploadSessions", StringComparison.Ordinal));
+        Assert.Contains(pending, m => m.EndsWith("_AddLiederAndDateien", StringComparison.Ordinal));
+        Assert.Contains(pending, m => m.EndsWith("_DropOldCatalogue", StringComparison.Ordinal));
 
         // Merely starting the API did not apply a schema. Execute it explicitly.
         var commands = app.Services.GetRequiredService<ResourceCommandService>();
@@ -595,78 +592,58 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         var adminSession = await SignInAsync(api, mail, "verwaltung@liedertafel.test", token);
         var memberSession = await SignInAsync(api, mail, "mitglied@liedertafel.test", token);
 
-        // Editor builds the catalogue row: song → arrangement → version.
-        using var songResponse = await PostJsonAsync(api, "/api/songs",
-            new { title = "ARC-015 Integrationslied" }, editorSession, token);
-        Assert.Equal(HttpStatusCode.Created, songResponse.StatusCode);
-        var songBody = await songResponse.Content.ReadFromJsonAsync<JsonElement>(token);
-        var songId = Guid.Parse(songBody.GetProperty("song").GetProperty("id").GetString()!);
-        using var detailResponse = await GetAsync(api, $"/api/songs/{songId}", editorSession, token);
-        detailResponse.EnsureSuccessStatusCode();
-        var detail = await detailResponse.Content.ReadFromJsonAsync<JsonElement>(token);
-        var versionId = Guid.Parse(detail.GetProperty("song").GetProperty("arrangements")[0]
-            .GetProperty("musicalVersions")[0].GetProperty("id").GetString()!);
-
-        var assets = new Guid[4];
-        for (var i = 0; i < assets.Length; i++)
-            assets[i] = await CreateAssetAsync(api, editorSession, versionId, token);
+        // Editor creates the Lied; every Datei hangs on it.
+        var liedId = await CreateLiedAsync(api, editorSession, "ARC-015 Integrationslied", token);
 
         // Wrong-owner finalize: the administrator passes the editor gate but
         // is not the session creator, so finalization is refused (403) and
         // the session stays pending.
-        var (wrongOwnerSession, _, _) = await CreateUploadSessionAsync(api, editorSession, assets[3], token);
+        var (wrongOwnerSession, _, _) = await CreateUploadSessionAsync(api, editorSession, liedId, token);
         using var wrongOwner = await PostJsonAsync(api,
             $"/api/upload-sessions/{wrongOwnerSession}/finalize", new { }, adminSession, token);
         Assert.Equal(HttpStatusCode.Forbidden, wrongOwner.StatusCode);
 
         // Finalize with the object never transferred → 409, session stays
         // retryable.
-        var (missingSession, _, _) = await CreateUploadSessionAsync(api, editorSession, assets[0], token);
+        var (missingSession, _, _) = await CreateUploadSessionAsync(api, editorSession, liedId, token);
         using var missing = await PostJsonAsync(api,
             $"/api/upload-sessions/{missingSession}/finalize", new { }, editorSession, token);
         Assert.Equal(HttpStatusCode.Conflict, missing.StatusCode);
 
-        // Access before any finalized revision → 404.
-        using var premature = await GetAsync(api, $"/api/assets/{assets[0]}/access", editorSession, token);
-        Assert.Equal(HttpStatusCode.NotFound, premature.StatusCode);
-
         // Real direct-to-blob transfer: PUT a tiny valid PDF to the returned
         // upload URL, then finalize.
         var pdf = ValidPdf(768);
-        var (uploadSessionId, revisionId) = await TransferAndFinalizeAsync(
-            api, storage, editorSession, assets[1], pdf, token);
+        var (uploadSessionId, dateiId) = await TransferAndFinalizeAsync(
+            api, storage, editorSession, liedId, pdf, token);
 
         // Invalid PDF: text bytes reach storage but finalization rejects
         // them with 422.
-        await TransferAndFinalizeAsync(api, storage, editorSession, assets[2],
+        await TransferAndFinalizeAsync(api, storage, editorSession, liedId,
             "Kein PDF, nur Text."u8.ToArray(), token, expectFailure: HttpStatusCode.UnprocessableEntity);
 
         // Finalizing the accepted session again is idempotent: the identical
-        // revision comes back and no extra revision was created.
+        // Datei comes back and no extra Datei was created.
         using var retry = await PostJsonAsync(api,
             $"/api/upload-sessions/{uploadSessionId}/finalize", new { }, editorSession, token);
         Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
         var retryBody = await retry.Content.ReadFromJsonAsync<JsonElement>(token);
-        Assert.Equal(revisionId, Guid.Parse(retryBody.GetProperty("revisionId").GetString()!));
+        Assert.Equal(dateiId, Guid.Parse(retryBody.GetProperty("datei").GetProperty("id").GetString()!));
 
         // Anonymous read access is unauthorized.
         using var anonymous = new HttpClient { BaseAddress = frontend.BaseAddress };
-        using var anonymousResponse = await anonymous.GetAsync(
-            $"/api/assets/{assets[1]}/access", token);
+        using var anonymousResponse = await anonymous.GetAsync($"/api/dateien/{dateiId}/access", token);
         Assert.Equal(HttpStatusCode.Unauthorized, anonymousResponse.StatusCode);
 
-        // A signed-in member gets 404 on a draft song even though the asset
-        // has a current revision.
-        using var memberAccess = await GetAsync(api, $"/api/assets/{assets[1]}/access", memberSession, token);
-        Assert.Equal(HttpStatusCode.NotFound, memberAccess.StatusCode);
+        // Every signed-in member reads every Lied: there is no draft state.
+        using var memberAccess = await GetAsync(api, $"/api/dateien/{dateiId}/access", memberSession, token);
+        Assert.Equal(HttpStatusCode.OK, memberAccess.StatusCode);
 
         // The editor reads scoped tickets against the real Azurite endpoint
         // and both round-trip the exact uploaded bytes.
-        using var access = await GetAsync(api, $"/api/assets/{assets[1]}/access", editorSession, token);
+        using var access = await GetAsync(api, $"/api/dateien/{dateiId}/access", editorSession, token);
         Assert.Equal(HttpStatusCode.OK, access.StatusCode);
         var accessBody = await access.Content.ReadFromJsonAsync<JsonElement>(token);
-        Assert.Equal(revisionId, Guid.Parse(accessBody.GetProperty("revisionId").GetString()!));
-        Assert.Equal(1, accessBody.GetProperty("revisionNumber").GetInt32());
+        Assert.Equal(dateiId, Guid.Parse(accessBody.GetProperty("dateiId").GetString()!));
         Assert.Equal("application/pdf", accessBody.GetProperty("contentType").GetString());
         Assert.Equal(pdf.Length, accessBody.GetProperty("sizeBytes").GetInt64());
         var viewUrl = accessBody.GetProperty("viewUrl").GetString()!;
@@ -685,98 +662,41 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         Assert.Equal(pdf, await downloadResponse.Content.ReadAsByteArrayAsync(token));
         Assert.Contains("attachment", downloadResponse.Content.Headers.ContentDisposition?.DispositionType ?? "");
 
-        // ARC-033: a correction adds revision 2 under the same asset; the
-        // unchanged access link now serves the corrected bytes while the
-        // earlier revision stays readable for editors through its own ticket.
+        // A correction is a replacement: the new Datei serves the corrected
+        // bytes, the old one goes to the trash and is no longer served.
         var corrected = ValidPdf(1536);
-        var (_, correctedRevisionId) = await TransferAndFinalizeAsync(
-            api, storage, editorSession, assets[1], corrected, token);
-        Assert.NotEqual(revisionId, correctedRevisionId);
-        using var currentAccess = await GetAsync(api, $"/api/assets/{assets[1]}/access", editorSession, token);
-        var currentBody = await currentAccess.Content.ReadFromJsonAsync<JsonElement>(token);
-        Assert.Equal(2, currentBody.GetProperty("revisionNumber").GetInt32());
-        using var currentBytes = await storage.GetAsync(currentBody.GetProperty("viewUrl").GetString(), token);
-        Assert.Equal(corrected, await currentBytes.Content.ReadAsByteArrayAsync(token));
-
-        var earlierPath = $"/api/assets/{assets[1]}/revisions/{revisionId}/access";
-        using var earlierAccess = await GetAsync(api, earlierPath, editorSession, token);
-        Assert.Equal(HttpStatusCode.OK, earlierAccess.StatusCode);
-        var earlierBody = await earlierAccess.Content.ReadFromJsonAsync<JsonElement>(token);
-        using var earlierBytes = await storage.GetAsync(earlierBody.GetProperty("viewUrl").GetString(), token);
-        Assert.Equal(pdf, await earlierBytes.Content.ReadAsByteArrayAsync(token));
-        using var memberEarlier = await GetAsync(api, earlierPath, memberSession, token);
-        Assert.Equal(HttpStatusCode.Forbidden, memberEarlier.StatusCode);
-        using var memberHistory = await GetAsync(api, $"/api/assets/{assets[1]}/revisions", memberSession, token);
-        Assert.Equal(HttpStatusCode.Forbidden, memberHistory.StatusCode);
-
-        // Making revision 1 current again swaps only the pointer.
-        using var restore = await PostJsonAsync(api, $"/api/assets/{assets[1]}/current-revision",
-            new { revisionId, expectedCurrentRevisionId = correctedRevisionId }, editorSession, token);
-        Assert.Equal(HttpStatusCode.OK, restore.StatusCode);
-        var restored = await restore.Content.ReadFromJsonAsync<JsonElement>(token);
-        Assert.Equal(revisionId, Guid.Parse(restored.GetProperty("currentRevisionId").GetString()!));
-        Assert.Equal(2, restored.GetProperty("revisions").GetArrayLength());
-        Assert.Equal("restore", restored.GetProperty("changes")[0].GetProperty("kind").GetString());
-        using var restoredAccess = await GetAsync(api, $"/api/assets/{assets[1]}/access", editorSession, token);
-        var restoredBody = await restoredAccess.Content.ReadFromJsonAsync<JsonElement>(token);
-        using var restoredBytes = await storage.GetAsync(restoredBody.GetProperty("viewUrl").GetString(), token);
-        Assert.Equal(pdf, await restoredBytes.Content.ReadAsByteArrayAsync(token));
-
-        // Two editors finalize competing corrections at the same moment
-        // against real PostgreSQL: each attempt either commits or loses the
-        // race with a clean 409 and succeeds on retry. Both files survive
-        // under their own revision numbers.
-        var racers = new[]
+        var (replaceSessionId, replaceUploadUrl, _) = await CreateUploadSessionAsync(
+            api, editorSession, liedId, token, replacesDateiId: dateiId);
+        using (var put = new HttpRequestMessage(HttpMethod.Put, replaceUploadUrl)
         {
-            (Session: editorSession, Bytes: ValidPdf(2048)),
-            (Session: adminSession, Bytes: ValidPdf(3072)),
-        };
-        var raceSessions = new Guid[racers.Length];
-        for (var i = 0; i < racers.Length; i++)
+            Content = new ByteArrayContent(corrected),
+        })
         {
-            var (raceSessionId, raceUploadUrl, _) = await CreateUploadSessionAsync(
-                api, racers[i].Session, assets[1], token);
-            raceSessions[i] = raceSessionId;
-            using var put = new HttpRequestMessage(HttpMethod.Put, raceUploadUrl)
-            {
-                Content = new ByteArrayContent(racers[i].Bytes),
-            };
             put.Content.Headers.ContentType = new("application/pdf");
             put.Headers.Add("x-ms-blob-type", "BlockBlob");
             using var putResponse = await storage.SendAsync(put, token);
             Assert.Equal(HttpStatusCode.Created, putResponse.StatusCode);
         }
-        var raced = await Task.WhenAll(racers.Select((racer, i) => PostJsonAsync(api,
-            $"/api/upload-sessions/{raceSessions[i]}/finalize", new { }, racer.Session, token)));
-        for (var i = 0; i < raced.Length; i++)
-        {
-            Assert.Contains(raced[i].StatusCode, new[] { HttpStatusCode.OK, HttpStatusCode.Conflict });
-            if (raced[i].StatusCode == HttpStatusCode.Conflict)
-            {
-                output.WriteLine($"ARC-033 race: finalize {i} lost and is retried.");
-                using var again = await PostJsonAsync(api,
-                    $"/api/upload-sessions/{raceSessions[i]}/finalize", new { }, racers[i].Session, token);
-                Assert.Equal(HttpStatusCode.OK, again.StatusCode);
-            }
-            raced[i].Dispose();
-        }
-        using var raceHistory = await GetAsync(api, $"/api/assets/{assets[1]}/revisions", editorSession, token);
-        var raceBody = await raceHistory.Content.ReadFromJsonAsync<JsonElement>(token);
-        var raceRevisions = raceBody.GetProperty("revisions").EnumerateArray().ToList();
-        Assert.Equal([4, 3, 2, 1], raceRevisions.Select(r => r.GetProperty("revisionNumber").GetInt32()));
-        Assert.Equal(
-            new long[] { 768, 1536, 2048, 3072 },
-            raceRevisions.Select(r => r.GetProperty("sizeBytes").GetInt64()).Order());
-        foreach (var raceRevision in raceRevisions)
-        {
-            using var ticket = await GetAsync(api,
-                $"/api/assets/{assets[1]}/revisions/{raceRevision.GetProperty("revisionId").GetString()}/access",
-                editorSession, token);
-            var ticketBody = await ticket.Content.ReadFromJsonAsync<JsonElement>(token);
-            using var bytes = await storage.GetAsync(ticketBody.GetProperty("viewUrl").GetString(), token);
-            Assert.Equal(raceRevision.GetProperty("sizeBytes").GetInt64(),
-                (await bytes.Content.ReadAsByteArrayAsync(token)).LongLength);
-        }
+        using var replace = await PostJsonAsync(api,
+            $"/api/upload-sessions/{replaceSessionId}/finalize", new { }, editorSession, token);
+        Assert.Equal(HttpStatusCode.OK, replace.StatusCode);
+        var newDateiId = Guid.Parse((await replace.Content.ReadFromJsonAsync<JsonElement>(token))
+            .GetProperty("datei").GetProperty("id").GetString()!);
+        Assert.NotEqual(dateiId, newDateiId);
+        using var newAccess = await GetAsync(api, $"/api/dateien/{newDateiId}/access", editorSession, token);
+        var newBody = await newAccess.Content.ReadFromJsonAsync<JsonElement>(token);
+        using var newBytes = await storage.GetAsync(newBody.GetProperty("viewUrl").GetString(), token);
+        Assert.Equal(corrected, await newBytes.Content.ReadAsByteArrayAsync(token));
+        using var oldAccess = await GetAsync(api, $"/api/dateien/{dateiId}/access", editorSession, token);
+        Assert.Equal(HttpStatusCode.NotFound, oldAccess.StatusCode);
+
+        // The Papierkorb lists the replaced Datei for editors only.
+        using var trash = await GetAsync(api, "/api/papierkorb", editorSession, token);
+        Assert.Equal(HttpStatusCode.OK, trash.StatusCode);
+        var trashed = (await trash.Content.ReadFromJsonAsync<JsonElement>(token)).GetProperty("dateien");
+        Assert.Contains(trashed.EnumerateArray(), d => d.GetProperty("id").GetString() == dateiId.ToString());
+        using var memberTrash = await GetAsync(api, "/api/papierkorb", memberSession, token);
+        Assert.Equal(HttpStatusCode.Forbidden, memberTrash.StatusCode);
     }
 
     [Fact]
@@ -832,138 +752,82 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         var editorSession = await SignInAsync(api, mail, "redaktion@liedertafel.test", token);
         var memberSession = await SignInAsync(api, mail, "mitglied@liedertafel.test", token);
 
-        using var songResponse = await PostJsonAsync(api, "/api/songs",
-            new { title = "ARC-016 Stimmenpaket" }, editorSession, token);
-        Assert.Equal(HttpStatusCode.Created, songResponse.StatusCode);
-        var songBody = await songResponse.Content.ReadFromJsonAsync<JsonElement>(token);
-        var songId = Guid.Parse(songBody.GetProperty("song").GetProperty("id").GetString()!);
-        using var detailResponse = await GetAsync(api, $"/api/songs/{songId}", editorSession, token);
-        detailResponse.EnsureSuccessStatusCode();
-        var detail = await detailResponse.Content.ReadFromJsonAsync<JsonElement>(token);
-        var versionId = Guid.Parse(detail.GetProperty("song").GetProperty("arrangements")[0]
-            .GetProperty("musicalVersions")[0].GetProperty("id").GetString()!);
+        var liedId = await CreateLiedAsync(api, editorSession, "ARC-016 Stimmenpaket", token);
 
-        var scoreAsset = await CreateAssetAsync(api, editorSession, versionId, token,
-            assetType: "score", description: "Partitur für den Vollmix");
-        var audioAsset = await CreateAssetAsync(api, editorSession, versionId, token,
-            assetType: "audio", voiceLabel: "Alt", description: "Altstimme als Referenzaufnahme");
-        var midiAsset = await CreateAssetAsync(api, editorSession, versionId, token,
-            assetType: "midi", voiceLabel: "Sopran");
-
+        // Noten (Partitur), an Übe-Datei per Stimme and a MIDI file, each in
+        // its own upload session on the same Lied.
         var pdf = ValidPdf(768);
-        var (scoreSessionId, scoreRevisionId) = await TransferAndFinalizeAsync(
-            api, storage, editorSession, scoreAsset, pdf, token);
+        var (scoreSessionId, scoreDateiId) = await TransferAndFinalizeAsync(
+            api, storage, editorSession, liedId, pdf, token);
 
         var midi = "MThd"u8.ToArray()
             .Concat(new byte[] { 0x00, 0x00, 0x00, 0x06, 0x00, 0x01, 0x00, 0x02, 0x01, 0xE0 })
             .Concat("MTrk"u8.ToArray())
             .Concat(new byte[] { 0x00, 0x00, 0x00, 0x04, 0x00, 0x90, 0x3C, 0x40, 0x00 })
             .ToArray();
-        var (midiSessionId, midiRevisionId) = await TransferAndFinalizeAsync(
-            api, storage, editorSession, midiAsset, midi, token, contentType: "audio/midi");
-        Assert.NotEqual(scoreRevisionId, midiRevisionId);
+        var (midiSessionId, midiDateiId) = await TransferAndFinalizeAsync(
+            api, storage, editorSession, liedId, midi, token, contentType: "audio/midi",
+            kind: "uebe", stimme: "Sopran");
+        Assert.NotEqual(scoreDateiId, midiDateiId);
 
         var audioBytes = "ID3"u8.ToArray().Concat(new byte[509]).ToArray();
-        // Non-whitelisted content type for an audio asset: the bytes reach
-        // storage, but finalization rejects the upload with the audio message
-        // and leaves the other assets' finalized revisions untouched.
-        var (audioFailedSession, audioUploadUrl, _) = await CreateUploadSessionAsync(
-            api, editorSession, audioAsset, token);
-        using var rejectedPut = new HttpRequestMessage(HttpMethod.Put, audioUploadUrl)
-        {
-            Content = new ByteArrayContent(pdf),
-        };
-        rejectedPut.Content.Headers.ContentType = new("application/pdf");
-        rejectedPut.Headers.Add("x-ms-blob-type", "BlockBlob");
-        using var rejectedPutResponse = await storage.SendAsync(rejectedPut, token);
-        Assert.Equal(HttpStatusCode.Created, rejectedPutResponse.StatusCode);
-        using var rejectedFinalize = await PostJsonAsync(api,
-            $"/api/upload-sessions/{audioFailedSession}/finalize", new { }, editorSession, token);
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, rejectedFinalize.StatusCode);
-        var rejectedBody = await rejectedFinalize.Content.ReadFromJsonAsync<JsonElement>(token);
-        Assert.Equal("Die Datei ist keine gültige Audiodatei.",
-            rejectedBody.GetProperty("title").GetString());
+        // Wrong bytes for an Übe-Datei: they reach storage, but finalization
+        // rejects the upload and leaves the other Dateien untouched.
+        await TransferAndFinalizeAsync(api, storage, editorSession, liedId, pdf, token,
+            expectFailure: HttpStatusCode.UnprocessableEntity, contentType: "audio/mpeg",
+            kind: "uebe", stimme: "Alt");
 
         using var scoreRetry = await PostJsonAsync(api,
             $"/api/upload-sessions/{scoreSessionId}/finalize", new { }, editorSession, token);
         Assert.Equal(HttpStatusCode.OK, scoreRetry.StatusCode);
         var scoreRetryBody = await scoreRetry.Content.ReadFromJsonAsync<JsonElement>(token);
-        Assert.Equal(scoreRevisionId, Guid.Parse(scoreRetryBody.GetProperty("revisionId").GetString()!));
+        Assert.Equal(scoreDateiId, Guid.Parse(scoreRetryBody.GetProperty("datei").GetProperty("id").GetString()!));
         using var midiRetry = await PostJsonAsync(api,
             $"/api/upload-sessions/{midiSessionId}/finalize", new { }, editorSession, token);
         Assert.Equal(HttpStatusCode.OK, midiRetry.StatusCode);
         var midiRetryBody = await midiRetry.Content.ReadFromJsonAsync<JsonElement>(token);
-        Assert.Equal(midiRevisionId, Guid.Parse(midiRetryBody.GetProperty("revisionId").GetString()!));
+        Assert.Equal(midiDateiId, Guid.Parse(midiRetryBody.GetProperty("datei").GetProperty("id").GetString()!));
 
-        var (audioSessionId, audioRevisionId) = await TransferAndFinalizeAsync(
-            api, storage, editorSession, audioAsset, audioBytes, token, contentType: "audio/mpeg");
+        var (_, audioDateiId) = await TransferAndFinalizeAsync(
+            api, storage, editorSession, liedId, audioBytes, token, contentType: "audio/mpeg",
+            kind: "uebe", stimme: "Alt");
 
-        using var reloaded = await GetAsync(api, $"/api/songs/{songId}", editorSession, token);
+        using var reloaded = await GetAsync(api, $"/api/lieder/{liedId}", memberSession, token);
         Assert.Equal(HttpStatusCode.OK, reloaded.StatusCode);
         var reloadedBody = await reloaded.Content.ReadFromJsonAsync<JsonElement>(token);
-        var versionAssets = reloadedBody.GetProperty("song").GetProperty("arrangements")[0]
-            .GetProperty("musicalVersions")[0].GetProperty("assets");
-        var scoreEntry = versionAssets.EnumerateArray()
-            .Single(a => a.GetProperty("id").GetString() == scoreAsset.ToString());
-        var audioEntry = versionAssets.EnumerateArray()
-            .Single(a => a.GetProperty("id").GetString() == audioAsset.ToString());
-        var midiEntry = versionAssets.EnumerateArray()
-            .Single(a => a.GetProperty("id").GetString() == midiAsset.ToString());
-        Assert.Equal("score", scoreEntry.GetProperty("assetType").GetString());
-        Assert.Equal(JsonValueKind.Null, scoreEntry.GetProperty("voiceLabel").ValueKind);
-        Assert.Equal("Partitur für den Vollmix", scoreEntry.GetProperty("description").GetString());
-        Assert.Equal(scoreRevisionId, Guid.Parse(scoreEntry.GetProperty("currentRevision").GetProperty("revisionId").GetString()!));
-        Assert.Equal(1, scoreEntry.GetProperty("currentRevision").GetProperty("revisionNumber").GetInt32());
-        Assert.Equal("application/pdf", scoreEntry.GetProperty("currentRevision").GetProperty("contentType").GetString());
-        Assert.Equal("audio", audioEntry.GetProperty("assetType").GetString());
-        Assert.Equal("Alt", audioEntry.GetProperty("voiceLabel").GetString());
-        Assert.Equal("Altstimme als Referenzaufnahme", audioEntry.GetProperty("description").GetString());
-        Assert.Equal(audioRevisionId, Guid.Parse(audioEntry.GetProperty("currentRevision").GetProperty("revisionId").GetString()!));
-        Assert.Equal(1, audioEntry.GetProperty("currentRevision").GetProperty("revisionNumber").GetInt32());
-        Assert.Equal("audio/mpeg", audioEntry.GetProperty("currentRevision").GetProperty("contentType").GetString());
-        Assert.Equal("midi", midiEntry.GetProperty("assetType").GetString());
-        Assert.Equal("Sopran", midiEntry.GetProperty("voiceLabel").GetString());
-        Assert.Equal(JsonValueKind.Null, midiEntry.GetProperty("description").ValueKind);
-        Assert.Equal(midiRevisionId, Guid.Parse(midiEntry.GetProperty("currentRevision").GetProperty("revisionId").GetString()!));
-        Assert.Equal(1, midiEntry.GetProperty("currentRevision").GetProperty("revisionNumber").GetInt32());
-        Assert.Equal("audio/midi", midiEntry.GetProperty("currentRevision").GetProperty("contentType").GetString());
-        Assert.NotEqual(audioRevisionId, scoreRevisionId);
-        Assert.NotEqual(audioRevisionId, midiRevisionId);
+        var dateien = reloadedBody.GetProperty("lied").GetProperty("dateien").EnumerateArray().ToList();
+        Assert.Equal(3, dateien.Count);
+        var scoreEntry = dateien.Single(d => d.GetProperty("id").GetString() == scoreDateiId.ToString());
+        var audioEntry = dateien.Single(d => d.GetProperty("id").GetString() == audioDateiId.ToString());
+        var midiEntry = dateien.Single(d => d.GetProperty("id").GetString() == midiDateiId.ToString());
+        Assert.Equal("noten", scoreEntry.GetProperty("kind").GetString());
+        Assert.True(scoreEntry.GetProperty("isPartitur").GetBoolean());
+        Assert.Equal("application/pdf", scoreEntry.GetProperty("contentType").GetString());
+        Assert.Equal("uebe", audioEntry.GetProperty("kind").GetString());
+        Assert.Equal("Alt", audioEntry.GetProperty("stimme").GetString());
+        Assert.Equal("audio/mpeg", audioEntry.GetProperty("contentType").GetString());
+        Assert.Equal("uebe", midiEntry.GetProperty("kind").GetString());
+        Assert.Equal("Sopran", midiEntry.GetProperty("stimme").GetString());
+        Assert.Equal("audio/midi", midiEntry.GetProperty("contentType").GetString());
 
-        // Members cannot edit catalogue materials: the PATCH gate is closed
-        // before any ownership check happens.
-        using var memberPatch = await PatchJsonAsync(api, $"/api/assets/{scoreAsset}",
-            new { description = "Von der Stimme geändert" }, memberSession, token);
-        Assert.Equal(HttpStatusCode.Forbidden, memberPatch.StatusCode);
-        var memberPatchBody = await memberPatch.Content.ReadFromJsonAsync<JsonElement>(token);
-        Assert.Equal("Keine Berechtigung für das Liedverzeichnis.",
-            memberPatchBody.GetProperty("title").GetString());
-
-        using var publish = await PostJsonAsync(api, $"/api/songs/{songId}/publish",
-            new { }, editorSession, token);
-        Assert.Equal(HttpStatusCode.OK, publish.StatusCode);
+        // Members cannot add or change Dateien.
+        using var memberUpload = await PostJsonAsync(api, $"/api/lieder/{liedId}/dateien/upload-session",
+            new { kind = "noten", isPartitur = true }, memberSession, token);
+        Assert.Equal(HttpStatusCode.Forbidden, memberUpload.StatusCode);
 
         // Regression: an ordinary member's generic question must discover the
-        // published catalogue through PostgreSQL and the real frontend proxy.
-        // Keep a second song as a draft to exercise visibility in the same run.
-        const string draftTitle = "Geheimes Probenlied";
-        using var draftResponse = await PostJsonAsync(api, "/api/songs",
-            new { title = draftTitle }, editorSession, token);
-        Assert.Equal(HttpStatusCode.Created, draftResponse.StatusCode);
-        var draftBody = await draftResponse.Content.ReadFromJsonAsync<JsonElement>(token);
-        var draftId = Guid.Parse(draftBody.GetProperty("song").GetProperty("id").GetString()!);
-        await AssertMemberChatListsPublishedSongAsync(api, memberSession,
-            songId, "ARC-016 Stimmenpaket", draftId, draftTitle, token);
+        // catalogue through PostgreSQL and the real frontend proxy.
+        await AssertMemberChatListsLiedAsync(api, memberSession, liedId, "ARC-016 Stimmenpaket", token);
 
-        var memberViews = new (Guid Asset, byte[] Content, string ContentType)[]
+        var memberViews = new (Guid Datei, byte[] Content, string ContentType)[]
         {
-            (scoreAsset, pdf, "application/pdf"),
-            (audioAsset, audioBytes, "audio/mpeg"),
-            (midiAsset, midi, "audio/midi"),
+            (scoreDateiId, pdf, "application/pdf"),
+            (audioDateiId, audioBytes, "audio/mpeg"),
+            (midiDateiId, midi, "audio/midi"),
         };
-        foreach (var (asset, content, contentType) in memberViews)
+        foreach (var (datei, content, contentType) in memberViews)
         {
-            using var memberAccess = await GetAsync(api, $"/api/assets/{asset}/access", memberSession, token);
+            using var memberAccess = await GetAsync(api, $"/api/dateien/{datei}/access", memberSession, token);
             Assert.Equal(HttpStatusCode.OK, memberAccess.StatusCode);
             var memberAccessBody = await memberAccess.Content.ReadFromJsonAsync<JsonElement>(token);
             Assert.Equal(contentType, memberAccessBody.GetProperty("contentType").GetString());
@@ -1041,31 +905,17 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         static string WithQuery(string url, string suffix) =>
             url + (url.Contains('?') ? "&" : "?") + suffix;
 
-        // Editor builds the catalogue row: song → arrangement → version, then
-        // one asset per scenario: main resume roundtrip, file mismatch,
-        // cancellation, out-of-limit initiation.
-        using var songResponse = await PostJsonAsync(api, "/api/songs",
-            new { title = "ARC-017 Fortsetzungslied" }, editorSession, token);
-        Assert.Equal(HttpStatusCode.Created, songResponse.StatusCode);
-        var songBody = await songResponse.Content.ReadFromJsonAsync<JsonElement>(token);
-        var songId = Guid.Parse(songBody.GetProperty("song").GetProperty("id").GetString()!);
-        using var detailResponse = await GetAsync(api, $"/api/songs/{songId}", editorSession, token);
-        detailResponse.EnsureSuccessStatusCode();
-        var detail = await detailResponse.Content.ReadFromJsonAsync<JsonElement>(token);
-        var versionId = Guid.Parse(detail.GetProperty("song").GetProperty("arrangements")[0]
-            .GetProperty("musicalVersions")[0].GetProperty("id").GetString()!);
-
-        var assets = new Guid[4];
-        for (var i = 0; i < assets.Length; i++)
-            assets[i] = await CreateAssetAsync(api, editorSession, versionId, token);
+        // One Lied; the scenarios (main resume roundtrip, file mismatch,
+        // cancellation, out-of-limit initiation) each open their own session.
+        var liedId = await CreateLiedAsync(api, editorSession, "ARC-017 Fortsetzungslied", token);
 
         // 12 MiB with the configured 8 MiB recommended block size splits into
         // exactly two blocks: one staged before the simulated interruption and
         // one remaining for the resume.
         var pdf = ValidPdf(12 * 1024 * 1024);
         using var sessionResponse = await PostJsonAsync(api,
-            $"/api/assets/{assets[0]}/upload-session",
-            new { sizeBytes = pdf.Length, fileName = "fortsetzung-partitur.pdf" }, editorSession, token);
+            $"/api/lieder/{liedId}/dateien/upload-session",
+            new { kind = "noten", isPartitur = true, sizeBytes = pdf.Length, fileName = "fortsetzung-partitur.pdf" }, editorSession, token);
         Assert.Equal(HttpStatusCode.Created, sessionResponse.StatusCode);
         var sessionBody = await sessionResponse.Content.ReadFromJsonAsync<JsonElement>(token);
         var uploadSessionId = Guid.Parse(sessionBody.GetProperty("uploadSessionId").GetString()!);
@@ -1133,21 +983,21 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         using var commitResponse = await storage.SendAsync(commit, token);
         Assert.Equal(HttpStatusCode.Created, commitResponse.StatusCode);
 
-        // Finalize with the declared identity: the revision size matches the
+        // Finalize with the declared identity: the Datei size matches the
         // original byte length and the download round-trips the exact
         // checksum (SHA-256) of the original bytes.
         using var finalize = await PostJsonAsync(api,
             $"/api/upload-sessions/{uploadSessionId}/finalize",
             new { sizeBytes = pdf.Length, fileName = "fortsetzung-partitur.pdf" }, editorSession, token);
         Assert.Equal(HttpStatusCode.OK, finalize.StatusCode);
-        var revision = await finalize.Content.ReadFromJsonAsync<JsonElement>(token);
-        var revisionId = Guid.Parse(revision.GetProperty("revisionId").GetString()!);
-        Assert.Equal(pdf.Length, revision.GetProperty("sizeBytes").GetInt64());
+        var datei = (await finalize.Content.ReadFromJsonAsync<JsonElement>(token)).GetProperty("datei");
+        var dateiId = Guid.Parse(datei.GetProperty("id").GetString()!);
+        Assert.Equal(pdf.Length, datei.GetProperty("sizeBytes").GetInt64());
 
-        using var access = await GetAsync(api, $"/api/assets/{assets[0]}/access", editorSession, token);
+        using var access = await GetAsync(api, $"/api/dateien/{dateiId}/access", editorSession, token);
         Assert.Equal(HttpStatusCode.OK, access.StatusCode);
         var accessBody = await access.Content.ReadFromJsonAsync<JsonElement>(token);
-        Assert.Equal(revisionId, Guid.Parse(accessBody.GetProperty("revisionId").GetString()!));
+        Assert.Equal(dateiId, Guid.Parse(accessBody.GetProperty("dateiId").GetString()!));
         Assert.Equal(pdf.Length, accessBody.GetProperty("sizeBytes").GetInt64());
         var downloadUrl = accessBody.GetProperty("downloadUrl").GetString()!;
         using var download = await storage.GetAsync(downloadUrl, token);
@@ -1155,21 +1005,21 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         var downloaded = await download.Content.ReadAsByteArrayAsync(token);
         Assert.Equal(SHA256.HashData(pdf), SHA256.HashData(downloaded));
 
-        // Replayed finalization is idempotent: the identical revision comes
-        // back and no extra revision was created.
+        // Replayed finalization is idempotent: the identical Datei comes
+        // back and no extra Datei was created.
         using var replay = await PostJsonAsync(api,
             $"/api/upload-sessions/{uploadSessionId}/finalize", new { }, editorSession, token);
         Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
         var replayBody = await replay.Content.ReadFromJsonAsync<JsonElement>(token);
-        Assert.Equal(revisionId, Guid.Parse(replayBody.GetProperty("revisionId").GetString()!));
+        Assert.Equal(dateiId, Guid.Parse(replayBody.GetProperty("datei").GetProperty("id").GetString()!));
 
         // File mismatch: a fully transferred file cannot be finalized under a
         // different declared identity; the session stays pending so the
         // correct identity finalizes normally afterwards.
         var small = ValidPdf(768);
         using var mismatchSessionResponse = await PostJsonAsync(api,
-            $"/api/assets/{assets[1]}/upload-session",
-            new { sizeBytes = small.Length, fileName = "original.pdf" }, editorSession, token);
+            $"/api/lieder/{liedId}/dateien/upload-session",
+            new { kind = "noten", isPartitur = true, sizeBytes = small.Length, fileName = "original.pdf" }, editorSession, token);
         Assert.Equal(HttpStatusCode.Created, mismatchSessionResponse.StatusCode);
         var mismatchSessionBody = await mismatchSessionResponse.Content.ReadFromJsonAsync<JsonElement>(token);
         var mismatchSessionId = Guid.Parse(mismatchSessionBody.GetProperty("uploadSessionId").GetString()!);
@@ -1205,7 +1055,7 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         // Cancellation: staged uncommitted progress, then DELETE. The session
         // is terminal afterwards: finalize reports the cancelled state.
         var (cancelSessionId, cancelUploadUrl, _) = await CreateUploadSessionAsync(
-            api, editorSession, assets[2], token);
+            api, editorSession, liedId, token);
         await PutBlockAsync(cancelUploadUrl,
             Convert.ToBase64String(Encoding.UTF8.GetBytes("arc017-cancel")),
             new byte[1024]);
@@ -1223,8 +1073,8 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         // is rejected at initiation, before any transfer happens.
         var maxBytes = sessionBody.GetProperty("maxBytes").GetInt64();
         using var overLimit = await PostJsonAsync(api,
-            $"/api/assets/{assets[3]}/upload-session",
-            new { sizeBytes = maxBytes + 1, fileName = "zu-gross.pdf" }, editorSession, token);
+            $"/api/lieder/{liedId}/dateien/upload-session",
+            new { kind = "noten", isPartitur = true, sizeBytes = maxBytes + 1, fileName = "zu-gross.pdf" }, editorSession, token);
         Assert.Equal(HttpStatusCode.RequestEntityTooLarge, overLimit.StatusCode);
         var overLimitBody = await overLimit.Content.ReadFromJsonAsync<JsonElement>(token);
         Assert.Equal("Die Datei ist zu groß.", overLimitBody.GetProperty("title").GetString());
@@ -1327,12 +1177,12 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         }.CopyTo(webm, 0);
         for (var i = 64; i < webm.Length; i++) webm[i] = (byte)(i % 241);
         // The transfer claims a wrong type; the bytes decide.
-        var copyRevisionId = await AttachFileAsync(videoId, "playback", webm, "application/octet-stream");
+        var copyDateiId = await AttachFileAsync(videoId, "playback", webm, "application/octet-stream");
 
         var playable = await AccessAsync(videoId, memberSession);
         Assert.Equal("ready", playable.GetProperty("playbackState").GetString());
         Assert.Equal("playbackCopy", playable.GetProperty("source").GetString());
-        Assert.Equal(copyRevisionId, Guid.Parse(playable.GetProperty("dateiId").GetString()!));
+        Assert.Equal(copyDateiId, Guid.Parse(playable.GetProperty("dateiId").GetString()!));
         // Seeking is a range request against the ticket.
         using (var range = new HttpRequestMessage(HttpMethod.Get, playable.GetProperty("viewUrl").GetString()))
         {
@@ -1345,18 +1195,18 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         }
         // Renewal: a second, different ticket for the same file.
         var renewed = await AccessAsync(videoId, memberSession);
-        Assert.Equal(copyRevisionId, Guid.Parse(renewed.GetProperty("dateiId").GetString()!));
+        Assert.Equal(copyDateiId, Guid.Parse(renewed.GetProperty("dateiId").GetString()!));
         using (var renewedRead = await storage.GetAsync(renewed.GetProperty("viewUrl").GetString(), token))
             Assert.Equal(webm, await renewedRead.Content.ReadAsByteArrayAsync(token));
 
-        // Downloads off: no link from the recording, none from the asset.
+        // Downloads off: no link from the recording, none from the generic Datei route.
         using (var lockDownloads = await PatchJsonAsync(api, $"/api/recordings/{videoId}",
             new { downloadEnabled = false, durationSeconds = 5412.5 }, editorSession, token))
             Assert.Equal(HttpStatusCode.OK, lockDownloads.StatusCode);
         var locked = await AccessAsync(videoId, memberSession);
         Assert.Equal(JsonValueKind.Null, locked.GetProperty("downloadUrl").ValueKind);
         Assert.Equal(5412.5, locked.GetProperty("durationSeconds").GetDouble());
-        using (var generic = await GetAsync(api, $"/api/dateien/{copyRevisionId}/access", memberSession, token))
+        using (var generic = await GetAsync(api, $"/api/dateien/{copyDateiId}/access", memberSession, token))
             Assert.Equal(HttpStatusCode.NotFound, generic.StatusCode);
 
         // A stale form is refused by the stored version.
@@ -1397,17 +1247,12 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         Assert.Empty(eventBody.GetProperty("performances").EnumerateArray());
 
         // ARC-032 on real PostgreSQL: passages join a recording and an
-        // occurrence of its own event, appear in the song history and the
-        // catalogue filter for members, flag themselves when the playback
-        // file changes, and keep their occurrence from being deleted.
-        using var songResponse = await PostJsonAsync(api, "/api/songs", new { title = "ARC-032 Lied" }, editorSession, token);
-        Assert.Equal(HttpStatusCode.Created, songResponse.StatusCode);
-        var songId = Guid.Parse((await songResponse.Content.ReadFromJsonAsync<JsonElement>(token))
-            .GetProperty("song").GetProperty("id").GetString()!);
-        using (var publishSong = await PostJsonAsync(api, $"/api/songs/{songId}/publish", new { }, editorSession, token))
-            Assert.Equal(HttpStatusCode.OK, publishSong.StatusCode);
+        // occurrence of its own event, appear in the Lied history for
+        // members, flag themselves when the playback file changes, and keep
+        // their occurrence from being deleted.
+        var liedId = await CreateLiedAsync(api, editorSession, "ARC-032 Lied", token);
         using var performanceResponse = await PostJsonAsync(api, $"/api/events/{eventId}/performances",
-            new { songId, evidenceStatus = "confirmed" }, editorSession, token);
+            new { liedId, evidenceStatus = "confirmed" }, editorSession, token);
         Assert.Equal(HttpStatusCode.Created, performanceResponse.StatusCode);
         var performanceId = (await performanceResponse.Content.ReadFromJsonAsync<JsonElement>(token))
             .GetProperty("performance").GetProperty("id").GetString()!;
@@ -1416,29 +1261,29 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         var otherEventId = Guid.Parse((await otherEvent.Content.ReadFromJsonAsync<JsonElement>(token))
             .GetProperty("event").GetProperty("id").GetString()!);
         using var foreignPerformance = await PostJsonAsync(api, $"/api/events/{otherEventId}/performances",
-            new { songId, evidenceStatus = "confirmed" }, editorSession, token);
+            new { liedId, evidenceStatus = "confirmed" }, editorSession, token);
         var foreignPerformanceId = (await foreignPerformance.Content.ReadFromJsonAsync<JsonElement>(token))
             .GetProperty("performance").GetProperty("id").GetString()!;
 
         var passagePath = $"/api/recordings/{videoId}/passages";
         using (var crossEvent = await PostJsonAsync(api, passagePath,
-            new { performanceId = foreignPerformanceId, startSeconds = 10, endSeconds = 20, expectedPlaybackDateiId = copyRevisionId }, editorSession, token))
+            new { performanceId = foreignPerformanceId, startSeconds = 10, endSeconds = 20, expectedPlaybackDateiId = copyDateiId }, editorSession, token))
             Assert.Equal(HttpStatusCode.NotFound, crossEvent.StatusCode);
         using (var beyondEnd = await PostJsonAsync(api, passagePath,
-            new { performanceId, startSeconds = 10, endSeconds = 9000, expectedPlaybackDateiId = copyRevisionId }, editorSession, token))
+            new { performanceId, startSeconds = 10, endSeconds = 9000, expectedPlaybackDateiId = copyDateiId }, editorSession, token))
             Assert.Equal(HttpStatusCode.BadRequest, beyondEnd.StatusCode);
         using var createPassage = await PostJsonAsync(api, passagePath,
-            new { performanceId, startSeconds = 12.5, endSeconds = 301.25, expectedPlaybackDateiId = copyRevisionId }, editorSession, token);
+            new { performanceId, startSeconds = 12.5, endSeconds = 301.25, expectedPlaybackDateiId = copyDateiId }, editorSession, token);
         Assert.Equal(HttpStatusCode.Created, createPassage.StatusCode);
         var passage = (await createPassage.Content.ReadFromJsonAsync<JsonElement>(token)).GetProperty("passage");
-        Assert.Equal("ARC-032 Lied", passage.GetProperty("songTitle").GetString());
+        Assert.Equal("ARC-032 Lied", passage.GetProperty("liedTitle").GetString());
         Assert.Equal("current", passage.GetProperty("timestampState").GetString());
         // The same occurrence in a second recording; a repeat of the first is a duplicate.
         using (var secondRecording = await PostJsonAsync(api, $"/api/recordings/{audioId}/passages",
             new { performanceId, startSeconds = 3, endSeconds = 200, expectedPlaybackDateiId = audioAccess.GetProperty("dateiId").GetString() }, editorSession, token))
             Assert.Equal(HttpStatusCode.Created, secondRecording.StatusCode);
         using (var duplicate = await PostJsonAsync(api, passagePath,
-            new { performanceId, startSeconds = 1, endSeconds = 2, expectedPlaybackDateiId = copyRevisionId }, editorSession, token))
+            new { performanceId, startSeconds = 1, endSeconds = 2, expectedPlaybackDateiId = copyDateiId }, editorSession, token))
             Assert.Equal(HttpStatusCode.Conflict, duplicate.StatusCode);
 
         using var memberPassages = await GetAsync(api, passagePath, memberSession, token);
@@ -1446,18 +1291,10 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         var memberPassage = (await memberPassages.Content.ReadFromJsonAsync<JsonElement>(token))
             .GetProperty("passages").EnumerateArray().Single();
         Assert.Equal(12.5, memberPassage.GetProperty("startSeconds").GetDouble());
-        using var history = await GetAsync(api, $"/api/songs/{songId}/performances", memberSession, token);
+        using var history = await GetAsync(api, $"/api/lieder/{liedId}/performances", memberSession, token);
         var historyBody = await history.Content.ReadFromJsonAsync<JsonElement>(token);
         Assert.Equal(2, historyBody.GetProperty("performances")[0].GetProperty("recordings").GetArrayLength());
         Assert.Equal(1, historyBody.GetProperty("counts").GetProperty("confirmed").GetProperty("occurrences").GetInt32());
-        using var recordedSongs = await GetAsync(api, "/api/songs?material=recording", memberSession, token);
-        Assert.Equal(HttpStatusCode.OK, recordedSongs.StatusCode);
-        Assert.Equal(["ARC-032 Lied"],
-            (await recordedSongs.Content.ReadFromJsonAsync<JsonElement>(token)).GetProperty("songs")
-                .EnumerateArray().Select(song => song.GetProperty("title").GetString()!).ToArray());
-        using var recordedWithVoice = await GetAsync(api,
-            "/api/songs?material=recording&voiceConfiguration=SATB", memberSession, token);
-        Assert.Equal(HttpStatusCode.OK, recordedWithVoice.StatusCode);
 
         // The occurrence cannot be deleted while a passage hangs on it.
         using (var blockedDelete = await PostJsonAsync(api, $"/api/performances/{performanceId}/delete",
@@ -1474,13 +1311,13 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         await AttachFileAsync(videoId, "playback", webmAgain, "video/webm");
         // A form built against the old file can neither mark nor confirm.
         using (var oldFile = await PostJsonAsync(api, passagePath,
-            new { performanceId, startSeconds = 1, endSeconds = 2, expectedPlaybackDateiId = copyRevisionId },
+            new { performanceId, startSeconds = 1, endSeconds = 2, expectedPlaybackDateiId = copyDateiId },
             editorSession, token))
             Assert.Equal(HttpStatusCode.Conflict, oldFile.StatusCode);
         using (var oldReview = await PostJsonAsync(api, $"{passagePath}/review",
             new
             {
-                expectedPlaybackDateiId = copyRevisionId,
+                expectedPlaybackDateiId = copyDateiId,
                 passages = new[] { new { id = passage.GetProperty("id").GetString(), expectedVersion = 1 } },
             }, editorSession, token))
             Assert.Equal(HttpStatusCode.Conflict, oldReview.StatusCode);
@@ -1489,11 +1326,6 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
             .GetProperty("passages").EnumerateArray().Single();
         Assert.Equal("needsReview", flaggedPassage.GetProperty("timestampState").GetString());
         Assert.Equal(JsonValueKind.Null, flaggedPassage.GetProperty("startSeconds").ValueKind);
-        using (var memberFilter = await GetAsync(api, "/api/songs?material=recording", memberSession, token))
-        {
-            // The audio recording's passage is still current.
-            Assert.Equal(1, (await memberFilter.Content.ReadFromJsonAsync<JsonElement>(token)).GetProperty("total").GetInt32());
-        }
 
         // The editor confirms the flagged passage against the file they now see.
         using var editorView = await GetAsync(api, passagePath, editorSession, token);
@@ -1522,7 +1354,14 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
             Guid recordingId, string slot, byte[] content, string contentType, HttpStatusCode? expectAttach = null)
         {
             using var open = await PostJsonAsync(api, $"/api/events/{eventId}/dateien/upload-session",
-                new { kind = "aufnahme", contentType, sizeBytes = content.LongLength }, editorSession, token);
+                new
+                {
+                    kind = "aufnahme",
+                    // The session names the container family; the transfer's own
+                    // claim (contentType) may be wrong, the bytes decide.
+                    contentType = contentType.StartsWith("video/", StringComparison.Ordinal) ? contentType : "video/webm",
+                    sizeBytes = content.LongLength,
+                }, editorSession, token);
             Assert.Equal(HttpStatusCode.Created, open.StatusCode);
             var session = await open.Content.ReadFromJsonAsync<JsonElement>(token);
             using var put = new HttpRequestMessage(HttpMethod.Put, session.GetProperty("uploadUrl").GetString())
@@ -1561,9 +1400,8 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         }
     }
 
-    private static async Task AssertMemberChatListsPublishedSongAsync(
-        HttpClient api, string memberSession, Guid songId, string songTitle,
-        Guid draftId, string draftTitle, CancellationToken token)
+    private static async Task AssertMemberChatListsLiedAsync(
+        HttpClient api, string memberSession, Guid liedId, string liedTitle, CancellationToken token)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
         timeout.CancelAfter(TimeSpan.FromSeconds(45));
@@ -1596,8 +1434,6 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
             using var document = JsonDocument.Parse(line["data: ".Length..]);
             var item = document.RootElement.Clone();
             Assert.NotEqual("RUN_ERROR", item.GetProperty("type").GetString());
-            Assert.DoesNotContain(draftId.ToString(), item.GetRawText());
-            Assert.DoesNotContain(draftTitle, item.GetRawText());
             events.Add(item);
             Assert.True(events.Count <= 100, "The scripted catalogue chat exceeded its bounded event count.");
         }
@@ -1608,9 +1444,8 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         var answer = string.Concat(events
             .Where(e => e.GetProperty("type").GetString() == "TEXT_MESSAGE_CONTENT")
             .Select(e => e.GetProperty("delta").GetString()));
-        Assert.Contains(songTitle, answer);
-        Assert.Contains($"[Quelle: {songTitle}]", answer);
-        Assert.DoesNotContain(draftTitle, answer);
+        Assert.Contains(liedTitle, answer);
+        Assert.Contains($"[Quelle: {liedTitle}]", answer);
         Assert.DoesNotContain("nicht bekannt", answer, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("nicht verzeichnet", answer, StringComparison.OrdinalIgnoreCase);
 
@@ -1631,8 +1466,8 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
             e.GetProperty("type").GetString() == "CUSTOM"
             && e.GetProperty("name").GetString() == "archive.citations");
         var citation = Assert.Single(citationEvent.GetProperty("value").EnumerateArray());
-        Assert.Equal(songId.ToString(), citation.GetProperty("id").GetString());
-        Assert.Equal(songTitle, citation.GetProperty("label").GetString());
+        Assert.Equal(liedId.ToString(), citation.GetProperty("id").GetString());
+        Assert.Equal(liedTitle, citation.GetProperty("label").GetString());
     }
 
     private static byte[] ValidPdf(int size)
@@ -1715,23 +1550,24 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         return await client.SendAsync(request, token);
     }
 
-    private static async Task<Guid> CreateAssetAsync(
-        HttpClient client, string sessionCookie, Guid versionId, CancellationToken token,
-        string assetType = "score", string? voiceLabel = null, string? description = null)
+    private static async Task<Guid> CreateLiedAsync(
+        HttpClient client, string sessionCookie, string title, CancellationToken token)
     {
-        using var response = await PostJsonAsync(client,
-            $"/api/musical-versions/{versionId}/assets",
-            new { assetType, voiceLabel, description }, sessionCookie, token);
+        using var response = await PostJsonAsync(client, "/api/lieder", new { title }, sessionCookie, token);
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>(token);
-        return Guid.Parse(body.GetProperty("id").GetString()!);
+        return Guid.Parse(body.GetProperty("lied").GetProperty("id").GetString()!);
     }
 
     private static async Task<(Guid SessionId, string UploadUrl, JsonElement Body)> CreateUploadSessionAsync(
-        HttpClient client, string sessionCookie, Guid assetId, CancellationToken token)
+        HttpClient client, string sessionCookie, Guid liedId, CancellationToken token,
+        string kind = "noten", string? stimme = null, string contentType = "application/pdf",
+        Guid? replacesDateiId = null)
     {
         using var response = await PostJsonAsync(client,
-            $"/api/assets/{assetId}/upload-session", new { }, sessionCookie, token);
+            $"/api/lieder/{liedId}/dateien/upload-session",
+            new { kind, isPartitur = kind == "noten" && stimme is null, stimme, contentType, replacesDateiId },
+            sessionCookie, token);
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>(token);
         return (
@@ -1740,12 +1576,13 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
             body);
     }
 
-    private async Task<(Guid UploadSessionId, Guid RevisionId)> TransferAndFinalizeAsync(
-        HttpClient api, HttpClient storage, string sessionCookie, Guid assetId,
+    private async Task<(Guid UploadSessionId, Guid DateiId)> TransferAndFinalizeAsync(
+        HttpClient api, HttpClient storage, string sessionCookie, Guid liedId,
         byte[] content, CancellationToken token, HttpStatusCode? expectFailure = null,
-        string contentType = "application/pdf")
+        string contentType = "application/pdf", string kind = "noten", string? stimme = null)
     {
-        var (uploadSessionId, uploadUrl, _) = await CreateUploadSessionAsync(api, sessionCookie, assetId, token);
+        var (uploadSessionId, uploadUrl, _) = await CreateUploadSessionAsync(
+            api, sessionCookie, liedId, token, kind, stimme, contentType);
         using var put = new HttpRequestMessage(HttpMethod.Put, uploadUrl)
         {
             Content = new ByteArrayContent(content),
@@ -1765,8 +1602,8 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         }
         if (expectFailure is not null)
             return (uploadSessionId, Guid.Empty);
-        var revision = await finalize.Content.ReadFromJsonAsync<JsonElement>(token);
-        return (uploadSessionId, Guid.Parse(revision.GetProperty("revisionId").GetString()!));
+        var datei = (await finalize.Content.ReadFromJsonAsync<JsonElement>(token)).GetProperty("datei");
+        return (uploadSessionId, Guid.Parse(datei.GetProperty("id").GetString()!));
     }
 
     private static async Task AssertSuccessfulCompletion(ResourceNotificationService notifications, string name, CancellationToken token)
