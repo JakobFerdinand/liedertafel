@@ -31,9 +31,10 @@ internal sealed class LiedTestHost : IAsyncDisposable
 
 	private readonly Dictionary<string, string> sessions = [];
 
-	public LiedTestHost(Dictionary<string, string?>? settings = null, IDateiFinalizedHook? hook = null)
+	public LiedTestHost(Dictionary<string, string?>? settings = null, IDateiFinalizedHook? hook = null,
+		Microsoft.EntityFrameworkCore.Diagnostics.ISaveChangesInterceptor? saveChangesInterceptor = null)
 	{
-		Factory = settings is null ? new AuthApiFactory() : new AuthApiFactory(settings: settings);
+		Factory = new AuthApiFactory(settings: settings, saveChangesInterceptor: saveChangesInterceptor);
 		app = hook is null
 			? Factory
 			: Factory.WithWebHostBuilder(b => b.ConfigureServices(s => s.AddSingleton(hook)));

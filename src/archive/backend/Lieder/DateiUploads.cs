@@ -379,15 +379,20 @@ public static class DateiUploads
 		var hookList = hooks.ToList();
 		foreach (var hook in hookList)
 			await hook.BeforeSaveAsync(datei, context, db, token);
-		await db.SaveChangesAsync(token);
 		try
 		{
-			await storage.DeleteAsync(session.BlobName, token);
+			await db.SaveChangesAsync(token);
 		}
-		catch (InvalidOperationException)
+		catch (Exception exception) when (IsLostRace(exception))
 		{
-			// The staged copy is garbage once promoted; cleanup catches leftovers.
+			// A competing finalize or a change of the replaced Datei won. Nothing
+			// of the winner is touched: this attempt's own, uniquely named copy
+			// is dropped and the session stays pending with its staged object,
+			// so a retry can still finalize.
+			await DeleteBestEffortAsync(storage, datei.BlobName, CancellationToken.None);
+			return Results.Problem(statusCode: 409, title: UploadEndpoints.ConcurrencyMessage);
 		}
+		await DeleteBestEffortAsync(storage, session.BlobName, token);
 		foreach (var hook in hookList)
 		{
 			try
@@ -400,6 +405,23 @@ public static class DateiUploads
 			}
 		}
 		return Results.Ok(new { datei = DateiPayloads.Summary(datei) });
+	}
+
+	/// <summary>A concurrency conflict or a unique-key violation: another request changed the same rows first.</summary>
+	private static bool IsLostRace(Exception exception)
+		=> exception is DbUpdateConcurrencyException
+			|| exception is DbUpdateException { InnerException: Npgsql.PostgresException { SqlState: Npgsql.PostgresErrorCodes.UniqueViolation } };
+
+	private static async Task DeleteBestEffortAsync(IAssetStorageAdapter storage, string blobName, CancellationToken token)
+	{
+		try
+		{
+			await storage.DeleteAsync(blobName, token);
+		}
+		catch (InvalidOperationException)
+		{
+			// Garbage either way; cleanup catches leftovers.
+		}
 	}
 
 	private static async Task AbandonAsync(

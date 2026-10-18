@@ -261,4 +261,119 @@ public sealed class DateiUploadTests
 			return Task.CompletedTask;
 		}
 	}
+
+	[Fact]
+	public async Task FinalizeCommitFailureKeepsStagedUploadReplayable()
+	{
+		var failOnce = true;
+		var interceptor = new ExtractionSaveInterceptor((db, _) =>
+		{
+			if (failOnce && db.ChangeTracker.Entries<Datei>().Any(e => e.State == EntityState.Added))
+			{
+				failOnce = false;
+				throw new DbUpdateConcurrencyException("Simulated finalize conflict.");
+			}
+			return Task.CompletedTask;
+		});
+		await using var host = new LiedTestHost(saveChangesInterceptor: interceptor);
+		var editor = await host.EditorAsync();
+		var liedId = await host.CreateLiedIdAsync(editor, "Notenlied");
+		var (sessionId, uploadUrl, _) = await host.OpenUploadAsync(editor, liedId, new { kind = "noten", isPartitur = true });
+		var stagedBlob = host.Factory.Storage.Find(uploadUrl)!.BlobName;
+		host.Factory.Storage.Store(stagedBlob, LiedTestHost.ValidPdf(64));
+
+		using (var failed = await host.PostAsync($"/api/upload-sessions/{sessionId}/finalize", new { }, editor))
+			Assert.Equal(HttpStatusCode.Conflict, failed.StatusCode);
+		Assert.True(host.Factory.Storage.Has(stagedBlob));
+		Assert.Equal(1, host.Factory.Storage.ObjectCount);
+		using (var scope = host.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			Assert.Equal(PendingUploadState.Pending, (await db.UploadSessions.SingleAsync()).State);
+			Assert.Empty(await db.Dateien.ToListAsync());
+		}
+
+		using var replay = await host.PostAsync($"/api/upload-sessions/{sessionId}/finalize", new { }, editor);
+		Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+		Assert.False(host.Factory.Storage.Has(stagedBlob));
+		using var after = host.Services.CreateScope();
+		Assert.Single(await after.ServiceProvider.GetRequiredService<ArchiveDbContext>().Dateien.ToListAsync());
+	}
+
+	[Fact]
+	public async Task ConcurrentFinalizeOfOneSessionCreatesOneDateiAndTheLoserConflicts()
+	{
+		LiedTestHost? host = null;
+		var raced = false;
+		var interceptor = new ExtractionSaveInterceptor(async (db, token) =>
+		{
+			if (raced || !db.ChangeTracker.Entries<Datei>().Any(e => e.State == EntityState.Added))
+				return;
+			raced = true;
+			// The competing finalize commits first: it flips the session and stores its own Datei.
+			using var scope = host!.Services.CreateScope();
+			var other = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			var pending = await other.UploadSessions.SingleAsync(token);
+			var winner = new Datei { Kind = DateiKinds.Noten, BlobName = "dateien/winner", ContentType = "application/pdf", LiedId = pending.LiedId, CreatedByAccountId = pending.CreatedByAccountId, RowVersion = 1 };
+			other.Dateien.Add(winner);
+			pending.State = PendingUploadState.Finalized;
+			pending.FinalizedDateiId = winner.Id;
+			await other.SaveChangesAsync(token);
+		});
+		host = new LiedTestHost(saveChangesInterceptor: interceptor);
+		await using var _ = host;
+		var editor = await host.EditorAsync();
+		var liedId = await host.CreateLiedIdAsync(editor, "Notenlied");
+		var (sessionId, uploadUrl, _) = await host.OpenUploadAsync(editor, liedId, new { kind = "noten", isPartitur = true });
+		host.Factory.Storage.Store(host.Factory.Storage.Find(uploadUrl)!.BlobName, LiedTestHost.ValidPdf(64));
+
+		using var loser = await host.PostAsync($"/api/upload-sessions/{sessionId}/finalize", new { }, editor);
+
+		Assert.True(raced);
+		Assert.Equal(HttpStatusCode.Conflict, loser.StatusCode);
+		using var scope = host.Services.CreateScope();
+		var stored = await scope.ServiceProvider.GetRequiredService<ArchiveDbContext>().UploadSessions.SingleAsync();
+		Assert.Equal(PendingUploadState.Finalized, stored.State);
+		// The loser's promoted copy is gone; only the staged object remains.
+		Assert.Equal(1, host.Factory.Storage.ObjectCount);
+	}
+
+	[Fact]
+	public async Task ConcurrentReplaceOfTheSameDateiConflictsAndLeavesNoOrphanBlob()
+	{
+		LiedTestHost? host = null;
+		var raced = false;
+		var armed = false;
+		var interceptor = new ExtractionSaveInterceptor(async (db, token) =>
+		{
+			if (raced || !armed || !db.ChangeTracker.Entries<Datei>().Any(e => e.State == EntityState.Added))
+				return;
+			raced = true;
+			// Another editor changed the replaced Datei meanwhile (its token moved).
+			using var scope = host!.Services.CreateScope();
+			var other = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			var old = await other.Dateien.SingleAsync(d => d.DeletedAt == null, token);
+			old.Description = "geaendert";
+			old.RowVersion++;
+			await other.SaveChangesAsync(token);
+		});
+		host = new LiedTestHost(saveChangesInterceptor: interceptor);
+		await using var _ = host;
+		var editor = await host.EditorAsync();
+		var liedId = await host.CreateLiedIdAsync(editor, "Notenlied");
+		var old = await host.UploadNotenAsync(editor, liedId, "Tenor 1");
+		var (sessionId, uploadUrl, _) = await host.OpenUploadAsync(editor, liedId,
+			new { kind = "noten", replacesDateiId = old.GetProperty("id").GetString(), fileName = "neu.pdf", sizeBytes = 64 });
+		var stagedBlob = host.Factory.Storage.Find(uploadUrl)!.BlobName;
+		host.Factory.Storage.Store(stagedBlob, LiedTestHost.ValidPdf(64));
+		var objectsBefore = host.Factory.Storage.ObjectCount;
+		armed = true;
+
+		using var response = await host.PostAsync($"/api/upload-sessions/{sessionId}/finalize", new { }, editor);
+
+		Assert.True(raced);
+		Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+		Assert.Equal(objectsBefore, host.Factory.Storage.ObjectCount);
+		Assert.True(host.Factory.Storage.Has(stagedBlob));
+	}
 }

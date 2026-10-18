@@ -20,5 +20,9 @@ public sealed class PendingUploadModelConfiguration : IEntityTypeConfiguration<P
 		builder.HasOne<Events.ChoirEvent>().WithMany().HasForeignKey(x => x.EventId).OnDelete(DeleteBehavior.Cascade);
 		builder.HasIndex(x => x.LiedId);
 		builder.HasIndex(x => x.BlobName).IsUnique();
+		// Two finalizes of one session race on the state: the loser's save fails
+		// instead of creating a second Datei.
+		builder.Property(x => x.State).IsConcurrencyToken();
+		builder.HasIndex(x => x.FinalizedDateiId).IsUnique().HasFilter("\"FinalizedDateiId\" IS NOT NULL");
 	}
 }

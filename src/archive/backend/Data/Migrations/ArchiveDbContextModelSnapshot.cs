@@ -150,6 +150,7 @@ namespace Archive.Backend.Data.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<int>("State")
+                        .IsConcurrencyToken()
                         .HasColumnType("integer");
 
                     b.Property<string>("Stimme")
@@ -165,6 +166,10 @@ namespace Archive.Backend.Data.Migrations
                         .IsUnique();
 
                     b.HasIndex("EventId");
+
+                    b.HasIndex("FinalizedDateiId")
+                        .IsUnique()
+                        .HasFilter("\"FinalizedDateiId\" IS NOT NULL");
 
                     b.HasIndex("LiedId");
 
