@@ -84,7 +84,7 @@ to keep this overview readable.
   application; see [AI assistance](#14-ai-assistance).
 - **Usage:** up to five simultaneous users; under ten aggregate hours of
   concert-video viewing per month.
-- **Collection:** approximately 500 songs/arrangements, 100–500 GB of source
+- **Collection:** approximately 500 Lieder, 100–500 GB of source
   material, and individual original files up to approximately 10 GB.
 - **Responsiveness:** occasional first-visit cold starts of 10–30 seconds are
   acceptable as a provisional target. Normal navigation should be responsive.
@@ -121,7 +121,7 @@ uses a **Europe data geography**, not a promise of an Austria East datacenter.
 
 ASP.NET Core serves the Next.js static export and the API under one origin. React
 runs in the browser. Organize backend code into feature modules such as catalogue,
-events/programmes, assets/recordings, membership, and import processing, sharing
+events/programmes, Dateien/recordings, membership, and import processing, sharing
 one application rather than separate microservices.
 
 ARC-001's implementation request selected Next.js instead of Vite. Development
@@ -278,6 +278,13 @@ the playback position and usable player state.
 5. Required extraction work is queued durably; abandoned pending uploads are
    cleaned up through a bounded maintenance policy.
 
+Every stored file is a **Datei** owned by a Lied or an Auftritt. A Datei is
+immutable: a correction is a new Datei that replaces the old one, which goes to
+the trash (`DeletedAt`, `ReplacedByDateiId`) with its blob kept. There are no
+file revisions, no revision history and no asset layer (ADR-0001, #172). Blobs
+of the earlier model (`revisions/…`) were released once by the
+`--cleanup-dropped-blobs` operator command.
+
 The approximately 10 GB maximum must be validated against real files, browser
 transfer behaviour, and job timeouts. Import jobs stream/chunk large files instead
 of staging a whole original on Container Apps' limited temporary local disk.
@@ -290,7 +297,7 @@ of staging a whole original on Container Apps' limited temporary local disk.
 | Preservation originals with verified usable online material | Cold, immediately readable with higher read charges |
 | A file serving as both original and playback copy | One online object; do not create duplicates just to satisfy category names |
 | Incompatible original (e.g. `.mov`) | Preserve it; a job creates a playable copy automatically (up to 1080p, H.264, AAC 192 kbit/s) |
-| Deleted catalogue items/files | Recoverable editor trash for seven days, followed by cleanup |
+| Deleted or replaced Dateien | Recoverable editor trash (Papierkorb) for seven days, followed by cleanup; the blob stays until then |
 
 Cold storage has a 90-day minimum billable retention. Deleting or replacing data
 earlier may incur a remaining-retention charge; this does not prevent seven-day
@@ -323,7 +330,7 @@ flowchart LR
 notification; persistent work records track progress and outcomes. Design the
 database-to-queue handoff so a failure cannot silently lose an extraction request.
 Retries are **idempotent**: processing the same item again does not duplicate
-assets, text entries, or catalogue records. Permanent failures stay visible for
+Dateien, text entries, or catalogue records. Permanent failures stay visible for
 editor/maintainer action rather than retrying forever.
 
 Use C# job modes within the archive codebase. Azure Container Apps Jobs run finite
@@ -738,7 +745,10 @@ each issue's **AI assistance** section applies it to that slice.
 
 Superseded by ADR-0001: AI output is only ever a suggestion, shown prefilled and
 editable in the form the editor is working in, and it becomes ordinary data
-when the editor saves. Nothing is applied in the background, there is no
+when the editor saves. The one background exception is the scan reading job
+(ARC-034-1): it writes a certain, quote-verified value into a Lied field only
+while that field is still empty (`AutomatedFieldWriter`), never overwrites an
+editor's value and drops everything else. There is no
 "Vorschläge" queue and no stored per-field provenance or "KI" badge for
 catalogue fields. Suggested Zeitmarken and Programme are shown in the player or
 Programm editor the same way.
