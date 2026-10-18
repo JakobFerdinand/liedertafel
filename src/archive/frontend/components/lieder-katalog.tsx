@@ -298,6 +298,9 @@ export function LiederKatalog() {
             </div>
             <fieldset className="lieder-filter-material">
               <legend>Dateityp</legend>
+              <p className="lieder-filter-hinweis">
+                Lied hat alle gewählten Dateiarten.
+              </p>
               <div className="lieder-filter-auswahl">
                 {dateiArten.map(([art, beschriftung]) => (
                   <label key={art} htmlFor={`lieder-filter-dateityp-${art}`}>

@@ -87,6 +87,9 @@ test("Filter für Besetzung, Anlass und Dateityp stehen in der Adresse", async (
   await page.getByText("Filter", { exact: true }).click();
   await page.getByLabel("Besetzung").selectOption("TTBB");
   await page.getByLabel("Anlass").selectOption("Abendlied");
+  await expect(
+    page.getByText("Lied hat alle gewählten Dateiarten."),
+  ).toBeVisible();
   await page.getByLabel("Noten", { exact: true }).check();
   await page.getByRole("button", { name: "Filtern" }).click();
 
