@@ -158,6 +158,8 @@ test("Tab mitten im Lesen verlassen, über Angefangen fortsetzen: Formular samt 
   await page.getByRole("textbox", { name: "Komponist" }).fill("Eigener Name");
   await page.getByRole("textbox", { name: "Texter" }).fill("Leer");
   await page.getByRole("textbox", { name: "Texter" }).fill("");
+  // Das Lesen startet erst nach dem Ablegen: auf die Anfrage warten.
+  await expect.poll(() => anfragen.length).toBeGreaterThan(0);
   const anfrage = anfragen[0];
   await expect
     .poll(() => speicher.entwuerfe.get(anfrage.entwurfId)?.lied.composer)
@@ -220,6 +222,8 @@ test("Ein Lesen, das beim Fortsetzen noch läuft, kommt per Nachfrage an", async
   );
   await ablegen(page);
   await page.getByRole("textbox", { name: "Komponist" }).fill("Eigener Name");
+  // Das Lesen startet erst nach dem Ablegen: auf die Anfrage warten.
+  await expect.poll(() => anfragen.length).toBeGreaterThan(0);
   const anfrage = anfragen[0];
   await expect
     .poll(() => speicher.entwuerfe.get(anfrage.entwurfId)?.lied.composer)
@@ -249,6 +253,8 @@ test("Verwerfen aus Angefangen: der Eintrag ist weg und spätere Ergebnisse änd
     new Promise<void>(() => {}),
   );
   await ablegen(page);
+  // Das Lesen startet erst nach dem Ablegen: auf die Anfrage warten.
+  await expect.poll(() => anfragen.length).toBeGreaterThan(0);
   const anfrage = anfragen[0];
   await expect
     .poll(() => speicher.entwuerfe.get(anfrage.entwurfId)?.dateien.length)
@@ -279,6 +285,8 @@ test("Verwerfen im Formular, während gelesen wird: die späte Antwort ändert n
   });
   const { speicher, anfragen } = await mockUmgebung(page, gehalten);
   await ablegen(page);
+  // Das Lesen startet erst nach dem Ablegen: auf die Anfrage warten.
+  await expect.poll(() => anfragen.length).toBeGreaterThan(0);
   const anfrage = anfragen[0];
 
   await page.getByRole("button", { name: "Entwurf verwerfen" }).click();
