@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useReducer, useRef } from "react";
 import { inhaltstypFuerDatei, ladeDateiHoch } from "@/lib/dateien";
+import { istPdf, LesenFehler, leseEntwurfPdf } from "@/lib/lied-lesen";
 import { type LiedEingabe, legeLiedAn } from "@/lib/lieder";
 import {
   AbbruchFehler,
@@ -73,26 +74,84 @@ export function useLiedEntwurf() {
   const dateien = useRef(new Map<string, File>());
   const anfragen = useRef(0);
   const abbruch = useRef<AbortController | null>(null);
+  const lesungen = useRef(new Map<string, AbortController>());
+  const lesAnfragen = useRef(0);
+
+  const lesungenAbbrechen = useCallback((dateiId?: string) => {
+    for (const [id, steuerung] of lesungen.current) {
+      if (dateiId === undefined || id === dateiId) {
+        steuerung.abort();
+        lesungen.current.delete(id);
+      }
+    }
+  }, []);
 
   useEffect(
     () => () => {
       abbruch.current?.abort();
+      lesungenAbbrechen();
     },
-    [],
+    [lesungenAbbrechen],
   );
 
-  const ablegen = useCallback((gewaehlte: File[]) => {
-    const neue = gewaehlte.map((datei) => {
-      const id = neueId();
-      dateien.current.set(id, datei);
-      return { id, name: datei.name, sizeBytes: datei.size };
-    });
-    dispatch({
-      type: "dateien-abgelegt",
-      entwurfId: zustandRef.current.entwurfId,
-      dateien: neue,
-    });
-  }, []);
+  /** Liest eine PDF; jede Anfrage bekommt eine neue Nummer und überholt die alte. */
+  const lesen = useCallback(
+    async (dateiId: string) => {
+      const original = dateien.current.get(dateiId);
+      if (!original) return;
+      const entwurfId = zustandRef.current.entwurfId;
+      const anfrageId = ++lesAnfragen.current;
+      lesungenAbbrechen(dateiId);
+      const steuerung = new AbortController();
+      lesungen.current.set(dateiId, steuerung);
+      dispatch({ type: "lesen-angefordert", entwurfId, dateiId, anfrageId });
+      try {
+        const felder = await leseEntwurfPdf(
+          entwurfId,
+          anfrageId,
+          original,
+          steuerung.signal,
+        );
+        dispatch({
+          type: "lesen-ergebnis",
+          entwurfId,
+          dateiId,
+          anfrageId,
+          felder,
+        });
+      } catch (ursache) {
+        if (ursache instanceof AbbruchFehler) return;
+        dispatch({
+          type: "lesen-fehlgeschlagen",
+          entwurfId,
+          dateiId,
+          anfrageId,
+          meldung: await fehlerText(ursache),
+          verfuegbar: !(ursache instanceof LesenFehler && !ursache.verfuegbar),
+        });
+      }
+    },
+    [lesungenAbbrechen],
+  );
+
+  const ablegen = useCallback(
+    (gewaehlte: File[]) => {
+      const neue = gewaehlte.map((datei) => {
+        const id = neueId();
+        dateien.current.set(id, datei);
+        return { id, name: datei.name, sizeBytes: datei.size };
+      });
+      dispatch({
+        type: "dateien-abgelegt",
+        entwurfId: zustandRef.current.entwurfId,
+        dateien: neue,
+      });
+      neue.forEach((datei, index) => {
+        if (istPdf(gewaehlte[index])) void lesen(datei.id);
+      });
+    },
+    [lesen],
+  );
 
   const liedFeldAendern = useCallback((feld: LiedFeld, wert: string) => {
     dispatch({
@@ -121,22 +180,27 @@ export function useLiedEntwurf() {
     [],
   );
 
-  const dateiEntfernen = useCallback((dateiId: string) => {
-    dateien.current.delete(dateiId);
-    dispatch({
-      type: "datei-entfernt",
-      entwurfId: zustandRef.current.entwurfId,
-      dateiId,
-    });
-  }, []);
+  const dateiEntfernen = useCallback(
+    (dateiId: string) => {
+      lesungenAbbrechen(dateiId);
+      dateien.current.delete(dateiId);
+      dispatch({
+        type: "datei-entfernt",
+        entwurfId: zustandRef.current.entwurfId,
+        dateiId,
+      });
+    },
+    [lesungenAbbrechen],
+  );
 
   const verwerfen = useCallback(() => {
     abbruch.current?.abort();
+    lesungenAbbrechen();
     dispatch({
       type: "entwurf-verworfen",
       entwurfId: zustandRef.current.entwurfId,
     });
-  }, []);
+  }, [lesungenAbbrechen]);
 
   /** Lädt eine Datei hoch; false, wenn der Entwurf abgebrochen wurde. */
   const hochladen = useCallback(
@@ -198,13 +262,20 @@ export function useLiedEntwurf() {
     const steuerung = new AbortController();
     abbruch.current = steuerung;
     const liste = aktuell.dateien;
+    // Was jetzt noch gelesen wird, kommt zu spät: das Lied wird so angelegt.
+    lesungenAbbrechen();
     dispatch({ type: "speichern-angefordert", entwurfId, anfrageId });
 
     let liedId: string;
     try {
       const lied = await legeLiedAn({
         ...LEER,
-        title: aktuell.lied.title.trim(),
+        ...Object.fromEntries(
+          Object.entries(aktuell.lied).map(([feld, wert]) => [
+            feld,
+            wert.trim(),
+          ]),
+        ),
       });
       liedId = lied.id;
     } catch (ursache) {
@@ -231,7 +302,7 @@ export function useLiedEntwurf() {
         break;
       }
     }
-  }, [hochladen]);
+  }, [hochladen, lesungenAbbrechen]);
 
   const wiederholen = useCallback(
     async (dateiId: string) => {
@@ -283,6 +354,7 @@ export function useLiedEntwurf() {
     dateiEntfernen,
     speichern,
     wiederholen,
+    lesen,
     fehlgeschlagenEntfernen,
     verwerfen,
   };

@@ -8,6 +8,8 @@ import {
   type DateiEntwurf,
   fehlgeschlagene,
   kannSpeichern,
+  type LiedFeld,
+  type Zustand,
 } from "@/lib/lied-entwurf/reducer";
 import { useLiedEntwurf } from "@/lib/lied-entwurf/use-lied-entwurf";
 import { groesseText } from "@/lib/uebertragung";
@@ -19,6 +21,47 @@ const dateiTypen: [string, string][] = [
   ["aufnahme", "Aufnahme"],
   ["sonstiges", "Sonstiges"],
 ];
+
+const liedFelder: [LiedFeld, string, "kurz" | "lang"][] = [
+  ["composer", "Komponist", "kurz"],
+  ["arranger", "Bearbeiter", "kurz"],
+  ["lyricist", "Texter", "kurz"],
+  ["voiceConfiguration", "Besetzung", "kurz"],
+  ["musicalKey", "Tonart", "kurz"],
+  ["language", "Sprache", "kurz"],
+  ["lyrics", "Liedtext", "lang"],
+];
+
+function lesenText(datei: DateiEntwurf): string | null {
+  switch (datei.lesen.status) {
+    case "keine":
+      return null;
+    case "liest":
+      return "Wird gelesen …";
+    case "gelesen":
+      return "Gelesen";
+    case "fehlgeschlagen":
+    case "nicht-verfuegbar":
+      return datei.lesen.meldung;
+  }
+}
+
+/** Hinweis hinter einem Feld, das ein Lesen gefüllt hat und das noch niemand angefasst hat. */
+function VorschlagMarke({
+  zustand,
+  feld,
+}: {
+  zustand: Exclude<Zustand, { phase: "leer" | "verworfen" }>;
+  feld: LiedFeld;
+}) {
+  const sicherheit = zustand.vorschlaege[feld];
+  if (!sicherheit) return null;
+  return (
+    <span className="feld-hinweis" data-vorschlag={sicherheit}>
+      {sicherheit === "unsicher" ? "Vorschlag, unsicher" : "Vorschlag"}
+    </span>
+  );
+}
 
 function uploadText(datei: DateiEntwurf): string {
   switch (datei.upload.status) {
@@ -79,6 +122,7 @@ function DateienAblegen({ onOhneDatei }: { onOhneDatei: () => void }) {
     dateiEntfernen,
     speichern,
     wiederholen,
+    lesen,
     fehlgeschlagenEntfernen,
   } = useLiedEntwurf();
 
@@ -148,6 +192,36 @@ function DateienAblegen({ onOhneDatei }: { onOhneDatei: () => void }) {
             disabled={!bearbeitbar}
             onChange={(event) => liedFeldAendern("title", event.target.value)}
           />
+          <VorschlagMarke zustand={zustand} feld="title" />
+          {liedFelder.map(([feld, beschriftung, art]) => (
+            <div key={feld}>
+              <label htmlFor={`${idPraefix}-${feld}`}>{beschriftung}</label>
+              {art === "lang" ? (
+                <textarea
+                  id={`${idPraefix}-${feld}`}
+                  rows={4}
+                  maxLength={5000}
+                  value={zustand.lied[feld]}
+                  disabled={!bearbeitbar}
+                  onChange={(event) =>
+                    liedFeldAendern(feld, event.target.value)
+                  }
+                />
+              ) : (
+                <input
+                  id={`${idPraefix}-${feld}`}
+                  type="text"
+                  maxLength={200}
+                  value={zustand.lied[feld]}
+                  disabled={!bearbeitbar}
+                  onChange={(event) =>
+                    liedFeldAendern(feld, event.target.value)
+                  }
+                />
+              )}
+              <VorschlagMarke zustand={zustand} feld={feld} />
+            </div>
+          ))}
           <ul className="lied-ablegen-dateien">
             {dateien.map((datei) => (
               <li key={datei.id} data-upload={datei.upload.status}>
@@ -199,6 +273,31 @@ function DateienAblegen({ onOhneDatei }: { onOhneDatei: () => void }) {
                       }}
                     />
                   </div>
+                )}
+                {lesenText(datei) && (
+                  <p
+                    className={
+                      datei.lesen.status === "fehlgeschlagen"
+                        ? "feld-fehler"
+                        : "feld-hinweis"
+                    }
+                    role={
+                      datei.lesen.status === "fehlgeschlagen"
+                        ? "alert"
+                        : undefined
+                    }
+                  >
+                    {lesenText(datei)}
+                  </p>
+                )}
+                {datei.lesen.status === "fehlgeschlagen" && bearbeitbar && (
+                  <button
+                    type="button"
+                    className="knopf-leise"
+                    onClick={() => void lesen(datei.id)}
+                  >
+                    {datei.name} erneut lesen
+                  </button>
                 )}
                 {zustand.phase !== "sammeln" && (
                   <p

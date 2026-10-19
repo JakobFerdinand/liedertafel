@@ -56,6 +56,8 @@ public static partial class ScriptedScanReader
 		{
 			var read = field switch
 			{
+				"title" => Title(lines),
+				"voice_configuration" => Pattern(lines, ConfigurationPattern()),
 				"composer" => Credit(lines, "Musik"),
 				"lyricist" => Credit(lines, "Text"),
 				"arranger" => Credit(lines, "Satz"),
@@ -79,6 +81,12 @@ public static partial class ScriptedScanReader
 				return (line[(colon + 1)..].Trim(), line);
 		}
 		return null;
+	}
+
+	private static (string Value, string Quote)? Title(string[] lines)
+	{
+		var line = lines.FirstOrDefault(l => !l.Contains(':') && !KeyPattern().IsMatch(l) && !VoicePattern().IsMatch(l));
+		return line is null ? null : (line, line);
 	}
 
 	private static (string Value, string Quote)? Pattern(string[] lines, Regex pattern)
@@ -107,6 +115,9 @@ public static partial class ScriptedScanReader
 
 	[GeneratedRegex(@"\b[A-H](?:is|es|s)?-(?:Dur|Moll)\b")]
 	private static partial Regex KeyPattern();
+
+	[GeneratedRegex(@"\b(?:Männerchor|Frauenchor|gemischter Chor|TTBB|SATB)\b")]
+	private static partial Regex ConfigurationPattern();
 
 	[GeneratedRegex(@"\b(?:Tenor|Bass|Bariton)(?: (?:I|II))?\b")]
 	private static partial Regex VoicePattern();

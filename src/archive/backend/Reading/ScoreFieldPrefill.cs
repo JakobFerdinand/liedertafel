@@ -150,7 +150,7 @@ public sealed class ScoreFieldPrefill(
 	}
 
 	/// <summary>Trims the value and bounds it; null when it is empty or too long to be a plausible reading.</summary>
-	private static string? CleanValue(string field, string? raw)
+	internal static string? CleanValue(string field, string? raw)
 	{
 		var value = raw?.Replace("\r\n", "\n").Trim();
 		if (string.IsNullOrEmpty(value))
@@ -176,7 +176,7 @@ public sealed class ScoreFieldPrefill(
 			return false;
 		switch (read.Field)
 		{
-			case "composer" or "lyricist" or "arranger":
+			case "title" or "composer" or "lyricist" or "arranger":
 				return quote.Contains(Normalize(value), StringComparison.Ordinal);
 			case "lyrics":
 				return value.Replace("\r\n", "\n").Split('\n').Select(Normalize)

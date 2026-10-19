@@ -265,6 +265,10 @@ builder.Services.AddSingleton<IExtractionQueue>(ExtractionQueue.Create(builder.C
 // reading itself runs only in the finite job.
 builder.Services.AddOptions<ReadingOptions>().BindConfiguration(ReadingOptions.SectionName);
 builder.Services.AddSingleton<IReadingQueue>(ReadingQueue.Create(builder.Configuration));
+// #177: reading a Lied draft's PDF runs in the request, before any Lied exists.
+builder.Services.AddSingleton<IPdfPageRenderer, PdfiumPageRenderer>();
+builder.Services.AddSingleton<ScanReadingModel>();
+builder.Services.AddScoped<DraftReader>();
 builder.Services.AddScoped<UploadSessionCleaner>();
 builder.Services.AddHttpContextAccessor();
 // ARC-022: bounded archive chat configuration (availability gate and caps).
@@ -380,6 +384,7 @@ app.MapRecordingEndpoints();
 app.MapRecordingPassageEndpoints();
 app.MapExtractionEndpoints();
 app.MapReadingEndpoints();
+app.MapDraftReadingEndpoints();
 app.MapLiedEndpoints();
 app.MapDateiEndpoints();
 app.MapDateiTrashEndpoints();
