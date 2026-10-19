@@ -55,6 +55,11 @@ export type DateiEntwurf = {
   art: DateiTyp;
   stimme: string;
   bearbeitet: Record<DateiFeld, boolean>;
+  /**
+   * Die Bytes liegen im Browser. Nach einem Wiederherstellen (#178) fehlen sie,
+   * bis die Redaktion die Datei erneut wählt; gespeichert wird erst dann.
+   */
+  inhalt: "vorhanden" | "fehlt";
   upload: UploadZustand;
   lesen: LesenZustand;
 };
@@ -93,6 +98,8 @@ export type Ereignis =
       dateiId: string;
     } & ({ feld: "art"; wert: DateiTyp } | { feld: "stimme"; wert: string }))
   | { type: "datei-entfernt"; entwurfId: string; dateiId: string }
+  /** Eine wiederhergestellte Datei wurde erneut gewählt (#178). */
+  | { type: "datei-nachgereicht"; entwurfId: string; dateiId: string }
   | {
       type: "lesen-angefordert";
       entwurfId: string;
@@ -200,6 +207,7 @@ function neueDatei(datei: NeueDatei): DateiEntwurf {
     art: gelesen.art,
     stimme: gelesen.stimme,
     bearbeitet: { art: false, stimme: false },
+    inhalt: "vorhanden",
     upload: { status: "wartend" },
     lesen: { status: "keine" },
   };
@@ -395,6 +403,12 @@ export function reduziere(zustand: Zustand, ereignis: Ereignis): Zustand {
       );
     }
 
+    case "datei-nachgereicht":
+      if (zustand.phase !== "sammeln") return zustand;
+      return dateiAendern(zustand, ereignis.dateiId, (datei) =>
+        datei.inhalt === "vorhanden" ? datei : { ...datei, inhalt: "vorhanden" },
+      );
+
     case "lesen-angefordert":
       if (zustand.phase !== "sammeln") return zustand;
       return dateiAendern(zustand, ereignis.dateiId, (datei) =>
@@ -572,12 +586,13 @@ export function reduziere(zustand: Zustand, ereignis: Ereignis): Zustand {
 
 // Abgeleitetes wird gelesen, nicht gespeichert.
 
-/** Ein Titel und mindestens eine Datei genügen. */
+/** Ein Titel und mindestens eine Datei genügen, deren Inhalt vorliegt. */
 export function kannSpeichern(zustand: Zustand): boolean {
   return (
     zustand.phase === "sammeln" &&
     zustand.lied.title.trim().length > 0 &&
-    zustand.dateien.length > 0
+    zustand.dateien.length > 0 &&
+    zustand.dateien.every((d) => d.inhalt === "vorhanden")
   );
 }
 
