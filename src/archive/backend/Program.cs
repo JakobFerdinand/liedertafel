@@ -385,6 +385,7 @@ app.MapRecordingPassageEndpoints();
 app.MapExtractionEndpoints();
 app.MapReadingEndpoints();
 app.MapDraftReadingEndpoints();
+app.MapLiedEntwurfEndpoints();
 app.MapLiedEndpoints();
 app.MapDateiEndpoints();
 app.MapDateiTrashEndpoints();

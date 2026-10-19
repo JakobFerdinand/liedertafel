@@ -1060,6 +1060,163 @@ namespace Archive.Backend.Data.Migrations
                     b.ToTable("lieder", (string)null);
                 });
 
+            modelBuilder.Entity("Archive.Backend.Lieder.LiedEntwurf", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Arranger")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Composer")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EditedFields")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Language")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Lyricist")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Lyrics")
+                        .IsRequired()
+                        .HasMaxLength(5000)
+                        .HasColumnType("character varying(5000)");
+
+                    b.Property<string>("MusicalKey")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("OwnerAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Suggestions")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("VoiceConfiguration")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OwnerAccountId", "UpdatedAt");
+
+                    b.ToTable("lied_entwuerfe", (string)null);
+                });
+
+            modelBuilder.Entity("Archive.Backend.Lieder.LiedEntwurfDatei", b =>
+                {
+                    b.Property<Guid>("EntwurfId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Art")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<bool>("ArtEdited")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("LesenAnfrageId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("LesenMeldung")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("LesenStatus")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("integer");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Stimme")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<bool>("StimmeEdited")
+                        .HasColumnType("boolean");
+
+                    b.HasKey("EntwurfId", "Id");
+
+                    b.ToTable("lied_entwurf_dateien", (string)null);
+                });
+
+            modelBuilder.Entity("Archive.Backend.Lieder.LiedEntwurfLesung", b =>
+                {
+                    b.Property<Guid>("EntwurfId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("DateiId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("AnfrageId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Felder")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Meldung")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("EntwurfId", "DateiId");
+
+                    b.ToTable("lied_entwurf_lesungen", (string)null);
+                });
+
             modelBuilder.Entity("Archive.Backend.Reading.ReadingJob", b =>
                 {
                     b.Property<Guid>("DateiId")
@@ -1558,6 +1715,28 @@ namespace Archive.Backend.Data.Migrations
                     b.Navigation("RecordedAtEvent");
                 });
 
+            modelBuilder.Entity("Archive.Backend.Lieder.LiedEntwurfDatei", b =>
+                {
+                    b.HasOne("Archive.Backend.Lieder.LiedEntwurf", "Entwurf")
+                        .WithMany("Dateien")
+                        .HasForeignKey("EntwurfId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Entwurf");
+                });
+
+            modelBuilder.Entity("Archive.Backend.Lieder.LiedEntwurfLesung", b =>
+                {
+                    b.HasOne("Archive.Backend.Lieder.LiedEntwurfDatei", "Datei")
+                        .WithOne("Lesung")
+                        .HasForeignKey("Archive.Backend.Lieder.LiedEntwurfLesung", "EntwurfId", "DateiId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Datei");
+                });
+
             modelBuilder.Entity("Archive.Backend.Reading.ReadingJob", b =>
                 {
                     b.HasOne("Archive.Backend.Lieder.Datei", "Datei")
@@ -1742,6 +1921,16 @@ namespace Archive.Backend.Data.Migrations
             modelBuilder.Entity("Archive.Backend.Lieder.Lied", b =>
                 {
                     b.Navigation("Dateien");
+                });
+
+            modelBuilder.Entity("Archive.Backend.Lieder.LiedEntwurf", b =>
+                {
+                    b.Navigation("Dateien");
+                });
+
+            modelBuilder.Entity("Archive.Backend.Lieder.LiedEntwurfDatei", b =>
+                {
+                    b.Navigation("Lesung");
                 });
 #pragma warning restore 612, 618
         }
