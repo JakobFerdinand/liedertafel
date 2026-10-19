@@ -136,7 +136,7 @@ test("Dateien ablegen, bearbeiten und mit einem Klick als Lied speichern", async
   expect(errors).toEqual([]);
 });
 
-test("Ein gescheiterter Upload bleibt sichtbar, die anderen Dateien sind gespeichert", async ({
+test("Ein gescheiterter Upload bleibt sichtbar, wird wiederholt und die anderen Dateien sind gespeichert", async ({
   page,
 }) => {
   await mockSitzung(page, editorMe);
@@ -191,6 +191,9 @@ test("Ein gescheiterter Upload bleibt sichtbar, die anderen Dateien sind gespeic
       json({ datei: datei("00000000-0000-0000-0000-00000000c001") }),
     ),
   );
+  await page.route(`**/api/lieder/${mondId}`, (route) =>
+    route.fulfill(json(liedDetail([]))),
+  );
 
   await page.goto("/lieder/");
   await page.getByText("Neues Lied", { exact: true }).click();
@@ -206,4 +209,88 @@ test("Ein gescheiterter Upload bleibt sichtbar, die anderen Dateien sind gespeic
   await expect(page.getByText("Hochgeladen")).toHaveCount(1);
   await expect(page).toHaveURL(/\/lieder\//);
   await expect(page.getByRole("link", { name: "Zum Lied" })).toBeVisible();
+  expect(anzahl).toBe(2);
+
+  // Wiederholen startet nur die gescheiterte Datei neu.
+  await page
+    .getByRole("button", { name: "Mond_T1.mp3 erneut versuchen" })
+    .click();
+  await expect(page).toHaveURL(new RegExp(`/lied/\\?id=${mondId}`));
+  expect(anzahl).toBe(3);
+});
+
+test("Eine gescheiterte Datei lässt sich entfernen, ohne die anderen zu berühren", async ({
+  page,
+}) => {
+  await mockSitzung(page, editorMe);
+  await page.route("**/api/lieder", (route) => {
+    if (route.request().method() !== "POST") {
+      return route.fulfill(json(liste([])));
+    }
+    return route.fulfill(
+      json(
+        {
+          lied: {
+            ...mondEintrag,
+            lyrics: null,
+            createdAt: "2026-09-19T12:00:00.000Z",
+            updatedAt: "2026-09-19T12:00:00.000Z",
+            rowVersion: 1,
+            dateien: [],
+          },
+        },
+        201,
+      ),
+    );
+  });
+  let anzahl = 0;
+  await page.route(
+    `**/api/lieder/${mondId}/dateien/upload-session`,
+    (route) => {
+      anzahl += 1;
+      if (anzahl === 1) {
+        return route.fulfill(json({ title: "Der Speicher ist voll." }, 413));
+      }
+      return route.fulfill(
+        json(
+          {
+            uploadSessionId: sitzungsId,
+            blobName: null,
+            uploadUrl: "https://speicher.test/ubertragung?sig=1",
+            expiresAt: "2026-09-19T12:15:00.000Z",
+            maxBytes: 5242880,
+            blockBytes: 5242880,
+          },
+          201,
+        ),
+      );
+    },
+  );
+  await page.route(/speicher\.test\/ubertragung/, (route) =>
+    route.fulfill(json({}, 201)),
+  );
+  await page.route("**/api/upload-sessions/*/finalize", (route) =>
+    route.fulfill(
+      json({ datei: datei("00000000-0000-0000-0000-00000000c001") }),
+    ),
+  );
+  await page.route(`**/api/lieder/${mondId}`, (route) =>
+    route.fulfill(json(liedDetail([]))),
+  );
+
+  await page.goto("/lieder/");
+  await page.getByText("Neues Lied", { exact: true }).click();
+  await page.getByLabel("Dateien auswählen").setInputFiles([
+    { name: "Mond_T1.mp3", mimeType: "audio/mpeg", buffer: Buffer.from("ID3") },
+    { name: "Mond_B1.mp3", mimeType: "audio/mpeg", buffer: Buffer.from("ID3") },
+  ]);
+  await page.getByRole("button", { name: "Speichern" }).click();
+  await expect(page.locator("p[role=alert]")).toContainText(
+    "Der Speicher ist voll.",
+  );
+
+  await page.getByRole("button", { name: "Mond_T1.mp3 entfernen" }).click();
+  await expect(page.getByText("Mond_T1.mp3")).toHaveCount(0);
+  await expect(page).toHaveURL(new RegExp(`/lied/\\?id=${mondId}`));
+  expect(anzahl).toBe(2);
 });

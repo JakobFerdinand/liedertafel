@@ -4,6 +4,7 @@ import {
   anfangszustand,
   type Ereignis,
   fehlgeschlagene,
+  hochgeladene,
   kannSpeichern,
   reduziere,
   type Zustand,
@@ -405,4 +406,175 @@ test("ein Ergebnis einer überholten Speicheranfrage wird ignoriert", () => {
     }),
     z,
   );
+});
+
+// #176: Dateien scheitern und wiederholen sich unabhängig voneinander.
+
+function mitFehlschlag(): Zustand {
+  let z = hochladend();
+  for (const d of AVE) {
+    z = reduziere(z, {
+      type: "upload-gestartet",
+      entwurfId: E,
+      dateiId: d.id,
+      versuch: 1,
+    });
+  }
+  return lauf(
+    z,
+    {
+      type: "upload-fehlgeschlagen",
+      entwurfId: E,
+      dateiId: "d2",
+      versuch: 1,
+      meldung: "Netz weg",
+    },
+    {
+      type: "upload-erfolgreich",
+      entwurfId: E,
+      dateiId: "d1",
+      versuch: 1,
+      serverDateiId: "s1",
+    },
+    {
+      type: "upload-erfolgreich",
+      entwurfId: E,
+      dateiId: "d3",
+      versuch: 1,
+      serverDateiId: "s3",
+    },
+  );
+}
+
+const wiederholen = (dateiId: string, versuch: number): Ereignis => ({
+  type: "wiederholen-angefordert",
+  entwurfId: E,
+  dateiId,
+  versuch,
+});
+
+function uploads(z: Zustand) {
+  assert.ok("dateien" in z);
+  return z.dateien.map((d) => [d.id, d.upload.status]);
+}
+
+test("Wiederholen startet einen neuen Versuch, die anderen Dateien bleiben", () => {
+  const z = reduziere(mitFehlschlag(), wiederholen("d2", 2));
+  assert.equal(z.phase, "speichern");
+  assert.deepEqual(uploads(z), [
+    ["d1", "hochgeladen"],
+    ["d2", "laedt"],
+    ["d3", "hochgeladen"],
+  ]);
+  assert.deepEqual(fehlgeschlagene(z), []);
+});
+
+test("teilweiser Fehlschlag, Wiederholen, Erfolg: das Lied hat jede Datei", () => {
+  const z = lauf(mitFehlschlag(), wiederholen("d2", 2), {
+    type: "upload-erfolgreich",
+    entwurfId: E,
+    dateiId: "d2",
+    versuch: 2,
+    serverDateiId: "s2",
+  });
+  assert.equal(z.phase, "gespeichert");
+  assert.deepEqual(fehlgeschlagene(z), []);
+  assert.deepEqual(
+    hochgeladene(z).map((d) => [d.id, d.serverDateiId]),
+    [
+      ["d1", "s1"],
+      ["d2", "s2"],
+      ["d3", "s3"],
+    ],
+  );
+});
+
+test("scheitert die Wiederholung erneut, bleibt die Datei fehlgeschlagen", () => {
+  const z = lauf(mitFehlschlag(), wiederholen("d2", 2), {
+    type: "upload-fehlgeschlagen",
+    entwurfId: E,
+    dateiId: "d2",
+    versuch: 2,
+    meldung: "wieder",
+  });
+  assert.equal(z.phase, "gespeichert");
+  assert.deepEqual(
+    fehlgeschlagene(z).map((d) => [d.id, d.meldung]),
+    [["d2", "wieder"]],
+  );
+});
+
+test("das späte Ergebnis eines überholten Versuchs wird nach dem Wiederholen ignoriert", () => {
+  const z = lauf(mitFehlschlag(), wiederholen("d2", 2));
+  for (const alt of [
+    {
+      type: "upload-erfolgreich",
+      entwurfId: E,
+      dateiId: "d2",
+      versuch: 1,
+      serverDateiId: "alt",
+    },
+    {
+      type: "upload-fehlgeschlagen",
+      entwurfId: E,
+      dateiId: "d2",
+      versuch: 1,
+      meldung: "alt",
+    },
+  ] satisfies Ereignis[]) {
+    assert.equal(reduziere(z, alt), z);
+  }
+});
+
+test("Wiederholen gilt nur für eine fehlgeschlagene Datei mit höherem Versuch", () => {
+  const z = mitFehlschlag();
+  assert.equal(reduziere(z, wiederholen("d1", 2)), z, "schon hochgeladen");
+  assert.equal(reduziere(z, wiederholen("d2", 1)), z, "Versuch nicht höher");
+  assert.equal(reduziere(z, wiederholen("nix", 2)), z, "unbekannte Datei");
+  const laeuft = reduziere(z, wiederholen("d2", 2));
+  assert.equal(reduziere(laeuft, wiederholen("d2", 3)), laeuft, "läuft schon");
+});
+
+test("Wiederholen für einen verworfenen Entwurf ändert nichts", () => {
+  const z = lauf(mitFehlschlag(), { type: "entwurf-verworfen", entwurfId: E });
+  assert.equal(reduziere(z, wiederholen("d2", 2)), z);
+});
+
+test("eine fehlgeschlagene Datei kann entfernt werden, hochgeladene nicht", () => {
+  const z = mitFehlschlag();
+  assert.equal(
+    reduziere(z, { type: "datei-entfernt", entwurfId: E, dateiId: "d1" }),
+    z,
+  );
+  const ohne = reduziere(z, {
+    type: "datei-entfernt",
+    entwurfId: E,
+    dateiId: "d2",
+  });
+  assert.equal(ohne.phase, "gespeichert");
+  assert.deepEqual(uploads(ohne), [
+    ["d1", "hochgeladen"],
+    ["d3", "hochgeladen"],
+  ]);
+  assert.deepEqual(fehlgeschlagene(ohne), []);
+});
+
+test("eine in laufendem Speichern gescheiterte Datei kann entfernt werden", () => {
+  const z = lauf(
+    hochladend(),
+    { type: "upload-gestartet", entwurfId: E, dateiId: "d1", versuch: 1 },
+    {
+      type: "upload-fehlgeschlagen",
+      entwurfId: E,
+      dateiId: "d1",
+      versuch: 1,
+      meldung: "x",
+    },
+    { type: "datei-entfernt", entwurfId: E, dateiId: "d1" },
+  );
+  assert.equal(z.phase, "speichern");
+  assert.deepEqual(uploads(z), [
+    ["d2", "wartend"],
+    ["d3", "wartend"],
+  ]);
 });

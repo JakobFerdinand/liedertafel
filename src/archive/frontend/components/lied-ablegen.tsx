@@ -78,6 +78,8 @@ function DateienAblegen({ onOhneDatei }: { onOhneDatei: () => void }) {
     dateiFeldAendern,
     dateiEntfernen,
     speichern,
+    wiederholen,
+    fehlgeschlagenEntfernen,
   } = useLiedEntwurf();
 
   const gespeichertId =
@@ -213,6 +215,24 @@ function DateienAblegen({ onOhneDatei }: { onOhneDatei: () => void }) {
                   >
                     {uploadText(datei)}
                   </p>
+                )}
+                {datei.upload.status === "fehlgeschlagen" && (
+                  <div className="auth-aktionen">
+                    <button
+                      type="button"
+                      className="knopf-leise"
+                      onClick={() => void wiederholen(datei.id)}
+                    >
+                      {datei.name} erneut versuchen
+                    </button>
+                    <button
+                      type="button"
+                      className="knopf-leise"
+                      onClick={() => fehlgeschlagenEntfernen(datei.id)}
+                    >
+                      {datei.name} entfernen
+                    </button>
+                  </div>
                 )}
                 {bearbeitbar && (
                   <button

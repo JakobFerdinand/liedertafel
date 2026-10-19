@@ -138,6 +138,58 @@ export function useLiedEntwurf() {
     });
   }, []);
 
+  /** Lädt eine Datei hoch; false, wenn der Entwurf abgebrochen wurde. */
+  const hochladen = useCallback(
+    async (
+      entwurfId: string,
+      liedId: string,
+      datei: DateiEntwurf,
+      versuch: number,
+      signal: AbortSignal,
+    ): Promise<boolean> => {
+      const original = dateien.current.get(datei.id);
+      if (!original) return true;
+      try {
+        const gespeichert = await ladeDateiHoch(
+          liedId,
+          hochladeArt(datei, original),
+          original,
+          undefined,
+          {
+            signal,
+            onFortschritt: (bytes, gesamt) =>
+              dispatch({
+                type: "upload-fortschritt",
+                entwurfId,
+                dateiId: datei.id,
+                versuch,
+                bytes,
+                gesamt,
+              }),
+          },
+        );
+        dispatch({
+          type: "upload-erfolgreich",
+          entwurfId,
+          dateiId: datei.id,
+          versuch,
+          serverDateiId: gespeichert.id,
+        });
+      } catch (ursache) {
+        if (ursache instanceof AbbruchFehler) return false;
+        dispatch({
+          type: "upload-fehlgeschlagen",
+          entwurfId,
+          dateiId: datei.id,
+          versuch,
+          meldung: await fehlerText(ursache),
+        });
+      }
+      return true;
+    },
+    [],
+  );
+
   const speichern = useCallback(async () => {
     const aktuell = zustandRef.current;
     if (aktuell.phase !== "sammeln" || !kannSpeichern(aktuell)) return;
@@ -168,52 +220,59 @@ export function useLiedEntwurf() {
 
     // Jede Datei für sich: eine gescheiterte hält die anderen nicht auf.
     for (const datei of liste) {
-      const original = dateien.current.get(datei.id);
-      if (!original || steuerung.signal.aborted) break;
-      const versuch = 1;
+      if (steuerung.signal.aborted) break;
       dispatch({
         type: "upload-gestartet",
         entwurfId,
         dateiId: datei.id,
-        versuch,
+        versuch: 1,
       });
-      try {
-        const gespeichert = await ladeDateiHoch(
-          liedId,
-          hochladeArt(datei, original),
-          original,
-          undefined,
-          {
-            signal: steuerung.signal,
-            onFortschritt: (bytes, gesamt) =>
-              dispatch({
-                type: "upload-fortschritt",
-                entwurfId,
-                dateiId: datei.id,
-                versuch,
-                bytes,
-                gesamt,
-              }),
-          },
-        );
-        dispatch({
-          type: "upload-erfolgreich",
-          entwurfId,
-          dateiId: datei.id,
-          versuch,
-          serverDateiId: gespeichert.id,
-        });
-      } catch (ursache) {
-        if (ursache instanceof AbbruchFehler) break;
-        dispatch({
-          type: "upload-fehlgeschlagen",
-          entwurfId,
-          dateiId: datei.id,
-          versuch,
-          meldung: await fehlerText(ursache),
-        });
+      if (!(await hochladen(entwurfId, liedId, datei, 1, steuerung.signal))) {
+        break;
       }
     }
+  }, [hochladen]);
+
+  const wiederholen = useCallback(
+    async (dateiId: string) => {
+      const aktuell = zustandRef.current;
+      if (aktuell.phase !== "speichern" && aktuell.phase !== "gespeichert") {
+        return;
+      }
+      if (aktuell.phase === "speichern" && aktuell.liedId === null) return;
+      const liedId = aktuell.liedId;
+      const datei = aktuell.dateien.find((d) => d.id === dateiId);
+      if (!liedId || datei?.upload.status !== "fehlgeschlagen") return;
+      const versuch = datei.upload.versuch + 1;
+      const { entwurfId } = aktuell;
+      // Ein Wiederholen nach einem Abbruch bekommt einen frischen Abbruch.
+      if (!abbruch.current || abbruch.current.signal.aborted) {
+        abbruch.current = new AbortController();
+      }
+      dispatch({
+        type: "wiederholen-angefordert",
+        entwurfId,
+        dateiId,
+        versuch,
+      });
+      await hochladen(
+        entwurfId,
+        liedId,
+        datei,
+        versuch,
+        abbruch.current.signal,
+      );
+    },
+    [hochladen],
+  );
+
+  const fehlgeschlagenEntfernen = useCallback((dateiId: string) => {
+    dateien.current.delete(dateiId);
+    dispatch({
+      type: "datei-entfernt",
+      entwurfId: zustandRef.current.entwurfId,
+      dateiId,
+    });
   }, []);
 
   return {
@@ -223,6 +282,8 @@ export function useLiedEntwurf() {
     dateiFeldAendern,
     dateiEntfernen,
     speichern,
+    wiederholen,
+    fehlgeschlagenEntfernen,
     verwerfen,
   };
 }

@@ -45,7 +45,7 @@ export type Zustand =
   | { phase: "leer"; entwurfId: string }
   | (Kern & { phase: "sammeln"; fehler: string | null })
   | (Kern & { phase: "speichern"; anfrageId: number; liedId: string | null })
-  | (Kern & { phase: "gespeichert"; liedId: string })
+  | (Kern & { phase: "gespeichert"; anfrageId: number; liedId: string })
   | { phase: "verworfen"; entwurfId: string };
 
 export type NeueDatei = { id: string; name: string; sizeBytes: number };
@@ -78,6 +78,12 @@ export type Ereignis =
       entwurfId: string;
       anfrageId: number;
       meldung: string;
+    }
+  | {
+      type: "wiederholen-angefordert";
+      entwurfId: string;
+      dateiId: string;
+      versuch: number;
     }
   | {
       type: "upload-gestartet";
@@ -163,19 +169,44 @@ function dateiAendern(
   };
 }
 
+type MitLied = Kern & { anfrageId: number; liedId: string };
+
+/**
+ * Ersetzt die Dateien eines Liedes, das schon angelegt ist. Solange eine Datei
+ * noch wartet oder lädt, wird gespeichert; sind alle hoch oder gescheitert,
+ * ist der Entwurf gespeichert. Eine gescheiterte Datei öffnet ihn beim
+ * Wiederholen wieder.
+ */
+function mitDateien(zustand: MitLied, dateien: DateiEntwurf[]): Zustand {
+  const fertig = dateien.every(
+    (d) =>
+      d.upload.status === "hochgeladen" || d.upload.status === "fehlgeschlagen",
+  );
+  return {
+    ...zustand,
+    phase: fertig ? "gespeichert" : "speichern",
+    dateien,
+  };
+}
+
+function mitLied(zustand: Zustand): MitLied | null {
+  if (zustand.phase === "gespeichert") return zustand;
+  if (zustand.phase === "speichern" && zustand.liedId !== null) {
+    return { ...zustand, liedId: zustand.liedId };
+  }
+  return null;
+}
+
 /** Setzt `upload` einer Datei, wenn ihr Versuch der erwartete ist. */
 function uploadAendern(
-  zustand: Kern & {
-    phase: "speichern";
-    anfrageId: number;
-    liedId: string | null;
-  },
+  zustand: Zustand,
   dateiId: string,
   versuch: number | null,
   aus: (aktuell: UploadZustand) => UploadZustand | null,
 ): Zustand {
-  if (zustand.liedId === null) return zustand;
-  const datei = zustand.dateien.find((d) => d.id === dateiId);
+  const lied = mitLied(zustand);
+  if (lied === null) return zustand;
+  const datei = lied.dateien.find((d) => d.id === dateiId);
   if (!datei) return zustand;
   const aktuell = datei.upload;
   if (
@@ -187,24 +218,10 @@ function uploadAendern(
   }
   const neu = aus(aktuell);
   if (neu === null) return zustand;
-  const dateien = zustand.dateien.map((d) =>
-    d.id === dateiId ? { ...d, upload: neu } : d,
+  return mitDateien(
+    lied,
+    lied.dateien.map((d) => (d.id === dateiId ? { ...d, upload: neu } : d)),
   );
-  const fertig = dateien.every(
-    (d) =>
-      d.upload.status === "hochgeladen" || d.upload.status === "fehlgeschlagen",
-  );
-  if (fertig) {
-    return {
-      phase: "gespeichert",
-      entwurfId: zustand.entwurfId,
-      lied: zustand.lied,
-      bearbeitet: zustand.bearbeitet,
-      dateien,
-      liedId: zustand.liedId,
-    };
-  }
-  return { ...zustand, dateien };
 }
 
 function nichtErschoepft(x: never): never {
@@ -252,15 +269,25 @@ export function reduziere(zustand: Zustand, ereignis: Ereignis): Zustand {
         };
       });
 
-    case "datei-entfernt":
-      if (zustand.phase !== "sammeln") return zustand;
-      if (!zustand.dateien.some((d) => d.id === ereignis.dateiId)) {
-        return zustand;
+    case "datei-entfernt": {
+      if (zustand.phase === "sammeln") {
+        if (!zustand.dateien.some((d) => d.id === ereignis.dateiId)) {
+          return zustand;
+        }
+        return {
+          ...zustand,
+          dateien: zustand.dateien.filter((d) => d.id !== ereignis.dateiId),
+        };
       }
-      return {
-        ...zustand,
-        dateien: zustand.dateien.filter((d) => d.id !== ereignis.dateiId),
-      };
+      // Nach dem Anlegen kann nur eine gescheiterte Datei weg.
+      const lied = mitLied(zustand);
+      const datei = lied?.dateien.find((d) => d.id === ereignis.dateiId);
+      if (!lied || datei?.upload.status !== "fehlgeschlagen") return zustand;
+      return mitDateien(
+        lied,
+        lied.dateien.filter((d) => d.id !== ereignis.dateiId),
+      );
+    }
 
     case "speichern-angefordert":
       if (zustand.phase !== "sammeln" || !kannSpeichern(zustand)) {
@@ -303,6 +330,19 @@ export function reduziere(zustand: Zustand, ereignis: Ereignis): Zustand {
         fehler: ereignis.meldung,
       };
 
+    case "wiederholen-angefordert":
+      return uploadAendern(zustand, ereignis.dateiId, null, (aktuell) =>
+        aktuell.status === "fehlgeschlagen" &&
+        ereignis.versuch > aktuell.versuch
+          ? {
+              status: "laedt",
+              versuch: ereignis.versuch,
+              bytes: 0,
+              gesamt: 0,
+            }
+          : null,
+      );
+
     case "upload-gestartet":
       if (zustand.phase !== "speichern") return zustand;
       return uploadAendern(zustand, ereignis.dateiId, null, (aktuell) => {
@@ -324,7 +364,6 @@ export function reduziere(zustand: Zustand, ereignis: Ereignis): Zustand {
       });
 
     case "upload-fortschritt":
-      if (zustand.phase !== "speichern") return zustand;
       return uploadAendern(
         zustand,
         ereignis.dateiId,
@@ -336,7 +375,6 @@ export function reduziere(zustand: Zustand, ereignis: Ereignis): Zustand {
       );
 
     case "upload-erfolgreich":
-      if (zustand.phase !== "speichern") return zustand;
       return uploadAendern(
         zustand,
         ereignis.dateiId,
@@ -352,7 +390,6 @@ export function reduziere(zustand: Zustand, ereignis: Ereignis): Zustand {
       );
 
     case "upload-fehlgeschlagen":
-      if (zustand.phase !== "speichern") return zustand;
       return uploadAendern(
         zustand,
         ereignis.dateiId,
@@ -392,6 +429,20 @@ export function fehlgeschlagene(
   return zustand.dateien.flatMap((d) =>
     d.upload.status === "fehlgeschlagen"
       ? [{ id: d.id, name: d.name, meldung: d.upload.meldung }]
+      : [],
+  );
+}
+
+/** Die Dateien, die auf dem Server liegen, in der Reihenfolge des Entwurfs. */
+export function hochgeladene(
+  zustand: Zustand,
+): { id: string; name: string; serverDateiId: string }[] {
+  if (zustand.phase !== "speichern" && zustand.phase !== "gespeichert") {
+    return [];
+  }
+  return zustand.dateien.flatMap((d) =>
+    d.upload.status === "hochgeladen"
+      ? [{ id: d.id, name: d.name, serverDateiId: d.upload.serverDateiId }]
       : [],
   );
 }
