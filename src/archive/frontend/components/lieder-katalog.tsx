@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { LiedFormular } from "@/components/lied-formular";
+import { LiedAblegen } from "@/components/lied-ablegen";
 import { fetchMe, type MeResponse } from "@/lib/auth";
 import {
   type DateiArt,
@@ -338,13 +338,7 @@ export function LiederKatalog() {
             <summary>
               <h2 id="lied-anlegen-titel">Neues Lied</h2>
             </summary>
-            <LiedFormular
-              absendenText="Lied anlegen"
-              onSuccess={(angelegt) => {
-                // Nach dem Anlegen geht es zum Lied, um Dateien hinzuzufügen.
-                router.push(`/lied/?id=${encodeURIComponent(angelegt.id)}`);
-              }}
-            />
+            <LiedAblegen />
           </details>
         )}
       </div>

@@ -2926,3 +2926,45 @@ details.aufnahme-anlegen {
   margin: 0;
   padding: 0;
 }
+/* Neues Lied durch Ablegen von Dateien (#175). */
+.lied-ablegen-zone {
+  display: grid;
+  gap: 0.4rem;
+  justify-items: center;
+  text-align: center;
+  padding: 1.5rem 1rem;
+  border: 2px dashed var(--ink);
+  border-radius: var(--radius-karte);
+  background: var(--paper);
+  cursor: pointer;
+}
+.lied-ablegen-zone[data-darueber="ja"] {
+  border-color: var(--brand);
+  background: var(--wash);
+}
+.lied-ablegen-zone:focus-within {
+  border-color: var(--brand);
+}
+.lied-ablegen-zone input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+}
+.lied-ablegen-dateien {
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0 0;
+  display: grid;
+  gap: 1rem;
+}
+.lied-ablegen-dateien li {
+  border-top: 1px solid var(--ink);
+  padding-top: 0.5rem;
+}
+.lied-ablegen-name {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
