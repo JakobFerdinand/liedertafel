@@ -41,7 +41,9 @@ function neueId(): string {
 }
 
 async function fehlerText(ursache: unknown): Promise<string> {
-  if (ursache instanceof MaterialFehler) return ursache.message;
+  if (ursache instanceof MaterialFehler || ursache instanceof LesenFehler) {
+    return ursache.message;
+  }
   return await problemTitel(
     ursache,
     "Das hat nicht geklappt. Bitte erneut versuchen.",

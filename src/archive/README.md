@@ -720,6 +720,21 @@ shows the reading state ("KI liest die Seiten … (2 von 3 Seiten)", the count o
 fields written, "Rest lesen", "Erneut lesen"); the list keeps polling only while
 reading is queued or running.
 
+**Draft reading (#177).** A Lied draft has no Lied or Datei yet, so its PDF is read
+inside the request instead of the job: `POST /api/lied-lesungen` (editor, antiforgery,
+multipart `entwurfId` GUID, `anfrageId` integer >= 1, `datei` PDF) answers
+`{ entwurfId, anfrageId, felder: [{ feld, wert, sicher }] }` with the form's field names
+(`title`, `composer`, `arranger`, `lyricist`, `voiceConfiguration`, `musicalKey`,
+`language`, `lyrics`). `DraftReader` takes the embedded text, or transcribes the first
+three pages of a scan, then applies the job's checks (a value needs a quote that stands
+in the text). Nothing is stored or written; `sicher: false` marks an unsure value.
+Errors: 409 reading off, 429 budget reached, 422 not a readable PDF, 502 failure; the
+form stays manual on 409/429. The browser judges the answer by the echoed identity; the
+reducer ignores late results of an abandoned draft or a superseded request, and a
+suggestion fills only fields the editor has not touched. A persisted draft (#178) keeps
+these shapes. The web app calls the model here, so its identity needs the same OpenAI
+access as the reading job in a hosted deployment.
+
 Local run: `archive-read` is an explicit-start Aspire resource beside
 `archive-extract`; without provider configuration the offline
 `ScriptedChatClient` answers both requests (`Reading/ScriptedScanReader.cs`: it
