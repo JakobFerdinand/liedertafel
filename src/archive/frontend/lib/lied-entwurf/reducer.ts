@@ -14,7 +14,31 @@ export type { DateiTyp } from "./dateinamen.ts";
 // Welche Felder die Redaktion angefasst hat, gehört nur zum Entwurf. Es wird
 // nie gespeichert und nie als Herkunft angezeigt (ADR-0001).
 
-export type LiedFeld = "title";
+export const liedFelder = [
+  "title",
+  "composer",
+  "arranger",
+  "lyricist",
+  "voiceConfiguration",
+  "musicalKey",
+  "language",
+  "lyrics",
+] as const;
+
+export type LiedFeld = (typeof liedFelder)[number];
+
+/** Wie sicher sich das Lesen bei einem Vorschlag ist. */
+export type Sicherheit = "sicher" | "unsicher";
+
+/** Lesen einer Datei (#177), unabhängig von ihrem Upload. */
+export type LesenZustand =
+  | { status: "keine" }
+  | { status: "liest"; anfrageId: number }
+  | { status: "gelesen"; anfrageId: number }
+  | { status: "fehlgeschlagen"; anfrageId: number; meldung: string }
+  | { status: "nicht-verfuegbar"; anfrageId: number; meldung: string };
+
+export type LesVorschlag = { feld: LiedFeld; wert: string; sicher: boolean };
 
 export type DateiFeld = "art" | "stimme";
 
@@ -32,12 +56,15 @@ export type DateiEntwurf = {
   stimme: string;
   bearbeitet: Record<DateiFeld, boolean>;
   upload: UploadZustand;
+  lesen: LesenZustand;
 };
 
 type Kern = {
   entwurfId: string;
   lied: Record<LiedFeld, string>;
   bearbeitet: Record<LiedFeld, boolean>;
+  /** Felder, die ein Lesen gefüllt hat und die noch niemand angefasst hat. */
+  vorschlaege: Partial<Record<LiedFeld, Sicherheit>>;
   dateien: DateiEntwurf[];
 };
 
@@ -66,6 +93,28 @@ export type Ereignis =
       dateiId: string;
     } & ({ feld: "art"; wert: DateiTyp } | { feld: "stimme"; wert: string }))
   | { type: "datei-entfernt"; entwurfId: string; dateiId: string }
+  | {
+      type: "lesen-angefordert";
+      entwurfId: string;
+      dateiId: string;
+      anfrageId: number;
+    }
+  | {
+      type: "lesen-ergebnis";
+      entwurfId: string;
+      dateiId: string;
+      anfrageId: number;
+      felder: LesVorschlag[];
+    }
+  | {
+      type: "lesen-fehlgeschlagen";
+      entwurfId: string;
+      dateiId: string;
+      anfrageId: number;
+      meldung: string;
+      /** false: die KI steht nicht zur Verfügung (Budget, nicht eingerichtet). */
+      verfuegbar: boolean;
+    }
   | { type: "speichern-angefordert"; entwurfId: string; anfrageId: number }
   | {
       type: "lied-angelegt";
@@ -118,6 +167,30 @@ export function anfangszustand(entwurfId: string): Zustand {
   return { phase: "leer", entwurfId };
 }
 
+const leereFelder: Record<LiedFeld, string> = {
+  title: "",
+  composer: "",
+  arranger: "",
+  lyricist: "",
+  voiceConfiguration: "",
+  musicalKey: "",
+  language: "",
+  lyrics: "",
+};
+
+function nichtBearbeitet(): Record<LiedFeld, boolean> {
+  return {
+    title: false,
+    composer: false,
+    arranger: false,
+    lyricist: false,
+    voiceConfiguration: false,
+    musicalKey: false,
+    language: false,
+    lyrics: false,
+  };
+}
+
 function neueDatei(datei: NeueDatei): DateiEntwurf {
   const gelesen = ausDateiname(datei.name);
   return {
@@ -128,6 +201,7 @@ function neueDatei(datei: NeueDatei): DateiEntwurf {
     stimme: gelesen.stimme,
     bearbeitet: { art: false, stimme: false },
     upload: { status: "wartend" },
+    lesen: { status: "keine" },
   };
 }
 
@@ -139,8 +213,9 @@ function abgelegt(zustand: Zustand, neue: NeueDatei[]): Zustand {
     return {
       phase: "sammeln",
       entwurfId: zustand.entwurfId,
-      lied: { title: ausDateiname(neue[0].name).titel },
-      bearbeitet: { title: false },
+      lied: { ...leereFelder, title: ausDateiname(neue[0].name).titel },
+      bearbeitet: nichtBearbeitet(),
+      vorschlaege: {},
       dateien,
       fehler: null,
     };
@@ -224,6 +299,36 @@ function uploadAendern(
   );
 }
 
+function ohne(
+  vorschlaege: Partial<Record<LiedFeld, Sicherheit>>,
+  feld: LiedFeld,
+): Partial<Record<LiedFeld, Sicherheit>> {
+  const { [feld]: _entfernt, ...rest } = vorschlaege;
+  return rest;
+}
+
+/**
+ * Ein Vorschlag füllt nur ein Feld, das niemand angefasst hat und das kein
+ * früheres Lesen gefüllt hat. Der Titel aus dem Dateinamen gilt als
+ * Voreinstellung und darf ersetzt werden; alle anderen Felder müssen leer sein.
+ */
+function vorschlagen(
+  zustand: Extract<Zustand, { phase: "sammeln" }>,
+  felder: LesVorschlag[],
+): Extract<Zustand, { phase: "sammeln" }> {
+  let lied = zustand.lied;
+  let vorschlaege = zustand.vorschlaege;
+  for (const { feld, wert, sicher } of felder) {
+    const neu = wert.trim();
+    if (neu === "") continue;
+    if (zustand.bearbeitet[feld] || vorschlaege[feld] !== undefined) continue;
+    if (feld !== "title" && lied[feld].trim() !== "") continue;
+    lied = { ...lied, [feld]: neu };
+    vorschlaege = { ...vorschlaege, [feld]: sicher ? "sicher" : "unsicher" };
+  }
+  return { ...zustand, lied, vorschlaege };
+}
+
 function nichtErschoepft(x: never): never {
   throw new Error(`Unbehandeltes Ereignis: ${JSON.stringify(x)}`);
 }
@@ -249,6 +354,7 @@ export function reduziere(zustand: Zustand, ereignis: Ereignis): Zustand {
         ...zustand,
         lied: { ...zustand.lied, [ereignis.feld]: ereignis.wert },
         bearbeitet: { ...zustand.bearbeitet, [ereignis.feld]: true },
+        vorschlaege: ohne(zustand.vorschlaege, ereignis.feld),
       };
 
     case "datei-feld-geaendert":
@@ -289,6 +395,59 @@ export function reduziere(zustand: Zustand, ereignis: Ereignis): Zustand {
       );
     }
 
+    case "lesen-angefordert":
+      if (zustand.phase !== "sammeln") return zustand;
+      return dateiAendern(zustand, ereignis.dateiId, (datei) =>
+        datei.lesen.status !== "keine" &&
+        ereignis.anfrageId <= datei.lesen.anfrageId
+          ? datei
+          : {
+              ...datei,
+              lesen: { status: "liest", anfrageId: ereignis.anfrageId },
+            },
+      );
+
+    case "lesen-ergebnis": {
+      if (zustand.phase !== "sammeln") return zustand;
+      const datei = zustand.dateien.find((d) => d.id === ereignis.dateiId);
+      if (
+        !datei ||
+        datei.lesen.status !== "liest" ||
+        datei.lesen.anfrageId !== ereignis.anfrageId
+      ) {
+        return zustand;
+      }
+      return {
+        ...vorschlagen(zustand, ereignis.felder),
+        dateien: zustand.dateien.map((d) =>
+          d.id === datei.id
+            ? {
+                ...d,
+                lesen: { status: "gelesen", anfrageId: ereignis.anfrageId },
+              }
+            : d,
+        ),
+      };
+    }
+
+    case "lesen-fehlgeschlagen":
+      if (zustand.phase !== "sammeln") return zustand;
+      return dateiAendern(zustand, ereignis.dateiId, (datei) =>
+        datei.lesen.status === "liest" &&
+        datei.lesen.anfrageId === ereignis.anfrageId
+          ? {
+              ...datei,
+              lesen: {
+                status: ereignis.verfuegbar
+                  ? "fehlgeschlagen"
+                  : "nicht-verfuegbar",
+                anfrageId: ereignis.anfrageId,
+                meldung: ereignis.meldung,
+              },
+            }
+          : datei,
+      );
+
     case "speichern-angefordert":
       if (zustand.phase !== "sammeln" || !kannSpeichern(zustand)) {
         return zustand;
@@ -298,6 +457,7 @@ export function reduziere(zustand: Zustand, ereignis: Ereignis): Zustand {
         entwurfId: zustand.entwurfId,
         lied: zustand.lied,
         bearbeitet: zustand.bearbeitet,
+        vorschlaege: zustand.vorschlaege,
         dateien: zustand.dateien,
         anfrageId: ereignis.anfrageId,
         liedId: null,
@@ -326,6 +486,7 @@ export function reduziere(zustand: Zustand, ereignis: Ereignis): Zustand {
         entwurfId: zustand.entwurfId,
         lied: zustand.lied,
         bearbeitet: zustand.bearbeitet,
+        vorschlaege: zustand.vorschlaege,
         dateien: zustand.dateien,
         fehler: ereignis.meldung,
       };
@@ -444,5 +605,13 @@ export function hochgeladene(
     d.upload.status === "hochgeladen"
       ? [{ id: d.id, name: d.name, serverDateiId: d.upload.serverDateiId }]
       : [],
+  );
+}
+
+/** Läuft noch ein Lesen? */
+export function liestNoch(zustand: Zustand): boolean {
+  return (
+    zustand.phase === "sammeln" &&
+    zustand.dateien.some((d) => d.lesen.status === "liest")
   );
 }
