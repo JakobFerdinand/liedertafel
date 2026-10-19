@@ -286,9 +286,15 @@ test("ist das Budget erreicht, bleibt das Formular von Hand ausfüllbar", async 
   await page.getByText("Neues Lied", { exact: true }).click();
   await page.getByLabel("Dateien auswählen").setInputFiles([pdf("Mond.pdf")]);
   await expect(
-    page.getByText("Das Monatsbudget der KI ist erreicht."),
+    page.getByText("Das Monatsbudget der KI ist erreicht.", { exact: true }),
   ).toBeVisible();
-  // Kein Fehleralarm und keine Wiederholung: die KI steht nicht zur Verfügung.
+  // Ausdrücklich im Entwurf, kein Fehleralarm, keine Wiederholung.
+  await expect(page.locator("[data-ki=nicht-verfuegbar]")).toContainText(
+    "Die KI steht nicht zur Verfügung",
+  );
+  await expect(page.getByRole("button", { name: /erneut lesen/ })).toHaveCount(
+    0,
+  );
   await expect(page.locator("p[role=alert]")).toHaveCount(0);
 
   await page.getByRole("textbox", { name: "Komponist" }).fill("Von Hand");

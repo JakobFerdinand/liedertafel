@@ -211,6 +211,10 @@ test("ein Lesen, das der Server als nicht verfügbar kennt, lässt das Formular 
   const { zustand, ereignisse } = wiederhergestellt(g);
   const z = sammeln(lauf(zustand, ...ereignisse));
   assert.equal(z.dateien[0].lesen.status, "nicht-verfuegbar");
+  assert.deepEqual(z.ki, {
+    status: "nicht-verfuegbar",
+    meldung: "Budget erreicht",
+  });
 });
 
 test("ein bereits angewendetes Lesen wird nicht noch einmal angewendet", () => {

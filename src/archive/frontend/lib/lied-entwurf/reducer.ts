@@ -76,8 +76,19 @@ export type Ziel =
   | { status: "abgelehnt"; liedId: string }
   | { status: "vorhanden"; liedId: string; titel: string; fest: boolean };
 
+/**
+ * Steht die KI für diesen Entwurf zur Verfügung (#180)? Nach einer Absage
+ * (Monatsbudget erreicht, nicht eingerichtet) bleibt das ausdrücklich im
+ * Entwurf stehen; Speichern und Ausfüllen von Hand gehen unverändert weiter.
+ * Beim Fortsetzen wird es aus den Lesezuständen der Dateien abgeleitet.
+ */
+export type KiZustand =
+  | { status: "verfuegbar" }
+  | { status: "nicht-verfuegbar"; meldung: string };
+
 type Kern = {
   entwurfId: string;
+  ki: KiZustand;
   ziel: Ziel;
   lied: Record<LiedFeld, string>;
   bearbeitet: Record<LiedFeld, boolean>;
@@ -267,6 +278,7 @@ function abgelegt(zustand: Zustand, neue: NeueDatei[]): Zustand {
       lied: { ...leereFelder, title: ausDateiname(neue[0].name).titel },
       bearbeitet: nichtBearbeitet(),
       vorschlaege: {},
+      ki: { status: "verfuegbar" },
       dateien,
       fehler: null,
     };
@@ -556,23 +568,31 @@ export function reduziere(zustand: Zustand, ereignis: Ereignis): Zustand {
       };
     }
 
-    case "lesen-fehlgeschlagen":
+    case "lesen-fehlgeschlagen": {
       if (zustand.phase !== "sammeln") return zustand;
-      return dateiAendern(zustand, ereignis.dateiId, (datei) =>
-        datei.lesen.status === "liest" &&
-        datei.lesen.anfrageId === ereignis.anfrageId
-          ? {
-              ...datei,
-              lesen: {
-                status: ereignis.verfuegbar
-                  ? "fehlgeschlagen"
-                  : "nicht-verfuegbar",
-                anfrageId: ereignis.anfrageId,
-                meldung: ereignis.meldung,
-              },
-            }
-          : datei,
-      );
+      const datei = zustand.dateien.find((d) => d.id === ereignis.dateiId);
+      if (
+        !datei ||
+        datei.lesen.status !== "liest" ||
+        datei.lesen.anfrageId !== ereignis.anfrageId
+      ) {
+        return zustand;
+      }
+      const geaendert = dateiAendern(zustand, datei.id, (d) => ({
+        ...d,
+        lesen: {
+          status: ereignis.verfuegbar ? "fehlgeschlagen" : "nicht-verfuegbar",
+          anfrageId: ereignis.anfrageId,
+          meldung: ereignis.meldung,
+        },
+      }));
+      if (ereignis.verfuegbar || geaendert.phase !== "sammeln")
+        return geaendert;
+      return {
+        ...geaendert,
+        ki: { status: "nicht-verfuegbar", meldung: ereignis.meldung },
+      };
+    }
 
     case "speichern-angefordert":
       if (zustand.phase !== "sammeln" || !kannSpeichern(zustand)) {
@@ -585,6 +605,7 @@ export function reduziere(zustand: Zustand, ereignis: Ereignis): Zustand {
         lied: zustand.lied,
         bearbeitet: zustand.bearbeitet,
         vorschlaege: zustand.vorschlaege,
+        ki: zustand.ki,
         dateien: zustand.dateien,
         anfrageId: ereignis.anfrageId,
         liedId: null,
@@ -615,6 +636,7 @@ export function reduziere(zustand: Zustand, ereignis: Ereignis): Zustand {
         lied: zustand.lied,
         bearbeitet: zustand.bearbeitet,
         vorschlaege: zustand.vorschlaege,
+        ki: zustand.ki,
         dateien: zustand.dateien,
         fehler: ereignis.meldung,
       };

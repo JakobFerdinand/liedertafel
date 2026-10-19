@@ -216,6 +216,7 @@ export function wiederhergestellt(gespeichert: Gespeichert): Wiederhergestellt {
     ereignisse.push(...aus.ereignisse);
     if (aus.laeuft) laeuft.push(datei.id);
   }
+  const abgesagt = dateien.find((d) => d.lesen.status === "nicht-verfuegbar");
   return {
     zustand: {
       phase: "sammeln",
@@ -225,6 +226,11 @@ export function wiederhergestellt(gespeichert: Gespeichert): Wiederhergestellt {
       lied: gespeichert.lied,
       bearbeitet,
       vorschlaege: gespeichert.vorschlaege,
+      // Nicht gespeichert, sondern aus den Lesezuständen der Dateien abgeleitet.
+      ki:
+        abgesagt?.lesen.status === "nicht-verfuegbar"
+          ? { status: "nicht-verfuegbar", meldung: abgesagt.lesen.meldung }
+          : { status: "verfuegbar" },
       dateien,
       fehler: null,
     },

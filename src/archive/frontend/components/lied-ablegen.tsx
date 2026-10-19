@@ -312,6 +312,12 @@ export function DateienAblegen({
               )}
             </p>
           )}
+          {zustand.ki.status === "nicht-verfuegbar" && (
+            <p className="feld-hinweis" data-ki="nicht-verfuegbar">
+              Die KI steht nicht zur Verfügung: {zustand.ki.meldung} Bitte die
+              Felder von Hand ausfüllen; Speichern geht trotzdem.
+            </p>
+          )}
           {liedFelderSichtbar && (
             <>
               <label htmlFor={`${idPraefix}-titel`}>Titel</label>

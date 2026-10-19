@@ -217,3 +217,46 @@ test("Vorschläge ändern ein Lied nicht mehr, das schon gespeichert wird", () =
   );
   assert.equal(danach, speichert);
 });
+
+test("KI abgesagt: der Entwurf sagt es ausdrücklich, Handeingabe und Speichern gehen", () => {
+  const abgesagt = lauf(anfangszustand(E), abgelegt(), liest(), {
+    type: "lesen-fehlgeschlagen",
+    entwurfId: E,
+    dateiId: PDF,
+    anfrageId: 1,
+    meldung: "Das Monatsbudget ist erreicht.",
+    verfuegbar: false,
+  });
+  assert.deepEqual(inSammeln(abgesagt).ki, {
+    status: "nicht-verfuegbar",
+    meldung: "Das Monatsbudget ist erreicht.",
+  });
+  // Titel aus dem Dateinamen steht; der Rest kommt von Hand.
+  assert.equal(inSammeln(abgesagt).lied.title, "Ave Maria");
+  const gespeichert = lauf(
+    abgesagt,
+    {
+      type: "lied-feld-geaendert",
+      entwurfId: E,
+      feld: "composer",
+      wert: "Von Hand",
+    },
+    { type: "speichern-angefordert", entwurfId: E, anfrageId: 2 },
+  );
+  assert.equal(gespeichert.phase, "speichern");
+  const z = gespeichert as Extract<Zustand, { phase: "speichern" }>;
+  assert.equal(z.lied.composer, "Von Hand");
+  assert.equal(z.ki.status, "nicht-verfuegbar");
+});
+
+test("ein überholter Versuch setzt die KI nicht auf abgesagt", () => {
+  const z = lauf(anfangszustand(E), abgelegt(), liest(1), liest(2), {
+    type: "lesen-fehlgeschlagen",
+    entwurfId: E,
+    dateiId: PDF,
+    anfrageId: 1,
+    meldung: "alt",
+    verfuegbar: false,
+  });
+  assert.equal(inSammeln(z).ki.status, "verfuegbar");
+});
