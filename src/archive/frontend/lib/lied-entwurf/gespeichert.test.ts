@@ -73,7 +73,12 @@ const laeuftNoch: GespeicherteLesung = {
 const gelesen = (
   felder: GespeicherteLesung["felder"],
   anfrageId = 1,
-): GespeicherteLesung => ({ anfrageId, status: "gelesen", meldung: "", felder });
+): GespeicherteLesung => ({
+  anfrageId,
+  status: "gelesen",
+  meldung: "",
+  felder,
+});
 
 test("der gespeicherte Entwurf ist der Anfangszustand: Felder, Bearbeitungen und Dateien", () => {
   const { zustand } = wiederhergestellt(
@@ -180,7 +185,10 @@ test("ein Lesen, das der Server schon neuer kennt, wird angefordert und beantwor
   const g = entwurf([
     datei({
       lesen: { status: "keine", anfrageId: 0, meldung: "" },
-      lesung: gelesen([{ feld: "composer", wert: "Bruckner", sicher: true }], 2),
+      lesung: gelesen(
+        [{ feld: "composer", wert: "Bruckner", sicher: true }],
+        2,
+      ),
     }),
   ]);
   const { zustand, ereignisse } = wiederhergestellt(g);

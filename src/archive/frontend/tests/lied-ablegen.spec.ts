@@ -5,6 +5,7 @@ import {
   json,
   liedDetail,
   liste,
+  mockEntwuerfe,
   mockSitzung,
   mondEintrag,
   mondId,
@@ -21,6 +22,7 @@ test("Dateien ablegen, bearbeiten und mit einem Klick als Lied speichern", async
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await mockSitzung(page, editorMe);
+  await mockEntwuerfe(page);
 
   let angelegt: Record<string, unknown> | null = null;
   await page.route("**/api/lieder", (route) => {
@@ -140,6 +142,7 @@ test("Ein gescheiterter Upload bleibt sichtbar, wird wiederholt und die anderen 
   page,
 }) => {
   await mockSitzung(page, editorMe);
+  await mockEntwuerfe(page);
   await page.route("**/api/lieder", (route) => {
     if (route.request().method() !== "POST") {
       return route.fulfill(json(liste([])));
@@ -223,6 +226,7 @@ test("Eine gescheiterte Datei lässt sich entfernen, ohne die anderen zu berühr
   page,
 }) => {
   await mockSitzung(page, editorMe);
+  await mockEntwuerfe(page);
   await page.route("**/api/lieder", (route) => {
     if (route.request().method() !== "POST") {
       return route.fulfill(json(liste([])));

@@ -64,10 +64,9 @@ export type Gespeichert = {
   dateien: GespeicherteDatei[];
 };
 
-export const UNTERBROCHEN =
-  "Das Lesen wurde unterbrochen. Bitte erneut lesen.";
+export const UNTERBROCHEN = "Das Lesen wurde unterbrochen. Bitte erneut lesen.";
 
-function lesenGespeichert(lesen: LesenZustand): GespeichertesLesen {
+export function gespeichertesLesen(lesen: LesenZustand): GespeichertesLesen {
   switch (lesen.status) {
     case "keine":
       return { status: "keine", anfrageId: 0, meldung: "" };
@@ -117,7 +116,7 @@ export function alsGespeichert(zustand: Zustand): Gespeichert | null {
       stimme: d.stimme,
       artBearbeitet: d.bearbeitet.art,
       stimmeBearbeitet: d.bearbeitet.stimme,
-      lesen: lesenGespeichert(d.lesen),
+      lesen: gespeichertesLesen(d.lesen),
       lesung: null,
     })),
   };
@@ -149,7 +148,8 @@ export function lesungsEreignisse(
 
   if (lesung === null || lesung.anfrageId < lesen.anfrageId) {
     return {
-      ereignisse: lesen.status === "liest" ? [unterbrochen(lesen.anfrageId)] : [],
+      ereignisse:
+        lesen.status === "liest" ? [unterbrochen(lesen.anfrageId)] : [],
       laeuft: false,
     };
   }

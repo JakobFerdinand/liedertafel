@@ -406,7 +406,9 @@ export function reduziere(zustand: Zustand, ereignis: Ereignis): Zustand {
     case "datei-nachgereicht":
       if (zustand.phase !== "sammeln") return zustand;
       return dateiAendern(zustand, ereignis.dateiId, (datei) =>
-        datei.inhalt === "vorhanden" ? datei : { ...datei, inhalt: "vorhanden" },
+        datei.inhalt === "vorhanden"
+          ? datei
+          : { ...datei, inhalt: "vorhanden" },
       );
 
     case "lesen-angefordert":

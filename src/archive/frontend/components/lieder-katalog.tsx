@@ -35,6 +35,8 @@ export function LiederKatalog() {
   const suchParameter = useSearchParams();
   const router = useRouter();
   const suchWort = suchParameter.get("suche");
+  // "Angefangen" (#178) öffnet "Neues Lied" mit dem gespeicherten Entwurf.
+  const entwurfId = suchParameter.get("entwurf");
   const seiteWert = Number.parseInt(suchParameter.get("seite") ?? "1", 10);
   const seite = seiteWert > 1 ? seiteWert : 1;
   const abfrage = suchWort?.trim() ? suchWort.trim() : null;
@@ -334,11 +336,12 @@ export function LiederKatalog() {
           <details
             className="auth-karte lied-anlegen"
             aria-labelledby="lied-anlegen-titel"
+            open={entwurfId ? true : undefined}
           >
             <summary>
               <h2 id="lied-anlegen-titel">Neues Lied</h2>
             </summary>
-            <LiedAblegen />
+            <LiedAblegen entwurfId={entwurfId} />
           </details>
         )}
       </div>

@@ -124,3 +124,92 @@ export function liedDetail(
     },
   };
 }
+
+// #178: der angefangene Entwurf im Backend, nachgebildet. Das Backend hält den
+// Entwurf (PUT/GET/DELETE) und die Lesungen je Datei; die echte Logik prüfen
+// die xUnit-Tests (LiedEntwurfApiTests). Hier zählt, was der Browser damit tut.
+export type Lesung = {
+  anfrageId: number;
+  status: "liest" | "gelesen" | "fehlgeschlagen" | "nicht-verfuegbar";
+  meldung: string;
+  felder: { feld: string; wert: string; sicher: boolean }[];
+};
+
+type EntwurfBody = {
+  entwurfId: string;
+  lied: Record<string, string>;
+  dateien: { id: string; name: string }[];
+} & Record<string, unknown>;
+
+export type EntwurfSpeicher = {
+  entwuerfe: Map<string, EntwurfBody>;
+  lesungen: Map<string, Lesung>;
+  verworfen: string[];
+  gespeichert: number;
+  /** Was der Server nach dem Schließen des Tabs zu Ende gelesen hat. */
+  lesungSetzen: (entwurfId: string, dateiId: string, lesung: Lesung) => void;
+};
+
+export async function mockEntwuerfe(page: Page): Promise<EntwurfSpeicher> {
+  const speicher: EntwurfSpeicher = {
+    entwuerfe: new Map(),
+    lesungen: new Map(),
+    verworfen: [],
+    gespeichert: 0,
+    lesungSetzen: (entwurfId, dateiId, lesung) => {
+      speicher.lesungen.set(`${entwurfId}:${dateiId}`, lesung);
+    },
+  };
+  const nachId = (url: string) => url.split("/").pop()?.split("?")[0] ?? "";
+  await page.route("**/api/lied-entwuerfe", (route) =>
+    route.fulfill(
+      json({
+        entwuerfe: [...speicher.entwuerfe.values()].map((e) => ({
+          entwurfId: e.entwurfId,
+          titel: e.lied.title,
+          dateien: e.dateien.length,
+          aktualisiertAm: "2026-10-19T09:00:00.000Z",
+        })),
+      }),
+    ),
+  );
+  await page.route("**/api/lied-entwuerfe/*", (route) => {
+    const id = nachId(route.request().url());
+    switch (route.request().method()) {
+      case "PUT": {
+        const body = route.request().postDataJSON() as EntwurfBody;
+        // Die Lesungen führt der Server selbst, sie kommen nie vom Browser.
+        if (body.dateien.some((datei) => "lesung" in datei)) {
+          return route.fulfill(
+            problem("Lesungen gehören nicht in den Entwurf.", 400),
+          );
+        }
+        speicher.entwuerfe.set(id, body);
+        speicher.gespeichert++;
+        return route.fulfill(
+          json({ aktualisiertAm: "2026-10-19T09:00:00.000Z" }),
+        );
+      }
+      case "DELETE":
+        speicher.entwuerfe.delete(id);
+        speicher.verworfen.push(id);
+        return route.fulfill({ status: 204 });
+      default: {
+        const entwurf = speicher.entwuerfe.get(id);
+        if (!entwurf) return route.fulfill(problem("Nicht gefunden.", 404));
+        return route.fulfill(
+          json({
+            entwurf: {
+              ...entwurf,
+              dateien: entwurf.dateien.map((datei) => ({
+                ...datei,
+                lesung: speicher.lesungen.get(`${id}:${datei.id}`) ?? null,
+              })),
+            },
+          }),
+        );
+      }
+    }
+  });
+  return speicher;
+}

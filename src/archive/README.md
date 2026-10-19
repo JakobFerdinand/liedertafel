@@ -735,6 +735,29 @@ suggestion fills only fields the editor has not touched. A persisted draft (#178
 these shapes. The web app calls the model here, so its identity needs the same OpenAI
 access as the reading job in a hosted deployment.
 
+**Persisted drafts, "Angefangen" (#178).** The only unfinished state. Editor-only,
+antiforgery on changes, owned by the editor who started it (others get 404; at most 25
+per editor): `GET /api/lied-entwuerfe` (own list: `entwurfId`, `titel`, `dateien`,
+`aktualisiertAm`), `GET|PUT|DELETE /api/lied-entwuerfe/{id}` (DELETE is idempotent, 204).
+`PUT` takes the whole form, last write wins: `{ entwurfId, lied: {8 fields}, bearbeitet:
+[field], vorschlaege: { field: "sicher"|"unsicher" }, dateien: [{ id, name, sizeBytes, art,
+stimme, artBearbeitet, stimmeBearbeitet, lesen: { status, anfrageId, meldung } }] }`; `GET`
+returns the same plus `lesung` per Datei. The marks are draft editing state only: they are
+never copied to a Lied or Datei and nothing records where a value came from. Tables
+`lied_entwuerfe`, `lied_entwurf_dateien`, `lied_entwurf_lesungen` (migration `LiedEntwuerfe`).
+Dateien are kept without their bytes: uploads still start at save time (upload sessions are
+Lied-owned), so a resumed Datei is `inhalt: "fehlt"` until the editor selects it again (same
+name and size is recognised). Reading: `POST /api/lied-lesungen` with an extra `dateiId` of
+the editor's own persisted draft stores the outcome for that Datei (`liest`, `gelesen`,
+`fehlgeschlagen`, `nicht-verfuegbar`) and no longer depends on the request, so it finishes
+after a closed tab (3 minute limit). It lands only while draft, Datei and this `anfrageId`
+still stand; a request not newer than the stored one gets 400, a result for a discarded
+draft or removed Datei 404 and stores nothing. A `liest` older than 5 minutes is reported
+as interrupted. Without a persisted draft the call stays stateless as in #177. Resume: the
+browser loads the draft, `wiederhergestellt()` makes it the reducer's initial state and
+turns server-held readings into the ordinary `lesen-*` events (running ones are polled);
+creating the Lied deletes the draft.
+
 Local run: `archive-read` is an explicit-start Aspire resource beside
 `archive-extract`; without provider configuration the offline
 `ScriptedChatClient` answers both requests (`Reading/ScriptedScanReader.cs`: it

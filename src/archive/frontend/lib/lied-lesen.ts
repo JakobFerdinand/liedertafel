@@ -4,8 +4,9 @@ import { AbbruchFehler, problemTitel } from "@/lib/uebertragung";
 
 // Das Lesen einer PDF für einen Entwurf (#177). Der Server speichert nichts:
 // er antwortet mit Vorschlägen und dem Entwurf und der Anfrage, die wir
-// mitgeschickt haben (POST /api/lied-lesungen). Ein späterer gespeicherter
-// Entwurf (#178) behält diese Formen.
+// mitgeschickt haben (POST /api/lied-lesungen). Nennt die Anfrage zusätzlich
+// die Datei eines gespeicherten Entwurfs (#178), behält der Server das
+// Ergebnis für "Angefangen"; die Formen bleiben dieselben.
 
 export class LesenFehler extends Error {
   /** false: die KI steht nicht zur Verfügung (Budget, nicht eingerichtet). */
@@ -26,10 +27,13 @@ export async function leseEntwurfPdf(
   anfrageId: number,
   datei: File,
   signal: AbortSignal,
+  /** Die Datei im gespeicherten Entwurf (#178): dann hält der Server das Ergebnis auch fest. */
+  dateiId?: string,
 ): Promise<LesVorschlag[]> {
   const form = new FormData();
   form.set("entwurfId", entwurfId);
   form.set("anfrageId", String(anfrageId));
+  if (dateiId) form.set("dateiId", dateiId);
   form.set("datei", datei, datei.name);
   let antwort: Response;
   try {

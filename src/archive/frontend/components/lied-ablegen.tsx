@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useState } from "react";
 import { LiedFormular } from "@/components/lied-formular";
+import { EntwurfFehler, ladeEntwurf } from "@/lib/lied-entwuerfe";
+import type { Gespeichert } from "@/lib/lied-entwurf/gespeichert";
 import {
   type DateiEntwurf,
   fehlgeschlagene,
@@ -81,9 +83,40 @@ function uploadText(datei: DateiEntwurf): string {
  * ein Klick auf "Speichern" legt das Lied mit seinen Dateien an. Ohne Datei
  * geht es über den kleinen Link zum Formular von Hand.
  */
-export function LiedAblegen() {
+export function LiedAblegen({ entwurfId }: { entwurfId?: string | null }) {
   const [vonHand, setVonHand] = useState(false);
   const router = useRouter();
+  // Ein neuer Entwurf nach dem Verwerfen bekommt einen frischen Hook.
+  const [lauf, setLauf] = useState(0);
+  const [fortsetzen, setFortsetzen] = useState<
+    | { status: "laedt" }
+    | { status: "bereit"; entwurf: Gespeichert }
+    | { status: "fehler"; meldung: string }
+    | null
+  >(entwurfId ? { status: "laedt" } : null);
+
+  useEffect(() => {
+    if (!entwurfId) {
+      setFortsetzen(null);
+      return;
+    }
+    const steuerung = new AbortController();
+    setFortsetzen({ status: "laedt" });
+    ladeEntwurf(entwurfId, steuerung.signal).then(
+      (entwurf) => setFortsetzen({ status: "bereit", entwurf }),
+      (ursache) => {
+        if (steuerung.signal.aborted) return;
+        setFortsetzen({
+          status: "fehler",
+          meldung:
+            ursache instanceof EntwurfFehler
+              ? ursache.message
+              : "Der Eintrag konnte nicht geladen werden.",
+        });
+      },
+    );
+    return () => steuerung.abort();
+  }, [entwurfId]);
 
   if (vonHand) {
     return (
@@ -107,10 +140,46 @@ export function LiedAblegen() {
       </>
     );
   }
-  return <DateienAblegen onOhneDatei={() => setVonHand(true)} />;
+  if (fortsetzen?.status === "laedt") {
+    return (
+      <p aria-live="polite" className="feld-hinweis">
+        Angefangenes Lied wird geladen …
+      </p>
+    );
+  }
+  return (
+    <>
+      {fortsetzen?.status === "fehler" && (
+        <p role="alert" className="feld-fehler">
+          {fortsetzen.meldung}
+        </p>
+      )}
+      <DateienAblegen
+        key={`${entwurfId ?? "neu"}-${lauf}`}
+        gespeichert={
+          fortsetzen?.status === "bereit" && lauf === 0
+            ? fortsetzen.entwurf
+            : undefined
+        }
+        onOhneDatei={() => setVonHand(true)}
+        onVerworfen={() => {
+          setLauf((n) => n + 1);
+          if (entwurfId) router.replace("/lieder/");
+        }}
+      />
+    </>
+  );
 }
 
-function DateienAblegen({ onOhneDatei }: { onOhneDatei: () => void }) {
+function DateienAblegen({
+  gespeichert,
+  onOhneDatei,
+  onVerworfen,
+}: {
+  gespeichert?: Gespeichert;
+  onOhneDatei: () => void;
+  onVerworfen: () => void;
+}) {
   const router = useRouter();
   const idPraefix = useId();
   const [darueber, setDarueber] = useState(false);
@@ -124,7 +193,8 @@ function DateienAblegen({ onOhneDatei }: { onOhneDatei: () => void }) {
     wiederholen,
     lesen,
     fehlgeschlagenEntfernen,
-  } = useLiedEntwurf();
+    verwerfen,
+  } = useLiedEntwurf(gespeichert);
 
   const gespeichertId =
     zustand.phase === "gespeichert" && fehlgeschlagene(zustand).length === 0
@@ -265,6 +335,12 @@ function DateienAblegen({ onOhneDatei }: { onOhneDatei: () => void }) {
                     />
                   </>
                 )}
+                {datei.inhalt === "fehlt" && bearbeitbar && (
+                  <p className="feld-hinweis">
+                    Die Datei liegt nicht mehr im Browser. Bitte {datei.name}{" "}
+                    erneut ablegen oder auswählen, um das Lied zu speichern.
+                  </p>
+                )}
                 {datei.upload.status === "laedt" && datei.upload.gesamt > 0 && (
                   <div className="material-fortschritt" aria-hidden="true">
                     <span
@@ -290,15 +366,17 @@ function DateienAblegen({ onOhneDatei }: { onOhneDatei: () => void }) {
                     {lesenText(datei)}
                   </p>
                 )}
-                {datei.lesen.status === "fehlgeschlagen" && bearbeitbar && (
-                  <button
-                    type="button"
-                    className="knopf-leise"
-                    onClick={() => void lesen(datei.id)}
-                  >
-                    {datei.name} erneut lesen
-                  </button>
-                )}
+                {datei.lesen.status === "fehlgeschlagen" &&
+                  bearbeitbar &&
+                  datei.inhalt === "vorhanden" && (
+                    <button
+                      type="button"
+                      className="knopf-leise"
+                      onClick={() => void lesen(datei.id)}
+                    >
+                      {datei.name} erneut lesen
+                    </button>
+                  )}
                 {zustand.phase !== "sammeln" && (
                   <p
                     className={
@@ -367,6 +445,15 @@ function DateienAblegen({ onOhneDatei }: { onOhneDatei: () => void }) {
                 ? "Wird gespeichert …"
                 : "Speichern"}
             </button>
+            {zustand.phase === "sammeln" && (
+              <button
+                type="button"
+                className="knopf-leise"
+                onClick={() => void verwerfen().then(onVerworfen)}
+              >
+                Entwurf verwerfen
+              </button>
+            )}
           </div>
         </form>
       )}

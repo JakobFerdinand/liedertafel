@@ -5,6 +5,7 @@ import {
   json,
   liedDetail,
   liste,
+  mockEntwuerfe,
   mockSitzung,
   mondEintrag,
   mondId,
@@ -39,6 +40,7 @@ async function mockAnlegen(page: Page) {
     angelegt: null,
   };
   await mockSitzung(page, editorMe);
+  await mockEntwuerfe(page);
   await page.route("**/api/lieder", (route) => {
     if (route.request().method() !== "POST") {
       return route.fulfill(json(liste([mondEintrag])));
