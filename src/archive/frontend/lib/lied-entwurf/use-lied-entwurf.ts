@@ -8,7 +8,7 @@ import {
   verwirfEntwurf,
 } from "@/lib/lied-entwuerfe";
 import { istPdf, LesenFehler, leseEntwurfPdf } from "@/lib/lied-lesen";
-import { type LiedEingabe, legeLiedAn } from "@/lib/lieder";
+import { fetchLiedSuche, type LiedEingabe, legeLiedAn } from "@/lib/lieder";
 import {
   AbbruchFehler,
   MaterialFehler,
@@ -30,6 +30,7 @@ import {
   kannSpeichern,
   type LiedFeld,
   reduziere,
+  titelSchluessel,
   type Zustand,
 } from "./reducer";
 
@@ -46,6 +47,11 @@ import {
 const SICHERN_NACH_MS = 400;
 const ABFRAGE_MS = 2000;
 const ABFRAGE_MAX = 120;
+/** Wie lange nach der letzten Titeländerung gewartet wird, bevor nach einem gleichnamigen Lied gesucht wird. */
+const SUCHEN_NACH_MS = 300;
+
+/** Das Lied, zu dem die Lied-Seite Dateien hinzufügt. */
+export type FestesLied = { liedId: string; titel: string };
 
 const LEER: LiedEingabe = {
   title: "",
@@ -102,14 +108,31 @@ function hoechsteAnfrage(gespeichert: Gespeichert | undefined): number {
  * Der Entwurf der Redaktion. Mit `gespeichert` (aus "Angefangen") beginnt der
  * Reducer in dem Zustand, den das Backend festhält; sonst leer.
  */
-export function useLiedEntwurf(gespeichert?: Gespeichert) {
+export function useLiedEntwurf(
+  gespeichert?: Gespeichert,
+  festesLied?: FestesLied,
+) {
+  // Auf der Lied-Seite gibt es kein Formular und keinen angefangenen Entwurf.
+  const fest = festesLied !== undefined;
   const [start] = useState(() =>
     gespeichert ? wiederhergestellt(gespeichert) : null,
   );
   const [zustand, dispatch] = useReducer(
     reduziere,
     undefined,
-    (): Zustand => start?.zustand ?? anfangszustand(neueId()),
+    (): Zustand =>
+      start?.zustand ??
+      anfangszustand(
+        neueId(),
+        festesLied
+          ? {
+              status: "vorhanden",
+              liedId: festesLied.liedId,
+              titel: festesLied.titel,
+              fest: true,
+            }
+          : undefined,
+      ),
   );
   // Der Reducer ist rein: dieselbe Faltung hier und in React ergibt denselben
   // Zustand, und die Ablaufsteuerung sieht ihn ohne Rendern.
@@ -173,11 +196,11 @@ export function useLiedEntwurf(gespeichert?: Gespeichert) {
       const nachher = reduziere(vorher, ereignis);
       zustandRef.current = nachher;
       dispatch(ereignis);
-      if (nachher !== vorher && nachher.phase === "sammeln") {
+      if (nachher !== vorher && nachher.phase === "sammeln" && !fest) {
         sicherungPlanen();
       }
     },
-    [sicherungPlanen],
+    [fest, sicherungPlanen],
   );
 
   const lesungenAbbrechen = useCallback((dateiId?: string) => {
@@ -333,11 +356,62 @@ export function useLiedEntwurf(gespeichert?: Gespeichert) {
       });
       sende({ type: "dateien-abgelegt", entwurfId, dateien: abgelegt });
       abgelegt.forEach((datei, index) => {
-        if (istPdf(neu[index])) void lesen(datei.id);
+        if (!fest && istPdf(neu[index])) void lesen(datei.id);
       });
     },
-    [lesen, sende],
+    [fest, lesen, sende],
   );
+
+  // Passt der Titel zu einem vorhandenen Lied, wird es angeboten (#179). Die
+  // Suche läuft hier, ihr Ergebnis nennt Entwurf und Titel; über Veraltetes
+  // entscheidet der Reducer.
+  const suchTitel = zustand.phase === "sammeln" ? zustand.lied.title : "";
+  const suchbar =
+    zustand.phase === "sammeln" &&
+    (zustand.ziel.status === "neu" || zustand.ziel.status === "abgelehnt");
+  const suchEntwurfId = zustand.entwurfId;
+  useEffect(() => {
+    if (!suchbar || suchTitel.trim() === "") return;
+    const steuerung = new AbortController();
+    const timer = setTimeout(() => {
+      fetchLiedSuche(suchTitel.trim(), 1, steuerung.signal).then(
+        (liste) => {
+          const treffer = liste.lieder.find(
+            (lied) =>
+              titelSchluessel(lied.title) === titelSchluessel(suchTitel),
+          );
+          if (!treffer || steuerung.signal.aborted) return;
+          sende({
+            type: "treffer-gefunden",
+            entwurfId: suchEntwurfId,
+            titel: suchTitel,
+            liedId: treffer.id,
+            liedTitel: treffer.title,
+          });
+        },
+        // Ohne Suche bleibt es beim neuen Lied.
+        () => undefined,
+      );
+    }, SUCHEN_NACH_MS);
+    return () => {
+      clearTimeout(timer);
+      steuerung.abort();
+    };
+  }, [suchbar, suchTitel, suchEntwurfId, sende]);
+
+  const trefferAnnehmen = useCallback(() => {
+    sende({
+      type: "treffer-angenommen",
+      entwurfId: zustandRef.current.entwurfId,
+    });
+  }, [sende]);
+
+  const trefferAblehnen = useCallback(() => {
+    sende({
+      type: "treffer-abgelehnt",
+      entwurfId: zustandRef.current.entwurfId,
+    });
+  }, [sende]);
 
   const liedFeldAendern = useCallback(
     (feld: LiedFeld, wert: string) => {
@@ -471,16 +545,21 @@ export function useLiedEntwurf(gespeichert?: Gespeichert) {
 
     let liedId: string;
     try {
-      const lied = await legeLiedAn({
-        ...LEER,
-        ...Object.fromEntries(
-          Object.entries(aktuell.lied).map(([feld, wert]) => [
-            feld,
-            wert.trim(),
-          ]),
-        ),
-      });
-      liedId = lied.id;
+      if (aktuell.ziel.status === "vorhanden") {
+        // Zu einem vorhandenen Lied: es wird nichts angelegt oder geändert.
+        liedId = aktuell.ziel.liedId;
+      } else {
+        const lied = await legeLiedAn({
+          ...LEER,
+          ...Object.fromEntries(
+            Object.entries(aktuell.lied).map(([feld, wert]) => [
+              feld,
+              wert.trim(),
+            ]),
+          ),
+        });
+        liedId = lied.id;
+      }
     } catch (ursache) {
       sicherungGesperrt.current = false;
       sende({
@@ -569,5 +648,7 @@ export function useLiedEntwurf(gespeichert?: Gespeichert) {
     lesen,
     fehlgeschlagenEntfernen,
     verwerfen,
+    trefferAnnehmen,
+    trefferAblehnen,
   };
 }

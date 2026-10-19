@@ -64,8 +64,21 @@ export type DateiEntwurf = {
   lesen: LesenZustand;
 };
 
+/**
+ * Wohin die Dateien gehören (#179). `neu` legt ein Lied an. Ein gelesener oder
+ * getippter Titel, der zu einem vorhandenen Lied passt, wird nur angeboten;
+ * erst "angenommen" (`vorhanden`) schickt die Dateien dorthin. `fest` ist das
+ * Lied der Lied-Seite und lässt sich nicht abwählen.
+ */
+export type Ziel =
+  | { status: "neu" }
+  | { status: "angeboten"; liedId: string; titel: string }
+  | { status: "abgelehnt"; liedId: string }
+  | { status: "vorhanden"; liedId: string; titel: string; fest: boolean };
+
 type Kern = {
   entwurfId: string;
+  ziel: Ziel;
   lied: Record<LiedFeld, string>;
   bearbeitet: Record<LiedFeld, boolean>;
   /** Felder, die ein Lesen gefüllt hat und die noch niemand angefasst hat. */
@@ -74,7 +87,7 @@ type Kern = {
 };
 
 export type Zustand =
-  | { phase: "leer"; entwurfId: string }
+  | { phase: "leer"; entwurfId: string; ziel: Ziel }
   | (Kern & { phase: "sammeln"; fehler: string | null })
   | (Kern & { phase: "speichern"; anfrageId: number; liedId: string | null })
   | (Kern & { phase: "gespeichert"; anfrageId: number; liedId: string })
@@ -85,6 +98,19 @@ export type NeueDatei = { id: string; name: string; sizeBytes: number };
 export type Ereignis =
   | { type: "entwurf-begonnen"; entwurfId: string }
   | { type: "entwurf-verworfen"; entwurfId: string }
+  /**
+   * Die Suche nach einem Lied mit dem Titel `titel` hat `liedId` gefunden. Gilt
+   * nur, solange der Titel des Entwurfs noch dieser ist.
+   */
+  | {
+      type: "treffer-gefunden";
+      entwurfId: string;
+      titel: string;
+      liedId: string;
+      liedTitel: string;
+    }
+  | { type: "treffer-angenommen"; entwurfId: string }
+  | { type: "treffer-abgelehnt"; entwurfId: string }
   | { type: "dateien-abgelegt"; entwurfId: string; dateien: NeueDatei[] }
   | {
       type: "lied-feld-geaendert";
@@ -170,8 +196,24 @@ export type Ereignis =
       meldung: string;
     };
 
-export function anfangszustand(entwurfId: string): Zustand {
-  return { phase: "leer", entwurfId };
+export function anfangszustand(
+  entwurfId: string,
+  ziel: Ziel = { status: "neu" },
+): Zustand {
+  return { phase: "leer", entwurfId, ziel };
+}
+
+/** Gleicher Titel, wie er verglichen wird: ohne Rand, ohne Groß-/Kleinschreibung. */
+export function titelSchluessel(titel: string): string {
+  return titel.trim().replace(/\s+/g, " ").toLocaleLowerCase("de");
+}
+
+/** Ein angebotener Treffer gilt nur für den Titel, zu dem er gefunden wurde. */
+function zielNachTitel(ziel: Ziel, lied: Record<LiedFeld, string>): Ziel {
+  return ziel.status === "angeboten" &&
+    titelSchluessel(lied.title) !== titelSchluessel(ziel.titel)
+    ? { status: "neu" }
+    : ziel;
 }
 
 const leereFelder: Record<LiedFeld, string> = {
@@ -221,6 +263,7 @@ function abgelegt(zustand: Zustand, neue: NeueDatei[]): Zustand {
     return {
       phase: "sammeln",
       entwurfId: zustand.entwurfId,
+      ziel: zustand.ziel,
       lied: { ...leereFelder, title: ausDateiname(neue[0].name).titel },
       bearbeitet: nichtBearbeitet(),
       vorschlaege: {},
@@ -334,7 +377,12 @@ function vorschlagen(
     lied = { ...lied, [feld]: neu };
     vorschlaege = { ...vorschlaege, [feld]: sicher ? "sicher" : "unsicher" };
   }
-  return { ...zustand, lied, vorschlaege };
+  return {
+    ...zustand,
+    lied,
+    vorschlaege,
+    ziel: zielNachTitel(zustand.ziel, lied),
+  };
 }
 
 function nichtErschoepft(x: never): never {
@@ -356,14 +404,76 @@ export function reduziere(zustand: Zustand, ereignis: Ereignis): Zustand {
     case "dateien-abgelegt":
       return abgelegt(zustand, ereignis.dateien);
 
-    case "lied-feld-geaendert":
+    case "treffer-gefunden": {
       if (zustand.phase !== "sammeln") return zustand;
+      const { ziel } = zustand;
+      if (
+        titelSchluessel(zustand.lied.title) !== titelSchluessel(ereignis.titel)
+      ) {
+        return zustand;
+      }
+      if (ziel.status === "neu") {
+        return {
+          ...zustand,
+          ziel: {
+            status: "angeboten",
+            liedId: ereignis.liedId,
+            titel: ereignis.liedTitel,
+          },
+        };
+      }
+      // Ein abgelehnter Treffer kommt nicht wieder; ein anderer schon.
+      if (ziel.status === "abgelehnt" && ziel.liedId !== ereignis.liedId) {
+        return {
+          ...zustand,
+          ziel: {
+            status: "angeboten",
+            liedId: ereignis.liedId,
+            titel: ereignis.liedTitel,
+          },
+        };
+      }
+      return zustand;
+    }
+
+    case "treffer-angenommen":
+      if (zustand.phase !== "sammeln" || zustand.ziel.status !== "angeboten") {
+        return zustand;
+      }
       return {
         ...zustand,
-        lied: { ...zustand.lied, [ereignis.feld]: ereignis.wert },
+        ziel: {
+          status: "vorhanden",
+          liedId: zustand.ziel.liedId,
+          titel: zustand.ziel.titel,
+          fest: false,
+        },
+      };
+
+    case "treffer-abgelehnt":
+      if (zustand.phase !== "sammeln") return zustand;
+      if (
+        zustand.ziel.status === "angeboten" ||
+        (zustand.ziel.status === "vorhanden" && !zustand.ziel.fest)
+      ) {
+        return {
+          ...zustand,
+          ziel: { status: "abgelehnt", liedId: zustand.ziel.liedId },
+        };
+      }
+      return zustand;
+
+    case "lied-feld-geaendert": {
+      if (zustand.phase !== "sammeln") return zustand;
+      const lied = { ...zustand.lied, [ereignis.feld]: ereignis.wert };
+      return {
+        ...zustand,
+        lied,
+        ziel: zielNachTitel(zustand.ziel, lied),
         bearbeitet: { ...zustand.bearbeitet, [ereignis.feld]: true },
         vorschlaege: ohne(zustand.vorschlaege, ereignis.feld),
       };
+    }
 
     case "datei-feld-geaendert":
       if (zustand.phase !== "sammeln") return zustand;
@@ -471,6 +581,7 @@ export function reduziere(zustand: Zustand, ereignis: Ereignis): Zustand {
       return {
         phase: "speichern",
         entwurfId: zustand.entwurfId,
+        ziel: zustand.ziel,
         lied: zustand.lied,
         bearbeitet: zustand.bearbeitet,
         vorschlaege: zustand.vorschlaege,
@@ -500,6 +611,7 @@ export function reduziere(zustand: Zustand, ereignis: Ereignis): Zustand {
       return {
         phase: "sammeln",
         entwurfId: zustand.entwurfId,
+        ziel: zustand.ziel,
         lied: zustand.lied,
         bearbeitet: zustand.bearbeitet,
         vorschlaege: zustand.vorschlaege,
@@ -592,7 +704,8 @@ export function reduziere(zustand: Zustand, ereignis: Ereignis): Zustand {
 export function kannSpeichern(zustand: Zustand): boolean {
   return (
     zustand.phase === "sammeln" &&
-    zustand.lied.title.trim().length > 0 &&
+    (zustand.ziel.status === "vorhanden" ||
+      zustand.lied.title.trim().length > 0) &&
     zustand.dateien.length > 0 &&
     zustand.dateien.every((d) => d.inhalt === "vorhanden")
   );

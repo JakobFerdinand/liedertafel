@@ -220,6 +220,8 @@ export function wiederhergestellt(gespeichert: Gespeichert): Wiederhergestellt {
     zustand: {
       phase: "sammeln",
       entwurfId: gespeichert.entwurfId,
+      // Die Zuordnung wird nicht gespeichert: beim Fortsetzen wird neu gesucht.
+      ziel: { status: "neu" },
       lied: gespeichert.lied,
       bearbeitet,
       vorschlaege: gespeichert.vorschlaege,

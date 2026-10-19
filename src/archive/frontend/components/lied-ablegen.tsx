@@ -13,7 +13,10 @@ import {
   type LiedFeld,
   type Zustand,
 } from "@/lib/lied-entwurf/reducer";
-import { useLiedEntwurf } from "@/lib/lied-entwurf/use-lied-entwurf";
+import {
+  type FestesLied,
+  useLiedEntwurf,
+} from "@/lib/lied-entwurf/use-lied-entwurf";
 import { groesseText } from "@/lib/uebertragung";
 
 const dateiTypen: [string, string][] = [
@@ -171,14 +174,23 @@ export function LiedAblegen({ entwurfId }: { entwurfId?: string | null }) {
   );
 }
 
-function DateienAblegen({
+/**
+ * Die Ablage und das Formular dazu. Mit `festesLied` (Lied-Seite, #179) fügt
+ * sie Dateien genau diesem Lied hinzu: derselbe Ablauf, aber ohne Lied-Felder,
+ * ohne Lesen und ohne angefangenen Entwurf.
+ */
+export function DateienAblegen({
   gespeichert,
+  festesLied,
   onOhneDatei,
   onVerworfen,
+  onFertig,
 }: {
   gespeichert?: Gespeichert;
-  onOhneDatei: () => void;
-  onVerworfen: () => void;
+  festesLied?: FestesLied;
+  onOhneDatei?: () => void;
+  onVerworfen?: () => void;
+  onFertig?: () => void;
 }) {
   const router = useRouter();
   const idPraefix = useId();
@@ -194,17 +206,25 @@ function DateienAblegen({
     lesen,
     fehlgeschlagenEntfernen,
     verwerfen,
-  } = useLiedEntwurf(gespeichert);
+    trefferAnnehmen,
+    trefferAblehnen,
+  } = useLiedEntwurf(gespeichert, festesLied);
 
   const gespeichertId =
     zustand.phase === "gespeichert" && fehlgeschlagene(zustand).length === 0
       ? zustand.liedId
       : null;
   useEffect(() => {
-    if (gespeichertId) {
-      router.push(`/lied/?id=${encodeURIComponent(gespeichertId)}`);
-    }
-  }, [gespeichertId, router]);
+    if (!gespeichertId) return;
+    if (festesLied) onFertig?.();
+    else router.push(`/lied/?id=${encodeURIComponent(gespeichertId)}`);
+  }, [gespeichertId, router, festesLied, onFertig]);
+
+  const ziel =
+    zustand.phase === "leer" || zustand.phase === "verworfen"
+      ? null
+      : zustand.ziel;
+  const liedFelderSichtbar = ziel?.status !== "vorhanden";
 
   const bearbeitbar = zustand.phase === "sammeln";
   const dateien =
@@ -236,7 +256,9 @@ function DateienAblegen({
           <input
             type="file"
             multiple
-            aria-label="Dateien auswählen"
+            aria-label={
+              festesLied ? "Dateien zum Lied auswählen" : "Dateien auswählen"
+            }
             onChange={(event) => {
               ablegen(Array.from(event.target.files ?? []));
               event.target.value = "";
@@ -253,45 +275,89 @@ function DateienAblegen({
           }}
           noValidate
         >
-          <label htmlFor={`${idPraefix}-titel`}>Titel</label>
-          <input
-            id={`${idPraefix}-titel`}
-            type="text"
-            maxLength={200}
-            value={zustand.lied.title}
-            disabled={!bearbeitbar}
-            onChange={(event) => liedFeldAendern("title", event.target.value)}
-          />
-          <VorschlagMarke zustand={zustand} feld="title" />
-          {liedFelder.map(([feld, beschriftung, art]) => (
-            <div key={feld}>
-              <label htmlFor={`${idPraefix}-${feld}`}>{beschriftung}</label>
-              {art === "lang" ? (
-                <textarea
-                  id={`${idPraefix}-${feld}`}
-                  rows={4}
-                  maxLength={5000}
-                  value={zustand.lied[feld]}
-                  disabled={!bearbeitbar}
-                  onChange={(event) =>
-                    liedFeldAendern(feld, event.target.value)
-                  }
-                />
-              ) : (
-                <input
-                  id={`${idPraefix}-${feld}`}
-                  type="text"
-                  maxLength={200}
-                  value={zustand.lied[feld]}
-                  disabled={!bearbeitbar}
-                  onChange={(event) =>
-                    liedFeldAendern(feld, event.target.value)
-                  }
-                />
+          {ziel?.status === "angeboten" && bearbeitbar && (
+            <section
+              className="lied-ablegen-treffer"
+              aria-label="Vorhandenes Lied"
+            >
+              <p>Zu ‚{ziel.titel}‘ hinzufügen?</p>
+              <div className="auth-aktionen">
+                <button type="button" onClick={trefferAnnehmen}>
+                  Ja, hinzufügen
+                </button>
+                <button
+                  type="button"
+                  className="knopf-leise"
+                  onClick={trefferAblehnen}
+                >
+                  Nein, neues Lied anlegen
+                </button>
+              </div>
+            </section>
+          )}
+          {ziel?.status === "vorhanden" && (
+            <p className="feld-hinweis">
+              Die Dateien kommen zu ‚{ziel.titel}‘.
+              {!ziel.fest && bearbeitbar && (
+                <>
+                  {" "}
+                  <button
+                    type="button"
+                    className="knopf-leise"
+                    onClick={trefferAblehnen}
+                  >
+                    Stattdessen neues Lied anlegen
+                  </button>
+                </>
               )}
-              <VorschlagMarke zustand={zustand} feld={feld} />
-            </div>
-          ))}
+            </p>
+          )}
+          {liedFelderSichtbar && (
+            <>
+              <label htmlFor={`${idPraefix}-titel`}>Titel</label>
+              <input
+                id={`${idPraefix}-titel`}
+                type="text"
+                maxLength={200}
+                value={zustand.lied.title}
+                disabled={!bearbeitbar}
+                onChange={(event) =>
+                  liedFeldAendern("title", event.target.value)
+                }
+              />
+              <VorschlagMarke zustand={zustand} feld="title" />
+            </>
+          )}
+          {liedFelderSichtbar &&
+            liedFelder.map(([feld, beschriftung, art]) => (
+              <div key={feld}>
+                <label htmlFor={`${idPraefix}-${feld}`}>{beschriftung}</label>
+                {art === "lang" ? (
+                  <textarea
+                    id={`${idPraefix}-${feld}`}
+                    rows={4}
+                    maxLength={5000}
+                    value={zustand.lied[feld]}
+                    disabled={!bearbeitbar}
+                    onChange={(event) =>
+                      liedFeldAendern(feld, event.target.value)
+                    }
+                  />
+                ) : (
+                  <input
+                    id={`${idPraefix}-${feld}`}
+                    type="text"
+                    maxLength={200}
+                    value={zustand.lied[feld]}
+                    disabled={!bearbeitbar}
+                    onChange={(event) =>
+                      liedFeldAendern(feld, event.target.value)
+                    }
+                  />
+                )}
+                <VorschlagMarke zustand={zustand} feld={feld} />
+              </div>
+            ))}
           <ul className="lied-ablegen-dateien">
             {dateien.map((datei) => (
               <li key={datei.id} data-upload={datei.upload.status}>
@@ -428,9 +494,11 @@ function DateienAblegen({
               {zustand.fehler}
             </p>
           )}
-          {zustand.phase === "gespeichert" && (
+          {zustand.phase === "gespeichert" && !festesLied && (
             <output className="feld-hinweis">
-              Lied angelegt.{" "}
+              {ziel?.status === "vorhanden"
+                ? "Dateien hinzugefügt."
+                : "Lied angelegt."}{" "}
               <Link href={`/lied/?id=${encodeURIComponent(zustand.liedId)}`}>
                 Zum Lied
               </Link>
@@ -458,7 +526,7 @@ function DateienAblegen({
         </form>
       )}
 
-      {zustand.phase === "leer" && (
+      {zustand.phase === "leer" && onOhneDatei && !festesLied && (
         <p className="feld-hinweis">
           <button type="button" className="knopf-leise" onClick={onOhneDatei}>
             ohne Datei anlegen
@@ -466,5 +534,39 @@ function DateienAblegen({
         </p>
       )}
     </div>
+  );
+}
+
+/**
+ * Die Ablage auf der Lied-Seite (#179): Dateien kommen über denselben Ablauf
+ * wie bei "Neues Lied" zu genau diesem Lied.
+ */
+export function DateienZumLied({
+  liedId,
+  titel,
+  onGeaendert,
+}: {
+  liedId: string;
+  titel: string;
+  onGeaendert: () => void;
+}) {
+  // Nach dem Speichern oder Verwerfen beginnt ein frischer Entwurf.
+  const [lauf, setLauf] = useState(0);
+  return (
+    <section
+      className="auth-karte lied-ablegen-lied"
+      aria-labelledby="lied-ablegen-lied-titel"
+    >
+      <h2 id="lied-ablegen-lied-titel">Dateien ablegen</h2>
+      <DateienAblegen
+        key={`${liedId}-${lauf}`}
+        festesLied={{ liedId, titel }}
+        onVerworfen={() => setLauf((n) => n + 1)}
+        onFertig={() => {
+          onGeaendert();
+          setLauf((n) => n + 1);
+        }}
+      />
+    </section>
   );
 }
