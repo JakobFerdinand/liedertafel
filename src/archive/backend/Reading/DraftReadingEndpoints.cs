@@ -45,16 +45,13 @@ public static class DraftReadingEndpoints
 	{
 		app.MapPost("/api/lied-lesungen", async (
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
-			IOptions<ReadingOptions> options, DraftReader reader, ArchiveDbContext db, TimeProvider time,
-			ILoggerFactory loggers, CancellationToken token) =>
+			IOptions<ReadingOptions> options, DraftReader reader, DraftReadingRegistry registry, ArchiveDbContext db,
+			TimeProvider time, ILoggerFactory loggers, CancellationToken token) =>
 		{
 			context.Response.Headers.CacheControl = "no-store";
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			var (decision, error) = await ExtractionEndpoints.RequireEditorAsync(context, accessor, access);
+			if (await LiedAccess.ValidateAntiforgeryAsync(antiforgery, context) is { } csrf)
+				return csrf;
+			var (decision, error) = await LiedAccess.RequireEditorAsync(context, accessor, access);
 			if (error is not null)
 				return error;
 			if (!context.Request.HasFormContentType)
@@ -92,8 +89,10 @@ public static class DraftReadingEndpoints
 						break;
 				}
 			}
-			using var limit = new CancellationTokenSource(ReadTimeLimit);
-			var readToken = persisted ? limit.Token : token;
+			// A persisted reading outlives the request (a closed tab must not lose it),
+			// but the editor's own discard, removal, retry or a newer request stops it.
+			using var tracked = persisted ? registry.Start(entwurfId, dateiId, ReadTimeLimit) : null;
+			var readToken = tracked?.Token ?? token;
 
 			Outcome outcome;
 			try
@@ -134,7 +133,7 @@ public static class DraftReadingEndpoints
 		}).DisableAntiforgery();
 	}
 
-	private enum Target { Stateless, Superseded, Claimed }
+	internal enum Target { Stateless, Superseded, Claimed }
 
 	private sealed record Outcome(IReadOnlyList<DraftSuggestion>? Suggestions, int? Status, string? Title, bool Available)
 	{
@@ -145,8 +144,29 @@ public static class DraftReadingEndpoints
 	/// Marks the request as the reading of a Datei of the editor's own persisted
 	/// draft. A request that is not newer than the stored one is superseded.
 	/// </summary>
-	private static async Task<Target> Claim(
-		ArchiveDbContext db, TimeProvider time, Guid accountId, Guid entwurfId, Guid dateiId, int anfrageId)
+	internal static async Task<Target> Claim(
+		ArchiveDbContext db, TimeProvider time, Guid accountId, Guid entwurfId, Guid dateiId, int anfrageId,
+		Func<Task>? beforeSave = null)
+	{
+		// Two first readings of one Datei can both see no row; the loser's insert
+		// hits the key. It looks again and is then judged like any other request.
+		for (var pass = 0; ; pass++)
+		{
+			try
+			{
+				return await TryClaim(db, time, accountId, entwurfId, dateiId, anfrageId, pass == 0 ? beforeSave : null);
+			}
+			// ArgumentException: the in-memory provider reports a duplicate key that way.
+			catch (Exception exception) when (pass == 0 && exception is DbUpdateException or ArgumentException)
+			{
+				db.ChangeTracker.Clear();
+			}
+		}
+	}
+
+	private static async Task<Target> TryClaim(
+		ArchiveDbContext db, TimeProvider time, Guid accountId, Guid entwurfId, Guid dateiId, int anfrageId,
+		Func<Task>? beforeSave)
 	{
 		var datei = await db.LiedEntwurfDateien
 			.Include(d => d.Lesung)
@@ -176,6 +196,8 @@ public static class DraftReadingEndpoints
 				UpdatedAt = now,
 			};
 		}
+		if (beforeSave is not null)
+			await beforeSave();
 		await db.SaveChangesAsync(CancellationToken.None);
 		return Target.Claimed;
 	}

@@ -269,6 +269,7 @@ builder.Services.AddSingleton<IReadingQueue>(ReadingQueue.Create(builder.Configu
 builder.Services.AddSingleton<IPdfPageRenderer, PdfiumPageRenderer>();
 builder.Services.AddSingleton<ScanReadingModel>();
 builder.Services.AddScoped<DraftReader>();
+builder.Services.AddSingleton<DraftReadingRegistry>();
 builder.Services.AddScoped<UploadSessionCleaner>();
 builder.Services.AddHttpContextAccessor();
 // ARC-022: bounded archive chat configuration (availability gate and caps).

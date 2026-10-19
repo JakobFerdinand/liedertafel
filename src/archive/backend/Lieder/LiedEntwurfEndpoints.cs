@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Archive.Backend.Auth;
 using Archive.Backend.Data;
+using Archive.Backend.Reading;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.EntityFrameworkCore;
 
@@ -89,13 +90,11 @@ public static class LiedEntwurfEndpoints
 
 		app.MapPut("/api/lied-entwuerfe/{id:guid}", async (
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
-			ArchiveDbContext db, TimeProvider time, Guid id, CancellationToken token, SaveEntwurfRequest? body) =>
+			ArchiveDbContext db, TimeProvider time, DraftReadingRegistry readings, Guid id, CancellationToken token,
+			SaveEntwurfRequest? body) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
+			if (await LiedAccess.ValidateAntiforgeryAsync(antiforgery, context) is { } csrf)
+				return csrf;
 			context.Response.Headers.CacheControl = "no-store";
 			var (decision, error) = await LiedAccess.RequireEditorAsync(context, accessor, access);
 			if (error is not null)
@@ -120,20 +119,21 @@ public static class LiedEntwurfEndpoints
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
 			}
 
+			var removed = entwurf.Dateien.Where(d => (body!.Dateien ?? []).All(w => w.Id != d.Id)).Select(d => d.Id).ToList();
 			Apply(entwurf, body!, now);
 			await db.SaveChangesAsync(token);
+			// A Datei the editor took out is no longer worth a model call.
+			foreach (var dateiId in removed)
+				readings.CancelDatei(id, dateiId);
 			return Results.Ok(new { aktualisiertAm = entwurf.UpdatedAt });
 		}).DisableAntiforgery();
 
 		app.MapDelete("/api/lied-entwuerfe/{id:guid}", async (
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
-			ArchiveDbContext db, Guid id, CancellationToken token) =>
+			ArchiveDbContext db, DraftReadingRegistry readings, Guid id, CancellationToken token) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
+			if (await LiedAccess.ValidateAntiforgeryAsync(antiforgery, context) is { } csrf)
+				return csrf;
 			context.Response.Headers.CacheControl = "no-store";
 			var (decision, error) = await LiedAccess.RequireEditorAsync(context, accessor, access);
 			if (error is not null)
@@ -145,6 +145,7 @@ public static class LiedEntwurfEndpoints
 			{
 				db.LiedEntwuerfe.Remove(entwurf);
 				await db.SaveChangesAsync(token);
+				readings.CancelEntwurf(id);
 			}
 			// Discarding twice, or discarding what is gone, is still discarded.
 			return Results.NoContent();

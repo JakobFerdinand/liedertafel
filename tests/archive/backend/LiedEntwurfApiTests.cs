@@ -311,6 +311,121 @@ public sealed class LiedEntwurfApiTests
 		Assert.Equal("gelesen", datei.GetProperty("lesung").GetProperty("status").GetString());
 	}
 
+	/// <summary>A model call that waits until it is cancelled; reports what happened to it.</summary>
+	private sealed class HangingReading
+	{
+		public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+		public TaskCompletionSource<bool> Cancelled { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+		public async Task RunAsync(CancellationToken token)
+		{
+			Started.TrySetResult();
+			try
+			{
+				await Task.Delay(Timeout.Infinite, token);
+			}
+			catch (OperationCanceledException)
+			{
+				Cancelled.TrySetResult(true);
+				throw;
+			}
+		}
+	}
+
+	private static async Task AssertCancelledAsync(HangingReading reading)
+		=> Assert.True(await reading.Cancelled.Task.WaitAsync(TimeSpan.FromSeconds(10)));
+
+	[Fact]
+	public async Task DiscardingTheDraftStopsTheModelCallInFlight()
+	{
+		var reading = new HangingReading();
+		var model = new ScanModelStub { WhileAnswering = reading.RunAsync };
+		await using var host = new LiedTestHost(chatClient: model);
+		var session = await host.EditorAsync();
+		await host.PutAsync(Path(), Entwurf(), session);
+		var request = LesenAsync(host, session, AvePdf());
+		await reading.Started.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+		using var _ = await host.DeleteAsync(Path(), session);
+
+		await AssertCancelledAsync(reading);
+		using var answer = await request;
+		Assert.NotEqual(HttpStatusCode.OK, answer.StatusCode);
+	}
+
+	[Fact]
+	public async Task RemovingTheDateiFromTheDraftStopsItsModelCall()
+	{
+		var reading = new HangingReading();
+		var model = new ScanModelStub { WhileAnswering = reading.RunAsync };
+		await using var host = new LiedTestHost(chatClient: model);
+		var session = await host.EditorAsync();
+		await host.PutAsync(Path(), Entwurf(dateien: [Datei(DateiId), Datei(ZweiteDatei, "b.pdf")]), session);
+		var request = LesenAsync(host, session, AvePdf());
+		await reading.Started.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+		using var _ = await host.PutAsync(Path(), Entwurf(dateien: [Datei(ZweiteDatei, "b.pdf")]), session);
+
+		await AssertCancelledAsync(reading);
+		using var answer = await request;
+		Assert.NotEqual(HttpStatusCode.OK, answer.StatusCode);
+	}
+
+	[Fact]
+	public async Task ANewerRequestForTheSameDateiStopsTheOlderModelCall()
+	{
+		var reading = new HangingReading();
+		var model = new ScanModelStub { WhileAnswering = reading.RunAsync };
+		await using var host = new LiedTestHost(chatClient: model);
+		var session = await host.EditorAsync();
+		await host.PutAsync(Path(), Entwurf(), session);
+		var older = LesenAsync(host, session, AvePdf(), anfrageId: 1);
+		await reading.Started.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+		model.WhileAnswering = null;
+		using var newer = await LesenAsync(host, session, AvePdf(), anfrageId: 2);
+
+		Assert.Equal(HttpStatusCode.OK, newer.StatusCode);
+		await AssertCancelledAsync(reading);
+		using var oldAnswer = await older;
+		Assert.NotEqual(HttpStatusCode.OK, oldAnswer.StatusCode);
+		var datei = Assert.Single((await host.GetJsonAsync(Path(), session)).GetProperty("entwurf").GetProperty("dateien").EnumerateArray());
+		Assert.Equal(2, datei.GetProperty("lesung").GetProperty("anfrageId").GetInt32());
+		Assert.Equal("gelesen", datei.GetProperty("lesung").GetProperty("status").GetString());
+	}
+
+	[Fact]
+	public async Task TwoConcurrentFirstReadingsOfOneDateiAreJudgedNotAnError()
+	{
+		await using var host = new LiedTestHost();
+		var session = await host.EditorAsync();
+		await host.PutAsync(Path(), Entwurf(), session);
+		using var scope = host.Services.CreateScope();
+		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+		var accountId = (await db.LiedEntwuerfe.AsNoTracking().SingleAsync()).OwnerAccountId;
+		var time = scope.ServiceProvider.GetRequiredService<TimeProvider>();
+
+		// The other request claims the Datei between our look and our insert.
+		var result = await Archive.Backend.Reading.DraftReadingEndpoints.Claim(
+			db, time, accountId, EntwurfId, DateiId, anfrageId: 1, beforeSave: async () =>
+			{
+				using var other = host.Services.CreateScope();
+				var otherDb = other.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+				otherDb.LiedEntwurfLesungen.Add(new Archive.Backend.Lieder.LiedEntwurfLesung
+				{
+					EntwurfId = EntwurfId,
+					DateiId = DateiId,
+					AnfrageId = 1,
+					Status = "liest",
+					UpdatedAt = time.GetUtcNow(),
+				});
+				await otherDb.SaveChangesAsync();
+			});
+
+		Assert.Equal(Archive.Backend.Reading.DraftReadingEndpoints.Target.Superseded, result);
+	}
+
 	[Fact]
 	public async Task AReachedBudgetIsKeptSoTheResumedFormStaysManual()
 	{

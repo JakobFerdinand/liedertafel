@@ -37,6 +37,9 @@ internal sealed class ScanModelStub : IChatClient
 	/// <summary>Runs before a field request is answered, e.g. an editor saving while the model reads.</summary>
 	public Func<Task>? BeforeFieldAnswer { get; set; }
 
+	/// <summary>Runs with the call's cancellation token before a field request is answered; ends with the cancellation.</summary>
+	public Func<CancellationToken, Task>? WhileAnswering { get; set; }
+
 	/// <summary>Throws instead of answering the n-th (one-based) transcription request.</summary>
 	public int? FailTranscriptionNumber { get; set; }
 
@@ -80,6 +83,8 @@ internal sealed class ScanModelStub : IChatClient
 		{
 			if (BeforeFieldAnswer is { } before)
 				await before();
+			if (WhileAnswering is { } during)
+				await during(cancellationToken);
 			answer = FieldsJson;
 		}
 		yield return new ChatResponseUpdate(ChatRole.Assistant, answer);
