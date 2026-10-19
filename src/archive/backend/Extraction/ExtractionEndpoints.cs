@@ -246,16 +246,7 @@ public static class ExtractionEndpoints
 	internal static bool IsEditor(ArchiveAccessDecision decision)
 		=> decision.IsAdministrator || decision.Roles.Contains(ArchiveRoles.Editor);
 
-	internal static async Task<(ArchiveAccessDecision? Decision, IResult? Error)> RequireEditorAsync(
+	internal static Task<(ArchiveAccessDecision? Decision, IResult? Error)> RequireEditorAsync(
 		HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access)
-	{
-		if (accessor.Current is null)
-			return (null, Results.Problem(statusCode: 401, title: "Anmeldung erforderlich."));
-		var decision = await access.GetDecisionAsync(context.User);
-		if (decision is null || !decision.IsActive)
-			return (null, Results.Problem(statusCode: 401, title: "Anmeldung erforderlich."));
-		if (!IsEditor(decision))
-			return (null, Results.Problem(statusCode: 403, title: "Keine Berechtigung für das Liedverzeichnis."));
-		return (decision, null);
-	}
+		=> Lieder.LiedAccess.RequireEditorAsync(context, accessor, access);
 }

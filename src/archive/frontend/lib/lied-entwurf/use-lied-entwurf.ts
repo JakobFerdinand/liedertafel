@@ -46,7 +46,9 @@ import {
 /** Wie lange nach der letzten Änderung gewartet wird, bevor sie gespeichert wird. */
 const SICHERN_NACH_MS = 400;
 const ABFRAGE_MS = 2000;
-const ABFRAGE_MAX = 120;
+// Der Server meldet ein Lesen nach fünf Minuten als unterbrochen
+// (`ReadingStaleAfter`); gefragt wird länger, damit nichts ewig "liest".
+const ABFRAGE_MAX = 180;
 /** Wie lange nach der letzten Titeländerung gewartet wird, bevor nach einem gleichnamigen Lied gesucht wird. */
 const SUCHEN_NACH_MS = 300;
 
@@ -179,6 +181,35 @@ export function useLiedEntwurf(
     });
     return sicherungKette.current;
   }, []);
+
+  /**
+   * Nach dem Anlegen des Liedes: der Entwurf bleibt im Backend, solange eine
+   * Datei noch nicht oben ist (wartend, ladend, gescheitert), und endet erst,
+   * wenn jede hoch oder von der Redaktion entfernt ist. So überlebt eine
+   * gescheiterte Datei das Verlassen der Seite als Eintrag in "Angefangen".
+   */
+  const entwurfAbgleichen = useCallback(() => {
+    if (fest) return;
+    sicherungKette.current = sicherungKette.current.then(async () => {
+      const aktuell = zustandRef.current;
+      if (aktuell.phase !== "speichern" && aktuell.phase !== "gespeichert") {
+        return;
+      }
+      if (aktuell.liedId === null) return;
+      const abzug = alsGespeichert(aktuell);
+      try {
+        if (abzug) {
+          gespeichertImBackend.current = true;
+          await speichereEntwurf(abzug, false);
+        } else if (gespeichertImBackend.current) {
+          gespeichertImBackend.current = false;
+          await verwirfEntwurf(aktuell.entwurfId);
+        }
+      } catch {
+        // Ein Abgleich, der nicht gelingt, verliert nichts: der Eintrag bleibt.
+      }
+    });
+  }, [fest]);
 
   const sicherungPlanen = useCallback(() => {
     sicherungOffen.current = true;
@@ -513,6 +544,7 @@ export function useLiedEntwurf(
           versuch,
           serverDateiId: gespeichertDatei.id,
         });
+        entwurfAbgleichen();
       } catch (ursache) {
         if (ursache instanceof AbbruchFehler) return false;
         sende({
@@ -522,10 +554,11 @@ export function useLiedEntwurf(
           versuch,
           meldung: await fehlerText(ursache),
         });
+        entwurfAbgleichen();
       }
       return true;
     },
-    [sende],
+    [entwurfAbgleichen, sende],
   );
 
   const speichern = useCallback(async () => {
@@ -571,11 +604,9 @@ export function useLiedEntwurf(
       return;
     }
     sende({ type: "lied-angelegt", entwurfId, anfrageId, liedId });
-    // Das Lied gibt es: der angefangene Eintrag ist erledigt.
-    if (gespeichertImBackend.current) {
-      gespeichertImBackend.current = false;
-      void verwirfEntwurf(entwurfId).catch(() => undefined);
-    }
+    // Das Lied gibt es, die Dateien noch nicht: der Entwurf bleibt, bis jede
+    // Datei oben ist.
+    entwurfAbgleichen();
 
     // Jede Datei für sich: eine gescheiterte hält die anderen nicht auf.
     for (const datei of liste) {
@@ -590,7 +621,7 @@ export function useLiedEntwurf(
         break;
       }
     }
-  }, [hochladen, lesungenAbbrechen, sende]);
+  }, [entwurfAbgleichen, hochladen, lesungenAbbrechen, sende]);
 
   const wiederholen = useCallback(
     async (dateiId: string) => {
@@ -633,8 +664,9 @@ export function useLiedEntwurf(
         entwurfId: zustandRef.current.entwurfId,
         dateiId,
       });
+      entwurfAbgleichen();
     },
-    [sende],
+    [entwurfAbgleichen, sende],
   );
 
   return {

@@ -290,3 +290,111 @@ test("nur ein Entwurf in Bearbeitung wird abgezogen", () => {
     null,
   );
 });
+
+// Nach dem Anlegen des Liedes bleibt der Entwurf, bis jede Datei oben ist.
+
+const dreiDateien = (): Ereignis => ({
+  type: "dateien-abgelegt",
+  entwurfId: E,
+  dateien: [
+    { id: "d1", name: "a.mp3", sizeBytes: 10 },
+    { id: "d2", name: "b.mp3", sizeBytes: 10 },
+    { id: "d3", name: "c.mp3", sizeBytes: 10 },
+  ],
+});
+
+const angelegt = (): Zustand =>
+  lauf(
+    anfangszustand(E),
+    dreiDateien(),
+    { type: "lied-feld-geaendert", entwurfId: E, feld: "title", wert: "Ave" },
+    { type: "speichern-angefordert", entwurfId: E, anfrageId: 1 },
+    { type: "lied-angelegt", entwurfId: E, anfrageId: 1, liedId: "lied-1" },
+  );
+
+const hoch = (dateiId: string): Ereignis[] => [
+  { type: "upload-gestartet", entwurfId: E, dateiId, versuch: 1 },
+  {
+    type: "upload-erfolgreich",
+    entwurfId: E,
+    dateiId,
+    versuch: 1,
+    serverDateiId: `s-${dateiId}`,
+  },
+];
+
+const gescheitert = (dateiId: string): Ereignis[] => [
+  { type: "upload-gestartet", entwurfId: E, dateiId, versuch: 1 },
+  {
+    type: "upload-fehlgeschlagen",
+    entwurfId: E,
+    dateiId,
+    versuch: 1,
+    meldung: "Netz weg",
+  },
+];
+
+test("nach dem Anlegen des Liedes bleiben wartende Dateien im Entwurf", () => {
+  const z = lauf(angelegt(), ...hoch("d1"));
+  assert.equal(z.phase, "speichern");
+  const g = alsGespeichert(z);
+  assert.ok(g);
+  assert.deepEqual(
+    g.dateien.map((d) => d.id),
+    ["d2", "d3"],
+  );
+});
+
+test("eine gescheiterte Datei hält den Entwurf offen, bis sie hoch oder entfernt ist", () => {
+  let z = lauf(angelegt(), ...hoch("d1"), ...gescheitert("d2"), ...hoch("d3"));
+  assert.equal(z.phase, "gespeichert");
+  assert.deepEqual(
+    alsGespeichert(z)?.dateien.map((d) => d.id),
+    ["d2"],
+  );
+  // Wiederholen und Gelingen beendet den Entwurf.
+  z = lauf(
+    z,
+    {
+      type: "wiederholen-angefordert",
+      entwurfId: E,
+      dateiId: "d2",
+      versuch: 2,
+    },
+    {
+      type: "upload-erfolgreich",
+      entwurfId: E,
+      dateiId: "d2",
+      versuch: 2,
+      serverDateiId: "s-d2",
+    },
+  );
+  assert.equal(alsGespeichert(z), null);
+});
+
+test("entfernt die Redaktion die gescheiterte Datei, bleibt nichts zu behalten", () => {
+  const z = lauf(
+    angelegt(),
+    ...hoch("d1"),
+    ...hoch("d3"),
+    ...gescheitert("d2"),
+    { type: "datei-entfernt", entwurfId: E, dateiId: "d2" },
+  );
+  assert.equal(alsGespeichert(z), null);
+});
+
+test("ein Entwurf mit gescheiterter Datei lässt sich wiederherstellen", () => {
+  const z = lauf(
+    angelegt(),
+    ...hoch("d1"),
+    ...hoch("d3"),
+    ...gescheitert("d2"),
+  );
+  const g = alsGespeichert(z);
+  assert.ok(g);
+  const zurueck = sammeln(wiederhergestellt(g).zustand);
+  assert.deepEqual(
+    zurueck.dateien.map((d) => [d.id, d.inhalt]),
+    [["d2", "fehlt"]],
+  );
+});

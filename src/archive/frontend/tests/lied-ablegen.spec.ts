@@ -142,7 +142,7 @@ test("Ein gescheiterter Upload bleibt sichtbar, wird wiederholt und die anderen 
   page,
 }) => {
   await mockSitzung(page, editorMe);
-  await mockEntwuerfe(page);
+  const speicher = await mockEntwuerfe(page);
   await page.route("**/api/lieder", (route) => {
     if (route.request().method() !== "POST") {
       return route.fulfill(json(liste([])));
@@ -214,12 +214,24 @@ test("Ein gescheiterter Upload bleibt sichtbar, wird wiederholt und die anderen 
   await expect(page.getByRole("link", { name: "Zum Lied" })).toBeVisible();
   expect(anzahl).toBe(2);
 
+  // Die gescheiterte Datei überlebt das Verlassen der Seite: der Entwurf bleibt
+  // in "Angefangen", nur mit ihr; hochgeladene Dateien sind nicht mehr darin.
+  await expect
+    .poll(() =>
+      [...speicher.entwuerfe.values()].map((e) => e.dateien.map((d) => d.name)),
+    )
+    .toEqual([["Mond_T1.mp3"]]);
+  expect(speicher.verworfen).toEqual([]);
+
   // Wiederholen startet nur die gescheiterte Datei neu.
   await page
     .getByRole("button", { name: "Mond_T1.mp3 erneut versuchen" })
     .click();
   await expect(page).toHaveURL(new RegExp(`/lied/\\?id=${mondId}`));
   expect(anzahl).toBe(3);
+  // Erst wenn jede Datei oben ist, endet der Entwurf.
+  await expect.poll(() => speicher.verworfen.length).toBe(1);
+  expect(speicher.entwuerfe.size).toBe(0);
 });
 
 test("Eine gescheiterte Datei lässt sich entfernen, ohne die anderen zu berühren", async ({

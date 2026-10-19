@@ -172,6 +172,14 @@ uses its generated Next.js/Biome conventions and local `AGENTS.md`.
   runs under. It stays switched off (`Archive:Reading:Enabled`, false in
   `appsettings.json`, true in Development) until its Azure job, identity and
   scheduled `--dispatch-reading` exist.
+- The Lied draft reading (#177/#178, `POST /api/lied-lesungen`, `backend/Reading/DraftReader`
+  and `DraftReadingEndpoints`) runs the model inside the **web app** (not a job) for
+  an editor's PDF, before any Lied exists. It goes through `ScanReadingModel` and
+  `AiGateway` like every model call, writes nothing but suggestions (plus the
+  persisted per-Datei outcome of an own "Angefangen" draft), and is stopped by
+  `DraftReadingRegistry` when its draft is discarded, its Datei removed or a newer
+  `anfrageId` arrives (not when the tab merely closes, so resume works). It
+  answers 409 while `Archive:Reading:Enabled` is false, 429 at the monthly cap.
 - Keep liveness dependency-free. Local diagnostics/mail/storage operations are
   Development-only; no production credentials are needed for ordinary startup.
 - Root SDK now selects .NET 10 with latest-feature roll-forward. Existing Azure
@@ -203,6 +211,12 @@ uses its generated Next.js/Biome conventions and local `AGENTS.md`.
   hand-overs, endpoints and UI; to stop model spending set
   `Archive__MaintenanceMode=true` on the reading jobs or drop the reading
   identity's OpenAI role (this fails pending readings; prefer maintenance).
+  The web app (`id-archive-app`) also calls the model for chat and the draft
+  reading (`POST /api/lied-lesungen`), so its identity needs the OpenAI role
+  too (`aoaiOpenAIUser`). To stop spending on that path: disable reading
+  (`Archive:Reading:Enabled=false` answers 409), set
+  `Archive__MaintenanceMode=true` on the web app, or drop its OpenAI role
+  (this also breaks chat; prefer the first two).
   - `az bicep build --file infrastructure/archive/main.bicep --stdout`
   - `az deployment sub what-if --location austriaeast --template-file infrastructure/archive/subscription.bicep --parameters archiveResourceGroupName=RG-Liedertafel-Archive --parameters resourceGroupLocation=austriaeast`
 - The dashboard SWA is auth-gated (GitHub EasyAuth, roles `admin`/`collaborator`);

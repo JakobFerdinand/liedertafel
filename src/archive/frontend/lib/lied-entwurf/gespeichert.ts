@@ -100,15 +100,27 @@ function lesenWiederhergestellt(lesen: GespeichertesLesen): LesenZustand {
   }
 }
 
-/** Was vom Entwurf gespeichert wird; null, solange es nichts zu behalten gibt. */
+/**
+ * Was vom Entwurf gespeichert wird; null, solange es nichts zu behalten gibt.
+ * Ist das Lied schon angelegt, bleiben nur die Dateien im Entwurf, die noch
+ * nicht oben sind (wartend, ladend, gescheitert): der Entwurf endet erst, wenn
+ * jede Datei hochgeladen oder von der Redaktion entfernt ist.
+ */
 export function alsGespeichert(zustand: Zustand): Gespeichert | null {
-  if (zustand.phase !== "sammeln") return null;
+  if (zustand.phase === "leer" || zustand.phase === "verworfen") return null;
+  const mitLied =
+    zustand.phase !== "sammeln" &&
+    (zustand.phase === "gespeichert" || zustand.liedId !== null);
+  const offene = mitLied
+    ? zustand.dateien.filter((d) => d.upload.status !== "hochgeladen")
+    : zustand.dateien;
+  if (mitLied && offene.length === 0) return null;
   return {
     entwurfId: zustand.entwurfId,
     lied: zustand.lied,
     bearbeitet: liedFelder.filter((feld) => zustand.bearbeitet[feld]),
     vorschlaege: zustand.vorschlaege,
-    dateien: zustand.dateien.map((d) => ({
+    dateien: offene.map((d) => ({
       id: d.id,
       name: d.name,
       sizeBytes: d.sizeBytes,
