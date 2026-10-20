@@ -32,9 +32,10 @@ internal sealed class LiedTestHost : IAsyncDisposable
 	private readonly Dictionary<string, string> sessions = [];
 
 	public LiedTestHost(Dictionary<string, string?>? settings = null, IDateiFinalizedHook? hook = null,
-		Microsoft.EntityFrameworkCore.Diagnostics.ISaveChangesInterceptor? saveChangesInterceptor = null)
+		Microsoft.EntityFrameworkCore.Diagnostics.ISaveChangesInterceptor? saveChangesInterceptor = null,
+		Microsoft.Extensions.AI.IChatClient? chatClient = null)
 	{
-		Factory = new AuthApiFactory(settings: settings, saveChangesInterceptor: saveChangesInterceptor);
+		Factory = new AuthApiFactory(settings: settings, saveChangesInterceptor: saveChangesInterceptor, chatClient: chatClient);
 		app = hook is null
 			? Factory
 			: Factory.WithWebHostBuilder(b => b.ConfigureServices(s => s.AddSingleton(hook)));
@@ -239,6 +240,22 @@ internal sealed class LiedTestHost : IAsyncDisposable
 		var bytes = new byte[size];
 		"%PDF-1.7\n"u8.CopyTo(bytes);
 		return bytes;
+	}
+
+	/// <summary>Posts a multipart form (text fields and one file) with the CSRF pair.</summary>
+	public async Task<HttpResponseMessage> PostFormAsync(
+		string path, string session, IReadOnlyDictionary<string, string> fields, string fileField, string fileName, byte[] bytes)
+	{
+		var (cookie, token) = await CsrfAsync(session);
+		using var request = new HttpRequestMessage(HttpMethod.Post, path);
+		request.Headers.Add("Cookie", $"{cookie}; {session}");
+		request.Headers.Add("X-CSRF-TOKEN", token);
+		var form = new MultipartFormDataContent();
+		foreach (var (name, value) in fields)
+			form.Add(new StringContent(value), name);
+		form.Add(new ByteArrayContent(bytes), fileField, fileName);
+		request.Content = form;
+		return await Client.SendAsync(request);
 	}
 
 	private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string path, object body, string session)

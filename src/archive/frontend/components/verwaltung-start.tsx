@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { AngefangenListe } from "@/components/angefangen-liste";
 import { MitgliederVerwaltung } from "@/components/mitglieder-verwaltung";
 
 // Die Verwaltungsseite bündelt die Redaktionswerkzeuge: Verweise auf die
-// Werkzeuge (Papierkorb, #168) und die Mitgliederverwaltung.
+// Werkzeuge (Papierkorb, #168), die angefangenen Lieder (#178) und die
+// Mitgliederverwaltung.
 
 export function VerwaltungStart() {
   return (
@@ -16,6 +18,7 @@ export function VerwaltungStart() {
           </li>
         </ul>
       </nav>
+      <AngefangenListe />
       <MitgliederVerwaltung />
     </>
   );

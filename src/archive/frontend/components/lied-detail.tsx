@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { DateiHochladen } from "@/components/datei-hochladen";
 import { DateiListe } from "@/components/datei-liste";
 import { HistorieAufnahmen } from "@/components/historie-aufnahmen";
+import { DateienZumLied } from "@/components/lied-ablegen";
 import { LiedFormular } from "@/components/lied-formular";
 import { LiedHistorie } from "@/components/lied-historie";
 import { LiedKopf } from "@/components/lied-kopf";
@@ -169,6 +170,14 @@ export function LiedDetail() {
           ) : null
         }
       />
+
+      {editor && (
+        <DateienZumLied
+          liedId={lied.id}
+          titel={lied.title}
+          onGeaendert={() => void dateienAktualisieren()}
+        />
+      )}
 
       {editor && (
         <DateiHochladen

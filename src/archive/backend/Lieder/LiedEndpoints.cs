@@ -315,6 +315,20 @@ internal static class LiedAccess
 		return (decision, null);
 	}
 
+	/// <summary>The 400 answer for a missing or wrong antiforgery token, otherwise null.</summary>
+	public static async Task<IResult?> ValidateAntiforgeryAsync(IAntiforgery antiforgery, HttpContext context)
+	{
+		try
+		{
+			await antiforgery.ValidateRequestAsync(context);
+			return null;
+		}
+		catch (AntiforgeryValidationException)
+		{
+			return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
+		}
+	}
+
 	public static async Task<(ArchiveAccessDecision? Decision, IResult? Error)> RequireEditorAsync(
 		HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access)
 	{

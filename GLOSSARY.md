@@ -52,3 +52,24 @@ _Avoid_: Event, Konzert (as the general term)
 The ordered list of Lieder for an Auftritt. It is also the record of what was
 sung; it is edited afterwards if the actual order differed.
 _Avoid_: Programme revision, confirmation, performance
+
+**Entwurf** (draft):
+The form of a new Lied while Dateien are being dropped and filled in, before the
+Lied exists. It is the only unfinished state; it holds the form, which fields
+the editor touched and the Dateien without their bytes, never where a value came
+from. It ends when "Speichern" has uploaded every Datei, or when it is discarded.
+_Avoid_: Draft Lied, Entwurfs-Lied, Vorlage
+
+**Angefangen** (started, unfinished):
+The list on the Verwaltung page of the editor's own Entwürfe, to resume or
+discard. A Datei that failed to upload stays in its Entwurf here until it is
+retried, removed or the Entwurf is discarded.
+_Avoid_: Unfertig, Warteschlange
+
+**Lesung** (reading):
+One request to read a PDF of an Entwurf (embedded text first, a scan through the
+model) into suggestions for the form. It never writes a Lied: a suggestion fills
+only a field the editor has not touched and is marked until edited or saved.
+Discarding the Entwurf, removing the Datei, or a newer request for the same Datei
+stops it.
+_Avoid_: Extraktion (that is the text step of a stored Datei), Analyse

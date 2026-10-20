@@ -184,6 +184,7 @@ test("Redaktion legt ein Lied von Hand an und landet bei den Dateien", async ({
 
   await page.goto("/lieder/");
   await page.getByText("Neues Lied", { exact: true }).click();
+  await page.getByRole("button", { name: "ohne Datei anlegen" }).click();
   await page.getByLabel("Titel").fill("Der Mond ist aufgegangen");
   await page.getByLabel("Komponist (optional)").fill("J. A. P. Schulz");
   await page.getByLabel("Bearbeiter (optional)").fill("Max Mustermann");
@@ -219,6 +220,7 @@ test("Ein Titel ist Pflicht beim Anlegen", async ({ page }) => {
 
   await page.goto("/lieder/");
   await page.getByText("Neues Lied", { exact: true }).click();
+  await page.getByRole("button", { name: "ohne Datei anlegen" }).click();
   await page.getByRole("button", { name: "Lied anlegen" }).click();
   await expect(page.getByText("Bitte einen Titel eingeben.")).toBeVisible();
 });

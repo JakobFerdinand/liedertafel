@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "check": "biome check && next typegen && tsc --noEmit",
+    "test:unit": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test \"lib/**/*.test.ts\"",
     "test:browser": "playwright test",
     "lint": "biome check",
     "format": "biome format --write"

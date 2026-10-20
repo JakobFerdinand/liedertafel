@@ -72,6 +72,13 @@ public sealed class ArchiveDbContext(DbContextOptions<ArchiveDbContext> options)
 	/// <summary>#166: Dateien of a Lied or an Auftritt; replaces assets and file revisions.</summary>
 	public DbSet<Lieder.Datei> Dateien => Set<Lieder.Datei>();
 
+	/// <summary>#178: unfinished uploads ("Angefangen"), their Dateien without bytes and the readings the server holds.</summary>
+	public DbSet<Lieder.LiedEntwurf> LiedEntwuerfe => Set<Lieder.LiedEntwurf>();
+
+	public DbSet<Lieder.LiedEntwurfDatei> LiedEntwurfDateien => Set<Lieder.LiedEntwurfDatei>();
+
+	public DbSet<Lieder.LiedEntwurfLesung> LiedEntwurfLesungen => Set<Lieder.LiedEntwurfLesung>();
+
 	protected override void OnModelCreating(ModelBuilder modelBuilder)
 	{
 		base.OnModelCreating(modelBuilder);

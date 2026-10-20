@@ -383,8 +383,9 @@ test("Unterbrochener Upload wird nach dem Neuladen fortgesetzt", async ({
         type: "application/pdf",
         lastModified,
       });
-      const eingabe =
-        document.querySelector<HTMLInputElement>("input[type='file']");
+      const eingabe = document.querySelector<HTMLInputElement>(
+        "#datei-hochladen-auswahl",
+      );
       if (!eingabe) throw new Error("Eingabe fehlt");
       const transport = new DataTransfer();
       transport.items.add(datei);
