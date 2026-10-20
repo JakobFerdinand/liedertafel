@@ -7,7 +7,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Archive.Backend.Recordings;
 
-/// <summary>Both times are required; the performance must be an occurrence of the recording's event.</summary>
+/// <summary>Both times are required; the entry must belong to the Programm of the recording's event.</summary>
 /// <remarks>
 /// <c>ExpectedPlaybackDateiId</c> is the playback revision the editor's
 /// list was built against (<c>playbackDateiId</c> of the GET); it is
@@ -15,7 +15,7 @@ namespace Archive.Backend.Recordings;
 /// against one file are never stamped onto another.
 /// </remarks>
 public sealed record CreatePassageRequest(
-	Guid? PerformanceId, double? StartSeconds, double? EndSeconds, Guid? ExpectedPlaybackDateiId);
+	Guid? ProgrammeItemId, double? StartSeconds, double? EndSeconds, Guid? ExpectedPlaybackDateiId);
 
 /// <summary>
 /// Absent times stay as they are, except on a passage in need of review,
@@ -34,21 +34,20 @@ public sealed record ReviewPassageItem(Guid? Id, uint? ExpectedVersion);
 public sealed record ReviewPassagesRequest(Guid? ExpectedPlaybackDateiId, List<ReviewPassageItem?>? Passages);
 
 /// <summary>
-/// Passages in whole recordings (ARC-032). An editor marks where one
-/// performance occurrence starts and ends inside a recording (any editor, not
+/// Zeitmarken in whole recordings. An editor marks where one entry of the
+/// Programm starts and ends inside a recording (any editor, not
 /// only the one who uploaded the files); members read them with the recording
 /// and in the Lied history.
 /// - Ids are checked against their stated parents: a passage is addressed
-///   through its recording, and the occurrence must belong to the
-///   recording's event (also guaranteed by the database).
+///   through its recording, and the Programm entry must belong to the
+///   recording's event.
 /// - A passage is anchored to the playback revision it was timed against.
 ///   Creating or editing takes the revision members play now; when that file
 ///   changes later, passages read "needsReview" until an editor edits or
 ///   confirms them (<c>/review</c>). Members never get a position from such a
 ///   passage.
-/// - Marking never creates or changes an occurrence, so no history count
-///   moves; performances with passages cannot be deleted or skipped
-///   (<see cref="RecordingPassages.BlockedMessageAsync"/>).
+/// - Marking never changes the Programm; entries with passages cannot be
+///   removed (<see cref="RecordingPassages.BlockedMessageAsync"/>).
 /// - Writes carry the playback revision the editor saw
 ///   (<c>expectedPlaybackDateiId</c>); when the file members play has
 ///   changed since, the write is a stale-state 409 and writes nothing.
@@ -62,7 +61,7 @@ public static class RecordingPassageEndpoints
 
 	public const string NotFoundMessage = "Zeitmarke nicht gefunden.";
 
-	public const string PerformanceNotInEventMessage = "Die Aufführung gehört nicht zu diesem Auftritt.";
+	public const string ProgrammeItemNotInEventMessage = "Der Programmpunkt gehört nicht zum Programm dieses Auftritts.";
 
 	public const string StartInvalidMessage = "Der Anfang ist ungültig.";
 
@@ -78,7 +77,7 @@ public static class RecordingPassageEndpoints
 
 	/// <summary>Not allowed in this state: edit the existing passage instead.</summary>
 	public const string DuplicateMessage =
-		"Für diese Aufführung gibt es in dieser Aufnahme schon eine Zeitmarke. Bearbeite die vorhandene.";
+		"Für diesen Programmpunkt gibt es in dieser Aufnahme schon eine Zeitmarke. Bearbeite die vorhandene.";
 
 	/// <summary>Stale state: the editor acted on an outdated copy and should reload.</summary>
 	public const string ConcurrencyMessage = "Die Zeitmarke wurde zwischenzeitlich geändert.";
@@ -119,9 +118,7 @@ public static class RecordingPassageEndpoints
 				playbackDateiId = RecordingFiles.Resolve(recording).Playable?.Id,
 				durationSeconds = recording.DurationSeconds,
 				passages,
-				occurrences = await OccurrencesAsync(db, recording.EventId, views, token),
-				hasPublishedProgramme = await db.ProgrammeRevisions.AsNoTracking()
-					.AnyAsync(r => r.Programme.EventId == recording.EventId && r.PublishedAt != null, token),
+				entries = await EntriesAsync(db, recording.EventId, views, token),
 			});
 		});
 
@@ -144,11 +141,11 @@ public static class RecordingPassageEndpoints
 				.FirstOrDefaultAsync(r => r.Id == id, token);
 			if (recording is null)
 				return Results.Problem(statusCode: 404, title: RecordingEndpoints.NotFoundMessage);
-			// The occurrence must belong to this recording's own event.
-			var performanceId = body.PerformanceId;
-			if (performanceId is null || !await db.Performances.AsNoTracking()
-				.AnyAsync(p => p.Id == performanceId && p.EventId == recording.EventId, token))
-				return Results.Problem(statusCode: 404, title: PerformanceNotInEventMessage);
+			// The entry must belong to the Programm of this recording's own event.
+			var programmeItemId = body.ProgrammeItemId;
+			if (programmeItemId is null || !await db.ProgrammeItems.AsNoTracking()
+				.AnyAsync(i => i.Id == programmeItemId && i.Programme.EventId == recording.EventId, token))
+				return Results.Problem(statusCode: 404, title: ProgrammeItemNotInEventMessage);
 			if (ValidateTimes(start, end, recording.DurationSeconds) is { } invalid)
 				return invalid;
 			var playable = RecordingFiles.Resolve(recording).Playable;
@@ -157,7 +154,7 @@ public static class RecordingPassageEndpoints
 			if (playable.Id != expectedDatei)
 				return Results.Problem(statusCode: 409, title: StalePlaybackMessage);
 			var existing = await db.RecordingPassages.AsNoTracking()
-				.FirstOrDefaultAsync(p => p.RecordingId == id && p.PerformanceId == performanceId, token);
+				.FirstOrDefaultAsync(p => p.RecordingId == id && p.ProgrammeItemId == programmeItemId, token);
 			if (existing is not null)
 			{
 				// A lost retry of the identical statement answers the stored passage.
@@ -170,7 +167,7 @@ public static class RecordingPassageEndpoints
 			var passage = new RecordingPassage
 			{
 				RecordingId = id,
-				PerformanceId = performanceId.Value,
+				ProgrammeItemId = programmeItemId.Value,
 				EventId = recording.EventId,
 				PlaybackDateiId = playable.Id,
 				StartSeconds = start!.Value,
@@ -388,29 +385,26 @@ public static class RecordingPassageEndpoints
 	}
 
 	/// <summary>
-	/// The marker list for editors: every occurrence of the event in captured
-	/// (programme) order with its passage in this recording, if any. A
-	/// confirmed programme has made its Lieder occurrences; a published
-	/// programme that was not confirmed yet has none to mark.
+	/// The marker list for editors: every entry of the event's Programm in
+	/// order with its passage in this recording, if any.
 	/// </summary>
-	private static async Task<List<object>> OccurrencesAsync(
+	private static async Task<List<object>> EntriesAsync(
 		ArchiveDbContext db, Guid eventId, List<RecordingPassages.PassageView> views, CancellationToken token)
 	{
-		var performances = await db.Performances.AsNoTracking()
-			.Where(p => p.EventId == eventId)
-			.OrderBy(p => p.Position).ThenBy(p => p.Id)
-			.Select(p => new { p.Id, p.Position, p.LiedId, p.EvidenceStatus })
+		var items = await db.ProgrammeItems.AsNoTracking()
+			.Where(i => i.Programme.EventId == eventId)
+			.OrderBy(i => i.Position).ThenBy(i => i.Id)
+			.Select(i => new { i.Id, i.Position, i.LiedId })
 			.ToListAsync(token);
-		var titles = await RecordingPassages.LoadTitlesAsync(db, performances.Select(p => p.LiedId).Distinct().ToList(), token);
-		var byPerformance = views.ToDictionary(v => v.Row.PerformanceId, v => v.Row.Id);
-		return performances.Select(p => (object)new
+		var titles = await RecordingPassages.LoadTitlesAsync(db, items.Select(i => i.LiedId).Distinct().ToList(), token);
+		var byItem = views.ToDictionary(v => v.Row.ProgrammeItemId, v => v.Row.Id);
+		return items.Select(i => (object)new
 		{
-			performanceId = p.Id,
-			position = p.Position,
-			liedId = p.LiedId,
-			liedTitle = titles.GetValueOrDefault(p.LiedId),
-			evidenceStatus = p.EvidenceStatus,
-			passageId = byPerformance.TryGetValue(p.Id, out var passageId) ? (Guid?)passageId : null,
+			programmeItemId = i.Id,
+			position = i.Position,
+			liedId = i.LiedId,
+			liedTitle = titles.GetValueOrDefault(i.LiedId),
+			passageId = byItem.TryGetValue(i.Id, out var passageId) ? (Guid?)passageId : null,
 		}).ToList();
 	}
 

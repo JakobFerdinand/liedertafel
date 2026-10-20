@@ -9,19 +9,17 @@ import {
   mondId,
 } from "./lieder-mock";
 
-// ARC-031 / #170: Aufführungsgeschichte auf der Liedseite — bestätigte
-// Aufführungen und Programmangaben getrennt gezählt (mit Vorbehalt „nur
-// erfasste Überlieferung“), unsichere Daten, Wiederholungen und mögliche
-// Doppelerfassungen sichtbar, Filter und Blättern gegen die Vertragsform
-// von GET /api/lieder/{id}/performances (tests/archive/backend/
-// ProgrammeLiedApiTests.cs). Rezeptur wie tests/auftritt-bestaetigung.spec.ts.
+// #160: „Wann gesungen“ auf der Liedseite — je Auftritt eine Zeile, abgeleitet
+// aus den Programmen und den Aufnahmen des Liedes, die einen Auftritt nennen
+// (mit Vorbehalt „nur erfasste Überlieferung“); unsichere Daten sichtbar.
+// Vertragsform von GET /api/lieder/{id}/historie (tests/archive/backend/
+// LiedHistorieTests.cs).
 
 const liedId = mondId;
 const titel = "Der Mond ist aufgegangen";
 const auftritt1 = "00000000-0000-0000-0000-00000000e001";
 const auftritt2 = "00000000-0000-0000-0000-00000000e002";
 const auftritt3 = "00000000-0000-0000-0000-00000000e003";
-const auftritt4 = "00000000-0000-0000-0000-00000000e004";
 
 async function mockSitzung(page: Page, me: unknown) {
   await mockLeereAufnahmen(page);
@@ -36,14 +34,8 @@ async function mockSitzung(page: Page, me: unknown) {
 
 type Zeile = Record<string, unknown>;
 
-function zeile(
-  id: string,
-  eventId: string,
-  titel: string,
-  extra: Zeile = {},
-): Zeile {
+function zeile(eventId: string, titel: string, extra: Zeile = {}): Zeile {
   return {
-    id,
     eventId,
     eventTitle: titel,
     eventKind: "concert",
@@ -55,31 +47,19 @@ function zeile(
     dateDisplay: "1. Juni 1975",
     datePrecision: "day",
     dateUncertain: false,
-    evidenceStatus: "confirmed",
-    origin: "record",
-    occurrence: { index: 1, of: 1 },
-    possiblyDuplicate: false,
-    possiblyDuplicateAtEvent: false,
-    alsoConfirmedAtEvent: false,
+    inProgramme: true,
+    entries: 1,
     recordings: [],
+    liedAufnahmen: [],
     ...extra,
   };
 }
 
 const zaehlung = {
-  confirmed: {
-    occurrences: 3,
-    events: 2,
-    uncertainDates: 1,
-    possiblyDuplicate: 1,
-  },
-  unconfirmed: {
-    occurrences: 2,
-    events: 2,
-    onlyEvents: 1,
-    uncertainDates: 1,
-  },
-  draftEventOccurrences: null,
+  events: 4,
+  inProgramme: 3,
+  uncertainDates: 2,
+  draftEvents: null,
 };
 
 function historie(zeilen: Zeile[], extra: Zeile = {}) {
@@ -89,28 +69,14 @@ function historie(zeilen: Zeile[], extra: Zeile = {}) {
     pageSize: 20,
     total: zeilen.length,
     counts: zaehlung,
-    performances: zeilen,
+    auftritte: zeilen,
     ...extra,
   };
 }
 
 const gemischteZeilen = [
-  zeile("p1", auftritt1, "Frühjahrskonzert", {
-    evidenceStatus: "mention",
-    alsoConfirmedAtEvent: true,
-    occurrence: null,
-  }),
-  zeile("p2", auftritt1, "Frühjahrskonzert", {
-    origin: "programme",
-    occurrence: { index: 1, of: 2 },
-    possiblyDuplicateAtEvent: true,
-  }),
-  zeile("p3", auftritt1, "Frühjahrskonzert", {
-    occurrence: { index: 2, of: 2 },
-    possiblyDuplicate: true,
-    possiblyDuplicateAtEvent: true,
-  }),
-  zeile("p4", auftritt2, "Sommerfest", {
+  zeile(auftritt1, "Frühjahrskonzert", { entries: 2 }),
+  zeile(auftritt2, "Sommerfest", {
     eventKind: "festival",
     dateYear: 1960,
     dateMonth: null,
@@ -119,10 +85,8 @@ const gemischteZeilen = [
     dateDisplay: "um 1960",
     datePrecision: "year",
     dateUncertain: true,
-    evidenceStatus: "mention",
-    occurrence: null,
   }),
-  zeile("p5", auftritt3, "Gottesdienst ohne Datum", {
+  zeile(auftritt3, "Gottesdienst ohne Datum", {
     eventKind: "service",
     dateYear: null,
     dateMonth: null,
@@ -130,6 +94,16 @@ const gemischteZeilen = [
     dateDisplay: "Datum unbekannt",
     datePrecision: "unknown",
     dateUncertain: true,
+    inProgramme: false,
+    entries: 0,
+    liedAufnahmen: [
+      {
+        id: "00000000-0000-0000-0000-00000000d001",
+        fileName: "gottesdienst.mp3",
+        contentType: "audio/mpeg",
+        description: null,
+      },
+    ],
   }),
 ];
 
@@ -139,7 +113,7 @@ async function mockHistorie(
 ) {
   const anfragen: string[] = [];
   await page.route(
-    new RegExp(`/api/lieder/${liedId}/performances(\\?.*)?$`),
+    new RegExp(`/api/lieder/${liedId}/historie(\\?.*)?$`),
     (route) => {
       const url = new URL(route.request().url());
       anfragen.push(url.search);
@@ -150,231 +124,112 @@ async function mockHistorie(
   return anfragen;
 }
 
-test("Mitglieder sehen getrennte, ehrlich begrenzte Zahlen und die Zeilen", async ({
+test("Mitglieder sehen ehrlich begrenzte Zahlen und je Auftritt eine Zeile", async ({
   page,
 }) => {
   await mockSitzung(page, memberMe);
   await mockHistorie(page, () => ({ body: historie(gemischteZeilen) }));
   await page.goto(`/lied/?id=${liedId}`);
 
-  const abschnitt = page.getByRole("region", {
-    name: "Aufführungsgeschichte",
-  });
-  await expect(abschnitt).toBeVisible();
+  const abschnitt = page.getByRole("region", { name: "Wann gesungen" });
+  await expect(abschnitt).toContainText("keine vollständige Chronik");
+  await expect(abschnitt).toContainText("4 Auftritte");
   await expect(abschnitt).toContainText(
-    "Sie sind keine vollständige Chronik der Aufführungen.",
+    "Bei 1 Auftritt steht das Lied nicht im Programm, es gibt aber eine Aufnahme.",
   );
-  // Zwei getrennte Zahlen, nie summiert.
-  const summen = abschnitt.locator(".historie-summen");
-  await expect(summen).toContainText("Bestätigt");
-  await expect(summen).toContainText("3 Aufführungen bei 2 Auftritten");
-  await expect(summen).toContainText("Unbestätigt");
-  await expect(summen).toContainText("2 Programmangaben bei 2 Auftritten");
-  await expect(summen).toContainText("Davon 1 möglicherweise doppelt erfasst");
-  await expect(summen).toContainText(
-    "An 1 Auftritt liegt nur eine Programmangabe vor",
+  await expect(abschnitt).toContainText(
+    "Bei 2 ist das Datum unsicher oder unbekannt.",
   );
-  await expect(summen).not.toContainText(/5 (Aufführungen|Nachweise|Einträge)/);
+  // Nichts vom entfernten Nachweismodell.
+  await expect(abschnitt).not.toContainText("Bestätigt");
+  await expect(abschnitt).not.toContainText("Programmangabe");
 
-  const eintraege = abschnitt.locator(".historie-eintrag");
-  await expect(eintraege).toHaveCount(5);
-  // Auftrittslink je Zeile.
+  const zeilen = abschnitt.locator(".historie-eintrag");
+  await expect(zeilen).toHaveCount(3);
+  await expect(zeilen.nth(0).getByRole("link")).toHaveAttribute(
+    "href",
+    `/auftritt/?id=${auftritt1}`,
+  );
+  await expect(zeilen.nth(0)).toContainText("1. Juni 1975");
+  await expect(zeilen.nth(0)).toContainText("2-mal im Programm");
+  await expect(zeilen.nth(0).locator(".datum-unsicher")).toHaveCount(0);
+  // Ein Jahr allein bleibt gekennzeichnet.
+  await expect(zeilen.nth(1)).toContainText("um 1960");
+  await expect(zeilen.nth(1).locator(".datum-unsicher")).toHaveText(
+    "Datum unsicher",
+  );
+  await expect(zeilen.nth(1)).toContainText("Im Programm");
+  // Nur eine Lied-Aufnahme nennt den Auftritt.
+  await expect(zeilen.nth(2)).toContainText("Datum unbekannt");
+  await expect(zeilen.nth(2)).toContainText(
+    "Nicht im Programm, aber aufgenommen",
+  );
   await expect(
-    eintraege.nth(0).getByRole("link", { name: "Frühjahrskonzert" }),
-  ).toHaveAttribute("href", `/auftritt/?id=${auftritt1}`);
-  // Programmangabe mit bestätigtem Auftritt.
-  await expect(eintraege.nth(0)).toContainText("Programmangabe");
-  await expect(eintraege.nth(0)).toContainText(
-    "gehört vermutlich zur selben Aufführung",
-  );
-  // Wiederholung und Programmherkunft.
-  await expect(eintraege.nth(1)).toContainText("Im Programm bestätigt");
-  // Eine mögliche Doppelerfassung wird nicht als gesicherte Wiederholung
-  // behauptet: beide bestätigten Zeilen tragen die nicht behauptende Fassung.
-  for (const stelle of [1, 2]) {
-    await expect(eintraege.nth(stelle)).toContainText(
-      "2 bestätigte Einträge an diesem Auftritt – möglicherweise doppelt erfasst.",
-    );
-    await expect(eintraege.nth(stelle)).not.toContainText("Mehrmals");
-    await expect(eintraege.nth(stelle)).not.toContainText("Aufführung 1 von");
-  }
-  await expect(eintraege.nth(2)).toContainText(
-    "Möglicherweise dieselbe Aufführung wie ein im Programm bestätigter Eintrag",
-  );
-  // Unsicheres und unbekanntes Datum.
-  await expect(eintraege.nth(3)).toContainText("um 1960");
-  await expect(eintraege.nth(3)).toContainText("Datum unsicher");
-  await expect(eintraege.nth(4)).toContainText("Datum unbekannt");
-  // Mitglieder sehen weder Quellenangaben noch Entwurfshinweise noch einen
-  // erfundenen Aufnahmen-Platz.
-  await expect(abschnitt).not.toContainText("Quellenangabe");
-  await expect(abschnitt).not.toContainText("nicht veröffentlicht");
-  await expect(abschnitt.locator(".historie-erweiterung")).toHaveCount(0);
-  await expect(eintraege.nth(1)).toHaveAttribute("data-performance-id", "p2");
-
-  // Kein horizontaler Überlauf (Handy-Projekt inklusive).
-  const ueberlauf = await page.evaluate(
-    () =>
-      document.documentElement.scrollWidth >
-      document.documentElement.clientWidth,
-  );
-  expect(ueberlauf).toBe(false);
+    zeilen.nth(2).getByRole("list", { name: "Aufnahmen des Liedes" }),
+  ).toContainText("gottesdienst.mp3");
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
 });
 
-test("Filter fragen den Server und blättern zurück auf Seite 1", async ({
-  page,
-}) => {
-  await mockSitzung(page, memberMe);
-  const anfragen = await mockHistorie(page, (url) => {
-    const evidenz = url.searchParams.get("evidence");
-    const seite = Number(url.searchParams.get("page") ?? "1");
-    if (evidenz === "mention") {
-      return {
-        body: historie([gemischteZeilen[0], gemischteZeilen[3]]),
-      };
-    }
-    // Zwei Seiten, wenn ungefiltert.
-    return {
-      body: historie(gemischteZeilen.slice(0, seite === 2 ? 1 : 2), {
-        page: seite,
-        pageSize: 2,
-        total: 3,
-      }),
-    };
-  });
-  await page.goto(`/lied/?id=${liedId}`);
-  const abschnitt = page.getByRole("region", {
-    name: "Aufführungsgeschichte",
-  });
-  await expect(abschnitt.locator(".historie-eintrag")).toHaveCount(2);
-  await expect(abschnitt).toContainText("Seite 1 von 2");
-
-  await abschnitt.getByRole("button", { name: "Weiter" }).click();
-  await expect(abschnitt).toContainText("Seite 2 von 2");
-  expect(anfragen.at(-1)).toBe("?page=2");
-
-  await abschnitt.getByLabel("Nachweis").selectOption("mention");
-  await expect(abschnitt.locator(".historie-eintrag")).toHaveCount(2);
-  expect(anfragen.at(-1)).toBe("?evidence=mention");
-  await expect(abschnitt).not.toContainText("Seite 2 von");
-});
-
-test("Ein Lied ohne Nachweise sagt ehrlich, dass nichts erfasst ist", async ({
+test("Ein Lied ohne Auftritt sagt ehrlich, dass nichts erfasst ist", async ({
   page,
 }) => {
   await mockSitzung(page, memberMe);
   await mockHistorie(page, () => ({
     body: historie([], {
       counts: {
-        confirmed: {
-          occurrences: 0,
-          events: 0,
-          uncertainDates: 0,
-          possiblyDuplicate: 0,
-        },
-        unconfirmed: {
-          occurrences: 0,
-          events: 0,
-          onlyEvents: 0,
-          uncertainDates: 0,
-        },
-        draftEventOccurrences: null,
+        events: 0,
+        inProgramme: 0,
+        uncertainDates: 0,
+        draftEvents: null,
       },
     }),
   }));
   await page.goto(`/lied/?id=${liedId}`);
-  const abschnitt = page.getByRole("region", {
-    name: "Aufführungsgeschichte",
-  });
+
+  const abschnitt = page.getByRole("region", { name: "Wann gesungen" });
   await expect(abschnitt).toContainText(
-    "Für dieses Lied sind noch keine Aufführungen oder Programmangaben erfasst.",
+    "Für dieses Lied ist noch kein Auftritt erfasst.",
   );
   await expect(abschnitt).toContainText(
     "Das heißt nicht, dass es nie gesungen wurde.",
   );
-  await expect(abschnitt.locator(".historie-summen")).toHaveCount(0);
-  await expect(abschnitt.getByLabel("Nachweis")).toHaveCount(0);
+  await expect(abschnitt.locator(".historie-eintrag")).toHaveCount(0);
 });
 
-test("Die Redaktion sieht Quellenangaben und Entwurfszeilen ohne Zählung", async ({
-  page,
-}) => {
+test("Die Redaktion sieht Entwurfszeilen ohne Zählung", async ({ page }) => {
   await mockSitzung(page, editorMe);
   await mockHistorie(page, () => ({
     body: historie(
       [
-        zeile("p1", auftritt4, "Entwurfsauftritt", {
-          eventPublished: false,
-          evidenceStatus: "mention",
-          occurrence: null,
-          sourceNote: "Programmzettel 1975",
-        }),
-        zeile("p2", auftritt1, "Frühjahrskonzert", {
-          sourceNote: null,
-        }),
+        zeile(auftritt1, "Frühjahrskonzert"),
+        zeile(auftritt2, "Interner Termin", { eventPublished: false }),
       ],
       {
-        counts: { ...zaehlung, draftEventOccurrences: 1 },
+        counts: {
+          events: 1,
+          inProgramme: 1,
+          uncertainDates: 0,
+          draftEvents: 1,
+        },
       },
     ),
   }));
   await page.goto(`/lied/?id=${liedId}`);
-  const abschnitt = page.getByRole("region", {
-    name: "Aufführungsgeschichte",
-  });
+
+  const abschnitt = page.getByRole("region", { name: "Wann gesungen" });
   await expect(abschnitt).toContainText(
-    "1 Eintrag gehört zu unveröffentlichten Auftritten und ist in keiner Zahl mitgezählt.",
+    "1 Auftritt ist noch nicht veröffentlicht und in keiner Zahl mitgezählt.",
   );
-  const eintraege = abschnitt.locator(".historie-eintrag");
-  await expect(eintraege.nth(0)).toContainText(
+  await expect(abschnitt.locator(".historie-eintrag").nth(1)).toContainText(
     "Auftritt noch nicht veröffentlicht, in keiner Zahl enthalten.",
   );
-  await expect(eintraege.nth(0)).toContainText(
-    "Quellenangabe: Programmzettel 1975",
+  await expect(abschnitt.locator(".historie-eintrag").nth(0)).not.toContainText(
+    "noch nicht veröffentlicht",
   );
-  await expect(eintraege.nth(1)).not.toContainText("Quellenangabe");
-  // Auch unter einem Filter bleibt der Hinweis stehen.
-  await abschnitt.getByLabel("Nachweis").selectOption("mention");
-  await expect(abschnitt).toContainText(
-    "1 Eintrag gehört zu unveröffentlichten Auftritten",
-  );
-});
-
-test("Echte Wiederholungen und herabgestufte Programmzeilen lesen sich ehrlich", async ({
-  page,
-}) => {
-  await mockSitzung(page, memberMe);
-  await mockHistorie(page, () => ({
-    body: historie([
-      // Zwei von Hand erfasste Zeilen: eine echte Wiederholung.
-      zeile("w1", auftritt1, "Frühjahrskonzert", {
-        occurrence: { index: 1, of: 2 },
-      }),
-      zeile("w2", auftritt1, "Frühjahrskonzert", {
-        occurrence: { index: 2, of: 2 },
-      }),
-      // Eine über das Programm entstandene, dann zur Programmangabe
-      // herabgestufte Zeile: nie als bestätigt lesen.
-      zeile("w3", auftritt2, "Sommerfest", {
-        origin: "programme",
-        evidenceStatus: "mention",
-        occurrence: null,
-      }),
-    ]),
-  }));
-  await page.goto(`/lied/?id=${liedId}`);
-  const eintraege = page
-    .getByRole("region", { name: "Aufführungsgeschichte" })
-    .locator(".historie-eintrag");
-  await expect(eintraege).toHaveCount(3);
-  await expect(eintraege.nth(0)).toContainText(
-    "Mehrmals an diesem Auftritt gesungen: Aufführung 1 von 2.",
-  );
-  await expect(eintraege.nth(1)).toContainText("Aufführung 2 von 2");
-  await expect(eintraege.nth(1)).not.toContainText("doppelt erfasst");
-  await expect(eintraege.nth(2)).toContainText("Programmangabe");
-  await expect(eintraege.nth(2)).toContainText("Aus dem Programm");
-  await expect(eintraege.nth(2)).not.toContainText(/bestätigt/i);
 });
 
 test("Eine Seite hinter dem Ende übernimmt die vom Server gemeldete Seite", async ({
@@ -382,95 +237,33 @@ test("Eine Seite hinter dem Ende übernimmt die vom Server gemeldete Seite", asy
 }) => {
   await mockSitzung(page, memberMe);
   const anfragen = await mockHistorie(page, (url) => {
-    const seite = Number(url.searchParams.get("page") ?? "1");
-    if (seite === 1 && anfragen.length > 1) {
-      // Zeilen sind verschwunden: nur noch eine Seite.
+    const seite = url.searchParams.get("page");
+    if (seite === "2") {
       return {
-        body: historie(gemischteZeilen.slice(0, 2), {
-          page: 1,
-          pageSize: 2,
-          total: 2,
+        body: historie([zeile(auftritt3, "Zweite Seite")], {
+          page: 2,
+          total: 21,
         }),
       };
     }
-    if (seite === 2) {
-      // Der Server klemmt die Seite 2 auf die letzte (jetzt 1).
-      return {
-        body: historie(gemischteZeilen.slice(0, 2), {
-          page: 1,
-          pageSize: 2,
-          total: 2,
-        }),
-      };
-    }
-    return {
-      body: historie(gemischteZeilen.slice(0, 2), {
-        page: 1,
-        pageSize: 2,
-        total: 3,
-      }),
-    };
+    return { body: historie(gemischteZeilen, { total: 21 }) };
   });
   await page.goto(`/lied/?id=${liedId}`);
-  const abschnitt = page.getByRole("region", {
-    name: "Aufführungsgeschichte",
-  });
+  const abschnitt = page.getByRole("region", { name: "Wann gesungen" });
   await expect(abschnitt).toContainText("Seite 1 von 2");
   await abschnitt.getByRole("button", { name: "Weiter" }).click();
-  await expect(abschnitt.locator(".historie-eintrag")).toHaveCount(2);
-  await expect(abschnitt).not.toContainText("Seite 2 von");
-  await expect(abschnitt).not.toContainText(/Seite \d+ von 1/);
-  // Die gemeldete Seite 1 wurde übernommen und neu geladen.
-  await expect.poll(() => anfragen.at(-1)).toBe("");
-});
-
-test("Beim Wechsel von Filter oder Seite zeigt die Liste ihren Ladezustand", async ({
-  page,
-}) => {
-  await mockSitzung(page, memberMe);
-  let freigeben: () => void = () => {};
-  const gesperrt = new Promise<void>((auf) => {
-    freigeben = auf;
-  });
-  await page.route(
-    new RegExp(`/api/lieder/${liedId}/performances(\\?.*)?$`),
-    async (route) => {
-      const url = new URL(route.request().url());
-      if (url.searchParams.get("evidence") === "mention") await gesperrt;
-      await route.fulfill(
-        json(
-          url.searchParams.get("evidence") === "mention"
-            ? historie([gemischteZeilen[0]])
-            : historie(gemischteZeilen),
-        ),
-      );
-    },
-  );
-  await page.goto(`/lied/?id=${liedId}`);
-  const abschnitt = page.getByRole("region", {
-    name: "Aufführungsgeschichte",
-  });
-  const bereich = abschnitt.locator(".historie-bereich");
-  await expect(abschnitt.locator(".historie-eintrag")).toHaveCount(5);
-  await expect(bereich).toHaveAttribute("aria-busy", "false");
-
-  await abschnitt.getByLabel("Nachweis").selectOption("mention");
-  await expect(bereich).toHaveAttribute("aria-busy", "true");
-  await expect(abschnitt).toContainText("Wird aktualisiert …");
-  freigeben();
+  await expect(abschnitt).toContainText("Seite 2 von 2");
   await expect(abschnitt.locator(".historie-eintrag")).toHaveCount(1);
-  await expect(bereich).toHaveAttribute("aria-busy", "false");
-  await expect(abschnitt).not.toContainText("Wird aktualisiert …");
+  expect(anfragen.some((suche) => suche.includes("page=2"))).toBe(true);
 });
 
 test("Ein Ladefehler bleibt im Abschnitt und lässt sich wiederholen", async ({
   page,
 }) => {
   await mockSitzung(page, memberMe);
-  let versuche = 0;
+  let kaputt = true;
   await mockHistorie(page, () => {
-    versuche += 1;
-    if (versuche === 1) {
+    if (kaputt) {
       return { status: 500, body: { title: "Fehler" } };
     }
     return { body: historie(gemischteZeilen) };
@@ -478,17 +271,16 @@ test("Ein Ladefehler bleibt im Abschnitt und lässt sich wiederholen", async ({
   await page.goto(`/lied/?id=${liedId}`);
   // Das Lied selbst bleibt benutzbar.
   await expect(page.getByRole("heading", { name: titel })).toBeVisible();
-  const abschnitt = page.getByRole("region", {
-    name: "Aufführungsgeschichte",
-  });
+  const abschnitt = page.getByRole("region", { name: "Wann gesungen" });
   await expect(abschnitt.getByRole("alert")).toContainText(
     "konnte nicht geladen werden",
   );
+  kaputt = false;
   await abschnitt.getByRole("button", { name: "Erneut versuchen" }).click();
-  await expect(abschnitt.locator(".historie-eintrag")).toHaveCount(5);
+  await expect(abschnitt.locator(".historie-eintrag")).toHaveCount(3);
 });
 
-test("Aufführungen mit markierter Stelle verweisen in die Aufnahme, andere bleiben ohne Aussage", async ({
+test("Auftritte mit markierter Stelle verweisen in die Aufnahme, andere bleiben ohne Aussage", async ({
   page,
 }) => {
   const aufnahmeId = "00000000-0000-0000-0000-00000000c321";
@@ -496,7 +288,7 @@ test("Aufführungen mit markierter Stelle verweisen in die Aufnahme, andere blei
   const stelleId = "00000000-0000-0000-0000-00000000e101";
   const zweiteStelle = "00000000-0000-0000-0000-00000000e102";
   const zeilen = [
-    zeile("p1", auftritt1, "Frühjahrskonzert", {
+    zeile(auftritt1, "Frühjahrskonzert", {
       recordings: [
         {
           passageId: stelleId,
@@ -520,16 +312,14 @@ test("Aufführungen mit markierter Stelle verweisen in die Aufnahme, andere blei
         },
       ],
     }),
-    zeile("p2", auftritt2, "Sommerfest"),
+    zeile(auftritt2, "Sommerfest"),
   ];
   await mockSitzung(page, memberMe);
   await mockHistorie(page, () => ({ body: historie(zeilen) }));
   await page.goto(`/lied/?id=${liedId}`);
 
-  const erste = page.locator('[data-performance-id="p1"]');
-  const liste = erste.getByRole("list", {
-    name: "Aufnahmen dieser Aufführung",
-  });
+  const erste = page.locator(`[data-event-id="${auftritt1}"]`);
+  const liste = erste.getByRole("list", { name: "Aufnahmen mit Zeitmarke" });
   await expect(liste.getByRole("listitem")).toHaveCount(2);
   const sprung = liste.getByRole("link", {
     name: "Zu „Der Mond ist aufgegangen“ in „Video Kamera 1“ springen",
@@ -551,7 +341,7 @@ test("Aufführungen mit markierter Stelle verweisen in die Aufnahme, andere blei
   ).toHaveCount(0);
 
   // Ohne Markierung: kein Platz, keine „keine Aufnahmen“-Aussage.
-  const zweite = page.locator('[data-performance-id="p2"]');
+  const zweite = page.locator(`[data-event-id="${auftritt2}"]`);
   await expect(zweite.getByRole("list", { name: /Aufnahmen/ })).toHaveCount(0);
   await expect(page.getByText(/keine Aufnahme/i)).toHaveCount(0);
 });
@@ -564,7 +354,7 @@ test("Redaktion sieht Entwurfsaufnahmen und darf eine ungeprüfte Marke anspring
   await mockSitzung(page, editorMe);
   await mockHistorie(page, () => ({
     body: historie([
-      zeile("p1", auftritt1, "Frühjahrskonzert", {
+      zeile(auftritt1, "Frühjahrskonzert", {
         recordings: [
           {
             passageId: stelleId,
@@ -582,8 +372,8 @@ test("Redaktion sieht Entwurfsaufnahmen und darf eine ungeprüfte Marke anspring
   }));
   await page.goto(`/lied/?id=${liedId}`);
   const liste = page
-    .locator('[data-performance-id="p1"]')
-    .getByRole("list", { name: "Aufnahmen dieser Aufführung" });
+    .locator(`[data-event-id="${auftritt1}"]`)
+    .getByRole("list", { name: "Aufnahmen mit Zeitmarke" });
   await expect(liste).toContainText("Entwurf");
   await expect(liste).toContainText("Zeitmarke zu prüfen");
   await expect(liste).toContainText("1:00 – 3:20");

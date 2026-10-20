@@ -28,9 +28,9 @@ const eventId = "00000000-0000-0000-0000-00000000c320";
 const videoId = "00000000-0000-0000-0000-00000000c321";
 const revisionId = "00000000-0000-0000-0000-00000000f320";
 const alteRevisionId = "00000000-0000-0000-0000-00000000f319";
-const performanceA = "00000000-0000-0000-0000-00000000d001";
-const performanceB = "00000000-0000-0000-0000-00000000d002";
-const performanceC = "00000000-0000-0000-0000-00000000d003";
+const itemA = "00000000-0000-0000-0000-00000000d001";
+const itemB = "00000000-0000-0000-0000-00000000d002";
+const itemC = "00000000-0000-0000-0000-00000000d003";
 const passageA = "00000000-0000-0000-0000-00000000e001";
 const passageB = "00000000-0000-0000-0000-00000000e002";
 
@@ -52,7 +52,7 @@ function problem(title: string, status: number) {
 
 type Stelle = {
   id: string;
-  performanceId: string;
+  programmeItemId: string;
   liedTitle: string;
   position: number;
   start: number;
@@ -62,9 +62,9 @@ type Stelle = {
 };
 
 const lieder: Record<string, { titel: string; position: number }> = {
-  [performanceA]: { titel: "Lied A", position: 1 },
-  [performanceB]: { titel: "Lied B", position: 2 },
-  [performanceC]: { titel: "Lied C", position: 3 },
+  [itemA]: { titel: "Lied A", position: 1 },
+  [itemB]: { titel: "Lied B", position: 2 },
+  [itemC]: { titel: "Lied C", position: 3 },
 };
 
 function eintrag(stelle: Stelle, redaktion: boolean) {
@@ -72,10 +72,9 @@ function eintrag(stelle: Stelle, redaktion: boolean) {
   return {
     id: stelle.id,
     recordingId: videoId,
-    performanceId: stelle.performanceId,
-    liedId: `lied-${stelle.performanceId}`,
+    programmeItemId: stelle.programmeItemId,
+    liedId: `lied-${stelle.programmeItemId}`,
     liedTitle: stelle.liedTitle,
-    evidenceStatus: "confirmed",
     position: stelle.position,
     startSeconds: verborgen ? null : stelle.start,
     endSeconds: verborgen ? null : stelle.ende,
@@ -104,16 +103,14 @@ function stellenStand(stellen: Stelle[], redaktion: boolean, opts = {}) {
     ...basis,
     playbackDateiId: revisionId,
     durationSeconds: 6,
-    occurrences: Object.entries(lieder).map(([performanceId, lied]) => ({
-      performanceId,
+    entries: Object.entries(lieder).map(([programmeItemId, lied]) => ({
+      programmeItemId,
       position: lied.position,
-      liedId: `lied-${performanceId}`,
+      liedId: `lied-${programmeItemId}`,
       liedTitle: lied.titel,
-      evidenceStatus: "confirmed",
       passageId:
-        stellen.find((s) => s.performanceId === performanceId)?.id ?? null,
+        stellen.find((s) => s.programmeItemId === programmeItemId)?.id ?? null,
     })),
-    hasPublishedProgramme: true,
     ...opts,
   };
 }
@@ -265,7 +262,7 @@ async function mockSeite(
 
 const stelleA: Stelle = {
   id: passageA,
-  performanceId: performanceA,
+  programmeItemId: itemA,
   liedTitle: "Lied A",
   position: 1,
   start: 1,
@@ -276,7 +273,7 @@ const stelleA: Stelle = {
 
 const stelleB: Stelle = {
   id: passageB,
-  performanceId: performanceB,
+  programmeItemId: itemB,
   liedTitle: "Lied B",
   position: 2,
   start: 4,
@@ -504,16 +501,16 @@ test("Redaktion geht die Lieder der Reihe nach durch und setzt Anfang und Ende m
   await page.route(`**/api/recordings/${videoId}/passages`, async (route) => {
     if (route.request().method() !== "POST") return route.fallback();
     const body = route.request().postDataJSON() as {
-      performanceId: string;
+      programmeItemId: string;
       startSeconds: number;
       endSeconds: number;
     };
     anfragen.gesendet.push({ methode: "POST", pfad: "passages", body });
     const neu: Stelle = {
       id: passageA,
-      performanceId: body.performanceId,
-      liedTitle: lieder[body.performanceId].titel,
-      position: lieder[body.performanceId].position,
+      programmeItemId: body.programmeItemId,
+      liedTitle: lieder[body.programmeItemId].titel,
+      position: lieder[body.programmeItemId].position,
       start: body.startSeconds,
       ende: body.endSeconds,
       zustand: "current",
@@ -577,7 +574,7 @@ test("Redaktion geht die Lieder der Reihe nach durch und setzt Anfang und Ende m
     .click();
   await expect.poll(() => anfragen.gesendet.length).toBe(1);
   expect(anfragen.gesendet[0].body).toEqual({
-    performanceId: performanceA,
+    programmeItemId: itemA,
     startSeconds: 1.5,
     endSeconds: 3,
     expectedPlaybackDateiId: revisionId,
@@ -693,7 +690,7 @@ test("Redaktion: Serverfehler halten die Eingabe, ein veralteter Stand lädt neu
 
   // Nicht erlaubt in diesem Zustand: die Eingabe bleibt stehen.
   antwort = problem(
-    "Für diese Aufführung gibt es in dieser Aufnahme schon eine Zeitmarke. Bearbeite die vorhandene.",
+    "Für diesen Programmpunkt gibt es in dieser Aufnahme schon eine Zeitmarke. Bearbeite die vorhandene.",
     409,
   );
   await zeitmarken
@@ -865,12 +862,10 @@ test("Redaktion sieht zu prüfende Zeitmarken und bestätigt sie gegen die aktue
   await expect(zeitmarken.getByText("Zu prüfen")).toHaveCount(0);
 });
 
-test("Redaktion: ohne bestätigte Aufführungen sagt die Liste, was fehlt", async ({
-  page,
-}) => {
+test("Redaktion: ohne Programm sagt die Liste, was fehlt", async ({ page }) => {
   await mockSeite(page, editorMe, [], {
     redaktion: true,
-    stand: () => ({ ...stellenStand([], true), occurrences: [] }),
+    stand: () => ({ ...stellenStand([], true), entries: [] }),
   });
   await page.goto(`/auftritt/?id=${eventId}`);
   const zeitmarken = page.getByRole("group", {
@@ -878,7 +873,7 @@ test("Redaktion: ohne bestätigte Aufführungen sagt die Liste, was fehlt", asyn
   });
   await expect(
     zeitmarken.getByText(
-      "Zu diesem Auftritt gibt es noch keine bestätigten Aufführungen. Das veröffentlichte Programm ist noch nicht bestätigt: Bestätige zuerst unter „Tatsächlich gesungen“, was gesungen wurde.",
+      "Zu diesem Auftritt gibt es noch kein Programm. Lege zuerst das Programm an, dann lassen sich seine Lieder in der Aufnahme markieren.",
     ),
   ).toBeVisible();
   await expect(zeitmarken.getByRole("listitem")).toHaveCount(0);

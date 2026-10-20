@@ -133,14 +133,11 @@ public static class EventEndpoints
 			// sourceNote; members only see finalized material, pending items
 			// expose no tickets and stay editor-only.
 			var documents = await LoadEventDocumentsAsync(db, isEditor, id, token);
-			// ARC-026: the programme embed rides the detail payload after
-			// documents, role-filtered (members: newest published revision
-			// only; editors: working draft too).
-			var programme = await ProgrammeEndpoints.LoadDetailEmbedAsync(db, isEditor, id, token);
-			// ARC-028: the evidence embed rides after programme, role-
-			// filtered (members only the minimal occurrences, never notes).
-			var performances = await PerformanceEndpoints.LoadEventPerformancesAsync(db, isEditor, id, token);
-			return Results.Ok(new { @event = EventDetail(choirEvent, documents, programme, performances) });
+			// The one Programm rides the detail payload after documents, and
+			// so do the Lied-Aufnahmen that name this Auftritt.
+			var programme = await ProgrammeEndpoints.LoadDetailEmbedAsync(db, id, token);
+			var liedAufnahmen = await LoadLiedAufnahmenAsync(db, id, token);
+			return Results.Ok(new { @event = EventDetail(choirEvent, documents, programme, liedAufnahmen) });
 		});
 
 		app.MapPost("/api/events", async (
@@ -225,9 +222,9 @@ public static class EventEndpoints
 			if (!outcome.IsSaved)
 				return Results.Problem(statusCode: outcome.HttpCode, title: outcome.Title);
 			var documents = await LoadEventDocumentsAsync(db, IsEditor(decision), id, token);
-			var programme = await ProgrammeEndpoints.LoadDetailEmbedAsync(db, IsEditor(decision), id, token);
-			var performances = await PerformanceEndpoints.LoadEventPerformancesAsync(db, IsEditor(decision), id, token);
-			return Results.Ok(new { @event = EventDetail(choirEvent, documents, programme, performances) });
+			var programme = await ProgrammeEndpoints.LoadDetailEmbedAsync(db, id, token);
+			var liedAufnahmen = await LoadLiedAufnahmenAsync(db, id, token);
+			return Results.Ok(new { @event = EventDetail(choirEvent, documents, programme, liedAufnahmen) });
 		}).DisableAntiforgery();
 
 		app.MapPost("/api/events/{id}/publish", async (
@@ -253,9 +250,9 @@ public static class EventEndpoints
 			if (!outcome.IsSaved)
 				return Results.Problem(statusCode: outcome.HttpCode, title: outcome.Title);
 			var publishDocuments = await LoadEventDocumentsAsync(db, IsEditor(decision!), id, token);
-			var publishProgramme = await ProgrammeEndpoints.LoadDetailEmbedAsync(db, IsEditor(decision!), id, token);
-			var publishPerformances = await PerformanceEndpoints.LoadEventPerformancesAsync(db, IsEditor(decision!), id, token);
-			return Results.Ok(new { @event = EventDetail(choirEvent, publishDocuments, publishProgramme, publishPerformances) });
+			var publishProgramme = await ProgrammeEndpoints.LoadDetailEmbedAsync(db, id, token);
+			var publishLiedAufnahmen = await LoadLiedAufnahmenAsync(db, id, token);
+			return Results.Ok(new { @event = EventDetail(choirEvent, publishDocuments, publishProgramme, publishLiedAufnahmen) });
 		}).DisableAntiforgery();
 
 		app.MapPost("/api/events/{id}/unpublish", async (
@@ -279,9 +276,9 @@ public static class EventEndpoints
 			if (!outcome.IsSaved)
 				return Results.Problem(statusCode: outcome.HttpCode, title: outcome.Title);
 			var unpublishDocuments = await LoadEventDocumentsAsync(db, IsEditor(decision!), id, token);
-			var unpublishProgramme = await ProgrammeEndpoints.LoadDetailEmbedAsync(db, IsEditor(decision!), id, token);
-			var unpublishPerformances = await PerformanceEndpoints.LoadEventPerformancesAsync(db, IsEditor(decision!), id, token);
-			return Results.Ok(new { @event = EventDetail(choirEvent, unpublishDocuments, unpublishProgramme, unpublishPerformances) });
+			var unpublishProgramme = await ProgrammeEndpoints.LoadDetailEmbedAsync(db, id, token);
+			var unpublishLiedAufnahmen = await LoadLiedAufnahmenAsync(db, id, token);
+			return Results.Ok(new { @event = EventDetail(choirEvent, unpublishDocuments, unpublishProgramme, unpublishLiedAufnahmen) });
 		}).DisableAntiforgery();
 	}
 
@@ -320,7 +317,7 @@ public static class EventEndpoints
 		published = e.PublishedAt is not null,
 	};
 
-	private static object EventDetail(ChoirEvent e, IReadOnlyList<object>? documents = null, object? programme = null, IReadOnlyList<object>? performances = null) => new
+	private static object EventDetail(ChoirEvent e, IReadOnlyList<object>? documents = null, object? programme = null, IReadOnlyList<object>? liedAufnahmen = null) => new
 	{
 		id = e.Id,
 		kind = e.Kind,
@@ -338,7 +335,7 @@ public static class EventEndpoints
 		sourceNote = e.SourceNote,
 		documents = documents ?? [],
 		programme,
-		performances = performances ?? [],
+		liedAufnahmen = liedAufnahmen ?? [],
 		rowVersion = e.RowVersion,
 		createdAt = e.CreatedAt,
 		updatedAt = e.UpdatedAt,
@@ -368,6 +365,39 @@ public static class EventEndpoints
 				sizeBytes = d.SizeBytes,
 				createdAt = d.CreatedAt,
 				rowVersion = d.RowVersion,
+			})
+			.ToList();
+	}
+
+	/// <summary>
+	/// The Aufnahmen of single Lieder that name this Auftritt (GLOSSARY:
+	/// "optionally naming the Auftritt it came from"), live Dateien only, so
+	/// they show up on the Auftritt next to its own Aufnahmen. The player and
+	/// download live on the Lied's own Dateien.
+	/// </summary>
+	public static async Task<List<object>> LoadLiedAufnahmenAsync(
+		ArchiveDbContext db, Guid eventId, CancellationToken token)
+	{
+		var rows = await Lieder.DateiQueries.Visible(db).AsNoTracking()
+			.Where(d => d.Kind == Lieder.DateiKinds.Aufnahme && d.LiedId != null && d.RecordedAtEventId == eventId)
+			.Select(d => new
+			{
+				d.Id, LiedId = d.LiedId!.Value, LiedTitle = d.Lied!.Title, d.OriginalFileName, d.Description,
+				d.ContentType, d.SizeBytes, d.CreatedAt,
+			})
+			.ToListAsync(token);
+		return rows
+			.OrderBy(r => r.LiedTitle, StringComparer.CurrentCulture).ThenBy(r => r.CreatedAt).ThenBy(r => r.Id)
+			.Select(r => (object)new
+			{
+				id = r.Id,
+				liedId = r.LiedId,
+				liedTitle = r.LiedTitle,
+				fileName = r.OriginalFileName,
+				description = r.Description,
+				contentType = r.ContentType,
+				sizeBytes = r.SizeBytes,
+				createdAt = r.CreatedAt,
 			})
 			.ToList();
 	}

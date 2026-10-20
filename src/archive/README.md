@@ -322,7 +322,7 @@ Members chat with the archive at `/fragen` („Fragen zum Archiv"): `POST /api/c
 - Threads persist in the existing PostgreSQL (`chat_threads`/`chat_messages`, migration `20260922214454_ArchiveChat`), are owned by the asking member, are bounded to the last 20 messages, and are validated for ownership on every request. The client generates the thread id (`localStorage` key `arc-chat-thread`); server-side history is authoritative — client-provided older messages are ignored as tamper-proof grounding. `GET /api/chat/thread/{id}` restores the owner's history; foreign/missing threads answer an indistinguishable 404.
 - Tools are allow-listed and authorized inside themselves: `catalogue_search` (all Lieder, `CatalogueText.Fold` token-AND, ≤ 10 results, 300-char lyrics excerpt) and `lied_details` (Lied fields, its live Dateien, where it was sung and where it is planned). Document text is data, never instructions; no editing tools, no raw queries, no general-knowledge answers.
 - Per-request bounds are app-enforced: question ≤ 2000 chars, at most 5 model calls per run (`MaxToolCalls`; every call offers the tools, and a run whose fifth call still asks for a tool ends in the failure state without a sixth call), 30 s no-token abort per model call, 120 s overall cap, client-disconnect cancellation, one repetition of the run's first call when the provider fails before its first update (the only case with a sixth provider request), German `RUN_ERROR` failure state. Cost is bounded by the shared AI budget below.
-- The chat answers 503 „Der Archiv-Chat ist derzeit nicht verfügbar." unless `Archive:Chat:Enabled=true` and `Disabled=false`, so production stays inert until the provider step. Performance/evidence questions answer honestly that no Aufführungsdaten exist yet (ARC-024/026/028/031 provide them); the synthetic evaluation (`tests/archive/backend/ChatEvaluationTests.cs`, `--filter FullyQualifiedName~ChatEvaluation`) verifies the grounding bar — every citation verifiable against the authorized result set, zero unsupported claims, honest unknown behaviour, recorded EUR-per-answer cost — and must be rerun against the pinned live model before first production chat use.
+- The chat answers 503 „Der Archiv-Chat ist derzeit nicht verfügbar." unless `Archive:Chat:Enabled=true` and `Disabled=false`, so production stays inert until the provider step. Questions about whole Auftritte answer honestly that the chat has no Auftritt tools (a single Lied's history comes from `lied_details`); the synthetic evaluation (`tests/archive/backend/ChatEvaluationTests.cs`, `--filter FullyQualifiedName~ChatEvaluation`) verifies the grounding bar — every citation verifiable against the authorized result set, zero unsupported claims, honest unknown behaviour, recorded EUR-per-answer cost — and must be rerun against the pinned live model before first production chat use.
 
 ### ARC-022-3 agent, AI gateway and the hard monthly cap
 
@@ -395,97 +395,55 @@ derives the date from the filled year/month/day fields — empty means an
 unknown date, nothing invented.
 
 Handoff: the stable event IDs are the anchor points the later slices attach
-to; no programme/setlist tables exist yet, and publishing an event is
-independent of ARC-026's programme publication.
+to. Publishing an event is independent of saving its Programm (see "Programm
+and Lied history (#160)"): a Programm is visible exactly when its event is.
 
-## ARC-029 confirming what was actually sung
+## Programm and Lied history (#160)
 
-Plan and actual stay separate persistence. The planned revision rows
-(ARC-026/027) are never written by a confirmation; the actual programme is a
-`programme_confirmations` row (one per programme, bound to the published
-revision it reviewed, attribution + application-bumped `RowVersion`, token 0 =
-"nothing confirmed yet") plus ARC-028 `performances` rows that carry two new
-nullable columns: `ProgrammeItemId` (the frozen planned entry they confirm,
-unique) and `ConfirmationId` (the confirmation owning them; also set for
-added encores). Migration `ProgrammeConfirmation`. Occurrences written here
-are always evidence `confirmed`; historical ARC-028 rows (both columns null)
-are never touched.
+An Auftritt has **one editable Programm** (ADR-0001, `backend/Events`): the
+ordered list of Lieder it was sung with, which is also the record of what was
+sung. There are no programme revisions or drafts, no separate confirmation step
+and no `confirmed`/`mention` evidence states; tables `programme_revisions`,
+`programme_confirmations` and `performances` are gone (migration
+`AuftrittProgramm`, which keeps the items of each programme's newest revision as
+its Programm and maps Zeitmarken from a performance to the Programm entry it
+confirmed; marks on evidence rows without a surviving entry are dropped, test
+data).
 
-Editor-only API (`ProgrammeConfirmationEndpoints.cs`, German ProblemDetails,
-`no-store`, antiforgery on the write, members 403, anonymous/revoked 401):
-
-- `GET /api/events/{eventId}/programme/confirmation[?revisionId=]` — the
-  review of a published revision (newest by default): every planned entry
-  with `outcome` (`open`/`sung`/`skipped`/`unconfirmed`), its linked
-  occurrence, a `suggestedPerformanceId` carry-over after a republication,
-  the added Lieder, `upToDate` and the confirmation `rowVersion`.
-- `PUT` the same path — one complete, idempotent statement:
-  `{ revisionId, rowVersion, items: [{ programmeItemId, outcome: sung|skipped,
-  performanceId?, rowVersion? }], additions: [{ clientKey?,
-  performanceId?, liedId, rowVersion? }] }`. Every planned
-  entry must be stated exactly once. A statement identical to the stored
-  state answers 200 without writing (lost-response retries, stale token
-  included); otherwise a stale `rowVersion` or occurrence token, or a lost
-  unique slot, is 409; a revision that is not the newest publication is 409
-  "Das Programm wurde zwischenzeitlich neu veröffentlicht."; a certainly
-  future event date is 409. Existing occurrences update in place (stable
-  performance ids), omitted ones owned by the confirmation are removed,
-  encores are keyed by `clientKey` (retry key `programme-addition:…`; planned
-  entries use `programme-item:…`) so repeats never double and genuine repeats
-  stay distinct rows. After a republication the editor adopts earlier
-  occurrences explicitly by sending their `performanceId` (identity of
-  performances survives for recordings).
-- `GET /api/events/{id}` embeds `programme.confirmation` for everyone (members
-  without token): `actual` (ordered: planned-linked in plan order, then
-  encores; `added`, evidence status) and `skipped`. ARC-028
-  editor occurrence embeds gain `programmeItemId`/`confirmationId`, and
-  `POST /api/performances/{id}/delete` refuses confirmation-owned rows (409:
-  change them in the confirmation).
-
-Review hardening: the GET review reports `confirmable` (false for a
-certainly-future event), suggests adoptable occurrences (earlier ones after a
-republication, hand-entered unowned ones of the same Lied; adoption keeps id,
-source note and requires the same Lied) and lists `unownedOccurrences` that
-would be counted twice. The PUT may carry `knownOccurrences` (row tokens): an
-occurrence it removes must be among them unchanged, otherwise 409. Duplicate
-`clientKey` values are 400. Members never receive `skipped`/planned labels of a
-superseded revision.
-
-UI: `components/auftritt-bestaetigung.tsx` ("Tatsächlich gesungen") under the
-Programm section — member read view with plan/actual separation and honest
-"noch nicht bestätigt"; editor workbench with explicit per-entry decision,
-encore search, "Programm unverändert bestätigen" (first
-confirmation only) and stale-state handling. Browser spec:
-`tests/auftritt-bestaetigung.spec.ts`; API tests:
-`tests/archive/backend/ProgrammeConfirmationApiTests.cs`.
-
-## Lied history and honest occurrence counts (ARC-031)
-
-`GET /api/lieder/{liedId}/performances[?page=&evidence=confirmed|mention]`
-(`backend/Events/LiedHistoryEndpoints.cs`) is readable by every active member.
-Rows are the ARC-028 performances (their `id` is the stable performance id the
-Zeitmarken hang on), ordered by the event's honest date (newest first, unknown
-year last, then event, position, id; `EventDate.CompareNewestFirst`, shared with
-the event list) in fixed pages of 20. Counting is row counting: confirmed
-occurrences and unconfirmed mentions are separate figures, never summed, and
-documents, retries and recordings never add to them. A hand-entered confirmed
-row beside a programme-confirmed row of the same Lied at one event is not merged
-but flagged `possiblyDuplicate` and reported in
-`counts.confirmed.possiblyDuplicate` (the total is an upper bound; every
-confirmed row of such an event carries `possiblyDuplicateAtEvent`, so the UI never
-asserts a repeat there); a mention at a confirmed event is flagged
-`alsoConfirmedAtEvent`. Read `origin` together with `evidenceStatus` (a
-downgraded programme row is a mention). A page past the end is clamped to the
-last page and reported. Only published Auftritte are listed for members and
-counted for everyone; editors also see unpublished-Auftritt rows (flagged, never
-counted, `counts.draftEventOccurrences`) and source notes. An unknown Lied is a
-404. The member filter lives in `EventVisibility.OfMemberVisibleEvents`.
-
-UI: "Aufführungsgeschichte" on `/lied/` (`components/lied-historie.tsx`,
-`lib/historie.ts`) with qualified counts ("nur erfasste Überlieferung"), explicit
-empty state, Nachweis filter, paging, "Datum unsicher" and an `erweiterung(zeile)`
-slot used for the Zeitmarken links. Tests:
-`tests/archive/backend/LiedHistoryApiTests.cs`, `frontend/tests/lied-historie.spec.ts`.
+- `programmes` (one row per event, `RowVersion` for 409) and `programme_items`
+  (`ProgrammeId`, `Position` 1..n unique per programme, `LiedId` Restrict,
+  `Note` ≤ 500). A Lied may stand twice; every entry has a stable id.
+- `PUT /api/events/{eventId}/programme/items` `{ items: [{ id?, liedId, note? }],
+  rowVersion? }` (editor) is the whole ordered replacement and the whole
+  publication step: saving makes the Programm what members read, as soon as the
+  event itself is published. Known ids update in place (reordering keeps them,
+  and with them the Zeitmarken), missing ids are removed, the first save creates
+  the programme (`rowVersion` is required afterwards, else 409). Removing an
+  entry that carries Zeitmarken is refused with 409 `Zeitmarken vorhanden: …`
+  (`RecordingPassages.BlockedMessageAsync`). There is no publish endpoint.
+- `GET /api/events/{id}` embeds `programme` (`id`, `rowVersion`, `updatedAt`,
+  `items` with `liedId`, `liedTitle`, `voiceConfiguration`, `musicalKey`,
+  `note`; `null` without a Programm) and `liedAufnahmen`: the live
+  Lied-Aufnahmen (`dateien.RecordedAtEventId`) that name this Auftritt.
+  `GET /api/programmes` lists the upcoming Programme (`updatedAt`, `itemCount`).
+- `GET /api/lieder/{liedId}/historie[?page=]` (`LiedHistoryEndpoints.cs`) is the
+  Lied history ("wann gesungen"), derived on every read from the Programme plus
+  the Lied-Aufnahmen naming an Auftritt. One row is one Auftritt (newest first by
+  the honest date, `EventDate.CompareNewestFirst`, fixed pages of 20): `entries`
+  (how often the Lied is in the Programm), `inProgramme`, `liedAufnahmen`,
+  `recordings` (Zeitmarken of that Lied, with `timestampState`), the honest date
+  and `dateUncertain` (a year-only or approximate date). `counts` has `events`,
+  `inProgramme`, `uncertainDates` and, for editors, `draftEvents`. Only
+  published Auftritte count and reach members; editors also see flagged draft
+  rows. An unknown Lied is 404.
+- Chat: `lied_details` reads the same data; `gesungen` lists past Auftritte with
+  the Lied in the Programm or an Aufnahme, `geplant` upcoming ones.
+- Frontend: `components/auftritt-programm.tsx` (reading list and the editor's
+  "Programm bearbeiten"), `auftritt-lied-aufnahmen.tsx`, `lied-historie.tsx`
+  ("Wann gesungen"), `lied-wahl.tsx`. Tests: `AuftrittProgrammTests`,
+  `LiedHistorieTests`, `AuftrittProgrammMigrationPostgresTests` (needs
+  `ARCHIVE_TEST_POSTGRES`), `frontend/tests/programm.spec.ts`,
+  `lied-historie.spec.ts`.
 
 ## Replace, delete and the Papierkorb (#168)
 
@@ -533,7 +491,7 @@ dialog for the large view, documents with Öffnen/Herunterladen).
 **Recordings** (`backend/Recordings/`, table `recordings`, ARC-030). A recording
 is labelled audio or video material about one Auftritt with a stable id; an
 Auftritt may carry several, and creating or attaching one never touches the
-Auftritt, a programme or a performance. A recording keeps its own row (label,
+Auftritt or its Programm. A recording keeps its own row (label,
 `Kind`, publication, download switch, measured duration) and points at two
 `aufnahme` Dateien of the same Auftritt:
 
@@ -582,22 +540,22 @@ Frontend: `components/auftritt-aufnahmen.tsx` on `/auftritt/?id=…` plays throu
 `components/medien-spieler.tsx`; `/auftritt/?id=…&aufnahme=<id>&t=<seconds>` opens
 one recording at a position.
 
-**Zeitmarken** (ARC-032, table `recording_passages`, `RecordingPassage`). A
-Zeitmarke links a recording to a performance occurrence with
-`StartSeconds`/`EndSeconds` and `PlaybackDateiId`, the playback Datei the two
-times were taken against. Database rules: `StartSeconds >= 0`,
-`EndSeconds > StartSeconds`, one passage per (recording, performance), all
-foreign keys `Restrict`, and event ownership as composite keys (the passage
-carries `EventId` and points at `recordings (Id, EventId)` and
-`performances (Id, EventId)`). A second recording can mark the same occurrence;
-nothing here creates, changes or counts a performance.
+**Zeitmarken** (table `recording_passages`, `RecordingPassage`). A Zeitmarke is
+set by hand and links a recording to an entry of the Auftritt's Programm
+(`ProgrammeItemId`) with `StartSeconds`/`EndSeconds` and `PlaybackDateiId`, the
+playback Datei the two times were taken against. Database rules:
+`StartSeconds >= 0`, `EndSeconds > StartSeconds`, one passage per (recording,
+Programm entry), all foreign keys `Restrict`, and the recording as a composite
+key (the passage carries `EventId` and points at `recordings (Id, EventId)`);
+that the entry belongs to the same event is checked by the endpoint. A second
+recording can mark the same entry; nothing here changes the Programm.
 
 - `GET /api/recordings/{id}/passages`: members (published recording of a
-  published Auftritt) and editors; editors also get `occurrences` (the event's
-  performances in programme order with their passage id: the marker list),
-  `playbackDateiId`, `durationSeconds` and `hasPublishedProgramme`. A passage
-  carries `liedId` and `liedTitle`.
-- `POST /api/recordings/{id}/passages` `{ performanceId, startSeconds, endSeconds,
+  published Auftritt) and editors; editors also get `entries` (the Programm in
+  order with each entry's passage id: the marker list), `playbackDateiId` and
+  `durationSeconds`. A passage carries `programmeItemId`, `liedId` and
+  `liedTitle`.
+- `POST /api/recordings/{id}/passages` `{ programmeItemId, startSeconds, endSeconds,
   expectedPlaybackDateiId }`, `PATCH …/passages/{passageId}`,
   `POST …/passages/{passageId}/delete`, `POST …/passages/review` (any editor).
   `expectedPlaybackDateiId` is the `playbackDateiId` of the GET the form was
@@ -606,7 +564,7 @@ nothing here creates, changes or counts a performance.
   nothing is written. A recording without a playable file takes no passages
   (409). Two kinds of 409 stay distinct: stale (reload) versus not allowed in
   this state (duplicate, no playable file; keep the input).
-- `GET /api/lieder/{id}/performances` rows gain `recordings` (`passageId`,
+- `GET /api/lieder/{id}/historie` rows carry `recordings` (`passageId`,
   `recordingId`, `recordingLabel`, `kind`, `isPublished`, `startSeconds`,
   `endSeconds`, `timestampState`); empty where nothing is marked, which is not
   a claim that no recording exists.
@@ -617,11 +575,9 @@ not stored; legacy rows without a Datei read as `needsReview`. Editors see the
 values plus the state and re-anchor with an edit or `…/review`; members get the
 Lied in the recording but no times and no jump.
 
-Deleting or skipping a performance that has passages is refused, not cascaded:
-`POST /api/performances/{id}/delete` and the programme-confirmation PUT answer
-409 `Zeitmarken vorhanden: „Lied“ in „Aufnahme“ … Entferne zuerst diese
-Zeitmarken in den Aufnahmen.` The confirmation review carries `passageCount`
-per occurrence so the UI warns before.
+Removing a Programm entry that has passages is refused, not cascaded: the
+programme save answers 409 `Zeitmarken vorhanden: „Lied“ in „Aufnahme“ …
+Entferne zuerst diese Zeitmarken in den Aufnahmen.`
 
 Frontend: `components/aufnahme-zeitmarken.tsx` (member list with "Zu „Lied“
 springen"; editor marker list with "Position übernehmen" from the open player,
@@ -629,192 +585,6 @@ per-row save/remove, "Alle Zeitmarken für die aktuelle Datei bestätigen"),
 `lib/zeitmarken.ts` (types, `m:ss`/`h:mm:ss`), `components/historie-aufnahmen.tsx`
 (history rows). `MedienSpieler` takes `abschnitt` and pauses at the end of the
 segment. `/auftritt/?id=…&aufnahme=<id>&stelle=<passageId>` opens at the passage.
-
-## Catalogue write path and automated writes
-
-Lied and Auftritt field writes go through one write service,
-`Catalogue/CatalogueWriteService.cs`: Lied-field and event patches (event
-publish/unpublish included) with validated German Problem titles, attribution
-and row-version bumps in one save; endpoint lambdas keep antiforgery, role
-checks and responses, so endpoint handlers and the automated writer cannot
-drift. A stale edit answers 409 "Der Eintrag wurde zwischenzeitlich geändert."
-without touching the row.
-
-`Catalogue/AutomatedFieldWriter.cs` is the one automated path (scan reading):
-it writes a certain, quote-verified value into a catalogued field only while
-that field is still empty, and drops it otherwise (`Applied`, `Skipped` for a
-field that holds a value, `Refused` for an unknown field, invalid value or lost
-save race). It never overwrites a value an editor entered and keeps no record of
-where a value came from. The vocabulary of writable fields is
-`Catalogue/FieldCatalog.cs`; identity and visibility stay outside it, so new
-Lieder, publication, deletion and member administration are never automated.
-There is no suggestion queue: ADR-0001 keeps AI output to inline suggestions.
-Migration `RemoveProvenanceAndProposals` dropped the former queue and
-per-field origin tables and `reading_jobs."FieldsProposed"`.
-
-## ARC-034-1 reading scanned scores
-
-A score PDF whose extraction found no text ("Kein Text gefunden") is no longer
-a dead end: the finite **AI reading** job renders its pages, has a named agent
-transcribe them into the Datei's text and fills the empty catalogue fields
-of the score. Text PDFs go through the same second step with the regex analyzer
-first, so a text PDF makes no model call for what the analyzer already found.
-
-The journey: an editor uploads Noten; the extraction job (model-free,
-unchanged) finishes and, for every Noten Datei, leaves a `reading_jobs` row in the
-same save plus a message on the `archive-reading` queue. `archive-read` /
-`--read-queue` (`Reading/ReadingWorker.cs`) then runs:
-
-1. **Pages to text** (only for a `NoText` Datei): PDFium renders at most 10
-   pages per request (long side 1600 px, JPEG) and at most 20 pages per
-   request of the editor (`Archive:Reading`). The agent `archive-scan-transcriber`
-   answers with the page text; it becomes the Datei's text
-   (`extraction_jobs.Text`, `TextSource = Reading`, status `NoText` → `Completed`),
-   so search, chat and the analyzer read it like embedded text. Progress is
-   saved after every request: a retry or a resume after the cap never pays for
-   a page twice. A longer scan ends "teilweise gelesen (20 von 35 Seiten)"; the
-   editor's "Rest lesen" (`POST /api/dateien/{id}/reading/continue`) raises
-   the page limit by another 20 and requeues the row.
-2. **Text to fields** (`Reading/ScoreFieldPrefill.cs`): only fields that are
-   empty, only while the Datei is live (not in the trash). `ScoreTextAnalyzer` runs first; its facts are written
-   as plain writes (composer, lyricist, arranger, key, voice). The agent
-   `archive-score-fields` (text only, no tools, structured output) is asked only
-   for what is still empty: the fields `composer`, `lyricist`, `arranger`,
-   `musical_key` and `lyrics`. Each answer carries `sicher` or
-   `unsicher` and a verbatim quote. Code verifies that the quote stands in the
-   text (case, blanks and line breaks ignored) and that the quote ties the value
-   to it: a name stands in its quote, **every line of the lyrics stands in the
-   text** (a real first line cannot vouch for an invented stanza), the first
-   word of a voice and the key (hyphens and blanks ignored) stand in their
-   quote. Only `sicher` with a verified quote is written, and only while the field
-   is still empty when the write happens (an editor's save during the model call
-   wins); everything else is dropped and nothing is stored about it.
-   Unknown or unrequested fields, repeated fields and over-long values in the
-   answer are ignored. A refused write (a lost save race) drops its half-made
-   change instead of poisoning the next save. No Lied is ever created or deleted here; the job writes only through `AutomatedFieldWriter`.
-
-State and budget: `ReadingStatus` is `Queued → Running → Completed | Failed`, plus
-`WaitingForBudget`. When the monthly cap refuses a call the row becomes
-`WaitingForBudget`, the attempt is not used up and the queue message is
-acknowledged (deleted). Parked rows have no message, so something must wake
-them: the dispatch sweep (`ReadingDispatcher`, run first by `--read-queue` and
-alone by `--dispatch-reading`) asks `IAiBudget.WouldAdmitAsync` for a worst-case
-transcription call and re-queues the parked rows only when it is admitted (new
-month, raised cap). The editor sees "Das KI-Monatsbudget ist erreicht …"; manual
-entry is never blocked. Other failures retry with backoff up to
-`MaxAttempts` (4), then `Failed` with a German reason and an "Erneut lesen" button
-(`POST /api/dateien/{id}/reading/retry`, which also creates the row for scans
-extracted before this slice).
-
-Bounds: own queue `archive-reading`, PDF up to 32 MiB, 8 minutes per message,
-visibility 20 minutes, two messages per receive round. Every model call carries
-an `AiOperation` with its own output bound and the image-token estimate
-(`EstimatedTokensPerImage` per page); `Archive:Ai:MaxInputTokensPerCall`
-(200,000) refuses any call whose estimated input would reach Luna's
-long-context price tier (about 272,000 tokens), and `MaxOutputTokensPerCall` is
-now 6,000 (the chat keeps its own 2,000). Text in a scan is data: both agents
-are told so, and code, not the model, decides what is written.
-
-UI: when reading is enabled, the extraction line of every score (`components/extraktion-status.tsx`)
-shows the reading state ("KI liest die Seiten … (2 von 3 Seiten)", the count of
-fields written, "Rest lesen", "Erneut lesen"); the list keeps polling only while
-reading is queued or running.
-
-**Draft reading (#177).** A Lied draft has no Lied or Datei yet, so its PDF is read
-inside the request instead of the job: `POST /api/lied-lesungen` (editor, antiforgery,
-multipart `entwurfId` GUID, `anfrageId` integer >= 1, `datei` PDF) answers
-`{ entwurfId, anfrageId, felder: [{ feld, wert, sicher }] }` with the form's field names
-(`title`, `composer`, `arranger`, `lyricist`, `voiceConfiguration`, `musicalKey`,
-`language`, `lyrics`). `DraftReader` takes the embedded text, or transcribes the first
-three pages of a scan, then applies the job's checks (a value needs a quote that stands
-in the text). Nothing is stored or written; `sicher: false` marks an unsure value.
-Errors: 409 reading off, 429 budget reached, 422 not a readable PDF, 502 failure; the
-form stays manual on 409/429. The browser judges the answer by the echoed identity; the
-reducer ignores late results of an abandoned draft or a superseded request, and a
-suggestion fills only fields the editor has not touched. A persisted draft (#178) keeps
-these shapes. The web app calls the model here, so its identity needs the same OpenAI
-access as the reading job in a hosted deployment.
-
-**Persisted drafts, "Angefangen" (#178).** The only unfinished state. Editor-only,
-antiforgery on changes, owned by the editor who started it (others get 404; at most 25
-per editor): `GET /api/lied-entwuerfe` (own list: `entwurfId`, `titel`, `dateien`,
-`aktualisiertAm`), `GET|PUT|DELETE /api/lied-entwuerfe/{id}` (DELETE is idempotent, 204).
-`PUT` takes the whole form, last write wins: `{ entwurfId, lied: {8 fields}, bearbeitet:
-[field], vorschlaege: { field: "sicher"|"unsicher" }, dateien: [{ id, name, sizeBytes, art,
-stimme, artBearbeitet, stimmeBearbeitet, lesen: { status, anfrageId, meldung } }] }`; `GET`
-returns the same plus `lesung` per Datei. The marks are draft editing state only: they are
-never copied to a Lied or Datei and nothing records where a value came from. Tables
-`lied_entwuerfe`, `lied_entwurf_dateien`, `lied_entwurf_lesungen` (migration `LiedEntwuerfe`).
-Dateien are kept without their bytes: uploads still start at save time (upload sessions are
-Lied-owned), so a resumed Datei is `inhalt: "fehlt"` until the editor selects it again (same
-name and size is recognised). Reading: `POST /api/lied-lesungen` with an extra `dateiId` of
-the editor's own persisted draft stores the outcome for that Datei (`liest`, `gelesen`,
-`fehlgeschlagen`, `nicht-verfuegbar`) and no longer depends on the request, so it finishes
-after a closed tab (3 minute limit). It lands only while draft, Datei and this `anfrageId`
-still stand; a request not newer than the stored one gets 400, a result for a discarded
-draft or removed Datei 404 and stores nothing. A `liest` older than 5 minutes is reported
-as interrupted. Without a persisted draft the call stays stateless as in #177. Resume: the
-browser loads the draft, `wiederhergestellt()` makes it the reducer's initial state and
-turns server-held readings into the ordinary `lesen-*` events (running ones are polled);
-creating the Lied deletes the draft.
-
-Local run: `archive-read` is an explicit-start Aspire resource beside
-`archive-extract`; without provider configuration the offline
-`ScriptedChatClient` answers both requests (`Reading/ScriptedScanReader.cs`: it
-cannot see images, it returns a fixed German sample page and picks fields out of
-text by keyword), so the whole journey runs without credentials.
-`dotnet run --project src/archive/apphost`, upload a scanned PDF, start
-`archive-extract`, then `archive-read`.
-
-**Switch.** `Archive:Reading:Enabled` is `false` in `appsettings.json` and `true`
-in `appsettings.Development.json` (local AppHost, tests). While off, the
-extraction job leaves no reading row and sends no message, the editor actions
-answer 409 ("Das Lesen durch die KI ist noch nicht eingerichtet."), and every
-extraction status item carries `readingEnabled: false` and `reading: null`, so
-the page shows and offers nothing of the reading and does not poll for it. The
-Bicep parameter `readingEnabled` (default `true`) sets `Archive__Reading__Enabled`
-on the app and the three jobs in the same deployment that creates the Azure job,
-its identity and the scheduled `--dispatch-reading` below; set it `false` and
-redeploy to stop new hand-overs, the editor actions and the UI. The flag is not
-checked by `ReadingWorker`, `--read-queue` or `--dispatch-reading`, so already
-queued messages and the sweeps keep calling the model; to stop spending set
-`Archive__MaintenanceMode=true` on both reading jobs (running executions must be
-stopped separately; infra deploys and migrating releases reset it) or remove
-`id-archive-read`'s OpenAI role, which fails pending readings
-(`infrastructure/archive/README.md`). Scores extracted while it was off are read on
-demand ("Seiten von der KI lesen").
-
-"Rest lesen" is not
-offered (and answers 409) once the Datei's stored text has reached
-`Archive:Extraction:MaxTextCharacters`, since more pages could add nothing. A
-concurrent first "Erneut lesen" collides only on `PK_reading_jobs`; that case is
-re-run once idempotently, every other save failure surfaces.
-
-Production runs it through `infrastructure/archive/main.bicep` (written, applied by
-the infrastructure workflow; see `infrastructure/archive/README.md`, "AI reading
-path"): a Container Apps Job `ja-archive-read` running this image with
-`--read-queue` (queue scale rule on `archive-reading`), its own identity
-(Storage Queue Data Contributor and Blob Data Reader on the storage account plus
-the Azure OpenAI user role; the only job identity with it) and the settings
-`Archive__Chat__Provider`, `Archive__Chat__Endpoint`, `Archive__Chat__DeploymentName`,
-`Archive__Reading__QueueServiceUri`, the database connection and the maintenance
-flag; plus a scheduled run of `--dispatch-reading` (daily is enough) that wakes
-work parked for budget (`ja-archive-read-dispatch`, own identity with the queue role
-only). See the ticket for the full list.
-
-Evaluation: `Category=ScanReadingEvaluation` runs generated scans through the
-whole job with the scripted client (pass rate and cost per document, never a
-provider call). `Category=ScanReadingEvaluationLive` reads the maintainer's
-private scans from `ARCHIVE_SCAN_EVAL_DIR` (PDFs plus `expected.json`) and skips
-unless it, `ARCHIVE_CHAT_ENDPOINT` and `ARCHIVE_CHAT_DEPLOYMENT_NAME` are set; the
-format and the command are in the ticket.
-
-Checks: `dotnet test tests/archive/backend --filter "FullyQualifiedName~Reading|FullyQualifiedName~PdfPageRenderer|FullyQualifiedName~ScanReadingEvaluation"`;
-real PostgreSQL (migration over existing rows, constraints, the sweep, real ledger
-SQL): `ARCHIVE_TEST_POSTGRES=… dotnet test tests/archive/backend --filter "Category=PostgresReading"`;
-browser: `ARCHIVE_BASE_URL=… corepack pnpm exec playwright test tests/extraktion.spec.ts --workers=1`.
-Migration `20261012052810_ScanReading` is additive: `extraction_jobs."TextSource"`
-(default 0 = embedded) and table `reading_jobs`.
 
 ## Flat Lied and Dateien (ADR-0001)
 
@@ -858,23 +628,6 @@ and everything of the flat model are untouched.
   The Lied page is split by concern: `lied-kopf`, `datei-liste` (with
   `noten-ansicht`), `datei-hochladen`, `lied-formular`, composed in `lied-detail`.
   The resume key is `arc-upload-lied-<liedId>-<kind>-<partitur|stimme>`.
-
-## Programm, Nachweise, Lied history and chat on Lieder 
-
-Programme items and performances reference a `Lied` (`LiedId`, required, Restrict FK).
-
-- `PUT /api/events/{id}/programme/items` takes `{id?, liedId, note}`; `POST .../performances`
-  takes `{liedId, evidenceStatus, ...}`; confirmation additions take `liedId`. Embeds return
-  `liedId`/`liedTitle` (plus `voiceConfiguration`/`musicalKey` of the Lied).
-- `GET /api/lieder/{id}/performances` (`Events/LiedHistoryEndpoints.cs`) is the Lied history:
-  honest counting (see "Lied history and honest occurrence counts"). Members only see
-  occurrences at published Auftritte.
-- Chat: `catalogue_search` and `lied_details` read `lieder` (every saved Lied is visible to a
-  member). `lied_details` adds `gesungen` (confirmed or mentioned performances at published
-  Auftritte) and `geplant` (published programme without confirmation). `LiedKarte` and
-  `Quellen` resolve against `lieder`. The scripted client answers "Wann haben wir dieses Lied
-  gesungen?" from that data and shows the Lied card.
-- Frontend: `LiedWahl` (`components/lied-wahl.tsx`) replaces the Fassung picker.
 
 ## Runtime grants during `--migrate`
 

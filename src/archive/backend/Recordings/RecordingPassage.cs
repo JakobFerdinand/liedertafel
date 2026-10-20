@@ -4,21 +4,18 @@ using Archive.Backend.Lieder;
 namespace Archive.Backend.Recordings;
 
 /// <summary>
-/// A marked passage (ARC-032): where one performance occurrence
-/// (<see cref="Performance"/>, ARC-028/029) starts and ends inside one whole
-/// recording (ARC-030). The passage links to the stable performance id and
-/// never copies it, so a second recording can document the same occurrence
-/// and recordings still add nothing to any history count.
+/// A Zeitmarke (GLOSSARY): where one entry of the Auftritt's Programm
+/// (<see cref="ProgrammeItem"/>) starts and ends inside one whole recording of
+/// that Auftritt. The mark is set by hand and links to the stable entry id and
+/// never copies it, so a second recording can mark the same entry.
 /// A timestamp is only meaningful for the file it was taken against:
 /// <see cref="PlaybackDateiId"/> names that Aufnahme Datei (#171). When the
 /// Datei members play is a different one (replaced or deleted file) the
 /// passage is "in need of review" — computed from this comparison on every
 /// read, never stored, so restoring the earlier file from the trash makes
 /// the marks trustworthy again without any bookkeeping.
-/// Event ownership is a database fact: the composite keys
-/// (<see cref="RecordingId"/>, <see cref="EventId"/>) and
-/// (<see cref="PerformanceId"/>, <see cref="EventId"/>) only match when the
-/// recording and the occurrence belong to the same event.
+/// The recording belongs to <see cref="EventId"/> by a composite key; the
+/// endpoints check that the Programm entry belongs to the same event.
 /// </summary>
 public sealed class RecordingPassage
 {
@@ -28,11 +25,11 @@ public sealed class RecordingPassage
 
 	public Recording Recording { get; set; } = null!;
 
-	public Guid PerformanceId { get; set; }
+	public Guid ProgrammeItemId { get; set; }
 
-	public Performance Performance { get; set; } = null!;
+	public ProgrammeItem ProgrammeItem { get; set; } = null!;
 
-	/// <summary>The event both the recording and the performance belong to.</summary>
+	/// <summary>The event both the recording and the Programm entry belong to.</summary>
 	public Guid EventId { get; set; }
 
 	/// <summary>The playback Aufnahme Datei the two timestamps were taken against; null on legacy passages.</summary>

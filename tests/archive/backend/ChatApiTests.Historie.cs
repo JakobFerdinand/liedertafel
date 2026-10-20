@@ -10,7 +10,7 @@ namespace Archive.Backend.Tests;
 
 /// <summary>
 /// #170: the chat answers "Wann haben wir dieses Lied gesungen?" for a Lied
-/// from what the audience may see: confirmed performances at published
+/// from what the audience may see: Lieder in the Programm of published
 /// Auftritte, never drafts, and shows the Lied's card (scripted client).
 /// </summary>
 public sealed partial class ChatApiTests
@@ -74,10 +74,9 @@ public sealed partial class ChatApiTests
 		var draft = NewEvent("Geheimes Konzert", ownerId, now, published: false);
 		db.Lieder.AddRange(waldfahrt, abendlied);
 		db.Events.AddRange(published, draft);
-		db.Performances.AddRange(
-			NewPerformance(published, waldfahrt, ownerId, now),
-			NewPerformance(draft, waldfahrt, ownerId, now),
-			NewPerformance(draft, abendlied, ownerId, now));
+		db.Programmes.AddRange(
+			NewProgramme(published, ownerId, now, waldfahrt),
+			NewProgramme(draft, ownerId, now, waldfahrt, abendlied));
 		await db.SaveChangesAsync();
 		return (waldfahrt.Id, abendlied.Id);
 	}
@@ -107,15 +106,18 @@ public sealed partial class ChatApiTests
 		UpdatedByAccountId = ownerId,
 	};
 
-	private static Performance NewPerformance(ChoirEvent choirEvent, Lied lied, Guid ownerId, DateTimeOffset now) => new()
+	private static EventProgramme NewProgramme(ChoirEvent choirEvent, Guid ownerId, DateTimeOffset now, params Lied[] lieder)
 	{
-		EventId = choirEvent.Id,
-		LiedId = lied.Id,
-		Position = 1,
-		EvidenceStatus = PerformanceEvidenceStatus.Confirmed,
-		CreatedAt = now,
-		CreatedByAccountId = ownerId,
-		UpdatedAt = now,
-		UpdatedByAccountId = ownerId,
-	};
+		var programme = new EventProgramme
+		{
+			EventId = choirEvent.Id,
+			CreatedAt = now,
+			CreatedByAccountId = ownerId,
+			UpdatedAt = now,
+			UpdatedByAccountId = ownerId,
+		};
+		for (var i = 0; i < lieder.Length; i++)
+			programme.Items.Add(new ProgrammeItem { ProgrammeId = programme.Id, Position = i + 1, LiedId = lieder[i].Id });
+		return programme;
+	}
 }

@@ -132,8 +132,8 @@ public static class RecordingEndpoints
 				return Results.Problem(statusCode: 404, title: EventEndpoints.NotFoundMessage);
 			var now = time.GetUtcNow();
 			// The slots stay empty until the browser attaches uploaded
-			// Dateien; the event row is not touched and no programme or
-			// performance record is created.
+			// Dateien; the event row is not touched and no Programm is
+			// created or changed.
 			var recording = new Recording
 			{
 				EventId = id,

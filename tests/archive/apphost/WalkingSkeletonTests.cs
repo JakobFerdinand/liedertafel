@@ -52,6 +52,7 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         Assert.Contains(pending, m => m.EndsWith("_EventProgrammes", StringComparison.Ordinal));
         Assert.Contains(pending, m => m.EndsWith("_PerformanceEvidence", StringComparison.Ordinal));
         Assert.Contains(pending, m => m.EndsWith("_ProgrammeConfirmation", StringComparison.Ordinal));
+        Assert.Contains(pending, m => m.EndsWith("_AuftrittProgramm", StringComparison.Ordinal));
         Assert.Contains(pending, m => m.EndsWith("_RecordingPassages", StringComparison.Ordinal));
         Assert.Contains(pending, m => m.EndsWith("_AddLiederAndDateien", StringComparison.Ordinal));
         Assert.Contains(pending, m => m.EndsWith("_DropOldCatalogue", StringComparison.Ordinal));
@@ -1085,7 +1086,7 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
     /// is preserved, a validated playback copy becomes what members stream
     /// (with real range requests, as seeking needs), downloads obey the
     /// editor's switch, and a second, independent recording of the same
-    /// event leaves the event without any performance record.
+    /// event leaves the event without any Programm.
     /// </summary>
     [Fact]
     public async Task ConcertRecordingRoundtripThroughRealAzuriteStorage()
@@ -1239,51 +1240,50 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         using (var audioRead = await storage.GetAsync(audioAccess.GetProperty("viewUrl").GetString(), token))
             Assert.Equal(mp3, await audioRead.Content.ReadAsByteArrayAsync(token));
 
-        // The event is still useful without timestamps, and nothing was
-        // recorded as performed.
+        // The event is still useful without timestamps, and has no Programm.
         using var eventDetail = await GetAsync(api, $"/api/events/{eventId}", memberSession, token);
         var eventBody = (await eventDetail.Content.ReadFromJsonAsync<JsonElement>(token)).GetProperty("event");
         Assert.Empty(eventBody.GetProperty("documents").EnumerateArray());
-        Assert.Empty(eventBody.GetProperty("performances").EnumerateArray());
+        Assert.Equal(JsonValueKind.Null, eventBody.GetProperty("programme").ValueKind);
 
-        // ARC-032 on real PostgreSQL: passages join a recording and an
-        // occurrence of its own event, appear in the Lied history for
+        // Zeitmarken on real PostgreSQL: passages join a recording and a
+        // Programm entry of its own event, appear in the Lied history for
         // members, flag themselves when the playback file changes, and keep
-        // their occurrence from being deleted.
+        // their entry from being removed.
         var liedId = await CreateLiedAsync(api, editorSession, "ARC-032 Lied", token);
-        using var performanceResponse = await PostJsonAsync(api, $"/api/events/{eventId}/performances",
-            new { liedId, evidenceStatus = "confirmed" }, editorSession, token);
-        Assert.Equal(HttpStatusCode.Created, performanceResponse.StatusCode);
-        var performanceId = (await performanceResponse.Content.ReadFromJsonAsync<JsonElement>(token))
-            .GetProperty("performance").GetProperty("id").GetString()!;
+        using var programmeResponse = await PutJsonAsync(api, $"/api/events/{eventId}/programme/items",
+            new { items = new[] { new { liedId } } }, editorSession, token);
+        Assert.Equal(HttpStatusCode.OK, programmeResponse.StatusCode);
+        var programmeSaved = (await programmeResponse.Content.ReadFromJsonAsync<JsonElement>(token)).GetProperty("programme");
+        var programmeItemId = programmeSaved.GetProperty("items")[0].GetProperty("id").GetString()!;
         using var otherEvent = await PostJsonAsync(api, "/api/events",
             new { kind = "concert", title = "ARC-032 Anderer Auftritt", dateYear = 2020 }, editorSession, token);
         var otherEventId = Guid.Parse((await otherEvent.Content.ReadFromJsonAsync<JsonElement>(token))
             .GetProperty("event").GetProperty("id").GetString()!);
-        using var foreignPerformance = await PostJsonAsync(api, $"/api/events/{otherEventId}/performances",
-            new { liedId, evidenceStatus = "confirmed" }, editorSession, token);
-        var foreignPerformanceId = (await foreignPerformance.Content.ReadFromJsonAsync<JsonElement>(token))
-            .GetProperty("performance").GetProperty("id").GetString()!;
+        using var foreignProgramme = await PutJsonAsync(api, $"/api/events/{otherEventId}/programme/items",
+            new { items = new[] { new { liedId } } }, editorSession, token);
+        var foreignItemId = (await foreignProgramme.Content.ReadFromJsonAsync<JsonElement>(token))
+            .GetProperty("programme").GetProperty("items")[0].GetProperty("id").GetString()!;
 
         var passagePath = $"/api/recordings/{videoId}/passages";
         using (var crossEvent = await PostJsonAsync(api, passagePath,
-            new { performanceId = foreignPerformanceId, startSeconds = 10, endSeconds = 20, expectedPlaybackDateiId = copyDateiId }, editorSession, token))
+            new { programmeItemId = foreignItemId, startSeconds = 10, endSeconds = 20, expectedPlaybackDateiId = copyDateiId }, editorSession, token))
             Assert.Equal(HttpStatusCode.NotFound, crossEvent.StatusCode);
         using (var beyondEnd = await PostJsonAsync(api, passagePath,
-            new { performanceId, startSeconds = 10, endSeconds = 9000, expectedPlaybackDateiId = copyDateiId }, editorSession, token))
+            new { programmeItemId, startSeconds = 10, endSeconds = 9000, expectedPlaybackDateiId = copyDateiId }, editorSession, token))
             Assert.Equal(HttpStatusCode.BadRequest, beyondEnd.StatusCode);
         using var createPassage = await PostJsonAsync(api, passagePath,
-            new { performanceId, startSeconds = 12.5, endSeconds = 301.25, expectedPlaybackDateiId = copyDateiId }, editorSession, token);
+            new { programmeItemId, startSeconds = 12.5, endSeconds = 301.25, expectedPlaybackDateiId = copyDateiId }, editorSession, token);
         Assert.Equal(HttpStatusCode.Created, createPassage.StatusCode);
         var passage = (await createPassage.Content.ReadFromJsonAsync<JsonElement>(token)).GetProperty("passage");
         Assert.Equal("ARC-032 Lied", passage.GetProperty("liedTitle").GetString());
         Assert.Equal("current", passage.GetProperty("timestampState").GetString());
-        // The same occurrence in a second recording; a repeat of the first is a duplicate.
+        // The same entry in a second recording; a repeat of the first is a duplicate.
         using (var secondRecording = await PostJsonAsync(api, $"/api/recordings/{audioId}/passages",
-            new { performanceId, startSeconds = 3, endSeconds = 200, expectedPlaybackDateiId = audioAccess.GetProperty("dateiId").GetString() }, editorSession, token))
+            new { programmeItemId, startSeconds = 3, endSeconds = 200, expectedPlaybackDateiId = audioAccess.GetProperty("dateiId").GetString() }, editorSession, token))
             Assert.Equal(HttpStatusCode.Created, secondRecording.StatusCode);
         using (var duplicate = await PostJsonAsync(api, passagePath,
-            new { performanceId, startSeconds = 1, endSeconds = 2, expectedPlaybackDateiId = copyDateiId }, editorSession, token))
+            new { programmeItemId, startSeconds = 1, endSeconds = 2, expectedPlaybackDateiId = copyDateiId }, editorSession, token))
             Assert.Equal(HttpStatusCode.Conflict, duplicate.StatusCode);
 
         using var memberPassages = await GetAsync(api, passagePath, memberSession, token);
@@ -1291,14 +1291,14 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         var memberPassage = (await memberPassages.Content.ReadFromJsonAsync<JsonElement>(token))
             .GetProperty("passages").EnumerateArray().Single();
         Assert.Equal(12.5, memberPassage.GetProperty("startSeconds").GetDouble());
-        using var history = await GetAsync(api, $"/api/lieder/{liedId}/performances", memberSession, token);
+        using var history = await GetAsync(api, $"/api/lieder/{liedId}/historie", memberSession, token);
         var historyBody = await history.Content.ReadFromJsonAsync<JsonElement>(token);
-        Assert.Equal(2, historyBody.GetProperty("performances")[0].GetProperty("recordings").GetArrayLength());
-        Assert.Equal(1, historyBody.GetProperty("counts").GetProperty("confirmed").GetProperty("occurrences").GetInt32());
+        Assert.Equal(2, historyBody.GetProperty("auftritte")[0].GetProperty("recordings").GetArrayLength());
+        Assert.Equal(1, historyBody.GetProperty("counts").GetProperty("events").GetInt32());
 
-        // The occurrence cannot be deleted while a passage hangs on it.
-        using (var blockedDelete = await PostJsonAsync(api, $"/api/performances/{performanceId}/delete",
-            new { }, editorSession, token))
+        // The entry cannot be removed while a passage hangs on it.
+        using (var blockedDelete = await PutJsonAsync(api, $"/api/events/{eventId}/programme/items",
+            new { items = Array.Empty<object>(), rowVersion = programmeSaved.GetProperty("rowVersion").GetUInt32() }, editorSession, token))
         {
             Assert.Equal(HttpStatusCode.Conflict, blockedDelete.StatusCode);
             Assert.StartsWith("Zeitmarken vorhanden:",
@@ -1311,7 +1311,7 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         await AttachFileAsync(videoId, "playback", webmAgain, "video/webm");
         // A form built against the old file can neither mark nor confirm.
         using (var oldFile = await PostJsonAsync(api, passagePath,
-            new { performanceId, startSeconds = 1, endSeconds = 2, expectedPlaybackDateiId = copyDateiId },
+            new { programmeItemId, startSeconds = 1, endSeconds = 2, expectedPlaybackDateiId = copyDateiId },
             editorSession, token))
             Assert.Equal(HttpStatusCode.Conflict, oldFile.StatusCode);
         using (var oldReview = await PostJsonAsync(api, $"{passagePath}/review",

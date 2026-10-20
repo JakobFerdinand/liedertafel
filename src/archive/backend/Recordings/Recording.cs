@@ -5,9 +5,9 @@ namespace Archive.Backend.Recordings;
 
 /// <summary>
 /// A whole recording of one historical event (ARC-030) with a stable identity
-/// that later slices key on (ARC-032 passages). An event may carry several
+/// that later slices key on (Zeitmarken). An event may carry several
 /// independently labelled recordings; a recording is material about the
-/// event and never a performance occurrence.
+/// event and never a change to its Programm.
 /// Files are event-owned Aufnahme <see cref="Datei"/>en (#171) in two slots:
 /// - <see cref="OriginalDateiId"/> is the preserved original, whatever its
 ///   format;

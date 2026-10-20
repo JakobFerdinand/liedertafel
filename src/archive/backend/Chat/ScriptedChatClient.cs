@@ -365,11 +365,10 @@ public sealed class ScriptedChatClient : IChatClient
 			using var document = JsonDocument.Parse(detailsJson);
 			foreach (var entry in Entries(document.RootElement, "gesungen"))
 			{
-				var how = entry.Nachweis == "bestaetigt" ? "gesungen" : "nur erwähnt (Nachweis nicht bestätigt)";
-				sentences.Add($"„{title}“ wurde beim Auftritt „{entry.Auftritt}“ ({entry.Datum}) {how}.");
+				sentences.Add($"„{title}“ wurde beim Auftritt „{entry.Auftritt}“ ({entry.Datum}) gesungen.");
 			}
 			foreach (var entry in Entries(document.RootElement, "geplant"))
-				sentences.Add($"„{title}“ steht im Programm des Auftritts „{entry.Auftritt}“ ({entry.Datum}), bestätigt ist der Ablauf noch nicht.");
+				sentences.Add($"„{title}“ steht im Programm des kommenden Auftritts „{entry.Auftritt}“ ({entry.Datum}).");
 		}
 		catch (JsonException)
 		{
@@ -379,15 +378,14 @@ public sealed class ScriptedChatClient : IChatClient
 			? $"Zu „{title}“ sind im Archiv keine Auftritte verzeichnet."
 			: string.Join(' ', sentences);
 
-		static IEnumerable<(string Auftritt, string Datum, string? Nachweis)> Entries(JsonElement root, string name)
+		static IEnumerable<(string Auftritt, string Datum)> Entries(JsonElement root, string name)
 		{
 			if (!root.TryGetProperty(name, out var list) || list.ValueKind is not JsonValueKind.Array)
 				yield break;
 			foreach (var item in list.EnumerateArray())
 				yield return (
 					item.TryGetProperty("auftritt", out var a) ? a.GetString() ?? string.Empty : string.Empty,
-					item.TryGetProperty("datum", out var d) ? d.GetString() ?? string.Empty : string.Empty,
-					item.TryGetProperty("nachweis", out var n) ? n.GetString() : null);
+					item.TryGetProperty("datum", out var d) ? d.GetString() ?? string.Empty : string.Empty);
 		}
 	}
 

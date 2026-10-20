@@ -15,32 +15,28 @@ public sealed class RecordingPassageModelConfiguration : IEntityTypeConfiguratio
 		});
 		builder.HasKey(x => x.Id);
 		builder.Property(x => x.RowVersion).IsConcurrencyToken();
-		// A passage is neither a performance nor a recording: it only ties
-		// the two together. Restrict everywhere, so no deletion removes
-		// editor-made index work (or the evidence it hangs on) silently; the
-		// callers that delete performances answer with a clear conflict and
-		// the trash slices (ARC-039/ARC-040) decide explicitly.
-		// The composite foreign keys carry the event: the recording and the
-		// occurrence of one passage can only belong to the same event.
+		// A passage only ties a Programm entry and a recording together.
+		// Restrict everywhere, so no deletion removes editor-made index work
+		// silently; the programme save answers with a clear conflict instead.
+		// The composite foreign key carries the event: a passage's recording
+		// is always one of its own event.
 		builder.HasOne(x => x.Recording)
 			.WithMany()
 			.HasForeignKey(x => new { x.RecordingId, x.EventId })
 			.HasPrincipalKey(x => new { x.Id, x.EventId })
 			.OnDelete(DeleteBehavior.Restrict);
-		builder.HasOne(x => x.Performance)
+		builder.HasOne(x => x.ProgrammeItem)
 			.WithMany()
-			.HasForeignKey(x => new { x.PerformanceId, x.EventId })
-			.HasPrincipalKey(x => new { x.Id, x.EventId })
+			.HasForeignKey(x => x.ProgrammeItemId)
 			.OnDelete(DeleteBehavior.Restrict);
 		builder.HasOne(x => x.PlaybackDatei)
 			.WithMany()
 			.HasForeignKey(x => x.PlaybackDateiId)
 			.OnDelete(DeleteBehavior.Restrict);
 		builder.HasIndex(x => x.PlaybackDateiId);
-		// One passage per occurrence and recording (a performance split over
-		// several passages is out of scope); the same occurrence may appear
-		// once in each of several recordings.
-		builder.HasIndex(x => new { x.RecordingId, x.PerformanceId }).IsUnique();
-		builder.HasIndex(x => x.PerformanceId);
+		// One mark per Programm entry and recording; the same entry may be
+		// marked once in each of several recordings.
+		builder.HasIndex(x => new { x.RecordingId, x.ProgrammeItemId }).IsUnique();
+		builder.HasIndex(x => x.ProgrammeItemId);
 	}
 }

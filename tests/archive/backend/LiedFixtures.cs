@@ -6,7 +6,7 @@ namespace Archive.Backend.Tests;
 
 /// <summary>
 /// Creates Lieder over HTTP for the suites that pass an editor session cookie
-/// around (programme, performances, confirmation, history, recordings, chat).
+/// around (programme, history, recordings, chat).
 /// </summary>
 internal static class LiedFixtures
 {

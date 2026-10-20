@@ -1,14 +1,13 @@
 import { expect, type Page, test } from "@playwright/test";
 import { mockLeereAufnahmen } from "./aufnahmen-mock";
 
-// ARC-026: Programm des Auftritts — Lesesaal der Mitglieder, Werkbank
-// der Redaktion und das Verzeichnis der kommenden Programme. Die
+// #160: Programm des Auftritts — ein Programm je Auftritt, das Speichern
+// veröffentlicht es sofort. Lesesaal der Mitglieder, Werkbank der Redaktion
+// und das Verzeichnis der kommenden Programme. Die
 // Rezepturen folgen tests/auftritt-dokumente.spec.ts und
 // tests/auftritte.spec.ts: feste Fixture-Ids, geroutete Antworten mit
 // veränderbarem Stand (die zuletzt angemeldete Route gewinnt), Anspruch
-// an die Vertragssprache, Handymaß im zweiten Projekt. ARC-027 liest
-// zusätzlich die Standzeilen, die frühere Fassungen und den
-// unerledigten Hinweis an der Werkbank.
+// an die Vertragssprache, Handymaß im zweiten Projekt.
 
 const editorMe = {
   authenticated: true,
@@ -30,8 +29,6 @@ const memberMe = {
 
 const eventId = "00000000-0000-0000-0000-00000000e020";
 const programmId = "00000000-0000-0000-0000-00000000e021";
-const revisionEntwurfId = "00000000-0000-0000-0000-00000000e022";
-const revisionVeroeffentlichtId = "00000000-0000-0000-0000-00000000e023";
 
 // Lied 1 steht zweimal im Programm (zwei eigene Einträge, zwei eigene
 // Ids); Lied 2 liefert die Suche als zweites Ergebnis.
@@ -160,7 +157,7 @@ function punkt(
   };
 }
 
-const veroeffentlichteItems = [
+const items = [
   punkt(
     punktA,
     1,
@@ -173,50 +170,18 @@ const veroeffentlichteItems = [
   punkt(punktC, 3, lied1Id, "Das Wandern ist des Müllers Lust", "G-Dur", null),
 ];
 
-const veroeffentlicht = {
-  id: programmId,
-  rowVersion: 5,
-  working: null,
-  published: {
-    id: revisionVeroeffentlichtId,
-    number: 1,
-    publishedAt: "2026-09-20T10:00:00.000Z",
-    items: veroeffentlichteItems,
-  },
-};
-
-// Leerer Entwurf (rowVersion 3) als Ausgangslage der Aufbau-Prüfung.
-const entwurfLeer = {
-  id: programmId,
-  rowVersion: 3,
-  working: {
-    id: revisionEntwurfId,
-    number: 1,
-    updatedAt: "2026-09-23T10:00:00.000Z",
-    items: [],
-  },
-  published: null,
-};
-
-// Entwurf mit den drei Programmpunkten und stabilen Ids; die rowVersion
-// zählt je Speicherung hoch (der Server stampft sie mit).
-function entwurfStandMitDrei(rowVersion = 4) {
+// Das eine Programm mit drei Einträgen (Lied 1 steht zweimal darin).
+function programmMitDrei(rowVersion = 4) {
   return {
     id: programmId,
     rowVersion,
-    working: {
-      id: revisionEntwurfId,
-      number: 1,
-      updatedAt: "2026-09-23T12:00:00.000Z",
-      items: veroeffentlichteItems,
-    },
-    published: null,
+    updatedAt: "2026-09-23T12:00:00.000Z",
+    items,
   };
 }
 
 // Der Server-Schritt des PUT: bekannte Ids bleiben, neue bekommen in
-// Array-Reihenfolge frische; die Anzeigefelder stammen aus der
-// Fassungskette (hier: die Fixtures als Muster).
+// Array-Reihenfolge frische; die Anzeigefelder stammen aus den Fixtures.
 function antwortItems(
   anfrage: Array<{
     id?: string;
@@ -226,81 +191,45 @@ function antwortItems(
 ) {
   return anfrage.map((eintrag, index) => {
     const muster =
-      veroeffentlichteItems.find(
-        (testPunkt) => testPunkt.liedId === eintrag.liedId,
-      ) ?? veroeffentlichteItems[0];
+      items.find((testPunkt) => testPunkt.liedId === eintrag.liedId) ??
+      items[0];
     return {
       ...muster,
       id: eintrag.id ?? [punktA, punktB, punktC][index],
       position: index + 1,
       liedId: eintrag.liedId,
-      note: eintrag.note ?? null,
+      note: eintrag.note ? eintrag.note : null,
     };
   });
 }
 
-// Entwurf mit einem einzigen Programmpunkt (frisch angelegtes Programm).
-function entwurfStandMitEinem() {
-  return {
-    id: programmId,
-    rowVersion: 1,
-    working: {
-      id: revisionEntwurfId,
-      number: 1,
-      updatedAt: "2026-09-23T12:00:00.000Z",
-      items: [veroeffentlichteItems[1]],
-    },
-    published: null,
-  };
-}
-
-// ARC-027 Werkbank-Stand: die Mitglieder lesen die veröffentlichte
-// Revision 2, der Entwurf ist die noch leere Revision 3, und die
-// frühere Veröffentlichung (Revision 1) bleibt als einzige Fassung in
-// der Geschichte gelistet — die neueste Veröffentlichung erscheint dort
-// selbst nicht (geroutetes Stub — die Werkbank liest allein die
-// Einbettung).
-const veroeffentlichtMitGeschichte = {
-  id: programmId,
-  rowVersion: 5,
-  working: {
-    id: revisionEntwurfId,
-    number: 3,
-    updatedAt: "2026-09-24T09:00:00.000Z",
-    items: [],
-  },
-  published: {
-    id: "00000000-0000-0000-0000-00000000e024",
-    number: 2,
-    publishedAt: "2026-09-22T10:00:00.000Z",
-    items: veroeffentlichteItems,
-  },
-  history: [
-    {
-      id: revisionVeroeffentlichtId,
-      number: 1,
-      publishedAt: "2026-09-20T12:00:00.000Z",
-      items: [
-        punkt(
-          "00000000-0000-0000-0000-00000000b0b1",
-          1,
-          lied1Id,
-          "Das Wandern ist des Müllers Lust",
-          "G-Dur",
-          null,
-        ),
-        punkt(
-          "00000000-0000-0000-0000-00000000b0b2",
-          2,
-          lied2Id,
-          "Aurora",
-          null,
-          null,
-        ),
-      ],
-    },
-  ],
+type PutAnfrage = {
+  items: Array<{ id?: string; liedId: string; note?: string }>;
+  rowVersion?: number;
 };
+
+// Der PUT-Server: stampft rowVersion hoch und spiegelt die gesendeten
+// Einträge; ohne vorhandenes Programm entfällt die rowVersion.
+async function mockPut(
+  page: Page,
+  stand: { aktuell: ReturnType<typeof programmMitDrei> | null },
+  puts: PutAnfrage[],
+) {
+  await page.route(`**/api/events/${eventId}/programme/items`, (route) => {
+    expect(route.request().method()).toBe("PUT");
+    expect(route.request().headers()["x-csrf-token"]).toBe("test");
+    const anfrage = route.request().postDataJSON() as PutAnfrage;
+    expect(anfrage.rowVersion).toBe(stand.aktuell?.rowVersion);
+    puts.push(anfrage);
+    stand.aktuell = {
+      id: programmId,
+      rowVersion: (stand.aktuell?.rowVersion ?? 0) + 1,
+      updatedAt: "2026-09-25T10:00:00.000Z",
+      items: antwortItems(anfrage.items),
+    };
+    return route.fulfill(json({ programme: stand.aktuell }));
+  });
+}
 
 // Öffnet den Werkbank-Aufklapper (er ist zu, bis die Redaktion ihn braucht).
 async function programmVerwaltungAufklappen(page: Page) {
@@ -312,37 +241,38 @@ async function programmVerwaltungAufklappen(page: Page) {
   ).toHaveAttribute("open", "");
 }
 
-test("Mitglied liest das veröffentlichte Programm mit Besetzung, Tonart und Notizen", async ({
+async function liedHinzufuegen(page: Page, suche: string, titel: string) {
+  await page.getByLabel("Lied aus dem Katalog suchen").fill(suche);
+  await page.getByRole("button", { name: "Suchen" }).click();
+  await page
+    .locator(".programm-lied-treffer")
+    .getByRole("button", { name: titel })
+    .click();
+}
+
+test("Mitglied liest das Programm mit Besetzung, Tonart und Notizen", async ({
   page,
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await mockSitzung(page, memberMe);
   await page.route(`**/api/events/${eventId}`, (route) =>
-    route.fulfill(json(detail(veroeffentlicht))),
+    route.fulfill(json(detail(programmMitDrei(5)))),
   );
 
   await page.goto(`/auftritt/?id=${eventId}`);
   const punkte = page.locator(".programm-liste .programm-eintrag");
   await expect(punkte).toHaveCount(3);
-  // Geordnete Reihe mit Positionsnummern: die Titel erscheinen in
-  // Positionsreihenfolge.
   await expect(punkte.nth(0)).toContainText("1.");
   await expect(punkte.nth(1)).toContainText("2.");
   await expect(punkte.nth(2)).toContainText("3.");
   await expect(punkte.nth(0)).toContainText("Das Wandern ist des Müllers Lust");
   await expect(punkte.nth(1)).toContainText("Aurora");
-  await expect(punkte.nth(2)).toContainText("Das Wandern ist des Müllers Lust");
-  // Deep-Link: das Lied fährt in der Adresse mit.
+  // Tiefer Link: das Lied fährt in der Adresse mit.
   await expect(punkte.nth(0).getByRole("link")).toHaveAttribute(
     "href",
     `/lied/?id=${lied1Id}`,
   );
-  await expect(punkte.nth(2).getByRole("link")).toHaveAttribute(
-    "href",
-    `/lied/?id=${lied1Id}`,
-  );
-  // Angabenzeile mit Besetzung und Tonart, Notiz je Eintrag.
   await expect(punkte.nth(0).locator(".noten-info")).toHaveText(
     "Besetzung: SATB · Tonart: G-Dur",
   );
@@ -350,14 +280,11 @@ test("Mitglied liest das veröffentlichte Programm mit Besetzung, Tonart und Not
     "Erste Strophe im Stehchoral.",
   );
   await expect(punkte.nth(1).locator(".programm-notiz")).toHaveCount(0);
-  await expect(
-    page.getByText(/Veröffentlicht am 20\. September 2026/),
-  ).toBeVisible();
-  // Der Werkbank-Aufklapper bleibt dem Mitglied verborgen.
+  // Kein Entwurf, keine Revision, keine Bestätigung: nur das Programm.
+  await expect(page.getByText(/Veröffentlicht am|Revision/)).toHaveCount(0);
   await expect(
     page.locator("section.auftritt-programm details.programm-verwaltung"),
   ).toHaveCount(0);
-  // Auch im Handymaß bleibt der Abschnitt ohne Seitenüberlauf.
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,
@@ -385,424 +312,148 @@ test("Ohne Programm bleibt der Abschnitt für Mitglieder ehrlich leer", async ({
   await expect(
     page.locator("section.auftritt-programm details.programm-verwaltung"),
   ).toHaveCount(0);
-  await expect(page.getByRole("link", { name: "Aurora" })).toHaveCount(0);
 
   expect(errors).toEqual([]);
 });
 
-test("Redaktion baut ein dreiliediges Programm auf und speichert zweimal mit stabilen Ids", async ({
+test("Redaktion legt ein Programm an: erster PUT ohne rowVersion, der zweite mit stabilen Ids", async ({
   page,
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await mockSitzung(page, editorMe);
   await mockKatalog(page);
-  // Der Stand wandert mit: leerer Entwurf (rowVersion 3), nach dem
-  // ersten Speichern der Stand mit Server-Ids (rowVersion 4).
-  let stand: unknown = entwurfLeer;
+  const stand: { aktuell: ReturnType<typeof programmMitDrei> | null } = {
+    aktuell: null,
+  };
   await page.route(`**/api/events/${eventId}`, (route) =>
-    route.fulfill(json(detail(stand))),
+    route.fulfill(json(detail(stand.aktuell))),
   );
-
-  const puts: Record<string, unknown>[] = [];
-  await page.route(`**/api/events/${eventId}/programme/items`, (route) => {
-    expect(route.request().method()).toBe("PUT");
-    expect(route.request().headers()["x-csrf-token"]).toBe("test");
-    const anfrage = route.request().postDataJSON() as {
-      items: Array<{
-        id?: string;
-        liedId: string;
-        note?: string;
-      }>;
-      rowVersion?: number;
-    };
-    // Der Concurrency-Anker zählt mit: der erste PUT trägt die rowVersion
-    // des leeren Entwurfs, der zweite die frische nach dem Speichern.
-    const bisher = stand as { rowVersion: number };
-    expect(anfrage.rowVersion).toBe(bisher.rowVersion);
-    puts.push(anfrage);
-    // Der Server behält die gespeicherten Notizen: die Antwort spiegelt
-    // die gesendeten Einträge mit stabilen und frischen Ids.
-    stand = {
-      id: programmId,
-      rowVersion: bisher.rowVersion + 1,
-      working: {
-        id: revisionEntwurfId,
-        number: 1,
-        updatedAt: "2026-09-23T12:00:00.000Z",
-        items: antwortItems(anfrage.items),
-      },
-      published: null,
-    };
-    return route.fulfill(json({ programme: stand }));
-  });
+  const puts: PutAnfrage[] = [];
+  await mockPut(page, stand, puts);
 
   await page.goto(`/auftritt/?id=${eventId}`);
-  // Ehrlich zur Redaktion: der Entwurf existiert (leerer Arbeitsstand),
-  // nur ist noch nichts veröffentlicht — Mitglieder lesen dieselbe
-  // Situation als „noch nicht erfasst".
-  await expect(page.getByText("Noch nichts veröffentlicht.")).toBeVisible();
   await programmVerwaltungAufklappen(page);
+  // Es gibt nur "Programm speichern": keine Entwürfe, kein Veröffentlichen.
+  await expect(
+    page.getByRole("button", { name: "Veröffentlichen" }),
+  ).toHaveCount(0);
 
-  // Erstes Lied über die Katalogsuche.
-  await page.getByLabel("Lied aus dem Katalog suchen").fill("Wandern");
-  await page.getByRole("button", { name: "Suchen" }).click();
-  await page
-    .locator(".programm-lied-treffer")
-    .getByRole("button", { name: "Das Wandern ist des Müllers Lust" })
-    .click();
-  await expect(page.locator(".programm-zeile")).toHaveCount(1);
-
-  // Zweites Lied.
-  await page.getByLabel("Lied aus dem Katalog suchen").fill("Aurora");
-  await page.getByRole("button", { name: "Suchen" }).click();
-  await page
-    .locator(".programm-lied-treffer")
-    .getByRole("button", { name: "Aurora" })
-    .click();
-  await expect(page.locator(".programm-zeile")).toHaveCount(2);
-
+  await liedHinzufuegen(page, "Wandern", "Das Wandern ist des Müllers Lust");
+  await liedHinzufuegen(page, "Aurora", "Aurora");
   // Dritter Eintrag wiederholt Lied 1.
-  await page.getByLabel("Lied aus dem Katalog suchen").fill("Wandern");
-  await page.getByRole("button", { name: "Suchen" }).click();
-  await page
-    .locator(".programm-lied-treffer")
-    .getByRole("button", { name: "Das Wandern ist des Müllers Lust" })
-    .click();
+  await liedHinzufuegen(page, "Wandern", "Das Wandern ist des Müllers Lust");
   await expect(page.locator(".programm-zeile")).toHaveCount(3);
-
-  // Notizen in den ersten beiden Einträgen.
   await page
     .locator(".programm-zeile")
     .nth(0)
     .getByLabel("Notiz (optional)")
     .fill("Erste Strophe im Stehchoral.");
-  await page
-    .locator(".programm-zeile")
-    .nth(1)
-    .getByLabel("Notiz (optional)")
-    .fill("Zweite Strophe sitzend.");
 
-  await page.getByRole("button", { name: "Entwurf speichern" }).click();
-  await expect(page.getByText("Programmentwurf gespeichert.")).toBeVisible();
+  await page.getByRole("button", { name: "Programm speichern" }).click();
+  await expect(
+    page.getByText("Programm gespeichert. Mitglieder sehen es ab sofort."),
+  ).toBeVisible();
   expect(puts).toHaveLength(1);
-  // Ganzer geordneter Ersatz: die Reihenfolge der Zeilen setzt die
-  // Positionen; neue Einträge tragen keine Id.
+  expect(puts[0].rowVersion).toBeUndefined();
+  // Ganzer geordneter Ersatz: neue Einträge tragen keine Id.
   expect(puts[0].items).toEqual([
     { liedId: lied1Id, note: "Erste Strophe im Stehchoral." },
-    { liedId: lied2Id, note: "Zweite Strophe sitzend." },
+    { liedId: lied2Id, note: "" },
     { liedId: lied1Id, note: "" },
   ]);
 
-  // Der frische Stand kommt mit drei stabilen Ids zurück; die unver-
-  // änderten Einträge tragen sie beim nächsten Speichern unverändert in
-  // die Anfrage (zweiter PUT-Rundlauf).
-  await expect(page.locator(".programm-zeile")).toHaveCount(3);
-  await page.getByRole("button", { name: "Entwurf speichern" }).click();
-  await expect(puts).toHaveLength(2);
+  // Der Stand kommt mit stabilen Ids zurück und trägt sie ins nächste PUT.
+  await expect(page.locator(".programm-unerledigt")).toHaveCount(0);
+  await page.getByRole("button", { name: "Programm speichern" }).click();
+  await expect(async () => expect(puts).toHaveLength(2)).toPass();
   expect(puts[1].items).toEqual([
     { id: punktA, liedId: lied1Id, note: "Erste Strophe im Stehchoral." },
-    { id: punktB, liedId: lied2Id, note: "Zweite Strophe sitzend." },
-    { id: punktC, liedId: lied1Id, note: "" },
-  ]);
-  expect(puts[1].rowVersion).toBe(4);
-
-  expect(errors).toEqual([]);
-});
-
-test("Redaktion legt auf einem auftrittslosen Programm mit an: erster PUT ohne rowVersion", async ({
-  page,
-}) => {
-  const errors: string[] = [];
-  page.on("pageerror", (error) => errors.push(error.message));
-  await mockSitzung(page, editorMe);
-  await mockKatalog(page);
-  let stand: unknown = null;
-  await page.route(`**/api/events/${eventId}`, (route) =>
-    route.fulfill(json(detail(stand))),
-  );
-
-  const puts: Record<string, unknown>[] = [];
-  await page.route(`**/api/events/${eventId}/programme/items`, (route) => {
-    puts.push(route.request().postDataJSON() as Record<string, unknown>);
-    // Der erste PUT legt das Programm still an; die Antwort trägt die
-    // frische Einbettung mit Server-Ids.
-    stand = entwurfStandMitEinem();
-    return route.fulfill(json({ programme: stand }));
-  });
-
-  await page.goto(`/auftritt/?id=${eventId}`);
-  await programmVerwaltungAufklappen(page);
-  await page.getByLabel("Lied aus dem Katalog suchen").fill("Aurora");
-  await page.getByRole("button", { name: "Suchen" }).click();
-  await page
-    .locator(".programm-lied-treffer")
-    .getByRole("button", { name: "Aurora" })
-    .click();
-
-  await page.getByRole("button", { name: "Entwurf speichern" }).click();
-  await expect(page.getByText("Programmentwurf gespeichert.")).toBeVisible();
-  expect(puts).toHaveLength(1);
-  // Ohne Programm entfällt die rowVersion; der Server legt still an.
-  expect(puts[0].rowVersion).toBeUndefined();
-  expect(puts[0].items).toEqual([{ liedId: lied2Id, note: "" }]);
-
-  // Der frische Stand (Programm + Entwurf) kommt über die erneute
-  // Auftrittsabfrage; die Werkbank bleibt aufgeklappt und zeigt ihn.
-  await expect(page.locator(".programm-zeile")).toHaveCount(1);
-  await expect(
-    page.locator(".programm-zeile").getByText("Aurora"),
-  ).toBeVisible();
-  // Veröffentlicht ist noch nichts: der Lesesaal bleibt ehrlich leer.
-  await expect(page.locator(".programm-liste")).toHaveCount(0);
-
-  expect(errors).toEqual([]);
-});
-
-test("Veralteter Stand erklärt sich mit der Vertragssprache und lädt den frischen Stand", async ({
-  page,
-}) => {
-  const errors: string[] = [];
-  page.on("pageerror", (error) => errors.push(error.message));
-  await mockSitzung(page, editorMe);
-  await mockKatalog(page);
-  // Kommt der Stand nach dem Speichern hoch, trägt er die fremde Notiz:
-  // ein anderer Beitrag hat zwischenzeitlich geändert.
-  const frischerStand = {
-    id: programmId,
-    rowVersion: 9,
-    working: {
-      id: revisionEntwurfId,
-      number: 1,
-      updatedAt: "2026-09-24T10:00:00.000Z",
-      items: [
-        veroeffentlichteItems[0],
-        {
-          ...veroeffentlichteItems[1],
-          note: "Vom anderen Beitrag ergänzt.",
-        },
-      ],
-    },
-    published: null,
-  };
-  let abfragen = 0;
-  await page.route(`**/api/events/${eventId}`, (route) => {
-    abfragen += 1;
-    return route.fulfill(
-      json(detail(abfragen === 1 ? entwurfStandMitDrei() : frischerStand)),
-    );
-  });
-  const puts: Record<string, unknown>[] = [];
-  await page.route(`**/api/events/${eventId}/programme/items`, (route) => {
-    puts.push(route.request().postDataJSON() as Record<string, unknown>);
-    return route.fulfill(
-      problem("Der Programmentwurf wurde zwischenzeitlich geändert.", 409),
-    );
-  });
-
-  await page.goto(`/auftritt/?id=${eventId}`);
-  await programmVerwaltungAufklappen(page);
-  await expect(page.locator(".programm-zeile")).toHaveCount(3);
-
-  await page.getByRole("button", { name: "Entwurf speichern" }).click();
-  await expect(
-    page.getByText(
-      "Der Programmentwurf wurde zwischenzeitlich geändert. Bitte prüfe den aktuellen Stand und wiederhole deine Änderung.",
-    ),
-  ).toBeVisible();
-  // Der frische Stand kommt nach; die Werkzeilen folgen dem Server-Stand
-  // (hier: ein Eintrag mit der fremden Notiz).
-  await expect(
-    page.locator(".programm-zeile").nth(1).getByLabel("Notiz (optional)"),
-  ).toHaveValue("Vom anderen Beitrag ergänzt.");
-  expect(abfragen).toBe(2);
-  expect(puts).toHaveLength(1);
-
-  expect(errors).toEqual([]);
-});
-
-test("Redaktion sieht Revisionsstand und frühere Fassungen an der Werkbank", async ({
-  page,
-}) => {
-  const errors: string[] = [];
-  page.on("pageerror", (error) => errors.push(error.message));
-  await mockSitzung(page, editorMe);
-  await mockKatalog(page);
-  await page.route(`**/api/events/${eventId}`, (route) =>
-    route.fulfill(json(detail(veroeffentlichtMitGeschichte))),
-  );
-
-  await page.goto(`/auftritt/?id=${eventId}`);
-  await programmVerwaltungAufklappen(page);
-  await expect(page.locator(".programm-stand")).toHaveCount(2);
-
-  // Standzeilen: ehrlich in beiden Richtungen — der Entwurf ist die
-  // Revision 3, die Mitglieder lesen die veröffentlichte Revision 2.
-  await expect(
-    page.getByText(
-      /Entwurf: Revision 3 · Letzte Änderung: 24\. September 2026/,
-    ),
-  ).toBeVisible();
-  await expect(
-    page.getByText(
-      /Mitgliedersicht: Revision 2 · veröffentlicht am 22\. September 2026/,
-    ),
-  ).toBeVisible();
-
-  // Frühere Fassungen: die eingefrorene Fassung liest sich mit dem
-  // Veröffentlichungszeitpunkt in Wien.
-  const fruehere = page.locator(".programm-fruehere");
-  await expect(fruehere).toHaveCount(1);
-  await expect(fruehere.locator(".programm-fruehere-einleitung")).toHaveText(
-    "Frühere Fassungen",
-  );
-  // Genau eine frühere Fassung — die Revision 1 mit ihrem eigenen
-  // Veröffentlichungszeitpunkt; die neueste Veröffentlichung (Revision 2)
-  // taucht in der Geschichte nicht auf.
-  await expect(fruehere.locator(".programm-fruehere-zeile")).toHaveText([
-    /Revision 1 · veröffentlicht am 20\. September 2026/,
-  ]);
-  await expect(fruehere.getByText(/Revision 2/)).toHaveCount(0);
-
-  // Auch im Handymaß bleibt die Werkbank ohne Seitenüberlauf.
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth <= window.innerWidth,
-    ),
-  ).toBe(true);
-
-  expect(errors).toEqual([]);
-});
-
-test("Ungespeicherte Arbeit meldet sich und legt sich nach dem Speichern still", async ({
-  page,
-}) => {
-  const errors: string[] = [];
-  page.on("pageerror", (error) => errors.push(error.message));
-  await mockSitzung(page, editorMe);
-  await mockKatalog(page);
-  let stand: unknown = entwurfStandMitDrei();
-  await page.route(`**/api/events/${eventId}`, (route) =>
-    route.fulfill(json(detail(stand))),
-  );
-  const puts: Record<string, unknown>[] = [];
-  await page.route(`**/api/events/${eventId}/programme/items`, (route) => {
-    expect(route.request().method()).toBe("PUT");
-    expect(route.request().headers()["x-csrf-token"]).toBe("test");
-    const anfrage = route.request().postDataJSON() as {
-      items: Array<{
-        id?: string;
-        liedId: string;
-        note?: string;
-      }>;
-      rowVersion?: number;
-    };
-    const bisher = stand as { rowVersion: number };
-    expect(anfrage.rowVersion).toBe(bisher.rowVersion);
-    puts.push(anfrage);
-    // Der Server stampft den Stand: die gesendete Notiz liest sich
-    // zurück, rowVersion und Zeitpunkt wandern.
-    stand = {
-      id: programmId,
-      rowVersion: bisher.rowVersion + 1,
-      working: {
-        id: revisionEntwurfId,
-        number: 1,
-        updatedAt: "2026-09-25T10:00:00.000Z",
-        items: antwortItems(anfrage.items),
-      },
-      published: null,
-    };
-    return route.fulfill(json({ programme: stand }));
-  });
-
-  await page.goto(`/auftritt/?id=${eventId}`);
-  await programmVerwaltungAufklappen(page);
-  await expect(page.locator(".programm-zeile")).toHaveCount(3);
-
-  // Standzeilen ehrlich: Revision 1 gezogen, noch nichts veröffentlicht.
-  await expect(
-    page.getByText(
-      /Entwurf: Revision 1 · Letzte Änderung: 23\. September 2026/,
-    ),
-  ).toBeVisible();
-  await expect(
-    page.getByText("Mitgliedersicht: noch nichts veröffentlicht."),
-  ).toBeVisible();
-
-  // Ungespeicherte Arbeit: die Notiz der ersten Zeile wandert.
-  await page
-    .locator(".programm-zeile-notiz input")
-    .first()
-    .fill("Erste Strophe langsam ansetzen.");
-  await expect(page.locator(".programm-unerledigt")).toHaveText(
-    "Nicht gespeicherte Änderungen.",
-  );
-
-  await page.getByRole("button", { name: "Entwurf speichern" }).click();
-  await expect(page.getByText("Programmentwurf gespeichert.")).toBeVisible();
-  // Der Hinweis legt sich still, und der Stand folgt der Antwort.
-  await expect(page.locator(".programm-unerledigt")).toHaveCount(0);
-  await expect(
-    page.getByText(
-      /Entwurf: Revision 1 · Letzte Änderung: 25\. September 2026/,
-    ),
-  ).toBeVisible();
-  await expect(
-    page.getByText(
-      /Entwurf: Revision 1 · Letzte Änderung: 23\. September 2026/,
-    ),
-  ).toHaveCount(0);
-
-  expect(puts).toHaveLength(1);
-  expect(puts[0].rowVersion).toBe(4);
-  expect(puts[0].items).toEqual([
-    { id: punktA, liedId: lied1Id, note: "Erste Strophe langsam ansetzen." },
     { id: punktB, liedId: lied2Id, note: "" },
     { id: punktC, liedId: lied1Id, note: "" },
   ]);
+  expect(puts[1].rowVersion).toBe(1);
 
   expect(errors).toEqual([]);
 });
 
-test("Frischer Stand ersetzt unerledigte Arbeit und erklärt es", async ({
+test("Umordnen und Entfernen nachträglich wandern in der PUT-Reihenfolge mit stabilen Ids", async ({
   page,
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await mockSitzung(page, editorMe);
   await mockKatalog(page);
-  // Kommt der Stand nach dem verlorenen Rennen hoch, trägt er die fremde
-  // Notiz; die eigene, ungespeicherte Arbeit ist dabei ersetzt.
+  const stand: { aktuell: ReturnType<typeof programmMitDrei> | null } = {
+    aktuell: programmMitDrei(),
+  };
+  await page.route(`**/api/events/${eventId}`, (route) =>
+    route.fulfill(json(detail(stand.aktuell))),
+  );
+  const puts: PutAnfrage[] = [];
+  await mockPut(page, stand, puts);
+
+  await page.goto(`/auftritt/?id=${eventId}`);
+  await programmVerwaltungAufklappen(page);
+  await expect(page.locator(".programm-zeile")).toHaveCount(3);
+
+  await page
+    .locator(".programm-zeile")
+    .nth(2)
+    .getByRole("button", { name: "Eintrag 3 nach oben schieben" })
+    .click();
+  await expect(page.locator(".programm-unerledigt")).toHaveText(
+    "Nicht gespeicherte Änderungen.",
+  );
+  await page.getByRole("button", { name: "Programm speichern" }).click();
+  await expect(page.getByText(/Programm gespeichert/)).toBeVisible();
+  await expect(page.locator(".programm-unerledigt")).toHaveCount(0);
+  expect(puts[0].items).toEqual([
+    { id: punktA, liedId: lied1Id, note: "Erste Strophe im Stehchoral." },
+    { id: punktC, liedId: lied1Id, note: "" },
+    { id: punktB, liedId: lied2Id, note: "" },
+  ]);
+  expect(puts[0].rowVersion).toBe(4);
+
+  await page
+    .locator(".programm-zeile")
+    .nth(0)
+    .getByRole("button", { name: "Eintrag 1 entfernen" })
+    .click();
+  await page.getByRole("button", { name: "Programm speichern" }).click();
+  await expect(async () => expect(puts).toHaveLength(2)).toPass();
+  expect(puts[1].items).toEqual([
+    { id: punktC, liedId: lied1Id, note: "" },
+    { id: punktB, liedId: lied2Id, note: "" },
+  ]);
+  expect(puts[1].rowVersion).toBe(5);
+
+  expect(errors).toEqual([]);
+});
+
+test("Veralteter Stand erklärt sich und lädt den frischen Stand", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await mockSitzung(page, editorMe);
+  await mockKatalog(page);
   const frischerStand = {
-    id: programmId,
-    rowVersion: 9,
-    working: {
-      id: revisionEntwurfId,
-      number: 1,
-      updatedAt: "2026-09-24T10:00:00.000Z",
-      items: [
-        veroeffentlichteItems[0],
-        {
-          ...veroeffentlichteItems[1],
-          note: "Vom anderen Beitrag ergänzt.",
-        },
-      ],
-    },
-    published: null,
+    ...programmMitDrei(9),
+    items: [items[0], { ...items[1], note: "Vom anderen Beitrag ergänzt." }],
   };
   let abfragen = 0;
   await page.route(`**/api/events/${eventId}`, (route) => {
     abfragen += 1;
     return route.fulfill(
-      json(detail(abfragen === 1 ? entwurfStandMitDrei() : frischerStand)),
+      json(detail(abfragen === 1 ? programmMitDrei() : frischerStand)),
     );
   });
   const puts: Record<string, unknown>[] = [];
   await page.route(`**/api/events/${eventId}/programme/items`, (route) => {
     puts.push(route.request().postDataJSON() as Record<string, unknown>);
     return route.fulfill(
-      problem("Der Programmentwurf wurde zwischenzeitlich geändert.", 409),
+      problem("Das Programm wurde zwischenzeitlich geändert.", 409),
     );
   });
 
@@ -810,80 +461,61 @@ test("Frischer Stand ersetzt unerledigte Arbeit und erklärt es", async ({
   await programmVerwaltungAufklappen(page);
   await expect(page.locator(".programm-zeile")).toHaveCount(3);
 
-  // Ungespeicherte Arbeit: die Notiz der ersten Zeile wandert.
-  await page
-    .locator(".programm-zeile-notiz input")
-    .first()
-    .fill("Meine neue Notiz.");
-  await expect(page.locator(".programm-unerledigt")).toHaveText(
-    "Nicht gespeicherte Änderungen.",
-  );
-
-  await page.getByRole("button", { name: "Entwurf speichern" }).click();
+  await page.getByRole("button", { name: "Programm speichern" }).click();
   await expect(
     page.getByText(
-      "Der Programmentwurf wurde zwischenzeitlich geändert. Bitte prüfe den aktuellen Stand und wiederhole deine Änderung.",
+      "Das Programm wurde zwischenzeitlich geändert. Bitte prüfe den aktuellen Stand und wiederhole deine Änderung.",
     ),
   ).toBeVisible();
-  // Der frische Stand folgt in den Zeilen: die eigene Notiz ist weg, die
-  // fremde liest sich, und der unerledigte Hinweis legt sich still.
-  await expect(
-    page.locator(".programm-zeile").nth(0).getByLabel("Notiz (optional)"),
-  ).toHaveValue("Erste Strophe im Stehchoral.");
   await expect(
     page.locator(".programm-zeile").nth(1).getByLabel("Notiz (optional)"),
   ).toHaveValue("Vom anderen Beitrag ergänzt.");
-  await expect(page.locator(".programm-unerledigt")).toHaveCount(0);
-  // Auch die Standzeile liest den frischen Stand.
-  await expect(
-    page.getByText(
-      /Entwurf: Revision 1 · Letzte Änderung: 24\. September 2026/,
-    ),
-  ).toBeVisible();
   expect(abfragen).toBe(2);
   expect(puts).toHaveLength(1);
 
   expect(errors).toEqual([]);
 });
 
-test("Veröffentlichen sendet die rowVersion und meldet den Erfolg; das Verzeichnis listet das Programm", async ({
+test("Hängen Zeitmarken an einem entfernten Eintrag, nennt die Antwort sie beim Namen", async ({
   page,
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await mockSitzung(page, editorMe);
   await mockKatalog(page);
-  let abfragen = 0;
-  await page.route(`**/api/events/${eventId}`, (route) => {
-    abfragen += 1;
-    return route.fulfill(
-      json(detail(abfragen === 1 ? entwurfStandMitDrei() : veroeffentlicht)),
-    );
-  });
-  const veroeffentlichungen: Record<string, unknown>[] = [];
-  await page.route(`**/api/events/${eventId}/programme/publish`, (route) => {
-    expect(route.request().method()).toBe("POST");
-    expect(route.request().headers()["x-csrf-token"]).toBe("test");
-    veroeffentlichungen.push(
-      route.request().postDataJSON() as Record<string, unknown>,
-    );
-    return route.fulfill(json({ programme: veroeffentlicht }));
-  });
+  await page.route(`**/api/events/${eventId}`, (route) =>
+    route.fulfill(json(detail(programmMitDrei()))),
+  );
+  await page.route(`**/api/events/${eventId}/programme/items`, (route) =>
+    route.fulfill(
+      problem(
+        "Zeitmarken vorhanden: „Aurora“ in „Mitschnitt“. Entferne zuerst diese Zeitmarken in den Aufnahmen.",
+        409,
+      ),
+    ),
+  );
 
   await page.goto(`/auftritt/?id=${eventId}`);
   await programmVerwaltungAufklappen(page);
-  await page.getByRole("button", { name: "Veröffentlichen" }).click();
-  await expect(
-    page.getByText("Programm veröffentlicht. Mitglieder sehen es ab sofort."),
-  ).toBeVisible();
-  expect(veroeffentlichungen).toEqual([{ rowVersion: 4 }]);
-  // Nach der Veröffentlichung liest sich die veröffentlichte Revision.
-  await expect(page.locator(".programm-liste .programm-eintrag")).toHaveCount(
-    3,
-  );
+  await page
+    .locator(".programm-zeile")
+    .nth(1)
+    .getByRole("button", { name: "Eintrag 2 entfernen" })
+    .click();
+  await page.getByRole("button", { name: "Programm speichern" }).click();
+  await expect(page.getByText(/Zeitmarken vorhanden: „Aurora“/)).toBeVisible();
+  // Die Arbeit bleibt stehen, nichts wurde stillschweigend verworfen.
+  await expect(page.locator(".programm-zeile")).toHaveCount(2);
 
-  // Das Verzeichnis listet das kommende Programm mit ehrlichem Datum,
-  // Liederzahl und dem Weg in die Auftrittsansicht.
+  expect(errors).toEqual([]);
+});
+
+test("Das Verzeichnis listet das kommende Programm mit ehrlichem Datum und Liederzahl", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await mockSitzung(page, memberMe);
   await page.route("**/api/programmes", (route) =>
     route.fulfill(
       json({
@@ -897,7 +529,7 @@ test("Veröffentlichen sendet die rowVersion und meldet den Erfolg; das Verzeich
             dateApproximate: false,
             venue: "Stadtsaal Mining",
             startTime: "19:30",
-            publishedAt: "2026-09-20T10:00:00.000Z",
+            updatedAt: "2026-09-20T10:00:00.000Z",
             itemCount: 3,
           },
         ],
@@ -905,293 +537,22 @@ test("Veröffentlichen sendet die rowVersion und meldet den Erfolg; das Verzeich
     ),
   );
 
-  if (page.viewportSize()?.width === 412) {
-    await page.getByRole("button", { name: "Menü", exact: true }).click();
-  }
-  await page.getByRole("link", { name: "Programme" }).click();
-  await expect(page).toHaveURL(/\/programm\/$/);
+  await page.goto("/programm/");
   const zeile = page.locator(".programme-eintrag");
   await expect(zeile).toHaveCount(1);
   await expect(zeile.getByText("Frühlingskonzert")).toBeVisible();
-  await expect(zeile.getByText("Konzert", { exact: true })).toBeVisible();
   await expect(zeile.getByText("12. Mai 2027")).toBeVisible();
-  await expect(zeile.getByText("Stadtsaal Mining")).toBeVisible();
   await expect(zeile.getByText("3 Lieder")).toBeVisible();
   await expect(zeile.getByRole("link")).toHaveAttribute(
     "href",
     `/auftritt/?id=${eventId}`,
   );
   await expect(zeile.locator(".datum-unsicher")).toHaveCount(0);
-  // Auch im Handymaß bleibt das Verzeichnis ohne Seitenüberlauf.
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).toBe(true);
-  // Jede Navigation schließt das Handymenü; der Nav-Link liest sich erst
-  // nach dem erneuten Öffnen.
-  if (page.viewportSize()?.width === 412) {
-    await page.getByRole("button", { name: "Menü", exact: true }).click();
-  }
-  await expect(
-    page
-      .getByRole("navigation", { name: "Hauptnavigation" })
-      .getByRole("link", { name: "Programme" }),
-  ).toHaveAttribute("href", "/programm/");
-
-  expect(errors).toEqual([]);
-});
-
-test("Umordnen und Entfernen wandern in der PUT-Reihenfolge mit stabilen Ids", async ({
-  page,
-}) => {
-  const errors: string[] = [];
-  page.on("pageerror", (error) => errors.push(error.message));
-  await mockSitzung(page, editorMe);
-  await mockKatalog(page);
-  // Start: der Dreilieder-Entwurf (rowVersion 4); der Server stampft die
-  // rowVersion je PUT hoch und spiegelt die gesendeten Einträge.
-  let stand: unknown = entwurfStandMitDrei();
-  await page.route(`**/api/events/${eventId}`, (route) =>
-    route.fulfill(json(detail(stand))),
-  );
-  const puts: Record<string, unknown>[] = [];
-  await page.route(`**/api/events/${eventId}/programme/items`, (route) => {
-    const anfrage = route.request().postDataJSON() as {
-      items: Array<{
-        id?: string;
-        liedId: string;
-        note?: string;
-      }>;
-      rowVersion?: number;
-    };
-    puts.push(anfrage);
-    stand = {
-      id: programmId,
-      rowVersion: 5,
-      working: {
-        id: revisionEntwurfId,
-        number: 1,
-        updatedAt: "2026-09-23T12:00:00.000Z",
-        items: antwortItems(anfrage.items),
-      },
-      published: null,
-    };
-    return route.fulfill(json({ programme: stand }));
-  });
-
-  await page.goto(`/auftritt/?id=${eventId}`);
-  await programmVerwaltungAufklappen(page);
-  await expect(page.locator(".programm-zeile")).toHaveCount(3);
-
-  // ↑ schiebt den dritten Eintrag (Lied 1, zum zweiten Mal) um einen
-  // Platz nach vorn, zwischen Wiederholungsquelle und zweiten Lied.
-  await page
-    .locator(".programm-zeile")
-    .nth(2)
-    .getByRole("button", { name: "Eintrag 3 nach oben schieben" })
-    .click();
-  await page.getByRole("button", { name: "Entwurf speichern" }).click();
-  await expect(page.getByText("Programmentwurf gespeichert.")).toBeVisible();
-  expect(puts).toHaveLength(1);
-  // Die Reihenfolge der Zeilen definiert die Positionen; die stabilen Ids
-  // reisen unverändert mit, nichts wird neu angelegt.
-  expect(puts[0].items).toEqual([
-    { id: punktA, liedId: lied1Id, note: "Erste Strophe im Stehchoral." },
-    { id: punktC, liedId: lied1Id, note: "" },
-    { id: punktB, liedId: lied2Id, note: "" },
-  ]);
-  expect(puts[0].rowVersion).toBe(4);
-
-  // Entfernen nimmt die erste Zeile ersatzlos heraus: der zweite PUT
-  // überträgt nur die verbleibenden zwei Einträge mit ihren Ids.
-  await page
-    .locator(".programm-zeile")
-    .nth(0)
-    .getByRole("button", { name: "Eintrag 1 entfernen" })
-    .click();
-  await page.getByRole("button", { name: "Entwurf speichern" }).click();
-  await expect(page.getByText("Programmentwurf gespeichert.")).toBeVisible();
-  expect(puts).toHaveLength(2);
-  expect(puts[1].items).toEqual([
-    { id: punktC, liedId: lied1Id, note: "" },
-    { id: punktB, liedId: lied2Id, note: "" },
-  ]);
-  expect(puts[1].rowVersion).toBe(5);
-
-  expect(errors).toEqual([]);
-});
-
-test("Nach der Veröffentlichung startet der Entwurf als Kopie ohne Ids", async ({
-  page,
-}) => {
-  const errors: string[] = [];
-  page.on("pageerror", (error) => errors.push(error.message));
-  await mockSitzung(page, editorMe);
-  await mockKatalog(page);
-  let stand: unknown = veroeffentlicht;
-  await page.route(`**/api/events/${eventId}`, (route) => {
-    // Die Erstabfrage liest das veröffentlichte Programm ohne Entwurf;
-    // der PUT-Antwortstand bleibt für den nächsten PUT derselbe.
-    return route.fulfill(json(detail(stand)));
-  });
-  const puts: Record<string, unknown>[] = [];
-  await page.route(`**/api/events/${eventId}/programme/items`, (route) => {
-    const anfrage = route.request().postDataJSON() as {
-      items: Array<{
-        id?: string;
-        liedId: string;
-        note?: string;
-      }>;
-      rowVersion?: number;
-    };
-    puts.push(anfrage);
-    stand = {
-      id: programmId,
-      rowVersion: 6,
-      working: {
-        id: revisionEntwurfId,
-        number: 2,
-        updatedAt: "2026-09-25T10:00:00.000Z",
-        items: antwortItems(anfrage.items),
-      },
-      published: veroeffentlicht.published,
-    };
-    return route.fulfill(json({ programme: stand }));
-  });
-
-  await page.goto(`/auftritt/?id=${eventId}`);
-  await programmVerwaltungAufklappen(page);
-  // ARC-027 Standzeilen: ohne Arbeitsrevision liest sich der Stand
-  // ehrlich — noch kein eigener Entwurf, die Mitglieder lesen Revision 1.
-  await expect(
-    page.getByText("Entwurf: noch keiner gespeichert."),
-  ).toBeVisible();
-  await expect(
-    page.getByText(
-      /Mitgliedersicht: Revision 1 · veröffentlicht am 20\. September 2026/,
-    ),
-  ).toBeVisible();
-  // Der kopierte Entwurf startet mit drei Zeilen; der Hinweis bleibt der
-  // Vermerk der Kopie (Vertragssprache).
-  await expect(
-    page.getByText(
-      "Der neue Entwurf beginnt als Kopie der veröffentlichten Liste; die veröffentlichte Fassung bleibt unverändert stehen.",
-    ),
-  ).toBeVisible();
-  await expect(page.locator(".programm-zeile")).toHaveCount(3);
-
-  // Sofortiges Speichern legt jeden Eintrag neu an: dieselben Lieder,
-  // aber ohne Programmpunkt-Ids (frische Ids erzeugt der Vertrag).
-  await page.getByRole("button", { name: "Entwurf speichern" }).click();
-  await expect(page.getByText("Programmentwurf gespeichert.")).toBeVisible();
-  expect(puts).toHaveLength(1);
-  expect(puts[0].items).toEqual([
-    { liedId: lied1Id, note: "Erste Strophe im Stehchoral." },
-    { liedId: lied2Id, note: "" },
-    { liedId: lied1Id, note: "" },
-  ]);
-  // Concurrency-Anker: die rowVersion des veröffentlichten Standes.
-  expect(puts[0].rowVersion).toBe(5);
-  // Die Antwort hat den Kopierhinweis entleert — der Entwurf existiert.
-  await expect(
-    page.getByText(
-      "Der neue Entwurf beginnt als Kopie der veröffentlichten Liste",
-    ),
-  ).toHaveCount(0);
-
-  expect(errors).toEqual([]);
-});
-
-test("Veröffentlichen mit veraltetem Stand erklärt sich und lädt den frischen Stand", async ({
-  page,
-}) => {
-  const errors: string[] = [];
-  page.on("pageerror", (error) => errors.push(error.message));
-  await mockSitzung(page, editorMe);
-  await mockKatalog(page);
-  let abfragen = 0;
-  await page.route(`**/api/events/${eventId}`, (route) => {
-    abfragen += 1;
-    // Nach der Ablehnung (Abfrage 2) liest die Sicht den frischen Stand:
-    // bereits veröffentlicht, damit der Lesesaal die Revision listet.
-    return route.fulfill(
-      json(detail(abfragen === 1 ? entwurfStandMitDrei() : veroeffentlicht)),
-    );
-  });
-  const veroeffentlichungen: Record<string, unknown>[] = [];
-  await page.route(`**/api/events/${eventId}/programme/publish`, (route) => {
-    expect(route.request().method()).toBe("POST");
-    veroeffentlichungen.push(
-      route.request().postDataJSON() as Record<string, unknown>,
-    );
-    // Veraltet: der Stand wurde zwischenzeitlich geändert (z. B. von
-    // einem zweiten Beitrag gespeichert worden).
-    return route.fulfill(
-      problem("Das Programm wurde bereits veröffentlicht.", 409),
-    );
-  });
-
-  await page.goto(`/auftritt/?id=${eventId}`);
-  await programmVerwaltungAufklappen(page);
-  await expect(page.locator(".programm-zeile")).toHaveCount(3);
-  await page.getByRole("button", { name: "Veröffentlichen" }).click();
-  await expect(
-    page.getByText("Das Programm wurde bereits veröffentlicht."),
-  ).toBeVisible();
-  expect(veroeffentlichungen).toEqual([{ rowVersion: 4 }]);
-  // Die Ablehnung lädt den frischen Stand nach; die Lesesaal-Liste folgt.
-  // Die wiederholte Behauptung auf die frische Liste beweist die zweite
-  // Abfrage; erst danach liest sich der Zähler ohne Wettkampf um die
-  // Nachladung.
-  await expect(page.locator(".programm-liste .programm-eintrag")).toHaveCount(
-    3,
-  );
-  expect(abfragen).toBe(2);
-
-  expect(errors).toEqual([]);
-});
-
-test("Ungespeicherte Änderungen bremsen Veröffentlichen: kein POST, erst Hinweis", async ({
-  page,
-}) => {
-  const errors: string[] = [];
-  page.on("pageerror", (error) => errors.push(error.message));
-  await mockSitzung(page, editorMe);
-  await mockKatalog(page);
-  let abfragen = 0;
-  await page.route(`**/api/events/${eventId}`, (route) => {
-    abfragen += 1;
-    return route.fulfill(json(detail(entwurfStandMitDrei())));
-  });
-  const veroeffentlichungen: Record<string, unknown>[] = [];
-  await page.route(`**/api/events/${eventId}/programme/publish`, (route) => {
-    veroeffentlichungen.push(
-      route.request().postDataJSON() as Record<string, unknown>,
-    );
-    return route.fulfill(json({ programme: veroeffentlicht }));
-  });
-
-  await page.goto(`/auftritt/?id=${eventId}`);
-  await programmVerwaltungAufklappen(page);
-  await expect(page.locator(".programm-zeile")).toHaveCount(3);
-
-  // Ungespeicherte Arbeit: die Notiz der zweiten Zeile wandert.
-  await page
-    .locator(".programm-zeile")
-    .nth(1)
-    .getByLabel("Notiz (optional)")
-    .fill("Aus dem Stehchoral in den Sitzchoral.");
-
-  await page.getByRole("button", { name: "Veröffentlichen" }).click();
-  await expect(
-    page.getByText(
-      "Es gibt nicht gespeicherte Änderungen. Speichere den Entwurf erst, um sie zu veröffentlichen.",
-    ),
-  ).toBeVisible();
-  // Kein POST: die Veröffentlichung bleibt zurück, bis gespeichert ist.
-  expect(veroeffentlichungen).toEqual([]);
-  expect(abfragen).toBe(1);
 
   expect(errors).toEqual([]);
 });
@@ -1216,7 +577,7 @@ test("Unsichere Daten bleiben auch im Programmverzeichnis gekennzeichnet", async
             dateApproximate: false,
             venue: "Stadtsaal Mining",
             startTime: "19:30",
-            publishedAt: "2026-09-20T10:00:00.000Z",
+            updatedAt: "2026-09-20T10:00:00.000Z",
             itemCount: 3,
           },
           {
@@ -1228,7 +589,7 @@ test("Unsichere Daten bleiben auch im Programmverzeichnis gekennzeichnet", async
             dateApproximate: true,
             venue: null,
             startTime: null,
-            publishedAt: "2026-09-20T10:00:00.000Z",
+            updatedAt: "2026-09-20T10:00:00.000Z",
             itemCount: 1,
           },
         ],

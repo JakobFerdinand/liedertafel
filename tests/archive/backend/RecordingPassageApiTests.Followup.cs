@@ -45,14 +45,14 @@ public sealed partial class RecordingPassageApiTests
 
 		// A form built against the old file cannot create, change or confirm.
 		using (var create = await scenario.SendAsync(HttpMethod.Post, path,
-			new { expectedPlaybackDateiId = oldRevision, performanceId = pc, startSeconds = 1, endSeconds = 5 },
+			new { expectedPlaybackDateiId = oldRevision, programmeItemId = pc, startSeconds = 1, endSeconds = 5 },
 			scenario.EditorSession))
 		{
 			Assert.Equal(HttpStatusCode.Conflict, create.StatusCode);
 			Assert.Equal(StalePlayback, await TitleAsync(create));
 		}
 		using (var missing = await scenario.SendAsync(HttpMethod.Post, path,
-			new { performanceId = pc, startSeconds = 1, endSeconds = 5 }, scenario.EditorSession))
+			new { programmeItemId = pc, startSeconds = 1, endSeconds = 5 }, scenario.EditorSession))
 		{
 			Assert.Equal(HttpStatusCode.BadRequest, missing.StatusCode);
 			Assert.Equal("Die Dateiversion der Aufnahme fehlt.", await TitleAsync(missing));
@@ -150,9 +150,9 @@ public sealed partial class RecordingPassageApiTests
 		await using var scenario = await Scenario.CreateAsync();
 		var lied = await scenario.CreateLiedAsync("Eigenes Lied");
 		var concert = await scenario.CreateEventAsync("Konzert", 2005, 3, 3, published: true);
-		var performance = await scenario.RecordAsync(concert, lied);
+		var entry = await scenario.RecordAsync(concert, lied);
 		var recording = await scenario.CreateRecordingAsync(concert, "Mitschnitt", "video", duration: 2000);
-		var passage = await scenario.AddPassageAsync(recording, performance, 10, 100);
+		var passage = await scenario.AddPassageAsync(recording, entry, 10, 100);
 		var revision = await scenario.PlaybackDateiAsync(recording);
 		var version = passage.GetProperty("editor").GetProperty("version").GetUInt32();
 		var path = $"/api/recordings/{recording}/passages/{passage.GetProperty("id").GetString()}";
@@ -178,9 +178,9 @@ public sealed partial class RecordingPassageApiTests
 		await using var scenario = await Scenario.CreateAsync();
 		var lied = await scenario.CreateLiedAsync("Wachlied");
 		var concert = await scenario.CreateEventAsync("Konzert", 2006, 3, 3, published: true);
-		var performance = await scenario.RecordAsync(concert, lied);
+		var entry = await scenario.RecordAsync(concert, lied);
 		var recording = await scenario.CreateRecordingAsync(concert, "Mitschnitt", "video", duration: 2000);
-		var passage = await scenario.AddPassageAsync(recording, performance, 10, 100);
+		var passage = await scenario.AddPassageAsync(recording, entry, 10, 100);
 		var path = $"/api/recordings/{recording}/passages";
 		var passageId = passage.GetProperty("id").GetString();
 		var revision = await scenario.PlaybackDateiAsync(recording);
@@ -216,11 +216,11 @@ public sealed partial class RecordingPassageApiTests
 		var lied = await scenario.CreateLiedAsync("Verlorenes Lied");
 		var other = await scenario.CreateLiedAsync("Anderes Lied");
 		var concert = await scenario.CreateEventAsync("Konzert", 2008, 3, 3, published: true);
-		var performance = await scenario.RecordAsync(concert, lied);
-		var otherPerformance = await scenario.RecordAsync(concert, other);
+		var entry = await scenario.RecordAsync(concert, lied);
+		var otherEntry = await scenario.RecordAsync(concert, other);
 		var recording = await scenario.CreateRecordingAsync(concert, "Mitschnitt", "video", duration: 2000);
 		await scenario.PublishRecordingAsync(recording);
-		var passage = await scenario.AddPassageAsync(recording, performance, 10, 100);
+		var passage = await scenario.AddPassageAsync(recording, entry, 10, 100);
 		var revision = await scenario.PlaybackDateiAsync(recording);
 		var passageId = passage.GetProperty("id").GetString();
 		var version = passage.GetProperty("editor").GetProperty("version").GetUInt32();
@@ -239,7 +239,7 @@ public sealed partial class RecordingPassageApiTests
 		foreach (var (method, route, payload) in new (HttpMethod, string, object)[]
 		{
 			(HttpMethod.Post, path,
-				new { expectedPlaybackDateiId = revision, performanceId = otherPerformance, startSeconds = 1, endSeconds = 5 }),
+				new { expectedPlaybackDateiId = revision, programmeItemId = otherEntry, startSeconds = 1, endSeconds = 5 }),
 			(HttpMethod.Patch, $"{path}/{passageId}",
 				new { expectedPlaybackDateiId = revision, startSeconds = 11, endSeconds = 101, expectedVersion = version }),
 			(HttpMethod.Post, $"{path}/review",
@@ -257,79 +257,26 @@ public sealed partial class RecordingPassageApiTests
 	}
 
 	[Fact]
-	public async Task StaleConfirmationFormGetsTheStaleAnswerNotThePassagesBlock()
-	{
-		await using var scenario = await Scenario.CreateAsync();
-		var a = await scenario.CreateLiedAsync("Gesungen");
-		var b = await scenario.CreateLiedAsync("Ausgelassen");
-		var concert = await scenario.CreateEventAsync("Konzert", 2009, 3, 3, published: true);
-		await scenario.PublishProgrammeAsync(concert, [a, b]);
-		await scenario.ConfirmAsync(concert);
-		var recording = await scenario.CreateRecordingAsync(concert, "Mitschnitt", "video", duration: 2000);
-		var occurrences = (await scenario.PassagesAsync(recording, scenario.EditorSession))
-			.GetProperty("occurrences").EnumerateArray().ToList();
-		var markedId = occurrences[1].GetProperty("performanceId").GetString()!;
-		await scenario.AddPassageAsync(recording, markedId, 10, 100);
-
-		var (review, rowVersion) = await scenario.ReviewAsync(concert);
-		var items = review.GetProperty("items").EnumerateArray().Select((item, index) => new
-		{
-			programmeItemId = item.GetProperty("programmeItemId").GetString(),
-			outcome = index == 1 ? "skipped" : "sung",
-		}).ToArray();
-		var revisionId = review.GetProperty("revision").GetProperty("id").GetString();
-		var path = $"/api/events/{concert}/programme/confirmation";
-
-		// An outdated confirmation token: the editor is told to reload, not to
-		// delete passages from a form that no longer describes the archive.
-		using (var outdated = await scenario.SendAsync(HttpMethod.Put, path,
-			new { revisionId, rowVersion = rowVersion + 7, items, additions = Array.Empty<object>() }, scenario.EditorSession))
-		{
-			Assert.Equal(HttpStatusCode.Conflict, outdated.StatusCode);
-			Assert.Equal("Die Bestätigung wurde zwischenzeitlich geändert.", await TitleAsync(outdated));
-		}
-		// An occurrence the form saw in another state.
-		using (var unseen = await scenario.SendAsync(HttpMethod.Put, path,
-			new
-			{
-				revisionId,
-				rowVersion,
-				items,
-				additions = Array.Empty<object>(),
-				knownOccurrences = new[] { new { performanceId = markedId, rowVersion = 99u } },
-			}, scenario.EditorSession))
-		{
-			Assert.Equal(HttpStatusCode.Conflict, unseen.StatusCode);
-			Assert.Equal("Die Bestätigung wurde zwischenzeitlich geändert.", await TitleAsync(unseen));
-		}
-		// An up-to-date form that would drop the marked occurrence is blocked.
-		using var blocked = await scenario.SendAsync(HttpMethod.Put, path,
-			new { revisionId, rowVersion, items, additions = Array.Empty<object>() }, scenario.EditorSession);
-		Assert.Equal(HttpStatusCode.Conflict, blocked.StatusCode);
-		Assert.StartsWith("Zeitmarken vorhanden:", await TitleAsync(blocked));
-	}
-
-	[Fact]
 	public void ConstraintMappingsLookAtTheViolatedConstraint()
 	{
 		static DbUpdateException Violation(string sqlState, string? constraint) => new("save",
 			new PostgresException("fehler", "ERROR", "ERROR", sqlState, constraintName: constraint));
 
-		var passageToPerformance = Violation(PostgresErrorCodes.ForeignKeyViolation,
-			RecordingPassages.PerformanceForeignKey);
+		var passageToEntry = Violation(PostgresErrorCodes.ForeignKeyViolation,
+			RecordingPassages.ProgrammeItemForeignKey);
 		var otherForeignKey = Violation(PostgresErrorCodes.ForeignKeyViolation, "FK_something_else");
 		var duplicate = Violation(PostgresErrorCodes.UniqueViolation, RecordingPassages.UniquePerRecording);
 		var otherUnique = Violation(PostgresErrorCodes.UniqueViolation, "IX_other");
 
-		Assert.True(RecordingPassages.IsPerformanceForeignKeyViolation(passageToPerformance));
-		Assert.False(RecordingPassages.IsPerformanceForeignKeyViolation(otherForeignKey));
-		Assert.False(RecordingPassages.IsPerformanceForeignKeyViolation(duplicate));
-		Assert.False(RecordingPassages.IsPerformanceForeignKeyViolation(new DbUpdateException("save")));
+		Assert.True(RecordingPassages.IsProgrammeItemForeignKeyViolation(passageToEntry));
+		Assert.False(RecordingPassages.IsProgrammeItemForeignKeyViolation(otherForeignKey));
+		Assert.False(RecordingPassages.IsProgrammeItemForeignKeyViolation(duplicate));
+		Assert.False(RecordingPassages.IsProgrammeItemForeignKeyViolation(new DbUpdateException("save")));
 		Assert.True(RecordingPassages.IsDuplicateViolation(duplicate));
 		Assert.False(RecordingPassages.IsDuplicateViolation(otherUnique));
-		Assert.False(RecordingPassages.IsDuplicateViolation(passageToPerformance));
+		Assert.False(RecordingPassages.IsDuplicateViolation(passageToEntry));
 		// The names are the ones the migration created.
-		Assert.Equal("FK_recording_passages_performances_PerformanceId_EventId", RecordingPassages.PerformanceForeignKey);
-		Assert.Equal("IX_recording_passages_RecordingId_PerformanceId", RecordingPassages.UniquePerRecording);
+		Assert.Equal("FK_recording_passages_programme_items_ProgrammeItemId", RecordingPassages.ProgrammeItemForeignKey);
+		Assert.Equal("IX_recording_passages_RecordingId_ProgrammeItemId", RecordingPassages.UniquePerRecording);
 	}
 }

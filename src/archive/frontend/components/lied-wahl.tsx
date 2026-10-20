@@ -1,6 +1,6 @@
 "use client";
 
-// Liedauswahl für Programm, Nachweise und Bestätigung (#170): eine Suche im
+// Liedauswahl für das Programm (#160): eine Suche im
 // Liederverzeichnis, ein Treffer ist ein Lied. Jede neue Suche bricht die
 // vorige ab, ältere Antworten dürfen jüngere Ergebnisse nicht überschreiben,
 // und nach dem Einklappen wird kein Zustand mehr gesetzt.
@@ -18,7 +18,7 @@ export function LiedWahl({
 }: {
   onGewaehlt: (liedId: string, titel: string) => void;
   // Eigene Feld-Id, wenn mehrere Liedsuchen auf einer Seite stehen
-  // (Programm-Werkbank, Nachweise und Aufführungsbestätigung).
+  // (Programm-Werkbank).
   kennung?: string;
   beschriftung?: string;
   // Vorhandener Stilpräfix des Bereichs: "programm" oder "belege".

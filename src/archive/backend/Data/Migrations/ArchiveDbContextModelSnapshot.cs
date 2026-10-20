@@ -683,114 +683,6 @@ namespace Archive.Backend.Data.Migrations
                     b.ToTable("programmes", (string)null);
                 });
 
-            modelBuilder.Entity("Archive.Backend.Events.Performance", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("ConfirmationId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("CreatedByAccountId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("EventId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("EvidenceStatus")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<string>("IdempotencyKey")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<Guid>("LiedId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("Position")
-                        .HasColumnType("integer");
-
-                    b.Property<Guid?>("ProgrammeItemId")
-                        .HasColumnType("uuid");
-
-                    b.Property<long>("RowVersion")
-                        .IsConcurrencyToken()
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("SourceNote")
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("UpdatedByAccountId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ConfirmationId");
-
-                    b.HasIndex("EventId");
-
-                    b.HasIndex("LiedId");
-
-                    b.HasIndex("ProgrammeItemId")
-                        .IsUnique();
-
-                    b.HasIndex("EventId", "IdempotencyKey")
-                        .IsUnique();
-
-                    b.HasIndex("EventId", "Position")
-                        .IsUnique();
-
-                    b.ToTable("performances", (string)null);
-                });
-
-            modelBuilder.Entity("Archive.Backend.Events.ProgrammeConfirmation", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("CreatedByAccountId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("ProgrammeId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("RevisionId")
-                        .HasColumnType("uuid");
-
-                    b.Property<long>("RowVersion")
-                        .IsConcurrencyToken()
-                        .HasColumnType("bigint");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("UpdatedByAccountId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ProgrammeId")
-                        .IsUnique();
-
-                    b.HasIndex("RevisionId");
-
-                    b.ToTable("programme_confirmations", (string)null);
-                });
-
             modelBuilder.Entity("Archive.Backend.Events.ProgrammeItem", b =>
                 {
                     b.Property<Guid>("Id")
@@ -807,53 +699,17 @@ namespace Archive.Backend.Data.Migrations
                     b.Property<int>("Position")
                         .HasColumnType("integer");
 
-                    b.Property<Guid>("RevisionId")
+                    b.Property<Guid>("ProgrammeId")
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
 
                     b.HasIndex("LiedId");
 
-                    b.HasIndex("RevisionId", "Position")
+                    b.HasIndex("ProgrammeId", "Position")
                         .IsUnique();
 
                     b.ToTable("programme_items", (string)null);
-                });
-
-            modelBuilder.Entity("Archive.Backend.Events.ProgrammeRevision", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("CreatedByAccountId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("Number")
-                        .HasColumnType("integer");
-
-                    b.Property<Guid>("ProgrammeId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset?>("PublishedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("PublishedByAccountId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ProgrammeId")
-                        .IsUnique()
-                        .HasFilter("\"PublishedAt\" IS NULL");
-
-                    b.HasIndex("ProgrammeId", "Number")
-                        .IsUnique();
-
-                    b.ToTable("programme_revisions", (string)null);
                 });
 
             modelBuilder.Entity("Archive.Backend.Extraction.ExtractionJob", b =>
@@ -1370,10 +1226,10 @@ namespace Archive.Backend.Data.Migrations
                     b.Property<Guid>("EventId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid>("PerformanceId")
+                    b.Property<Guid?>("PlaybackDateiId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid?>("PlaybackDateiId")
+                    b.Property<Guid>("ProgrammeItemId")
                         .HasColumnType("uuid");
 
                     b.Property<Guid>("RecordingId")
@@ -1394,15 +1250,13 @@ namespace Archive.Backend.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("PerformanceId");
-
                     b.HasIndex("PlaybackDateiId");
 
-                    b.HasIndex("PerformanceId", "EventId");
+                    b.HasIndex("ProgrammeItemId");
 
                     b.HasIndex("RecordingId", "EventId");
 
-                    b.HasIndex("RecordingId", "PerformanceId")
+                    b.HasIndex("RecordingId", "ProgrammeItemId")
                         .IsUnique();
 
                     b.ToTable("recording_passages", null, t =>
@@ -1602,54 +1456,6 @@ namespace Archive.Backend.Data.Migrations
                     b.Navigation("Event");
                 });
 
-            modelBuilder.Entity("Archive.Backend.Events.Performance", b =>
-                {
-                    b.HasOne("Archive.Backend.Events.ProgrammeConfirmation", null)
-                        .WithMany()
-                        .HasForeignKey("ConfirmationId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Archive.Backend.Events.ChoirEvent", "Event")
-                        .WithMany()
-                        .HasForeignKey("EventId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("Archive.Backend.Lieder.Lied", "Lied")
-                        .WithMany()
-                        .HasForeignKey("LiedId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("Archive.Backend.Events.ProgrammeItem", null)
-                        .WithMany()
-                        .HasForeignKey("ProgrammeItemId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.Navigation("Event");
-
-                    b.Navigation("Lied");
-                });
-
-            modelBuilder.Entity("Archive.Backend.Events.ProgrammeConfirmation", b =>
-                {
-                    b.HasOne("Archive.Backend.Events.EventProgramme", "Programme")
-                        .WithMany()
-                        .HasForeignKey("ProgrammeId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Archive.Backend.Events.ProgrammeRevision", "Revision")
-                        .WithMany()
-                        .HasForeignKey("RevisionId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Programme");
-
-                    b.Navigation("Revision");
-                });
-
             modelBuilder.Entity("Archive.Backend.Events.ProgrammeItem", b =>
                 {
                     b.HasOne("Archive.Backend.Lieder.Lied", "Lied")
@@ -1658,24 +1464,13 @@ namespace Archive.Backend.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("Archive.Backend.Events.ProgrammeRevision", "Revision")
+                    b.HasOne("Archive.Backend.Events.EventProgramme", "Programme")
                         .WithMany("Items")
-                        .HasForeignKey("RevisionId")
+                        .HasForeignKey("ProgrammeId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
                     b.Navigation("Lied");
-
-                    b.Navigation("Revision");
-                });
-
-            modelBuilder.Entity("Archive.Backend.Events.ProgrammeRevision", b =>
-                {
-                    b.HasOne("Archive.Backend.Events.EventProgramme", "Programme")
-                        .WithMany("Revisions")
-                        .HasForeignKey("ProgrammeId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
 
                     b.Navigation("Programme");
                 });
@@ -1780,10 +1575,9 @@ namespace Archive.Backend.Data.Migrations
                         .HasForeignKey("PlaybackDateiId")
                         .OnDelete(DeleteBehavior.Restrict);
 
-                    b.HasOne("Archive.Backend.Events.Performance", "Performance")
+                    b.HasOne("Archive.Backend.Events.ProgrammeItem", "ProgrammeItem")
                         .WithMany()
-                        .HasForeignKey("PerformanceId", "EventId")
-                        .HasPrincipalKey("Id", "EventId")
+                        .HasForeignKey("ProgrammeItemId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
@@ -1794,9 +1588,9 @@ namespace Archive.Backend.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.Navigation("Performance");
-
                     b.Navigation("PlaybackDatei");
+
+                    b.Navigation("ProgrammeItem");
 
                     b.Navigation("Recording");
                 });
@@ -1909,11 +1703,6 @@ namespace Archive.Backend.Data.Migrations
                 });
 
             modelBuilder.Entity("Archive.Backend.Events.EventProgramme", b =>
-                {
-                    b.Navigation("Revisions");
-                });
-
-            modelBuilder.Entity("Archive.Backend.Events.ProgrammeRevision", b =>
                 {
                     b.Navigation("Items");
                 });

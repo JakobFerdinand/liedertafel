@@ -4,14 +4,13 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { AuftrittAufnahmen } from "@/components/auftritt-aufnahmen";
-import { AuftrittBelege } from "@/components/auftritt-belege";
-import { AuftrittBestaetigung } from "@/components/auftritt-bestaetigung";
 import { AuftrittDokumente } from "@/components/auftritt-dokumente";
 import { AuftrittFormular } from "@/components/auftritt-formular";
+import { AuftrittLiedAufnahmen } from "@/components/auftritt-lied-aufnahmen";
 import { AuftrittProgramm } from "@/components/auftritt-programm";
 import { fetchMe, type MeResponse, postAuth } from "@/lib/auth";
 import {
-  type AuftrittDetails,
+  type AuftrittDetailsMitProgramm,
   auftrittArtName,
   fetchEvent,
 } from "@/lib/events";
@@ -29,7 +28,9 @@ export function AuftrittDetail() {
   const startSekunden =
     Number.isFinite(zeitWert) && zeitWert >= 0 ? zeitWert : null;
   const [me, setMe] = useState<MeResponse | null>(null);
-  const [auftritt, setAuftritt] = useState<AuftrittDetails | null>(null);
+  const [auftritt, setAuftritt] = useState<AuftrittDetailsMitProgramm | null>(
+    null,
+  );
   const [nichtGefunden, setNichtGefunden] = useState(false);
   const [fehler, setFehler] = useState("");
   const [hinweis, setHinweis] = useState("");
@@ -306,22 +307,11 @@ export function AuftrittDetail() {
         </section>
       )}
 
-      {/* Ganze Aufnahmen stehen in AuftrittAufnahmen (ARC-030), Zeitmarken
-          zu einzelnen Liedern folgen (ARC-032); das Programm liest sich über
-          AuftrittProgramm (ARC-026), das tatsächlich Gesungene über
-          AuftrittBestaetigung (ARC-029), die Nachweise über
-          AuftrittBelege (ARC-028). */}
+      {/* Das eine Programm (es hält zugleich fest, was gesungen wurde) liest
+          und bearbeitet sich über AuftrittProgramm; ganze Aufnahmen mit
+          Zeitmarken stehen in AuftrittAufnahmen, Aufnahmen einzelner Lieder,
+          die diesen Auftritt nennen, in AuftrittLiedAufnahmen. */}
       <AuftrittProgramm
-        auftritt={auftritt}
-        isEditor={editor === true}
-        aktualisieren={aktualisieren}
-      />
-      <AuftrittBestaetigung
-        auftritt={auftritt}
-        isEditor={editor === true}
-        aktualisieren={aktualisieren}
-      />
-      <AuftrittBelege
         auftritt={auftritt}
         isEditor={editor === true}
         aktualisieren={aktualisieren}
@@ -331,6 +321,7 @@ export function AuftrittDetail() {
         isEditor={editor === true}
         aktualisieren={aktualisieren}
       />
+      <AuftrittLiedAufnahmen aufnahmen={auftritt.liedAufnahmen ?? []} />
       <AuftrittAufnahmen
         auftrittId={auftritt.id}
         isEditor={editor === true}

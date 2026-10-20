@@ -5,8 +5,8 @@
 // erneuert); die Redaktion legt Aufnahmen an, überträgt Original und – wo der
 // Browser das Original nicht abspielt – eine umgewandelte Abspielfassung,
 // veröffentlicht und gibt das Herunterladen frei. Eine Aufnahme ist Material
-// zum Auftritt und nie eine Aufführung; Zeitmarken zu einzelnen Liedern
-// folgen getrennt (ARC-032) und sind hier keine Voraussetzung.
+// zum Auftritt und ändert das Programm nicht; Zeitmarken zu einzelnen Liedern
+// folgen getrennt und sind hier keine Voraussetzung.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -1454,8 +1454,8 @@ function NeueAufnahme({
         onSubmit={anlegen}
       >
         <p className="noten-info">
-          Eine Aufnahme ist Material zum Auftritt. Sie legt keine Aufführung an
-          und ändert weder Programm noch Liedhistorie.
+          Eine Aufnahme ist Material zum Auftritt. Sie ändert weder das Programm
+          noch die Liedhistorie.
         </p>
         <div className="material-felder">
           <div>

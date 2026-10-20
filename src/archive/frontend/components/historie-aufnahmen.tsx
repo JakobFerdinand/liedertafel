@@ -7,7 +7,7 @@ import {
   stellenPfad,
 } from "@/lib/zeitmarken";
 
-// ARC-032: Aufnahmen, in denen eine Aufführung markiert ist, an der Zeile
+// Aufnahmen, in denen das Lied markiert ist, an der Zeile
 // der Liedhistorie. Der Platz bleibt leer, wo nichts markiert ist: fehlende
 // Markierung ist kein Beleg dafür, dass es keine Aufnahme gibt. Eine Marke,
 // die an einer früheren Datei genommen wurde, bietet Mitgliedern keinen
@@ -29,7 +29,7 @@ export function HistorieAufnahmen({
   const aufnahmen = zeile.recordings ?? [];
   if (aufnahmen.length === 0) return null;
   return (
-    <ul className="historie-aufnahmen" aria-label="Aufnahmen dieser Aufführung">
+    <ul className="historie-aufnahmen" aria-label="Aufnahmen mit Zeitmarke">
       {aufnahmen.map((aufnahme) => {
         const pruefen = aufnahme.timestampState !== "current";
         const hatZeiten =
