@@ -38,19 +38,17 @@ public sealed class AuftrittAufnahmeRegelnTests
 	}
 
 	[Fact]
-	public async Task MembersNeverReachDraftAuftritteOrUnpublishedRecordingsAndMutationsNeedEditorAndCsrf()
+	public async Task MembersNeverReachUnpublishedRecordingsAndMutationsNeedEditorAndCsrf()
 	{
 		await using var host = new LiedTestHost();
 		var editor = await host.EditorAsync();
 		var member = await host.MemberAsync();
-		var draft = await host.CreateEventAsync(editor, "Entwurf", publish: false);
+		var draft = await host.CreateEventAsync(editor, "Konzert");
 		var recording = await host.CreateRecordingAsync(editor, draft, "Ton", "audio");
 		var recordingId = Guid.Parse(recording.GetProperty("id").GetString()!);
 		using var attach = await host.AttachAsync(editor, draft, recordingId, "original", LiedTestHost.Mp3(512), "a.mp3", "audio/mpeg");
 		Assert.Equal(HttpStatusCode.OK, attach.StatusCode);
 
-		using var list = await host.GetAsync($"/api/events/{draft}/recordings", member);
-		Assert.Equal(HttpStatusCode.NotFound, list.StatusCode);
 		using var access = await host.GetAsync($"/api/recordings/{recordingId}/access", member);
 		Assert.Equal(HttpStatusCode.NotFound, access.StatusCode);
 		using var memberAttach = await host.PutAsync($"/api/recordings/{recordingId}/dateien/original",
@@ -64,9 +62,7 @@ public sealed class AuftrittAufnahmeRegelnTests
 		using var noToken = await host.Client.SendAsync(request);
 		Assert.Equal(HttpStatusCode.BadRequest, noToken.StatusCode);
 
-		// A published Auftritt still hides an unpublished recording.
-		using var publishEvent = await host.PostAsync($"/api/events/{draft}/publish", new { }, editor);
-		Assert.Equal(HttpStatusCode.OK, publishEvent.StatusCode);
+		// The Auftritt is visible, an unpublished recording is not.
 		Assert.Empty((await host.GetJsonAsync($"/api/events/{draft}/recordings", member))
 			.GetProperty("recordings").EnumerateArray());
 	}

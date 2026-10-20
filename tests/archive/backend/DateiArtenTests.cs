@@ -159,14 +159,14 @@ public sealed class DateiArtenTests
 	}
 
 	[Fact]
-	public async Task AufnahmeNamesTheAuftrittButMembersOnlySeeThePublishedOne()
+	public async Task AufnahmeNamesTheAuftrittAndMembersSeeTheLink()
 	{
 		await using var host = new LiedTestHost();
 		var editor = await host.EditorAsync();
 		var member = await host.MemberAsync();
 		var liedId = await host.CreateLiedIdAsync(editor, "Lied");
-		var published = await SeedEventAsync(host, "Frühjahrskonzert", true);
-		var draft = await SeedEventAsync(host, "Geplantes Konzert", false);
+		var published = await SeedEventAsync(host, "Frühjahrskonzert");
+		var draft = await SeedEventAsync(host, "Geplantes Konzert");
 
 		await UploadAsync(host, editor, liedId,
 			new { kind = "aufnahme", fileName = "a.mp3", contentType = "audio/mpeg", recordedAtEventId = published }, Mp3, "audio/mpeg");
@@ -182,7 +182,7 @@ public sealed class DateiArtenTests
 		var link = Find(asMember, "a.mp3");
 		Assert.Equal(published, link.GetProperty("id").GetGuid());
 		Assert.Equal("Frühjahrskonzert", link.GetProperty("title").GetString());
-		Assert.Equal(JsonValueKind.Null, Find(asMember, "b.mp3").ValueKind);
+		Assert.Equal("Geplantes Konzert", Find(asMember, "b.mp3").GetProperty("title").GetString());
 	}
 
 	[Fact]
@@ -238,7 +238,7 @@ public sealed class DateiArtenTests
 		Assert.Equal(HttpStatusCode.UnprocessableEntity, fakePdf);
 	}
 
-	private static async Task<Guid> SeedEventAsync(LiedTestHost host, string title, bool published)
+	private static async Task<Guid> SeedEventAsync(LiedTestHost host, string title)
 	{
 		await using var scope = host.Services.CreateAsyncScope();
 		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
@@ -250,7 +250,6 @@ public sealed class DateiArtenTests
 			Title = title,
 			DateYear = 1932,
 			DateMonth = 5,
-			PublishedAt = published ? now : null,
 			CreatedAt = now,
 			CreatedByAccountId = owner,
 			UpdatedAt = now,

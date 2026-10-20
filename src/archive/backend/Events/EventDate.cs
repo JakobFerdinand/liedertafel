@@ -70,5 +70,43 @@ public static class EventDate
 		return $"{(approximate ? "ca. " : string.Empty)}{Text(day.Value)}. {MonthNames[month.Value]} {Text(year.Value)}";
 	}
 
+	/// <summary>
+	/// Honest precision-aware "upcoming" decision: exact dates count from
+	/// today on, month precision from the current month on, year precision
+	/// from the current year on, and unknown dates always count as upcoming
+	/// (they cannot honestly be called past).
+	/// </summary>
+	public static bool IsUpcoming(int? dateYear, int? dateMonth, int? dateDay, DateOnly today)
+	{
+		if (dateYear is not { } year)
+			return true;
+		if (year != today.Year)
+			return year > today.Year;
+		if (dateMonth is not { } month)
+			return true;
+		if (month != today.Month)
+			return month > today.Month;
+		if (dateDay is not { } day)
+			return true;
+		return day >= today.Day;
+	}
+
+	/// <summary>
+	/// The choir's calendar day (Vienna local time), falling back to UTC when
+	/// the host lacks the zone definition.
+	/// </summary>
+	public static DateOnly ViennaToday(DateTimeOffset utcNow)
+	{
+		try
+		{
+			return DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(
+				utcNow.UtcDateTime, TimeZoneInfo.FindSystemTimeZoneById("Europe/Vienna")));
+		}
+		catch (Exception exception) when (exception is TimeZoneNotFoundException or InvalidTimeZoneException)
+		{
+			return DateOnly.FromDateTime(utcNow.UtcDateTime);
+		}
+	}
+
 	private static string Text(int value) => value.ToString(CultureInfo.InvariantCulture);
 }

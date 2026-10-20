@@ -98,13 +98,11 @@ function detail(dokumente: unknown[] = []) {
       datePrecision: "day",
       dateDisplay: "12. Mai 1950",
       startTime: "19:30",
-      published: true,
       notes: null,
       sourceNote: "Programmheft im Vereinsarchiv, Blatt 3.",
       documents: dokumente,
       createdAt: "2026-09-01T08:00:00.000Z",
       updatedAt: "2026-09-24T10:00:00.000Z",
-      publishedAt: "2026-09-20T10:00:00.000Z",
     },
   };
 }

@@ -25,7 +25,7 @@ public sealed partial class RecordingPassageApiTests
 		var a = await scenario.CreateLiedAsync("Alt");
 		var b = await scenario.CreateLiedAsync("Neu");
 		var c = await scenario.CreateLiedAsync("Dritt");
-		var concert = await scenario.CreateEventAsync("Konzert", 2004, 3, 3, published: true);
+		var concert = await scenario.CreateEventAsync("Konzert", 2004, 3, 3);
 		var pa = await scenario.RecordAsync(concert, a);
 		var pb = await scenario.RecordAsync(concert, b);
 		var pc = await scenario.RecordAsync(concert, c);
@@ -149,7 +149,7 @@ public sealed partial class RecordingPassageApiTests
 	{
 		await using var scenario = await Scenario.CreateAsync();
 		var lied = await scenario.CreateLiedAsync("Eigenes Lied");
-		var concert = await scenario.CreateEventAsync("Konzert", 2005, 3, 3, published: true);
+		var concert = await scenario.CreateEventAsync("Konzert", 2005, 3, 3);
 		var entry = await scenario.RecordAsync(concert, lied);
 		var recording = await scenario.CreateRecordingAsync(concert, "Mitschnitt", "video", duration: 2000);
 		var passage = await scenario.AddPassageAsync(recording, entry, 10, 100);
@@ -177,7 +177,7 @@ public sealed partial class RecordingPassageApiTests
 	{
 		await using var scenario = await Scenario.CreateAsync();
 		var lied = await scenario.CreateLiedAsync("Wachlied");
-		var concert = await scenario.CreateEventAsync("Konzert", 2006, 3, 3, published: true);
+		var concert = await scenario.CreateEventAsync("Konzert", 2006, 3, 3);
 		var entry = await scenario.RecordAsync(concert, lied);
 		var recording = await scenario.CreateRecordingAsync(concert, "Mitschnitt", "video", duration: 2000);
 		var passage = await scenario.AddPassageAsync(recording, entry, 10, 100);
@@ -215,7 +215,7 @@ public sealed partial class RecordingPassageApiTests
 		await using var scenario = await Scenario.CreateAsync();
 		var lied = await scenario.CreateLiedAsync("Verlorenes Lied");
 		var other = await scenario.CreateLiedAsync("Anderes Lied");
-		var concert = await scenario.CreateEventAsync("Konzert", 2008, 3, 3, published: true);
+		var concert = await scenario.CreateEventAsync("Konzert", 2008, 3, 3);
 		var entry = await scenario.RecordAsync(concert, lied);
 		var otherEntry = await scenario.RecordAsync(concert, other);
 		var recording = await scenario.CreateRecordingAsync(concert, "Mitschnitt", "video", duration: 2000);

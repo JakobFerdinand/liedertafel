@@ -126,13 +126,11 @@ function detail(programme: unknown) {
       datePrecision: "day",
       dateDisplay: "12. Mai 2027",
       startTime: "19:30",
-      published: true,
       notes: null,
       sourceNote: null,
       documents: [],
       createdAt: "2026-09-01T08:00:00.000Z",
       updatedAt: "2026-09-24T10:00:00.000Z",
-      publishedAt: "2026-09-20T10:00:00.000Z",
       programme,
     },
   };

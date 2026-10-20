@@ -14,9 +14,8 @@ namespace Archive.Backend.Chat;
 /// The chat tool allow-list: authorized retrieval functions only, built per
 /// request so the delegates capture the scoped <see cref="ArchiveDbContext"/>.
 /// Authorization is enforced INSIDE every tool: every saved Lied is visible to
-/// a member (ADR-0001), but a Lied's history only names Auftritte it was sung at and
-/// planned appearances at member-visible (published) Auftritte, so drafts can
-/// never reach the model or the thread content. No editing tools, no web
+/// a member (ADR-0001), but a Lied's history only names the Auftritte it was sung at and
+/// planned appearances. No editing tools, no web
 /// access.
 /// </summary>
 public static class CatalogueTools
@@ -188,37 +187,18 @@ public static class CatalogueTools
 	/// </summary>
 	private static async Task<(List<object> Gesungen, List<object> Geplant)> HistoryAsync(ArchiveDbContext db, Guid liedId)
 	{
-		var inProgramme = await db.ProgrammeItems.AsNoTracking()
-			.Where(i => i.LiedId == liedId && i.Programme.Event.PublishedAt != null)
-			.Select(i => i.Programme.EventId)
-			.Distinct()
-			.ToListAsync();
-		var recorded = await DateiQueries.Visible(db).AsNoTracking()
-			.Where(d => d.LiedId == liedId && d.Kind == DateiKinds.Aufnahme && d.RecordedAtEventId != null
-				&& d.RecordedAtEvent!.PublishedAt != null)
-			.Select(d => d.RecordedAtEventId!.Value)
-			.Distinct()
-			.ToListAsync();
-		var eventIds = inProgramme.Concat(recorded).Distinct().ToList();
-		var events = await db.Events.AsNoTracking()
-			.Where(e => eventIds.Contains(e.Id))
-			.Select(e => new SungRow(e.Id, e.Title, e.Kind, e.Venue, e.DateYear, e.DateMonth, e.DateDay, e.DateApproximate))
-			.ToListAsync();
+		var events = await LiedAppearances.LoadAsync(db, liedId, CancellationToken.None);
 		events.Sort((a, b) => EventDate.CompareNewestFirst(a.DateYear, a.DateMonth, a.DateDay, b.DateYear, b.DateMonth, b.DateDay));
-		var today = ProgrammeEndpoints.ViennaToday(DateTimeOffset.UtcNow);
-		var planned = new HashSet<Guid>(events
-			.Where(e => e.DateYear is not null && inProgramme.Contains(e.Id)
-				&& ProgrammeEndpoints.IsUpcoming(e.DateYear, e.DateMonth, e.DateDay, today))
-			.Select(e => e.Id));
-		static object Entry(SungRow e) => new
+		var today = EventDate.ViennaToday(DateTimeOffset.UtcNow);
+		static object Entry(LiedAppearance e) => new
 		{
 			auftritt = e.Title,
 			art = e.Kind,
 			ort = e.Venue,
 			datum = EventDate.Display(e.DateYear, e.DateMonth, e.DateDay, e.DateApproximate),
 		};
-		var gesungen = events.Where(e => !planned.Contains(e.Id)).Take(MaxHistoryEntries).Select(Entry).ToList();
-		var geplant = events.Where(e => planned.Contains(e.Id)).Take(MaxHistoryEntries).Select(Entry).ToList();
+		var gesungen = events.Where(e => !LiedAppearances.IsPlanned(e, today)).Take(MaxHistoryEntries).Select(Entry).ToList();
+		var geplant = events.Where(e => LiedAppearances.IsPlanned(e, today)).Take(MaxHistoryEntries).Select(Entry).ToList();
 		return (gesungen, geplant);
 	}
 
@@ -244,9 +224,6 @@ public static class CatalogueTools
 				? (l.Lyrics.Length > ExcerptChars ? l.Lyrics[..ExcerptChars] : l.Lyrics)
 				: null,
 		});
-
-	private sealed record SungRow(Guid Id, string Title, string Kind, string? Venue,
-		int? DateYear, int? DateMonth, int? DateDay, bool DateApproximate);
 
 	private sealed record SearchRow(Guid Id, string Title, string? Composer, string? Arranger, string? Lyricist, string? Lyrics);
 }

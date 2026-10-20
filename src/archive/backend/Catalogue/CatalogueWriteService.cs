@@ -259,35 +259,6 @@ public sealed class CatalogueWriteService(ArchiveDbContext db)
 		return WriteOutcome.Saved();
 	}
 
-	/// <summary>Publishes one event; only an editor's request does this.</summary>
-	public async Task<WriteOutcome> PublishEventAsync(ChoirEvent choirEvent, WriteActor actor, uint? expectedRowVersion, CancellationToken token)
-	{
-		if (choirEvent.PublishedAt is not null)
-			return WriteOutcome.Saved();
-		if (expectedRowVersion is not null && expectedRowVersion != choirEvent.RowVersion)
-			return WriteOutcome.Stale(EventEndpoints.ConcurrencyMessage);
-		choirEvent.PublishedAt = actor.Now;
-		choirEvent.PublishedByAccountId = actor.AccountId;
-		choirEvent.RowVersion++;
-		try { await db.SaveChangesAsync(token); }
-		catch (DbUpdateConcurrencyException) { return WriteOutcome.Stale(EventEndpoints.ConcurrencyMessage); }
-		return WriteOutcome.Saved();
-	}
-
-	public async Task<WriteOutcome> UnpublishEventAsync(ChoirEvent choirEvent, WriteActor actor, uint? expectedRowVersion, CancellationToken token)
-	{
-		if (choirEvent.PublishedAt is null)
-			return WriteOutcome.Saved();
-		if (expectedRowVersion is not null && expectedRowVersion != choirEvent.RowVersion)
-			return WriteOutcome.Stale(EventEndpoints.ConcurrencyMessage);
-		choirEvent.PublishedAt = null;
-		choirEvent.PublishedByAccountId = null;
-		choirEvent.RowVersion++;
-		try { await db.SaveChangesAsync(token); }
-		catch (DbUpdateConcurrencyException) { return WriteOutcome.Stale(EventEndpoints.ConcurrencyMessage); }
-		return WriteOutcome.Saved();
-	}
-
 	// ---- Internal helpers --------------------------------------------------
 
 	/// <summary>Trims an optional write value for a patch; empty means clear (null), too long is an invalid write.</summary>

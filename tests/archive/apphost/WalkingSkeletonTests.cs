@@ -1140,8 +1140,6 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         Assert.Equal(HttpStatusCode.Created, eventResponse.StatusCode);
         var eventId = Guid.Parse((await eventResponse.Content.ReadFromJsonAsync<JsonElement>(token))
             .GetProperty("event").GetProperty("id").GetString()!);
-        using (var publishEvent = await PostJsonAsync(api, $"/api/events/{eventId}/publish", new { }, editorSession, token))
-            Assert.Equal(HttpStatusCode.OK, publishEvent.StatusCode);
 
         // A QuickTime original: stored and kept, not playable.
         var video = await CreateRecordingAsync("Video Saal", "video");

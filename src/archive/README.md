@@ -288,8 +288,8 @@ user-delegation SAS through the runtime identity and CORS from infrastructure.
 
 **Reading a Datei.** `GET /api/dateien/{id}/access` returns blob-scoped
 15-minute view/download tickets. Every active member reads every Datei of a
-Lied. Dateien of an Auftritt follow the Auftritt's visibility (members only for
-a published Auftritt, indistinguishable 404 otherwise) and members never get an
+Lied. Dateien of an Auftritt are visible to every member (a saved Auftritt has no
+draft state) and members never get an
 `aufnahme` this way, they use the recording's own access endpoint. Trashed
 Dateien are not served (`DateiQueries.Visible`).
 
@@ -366,7 +366,8 @@ culture-invariant German `dateDisplay` ("12. Mai 1950", "um 1950", "ca.
 `service`, `wedding`, `funeral`, `festival`, `other`.
 
 API (ProblemDetails German, `no-store`, CSRF on mutations, fresh access
-decision per request; drafts answer an indistinguishable 404 for members):
+decision per request; every saved Auftritt is visible to every member, there is
+no draft or publish state, ADR-0001):
 
 - `GET /api/events` is unpaginated (archive scale) and filters/sorts in C#
   so InMemory tests and PostgreSQL agree: known years descending, within a
@@ -375,19 +376,18 @@ decision per request; drafts answer an indistinguishable 404 for members):
   `years` navigation summary ignores the filters and ends with the
   `year: null` "Ohne Jahr" group.
 - `GET /api/events/{id}` adds `notes`, `sourceNote`, `createdAt`,
-  `updatedAt`, `publishedAt`.
-- Editor-only `POST /api/events` creates a draft; `PATCH /api/events/{id}`
+  `updatedAt`.
+- Editor-only `POST /api/events` creates the Auftritt; `PATCH /api/events/{id}`
   leaves absent fields unchanged, clears present-empty strings and treats
   the nested `date` as an explicit full replacement (`null` year = unknown
-  date; 409 on concurrent edits). `POST .../publish` and `/unpublish` are
-  idempotent; the first publication stamp survives republish.
-- Visibility is the shared `EventVisibility` decision: member-visible
-  exactly when published; deletion stays with ARC-040 trash.
+  date; 409 on concurrent edits). The former `POST .../publish` and
+  `/unpublish` endpoints and the `PublishedAt` columns are gone (migration
+  `RemoveEventPublication`; events that were still unpublished became visible).
+- Deletion stays with ARC-040 trash.
 
 The UI rides the redesigned system: `/auftritte/` is navigated through a
 year rail ("Alle", year tiles with counts, "Ohne Jahr" last) beside the
-newest-first list with kind labels, editor draft badges and
-Veröffentlichen/Zurückziehen; `/auftritt/?id=` keeps uncertainty honest
+newest-first list with kind labels and the editor's Bearbeiten; `/auftritt/?id=` keeps uncertainty honest
 (`Datum unsicher` badge on approximate/partial dates) and always shows the
 empty Programm, Dokumente and Aufnahmen sections reserved for ARC-025
 documents, ARC-026 programmes and ARC-032 recordings. The editor form
@@ -395,8 +395,7 @@ derives the date from the filled year/month/day fields — empty means an
 unknown date, nothing invented.
 
 Handoff: the stable event IDs are the anchor points the later slices attach
-to. Publishing an event is independent of saving its Programm (see "Programm
-and Lied history (#160)"): a Programm is visible exactly when its event is.
+to; see "Programm and Lied history (#160)" for the Programm.
 
 ## Programm and Lied history (#160)
 
@@ -415,8 +414,7 @@ data).
   `Note` ≤ 500). A Lied may stand twice; every entry has a stable id.
 - `PUT /api/events/{eventId}/programme/items` `{ items: [{ id?, liedId, note? }],
   rowVersion? }` (editor) is the whole ordered replacement and the whole
-  publication step: saving makes the Programm what members read, as soon as the
-  event itself is published. Known ids update in place (reordering keeps them,
+  publication step: saving makes the Programm what members read at once. Known ids update in place (reordering keeps them,
   and with them the Zeitmarken), missing ids are removed, the first save creates
   the programme (`rowVersion` is required afterwards, else 409). Removing an
   entry that carries Zeitmarken is refused with 409 `Zeitmarken vorhanden: …`
@@ -433,9 +431,7 @@ data).
   (how often the Lied is in the Programm), `inProgramme`, `liedAufnahmen`,
   `recordings` (Zeitmarken of that Lied, with `timestampState`), the honest date
   and `dateUncertain` (a year-only or approximate date). `counts` has `events`,
-  `inProgramme`, `uncertainDates` and, for editors, `draftEvents`. Only
-  published Auftritte count and reach members; editors also see flagged draft
-  rows. An unknown Lied is 404.
+  `inProgramme`, `uncertainDates`. An unknown Lied is 404.
 - Chat: `lied_details` reads the same data; `gesungen` lists past Auftritte with
   the Lied in the Programm or an Aufnahme, `geplant` upcoming ones.
 - Frontend: `components/auftritt-programm.tsx` (reading list and the editor's
@@ -484,8 +480,7 @@ must show the honest signature of their type); `noten` and `uebe` are refused
 (`id`, `art` document|photo, `description`, `fileName`, `contentType`, `sizeBytes`,
 `createdAt`, `rowVersion`); `PATCH /api/dateien/{id}` `{ description, rowVersion? }`
 edits the description. Replace and delete follow the Papierkorb rules. PDFs get
-the same extraction status as Noten. Members see documents only for a published
-Auftritt. Frontend: `components/auftritt-dokumente.tsx` (photos as a grid with a
+the same extraction status as Noten. Frontend: `components/auftritt-dokumente.tsx` (photos as a grid with a
 dialog for the large view, documents with Öffnen/Herunterladen).
 
 **Recordings** (`backend/Recordings/`, table `recordings`, ARC-030). A recording
@@ -513,8 +508,8 @@ the original).
 
 Endpoints (all `no-store`, antiforgery on mutations):
 
-- `GET /api/events/{id}/recordings`: members get published recordings of a
-  published Auftritt, otherwise the Auftritt's 404; editors get all, with an
+- `GET /api/events/{id}/recordings`: members get published recordings of
+  the Auftritt; editors get all, with an
   `editor` block (version, both slots with file facts).
 - `POST /api/events/{id}/recordings` `{ label, kind }` (editor) creates the
   recording with empty slots.
@@ -550,10 +545,10 @@ key (the passage carries `EventId` and points at `recordings (Id, EventId)`);
 that the entry belongs to the same event is checked by the endpoint. A second
 recording can mark the same entry; nothing here changes the Programm.
 
-- `GET /api/recordings/{id}/passages`: members (published recording of a
-  published Auftritt) and editors; editors also get `entries` (the Programm in
-  order with each entry's passage id: the marker list), `playbackDateiId` and
-  `durationSeconds`. A passage carries `programmeItemId`, `liedId` and
+- `GET /api/recordings/{id}/passages`: members (published recording) and
+  editors; editors also get `entries` (the Programm in
+  order with each entry's Zeitmarke id: the Zeitmarkenliste), `playbackDateiId` and
+  `durationSeconds`. A Zeitmarke (wire name `passage`) carries `programmeItemId`, `liedId` and
   `liedTitle`.
 - `POST /api/recordings/{id}/passages` `{ programmeItemId, startSeconds, endSeconds,
   expectedPlaybackDateiId }`, `PATCH …/passages/{passageId}`,

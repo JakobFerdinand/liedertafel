@@ -43,34 +43,12 @@ public static class LiedHistoryEndpoints
 			if (lied is null)
 				return Results.Problem(statusCode: 404, title: LiedNotFoundMessage);
 
-			var entries = await db.ProgrammeItems.AsNoTracking()
-				.Where(i => i.LiedId == liedId && (isEditor || i.Programme.Event.PublishedAt != null))
-				.Select(i => new { i.Programme.EventId })
-				.ToListAsync(token);
-			var entryCounts = entries.GroupBy(e => e.EventId).ToDictionary(g => g.Key, g => g.Count());
-			var aufnahmen = await DateiQueries.Visible(db).AsNoTracking()
-				.Where(d => d.LiedId == liedId && d.Kind == DateiKinds.Aufnahme && d.RecordedAtEventId != null
-					&& (isEditor || d.RecordedAtEvent!.PublishedAt != null))
-				.OrderBy(d => d.CreatedAt).ThenBy(d => d.Id)
-				.Select(d => new AufnahmeRow(d.RecordedAtEventId!.Value, d.Id, d.OriginalFileName, d.ContentType, d.Description))
-				.ToListAsync(token);
-			var aufnahmenByEvent = aufnahmen.GroupBy(a => a.EventId).ToDictionary(g => g.Key, g => g.ToList());
-
-			var eventIds = entryCounts.Keys.Concat(aufnahmenByEvent.Keys).Distinct().ToList();
-			var rows = await db.Events.AsNoTracking()
-				.Where(e => eventIds.Contains(e.Id))
-				.Select(e => new Row(e.Id, e.Title, e.Kind, e.PublishedAt != null,
-					e.DateYear, e.DateMonth, e.DateDay, e.DateApproximate, 0))
-				.ToListAsync(token);
-			rows = rows.Select(r => r with { Entries = entryCounts.GetValueOrDefault(r.EventId) }).ToList();
-
-			var counted = rows.Where(r => r.EventPublished).ToList();
+			var rows = await LiedAppearances.LoadAsync(db, liedId, token);
 			var counts = new
 			{
-				events = counted.Count,
-				inProgramme = counted.Count(r => r.Entries > 0),
-				uncertainDates = counted.Count(IsDateUncertain),
-				draftEvents = isEditor ? (int?)rows.Count(r => !r.EventPublished) : null,
+				events = rows.Count,
+				inProgramme = rows.Count(r => r.Entries > 0),
+				uncertainDates = rows.Count(IsDateUncertain),
 			};
 
 			rows.Sort(CompareRows);
@@ -87,22 +65,20 @@ public static class LiedHistoryEndpoints
 				total = rows.Count,
 				counts,
 				auftritte = pageRows.Select(row => Item(row,
-					aufnahmenByEvent.GetValueOrDefault(row.EventId) ?? [],
 					recordingLinks.GetValueOrDefault(row.EventId) ?? [])),
 			});
 		});
 	}
 
 	/// <summary>Only an exact day-precision, non-approximate date is certain (the event page's rule).</summary>
-	private static bool IsDateUncertain(Row row)
+	private static bool IsDateUncertain(LiedAppearance row)
 		=> row.DateApproximate || EventDate.Precision(row.DateYear, row.DateMonth, row.DateDay) != "day";
 
-	private static object Item(Row row, List<AufnahmeRow> aufnahmen, List<object> recordings) => new
+	private static object Item(LiedAppearance row, List<object> recordings) => new
 	{
 		eventId = row.EventId,
-		eventTitle = row.EventTitle,
-		eventKind = row.EventKind,
-		eventPublished = row.EventPublished,
+		eventTitle = row.Title,
+		eventKind = row.Kind,
 		dateYear = row.DateYear,
 		dateMonth = row.DateMonth,
 		dateDay = row.DateDay,
@@ -113,7 +89,7 @@ public static class LiedHistoryEndpoints
 		inProgramme = row.Entries > 0,
 		entries = row.Entries,
 		recordings,
-		liedAufnahmen = aufnahmen.Select(a => new
+		liedAufnahmen = row.Aufnahmen.Select(a => new
 		{
 			id = a.DateiId,
 			fileName = a.FileName,
@@ -123,15 +99,10 @@ public static class LiedHistoryEndpoints
 	};
 
 	/// <summary>Total order: the shared event date order, then event id.</summary>
-	private static int CompareRows(Row left, Row right)
+	private static int CompareRows(LiedAppearance left, LiedAppearance right)
 	{
 		var dateOrder = EventDate.CompareNewestFirst(
 			left.DateYear, left.DateMonth, left.DateDay, right.DateYear, right.DateMonth, right.DateDay);
 		return dateOrder != 0 ? dateOrder : left.EventId.CompareTo(right.EventId);
 	}
-
-	private sealed record Row(Guid EventId, string EventTitle, string EventKind, bool EventPublished,
-		int? DateYear, int? DateMonth, int? DateDay, bool DateApproximate, int Entries);
-
-	private sealed record AufnahmeRow(Guid EventId, Guid DateiId, string? FileName, string ContentType, string? Description);
 }

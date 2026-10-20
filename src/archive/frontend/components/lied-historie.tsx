@@ -19,7 +19,6 @@ type ErweiterungsPlatz = (zeile: HistorieZeile) => ReactNode;
 
 type LiedHistorieProps = {
   liedId: string;
-  isEditor: boolean;
   // Erweiterungsplatz je Auftritt: hier hängen die Aufnahmen mit Zeitmarken
   // ein. Ohne Angabe bleibt der Platz unsichtbar — kein erfundener
   // „keine Aufnahmen“-Zustand.
@@ -72,11 +71,9 @@ function Zahlen({ historie }: { historie: HistorieAntwort }) {
 
 function Eintrag({
   zeile,
-  isEditor,
   erweiterung,
 }: {
   zeile: HistorieZeile;
-  isEditor: boolean;
   erweiterung?: ErweiterungsPlatz;
 }) {
   const platz = erweiterung?.(zeile);
@@ -91,7 +88,7 @@ function Eintrag({
           <span className="datum-unsicher">Datum unsicher</span>
         )}
       </p>
-      <p className="nachweis-info">
+      <p className="historie-meta">
         {auftrittArtName(zeile.eventKind)}
         {" · "}
         {zeile.inProgramme
@@ -112,21 +109,12 @@ function Eintrag({
           ))}
         </ul>
       )}
-      {isEditor && !zeile.eventPublished && (
-        <p className="noten-info historie-hinweis">
-          Auftritt noch nicht veröffentlicht, in keiner Zahl enthalten.
-        </p>
-      )}
       {platz && <div className="historie-erweiterung">{platz}</div>}
     </li>
   );
 }
 
-export function LiedHistorie({
-  liedId,
-  isEditor,
-  erweiterung,
-}: LiedHistorieProps) {
+export function LiedHistorie({ liedId, erweiterung }: LiedHistorieProps) {
   const kennung = useId();
   const [seite, setSeite] = useState(1);
   const [versuch, setVersuch] = useState(0);
@@ -194,17 +182,6 @@ export function LiedHistorie({
           <output className="visually-hidden">
             {anzahl(historie.total, "Eintrag", "Einträge")}
           </output>
-          {isEditor && (historie.counts.draftEvents ?? 0) > 0 && (
-            <p className="noten-info historie-zusatz">
-              {anzahl(
-                historie.counts.draftEvents ?? 0,
-                "Auftritt ist",
-                "Auftritte sind",
-              )}{" "}
-              noch nicht veröffentlicht und in keiner Zahl mitgezählt. Die Liste
-              kann sie enthalten.
-            </p>
-          )}
           <div className="historie-bereich" aria-busy={laedt}>
             {laedt && (
               <output className="noten-info historie-laedt">
@@ -217,7 +194,6 @@ export function LiedHistorie({
                   <Eintrag
                     key={zeile.eventId}
                     zeile={zeile}
-                    isEditor={isEditor}
                     erweiterung={erweiterung}
                   />
                 ))}

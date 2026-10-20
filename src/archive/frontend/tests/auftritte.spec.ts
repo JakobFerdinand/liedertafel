@@ -22,7 +22,6 @@ const memberMe = {
 const konzertId = "00000000-0000-0000-0000-00000000e001";
 const umJahrId = "00000000-0000-0000-0000-00000000e002";
 const ohneDatumId = "00000000-0000-0000-0000-00000000e003";
-const entwurfId = "00000000-0000-0000-0000-00000000e004";
 
 const konzert = {
   id: konzertId,
@@ -36,7 +35,6 @@ const konzert = {
   datePrecision: "day",
   dateDisplay: "12. Mai 1950",
   startTime: "19:30",
-  published: true,
 };
 
 const umJahr = {
@@ -51,7 +49,6 @@ const umJahr = {
   datePrecision: "year",
   dateDisplay: "um 1950",
   startTime: null,
-  published: true,
 };
 
 const ohneDatum = {
@@ -66,22 +63,6 @@ const ohneDatum = {
   datePrecision: "unknown",
   dateDisplay: "Datum unbekannt",
   startTime: null,
-  published: true,
-};
-
-const entwurf = {
-  id: entwurfId,
-  kind: "wedding",
-  title: "Hochzeit der Familie Berger",
-  venue: "Pfarrkirche Mining",
-  dateYear: 1951,
-  dateMonth: 6,
-  dateDay: 2,
-  dateApproximate: false,
-  datePrecision: "day",
-  dateDisplay: "2. Juni 1951",
-  startTime: "10:00",
-  published: false,
 };
 
 const umJahrDetail = {
@@ -91,7 +72,6 @@ const umJahrDetail = {
     sourceNote: null,
     createdAt: "2026-09-01T08:00:00.000Z",
     updatedAt: "2026-09-20T10:00:00.000Z",
-    publishedAt: "2026-09-20T10:00:00.000Z",
   },
 };
 
@@ -102,7 +82,6 @@ const ohneDatumDetail = {
     sourceNote: "Pfarrarchiv Mining, Totenrotel von 1950.",
     createdAt: "2026-09-01T08:00:00.000Z",
     updatedAt: "2026-09-20T10:00:00.000Z",
-    publishedAt: "2026-09-20T10:00:00.000Z",
   },
 };
 
@@ -113,7 +92,6 @@ const konzertDetail = {
     sourceNote: "Programmheft im Vereinsarchiv, Blatt 3.",
     createdAt: "2026-09-01T08:00:00.000Z",
     updatedAt: "2026-09-20T10:00:00.000Z",
-    publishedAt: "2026-09-20T10:00:00.000Z",
   },
 };
 
@@ -129,7 +107,6 @@ type AuftrittsArt = {
   datePrecision: string;
   dateDisplay: string;
   startTime: string | null;
-  published: boolean;
 };
 
 // Die Jahreszusammenfassung der Vertragssprache: absteigend, Auftritte
@@ -196,7 +173,7 @@ test("Mitglied sieht Auftritte mit Jahresleiste und ehrlichen Daten", async ({
   await page.route(ereignisRoute, (route) => {
     const adresse = new URL(route.request().url());
     const jahr = adresse.searchParams.get("year");
-    const sichtbare = bestand.filter((eintrag) => eintrag.published);
+    const sichtbare = bestand;
     const events = jahr
       ? sichtbare.filter((eintrag) => eintrag.dateYear === Number(jahr))
       : sichtbare;
@@ -261,12 +238,6 @@ test("Mitglied sieht Auftritte mit Jahresleiste und ehrlichen Daten", async ({
   await expect(page.getByText("1. Januar")).toHaveCount(0);
   await expect(page.getByText("Entwurf")).toHaveCount(0);
   await expect(
-    page.getByRole("button", { name: "Veröffentlichen" }),
-  ).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Zurückziehen" })).toHaveCount(
-    0,
-  );
-  await expect(
     page.getByRole("button", { name: "Bearbeiten", exact: true }),
   ).toHaveCount(0);
   await expect(
@@ -298,33 +269,28 @@ test("Auftrittsverzeichnis ordnet Datum, Titel und Redaktion nebeneinander", asy
   await expect(zeile.getByRole("link", { name: konzert.title })).toBeVisible();
   const datum = await zeile.locator(".auftritt-datum").boundingBox();
   const titel = await zeile.locator("h3").boundingBox();
-  const status = await zeile.locator(".lieder-status").boundingBox();
   const aktionen = await zeile.locator(".auftritte-aktionen").boundingBox();
   const inhalt = await page.locator(".archiv-seiteninhalt").boundingBox();
   const eintrag = await zeile.boundingBox();
-  if (!datum || !titel || !status || !aktionen || !inhalt || !eintrag)
+  if (!datum || !titel || !aktionen || !inhalt || !eintrag)
     throw new Error("Auftrittszeile ist nicht sichtbar");
   expect(eintrag.width).toBeGreaterThan(inhalt.width * 0.95);
   expect(datum.x + datum.width).toBeLessThan(titel.x);
-  expect(titel.x + titel.width).toBeLessThan(status.x);
-  expect(status.x + status.width).toBeLessThan(aktionen.x);
+  expect(titel.x + titel.width).toBeLessThan(aktionen.x);
   expect(Math.abs(datum.y - aktionen.y)).toBeLessThan(20);
 
   await page.setViewportSize({ width: 680, height: 844 });
   const mittelDatum = await zeile.locator(".auftritt-datum").boundingBox();
   const mittelTitel = await zeile.locator("h3").boundingBox();
-  const mittelStatus = await zeile.locator(".lieder-status").boundingBox();
   const mittelAktionen = await zeile
     .locator(".auftritte-aktionen")
     .boundingBox();
-  if (!mittelDatum || !mittelTitel || !mittelStatus || !mittelAktionen)
+  if (!mittelDatum || !mittelTitel || !mittelAktionen)
     throw new Error("Auftrittszeile bei 680px fehlt");
   expect(mittelTitel.x).toBeCloseTo(mittelDatum.x, 0);
-  expect(mittelStatus.x).toBeCloseTo(mittelDatum.x, 0);
   expect(mittelAktionen.x).toBeCloseTo(mittelDatum.x, 0);
   expect(mittelTitel.y).toBeGreaterThan(mittelDatum.y);
-  expect(mittelStatus.y).toBeGreaterThan(mittelTitel.y);
-  expect(mittelAktionen.y).toBeGreaterThan(mittelStatus.y);
+  expect(mittelAktionen.y).toBeGreaterThan(mittelTitel.y);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
     680,
   );
@@ -350,7 +316,7 @@ test("Ein Jahr in der Leiste filtert die Auftritte; Ohne Jahr bleibt ehrlich", a
   await page.route(ereignisRoute, (route) => {
     const adresse = new URL(route.request().url());
     const jahr = adresse.searchParams.get("year");
-    const sichtbare = bestand.filter((eintrag) => eintrag.published);
+    const sichtbare = bestand;
     const events = jahr
       ? sichtbare.filter((eintrag) => eintrag.dateYear === Number(jahr))
       : sichtbare;
@@ -402,7 +368,7 @@ test("Ein Jahr in der Leiste filtert die Auftritte; Ohne Jahr bleibt ehrlich", a
   expect(errors).toEqual([]);
 });
 
-test("Mitglied öffnet einen Auftritt per Direktlink; Entwürfe bleiben unfindbar", async ({
+test("Mitglied öffnet einen Auftritt per Direktlink; ein unbekannter bleibt unfindbar", async ({
   page,
 }) => {
   const errors: string[] = [];
@@ -411,7 +377,8 @@ test("Mitglied öffnet einen Auftritt per Direktlink; Entwürfe bleiben unfindba
   await page.route(`**/api/events/${konzertId}`, (route) =>
     route.fulfill(json(konzertDetail)),
   );
-  await page.route(`**/api/events/${entwurfId}`, (route) =>
+  const unbekanntId = "00000000-0000-0000-0000-00000000e099";
+  await page.route(`**/api/events/${unbekanntId}`, (route) =>
     route.fulfill(problem("Der Auftritt wurde nicht gefunden.", 404)),
   );
 
@@ -449,8 +416,8 @@ test("Mitglied öffnet einen Auftritt per Direktlink; Entwürfe bleiben unfindba
     page.getByRole("heading", { name: "Frühlingskonzert" }),
   ).toBeVisible();
 
-  // Ein Entwurf bleibt für Mitglieder unfindbar.
-  await page.goto(`/auftritt/?id=${entwurfId}`);
+  // Eine unbekannte Adresse bleibt unfindbar.
+  await page.goto(`/auftritt/?id=${unbekanntId}`);
   await expect(
     page.getByText("Der Auftritt wurde nicht gefunden.", { exact: false }),
   ).toBeVisible();
@@ -524,38 +491,22 @@ test("Unsichere und unbekannte Daten bleiben im Lesesaal gekennzeichnet", async 
   expect(errors).toEqual([]);
 });
 
-test("Redaktion sieht den Entwurf, veröffentlicht ihn und kann ihn zurückziehen", async ({
+test("Redaktion sieht jeden Auftritt ohne Entwurf- oder Veröffentlichungsschritt", async ({
   page,
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await mockSitzung(page, editorMe);
-  let bestand: AuftrittsArt[] = [konzert, umJahr, ohneDatum, entwurf];
-  await page.route(ereignisRoute, (route) => {
-    const adresse = new URL(route.request().url());
-    const jahr = adresse.searchParams.get("year");
-    const sichtbar = bestand;
-    const events = jahr
-      ? sichtbar.filter((eintrag) => eintrag.dateYear === Number(jahr))
-      : sichtbar;
-    return route.fulfill(
+  const bestand: AuftrittsArt[] = [konzert, umJahr, ohneDatum];
+  await page.route(ereignisRoute, (route) =>
+    route.fulfill(
       json({
-        years: jahreAusBestand(sichtbar),
-        total: sichtbar.length,
-        events,
+        years: jahreAusBestand(bestand),
+        total: bestand.length,
+        events: bestand,
       }),
-    );
-  });
-  const veröffentlichungen: string[] = [];
-  await page.route(`**/api/events/${entwurfId}/publish`, (route) => {
-    veröffentlichungen.push(route.request().url());
-    bestand = bestand.map((eintrag) =>
-      eintrag.id === entwurfId ? { ...eintrag, published: true } : eintrag,
-    );
-    return route.fulfill(
-      json({ event: bestand.find((eintrag) => eintrag.id === entwurfId) }),
-    );
-  });
+    ),
+  );
 
   await page.goto("/auftritte/");
   await expect(
@@ -563,21 +514,19 @@ test("Redaktion sieht den Entwurf, veröffentlicht ihn und kann ihn zurückziehe
   ).toBeVisible();
   const zeile = page
     .getByRole("listitem")
-    .filter({ hasText: "Hochzeit der Familie Berger" });
-  await expect(zeile.getByText("Entwurf")).toBeVisible();
-  await expect(page.getByRole("button", { name: "1951 (1)" })).toBeVisible();
-
-  await zeile.getByRole("button", { name: "Veröffentlichen" }).click();
+    .filter({ hasText: "Frühlingskonzert" });
   await expect(
-    page.getByText("Auftritt veröffentlicht. Mitglieder sehen ihn ab sofort."),
+    zeile.getByRole("link", { name: "Frühlingskonzert" }),
   ).toBeVisible();
-  expect(veröffentlichungen).toHaveLength(1);
-  expect(veröffentlichungen[0]).toContain(`/api/events/${entwurfId}/publish`);
-  await expect(zeile.getByText("Entwurf")).toHaveCount(0);
-  await expect(zeile.getByText("Veröffentlicht")).toBeVisible();
+  await expect(zeile.getByRole("button", { name: "Bearbeiten" })).toBeVisible();
+  await expect(page.getByText("Entwurf")).toHaveCount(0);
+  await expect(page.getByText("Veröffentlicht")).toHaveCount(0);
   await expect(
-    zeile.getByRole("button", { name: "Zurückziehen" }),
-  ).toBeVisible();
+    page.getByRole("button", { name: "Veröffentlichen" }),
+  ).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Zurückziehen" })).toHaveCount(
+    0,
+  );
 
   expect(errors).toEqual([]);
 });
@@ -607,7 +556,6 @@ test("Redaktion legt einen Auftritt mit ehrlichem Datum an", async ({
         datePrecision: "month",
         dateDisplay: "um Juli 1950",
         startTime: null,
-        published: false,
       };
       bestand = [...bestand, neu];
       return route.fulfill(json({ event: neu }, 201));
@@ -654,7 +602,7 @@ test("Redaktion legt einen Auftritt mit ehrlichem Datum an", async ({
   const zeile = page
     .getByRole("listitem")
     .filter({ hasText: "Serenade am Stadtplatz" });
-  await expect(zeile.getByText("Entwurf")).toBeVisible();
+  await expect(zeile.getByText("Entwurf")).toHaveCount(0);
   await expect(zeile.getByText("um Juli 1950")).toBeVisible();
 
   expect(errors).toEqual([]);

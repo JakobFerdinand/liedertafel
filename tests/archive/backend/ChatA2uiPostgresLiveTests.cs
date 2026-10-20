@@ -104,10 +104,11 @@ public sealed class ChatA2uiPostgresLiveTests(ITestOutputHelper output)
 		var other = NewLied("Abendlied", owner);
 		// Never saved: an id no record stands behind must resolve to nothing.
 		var draft = NewLied("Geheime Probe", owner);
-		var concert = NewEvent("Frühlingskonzert", owner, October);
-		var internalEvent = NewEvent("Interne Beratung", owner, null);
+		var concert = NewEvent("Frühlingskonzert", owner);
+		// Never saved: an id no record stands behind must resolve to nothing.
+		var internalEvent = NewEvent("Interne Beratung", owner);
 		db.Lieder.AddRange(published, other);
-		db.Events.AddRange(concert, internalEvent);
+		db.Events.Add(concert);
 		await db.SaveChangesAsync();
 
 		// ShowAsync: the model's request resolves against what a member may see only.
@@ -157,7 +158,7 @@ public sealed class ChatA2uiPostgresLiveTests(ITestOutputHelper output)
 
 		// The stored form re-checks against today's visibility on load.
 		db.Lieder.Remove(published);
-		concert.PublishedAt = null;
+		db.Events.Remove(concert);
 		await db.SaveChangesAsync();
 		var restored = await A2uiCatalog.RecheckAsync(readDb, storedText, CancellationToken.None);
 		var remaining = JsonNode.Parse(new JsonArray(restored.ToArray<JsonNode?>()).ToJsonString())!.AsArray()
@@ -182,15 +183,13 @@ public sealed class ChatA2uiPostgresLiveTests(ITestOutputHelper output)
 		UpdatedByAccountId = owner,
 	};
 
-	private static ChoirEvent NewEvent(string title, Guid owner, DateTimeOffset? publishedAt) => new()
+	private static ChoirEvent NewEvent(string title, Guid owner) => new()
 	{
 		Kind = "concert",
 		Title = title,
 		Venue = "Festsaal",
 		DateYear = 1932,
 		DateMonth = 5,
-		PublishedAt = publishedAt,
-		PublishedByAccountId = publishedAt is null ? null : owner,
 		CreatedAt = October,
 		CreatedByAccountId = owner,
 		UpdatedAt = October,

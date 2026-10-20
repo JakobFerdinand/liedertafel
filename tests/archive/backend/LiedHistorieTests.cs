@@ -137,27 +137,12 @@ public sealed class LiedHistorieTests
 	}
 
 	[Fact]
-	public async Task DraftAuftritteReachOnlyEditorsAndNeverCount()
+	public async Task UnknownLiedIs404AndAnonymousCallersAre401()
 	{
 		await using var host = new LiedTestHost();
 		var editor = await host.EditorAsync();
 		var member = await host.MemberAsync();
 		var lied = await host.CreateLiedIdAsync(editor, "Abendlied");
-		var published = await CreateEventAsync(host, editor, "Öffentlich", 2000, 1, 1);
-		var draft = await CreateEventAsync(host, editor, "Intern", 2001, 1, 1, publish: false);
-		await SaveProgrammeAsync(host, editor, published, lied);
-		await SaveProgrammeAsync(host, editor, draft, lied);
-
-		var forMember = await host.GetJsonAsync($"/api/lieder/{lied}/historie", member);
-		Assert.Equal(published.ToString(), Assert.Single(forMember.GetProperty("auftritte").EnumerateArray()).GetProperty("eventId").GetString());
-		Assert.True(forMember.GetProperty("counts").GetProperty("draftEvents").ValueKind is JsonValueKind.Null);
-
-		var forEditor = await host.GetJsonAsync($"/api/lieder/{lied}/historie", editor);
-		var rows = forEditor.GetProperty("auftritte").EnumerateArray().ToList();
-		Assert.Equal(2, rows.Count);
-		Assert.False(rows[0].GetProperty("eventPublished").GetBoolean());
-		Assert.Equal(1, forEditor.GetProperty("counts").GetProperty("events").GetInt32());
-		Assert.Equal(1, forEditor.GetProperty("counts").GetProperty("draftEvents").GetInt32());
 
 		using var unknown = await host.GetAsync($"/api/lieder/{Guid.NewGuid()}/historie", member);
 		Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
@@ -213,19 +198,13 @@ public sealed class LiedHistorieTests
 	}
 
 	private static async Task<Guid> CreateEventAsync(LiedTestHost host, string session, string title,
-		int? year, int? month, int? day, bool approximate = false, bool publish = true)
+		int? year, int? month, int? day, bool approximate = false)
 	{
 		using var response = await host.PostAsync("/api/events", new
 		{
 			kind = "concert", title, dateYear = year, dateMonth = month, dateDay = day, dateApproximate = approximate,
 		}, session);
 		Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-		var id = Guid.Parse((await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("event").GetProperty("id").GetString()!);
-		if (publish)
-		{
-			using var published = await host.PostAsync($"/api/events/{id}/publish", new { }, session);
-			Assert.True(published.IsSuccessStatusCode);
-		}
-		return id;
+		return Guid.Parse((await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("event").GetProperty("id").GetString()!);
 	}
 }

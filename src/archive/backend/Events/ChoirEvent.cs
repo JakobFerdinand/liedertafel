@@ -3,7 +3,8 @@ namespace Archive.Backend.Events;
 /// <summary>
 /// A historical choir appearance (ARC-024): concert, service, wedding,
 /// funeral, festival or other appearance of the "Auftritte" section.
-/// Published state is explicit: <see cref="PublishedAt"/> null means draft.
+/// A saved Auftritt is visible to every member (ADR-0001): there is no draft or
+/// published state.
 /// The date model keeps partial information honest (<see cref="DateYear"/>,
 /// <see cref="DateMonth"/>, <see cref="DateDay"/> with
 /// <see cref="DateApproximate"/>) instead of inventing a calendar date.
@@ -41,11 +42,6 @@ public sealed class ChoirEvent
 
 	/// <summary>"um/ca." marker, independent of the date precision.</summary>
 	public bool DateApproximate { get; set; }
-
-	/// <summary>Publication stamp; null while the event is a draft.</summary>
-	public DateTimeOffset? PublishedAt { get; set; }
-
-	public Guid? PublishedByAccountId { get; set; }
 
 	public DateTimeOffset CreatedAt { get; set; }
 

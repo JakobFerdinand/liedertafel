@@ -1863,7 +1863,6 @@ footer {
   padding-block: 0.9rem 1.1rem;
   border-bottom: 1px solid var(--rule);
 }
-.auftritte-eintrag > .lieder-status,
 .auftritte-eintrag > .auftritte-aktionen {
   align-self: start;
   margin-top: 0;
@@ -2283,7 +2282,7 @@ fieldset.programm-verwaltung {
 
 /* Stille Meta-Leiter einer Zeile der Liedgeschichte (nach .noten-info):
    Art des Auftritts und Programmstand in einer Reihe. */
-.nachweis-info {
+.historie-meta {
   color: var(--muted);
   font-size: var(--schrift-neben);
   margin-block: 0.2rem 0;
@@ -2398,7 +2397,6 @@ fieldset.programm-verwaltung {
   overflow-wrap: anywhere;
 }
 @container (min-width: 42rem) and (max-width: 51.99rem) {
-  .auftritte-eintrag > .lieder-status,
   .auftritte-eintrag > .auftritte-aktionen,
   .programme-anzahl {
     grid-column: 2;
@@ -2479,11 +2477,8 @@ fieldset.programm-verwaltung {
    Details und Formulare nehmen bei Bedarf eine eigene ganze Zeile ein. */
 @container (min-width: 52rem) {
   .auftritte-eintrag {
-    grid-template-columns: 10rem minmax(0, 1fr) auto auto;
+    grid-template-columns: 10rem minmax(0, 1fr) auto;
     gap: 0.2rem clamp(0.8rem, 1.5vw, 1.6rem);
-  }
-  .auftritte-eintrag > .lieder-status {
-    white-space: nowrap;
   }
   .auftritte-eintrag > .auftritte-aktionen {
     flex-wrap: nowrap;
@@ -2507,7 +2502,6 @@ fieldset.programm-verwaltung {
     grid-template-columns: minmax(0, 1fr);
     gap: 0.1rem;
   }
-  .auftritte-eintrag > .lieder-status,
   .auftritte-eintrag > .auftritte-aktionen,
   .programme-anzahl {
     grid-column: 1;

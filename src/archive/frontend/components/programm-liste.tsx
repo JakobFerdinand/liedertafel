@@ -85,9 +85,7 @@ export function ProgrammListe() {
           Programme werden geladen …
         </p>
       ) : programme.length === 0 ? (
-        <p className="hinweis-block">
-          Es steht derzeit kein veröffentlichtes Programm an.
-        </p>
+        <p className="hinweis-block">Es steht derzeit kein Programm an.</p>
       ) : (
         <ul className="programme-einträge">
           {programme.map((programm) => {

@@ -15,10 +15,10 @@ public sealed class RecordingPassageModelConfiguration : IEntityTypeConfiguratio
 		});
 		builder.HasKey(x => x.Id);
 		builder.Property(x => x.RowVersion).IsConcurrencyToken();
-		// A passage only ties a Programm entry and a recording together.
+		// A Zeitmarke only ties a Programm entry and a recording together.
 		// Restrict everywhere, so no deletion removes editor-made index work
 		// silently; the programme save answers with a clear conflict instead.
-		// The composite foreign key carries the event: a passage's recording
+		// The composite foreign key carries the event: a Zeitmarke's recording
 		// is always one of its own event.
 		builder.HasOne(x => x.Recording)
 			.WithMany()

@@ -241,12 +241,11 @@ public static class LiedEndpoints
 		var dateien = await DateiQueries.Visible(db).AsNoTracking()
 			.Where(d => d.LiedId == lied.Id)
 			.ToListAsync(token);
-		// An Aufnahme names its Auftritt; members only get the link while the Auftritt is published.
+		// An Aufnahme names its Auftritt; the link goes to the Auftritt page.
 		var eventIds = dateien.Where(d => d.RecordedAtEventId != null).Select(d => d.RecordedAtEventId!.Value).Distinct().ToList();
 		var events = eventIds.Count == 0
 			? []
 			: (await db.Events.AsNoTracking().Where(e => eventIds.Contains(e.Id)).ToListAsync(token))
-				.Where(e => isEditor || EventVisibility.IsMemberVisible(e))
 				.ToDictionary(e => e.Id);
 		return new
 		{

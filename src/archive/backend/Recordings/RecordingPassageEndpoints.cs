@@ -18,7 +18,7 @@ public sealed record CreatePassageRequest(
 	Guid? ProgrammeItemId, double? StartSeconds, double? EndSeconds, Guid? ExpectedPlaybackDateiId);
 
 /// <summary>
-/// Absent times stay as they are, except on a passage in need of review,
+/// Absent times stay as they are, except on a Zeitmarke in need of review,
 /// where both are stated; <c>ExpectedVersion</c> protects against
 /// overwriting a newer state.
 /// </summary>
@@ -27,10 +27,10 @@ public sealed record PatchPassageRequest(
 
 public sealed record DeletePassageRequest(uint? ExpectedVersion);
 
-/// <summary>One passage the editor listed, with the row token it saw.</summary>
+/// <summary>One Zeitmarke the editor listed, with the row token it saw.</summary>
 public sealed record ReviewPassageItem(Guid? Id, uint? ExpectedVersion);
 
-/// <summary>The review acts on exactly the passages named here, nothing else.</summary>
+/// <summary>The review acts on exactly the Zeitmarken named here, nothing else.</summary>
 public sealed record ReviewPassagesRequest(Guid? ExpectedPlaybackDateiId, List<ReviewPassageItem?>? Passages);
 
 /// <summary>
@@ -38,22 +38,22 @@ public sealed record ReviewPassagesRequest(Guid? ExpectedPlaybackDateiId, List<R
 /// Programm starts and ends inside a recording (any editor, not
 /// only the one who uploaded the files); members read them with the recording
 /// and in the Lied history.
-/// - Ids are checked against their stated parents: a passage is addressed
+/// - Ids are checked against their stated parents: a Zeitmarke is addressed
 ///   through its recording, and the Programm entry must belong to the
 ///   recording's event.
-/// - A passage is anchored to the playback revision it was timed against.
+/// - A Zeitmarke is anchored to the playback revision it was timed against.
 ///   Creating or editing takes the revision members play now; when that file
-///   changes later, passages read "needsReview" until an editor edits or
+///   changes later, Zeitmarken read "needsReview" until an editor edits or
 ///   confirms them (<c>/review</c>). Members never get a position from such a
-///   passage.
-/// - Marking never changes the Programm; entries with passages cannot be
+///   Zeitmarke.
+/// - Marking never changes the Programm; entries with Zeitmarken cannot be
 ///   removed (<see cref="RecordingPassages.BlockedMessageAsync"/>).
 /// - Writes carry the playback revision the editor saw
 ///   (<c>expectedPlaybackDateiId</c>); when the file members play has
 ///   changed since, the write is a stale-state 409 and writes nothing.
-///   The bulk review acts only on the passages (and row tokens) it is given.
+///   The bulk review acts only on the Zeitmarken (and row tokens) it is given.
 /// - Stale-state 409 ("changed in between") and not-allowed 409 (duplicate
-///   passage, no playable file) carry different messages.
+///   Zeitmarke, no playable file) carry different messages.
 /// </summary>
 public static class RecordingPassageEndpoints
 {
@@ -75,7 +75,7 @@ public static class RecordingPassageEndpoints
 	public const string NoPlayableFileMessage =
 		"Die Aufnahme hat noch keine abspielbare Datei, an der sich Zeitmarken setzen lassen.";
 
-	/// <summary>Not allowed in this state: edit the existing passage instead.</summary>
+	/// <summary>Not allowed in this state: edit the existing Zeitmarke instead.</summary>
 	public const string DuplicateMessage =
 		"Für diesen Programmpunkt gibt es in dieser Aufnahme schon eine Zeitmarke. Bearbeite die vorhandene.";
 
@@ -157,7 +157,7 @@ public static class RecordingPassageEndpoints
 				.FirstOrDefaultAsync(p => p.RecordingId == id && p.ProgrammeItemId == programmeItemId, token);
 			if (existing is not null)
 			{
-				// A lost retry of the identical statement answers the stored passage.
+				// A lost retry of the identical statement answers the stored Zeitmarke.
 				if (existing.StartSeconds == start && existing.EndSeconds == end
 					&& existing.PlaybackDateiId == playable.Id)
 					return Results.Ok(new { passage = await LoadOneAsync(db, existing.Id, token) });
@@ -308,7 +308,7 @@ public static class RecordingPassageEndpoints
 				return Results.Problem(statusCode: 409, title: NoPlayableFileMessage);
 			if (playable.Id != expectedDatei)
 				return Results.Problem(statusCode: 409, title: StalePlaybackMessage);
-			// Exactly the passages the editor listed, each with the token it
+			// Exactly the Zeitmarken the editor listed, each with the token it
 			// saw: anything else — another recording's id, a concurrent edit —
 			// refuses the whole review before a row is touched.
 			var ids = listed.Select(item => item!.Id!.Value).Distinct().ToList();
@@ -375,7 +375,7 @@ public static class RecordingPassageEndpoints
 		return views.OrderBy(v => v.Row.Position).ThenBy(v => v.Row.Id).ToList();
 	}
 
-	/// <summary>A passage after a write, loaded through the full display chain.</summary>
+	/// <summary>A Zeitmarke after a write, loaded through the full display chain.</summary>
 	private static async Task<object> LoadOneAsync(ArchiveDbContext db, Guid passageId, CancellationToken token)
 	{
 		var rows = await RecordingPassages.LoadRowsAsync(
@@ -385,8 +385,8 @@ public static class RecordingPassageEndpoints
 	}
 
 	/// <summary>
-	/// The marker list for editors: every entry of the event's Programm in
-	/// order with its passage in this recording, if any.
+	/// The Zeitmarkenliste for editors: every entry of the event's Programm in
+	/// order with its Zeitmarke in this recording, if any.
 	/// </summary>
 	private static async Task<List<object>> EntriesAsync(
 		ArchiveDbContext db, Guid eventId, List<RecordingPassages.PassageView> views, CancellationToken token)

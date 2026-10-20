@@ -79,6 +79,12 @@ public sealed class AuftrittProgrammMigrationPostgresTests(ITestOutputHelper out
 					remaining.Add(reader.GetString(0));
 			Assert.Equal(["cc000000-0000-0000-0000-000000000001"], remaining);
 
+			// A saved Auftritt is visible at once: the publication columns are gone, the event stays.
+			Assert.Equal(1, await Count(raw, "events"));
+			await using var columns = new NpgsqlCommand(
+				"SELECT count(*) FROM information_schema.columns WHERE table_name = 'events' AND column_name IN ('PublishedAt', 'PublishedByAccountId')", raw);
+			Assert.Equal(0L, (long)(await columns.ExecuteScalarAsync())!);
+
 			// Accounts, Lieder and the recording are untouched.
 			Assert.Equal(1, await Count(raw, "\"AspNetUsers\""));
 			Assert.Equal(2, await Count(raw, "lieder"));

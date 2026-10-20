@@ -30,7 +30,7 @@ public sealed partial class RecordingPassageApiTests
 		await using var scenario = await Scenario.CreateAsync();
 		var first = await scenario.CreateLiedAsync("Erstes Lied");
 		var second = await scenario.CreateLiedAsync("Zweites Lied");
-		var concert = await scenario.CreateEventAsync("Adventkonzert", 1988, 12, 4, published: true);
+		var concert = await scenario.CreateEventAsync("Adventkonzert", 1988, 12, 4);
 		var firstEntry = await scenario.RecordAsync(concert, first);
 		var secondEntry = await scenario.RecordAsync(concert, second);
 		var video = await scenario.CreateRecordingAsync(concert, "Video Kamera 1", "video", duration: 5400);
@@ -107,7 +107,7 @@ public sealed partial class RecordingPassageApiTests
 		await using var scenario = await Scenario.CreateAsync();
 		var marked = await scenario.CreateLiedAsync("Markiertes Lied");
 		var unmarked = await scenario.CreateLiedAsync("Unmarkiertes Lied");
-		var concert = await scenario.CreateEventAsync("Konzert", 1990, 5, 1, published: true);
+		var concert = await scenario.CreateEventAsync("Konzert", 1990, 5, 1);
 		var markedEntry = await scenario.RecordAsync(concert, marked);
 		await scenario.RecordAsync(concert, unmarked);
 		var recording = await scenario.CreateRecordingAsync(concert, "Mitschnitt", "video", duration: 4000);
@@ -140,7 +140,7 @@ public sealed partial class RecordingPassageApiTests
 		await using var scenario = await Scenario.CreateAsync();
 		var a = await scenario.CreateLiedAsync("Anfang");
 		var b = await scenario.CreateLiedAsync("Mitte");
-		var concert = await scenario.CreateEventAsync("Konzert", 1991, 6, 2, published: true);
+		var concert = await scenario.CreateEventAsync("Konzert", 1991, 6, 2);
 		var recording = await scenario.CreateRecordingAsync(concert, "Mitschnitt", "audio", duration: 3000);
 
 		// Without a Programm there is nothing to mark: the list says so.
@@ -167,8 +167,8 @@ public sealed partial class RecordingPassageApiTests
 	{
 		await using var scenario = await Scenario.CreateAsync();
 		var lied = await scenario.CreateLiedAsync("Prüflied");
-		var concert = await scenario.CreateEventAsync("Konzert", 1992, 3, 3, published: true);
-		var elsewhere = await scenario.CreateEventAsync("Anderer Auftritt", 1993, 3, 3, published: true);
+		var concert = await scenario.CreateEventAsync("Konzert", 1992, 3, 3);
+		var elsewhere = await scenario.CreateEventAsync("Anderer Auftritt", 1993, 3, 3);
 		var entry = await scenario.RecordAsync(concert, lied);
 		var foreign = await scenario.RecordAsync(elsewhere, lied);
 		var recording = await scenario.CreateRecordingAsync(concert, "Mitschnitt", "video", duration: 1000);
@@ -244,7 +244,7 @@ public sealed partial class RecordingPassageApiTests
 		await using var scenario = await Scenario.CreateAsync();
 		var lied = await scenario.CreateLiedAsync("Wandellied");
 		var other = await scenario.CreateLiedAsync("Anderes Lied");
-		var concert = await scenario.CreateEventAsync("Konzert", 1994, 3, 3, published: true);
+		var concert = await scenario.CreateEventAsync("Konzert", 1994, 3, 3);
 		var entry = await scenario.RecordAsync(concert, lied);
 		var otherEntry = await scenario.RecordAsync(concert, other);
 		var recording = await scenario.CreateRecordingAsync(concert, "Mitschnitt", "video", duration: 2000);
@@ -326,7 +326,7 @@ public sealed partial class RecordingPassageApiTests
 	{
 		await using var scenario = await Scenario.CreateAsync();
 		var lied = await scenario.CreateLiedAsync("Geschütztes Lied");
-		var concert = await scenario.CreateEventAsync("Konzert", 1995, 3, 3, published: true);
+		var concert = await scenario.CreateEventAsync("Konzert", 1995, 3, 3);
 		var entry = await scenario.RecordAsync(concert, lied);
 		var recording = await scenario.CreateRecordingAsync(concert, "Mitschnitt", "video", duration: 2000);
 		await scenario.PublishRecordingAsync(recording);
@@ -376,12 +376,12 @@ public sealed partial class RecordingPassageApiTests
 	}
 
 	[Fact]
-	public async Task UnpublishedRecordingsAndEventsNeverReachMembers()
+	public async Task UnpublishedRecordingsNeverReachMembers()
 	{
 		await using var scenario = await Scenario.CreateAsync();
 		var visible = await scenario.CreateLiedAsync("Sichtbares Lied");
 		var other = await scenario.CreateLiedAsync("Anderes Lied");
-		var concert = await scenario.CreateEventAsync("Konzert", 1996, 3, 3, published: true);
+		var concert = await scenario.CreateEventAsync("Konzert", 1996, 3, 3);
 		var visibleEntry = await scenario.RecordAsync(concert, visible);
 		var otherEntry = await scenario.RecordAsync(concert, other);
 		var published = await scenario.CreateRecordingAsync(concert, "Veröffentlicht", "video", duration: 2000);
@@ -411,7 +411,7 @@ public sealed partial class RecordingPassageApiTests
 		Assert.Equal(2, (await scenario.PassagesAsync(published, scenario.EditorSession))
 			.GetProperty("passages").GetArrayLength());
 
-		// Withdrawing the recording or the event takes the passages away again.
+		// Withdrawing the recording takes its Zeitmarken away again.
 		await scenario.PatchRecordingAsync(published, new { isPublished = false });
 		using (var withdrawn = await scenario.GetAsync($"/api/recordings/{published}/passages", scenario.MemberSession))
 			Assert.Equal(HttpStatusCode.NotFound, withdrawn.StatusCode);
@@ -420,11 +420,6 @@ public sealed partial class RecordingPassageApiTests
 		await scenario.PatchRecordingAsync(published, new { isPublished = true });
 		Assert.Single((await scenario.HistoryAsync(visible, scenario.MemberSession))
 			.GetProperty("auftritte")[0].GetProperty("recordings").EnumerateArray());
-		await scenario.SetEventPublishedAsync(concert, false);
-		using (var hiddenEvent = await scenario.GetAsync($"/api/recordings/{published}/passages", scenario.MemberSession))
-			Assert.Equal(HttpStatusCode.NotFound, hiddenEvent.StatusCode);
-		var hiddenHistory = await scenario.HistoryAsync(visible, scenario.MemberSession);
-		Assert.Equal(0, hiddenHistory.GetProperty("total").GetInt32());
 	}
 
 	[Fact]
@@ -432,7 +427,7 @@ public sealed partial class RecordingPassageApiTests
 	{
 		await using var scenario = await Scenario.CreateAsync();
 		var lied = await scenario.CreateLiedAsync("Wanderlied");
-		var concert = await scenario.CreateEventAsync("Konzert", 1997, 3, 3, published: true);
+		var concert = await scenario.CreateEventAsync("Konzert", 1997, 3, 3);
 		var entry = await scenario.RecordAsync(concert, lied);
 		var recording = await scenario.CreateRecordingAsync(concert, "Mitschnitt", "video", duration: 2000);
 		await scenario.PublishRecordingAsync(recording);
@@ -498,7 +493,7 @@ public sealed partial class RecordingPassageApiTests
 		await using var scenario = await Scenario.CreateAsync();
 		var a = await scenario.CreateLiedAsync("Eins");
 		var b = await scenario.CreateLiedAsync("Zwei");
-		var concert = await scenario.CreateEventAsync("Konzert", 1998, 3, 3, published: true);
+		var concert = await scenario.CreateEventAsync("Konzert", 1998, 3, 3);
 		var pa = await scenario.RecordAsync(concert, a);
 		var pb = await scenario.RecordAsync(concert, b);
 		var recording = await scenario.CreateRecordingAsync(concert, "Mitschnitt", "video", duration: 2000);
@@ -547,7 +542,7 @@ public sealed partial class RecordingPassageApiTests
 		await using var scenario = await Scenario.CreateAsync();
 		var a = await scenario.CreateLiedAsync("Gesungen");
 		var b = await scenario.CreateLiedAsync("Ausgelassen");
-		var concert = await scenario.CreateEventAsync("Konzert", 1999, 3, 3, published: true);
+		var concert = await scenario.CreateEventAsync("Konzert", 1999, 3, 3);
 		var entryA = await scenario.RecordAsync(concert, a);
 		var entryB = await scenario.RecordAsync(concert, b);
 		var recording = await scenario.CreateRecordingAsync(concert, "Mitschnitt", "video", duration: 2000);

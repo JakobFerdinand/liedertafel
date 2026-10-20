@@ -11,14 +11,11 @@ export type HistorieLied = {
 };
 
 export type HistorieZaehlung = {
-  // Veröffentlichte Auftritte in der Historie des Liedes.
+  // Auftritte in der Historie des Liedes.
   events: number;
   // Davon mit dem Lied im Programm (sonst nur eine Lied-Aufnahme).
   inProgramme: number;
   uncertainDates: number;
-  // Nur für die Redaktion: unveröffentlichte Auftritte, die in keiner Zahl
-  // stehen. Mitglieder erhalten null.
-  draftEvents: number | null;
 };
 
 // Aufnahme des Liedes, die diesen Auftritt nennt.
@@ -33,7 +30,6 @@ export type HistorieZeile = {
   eventId: string;
   eventTitle: string;
   eventKind: string;
-  eventPublished: boolean;
   dateYear: number | null;
   dateMonth: number | null;
   dateDay: number | null;

@@ -81,19 +81,18 @@ public static class RecordingKinds
 
 /// <summary>
 /// Shared visibility decision for recordings: the event's own decision plus
-/// the recording's publication. Later deletion/trash states (ARC-040) extend
-/// <see cref="EventVisibility"/> and are picked up here.
+/// the recording's publication: an Auftritt is always visible, a recording only
+/// once an editor published it.
 /// </summary>
 public static class RecordingVisibility
 {
 	public static bool IsMemberVisible(Recording recording, ChoirEvent choirEvent) =>
-		EventVisibility.IsMemberVisible(choirEvent) && recording.PublishedAt is not null;
+		recording.PublishedAt is not null;
 
 	/// <summary>
-	/// The same decision as a query filter for passages (ARC-032): a passage
-	/// is member-visible with its recording. ARC-040 trash conditions extend
-	/// this and <see cref="EventVisibility"/>.
+	/// The same decision as a query filter for Zeitmarken: a Zeitmarke is
+	/// member-visible with its recording.
 	/// </summary>
 	public static IQueryable<RecordingPassage> OfMemberVisible(IQueryable<RecordingPassage> passages) =>
-		passages.Where(p => p.Recording.PublishedAt != null && p.Recording.Event.PublishedAt != null);
+		passages.Where(p => p.Recording.PublishedAt != null);
 }

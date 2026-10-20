@@ -5,12 +5,12 @@ using Npgsql;
 namespace Archive.Backend.Recordings;
 
 /// <summary>
-/// Shared reading of passages (Zeitmarken) for the recording endpoints and the
+/// Shared reading of Zeitmarken (Zeitmarken) for the recording endpoints and the
 /// Lied history, so one visibility decision and one timestamp-state rule
 /// serve both:
-/// - members only see passages of published recordings of published events;
+/// - members only see Zeitmarken of published recordings of published events;
 ///   editors see everything;
-/// - a passage is <see cref="Current"/> only while its timestamps were taken
+/// - a Zeitmarke is <see cref="Current"/> only while its timestamps were taken
 ///   against the file members play now (<see cref="RecordingFiles.Resolve"/>),
 ///   otherwise it is <see cref="NeedsReview"/>: editors see the values and
 ///   the state, members see the Lied in the recording but no position.
@@ -21,7 +21,7 @@ public static class RecordingPassages
 
 	public const string NeedsReview = "needsReview";
 
-	/// <summary>Start of the conflict message that names the passages in the way; the UI keeps its input on it.</summary>
+	/// <summary>Start of the conflict message that names the Zeitmarken in the way; the UI keeps its input on it.</summary>
 	public const string BlockedPrefix = "Zeitmarken vorhanden:";
 
 	/// <summary>Upper bound for a timestamp: the recording duration bound (two days).</summary>
@@ -48,7 +48,7 @@ public static class RecordingPassages
 
 	public const string RecordingForeignKey = "FK_recording_passages_recordings_RecordingId_EventId";
 
-	/// <summary>The foreign key from a passage to its Programm entry held: a passage hangs on that entry.</summary>
+	/// <summary>The foreign key from a Zeitmarke to its Programm entry held: a Zeitmarke hangs on that entry.</summary>
 	public static bool IsProgrammeItemForeignKeyViolation(DbUpdateException exception) =>
 		exception.InnerException is PostgresException
 		{
@@ -64,7 +64,7 @@ public static class RecordingPassages
 			ConstraintName: UniquePerRecording,
 		};
 
-	/// <summary>A passage's recording or Programm entry was removed while it was being written.</summary>
+	/// <summary>A Zeitmarke's recording or Programm entry was removed while it was being written.</summary>
 	public static bool IsParentGoneViolation(DbUpdateException exception) =>
 		IsProgrammeItemForeignKeyViolation(exception)
 		|| exception.InnerException is PostgresException
@@ -79,7 +79,7 @@ public static class RecordingPassages
 	public static IQueryable<RecordingPassage> VisibleTo(IQueryable<RecordingPassage> passages, bool isEditor) =>
 		isEditor ? passages : RecordingVisibility.OfMemberVisible(passages);
 
-	/// <summary>Plain projection of the passages with the display fields of their recording and Programm entry.</summary>
+	/// <summary>Plain projection of the Zeitmarken with the display fields of their recording and Programm entry.</summary>
 	public static async Task<List<PassageRow>> LoadRowsAsync(
 		IQueryable<RecordingPassage> passages, CancellationToken token) =>
 		await passages
@@ -128,7 +128,7 @@ public static class RecordingPassages
 		return views;
 	}
 
-	/// <summary>One passage in the wire shape of the recording endpoints.</summary>
+	/// <summary>One Zeitmarke in the wire shape of the recording endpoints.</summary>
 	public static object Payload(PassageView view, bool isEditor)
 	{
 		var row = view.Row;

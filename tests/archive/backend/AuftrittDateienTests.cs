@@ -14,19 +14,17 @@ public sealed class AuftrittDateienTests
 	private const string PdfType = "application/pdf";
 
 	[Fact]
-	public async Task EditorUploadsDocumentAndPhotoAndMembersOpenThemOnlyOnPublishedAuftritt()
+	public async Task EditorUploadsDocumentAndPhotoAndMembersOpenThem()
 	{
 		await using var host = new LiedTestHost();
 		var editor = await host.EditorAsync();
 		var member = await host.MemberAsync();
 		var published = await host.CreateEventAsync(editor, "Adventkonzert");
-		var draft = await host.CreateEventAsync(editor, "Probe", publish: false);
 
 		var pdf = await host.UploadEventDateiAsync(editor, published, "sonstiges", LiedTestHost.ValidPdf(512),
 			"programm.pdf", PdfType, description: "Programmzettel");
 		var photo = await host.UploadEventDateiAsync(editor, published, "sonstiges", LiedTestHost.Png(256),
 			"foto.png", "image/png");
-		await host.UploadEventDateiAsync(editor, draft, "sonstiges", LiedTestHost.ValidPdf(64), "entwurf.pdf", PdfType);
 
 		var detail = await host.GetJsonAsync($"/api/events/{published}", member);
 		var documents = detail.GetProperty("event").GetProperty("documents").EnumerateArray().ToList();
@@ -40,11 +38,6 @@ public sealed class AuftrittDateienTests
 		using var photoAccess = await host.GetAsync($"/api/dateien/{photo.GetProperty("id").GetString()}/access", member);
 		Assert.Equal(HttpStatusCode.OK, photoAccess.StatusCode);
 
-		// A draft Auftritt is invisible to members, and so are its Dateien.
-		var draftDateiId = (await host.GetJsonAsync($"/api/events/{draft}", editor))
-			.GetProperty("event").GetProperty("documents")[0].GetProperty("id").GetString();
-		using var hidden = await host.GetAsync($"/api/dateien/{draftDateiId}/access", member);
-		Assert.Equal(HttpStatusCode.NotFound, hidden.StatusCode);
 		using var memberUpload = await host.PostAsync($"/api/events/{published}/dateien/upload-session",
 			new { kind = "sonstiges", contentType = PdfType }, member);
 		Assert.Equal(HttpStatusCode.Forbidden, memberUpload.StatusCode);

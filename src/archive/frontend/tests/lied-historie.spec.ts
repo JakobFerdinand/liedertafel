@@ -39,7 +39,6 @@ function zeile(eventId: string, titel: string, extra: Zeile = {}): Zeile {
     eventId,
     eventTitle: titel,
     eventKind: "concert",
-    eventPublished: true,
     dateYear: 1975,
     dateMonth: 6,
     dateDay: 1,
@@ -59,7 +58,6 @@ const zaehlung = {
   events: 4,
   inProgramme: 3,
   uncertainDates: 2,
-  draftEvents: null,
 };
 
 function historie(zeilen: Zeile[], extra: Zeile = {}) {
@@ -184,7 +182,6 @@ test("Ein Lied ohne Auftritt sagt ehrlich, dass nichts erfasst ist", async ({
         events: 0,
         inProgramme: 0,
         uncertainDates: 0,
-        draftEvents: null,
       },
     }),
   }));
@@ -198,38 +195,6 @@ test("Ein Lied ohne Auftritt sagt ehrlich, dass nichts erfasst ist", async ({
     "Das heißt nicht, dass es nie gesungen wurde.",
   );
   await expect(abschnitt.locator(".historie-eintrag")).toHaveCount(0);
-});
-
-test("Die Redaktion sieht Entwurfszeilen ohne Zählung", async ({ page }) => {
-  await mockSitzung(page, editorMe);
-  await mockHistorie(page, () => ({
-    body: historie(
-      [
-        zeile(auftritt1, "Frühjahrskonzert"),
-        zeile(auftritt2, "Interner Termin", { eventPublished: false }),
-      ],
-      {
-        counts: {
-          events: 1,
-          inProgramme: 1,
-          uncertainDates: 0,
-          draftEvents: 1,
-        },
-      },
-    ),
-  }));
-  await page.goto(`/lied/?id=${liedId}`);
-
-  const abschnitt = page.getByRole("region", { name: "Wann gesungen" });
-  await expect(abschnitt).toContainText(
-    "1 Auftritt ist noch nicht veröffentlicht und in keiner Zahl mitgezählt.",
-  );
-  await expect(abschnitt.locator(".historie-eintrag").nth(1)).toContainText(
-    "Auftritt noch nicht veröffentlicht, in keiner Zahl enthalten.",
-  );
-  await expect(abschnitt.locator(".historie-eintrag").nth(0)).not.toContainText(
-    "noch nicht veröffentlicht",
-  );
 });
 
 test("Eine Seite hinter dem Ende übernimmt die vom Server gemeldete Seite", async ({

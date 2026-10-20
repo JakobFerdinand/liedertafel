@@ -32,7 +32,6 @@ export type Auftritt = {
   // oder „Datum unbekannt“.
   dateDisplay: string;
   startTime: string | null;
-  published: boolean;
 };
 
 // ARC-025/#171: Dokumente und Fotografien am Auftritt sind Dateien des
@@ -59,7 +58,6 @@ export type AuftrittDetails = Auftritt & {
   documents: Dokument[];
   createdAt: string;
   updatedAt: string;
-  publishedAt: string | null;
 };
 
 // Die Jahreszusammenfassung der ganzen sichtbaren Menge für die

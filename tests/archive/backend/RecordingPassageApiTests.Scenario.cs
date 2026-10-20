@@ -54,23 +54,13 @@ public sealed partial class RecordingPassageApiTests
 				.GetProperty("lied").GetProperty("id").GetString()!);
 		}
 
-		public async Task<Guid> CreateEventAsync(string title, int? year, int? month, int? day, bool published = false)
+		public async Task<Guid> CreateEventAsync(string title, int? year, int? month, int? day)
 		{
 			using var create = await SendAsync(HttpMethod.Post, "/api/events",
 				new { kind = "concert", title, dateYear = year, dateMonth = month, dateDay = day }, EditorSession);
 			Assert.Equal(HttpStatusCode.Created, create.StatusCode);
-			var id = Guid.Parse((await create.Content.ReadFromJsonAsync<JsonElement>())
+			return Guid.Parse((await create.Content.ReadFromJsonAsync<JsonElement>())
 				.GetProperty("event").GetProperty("id").GetString()!);
-			if (published)
-				await SetEventPublishedAsync(id, true);
-			return id;
-		}
-
-		public async Task SetEventPublishedAsync(Guid eventId, bool published)
-		{
-			using var response = await SendAsync(HttpMethod.Post,
-				$"/api/events/{eventId}/{(published ? "publish" : "unpublish")}", new { }, EditorSession);
-			Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 		}
 
 		/// <summary>Appends a Lied to the Programm of the Auftritt and returns the id of the new entry.</summary>

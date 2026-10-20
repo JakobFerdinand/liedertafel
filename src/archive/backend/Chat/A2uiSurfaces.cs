@@ -264,7 +264,7 @@ public static class A2uiCatalog
 		if (!Guid.TryParse(request.AuftrittId, out var id))
 			return null;
 		var entry = await db.Events.AsNoTracking()
-			.Where(e => e.Id == id && e.PublishedAt != null)
+			.Where(e => e.Id == id)
 			.Select(e => new { e.Id, e.Title, e.Kind, e.Venue, e.DateYear, e.DateMonth, e.DateDay, e.DateApproximate })
 			.FirstOrDefaultAsync(token);
 		if (entry is null)

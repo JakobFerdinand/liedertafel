@@ -116,20 +116,19 @@ public sealed class CatalogueToolsTests
 	};
 
 	[Fact]
-	public async Task DetailsNameOnlyAuftritteAMemberMaySeeAndSeparatePlannedFromSung()
+	public async Task DetailsNameSungAuftritteAndSeparatePlannedFromSung()
 	{
 		await using var factory = new AuthApiFactory();
 		using var scope = factory.Services.CreateScope();
 		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
 		var now = DateTimeOffset.UtcNow;
 		var lied = new Lied { Title = "Die Waldfahrt" };
-		var sungEvent = NewEvent("Sängerfest", 1932, published: true, now);
-		var recordedEvent = NewEvent("Chronik 1910", 1910, published: true, now);
-		var draftEvent = NewEvent("Geheimes Konzert", 1950, published: false, now);
-		var plannedEvent = NewEvent("Adventskonzert", 2098, published: true, now);
+		var sungEvent = NewEvent("Sängerfest", 1932, now);
+		var recordedEvent = NewEvent("Chronik 1910", 1910, now);
+		var plannedEvent = NewEvent("Adventskonzert", 2098, now);
 		db.Lieder.Add(lied);
-		db.Events.AddRange(sungEvent, recordedEvent, draftEvent, plannedEvent);
-		foreach (var choirEvent in new[] { sungEvent, draftEvent, plannedEvent })
+		db.Events.AddRange(sungEvent, recordedEvent, plannedEvent);
+		foreach (var choirEvent in new[] { sungEvent, plannedEvent })
 		{
 			var programme = new EventProgramme { EventId = choirEvent.Id, CreatedAt = now, UpdatedAt = now };
 			programme.Items.Add(new ProgrammeItem { ProgrammeId = programme.Id, Position = 1, LiedId = lied.Id });
@@ -154,15 +153,13 @@ public sealed class CatalogueToolsTests
 		Assert.Equal(["Sängerfest", "Chronik 1910"], sung.Select(s => s.GetProperty("auftritt").GetString()).ToList());
 		Assert.False(sung[0].TryGetProperty("nachweis", out _));
 		Assert.Equal("Adventskonzert", Assert.Single(root.GetProperty("geplant").EnumerateArray().ToList()).GetProperty("auftritt").GetString());
-		Assert.DoesNotContain("Geheimes Konzert", text);
 	}
 
-	private static ChoirEvent NewEvent(string title, int year, bool published, DateTimeOffset now) => new()
+	private static ChoirEvent NewEvent(string title, int year, DateTimeOffset now) => new()
 	{
 		Kind = "concert",
 		Title = title,
 		DateYear = year,
-		PublishedAt = published ? now : null,
 		CreatedAt = now,
 		UpdatedAt = now,
 	};

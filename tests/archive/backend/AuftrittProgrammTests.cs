@@ -16,7 +16,7 @@ namespace Archive.Backend.Tests;
 public sealed class AuftrittProgrammTests
 {
 	[Fact]
-	public async Task EditorSavesAProgrammeOfAPublishedAuftrittAndMembersSeeItImmediately()
+	public async Task EditorCreatesAnUpcomingAuftrittWithAProgrammeAndMembersSeeItImmediately()
 	{
 		await using var host = new LiedTestHost();
 		var editor = await host.EditorAsync();
@@ -24,7 +24,12 @@ public sealed class AuftrittProgrammTests
 		var waldfahrt = await host.CreateLiedAsync(editor, new { title = "Die Waldfahrt", voiceConfiguration = "TTBB", musicalKey = "G-Dur" });
 		var waldId = Guid.Parse(waldfahrt.GetProperty("id").GetString()!);
 		var abendlied = await host.CreateLiedIdAsync(editor, "Abendlied");
+		// Create flow: a new Auftritt and its Programm, no publish step anywhere.
 		var eventId = await CreateEventAsync(host, editor, "Frühjahrskonzert", 2099);
+		var created = (await host.GetJsonAsync($"/api/events/{eventId}", member)).GetProperty("event");
+		Assert.Equal("Frühjahrskonzert", created.GetProperty("title").GetString());
+		Assert.False(created.TryGetProperty("published", out _));
+		Assert.Equal(JsonValueKind.Null, created.GetProperty("programme").ValueKind);
 
 		using var save = await host.PutAsync($"/api/events/{eventId}/programme/items", new
 		{
@@ -58,8 +63,11 @@ public sealed class AuftrittProgrammTests
 		Assert.Equal(eventId.ToString(), row.GetProperty("eventId").GetString());
 		Assert.Equal(3, row.GetProperty("itemCount").GetInt32());
 
-		using var publish = await host.PostAsync($"/api/events/{eventId}/programme/publish", new { rowVersion = 1 }, editor);
-		Assert.False(publish.IsSuccessStatusCode);
+		foreach (var gone in new[] { "programme/publish", "publish", "unpublish" })
+		{
+			using var response = await host.PostAsync($"/api/events/{eventId}/{gone}", new { rowVersion = 1 }, editor);
+			Assert.False(response.IsSuccessStatusCode, gone);
+		}
 	}
 
 	[Fact]
@@ -139,25 +147,17 @@ public sealed class AuftrittProgrammTests
 	}
 
 	[Fact]
-	public async Task OnlyEditorsSaveAndDraftAuftritteStayHiddenFromMembers()
+	public async Task OnlyEditorsSaveAProgramme()
 	{
 		await using var host = new LiedTestHost();
 		var editor = await host.EditorAsync();
 		var member = await host.MemberAsync();
 		var lied = await host.CreateLiedIdAsync(editor, "Abendlied");
-		var draft = await CreateEventAsync(host, editor, "Interner Termin", 2099, publish: false);
-		await SaveAsync(host, editor, draft, new object[] { new { liedId = lied } });
+		var eventId = await CreateEventAsync(host, editor, "Termin", 2099);
 
-		using var asMember = await host.PutAsync($"/api/events/{draft}/programme/items",
+		using var asMember = await host.PutAsync($"/api/events/{eventId}/programme/items",
 			new { items = new object[] { new { liedId = lied } } }, member);
 		Assert.Equal(HttpStatusCode.Forbidden, asMember.StatusCode);
-
-		using var hidden = await host.GetAsync($"/api/events/{draft}", member);
-		Assert.Equal(HttpStatusCode.NotFound, hidden.StatusCode);
-		var upcoming = await host.GetJsonAsync("/api/programmes", member);
-		Assert.Empty(upcoming.GetProperty("programmes").EnumerateArray());
-		var forEditor = await host.GetJsonAsync("/api/programmes", editor);
-		Assert.Single(forEditor.GetProperty("programmes").EnumerateArray());
 	}
 
 	private static async Task<JsonElement> SaveAsync(LiedTestHost host, string session, Guid eventId, object[] items, uint? rowVersion = null)
@@ -167,17 +167,11 @@ public sealed class AuftrittProgrammTests
 		return (await save.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("programme").Clone();
 	}
 
-	private static async Task<Guid> CreateEventAsync(LiedTestHost host, string session, string title, int year, bool publish = true)
+	private static async Task<Guid> CreateEventAsync(LiedTestHost host, string session, string title, int year)
 	{
 		using var response = await host.PostAsync("/api/events",
 			new { kind = "concert", title, dateYear = year, dateMonth = 5, dateDay = 12 }, session);
 		Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-		var id = Guid.Parse((await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("event").GetProperty("id").GetString()!);
-		if (publish)
-		{
-			using var published = await host.PostAsync($"/api/events/{id}/publish", new { }, session);
-			Assert.True(published.IsSuccessStatusCode);
-		}
-		return id;
+		return Guid.Parse((await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("event").GetProperty("id").GetString()!);
 	}
 }
