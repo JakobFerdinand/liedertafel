@@ -37,13 +37,7 @@ public sealed class ArchiveDbContext(DbContextOptions<ArchiveDbContext> options)
 
 	public DbSet<EventProgramme> Programmes => Set<EventProgramme>();
 
-	public DbSet<ProgrammeRevision> ProgrammeRevisions => Set<ProgrammeRevision>();
-
 	public DbSet<ProgrammeItem> ProgrammeItems => Set<ProgrammeItem>();
-
-	public DbSet<Performance> Performances => Set<Performance>();
-
-	public DbSet<ProgrammeConfirmation> ProgrammeConfirmations => Set<ProgrammeConfirmation>();
 
 	public DbSet<PendingUpload> UploadSessions => Set<PendingUpload>();
 

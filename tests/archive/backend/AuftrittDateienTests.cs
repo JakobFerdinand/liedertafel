@@ -14,19 +14,17 @@ public sealed class AuftrittDateienTests
 	private const string PdfType = "application/pdf";
 
 	[Fact]
-	public async Task EditorUploadsDocumentAndPhotoAndMembersOpenThemOnlyOnPublishedAuftritt()
+	public async Task EditorUploadsDocumentAndPhotoAndMembersOpenThem()
 	{
 		await using var host = new LiedTestHost();
 		var editor = await host.EditorAsync();
 		var member = await host.MemberAsync();
 		var published = await host.CreateEventAsync(editor, "Adventkonzert");
-		var draft = await host.CreateEventAsync(editor, "Probe", publish: false);
 
 		var pdf = await host.UploadEventDateiAsync(editor, published, "sonstiges", LiedTestHost.ValidPdf(512),
 			"programm.pdf", PdfType, description: "Programmzettel");
 		var photo = await host.UploadEventDateiAsync(editor, published, "sonstiges", LiedTestHost.Png(256),
 			"foto.png", "image/png");
-		await host.UploadEventDateiAsync(editor, draft, "sonstiges", LiedTestHost.ValidPdf(64), "entwurf.pdf", PdfType);
 
 		var detail = await host.GetJsonAsync($"/api/events/{published}", member);
 		var documents = detail.GetProperty("event").GetProperty("documents").EnumerateArray().ToList();
@@ -40,11 +38,6 @@ public sealed class AuftrittDateienTests
 		using var photoAccess = await host.GetAsync($"/api/dateien/{photo.GetProperty("id").GetString()}/access", member);
 		Assert.Equal(HttpStatusCode.OK, photoAccess.StatusCode);
 
-		// A draft Auftritt is invisible to members, and so are its Dateien.
-		var draftDateiId = (await host.GetJsonAsync($"/api/events/{draft}", editor))
-			.GetProperty("event").GetProperty("documents")[0].GetProperty("id").GetString();
-		using var hidden = await host.GetAsync($"/api/dateien/{draftDateiId}/access", member);
-		Assert.Equal(HttpStatusCode.NotFound, hidden.StatusCode);
 		using var memberUpload = await host.PostAsync($"/api/events/{published}/dateien/upload-session",
 			new { kind = "sonstiges", contentType = PdfType }, member);
 		Assert.Equal(HttpStatusCode.Forbidden, memberUpload.StatusCode);
@@ -177,11 +170,11 @@ public sealed class AuftrittDateienTests
 		var member = await host.MemberAsync();
 		var eventId = await host.CreateEventAsync(editor, "Konzert");
 		var liedId = await host.CreateLiedIdAsync(editor, "Waldfahrt");
-		using var performance = await host.PostAsync($"/api/events/{eventId}/performances",
-			new { liedId, evidenceStatus = "confirmed" }, editor);
-		Assert.Equal(HttpStatusCode.Created, performance.StatusCode);
-		var performanceId = (await performance.Content.ReadFromJsonAsync<JsonElement>())
-			.GetProperty("performance").GetProperty("id").GetString();
+		using var programme = await host.PutAsync($"/api/events/{eventId}/programme/items",
+			new { items = new object[] { new { liedId } } }, editor);
+		Assert.Equal(HttpStatusCode.OK, programme.StatusCode);
+		var programmeItemId = (await programme.Content.ReadFromJsonAsync<JsonElement>())
+			.GetProperty("programme").GetProperty("items")[0].GetProperty("id").GetString();
 		var recording = await host.CreateRecordingAsync(editor, eventId, "Mitschnitt", "audio");
 		var recordingId = Guid.Parse(recording.GetProperty("id").GetString()!);
 		using var first = await host.AttachAsync(editor, eventId, recordingId, "original", LiedTestHost.Mp3(2048), "a.mp3", "audio/mpeg");
@@ -191,10 +184,10 @@ public sealed class AuftrittDateienTests
 		Assert.Equal(HttpStatusCode.OK, publish.StatusCode);
 
 		using var stale = await host.PostAsync($"/api/recordings/{recordingId}/passages",
-			new { performanceId, startSeconds = 5, endSeconds = 65, expectedPlaybackDateiId = Guid.NewGuid() }, editor);
+			new { programmeItemId, startSeconds = 5, endSeconds = 65, expectedPlaybackDateiId = Guid.NewGuid() }, editor);
 		Assert.Equal(HttpStatusCode.Conflict, stale.StatusCode);
 		using var created = await host.PostAsync($"/api/recordings/{recordingId}/passages",
-			new { performanceId, startSeconds = 5, endSeconds = 65, expectedPlaybackDateiId = firstId }, editor);
+			new { programmeItemId, startSeconds = 5, endSeconds = 65, expectedPlaybackDateiId = firstId }, editor);
 		Assert.Equal(HttpStatusCode.Created, created.StatusCode);
 
 		var current = (await host.GetJsonAsync($"/api/recordings/{recordingId}/passages", member)).GetProperty("passages");

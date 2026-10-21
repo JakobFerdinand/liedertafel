@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { AuftrittFormular } from "@/components/auftritt-formular";
-import { fetchMe, type MeResponse, postAuth } from "@/lib/auth";
+import { fetchMe, type MeResponse } from "@/lib/auth";
 import {
   type Auftritt,
   type AuftrittDetails,
@@ -40,7 +40,6 @@ export function AuftritteBereich() {
   const [fehler, setFehler] = useState("");
   const [hinweis, setHinweis] = useState("");
   const [erfolg, setErfolg] = useState("");
-  const [aktionBusy, setAktionBusy] = useState("");
   const [bearbeitet, setBearbeitet] = useState<string | null>(null);
   const [versuch, setVersuch] = useState(0);
 
@@ -125,45 +124,6 @@ export function AuftritteBereich() {
       parameter.set("jahr", String(auswahl));
     const zeichenkette = parameter.toString();
     router.push(zeichenkette ? `/auftritte/?${zeichenkette}` : "/auftritte/");
-  }
-
-  async function auftrittAktion(
-    schluessel: string,
-    pfad: string,
-    erfolgsMeldung: string,
-  ) {
-    setHinweis("");
-    setErfolg("");
-    setAktionBusy(schluessel);
-    try {
-      const response = await postAuth(pfad, {});
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        setHinweis(
-          payload?.title ?? "Das hat nicht geklappt. Bitte erneut versuchen.",
-        );
-        return;
-      }
-      if (payload?.event) {
-        setErgebnis((bisher) =>
-          bisher
-            ? {
-                ...bisher,
-                events: bisher.events.map((eintrag) =>
-                  eintrag.id === payload.event.id ? payload.event : eintrag,
-                ),
-              }
-            : bisher,
-        );
-      }
-      setErfolg(erfolgsMeldung);
-    } catch {
-      setHinweis(
-        "Sicherheitstoken konnte nicht geladen werden. Seite neu laden.",
-      );
-    } finally {
-      setAktionBusy("");
-    }
   }
 
   if (fehler) {
@@ -319,25 +279,16 @@ export function AuftritteBereich() {
                       {auftrittArtName(auftritt.kind)}
                     </p>
                     <h3>
-                      {auftritt.published ? (
-                        <Link
-                          href={`/auftritt/?id=${encodeURIComponent(auftritt.id)}`}
-                        >
-                          {auftritt.title}
-                        </Link>
-                      ) : (
-                        auftritt.title
-                      )}
+                      <Link
+                        href={`/auftritt/?id=${encodeURIComponent(auftritt.id)}`}
+                      >
+                        {auftritt.title}
+                      </Link>
                     </h3>
                     {auftritt.venue && (
                       <p className="auftritt-ort">{auftritt.venue}</p>
                     )}
                   </div>
-                  {editor && (
-                    <p className="lieder-status">
-                      {auftritt.published ? "Veröffentlicht" : "Entwurf"}
-                    </p>
-                  )}
                   {editor && (
                     <div className="auftritte-aktionen">
                       <button
@@ -345,7 +296,6 @@ export function AuftritteBereich() {
                         className="knopf-leise"
                         aria-expanded={bearbeitet === auftritt.id}
                         aria-controls={`auftritt-bearbeiten-${auftritt.id}`}
-                        disabled={aktionBusy !== ""}
                         onClick={() =>
                           setBearbeitet(
                             bearbeitet === auftritt.id ? null : auftritt.id,
@@ -356,39 +306,6 @@ export function AuftritteBereich() {
                           ? "Bearbeiten schließen"
                           : "Bearbeiten"}
                       </button>
-                      {auftritt.published ? (
-                        <button
-                          type="button"
-                          disabled={aktionBusy !== ""}
-                          onClick={() =>
-                            auftrittAktion(
-                              `unpublish:${auftritt.id}`,
-                              `/api/events/${encodeURIComponent(auftritt.id)}/unpublish`,
-                              "Auftritt zurückgezogen. Er ist für Mitglieder nicht mehr sichtbar.",
-                            )
-                          }
-                        >
-                          {aktionBusy === `unpublish:${auftritt.id}`
-                            ? "Wird zurückgezogen …"
-                            : "Zurückziehen"}
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          disabled={aktionBusy !== ""}
-                          onClick={() =>
-                            auftrittAktion(
-                              `publish:${auftritt.id}`,
-                              `/api/events/${encodeURIComponent(auftritt.id)}/publish`,
-                              "Auftritt veröffentlicht. Mitglieder sehen ihn ab sofort.",
-                            )
-                          }
-                        >
-                          {aktionBusy === `publish:${auftritt.id}`
-                            ? "Wird veröffentlicht …"
-                            : "Veröffentlichen"}
-                        </button>
-                      )}
                     </div>
                   )}
                   {editor && (

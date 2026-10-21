@@ -1,24 +1,19 @@
-using Archive.Backend.Catalogue;
-using Archive.Backend.Lieder;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace Archive.Backend.Events;
 
 public sealed class EventProgrammeModelConfiguration
-	: IEntityTypeConfiguration<EventProgramme>, IEntityTypeConfiguration<ProgrammeRevision>,
-		IEntityTypeConfiguration<ProgrammeItem>, IEntityTypeConfiguration<ProgrammeConfirmation>
+	: IEntityTypeConfiguration<EventProgramme>, IEntityTypeConfiguration<ProgrammeItem>
 {
 	public void Configure(EntityTypeBuilder<EventProgramme> builder)
 	{
 		builder.ToTable("programmes");
 		builder.HasKey(x => x.Id);
 		builder.Property(x => x.RowVersion).IsConcurrencyToken();
-		/// <summary>
-		/// The programme belongs to exactly one event (ARC-026). Cascade
-		/// removes the programme with its event; the event row itself is
-		/// never touched by programme mutations.
-		/// </summary>
+		// The programme belongs to exactly one event. Cascade removes the
+		// programme with its event; the event row itself is never touched by
+		// programme mutations.
 		builder.HasOne(x => x.Event)
 			.WithMany()
 			.HasForeignKey(x => x.EventId)
@@ -26,79 +21,21 @@ public sealed class EventProgrammeModelConfiguration
 		builder.HasIndex(x => x.EventId).IsUnique();
 	}
 
-	public void Configure(EntityTypeBuilder<ProgrammeRevision> builder)
-	{
-		builder.ToTable("programme_revisions");
-		builder.HasKey(x => x.Id);
-		builder.HasOne(x => x.Programme)
-			.WithMany(p => p.Revisions)
-			.HasForeignKey(x => x.ProgrammeId)
-			.OnDelete(DeleteBehavior.Cascade);
-		builder.HasIndex(x => new { x.ProgrammeId, x.Number }).IsUnique();
-		/// <summary>At most one working draft (PublishedAt null) per programme.</summary>
-		builder.HasIndex(x => x.ProgrammeId).IsUnique().HasFilter("\"PublishedAt\" IS NULL");
-	}
-
 	public void Configure(EntityTypeBuilder<ProgrammeItem> builder)
 	{
 		builder.ToTable("programme_items");
 		builder.HasKey(x => x.Id);
 		builder.Property(x => x.Note).HasMaxLength(500);
-		builder.HasOne(x => x.Revision)
-			.WithMany(r => r.Items)
-			.HasForeignKey(x => x.RevisionId)
+		builder.HasOne(x => x.Programme)
+			.WithMany(p => p.Items)
+			.HasForeignKey(x => x.ProgrammeId)
 			.OnDelete(DeleteBehavior.Cascade);
-		builder.HasIndex(x => new { x.RevisionId, x.Position }).IsUnique();
-		// Restrict keeps Lied deletion from cascading into programme history (ARC-037).
+		builder.HasIndex(x => new { x.ProgrammeId, x.Position }).IsUnique();
+		// Restrict keeps Lied deletion from cascading into the record of what was sung.
 		builder.HasOne(x => x.Lied)
 			.WithMany()
 			.HasForeignKey(x => x.LiedId)
 			.OnDelete(DeleteBehavior.Restrict);
 		builder.HasIndex(x => x.LiedId);
 	}
-
-	public void Configure(EntityTypeBuilder<ProgrammeConfirmation> builder)
-	{
-		builder.ToTable("programme_confirmations");
-		builder.HasKey(x => x.Id);
-		builder.Property(x => x.RowVersion).IsConcurrencyToken();
-		/// <summary>
-		/// ARC-029: one confirmation per programme (the event's actual
-		/// programme), bound to the published revision it reviewed. Both links
-		/// cascade with the programme aggregate; the planned rows themselves
-		/// are never written by a confirmation.
-		/// </summary>
-		builder.HasOne(x => x.Programme)
-			.WithMany()
-			.HasForeignKey(x => x.ProgrammeId)
-			.OnDelete(DeleteBehavior.Cascade);
-		builder.HasIndex(x => x.ProgrammeId).IsUnique();
-		builder.HasOne(x => x.Revision)
-			.WithMany()
-			.HasForeignKey(x => x.RevisionId)
-			.OnDelete(DeleteBehavior.Cascade);
-		builder.HasIndex(x => x.RevisionId);
-	}
-}
-
-/// <summary>
-/// Single shared visibility decision point for the programme (ARC-026): the
-/// working draft is editor-only and members see only the newest published
-/// revision (highest Number among the published ones). Programme reads are
-/// additionally gated by the event's own visibility (see
-/// <see cref="EventVisibility"/>), so a draft event's programme never
-/// reaches members — the event answers its indistinguishable 404.
-/// </summary>
-public static class ProgrammeVisibility
-{
-	/// <summary>The newest published revision, or null before the first publication.</summary>
-	public static ProgrammeRevision? NewestPublished(EventProgramme programme)
-		=> programme.Revisions
-			.Where(r => r.PublishedAt is not null)
-			.OrderByDescending(r => r.Number)
-			.FirstOrDefault();
-
-	/// <summary>The working draft (PublishedAt null), or null between publications.</summary>
-	public static ProgrammeRevision? WorkingDraft(EventProgramme programme)
-		=> programme.Revisions.FirstOrDefault(r => r.PublishedAt is null);
 }

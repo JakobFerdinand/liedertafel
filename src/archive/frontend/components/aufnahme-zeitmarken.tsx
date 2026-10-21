@@ -4,7 +4,7 @@
 // Mitglieder sehen die Lieder der Aufnahme und springen mit einem Knopf an
 // den Anfang; eine Marke, deren Zeiten an einer früheren Datei genommen
 // wurden, bietet keinen Sprung an (nichts springt an eine falsche Stelle).
-// Die Redaktion geht die Aufführungen des Auftritts in Programmreihenfolge
+// Die Redaktion geht die Programmpunkte des Auftritts in Reihenfolge
 // durch und setzt je Lied Anfang und Ende – mit der Position des Spielers
 // oder von Hand. Eine Aufnahme ohne Marken bleibt als Ganzes abspielbar.
 
@@ -16,8 +16,8 @@ import {
   bestaetigeZeitmarken,
   createZeitmarke,
   deleteZeitmarke,
+  type Programmeintrag,
   patchZeitmarke,
-  type Vorkommen,
   type Zeitmarke,
   ZeitmarkeDateiErsetzt,
   type ZeitmarkenStand,
@@ -28,7 +28,7 @@ import {
 
 const SpeicherErsatz = "Das hat nicht geklappt. Bitte erneut versuchen.";
 
-function titelVon(vorkommen: Vorkommen): string {
+function titelVon(vorkommen: Programmeintrag): string {
   return vorkommen.liedTitle ?? "Ohne Titel";
 }
 
@@ -135,7 +135,7 @@ function pruefen(entwurf: Entwurf, dauer: number | null): Pruefung {
   return { ok: true, start, ende };
 }
 
-/** Marken der Redaktion: Aufführungen in Programmreihenfolge, Anfang und Ende setzen. */
+/** Marken der Redaktion: Programmpunkte in Reihenfolge, Anfang und Ende setzen. */
 export function ZeitmarkenRedaktion({
   aufnahme,
   stand,
@@ -168,11 +168,11 @@ export function ZeitmarkenRedaktion({
   const [fokusAuf, setFokusAuf] = useState<string | null>(null);
   // Das Feld, dessen Eingabe die Meldung beanstandet: markiert und fokussiert.
   const [ungueltig, setUngueltig] = useState<{
-    performanceId: string;
+    programmeItemId: string;
     feld: "start" | "ende";
   } | null>(null);
   const [fokusFeld, setFokusFeld] = useState<{
-    performanceId: string;
+    programmeItemId: string;
     feld: "start" | "ende";
   } | null>(null);
   const fehlerRef = useRef<HTMLParagraphElement | null>(null);
@@ -194,7 +194,7 @@ export function ZeitmarkenRedaktion({
   useEffect(() => {
     if (!fokusFeld) return;
     const felder = fokusFeld.feld === "start" ? startFelder : endeFelder;
-    felder.current.get(fokusFeld.performanceId)?.focus();
+    felder.current.get(fokusFeld.programmeItemId)?.focus();
     setFokusFeld(null);
   }, [fokusFeld]);
 
@@ -206,15 +206,15 @@ export function ZeitmarkenRedaktion({
     setFokusAuf(null);
   }, [fokusAuf]);
 
-  const vorkommen = stand.occurrences ?? [];
+  const vorkommen = stand.entries ?? [];
   const marken = new Map(stand.passages.map((marke) => [marke.id, marke]));
   const dauer = stand.durationSeconds ?? null;
   const zuPruefen = stand.passages.filter(
     (marke) => marke.timestampState !== "current",
   );
 
-  function wertVon(eintrag: Vorkommen): Entwurf {
-    const entwurf = entwuerfe[eintrag.performanceId];
+  function wertVon(eintrag: Programmeintrag): Entwurf {
+    const entwurf = entwuerfe[eintrag.programmeItemId];
     if (entwurf) return entwurf;
     const marke = eintrag.passageId ? marken.get(eintrag.passageId) : undefined;
     return {
@@ -223,17 +223,17 @@ export function ZeitmarkenRedaktion({
     };
   }
 
-  function aendern(eintrag: Vorkommen, teil: Partial<Entwurf>) {
+  function aendern(eintrag: Programmeintrag, teil: Partial<Entwurf>) {
     setUngueltig((vorher) =>
-      vorher?.performanceId === eintrag.performanceId ? null : vorher,
+      vorher?.programmeItemId === eintrag.programmeItemId ? null : vorher,
     );
     setEntwuerfe((vorher) => ({
       ...vorher,
-      [eintrag.performanceId]: { ...wertVon(eintrag), ...teil },
+      [eintrag.programmeItemId]: { ...wertVon(eintrag), ...teil },
     }));
   }
 
-  function uebernehmen(eintrag: Vorkommen, feld: "start" | "ende") {
+  function uebernehmen(eintrag: Programmeintrag, feld: "start" | "ende") {
     const position = leseposition();
     if (position === null) return;
     aendern(eintrag, { [feld]: zeitFormat(position) });
@@ -244,7 +244,7 @@ export function ZeitmarkenRedaktion({
     setFehler(text);
   }
 
-  async function speichern(eintrag: Vorkommen) {
+  async function speichern(eintrag: Programmeintrag) {
     if (busy) return;
     const titel = titelVon(eintrag);
     setFehler("");
@@ -253,11 +253,11 @@ export function ZeitmarkenRedaktion({
     if (!ergebnis.ok) {
       setFehler(`„${titel}“: ${ergebnis.meldung}`);
       setUngueltig({
-        performanceId: eintrag.performanceId,
+        programmeItemId: eintrag.programmeItemId,
         feld: ergebnis.feld,
       });
       setFokusFeld({
-        performanceId: eintrag.performanceId,
+        programmeItemId: eintrag.programmeItemId,
         feld: ergebnis.feld,
       });
       return;
@@ -272,7 +272,7 @@ export function ZeitmarkenRedaktion({
       return;
     }
     const marke = eintrag.passageId ? marken.get(eintrag.passageId) : undefined;
-    setBusy(eintrag.performanceId);
+    setBusy(eintrag.programmeItemId);
     try {
       if (marke?.editor) {
         await patchZeitmarke(aufnahme.id, marke.id, {
@@ -283,26 +283,26 @@ export function ZeitmarkenRedaktion({
         });
       } else {
         await createZeitmarke(aufnahme.id, {
-          performanceId: eintrag.performanceId,
+          programmeItemId: eintrag.programmeItemId,
           startSeconds: ergebnis.start,
           endSeconds: ergebnis.ende,
           expectedPlaybackDateiId: revision,
         });
       }
       setEntwuerfe((vorher) => {
-        const { [eintrag.performanceId]: _weg, ...rest } = vorher;
+        const { [eintrag.programmeItemId]: _weg, ...rest } = vorher;
         return rest;
       });
       onMeldung(`Zeitmarke für „${titel}“ gespeichert.`);
       await onGeaendert();
       // Weiter mit dem nächsten Lied ohne Marke, sonst bleibt der Fokus hier.
       const stelle = vorkommen.findIndex(
-        (kandidat) => kandidat.performanceId === eintrag.performanceId,
+        (kandidat) => kandidat.programmeItemId === eintrag.programmeItemId,
       );
       const naechstes = vorkommen
         .slice(stelle + 1)
         .find((kandidat) => kandidat.passageId === null);
-      setFokusAuf((naechstes ?? eintrag).performanceId);
+      setFokusAuf((naechstes ?? eintrag).programmeItemId);
     } catch (ursache) {
       const text = await problemTitel(ursache, SpeicherErsatz);
       if (
@@ -325,7 +325,7 @@ export function ZeitmarkenRedaktion({
         // Veralteter Stand: neu laden; die Eingabe bezog sich auf etwas, das
         // es so nicht mehr gibt.
         setEntwuerfe((vorher) => {
-          const { [eintrag.performanceId]: _weg, ...rest } = vorher;
+          const { [eintrag.programmeItemId]: _weg, ...rest } = vorher;
           return rest;
         });
         meldeFehler(
@@ -344,21 +344,21 @@ export function ZeitmarkenRedaktion({
     }
   }
 
-  async function entfernen(eintrag: Vorkommen, marke: Zeitmarke) {
+  async function entfernen(eintrag: Programmeintrag, marke: Zeitmarke) {
     if (busy || !marke.editor) return;
     const titel = titelVon(eintrag);
     setFehler("");
-    setBusy(eintrag.performanceId);
+    setBusy(eintrag.programmeItemId);
     try {
       await deleteZeitmarke(aufnahme.id, marke.id, marke.editor.version);
       setEntfernenBereit(null);
       setEntwuerfe((vorher) => {
-        const { [eintrag.performanceId]: _weg, ...rest } = vorher;
+        const { [eintrag.programmeItemId]: _weg, ...rest } = vorher;
         return rest;
       });
       onMeldung(`Zeitmarke für „${titel}“ entfernt.`);
       await onGeaendert();
-      setFokusAuf(eintrag.performanceId);
+      setFokusAuf(eintrag.programmeItemId);
     } catch (ursache) {
       setEntfernenBereit(null);
       const text = await problemTitel(ursache, SpeicherErsatz);
@@ -432,16 +432,22 @@ export function ZeitmarkenRedaktion({
     }
   }
 
-  function istUngueltig(eintrag: Vorkommen, feld: "start" | "ende"): boolean {
+  function istUngueltig(
+    eintrag: Programmeintrag,
+    feld: "start" | "ende",
+  ): boolean {
     return (
-      ungueltig?.performanceId === eintrag.performanceId &&
+      ungueltig?.programmeItemId === eintrag.programmeItemId &&
       ungueltig.feld === feld
     );
   }
 
   // Das Formathinweis-Element beschreibt jedes Zeitfeld; ein beanstandetes
   // Feld nennt zusätzlich die Meldung.
-  function beschreibung(eintrag: Vorkommen, feld: "start" | "ende"): string {
+  function beschreibung(
+    eintrag: Programmeintrag,
+    feld: "start" | "ende",
+  ): string {
     return istUngueltig(eintrag, feld) ? `${formatId} ${fehlerId}` : formatId;
   }
 
@@ -465,9 +471,9 @@ export function ZeitmarkenRedaktion({
     <fieldset className="aufnahme-zeitmarken-redaktion">
       <legend>Zeitmarken · {aufnahme.label}</legend>
       <p className="noten-info">
-        Markiere, wo ein Lied in dieser Aufnahme beginnt und endet. Die ganze
-        Aufnahme bleibt auch ohne Marken abspielbar; Marken legen keine neue
-        Aufführung an.
+        Markiere, wo ein Lied des Programms in dieser Aufnahme beginnt und
+        endet. Die ganze Aufnahme bleibt auch ohne Marken abspielbar; Marken
+        ändern das Programm nicht.
       </p>
       {zuPruefen.length > 0 && (
         <div className="aufnahme-zustand">
@@ -494,10 +500,8 @@ export function ZeitmarkenRedaktion({
       )}
       {vorkommen.length === 0 ? (
         <p className="noten-info">
-          Zu diesem Auftritt gibt es noch keine bestätigten Aufführungen.
-          {stand.hasPublishedProgramme
-            ? " Das veröffentlichte Programm ist noch nicht bestätigt: Bestätige zuerst unter „Tatsächlich gesungen“, was gesungen wurde."
-            : " Erfasse zuerst, was gesungen wurde (Programm bestätigen oder Aufführungsnachweise eintragen)."}
+          Zu diesem Auftritt gibt es noch kein Programm. Lege zuerst das
+          Programm an, dann lassen sich seine Lieder in der Aufnahme markieren.
         </p>
       ) : (
         <>
@@ -518,21 +522,18 @@ export function ZeitmarkenRedaktion({
                 ? marken.get(eintrag.passageId)
                 : undefined;
               const werte = wertVon(eintrag);
-              const beschaeftigt = busy === eintrag.performanceId;
+              const beschaeftigt = busy === eintrag.programmeItemId;
               const hinweis = marke ? ueberschneidung(marke) : null;
-              const idStart = `zeitmarke-start-${aufnahme.id}-${eintrag.performanceId}`;
-              const idEnde = `zeitmarke-ende-${aufnahme.id}-${eintrag.performanceId}`;
+              const idStart = `zeitmarke-start-${aufnahme.id}-${eintrag.programmeItemId}`;
+              const idEnde = `zeitmarke-ende-${aufnahme.id}-${eintrag.programmeItemId}`;
               return (
                 <li
-                  key={eintrag.performanceId}
+                  key={eintrag.programmeItemId}
                   className="zeitmarke-zeile"
-                  data-performance-id={eintrag.performanceId}
+                  data-programme-item-id={eintrag.programmeItemId}
                 >
                   <div className="zeitmarke-kopf">
                     <strong>{titel}</strong>
-                    {eintrag.evidenceStatus !== "confirmed" && (
-                      <span className="noten-info">Programmangabe</span>
-                    )}
                     {!marke && (
                       <span className="noten-info">Noch nicht markiert</span>
                     )}
@@ -567,11 +568,11 @@ export function ZeitmarkenRedaktion({
                         ref={(element) => {
                           if (element) {
                             startFelder.current.set(
-                              eintrag.performanceId,
+                              eintrag.programmeItemId,
                               element,
                             );
                           } else {
-                            startFelder.current.delete(eintrag.performanceId);
+                            startFelder.current.delete(eintrag.programmeItemId);
                           }
                         }}
                         onChange={(ereignis) =>
@@ -606,11 +607,11 @@ export function ZeitmarkenRedaktion({
                         ref={(element) => {
                           if (element) {
                             endeFelder.current.set(
-                              eintrag.performanceId,
+                              eintrag.programmeItemId,
                               element,
                             );
                           } else {
-                            endeFelder.current.delete(eintrag.performanceId);
+                            endeFelder.current.delete(eintrag.programmeItemId);
                           }
                         }}
                         value={werte.ende}

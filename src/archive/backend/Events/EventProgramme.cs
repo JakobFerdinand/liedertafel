@@ -1,13 +1,14 @@
 namespace Archive.Backend.Events;
 
 /// <summary>
-/// The ordered programme of one historical event (ARC-026): the aggregate
-/// root over its <see cref="ProgrammeRevision"/> rows. Exactly one programme
-/// per event, created implicitly by the first draft save; the event row and
-/// its own publish stamps stay untouched by every programme mutation (ARC-025
-/// asset pattern). Attribution and the application-bumped optimistic
-/// concurrency token follow the catalogue pattern: child edits bump the
-/// programme <see cref="RowVersion"/>, not the event.
+/// The Programm of one Auftritt (GLOSSARY): one ordered, editable list of
+/// Lieder that is also the record of what was sung. Exactly one per event,
+/// created by the first save. There are no revisions, drafts or confirmation
+/// steps (ADR-0001): saving publishes. The event row and its own publish
+/// stamps stay untouched by every programme mutation. Attribution and the
+/// application-bumped optimistic concurrency token follow the catalogue
+/// pattern: item edits bump the programme <see cref="RowVersion"/>, not the
+/// event.
 /// </summary>
 public sealed class EventProgramme
 {
@@ -28,10 +29,9 @@ public sealed class EventProgramme
 
 	/// <summary>
 	/// Application-bumped optimistic-concurrency token, mirroring
-	/// <see cref="ChoirEvent.RowVersion"/>: every programme/revision/items
-	/// mutation increments it alongside the change.
+	/// <see cref="ChoirEvent.RowVersion"/>: every items mutation increments it.
 	/// </summary>
 	public uint RowVersion { get; set; }
 
-	public List<ProgrammeRevision> Revisions { get; set; } = [];
+	public List<ProgrammeItem> Items { get; set; } = [];
 }

@@ -13,10 +13,9 @@ export type ZeitmarkeZustand = "current" | "needsReview";
 export type Zeitmarke = {
   id: string;
   recordingId: string;
-  performanceId: string;
+  programmeItemId: string;
   liedId: string;
   liedTitle: string;
-  evidenceStatus: string;
   position: number;
   startSeconds: number | null;
   endSeconds: number | null;
@@ -29,13 +28,12 @@ export type Zeitmarke = {
   } | null;
 };
 
-/** Eine Aufführung des Auftritts in der Reihenfolge des Programms (nur Redaktion). */
-export type Vorkommen = {
-  performanceId: string;
+/** Ein Programmpunkt des Auftritts in der Reihenfolge des Programms (nur Redaktion). */
+export type Programmeintrag = {
+  programmeItemId: string;
   position: number;
   liedId: string;
   liedTitle: string | null;
-  evidenceStatus: string;
   passageId: string | null;
 };
 
@@ -46,11 +44,10 @@ export type ZeitmarkenStand = {
   // Nur für die Redaktion.
   playbackDateiId?: string | null;
   durationSeconds?: number | null;
-  occurrences?: Vorkommen[];
-  hasPublishedProgramme?: boolean;
+  entries?: Programmeintrag[];
 };
 
-/** Verknüpfung einer Aufführungszeile der Liedhistorie mit einer Aufnahme. */
+/** Verknüpfung eines Auftritts der Liedhistorie mit einer Aufnahme, in der das Lied markiert ist. */
 export type HistorieAufnahme = {
   passageId: string;
   recordingId: string;
@@ -73,7 +70,7 @@ export const ZeitmarkeVeraltet =
 export const ZeitmarkeDateiErsetzt =
   "Die Datei der Aufnahme wurde zwischenzeitlich ersetzt.";
 
-/** Vertrag RecordingPassages.BlockedPrefix: Zeitmarken verhindern das Entfernen einer Aufführung. */
+/** Vertrag RecordingPassages.BlockedPrefix: Zeitmarken verhindern das Entfernen eines Programmpunkts. */
 export const ZeitmarkenVorhanden = "Zeitmarken vorhanden:";
 
 const basis = (recordingId: string) =>
@@ -95,7 +92,7 @@ export async function fetchZeitmarken(
 export async function createZeitmarke(
   recordingId: string,
   body: {
-    performanceId: string;
+    programmeItemId: string;
     startSeconds: number;
     endSeconds: number;
     // Die Datei, an der die Zeiten genommen wurden (playbackDateiId der Ansicht).

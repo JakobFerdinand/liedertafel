@@ -159,7 +159,6 @@ export function LiedDetail() {
 
       <LiedHistorie
         liedId={lied.id}
-        isEditor={Boolean(editor)}
         erweiterung={(zeile) =>
           (zeile.recordings ?? []).length > 0 ? (
             <HistorieAufnahmen

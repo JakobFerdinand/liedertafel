@@ -21,26 +21,6 @@ public sealed class EventModelConfiguration : IEntityTypeConfiguration<ChoirEven
 }
 
 /// <summary>
-/// Single shared visibility decision point for the event history (ARC-024 and
-/// the later programme/document/recording slices): an event is member-visible
-/// exactly when it is published. Member API reads never expose drafts; a draft
-/// answers 404 for members and full data for editors/administrators.
-/// </summary>
-public static class EventVisibility
-{
-	public static bool IsMemberVisible(ChoirEvent choirEvent) => choirEvent.PublishedAt is not null;
-
-	/// <summary>
-	/// The same decision as a query filter for rows that hang off an event
-	/// (ARC-031 Lied history): occurrences of unpublished events must never
-	/// reach a member response or aggregate. Later deletion/trash states
-	/// (ARC-040) extend this one place.
-	/// </summary>
-	public static IQueryable<Performance> OfMemberVisibleEvents(IQueryable<Performance> rows)
-		=> rows.Where(p => p.Event.PublishedAt != null);
-}
-
-/// <summary>
 /// Closed ARC-024 kind set for the choir's appearances (PRD §6): concerts,
 /// services, weddings, funerals, festivals and other appearances.
 /// </summary>

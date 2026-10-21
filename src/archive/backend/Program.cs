@@ -377,8 +377,6 @@ app.MapPasskeyEndpoints();
 app.MapMemberAdminEndpoints();
 app.MapEventEndpoints();
 app.MapProgrammeEndpoints();
-app.MapPerformanceEndpoints();
-app.MapProgrammeConfirmationEndpoints();
 app.MapChatEndpoints();
 app.MapUploadEndpoints();
 app.MapRecordingEndpoints();

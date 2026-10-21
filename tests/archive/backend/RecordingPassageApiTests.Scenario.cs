@@ -14,7 +14,7 @@ public sealed partial class RecordingPassageApiTests
 {
 	/// <summary>
 	/// Reusable API scaffolding in the style of the other suites: Lieder,
-	/// events, occurrences, recordings with a real (fake-stored) MP4 file.
+	/// events, Programm entries, recordings with a real (fake-stored) MP4 file.
 	/// </summary>
 	private sealed class Scenario : IAsyncDisposable
 	{
@@ -54,76 +54,42 @@ public sealed partial class RecordingPassageApiTests
 				.GetProperty("lied").GetProperty("id").GetString()!);
 		}
 
-		public async Task<Guid> CreateEventAsync(string title, int? year, int? month, int? day, bool published = false)
+		public async Task<Guid> CreateEventAsync(string title, int? year, int? month, int? day)
 		{
 			using var create = await SendAsync(HttpMethod.Post, "/api/events",
 				new { kind = "concert", title, dateYear = year, dateMonth = month, dateDay = day }, EditorSession);
 			Assert.Equal(HttpStatusCode.Created, create.StatusCode);
-			var id = Guid.Parse((await create.Content.ReadFromJsonAsync<JsonElement>())
+			return Guid.Parse((await create.Content.ReadFromJsonAsync<JsonElement>())
 				.GetProperty("event").GetProperty("id").GetString()!);
-			if (published)
-				await SetEventPublishedAsync(id, true);
-			return id;
 		}
 
-		public async Task SetEventPublishedAsync(Guid eventId, bool published)
+		/// <summary>Appends a Lied to the Programm of the Auftritt and returns the id of the new entry.</summary>
+		public async Task<string> RecordAsync(Guid eventId, Guid liedId)
 		{
-			using var response = await SendAsync(HttpMethod.Post,
-				$"/api/events/{eventId}/{(published ? "publish" : "unpublish")}", new { }, EditorSession);
-			Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-		}
-
-		/// <summary>Records one confirmed (or mention) occurrence and returns its stable id.</summary>
-		public async Task<string> RecordAsync(Guid eventId, Guid liedId, string? note = null)
-		{
-			using var response = await SendAsync(HttpMethod.Post, $"/api/events/{eventId}/performances", new
+			using var detail = await GetAsync($"/api/events/{eventId}", EditorSession);
+			Assert.Equal(HttpStatusCode.OK, detail.StatusCode);
+			var programme = (await detail.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("event").GetProperty("programme");
+			var items = new List<object>();
+			uint? rowVersion = null;
+			if (programme.ValueKind is JsonValueKind.Object)
 			{
-				liedId,
-				evidenceStatus = "confirmed",
-				sourceNote = note,
-				idempotencyKey = Guid.NewGuid().ToString("N"),
-			}, EditorSession);
-			Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-			return (await response.Content.ReadFromJsonAsync<JsonElement>())
-				.GetProperty("performance").GetProperty("id").GetString()!;
+				rowVersion = programme.GetProperty("rowVersion").GetUInt32();
+				items.AddRange(programme.GetProperty("items").EnumerateArray()
+					.Select(i => (object)new { id = i.GetProperty("id").GetString(), liedId = i.GetProperty("liedId").GetString() }));
+			}
+			items.Add(new { liedId });
+			using var save = await SendAsync(HttpMethod.Put, $"/api/events/{eventId}/programme/items", new { items, rowVersion }, EditorSession);
+			Assert.Equal(HttpStatusCode.OK, save.StatusCode);
+			return (await save.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("programme")
+				.GetProperty("items").EnumerateArray().Last().GetProperty("id").GetString()!;
 		}
 
-		public async Task PublishProgrammeAsync(Guid eventId, IEnumerable<Guid> lieder)
+		/// <summary>Saves the Programm as exactly these Lieder, in this order.</summary>
+		public async Task SaveProgrammeAsync(Guid eventId, IEnumerable<Guid> lieder)
 		{
 			var items = lieder.Select(l => (object)new { liedId = l }).ToArray();
 			using var save = await SendAsync(HttpMethod.Put, $"/api/events/{eventId}/programme/items", new { items }, EditorSession);
 			Assert.Equal(HttpStatusCode.OK, save.StatusCode);
-			var saved = (await save.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("programme");
-			using var publish = await SendAsync(HttpMethod.Post, $"/api/events/{eventId}/programme/publish",
-				new { rowVersion = saved.GetProperty("rowVersion").GetUInt32() }, EditorSession);
-			Assert.Equal(HttpStatusCode.OK, publish.StatusCode);
-		}
-
-		public async Task<(JsonElement Review, uint RowVersion)> ReviewAsync(Guid eventId)
-		{
-			using var response = await GetAsync($"/api/events/{eventId}/programme/confirmation", EditorSession);
-			Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-			var review = (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("review").Clone();
-			return (review, review.GetProperty("rowVersion").GetUInt32());
-		}
-
-		/// <summary>Confirms the published programme with every planned entry sung.</summary>
-		public async Task ConfirmAsync(Guid eventId)
-		{
-			var (review, rowVersion) = await ReviewAsync(eventId);
-			var items = review.GetProperty("items").EnumerateArray().Select(item => new
-			{
-				programmeItemId = item.GetProperty("programmeItemId").GetString(),
-				outcome = "sung",
-			}).ToArray();
-			using var response = await SendAsync(HttpMethod.Put, $"/api/events/{eventId}/programme/confirmation", new
-			{
-				revisionId = review.GetProperty("revision").GetProperty("id").GetString(),
-				rowVersion,
-				items,
-				additions = Array.Empty<object>(),
-			}, EditorSession);
-			Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 		}
 
 		/// <summary>Creates a recording; optionally with a playable MP4 original and a measured duration.</summary>
@@ -215,11 +181,11 @@ public sealed partial class RecordingPassageApiTests
 			return bytes;
 		}
 
-		public async Task<JsonElement> AddPassageAsync(Guid recordingId, string performanceId, double start, double end)
+		public async Task<JsonElement> AddPassageAsync(Guid recordingId, string programmeItemId, double start, double end)
 		{
 			var revision = await PlaybackDateiAsync(recordingId);
 			using var response = await SendAsync(HttpMethod.Post, $"/api/recordings/{recordingId}/passages",
-				new { performanceId, startSeconds = start, endSeconds = end, expectedPlaybackDateiId = revision }, EditorSession);
+				new { programmeItemId, startSeconds = start, endSeconds = end, expectedPlaybackDateiId = revision }, EditorSession);
 			Assert.Equal(HttpStatusCode.Created, response.StatusCode);
 			return (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("passage").Clone();
 		}
@@ -241,15 +207,15 @@ public sealed partial class RecordingPassageApiTests
 
 		public async Task<JsonElement> HistoryAsync(Guid liedId, string session)
 		{
-			using var response = await GetAsync($"/api/lieder/{liedId}/performances", session);
+			using var response = await GetAsync($"/api/lieder/{liedId}/historie", session);
 			Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 			return (await response.Content.ReadFromJsonAsync<JsonElement>()).Clone();
 		}
 
-		public async Task<int> PerformanceCountAsync()
+		public async Task<int> ProgrammeItemCountAsync()
 		{
 			using var scope = Factory.Services.CreateScope();
-			return await scope.ServiceProvider.GetRequiredService<ArchiveDbContext>().Performances.CountAsync();
+			return await scope.ServiceProvider.GetRequiredService<ArchiveDbContext>().ProgrammeItems.CountAsync();
 		}
 
 		public async Task SetRoleAsync(string email, string role)

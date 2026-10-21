@@ -37,7 +37,7 @@ public sealed record PatchRecordingRequest(
 /// - Tickets come from <c>GET /api/recordings/{id}/access</c> and nowhere
 ///   else for members: the generic Datei access refuses Aufnahmen of an
 ///   Auftritt, so publication and the download switch cannot be bypassed.
-/// Extension points: ARC-032 keys passages on the recording id and reads
+/// Extension points: ARC-032 keys Zeitmarken on the recording id and reads
 /// <c>durationSeconds</c> and the playback <c>revisionId</c>; ARC-041 moves
 /// a preserved original that is not the playback file to another tier —
 /// <see cref="RecordingFiles.Resolve"/> is the one place that says which file
@@ -93,7 +93,7 @@ public static class RecordingEndpoints
 				return error;
 			var isEditor = IsEditor(decision!);
 			var choirEvent = await db.Events.AsNoTracking().FirstOrDefaultAsync(e => e.Id == id, token);
-			if (choirEvent is null || (!isEditor && !EventVisibility.IsMemberVisible(choirEvent)))
+			if (choirEvent is null)
 				return Results.Problem(statusCode: 404, title: EventEndpoints.NotFoundMessage);
 			var recordings = await WithFiles(db.Recordings.AsNoTracking())
 				.Where(r => r.EventId == id)
@@ -132,8 +132,8 @@ public static class RecordingEndpoints
 				return Results.Problem(statusCode: 404, title: EventEndpoints.NotFoundMessage);
 			var now = time.GetUtcNow();
 			// The slots stay empty until the browser attaches uploaded
-			// Dateien; the event row is not touched and no programme or
-			// performance record is created.
+			// Dateien; the event row is not touched and no Programm is
+			// created or changed.
 			var recording = new Recording
 			{
 				EventId = id,

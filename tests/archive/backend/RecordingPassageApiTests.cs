@@ -11,11 +11,10 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Archive.Backend.Tests;
 
 /// <summary>
-/// ARC-032 passages in whole recordings at the HTTP seam: an editor marks
-/// where a performance occurrence starts and ends inside a recording; the
-/// passage links recording and performance ids without copying the
-/// performance, so a second recording can document the same occurrence and no
-/// history count moves. Members reach passages through the recording and the
+/// Zeitmarken in whole recordings at the HTTP seam: an editor marks where a
+/// Programm entry starts and ends inside a recording; the passage links
+/// recording and entry ids without copying the entry, so a second recording
+/// can mark the same entry and no history count moves. Members reach passages through the recording and the
 /// lied history only while the recording, its event and the lied are
 /// published; a passage whose timestamps were taken against another playback
 /// file is flagged for editors and never offered to members as a jump.
@@ -31,30 +30,30 @@ public sealed partial class RecordingPassageApiTests
 		await using var scenario = await Scenario.CreateAsync();
 		var first = await scenario.CreateLiedAsync("Erstes Lied");
 		var second = await scenario.CreateLiedAsync("Zweites Lied");
-		var concert = await scenario.CreateEventAsync("Adventkonzert", 1988, 12, 4, published: true);
-		var firstPerformance = await scenario.RecordAsync(concert, first);
-		var secondPerformance = await scenario.RecordAsync(concert, second);
+		var concert = await scenario.CreateEventAsync("Adventkonzert", 1988, 12, 4);
+		var firstEntry = await scenario.RecordAsync(concert, first);
+		var secondEntry = await scenario.RecordAsync(concert, second);
 		var video = await scenario.CreateRecordingAsync(concert, "Video Kamera 1", "video", duration: 5400);
 		var audio = await scenario.CreateRecordingAsync(concert, "Tonmitschnitt", "audio", duration: 5300);
 
 		var historyBefore = await scenario.HistoryAsync(first, scenario.MemberSession);
-		var occurrencesBefore = await scenario.PerformanceCountAsync();
+		var entriesBefore = await scenario.ProgrammeItemCountAsync();
 
 		// The write answer carries the complete display chain, not a bare row.
-		var one = await scenario.AddPassageAsync(video, firstPerformance, 12.5, 301.25);
-		Assert.Equal(firstPerformance, one.GetProperty("performanceId").GetString());
+		var one = await scenario.AddPassageAsync(video, firstEntry, 12.5, 301.25);
+		Assert.Equal(firstEntry, one.GetProperty("programmeItemId").GetString());
 		Assert.Equal(video.ToString(), one.GetProperty("recordingId").GetString());
 		Assert.Equal(first.ToString(), one.GetProperty("liedId").GetString());
 		Assert.Equal("Erstes Lied", one.GetProperty("liedTitle").GetString());
-		Assert.Equal("confirmed", one.GetProperty("evidenceStatus").GetString());
+		Assert.False(one.TryGetProperty("evidenceStatus", out _));
 		Assert.Equal(12.5, one.GetProperty("startSeconds").GetDouble());
 		Assert.Equal(301.25, one.GetProperty("endSeconds").GetDouble());
 		Assert.Equal("current", one.GetProperty("timestampState").GetString());
 		Assert.True(one.GetProperty("editor").GetProperty("version").GetUInt32() > 0);
-		var two = await scenario.AddPassageAsync(video, secondPerformance, 320, 700);
+		var two = await scenario.AddPassageAsync(video, secondEntry, 320, 700);
 		Assert.Equal("Zweites Lied", two.GetProperty("liedTitle").GetString());
-		// The same occurrence documented by a second recording.
-		var other = await scenario.AddPassageAsync(audio, firstPerformance, 5, 290);
+		// The same entry documented by a second recording.
+		var other = await scenario.AddPassageAsync(audio, firstEntry, 5, 290);
 		Assert.NotEqual(one.GetProperty("id").GetString(), other.GetProperty("id").GetString());
 
 		// Unpublished recordings stay editor-only; publish both.
@@ -75,12 +74,12 @@ public sealed partial class RecordingPassageApiTests
 		Assert.Equal(12.5, memberFirst.GetProperty("startSeconds").GetDouble());
 		Assert.Equal(301.25, memberFirst.GetProperty("endSeconds").GetDouble());
 		Assert.True(memberFirst.GetProperty("editor").ValueKind is JsonValueKind.Null);
-		Assert.False(memberList.TryGetProperty("occurrences", out _));
+		Assert.False(memberList.TryGetProperty("entries", out _));
 		Assert.False(memberFirst.TryGetProperty("createdByAccountId", out _));
 
-		// The lied history lists the recordings per occurrence row.
+		// The Lied history lists the recordings per Auftritt row.
 		var history = await scenario.HistoryAsync(first, scenario.MemberSession);
-		var row = Assert.Single(history.GetProperty("performances").EnumerateArray());
+		var row = Assert.Single(history.GetProperty("auftritte").EnumerateArray());
 		var recordings = row.GetProperty("recordings").EnumerateArray().ToList();
 		Assert.Equal(2, recordings.Count);
 		var videoLink = recordings.Single(r => r.GetProperty("recordingId").GetString() == video.ToString());
@@ -91,12 +90,12 @@ public sealed partial class RecordingPassageApiTests
 		Assert.Equal(301.25, videoLink.GetProperty("endSeconds").GetDouble());
 		Assert.Equal("current", videoLink.GetProperty("timestampState").GetString());
 		var liedTwoRow = Assert.Single((await scenario.HistoryAsync(second, scenario.MemberSession))
-			.GetProperty("performances").EnumerateArray());
+			.GetProperty("auftritte").EnumerateArray());
 		Assert.Single(liedTwoRow.GetProperty("recordings").EnumerateArray());
 
-		// A second recording of the same occurrence adds no occurrence and no
-		// count: the history and the performance table are unchanged.
-		Assert.Equal(occurrencesBefore, await scenario.PerformanceCountAsync());
+		// A second recording of the same entry adds no entry and no
+		// count: the history and the Programm are unchanged.
+		Assert.Equal(entriesBefore, await scenario.ProgrammeItemCountAsync());
 		var historyAfter = await scenario.HistoryAsync(first, scenario.MemberSession);
 		Assert.Equal(historyBefore.GetProperty("counts").GetRawText(), historyAfter.GetProperty("counts").GetRawText());
 		Assert.Equal(historyBefore.GetProperty("total").GetInt32(), historyAfter.GetProperty("total").GetInt32());
@@ -108,8 +107,8 @@ public sealed partial class RecordingPassageApiTests
 		await using var scenario = await Scenario.CreateAsync();
 		var marked = await scenario.CreateLiedAsync("Markiertes Lied");
 		var unmarked = await scenario.CreateLiedAsync("Unmarkiertes Lied");
-		var concert = await scenario.CreateEventAsync("Konzert", 1990, 5, 1, published: true);
-		var markedPerformance = await scenario.RecordAsync(concert, marked);
+		var concert = await scenario.CreateEventAsync("Konzert", 1990, 5, 1);
+		var markedEntry = await scenario.RecordAsync(concert, marked);
 		await scenario.RecordAsync(concert, unmarked);
 		var recording = await scenario.CreateRecordingAsync(concert, "Mitschnitt", "video", duration: 4000);
 		await scenario.PublishRecordingAsync(recording);
@@ -121,47 +120,45 @@ public sealed partial class RecordingPassageApiTests
 		Assert.Equal("ready", access.GetProperty("playbackState").GetString());
 		Assert.False(string.IsNullOrEmpty(access.GetProperty("viewUrl").GetString()));
 
-		await scenario.AddPassageAsync(recording, markedPerformance, 100, 400);
+		await scenario.AddPassageAsync(recording, markedEntry, 100, 400);
 
 		// Marking one lied leaves the whole recording and the other lied's
 		// history untouched: no recording is claimed, no invented link.
 		access = await scenario.AccessAsync(recording, scenario.MemberSession);
 		Assert.Equal("ready", access.GetProperty("playbackState").GetString());
 		var markedHistory = await scenario.HistoryAsync(marked, scenario.MemberSession);
-		Assert.Single(markedHistory.GetProperty("performances")[0].GetProperty("recordings").EnumerateArray());
+		Assert.Single(markedHistory.GetProperty("auftritte")[0].GetProperty("recordings").EnumerateArray());
 		var unmarkedHistory = await scenario.HistoryAsync(unmarked, scenario.MemberSession);
-		Assert.Empty(unmarkedHistory.GetProperty("performances")[0].GetProperty("recordings").EnumerateArray());
+		Assert.Empty(unmarkedHistory.GetProperty("auftritte")[0].GetProperty("recordings").EnumerateArray());
 		var list = await scenario.PassagesAsync(recording, scenario.MemberSession);
 		Assert.Single(list.GetProperty("passages").EnumerateArray());
 	}
 
 	[Fact]
-	public async Task EditorSeesTheEventsOccurrencesInOrderAsTheMarkerList()
+	public async Task EditorSeesTheProgrammeEntriesInOrderAsTheMarkerList()
 	{
 		await using var scenario = await Scenario.CreateAsync();
 		var a = await scenario.CreateLiedAsync("Anfang");
 		var b = await scenario.CreateLiedAsync("Mitte");
-		var concert = await scenario.CreateEventAsync("Konzert", 1991, 6, 2, published: true);
-		await scenario.PublishProgrammeAsync(concert, [a, b]);
+		var concert = await scenario.CreateEventAsync("Konzert", 1991, 6, 2);
 		var recording = await scenario.CreateRecordingAsync(concert, "Mitschnitt", "audio", duration: 3000);
 
-		// A published programme without confirmation has no occurrences to
-		// mark yet: the list says so instead of inventing any.
+		// Without a Programm there is nothing to mark: the list says so.
 		var before = await scenario.PassagesAsync(recording, scenario.EditorSession);
-		Assert.Empty(before.GetProperty("occurrences").EnumerateArray());
-		Assert.True(before.GetProperty("hasPublishedProgramme").GetBoolean());
+		Assert.Empty(before.GetProperty("entries").EnumerateArray());
 
-		await scenario.ConfirmAsync(concert);
+		// Saving the Programm is enough, there is no confirmation step.
+		await scenario.SaveProgrammeAsync(concert, [a, b]);
 		var after = await scenario.PassagesAsync(recording, scenario.EditorSession);
-		var occurrences = after.GetProperty("occurrences").EnumerateArray().ToList();
-		Assert.Equal(new[] { "Anfang", "Mitte" }, occurrences.Select(o => o.GetProperty("liedTitle").GetString()));
-		Assert.All(occurrences, o => Assert.True(o.GetProperty("passageId").ValueKind is JsonValueKind.Null));
-		Assert.Equal(new[] { 1, 2 }, occurrences.Select(o => o.GetProperty("position").GetInt32()));
+		var entries = after.GetProperty("entries").EnumerateArray().ToList();
+		Assert.Equal(new[] { "Anfang", "Mitte" }, entries.Select(o => o.GetProperty("liedTitle").GetString()));
+		Assert.All(entries, o => Assert.True(o.GetProperty("passageId").ValueKind is JsonValueKind.Null));
+		Assert.Equal(new[] { 1, 2 }, entries.Select(o => o.GetProperty("position").GetInt32()));
 
-		var firstId = occurrences[0].GetProperty("performanceId").GetString()!;
+		var firstId = entries[0].GetProperty("programmeItemId").GetString()!;
 		var added = await scenario.AddPassageAsync(recording, firstId, 10, 200);
 		var marked = (await scenario.PassagesAsync(recording, scenario.EditorSession))
-			.GetProperty("occurrences")[0];
+			.GetProperty("entries")[0];
 		Assert.Equal(added.GetProperty("id").GetString(), marked.GetProperty("passageId").GetString());
 	}
 
@@ -170,9 +167,9 @@ public sealed partial class RecordingPassageApiTests
 	{
 		await using var scenario = await Scenario.CreateAsync();
 		var lied = await scenario.CreateLiedAsync("Prüflied");
-		var concert = await scenario.CreateEventAsync("Konzert", 1992, 3, 3, published: true);
-		var elsewhere = await scenario.CreateEventAsync("Anderer Auftritt", 1993, 3, 3, published: true);
-		var performance = await scenario.RecordAsync(concert, lied);
+		var concert = await scenario.CreateEventAsync("Konzert", 1992, 3, 3);
+		var elsewhere = await scenario.CreateEventAsync("Anderer Auftritt", 1993, 3, 3);
+		var entry = await scenario.RecordAsync(concert, lied);
 		var foreign = await scenario.RecordAsync(elsewhere, lied);
 		var recording = await scenario.CreateRecordingAsync(concert, "Mitschnitt", "video", duration: 1000);
 		var path = $"/api/recordings/{recording}/passages";
@@ -185,58 +182,58 @@ public sealed partial class RecordingPassageApiTests
 			Assert.Equal(message, await TitleAsync(response));
 		}
 
-		await AssertRefusedAsync(new { expectedPlaybackDateiId = rev, performanceId = performance, startSeconds = -1, endSeconds = 50 },
+		await AssertRefusedAsync(new { expectedPlaybackDateiId = rev, programmeItemId = entry, startSeconds = -1, endSeconds = 50 },
 			HttpStatusCode.BadRequest, "Der Anfang ist ungültig.");
-		await AssertRefusedAsync(new { expectedPlaybackDateiId = rev, performanceId = performance, endSeconds = 50 },
+		await AssertRefusedAsync(new { expectedPlaybackDateiId = rev, programmeItemId = entry, endSeconds = 50 },
 			HttpStatusCode.BadRequest, "Der Anfang ist ungültig.");
-		await AssertRefusedAsync(new { expectedPlaybackDateiId = rev, performanceId = performance, startSeconds = 10 },
+		await AssertRefusedAsync(new { expectedPlaybackDateiId = rev, programmeItemId = entry, startSeconds = 10 },
 			HttpStatusCode.BadRequest, "Das Ende ist ungültig.");
-		await AssertRefusedAsync(new { expectedPlaybackDateiId = rev, performanceId = performance, startSeconds = 100, endSeconds = 100 },
+		await AssertRefusedAsync(new { expectedPlaybackDateiId = rev, programmeItemId = entry, startSeconds = 100, endSeconds = 100 },
 			HttpStatusCode.BadRequest, "Das Ende muss nach dem Anfang liegen.");
-		await AssertRefusedAsync(new { expectedPlaybackDateiId = rev, performanceId = performance, startSeconds = 100, endSeconds = 50 },
+		await AssertRefusedAsync(new { expectedPlaybackDateiId = rev, programmeItemId = entry, startSeconds = 100, endSeconds = 50 },
 			HttpStatusCode.BadRequest, "Das Ende muss nach dem Anfang liegen.");
-		await AssertRefusedAsync(new { expectedPlaybackDateiId = rev, performanceId = performance, startSeconds = 100, endSeconds = 1500 },
+		await AssertRefusedAsync(new { expectedPlaybackDateiId = rev, programmeItemId = entry, startSeconds = 100, endSeconds = 1500 },
 			HttpStatusCode.BadRequest, "Das Ende liegt hinter dem Ende der Aufnahme.");
-		await AssertRefusedAsync(new { expectedPlaybackDateiId = rev, performanceId = performance, startSeconds = 100, endSeconds = 200000 },
+		await AssertRefusedAsync(new { expectedPlaybackDateiId = rev, programmeItemId = entry, startSeconds = 100, endSeconds = 200000 },
 			HttpStatusCode.BadRequest, "Das Ende liegt hinter dem Ende der Aufnahme.");
 		await AssertRefusedAsync(new { expectedPlaybackDateiId = rev, startSeconds = 1, endSeconds = 50 },
-			HttpStatusCode.NotFound, "Die Aufführung gehört nicht zu diesem Auftritt.");
-		// The occurrence of another event is not this recording's to mark.
-		await AssertRefusedAsync(new { expectedPlaybackDateiId = rev, performanceId = foreign, startSeconds = 1, endSeconds = 50 },
-			HttpStatusCode.NotFound, "Die Aufführung gehört nicht zu diesem Auftritt.");
-		await AssertRefusedAsync(new { expectedPlaybackDateiId = rev, performanceId = Guid.NewGuid(), startSeconds = 1, endSeconds = 50 },
-			HttpStatusCode.NotFound, "Die Aufführung gehört nicht zu diesem Auftritt.");
+			HttpStatusCode.NotFound, "Der Programmpunkt gehört nicht zum Programm dieses Auftritts.");
+		// The Programm entry of another event is not this recording's to mark.
+		await AssertRefusedAsync(new { expectedPlaybackDateiId = rev, programmeItemId = foreign, startSeconds = 1, endSeconds = 50 },
+			HttpStatusCode.NotFound, "Der Programmpunkt gehört nicht zum Programm dieses Auftritts.");
+		await AssertRefusedAsync(new { expectedPlaybackDateiId = rev, programmeItemId = Guid.NewGuid(), startSeconds = 1, endSeconds = 50 },
+			HttpStatusCode.NotFound, "Der Programmpunkt gehört nicht zum Programm dieses Auftritts.");
 		Assert.Empty((await scenario.PassagesAsync(recording, scenario.EditorSession))
 			.GetProperty("passages").EnumerateArray());
 
 		// A passage up to the very end of the recording is fine.
-		var created = await scenario.AddPassageAsync(recording, performance, 900, 1000);
+		var created = await scenario.AddPassageAsync(recording, entry, 900, 1000);
 		// A lost retry of the identical request answers the stored passage.
 		using (var retry = await scenario.SendAsync(HttpMethod.Post, path,
-			new { expectedPlaybackDateiId = rev, performanceId = performance, startSeconds = 900, endSeconds = 1000 }, scenario.EditorSession))
+			new { expectedPlaybackDateiId = rev, programmeItemId = entry, startSeconds = 900, endSeconds = 1000 }, scenario.EditorSession))
 		{
 			Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
 			Assert.Equal(created.GetProperty("id").GetString(),
 				(await retry.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("passage").GetProperty("id").GetString());
 		}
-		// A different statement for a marked occurrence is "not allowed in
+		// A different statement for a marked entry is "not allowed in
 		// this state" (edit the existing one), not a stale conflict.
-		await AssertRefusedAsync(new { expectedPlaybackDateiId = rev, performanceId = performance, startSeconds = 10, endSeconds = 20 },
-			HttpStatusCode.Conflict, "Für diese Aufführung gibt es in dieser Aufnahme schon eine Zeitmarke. Bearbeite die vorhandene.");
+		await AssertRefusedAsync(new { expectedPlaybackDateiId = rev, programmeItemId = entry, startSeconds = 10, endSeconds = 20 },
+			HttpStatusCode.Conflict, "Für diesen Programmpunkt gibt es in dieser Aufnahme schon eine Zeitmarke. Bearbeite die vorhandene.");
 		Assert.Single((await scenario.PassagesAsync(recording, scenario.EditorSession))
 			.GetProperty("passages").EnumerateArray());
 
 		// A recording without a playable file cannot carry timestamps.
 		var empty = await scenario.CreateRecordingAsync(concert, "Ohne Datei", "video", upload: false);
 		using var noFile = await scenario.SendAsync(HttpMethod.Post, $"/api/recordings/{empty}/passages",
-			new { expectedPlaybackDateiId = rev, performanceId = performance, startSeconds = 1, endSeconds = 5 }, scenario.EditorSession);
+			new { expectedPlaybackDateiId = rev, programmeItemId = entry, startSeconds = 1, endSeconds = 5 }, scenario.EditorSession);
 		Assert.Equal(HttpStatusCode.Conflict, noFile.StatusCode);
 		Assert.Equal("Die Aufnahme hat noch keine abspielbare Datei, an der sich Zeitmarken setzen lassen.",
 			await TitleAsync(noFile));
 
 		// Unknown recording.
 		using var unknown = await scenario.SendAsync(HttpMethod.Post, $"/api/recordings/{Guid.NewGuid()}/passages",
-			new { expectedPlaybackDateiId = rev, performanceId = performance, startSeconds = 1, endSeconds = 5 }, scenario.EditorSession);
+			new { expectedPlaybackDateiId = rev, programmeItemId = entry, startSeconds = 1, endSeconds = 5 }, scenario.EditorSession);
 		Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
 		Assert.Equal("Aufnahme nicht gefunden.", await TitleAsync(unknown));
 	}
@@ -247,12 +244,12 @@ public sealed partial class RecordingPassageApiTests
 		await using var scenario = await Scenario.CreateAsync();
 		var lied = await scenario.CreateLiedAsync("Wandellied");
 		var other = await scenario.CreateLiedAsync("Anderes Lied");
-		var concert = await scenario.CreateEventAsync("Konzert", 1994, 3, 3, published: true);
-		var performance = await scenario.RecordAsync(concert, lied);
-		var otherPerformance = await scenario.RecordAsync(concert, other);
+		var concert = await scenario.CreateEventAsync("Konzert", 1994, 3, 3);
+		var entry = await scenario.RecordAsync(concert, lied);
+		var otherEntry = await scenario.RecordAsync(concert, other);
 		var recording = await scenario.CreateRecordingAsync(concert, "Mitschnitt", "video", duration: 2000);
 		var otherRecording = await scenario.CreateRecordingAsync(concert, "Zweite", "video", duration: 2000);
-		var passage = await scenario.AddPassageAsync(recording, performance, 100, 200);
+		var passage = await scenario.AddPassageAsync(recording, entry, 100, 200);
 		var passageId = passage.GetProperty("id").GetString();
 		var version = passage.GetProperty("editor").GetProperty("version").GetUInt32();
 		var path = $"/api/recordings/{recording}/passages/{passageId}";
@@ -299,14 +296,14 @@ public sealed partial class RecordingPassageApiTests
 		using var wrongDelete = await scenario.SendAsync(HttpMethod.Post,
 			$"/api/recordings/{otherRecording}/passages/{passageId}/delete", new { }, scenario.EditorSession);
 		Assert.Equal(HttpStatusCode.NotFound, wrongDelete.StatusCode);
-		// A patch cannot move the passage to another occurrence.
+		// A patch cannot move the passage to another entry.
 		using var retarget = await scenario.SendAsync(HttpMethod.Patch, path,
-			new { expectedPlaybackDateiId = rev, performanceId = otherPerformance, startSeconds = 111, expectedVersion = newVersion }, scenario.EditorSession);
+			new { expectedPlaybackDateiId = rev, programmeItemId = otherEntry, startSeconds = 111, expectedVersion = newVersion }, scenario.EditorSession);
 		Assert.Equal(HttpStatusCode.OK, retarget.StatusCode);
-		Assert.Equal(performance, (await retarget.Content.ReadFromJsonAsync<JsonElement>())
-			.GetProperty("passage").GetProperty("performanceId").GetString());
+		Assert.Equal(entry, (await retarget.Content.ReadFromJsonAsync<JsonElement>())
+			.GetProperty("passage").GetProperty("programmeItemId").GetString());
 
-		// Delete: stale refused, then removed; the occurrence itself stays.
+		// Delete: stale refused, then removed; the entry itself stays.
 		var current = (await scenario.PassagesAsync(recording, scenario.EditorSession))
 			.GetProperty("passages")[0].GetProperty("editor").GetProperty("version").GetUInt32();
 		using var staleDelete = await scenario.SendAsync(HttpMethod.Post, $"{path}/delete",
@@ -318,7 +315,7 @@ public sealed partial class RecordingPassageApiTests
 		Assert.Equal(HttpStatusCode.NoContent, deleted.StatusCode);
 		Assert.Empty((await scenario.PassagesAsync(recording, scenario.EditorSession))
 			.GetProperty("passages").EnumerateArray());
-		Assert.Equal(2, await scenario.PerformanceCountAsync());
+		Assert.Equal(2, await scenario.ProgrammeItemCountAsync());
 		// Deleting again is a plain unknown passage.
 		using var again = await scenario.SendAsync(HttpMethod.Post, $"{path}/delete", new { }, scenario.EditorSession);
 		Assert.Equal(HttpStatusCode.NotFound, again.StatusCode);
@@ -329,13 +326,13 @@ public sealed partial class RecordingPassageApiTests
 	{
 		await using var scenario = await Scenario.CreateAsync();
 		var lied = await scenario.CreateLiedAsync("Geschütztes Lied");
-		var concert = await scenario.CreateEventAsync("Konzert", 1995, 3, 3, published: true);
-		var performance = await scenario.RecordAsync(concert, lied);
+		var concert = await scenario.CreateEventAsync("Konzert", 1995, 3, 3);
+		var entry = await scenario.RecordAsync(concert, lied);
 		var recording = await scenario.CreateRecordingAsync(concert, "Mitschnitt", "video", duration: 2000);
 		await scenario.PublishRecordingAsync(recording);
-		var passage = await scenario.AddPassageAsync(recording, performance, 10, 100);
+		var passage = await scenario.AddPassageAsync(recording, entry, 10, 100);
 		var passageId = passage.GetProperty("id").GetString();
-		var body = new { performanceId = performance, startSeconds = 1, endSeconds = 5 };
+		var body = new { programmeItemId = entry, startSeconds = 1, endSeconds = 5 };
 		var path = $"/api/recordings/{recording}/passages";
 
 		// Anonymous.
@@ -379,20 +376,20 @@ public sealed partial class RecordingPassageApiTests
 	}
 
 	[Fact]
-	public async Task UnpublishedRecordingsAndEventsNeverReachMembers()
+	public async Task UnpublishedRecordingsNeverReachMembers()
 	{
 		await using var scenario = await Scenario.CreateAsync();
 		var visible = await scenario.CreateLiedAsync("Sichtbares Lied");
 		var other = await scenario.CreateLiedAsync("Anderes Lied");
-		var concert = await scenario.CreateEventAsync("Konzert", 1996, 3, 3, published: true);
-		var visiblePerformance = await scenario.RecordAsync(concert, visible);
-		var otherPerformance = await scenario.RecordAsync(concert, other);
+		var concert = await scenario.CreateEventAsync("Konzert", 1996, 3, 3);
+		var visibleEntry = await scenario.RecordAsync(concert, visible);
+		var otherEntry = await scenario.RecordAsync(concert, other);
 		var published = await scenario.CreateRecordingAsync(concert, "Veröffentlicht", "video", duration: 2000);
 		var draft = await scenario.CreateRecordingAsync(concert, "Entwurf", "video", duration: 2000);
 		await scenario.PublishRecordingAsync(published);
-		await scenario.AddPassageAsync(published, visiblePerformance, 10, 100);
-		await scenario.AddPassageAsync(published, otherPerformance, 200, 300);
-		await scenario.AddPassageAsync(draft, visiblePerformance, 20, 120);
+		await scenario.AddPassageAsync(published, visibleEntry, 10, 100);
+		await scenario.AddPassageAsync(published, otherEntry, 200, 300);
+		await scenario.AddPassageAsync(draft, visibleEntry, 20, 120);
 
 		// Members: only the published recording.
 		var memberList = await scenario.PassagesAsync(published, scenario.MemberSession);
@@ -401,33 +398,28 @@ public sealed partial class RecordingPassageApiTests
 		using (var draftList = await scenario.GetAsync($"/api/recordings/{draft}/passages", scenario.MemberSession))
 			Assert.Equal(HttpStatusCode.NotFound, draftList.StatusCode);
 		var memberRow = Assert.Single((await scenario.HistoryAsync(visible, scenario.MemberSession))
-			.GetProperty("performances").EnumerateArray());
+			.GetProperty("auftritte").EnumerateArray());
 		var memberLinks = memberRow.GetProperty("recordings").EnumerateArray().ToList();
 		Assert.Equal(new[] { "Veröffentlicht" }, memberLinks.Select(r => r.GetProperty("recordingLabel").GetString()));
 
 		// Editors see the draft recording too, flagged.
 		var editorLinks = (await scenario.HistoryAsync(visible, scenario.EditorSession))
-			.GetProperty("performances")[0].GetProperty("recordings").EnumerateArray().ToList();
+			.GetProperty("auftritte")[0].GetProperty("recordings").EnumerateArray().ToList();
 		Assert.Equal(2, editorLinks.Count);
 		Assert.False(editorLinks.Single(r => r.GetProperty("recordingLabel").GetString() == "Entwurf")
 			.GetProperty("isPublished").GetBoolean());
 		Assert.Equal(2, (await scenario.PassagesAsync(published, scenario.EditorSession))
 			.GetProperty("passages").GetArrayLength());
 
-		// Withdrawing the recording or the event takes the passages away again.
+		// Withdrawing the recording takes its Zeitmarken away again.
 		await scenario.PatchRecordingAsync(published, new { isPublished = false });
 		using (var withdrawn = await scenario.GetAsync($"/api/recordings/{published}/passages", scenario.MemberSession))
 			Assert.Equal(HttpStatusCode.NotFound, withdrawn.StatusCode);
 		Assert.Empty((await scenario.HistoryAsync(visible, scenario.MemberSession))
-			.GetProperty("performances")[0].GetProperty("recordings").EnumerateArray());
+			.GetProperty("auftritte")[0].GetProperty("recordings").EnumerateArray());
 		await scenario.PatchRecordingAsync(published, new { isPublished = true });
 		Assert.Single((await scenario.HistoryAsync(visible, scenario.MemberSession))
-			.GetProperty("performances")[0].GetProperty("recordings").EnumerateArray());
-		await scenario.SetEventPublishedAsync(concert, false);
-		using (var hiddenEvent = await scenario.GetAsync($"/api/recordings/{published}/passages", scenario.MemberSession))
-			Assert.Equal(HttpStatusCode.NotFound, hiddenEvent.StatusCode);
-		var hiddenHistory = await scenario.HistoryAsync(visible, scenario.MemberSession);
-		Assert.Equal(0, hiddenHistory.GetProperty("total").GetInt32());
+			.GetProperty("auftritte")[0].GetProperty("recordings").EnumerateArray());
 	}
 
 	[Fact]
@@ -435,11 +427,11 @@ public sealed partial class RecordingPassageApiTests
 	{
 		await using var scenario = await Scenario.CreateAsync();
 		var lied = await scenario.CreateLiedAsync("Wanderlied");
-		var concert = await scenario.CreateEventAsync("Konzert", 1997, 3, 3, published: true);
-		var performance = await scenario.RecordAsync(concert, lied);
+		var concert = await scenario.CreateEventAsync("Konzert", 1997, 3, 3);
+		var entry = await scenario.RecordAsync(concert, lied);
 		var recording = await scenario.CreateRecordingAsync(concert, "Mitschnitt", "video", duration: 2000);
 		await scenario.PublishRecordingAsync(recording);
-		var passage = await scenario.AddPassageAsync(recording, performance, 100, 300);
+		var passage = await scenario.AddPassageAsync(recording, entry, 100, 300);
 		var passageId = passage.GetProperty("id").GetString();
 		var revisionBefore = (await scenario.PassagesAsync(recording, scenario.EditorSession))
 			.GetProperty("playbackDateiId").GetString();
@@ -464,12 +456,12 @@ public sealed partial class RecordingPassageApiTests
 		Assert.True(memberPassage.GetProperty("startSeconds").ValueKind is JsonValueKind.Null);
 		Assert.True(memberPassage.GetProperty("endSeconds").ValueKind is JsonValueKind.Null);
 		var memberLink = (await scenario.HistoryAsync(lied, scenario.MemberSession))
-			.GetProperty("performances")[0].GetProperty("recordings")[0];
+			.GetProperty("auftritte")[0].GetProperty("recordings")[0];
 		Assert.Equal("needsReview", memberLink.GetProperty("timestampState").GetString());
 		Assert.True(memberLink.GetProperty("startSeconds").ValueKind is JsonValueKind.Null);
 		// The editor's history row names the state and keeps the values.
 		var editorLink = (await scenario.HistoryAsync(lied, scenario.EditorSession))
-			.GetProperty("performances")[0].GetProperty("recordings")[0];
+			.GetProperty("auftritte")[0].GetProperty("recordings")[0];
 		Assert.Equal("needsReview", editorLink.GetProperty("timestampState").GetString());
 		Assert.Equal(100, editorLink.GetProperty("startSeconds").GetDouble());
 
@@ -501,7 +493,7 @@ public sealed partial class RecordingPassageApiTests
 		await using var scenario = await Scenario.CreateAsync();
 		var a = await scenario.CreateLiedAsync("Eins");
 		var b = await scenario.CreateLiedAsync("Zwei");
-		var concert = await scenario.CreateEventAsync("Konzert", 1998, 3, 3, published: true);
+		var concert = await scenario.CreateEventAsync("Konzert", 1998, 3, 3);
 		var pa = await scenario.RecordAsync(concert, a);
 		var pb = await scenario.RecordAsync(concert, b);
 		var recording = await scenario.CreateRecordingAsync(concert, "Mitschnitt", "video", duration: 2000);
@@ -545,81 +537,58 @@ public sealed partial class RecordingPassageApiTests
 	}
 
 	[Fact]
-	public async Task PerformanceWithPassagesCannotBeDeletedOrSkippedBehindTheirBack()
+	public async Task ProgrammeEntryWithZeitmarkenCannotBeRemovedBehindTheirBack()
 	{
 		await using var scenario = await Scenario.CreateAsync();
 		var a = await scenario.CreateLiedAsync("Gesungen");
 		var b = await scenario.CreateLiedAsync("Ausgelassen");
-		var historic = await scenario.CreateEventAsync("Historischer Auftritt", 1950, 5, 5, published: true);
-		var concert = await scenario.CreateEventAsync("Konzert", 1999, 3, 3, published: true);
-		var handEntered = await scenario.RecordAsync(historic, a, note: "Chronik");
-		await scenario.PublishProgrammeAsync(concert, [a, b]);
-		await scenario.ConfirmAsync(concert);
-		var historicRecording = await scenario.CreateRecordingAsync(historic, "Alter Mitschnitt", "audio", duration: 600);
+		var concert = await scenario.CreateEventAsync("Konzert", 1999, 3, 3);
+		var entryA = await scenario.RecordAsync(concert, a);
+		var entryB = await scenario.RecordAsync(concert, b);
 		var recording = await scenario.CreateRecordingAsync(concert, "Mitschnitt", "video", duration: 2000);
-		var occurrences = (await scenario.PassagesAsync(recording, scenario.EditorSession))
-			.GetProperty("occurrences").EnumerateArray().ToList();
-		var ownedB = occurrences[1].GetProperty("performanceId").GetString()!;
-		await scenario.AddPassageAsync(historicRecording, handEntered, 5, 100);
-		var passage = await scenario.AddPassageAsync(recording, ownedB, 400, 800);
+		var passage = await scenario.AddPassageAsync(recording, entryB, 400, 800);
 
-		// Deleting a hand-entered occurrence with a passage is refused with a
-		// reason that names the recording; nothing is deleted.
-		using var delete = await scenario.SendAsync(HttpMethod.Post, $"/api/performances/{handEntered}/delete",
-			new { }, scenario.EditorSession);
-		Assert.Equal(HttpStatusCode.Conflict, delete.StatusCode);
-		var deleteMessage = await TitleAsync(delete);
-		Assert.StartsWith("Zeitmarken vorhanden:", deleteMessage);
-		Assert.Contains("„Alter Mitschnitt“", deleteMessage);
-		Assert.Contains("„Gesungen“", deleteMessage);
-		Assert.Equal(3, await scenario.PerformanceCountAsync());
+		async Task<HttpResponseMessage> SaveOnlyAAsync() => await scenario.SendAsync(HttpMethod.Put,
+			$"/api/events/{concert}/programme/items", new
+			{
+				items = new object[] { new { id = entryA, liedId = a } },
+				rowVersion = await ProgrammeRowVersionAsync(scenario, concert),
+			}, scenario.EditorSession);
 
-		// Skipping a planned entry whose occurrence has a passage is refused the
-		// same way, and the confirmation stays as it was.
-		var (review, rowVersion) = await scenario.ReviewAsync(concert);
-		var items = review.GetProperty("items").EnumerateArray().Select((item, index) => new
+		// Dropping the marked entry is refused with a reason that names the
+		// recording; the Programm stays as it was.
+		using var refused = await SaveOnlyAAsync();
+		Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+		var message = await TitleAsync(refused);
+		Assert.StartsWith("Zeitmarken vorhanden:", message);
+		Assert.Contains("„Ausgelassen“", message);
+		Assert.Contains("„Mitschnitt“", message);
+		Assert.Equal(2, await scenario.ProgrammeItemCountAsync());
+
+		// Reordering keeps the entry and its mark.
+		using var reorder = await scenario.SendAsync(HttpMethod.Put, $"/api/events/{concert}/programme/items", new
 		{
-			programmeItemId = item.GetProperty("programmeItemId").GetString(),
-			outcome = index == 1 ? "skipped" : "sung",
-		}).ToArray();
-		using var skip = await scenario.SendAsync(HttpMethod.Put, $"/api/events/{concert}/programme/confirmation", new
-		{
-			revisionId = review.GetProperty("revision").GetProperty("id").GetString(),
-			rowVersion,
-			items,
-			additions = Array.Empty<object>(),
+			items = new object[] { new { id = entryB, liedId = b }, new { id = entryA, liedId = a } },
+			rowVersion = await ProgrammeRowVersionAsync(scenario, concert),
 		}, scenario.EditorSession);
-		Assert.Equal(HttpStatusCode.Conflict, skip.StatusCode);
-		var skipMessage = await TitleAsync(skip);
-		Assert.StartsWith("Zeitmarken vorhanden:", skipMessage);
-		Assert.Contains("„Ausgelassen“", skipMessage);
-		Assert.Contains("„Mitschnitt“", skipMessage);
-		Assert.Equal(3, await scenario.PerformanceCountAsync());
-		// The review tells the editor beforehand which entries carry passages.
-		var (again, _) = await scenario.ReviewAsync(concert);
-		Assert.Equal(0, again.GetProperty("items")[0].GetProperty("performance").GetProperty("passageCount").GetInt32());
-		Assert.Equal(1, again.GetProperty("items")[1].GetProperty("performance").GetProperty("passageCount").GetInt32());
+		Assert.Equal(HttpStatusCode.OK, reorder.StatusCode);
+		Assert.Equal(passage.GetProperty("id").GetString(), (await scenario.PassagesAsync(recording, scenario.EditorSession))
+			.GetProperty("entries")[0].GetProperty("passageId").GetString());
 
-		// Removing the passages first lets both paths proceed.
+		// Removing the mark first lets the removal proceed.
 		using var removed = await scenario.SendAsync(HttpMethod.Post,
 			$"/api/recordings/{recording}/passages/{passage.GetProperty("id").GetString()}/delete", new { }, scenario.EditorSession);
 		Assert.Equal(HttpStatusCode.NoContent, removed.StatusCode);
-		using var skipNow = await scenario.SendAsync(HttpMethod.Put, $"/api/events/{concert}/programme/confirmation", new
-		{
-			revisionId = review.GetProperty("revision").GetProperty("id").GetString(),
-			rowVersion,
-			items,
-			additions = Array.Empty<object>(),
-		}, scenario.EditorSession);
-		Assert.Equal(HttpStatusCode.OK, skipNow.StatusCode);
-		var historicPassage = (await scenario.PassagesAsync(historicRecording, scenario.EditorSession))
-			.GetProperty("passages")[0].GetProperty("id").GetString();
-		using var unmark = await scenario.SendAsync(HttpMethod.Post,
-			$"/api/recordings/{historicRecording}/passages/{historicPassage}/delete", new { }, scenario.EditorSession);
-		Assert.Equal(HttpStatusCode.NoContent, unmark.StatusCode);
-		using var deleteNow = await scenario.SendAsync(HttpMethod.Post, $"/api/performances/{handEntered}/delete",
-			new { }, scenario.EditorSession);
-		Assert.Equal(HttpStatusCode.NoContent, deleteNow.StatusCode);
+		using var now = await SaveOnlyAAsync();
+		Assert.Equal(HttpStatusCode.OK, now.StatusCode);
+		Assert.Equal(1, await scenario.ProgrammeItemCountAsync());
+	}
+
+	private static async Task<uint> ProgrammeRowVersionAsync(Scenario scenario, Guid eventId)
+	{
+		using var detail = await scenario.GetAsync($"/api/events/{eventId}", scenario.EditorSession);
+		return (await detail.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("event")
+			.GetProperty("programme").GetProperty("rowVersion").GetUInt32();
 	}
 
 	private static async Task<string?> TitleAsync(HttpResponseMessage response)

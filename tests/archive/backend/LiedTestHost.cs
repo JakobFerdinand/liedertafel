@@ -151,19 +151,13 @@ internal sealed class LiedTestHost : IAsyncDisposable
 		return (await finalize.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("datei");
 	}
 
-	/// <summary>Creates an Auftritt (#171) and optionally publishes it; returns its id.</summary>
-	public async Task<Guid> CreateEventAsync(string session, string title, bool publish = true)
+	/// <summary>Creates an Auftritt (#171); a saved Auftritt is visible to every member. Returns its id.</summary>
+	public async Task<Guid> CreateEventAsync(string session, string title)
 	{
 		using var create = await PostAsync("/api/events", new { kind = "concert", title }, session);
 		Assert.Equal(HttpStatusCode.Created, create.StatusCode);
-		var id = Guid.Parse((await create.Content.ReadFromJsonAsync<JsonElement>())
+		return Guid.Parse((await create.Content.ReadFromJsonAsync<JsonElement>())
 			.GetProperty("event").GetProperty("id").GetString()!);
-		if (publish)
-		{
-			using var published = await PostAsync($"/api/events/{id}/publish", new { }, session);
-			Assert.Equal(HttpStatusCode.OK, published.StatusCode);
-		}
-		return id;
 	}
 
 	/// <summary>Opens an event upload session (#171), stores the bytes in the fake storage and finalizes; returns the response.</summary>

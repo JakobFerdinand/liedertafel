@@ -13,9 +13,8 @@ namespace Archive.Backend.Tests;
 
 /// <summary>
 /// ARC-024 historical events ("Auftritte"): editor creation with the explicit
-/// partial date model, draft visibility (members never see drafts, drafts
-/// answer an indistinguishable 404), publication stamps with idempotent
-/// republish/unpublish, second-editor PATCH attribution, precision-aware
+/// partial date model, immediate member visibility of every saved Auftritt (no
+/// draft or publish step), second-editor PATCH attribution, precision-aware
 /// newest-first sorting with the years navigation summary, year/kind filters
 /// and German validation problems.
 /// </summary>
@@ -51,7 +50,7 @@ public sealed class EventsApiTests
 	}
 
 	[Fact]
-	public async Task DraftStaysHiddenFromMembersAndVisibleToEditors()
+	public async Task SavedAuftrittIsVisibleToMembersAtOnceWithoutAPublishStep()
 	{
 		await using var factory = new AuthApiFactory();
 		await SeedAsync(factory, Member, ArchiveRoles.Member);
@@ -59,53 +58,10 @@ public sealed class EventsApiTests
 		var memberSession = await SignInAsync(factory, Member);
 		var editorSession = await SignInAsync(factory, Editor);
 		var eventId = await CreateEventAsync(factory, client: null, editorSession,
-			new { kind = "concert", title = "Probenabschluss" });
-		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-
-		using var memberList = new HttpRequestMessage(HttpMethod.Get, "/api/events");
-		memberList.Headers.Add("Cookie", memberSession);
-		using var memberListResponse = await client.SendAsync(memberList);
-		Assert.Equal(HttpStatusCode.OK, memberListResponse.StatusCode);
-		var memberListBody = await memberListResponse.Content.ReadFromJsonAsync<JsonElement>();
-		Assert.Equal(0, memberListBody.GetProperty("total").GetInt32());
-		Assert.Empty(memberListBody.GetProperty("events").EnumerateArray());
-
-		using var memberDetail = new HttpRequestMessage(HttpMethod.Get, $"/api/events/{eventId}");
-		memberDetail.Headers.Add("Cookie", memberSession);
-		using var memberDetailResponse = await client.SendAsync(memberDetail);
-		Assert.Equal(HttpStatusCode.NotFound, memberDetailResponse.StatusCode);
-		var memberDetailProblem = await memberDetailResponse.Content.ReadFromJsonAsync<JsonElement>();
-		Assert.Equal(EventEndpoints.NotFoundMessage, memberDetailProblem.GetProperty("title").GetString());
-
-		using var editorList = new HttpRequestMessage(HttpMethod.Get, "/api/events");
-		editorList.Headers.Add("Cookie", editorSession);
-		using var editorListResponse = await client.SendAsync(editorList);
-		var editorListBody = await editorListResponse.Content.ReadFromJsonAsync<JsonElement>();
-		var entry = Assert.Single(editorListBody.GetProperty("events").EnumerateArray());
-		Assert.Equal("Probenabschluss", entry.GetProperty("title").GetString());
-		Assert.False(entry.GetProperty("published").GetBoolean());
-		Assert.Equal("unknown", entry.GetProperty("datePrecision").GetString());
-		Assert.Equal("Datum unbekannt", entry.GetProperty("dateDisplay").GetString());
-
-		using var editorDetail = new HttpRequestMessage(HttpMethod.Get, $"/api/events/{eventId}");
-		editorDetail.Headers.Add("Cookie", editorSession);
-		using var editorDetailResponse = await client.SendAsync(editorDetail);
-		Assert.Equal(HttpStatusCode.OK, editorDetailResponse.StatusCode);
-	}
-
-	[Fact]
-	public async Task PublishStampsAttributionAndUnpublishClearsIt()
-	{
-		await using var factory = new AuthApiFactory();
-		await SeedAsync(factory, Member, ArchiveRoles.Member);
-		var editorId = await SeedAsync(factory, Editor, ArchiveRoles.Editor);
-		var memberSession = await SignInAsync(factory, Member);
-		var editorSession = await SignInAsync(factory, Editor);
-		var eventId = await CreateEventAsync(factory, client: null, editorSession,
 			new
 			{
 				kind = "concert",
-				title = "Veröffentlichter Auftritt",
+				title = "Frühjahrskonzert",
 				dateYear = 1950,
 				dateMonth = 5,
 				dateDay = 12,
@@ -113,94 +69,36 @@ public sealed class EventsApiTests
 				sourceNote = "Programmheft im Vereinsarchiv, Blatt 3.",
 			});
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var (cookie, token) = await GetCsrfAsync(client, editorSession);
 
-		using var publish = AuthedPost($"/api/events/{eventId}/publish", new { }, $"{cookie}; {editorSession}", token);
-		using var publishResponse = await client.SendAsync(publish);
-		Assert.Equal(HttpStatusCode.OK, publishResponse.StatusCode);
-		var publishBody = await publishResponse.Content.ReadFromJsonAsync<JsonElement>();
-		Assert.True(publishBody.GetProperty("event").GetProperty("published").GetBoolean());
-
-		using var memberList = new HttpRequestMessage(HttpMethod.Get, "/api/events");
-		memberList.Headers.Add("Cookie", memberSession);
-		using var memberListResponse = await client.SendAsync(memberList);
-		var memberListBody = await memberListResponse.Content.ReadFromJsonAsync<JsonElement>();
+		var memberListBody = await GetEventListAsync(client, memberSession, "/api/events");
 		var entry = Assert.Single(memberListBody.GetProperty("events").EnumerateArray());
-		Assert.Equal("Veröffentlichter Auftritt", entry.GetProperty("title").GetString());
-		Assert.True(entry.GetProperty("published").GetBoolean());
+		Assert.Equal("Frühjahrskonzert", entry.GetProperty("title").GetString());
 		Assert.Equal("12. Mai 1950", entry.GetProperty("dateDisplay").GetString());
+		Assert.False(entry.TryGetProperty("published", out _));
 
-		using var memberDetail = new HttpRequestMessage(HttpMethod.Get, $"/api/events/{eventId}");
-		memberDetail.Headers.Add("Cookie", memberSession);
-		using var memberDetailResponse = await client.SendAsync(memberDetail);
-		Assert.Equal(HttpStatusCode.OK, memberDetailResponse.StatusCode);
-		var detailBody = await memberDetailResponse.Content.ReadFromJsonAsync<JsonElement>();
+		var detailBody = await GetEventListAsync(client, memberSession, $"/api/events/{eventId}");
 		var detailEvent = detailBody.GetProperty("event");
-		Assert.Equal("Veröffentlichter Auftritt", detailEvent.GetProperty("title").GetString());
-		Assert.Equal("12. Mai 1950", detailEvent.GetProperty("dateDisplay").GetString());
+		Assert.Equal("Frühjahrskonzert", detailEvent.GetProperty("title").GetString());
 		Assert.Equal("Für den Stehchoral sind die Noten mitzunehmen.", detailEvent.GetProperty("notes").GetString());
 		Assert.Equal("Programmheft im Vereinsarchiv, Blatt 3.", detailEvent.GetProperty("sourceNote").GetString());
+		Assert.False(detailEvent.TryGetProperty("published", out _));
+		Assert.False(detailEvent.TryGetProperty("publishedAt", out _));
 		var createdAt = DateTimeOffset.Parse(detailEvent.GetProperty("createdAt").GetString()!);
 		var updatedAt = DateTimeOffset.Parse(detailEvent.GetProperty("updatedAt").GetString()!);
-		Assert.True(createdAt > DateTimeOffset.MinValue);
 		Assert.True(updatedAt >= createdAt);
 
-		DateTimeOffset firstPublishedAt;
-		using (var scope = factory.Services.CreateScope())
+		// The publish endpoints are gone.
+		var (cookie, token) = await GetCsrfAsync(client, editorSession);
+		foreach (var gone in new[] { "publish", "unpublish" })
 		{
-			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-			var persisted = await db.Events.SingleAsync(e => e.Id == eventId);
-			Assert.Equal(editorId, persisted.PublishedByAccountId);
-			Assert.NotNull(persisted.PublishedAt);
-			firstPublishedAt = persisted.PublishedAt!.Value;
-			var rowVersionAfterPublish = persisted.RowVersion;
-
-			// Republish keeps the first stamp and is a no-op (no RowVersion bump).
-			using var republish = AuthedPost($"/api/events/{eventId}/publish", new { }, $"{cookie}; {editorSession}", token);
-			using var republishResponse = await client.SendAsync(republish);
-			Assert.Equal(HttpStatusCode.OK, republishResponse.StatusCode);
-			var after = await db.Events.SingleAsync(e => e.Id == eventId);
-			Assert.Equal(firstPublishedAt, after.PublishedAt);
-			Assert.Equal(editorId, after.PublishedByAccountId);
-			Assert.Equal(rowVersionAfterPublish, after.RowVersion);
+			using var request = AuthedPost($"/api/events/{eventId}/{gone}", new { }, $"{cookie}; {editorSession}", token);
+			using var response = await client.SendAsync(request);
+			Assert.False(response.IsSuccessStatusCode, gone);
 		}
-
-		using var unpublish = AuthedPost($"/api/events/{eventId}/unpublish", new { }, $"{cookie}; {editorSession}", token);
-		using var unpublishResponse = await client.SendAsync(unpublish);
-		Assert.Equal(HttpStatusCode.OK, unpublishResponse.StatusCode);
-		var unpublishBody = await unpublishResponse.Content.ReadFromJsonAsync<JsonElement>();
-		Assert.False(unpublishBody.GetProperty("event").GetProperty("published").GetBoolean());
-		Assert.True(unpublishBody.GetProperty("event").GetProperty("publishedAt").ValueKind is JsonValueKind.Null);
-
-		using var memberDetailAfter = new HttpRequestMessage(HttpMethod.Get, $"/api/events/{eventId}");
-		memberDetailAfter.Headers.Add("Cookie", memberSession);
-		using var memberDetailAfterResponse = await client.SendAsync(memberDetailAfter);
-		Assert.Equal(HttpStatusCode.NotFound, memberDetailAfterResponse.StatusCode);
-
-		// The editor still sees the withdrawn draft.
-		using var editorDetail = new HttpRequestMessage(HttpMethod.Get, $"/api/events/{eventId}");
-		editorDetail.Headers.Add("Cookie", editorSession);
-		using var editorDetailResponse = await client.SendAsync(editorDetail);
-		Assert.Equal(HttpStatusCode.OK, editorDetailResponse.StatusCode);
-		var editorDetailBody = await editorDetailResponse.Content.ReadFromJsonAsync<JsonElement>();
-		Assert.False(editorDetailBody.GetProperty("event").GetProperty("published").GetBoolean());
-
-		using (var scope = factory.Services.CreateScope())
-		{
-			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
-			var persisted = await db.Events.SingleAsync(e => e.Id == eventId);
-			Assert.True(persisted.PublishedAt is null);
-			Assert.True(persisted.PublishedByAccountId is null);
-		}
-
-		// Unpublishing a draft is a no-op success.
-		using var unpublishAgain = AuthedPost($"/api/events/{eventId}/unpublish", new { }, $"{cookie}; {editorSession}", token);
-		using var unpublishAgainResponse = await client.SendAsync(unpublishAgain);
-		Assert.Equal(HttpStatusCode.OK, unpublishAgainResponse.StatusCode);
 	}
 
 	[Fact]
-	public async Task SecondEditorPatchAttributesAndKeepsPublicationStamps()
+	public async Task SecondEditorPatchAttributesTheChange()
 	{
 		await using var factory = new AuthApiFactory();
 		var editorId = await SeedAsync(factory, Editor, ArchiveRoles.Editor);
@@ -210,19 +108,14 @@ public sealed class EventsApiTests
 		var eventId = await CreateEventAsync(factory, client: null, editorSession,
 			new { kind = "concert", title = "Alter Titel" });
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
-		var (publishCookie, publishToken) = await GetCsrfAsync(client, editorSession);
-		using var publish = AuthedPost($"/api/events/{eventId}/publish", new { }, $"{publishCookie}; {editorSession}", publishToken);
-		_ = await client.SendAsync(publish);
 
-		DateTimeOffset firstPublishedAt;
 		DateTimeOffset updatedAtBefore;
 		using (var scope = factory.Services.CreateScope())
 		{
 			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
 			var persisted = await db.Events.SingleAsync(e => e.Id == eventId);
-			firstPublishedAt = persisted.PublishedAt!.Value;
 			updatedAtBefore = persisted.UpdatedAt;
-			Assert.Equal(editorId, persisted.PublishedByAccountId);
+			Assert.Equal(editorId, persisted.CreatedByAccountId);
 		}
 
 		var (cookie, token) = await GetCsrfAsync(client, secondSession);
@@ -257,9 +150,8 @@ public sealed class EventsApiTests
 			Assert.Equal(5, persisted.DateMonth);
 			Assert.Equal(12, persisted.DateDay);
 			Assert.False(persisted.DateApproximate);
-			// A patch by another editor never overwrites the publication stamps.
-			Assert.Equal(firstPublishedAt, persisted.PublishedAt);
-			Assert.Equal(editorId, persisted.PublishedByAccountId);
+			// A patch by another editor never overwrites the creator.
+			Assert.Equal(editorId, persisted.CreatedByAccountId);
 		}
 	}
 
@@ -282,8 +174,6 @@ public sealed class EventsApiTests
 			new { kind = "service", title = "Gottesdienst 1949", dateYear = 1949, dateMonth = 11, dateDay = 11 });
 		var unknownId = await CreateEventAsync(factory, client, editorSession,
 			new { kind = "wedding", title = "Hochzeit ohne Datum" });
-		foreach (var id in new[] { dayId, monthId, yearId, olderId, unknownId })
-			await PublishAsync(client, editorSession, id);
 
 		var list = await GetEventListAsync(client, memberSession, "/api/events");
 		Assert.Equal(5, list.GetProperty("total").GetInt32());
@@ -301,7 +191,6 @@ public sealed class EventsApiTests
 		Assert.Equal("11. November 1949", events[3].GetProperty("dateDisplay").GetString());
 		Assert.Equal("Datum unbekannt", events[4].GetProperty("dateDisplay").GetString());
 		Assert.Equal("unknown", events[4].GetProperty("datePrecision").GetString());
-		Assert.All(events, e => Assert.True(e.GetProperty("published").GetBoolean()));
 
 		var years = list.GetProperty("years").EnumerateArray().ToList();
 		Assert.Equal(3, years.Count);
@@ -459,14 +348,6 @@ public sealed class EventsApiTests
 		Assert.Equal(HttpStatusCode.Created, response.StatusCode);
 		var parsed = await response.Content.ReadFromJsonAsync<JsonElement>();
 		return Guid.Parse(parsed.GetProperty("event").GetProperty("id").GetString()!);
-	}
-
-	private static async Task PublishAsync(HttpClient client, string editorSession, Guid eventId)
-	{
-		var (cookie, token) = await GetCsrfAsync(client, editorSession);
-		using var publish = AuthedPost($"/api/events/{eventId}/publish", new { }, $"{cookie}; {editorSession}", token);
-		using var response = await client.SendAsync(publish);
-		Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 	}
 
 	private static async Task<JsonElement> GetEventListAsync(HttpClient client, string session, string path)

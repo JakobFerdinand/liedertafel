@@ -5,12 +5,12 @@ using Npgsql;
 namespace Archive.Backend.Recordings;
 
 /// <summary>
-/// Shared reading of passages (ARC-032) for the recording endpoints, the
+/// Shared reading of Zeitmarken (Zeitmarken) for the recording endpoints and the
 /// Lied history, so one visibility decision and one timestamp-state rule
 /// serve both:
-/// - members only see passages of published recordings of published events;
+/// - members only see Zeitmarken of published recordings of published events;
 ///   editors see everything;
-/// - a passage is <see cref="Current"/> only while its timestamps were taken
+/// - a Zeitmarke is <see cref="Current"/> only while its timestamps were taken
 ///   against the file members play now (<see cref="RecordingFiles.Resolve"/>),
 ///   otherwise it is <see cref="NeedsReview"/>: editors see the values and
 ///   the state, members see the Lied in the recording but no position.
@@ -21,7 +21,7 @@ public static class RecordingPassages
 
 	public const string NeedsReview = "needsReview";
 
-	/// <summary>Start of the conflict message that names the passages in the way; the UI keeps its input on it.</summary>
+	/// <summary>Start of the conflict message that names the Zeitmarken in the way; the UI keeps its input on it.</summary>
 	public const string BlockedPrefix = "Zeitmarken vorhanden:";
 
 	/// <summary>Upper bound for a timestamp: the recording duration bound (two days).</summary>
@@ -35,28 +35,28 @@ public static class RecordingPassages
 
 	public sealed record PassageRow(
 		Guid Id, Guid RecordingId, string RecordingLabel, string RecordingKind, bool RecordingPublished,
-		Guid EventId, Guid PerformanceId, Guid LiedId,
-		int Position, string EvidenceStatus, double StartSeconds, double EndSeconds,
+		Guid EventId, Guid ProgrammeItemId, Guid LiedId,
+		int Position, double StartSeconds, double EndSeconds,
 		Guid? PlaybackDateiId, uint RowVersion, DateTimeOffset UpdatedAt);
 
 	public sealed record PassageView(PassageRow Row, string LiedTitle, string State);
 
 	/// <summary>Constraint names as the migration created them; the violation mappings look at these.</summary>
-	public const string PerformanceForeignKey = "FK_recording_passages_performances_PerformanceId_EventId";
+	public const string ProgrammeItemForeignKey = "FK_recording_passages_programme_items_ProgrammeItemId";
 
-	public const string UniquePerRecording = "IX_recording_passages_RecordingId_PerformanceId";
+	public const string UniquePerRecording = "IX_recording_passages_RecordingId_ProgrammeItemId";
 
 	public const string RecordingForeignKey = "FK_recording_passages_recordings_RecordingId_EventId";
 
-	/// <summary>The foreign key from a passage to its occurrence held: a passage hangs on that performance.</summary>
-	public static bool IsPerformanceForeignKeyViolation(DbUpdateException exception) =>
+	/// <summary>The foreign key from a Zeitmarke to its Programm entry held: a Zeitmarke hangs on that entry.</summary>
+	public static bool IsProgrammeItemForeignKeyViolation(DbUpdateException exception) =>
 		exception.InnerException is PostgresException
 		{
 			SqlState: PostgresErrorCodes.ForeignKeyViolation,
-			ConstraintName: PerformanceForeignKey,
+			ConstraintName: ProgrammeItemForeignKey,
 		};
 
-	/// <summary>The unique key (recording, performance) held: that occurrence is marked in this recording already.</summary>
+	/// <summary>The unique key (recording, entry) held: that entry is marked in this recording already.</summary>
 	public static bool IsDuplicateViolation(DbUpdateException exception) =>
 		exception.InnerException is PostgresException
 		{
@@ -64,9 +64,9 @@ public static class RecordingPassages
 			ConstraintName: UniquePerRecording,
 		};
 
-	/// <summary>A passage's recording or occurrence was removed while it was being written.</summary>
+	/// <summary>A Zeitmarke's recording or Programm entry was removed while it was being written.</summary>
 	public static bool IsParentGoneViolation(DbUpdateException exception) =>
-		IsPerformanceForeignKeyViolation(exception)
+		IsProgrammeItemForeignKeyViolation(exception)
 		|| exception.InnerException is PostgresException
 		{
 			SqlState: PostgresErrorCodes.ForeignKeyViolation,
@@ -79,14 +79,14 @@ public static class RecordingPassages
 	public static IQueryable<RecordingPassage> VisibleTo(IQueryable<RecordingPassage> passages, bool isEditor) =>
 		isEditor ? passages : RecordingVisibility.OfMemberVisible(passages);
 
-	/// <summary>Plain projection of the passages with the display fields of their recording and occurrence.</summary>
+	/// <summary>Plain projection of the Zeitmarken with the display fields of their recording and Programm entry.</summary>
 	public static async Task<List<PassageRow>> LoadRowsAsync(
 		IQueryable<RecordingPassage> passages, CancellationToken token) =>
 		await passages
 			.Select(p => new PassageRow(p.Id, p.RecordingId, p.Recording.Label, p.Recording.Kind,
-				p.Recording.PublishedAt != null, p.EventId, p.PerformanceId, p.Performance.LiedId,
-				p.Performance.Position,
-				p.Performance.EvidenceStatus, p.StartSeconds, p.EndSeconds, p.PlaybackDateiId,
+				p.Recording.PublishedAt != null, p.EventId, p.ProgrammeItemId, p.ProgrammeItem.LiedId,
+				p.ProgrammeItem.Position,
+				p.StartSeconds, p.EndSeconds, p.PlaybackDateiId,
 				p.RowVersion, p.UpdatedAt))
 			.ToListAsync(token);
 
@@ -128,7 +128,7 @@ public static class RecordingPassages
 		return views;
 	}
 
-	/// <summary>One passage in the wire shape of the recording endpoints.</summary>
+	/// <summary>One Zeitmarke in the wire shape of the recording endpoints.</summary>
 	public static object Payload(PassageView view, bool isEditor)
 	{
 		var row = view.Row;
@@ -137,10 +137,9 @@ public static class RecordingPassages
 		{
 			id = row.Id,
 			recordingId = row.RecordingId,
-			performanceId = row.PerformanceId,
+			programmeItemId = row.ProgrammeItemId,
 			liedId = row.LiedId,
 			liedTitle = view.LiedTitle,
-			evidenceStatus = row.EvidenceStatus,
 			position = row.Position,
 			startSeconds = withheld ? (double?)null : row.StartSeconds,
 			endSeconds = withheld ? (double?)null : row.EndSeconds,
@@ -156,19 +155,24 @@ public static class RecordingPassages
 		};
 	}
 
-	/// <summary>The recording links per performance for the Lied history (ARC-032), ordered by recording label.</summary>
-	public static async Task<Dictionary<Guid, List<object>>> LinksByPerformanceAsync(
-		ArchiveDbContext db, bool isEditor, IReadOnlyCollection<Guid> performanceIds, CancellationToken token)
+	/// <summary>
+	/// The recording links per Auftritt for the Lied history, ordered by
+	/// recording label: every Zeitmarke on an entry of the given Lied at the
+	/// given events.
+	/// </summary>
+	public static async Task<Dictionary<Guid, List<object>>> LinksByEventAsync(
+		ArchiveDbContext db, bool isEditor, Guid liedId, IReadOnlyCollection<Guid> eventIds, CancellationToken token)
 	{
-		if (performanceIds.Count == 0)
+		if (eventIds.Count == 0)
 			return [];
 		var rows = await LoadRowsAsync(
-			VisibleTo(db.RecordingPassages.AsNoTracking(), isEditor).Where(p => performanceIds.Contains(p.PerformanceId)),
+			VisibleTo(db.RecordingPassages.AsNoTracking(), isEditor)
+				.Where(p => eventIds.Contains(p.EventId) && p.ProgrammeItem.LiedId == liedId),
 			token);
 		var views = await ViewsAsync(db, rows, isEditor, token);
 		return views
 			.OrderBy(v => v.Row.RecordingLabel, StringComparer.CurrentCulture).ThenBy(v => v.Row.Id)
-			.GroupBy(v => v.Row.PerformanceId)
+			.GroupBy(v => v.Row.EventId)
 			.ToDictionary(g => g.Key, g => g.Select(v => (object)new
 			{
 				passageId = v.Row.Id,
@@ -183,19 +187,19 @@ public static class RecordingPassages
 	}
 
 	/// <summary>
-	/// The German conflict message naming up to three passages (Lied and
-	/// recording) that stand in the way of removing the given occurrences;
-	/// null when none of them has a passage. Deleting or skipping a
-	/// performance never removes passages behind the editor's back.
+	/// The German conflict message naming up to three Zeitmarken (Lied and
+	/// recording) that stand in the way of removing the given Programm
+	/// entries; null when none of them has a mark. Removing an entry never
+	/// removes Zeitmarken behind the editor's back.
 	/// </summary>
 	public static async Task<string?> BlockedMessageAsync(
-		ArchiveDbContext db, IReadOnlyCollection<Guid> performanceIds, CancellationToken token)
+		ArchiveDbContext db, IReadOnlyCollection<Guid> programmeItemIds, CancellationToken token)
 	{
-		if (performanceIds.Count == 0)
+		if (programmeItemIds.Count == 0)
 			return null;
 		var rows = await db.RecordingPassages.AsNoTracking()
-			.Where(p => performanceIds.Contains(p.PerformanceId))
-			.Select(p => new { p.Performance.LiedId, Recording = p.Recording.Label })
+			.Where(p => programmeItemIds.Contains(p.ProgrammeItemId))
+			.Select(p => new { p.ProgrammeItem.LiedId, Recording = p.Recording.Label })
 			.ToListAsync(token);
 		if (rows.Count == 0)
 			return null;

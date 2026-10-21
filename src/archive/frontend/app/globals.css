@@ -1863,7 +1863,6 @@ footer {
   padding-block: 0.9rem 1.1rem;
   border-bottom: 1px solid var(--rule);
 }
-.auftritte-eintrag > .lieder-status,
 .auftritte-eintrag > .auftritte-aktionen {
   align-self: start;
   margin-top: 0;
@@ -2275,102 +2274,25 @@ fieldset.programm-verwaltung {
   font-size: var(--schrift-neben);
   margin-block: 0.2rem 0;
 }
-.programm-fruehere {
-  border-top: 1px dashed var(--rule);
-  margin-block: 0.6rem 0;
-  padding-block: 0.35rem 0;
-}
-.programm-fruehere-einleitung,
-.programm-fruehere-zeile {
-  color: var(--muted);
-  font-size: var(--schrift-neben);
-  margin-block: 0.15rem 0;
-}
-.programm-fruehere-einleitung {
-  font-weight: 600;
-}
 .programm-unerledigt {
   color: var(--brand);
   font-weight: 600;
   margin-block: 0.2rem 0;
 }
 
-/* ─── Aufführungsnachweise (ARC-028) ──────────────────────────────────
-   Die Nachweise lesen sich wie das Programm als geordnete Reihe: die
-   Position als stiller Zähler vor dem Liedtitel, der Bestätigungsstand
-   als ruhige Marke und die Fassungsangabe in der Meta-Leiter.
-   „Bestätigt“ trägt die Markenfarbe, unbestätigte Programmangaben
-   bleiben still — die Ehrlichkeit des Stands ist die Information. Unter
-   der Rubriküberschrift erklärt das Satzpaar .belege-einleitung die
-   Unterscheidung (stille Schrift, kein neuer Ton). Keine neuen Farben —
-   Paletten, Leitern und Radien kommen aus den gemeinsamen Variablen. */
-.nachweise-liste {
-  list-style: none;
-  margin: 0.9rem 0 0;
-  padding: 0;
-  display: grid;
-  gap: 1.1rem;
-}
-/* Einleitung des Lesesaals: das ehrliche Satzpaar zur Unterscheidung
-   liest sich still (nach .noten-info) direkt unter der Rubriküberschrift
-   — kein eigener Ton, nur der Stand erklärt. */
-.belege-einleitung {
-  color: var(--muted);
-  font-size: var(--schrift-neben);
-  margin-block: 0.4rem 0;
-  max-width: 60ch;
-}
-.nachweis-eintrag {
-  min-width: 0;
-  border-top: 1px dashed var(--rule);
-  padding-block: 0.4rem;
-}
-.nachweis-eintrag:first-child {
-  border-top: 0;
-}
-.nachweis-nummer {
-  font-family: var(--font-heading);
-  font-variant-numeric: tabular-nums;
-  color: var(--muted);
-}
-.nachweis-titel {
-  margin-block: 0;
-  font-size: var(--titel-abschnitt);
-  overflow-wrap: anywhere;
-}
-/* Tiefer Leseport wie in .programm-titel: ruhig ohne Unterstreichung,
-   die Zeigerhandlung liest sich beim Streifen. */
-.nachweis-titel a {
-  text-decoration: none;
-}
-.nachweis-titel a:hover {
-  text-decoration: underline;
-}
-/* Stille Meta-Leiter der Zeile (nach .noten-info): Standmarke und
-   Fassungsangabe, ohne Absatztrennung in der Reihe. */
-.nachweis-info {
+/* Stille Meta-Leiter einer Zeile der Liedgeschichte (nach .noten-info):
+   Art des Auftritts und Programmstand in einer Reihe. */
+.historie-meta {
   color: var(--muted);
   font-size: var(--schrift-neben);
   margin-block: 0.2rem 0;
   overflow-wrap: anywhere;
 }
-.nachweis-marke {
-  display: inline;
-  color: var(--muted);
-  font-size: var(--schrift-neben);
-  font-weight: 600;
-}
-/* Bestätigte Aufführung trägt die Marke farblich; die Programmangabe
-   liest sich in der stillen Leiter weiter. */
-.nachweis-marke[data-art="confirmed"] {
-  color: var(--brand);
-}
 
-/* ─── Aufführungsgeschichte (ARC-031) ─────────────────────────────────
-   Die Geschichte eines Liedes liest sich in der Rhythmik der Nachweise:
-   Auftrittstitel als stiller Leseport, Datum mit der Unsicherheitsmarke
-   des Auftritts, darunter die Meta-Leiter (Stand, Art, Herkunft,
-   Fassung). Die Summen stehen als Begriffsliste vor der Reihe; der
+/* ─── Wann gesungen (Liedgeschichte) ─────────────────────────────────
+   Die Geschichte eines Liedes: Auftrittstitel als stiller Leseport,
+   Datum mit der Unsicherheitsmarke des Auftritts, darunter die
+   Meta-Leiter (Art, Programmstand). Die Summen stehen als Begriffsliste vor der Reihe; der
    Vorbehalt „nur erfasste Überlieferung“ bleibt in stiller Schrift
    direkt darüber. Keine neuen Farben. */
 .historie-zahlen {
@@ -2405,33 +2327,6 @@ fieldset.programm-verwaltung {
 }
 .historie-zusatz {
   max-width: 60ch;
-}
-.historie-filter {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem 1.2rem;
-  margin-block: 1rem 0;
-}
-.historie-filter > div {
-  min-width: 12rem;
-  flex: 1 1 12rem;
-}
-.historie-filter label {
-  display: block;
-  font-weight: 600;
-  font-size: var(--schrift-neben);
-  margin-block-end: 0.2rem;
-}
-.historie-filter select {
-  width: 100%;
-  min-height: 2.75rem;
-  box-sizing: border-box;
-  padding: 0.55rem 0.8rem;
-  border: 2px solid var(--ink);
-  border-radius: var(--radius-knopf);
-  font: inherit;
-  background: var(--paper);
-  color: var(--ink);
 }
 .historie-liste {
   list-style: none;
@@ -2470,33 +2365,8 @@ fieldset.programm-verwaltung {
 .historie-hinweis {
   max-width: 60ch;
 }
-.historie-hinweis[data-art="warnung"] {
-  font-weight: 600;
-}
 .historie-erweiterung {
   margin-block-start: 0.4rem;
-}
-
-/* ─── Tatsächlich gesungen (ARC-029) ──────────────────────────────────
-   Plan und Aufführung bleiben getrennte Abschnitte: das Gesungene liest
-   sich in der Programm-Rhythmik (.programm-liste), ausgefallene
-   Programmpunkte hängen unter der gestrichelten Marke der früheren
-   Fassungen. Die Werkbank-Zeilen erben .programm-zeile und die
-   Auswahlgruppe .belege-art; hier nur die Abstände der neuen Bausteine.
-   Keine neuen Farben. */
-.bestaetigung-ausgefallen {
-  border-top: 1px dashed var(--rule);
-  margin-block: 0.8rem 0;
-  padding-block: 0.35rem 0;
-}
-.bestaetigung-ausgefallen-liste {
-  list-style: none;
-  margin: 0.2rem 0 0;
-  padding: 0;
-  color: var(--muted);
-  font-size: var(--schrift-neben);
-  display: grid;
-  gap: 0.15rem;
 }
 
 /* ─── Programmverzeichnis (ARC-026) ───────────────────────────────────
@@ -2527,22 +2397,19 @@ fieldset.programm-verwaltung {
   overflow-wrap: anywhere;
 }
 @container (min-width: 42rem) and (max-width: 51.99rem) {
-  .auftritte-eintrag > .lieder-status,
   .auftritte-eintrag > .auftritte-aktionen,
   .programme-anzahl {
     grid-column: 2;
   }
 }
 @container (min-width: 48rem) {
-  .programm-eintrag,
-  .nachweis-eintrag {
+  .programm-eintrag {
     display: grid;
     grid-template-columns: minmax(0, 1.5fr) minmax(14rem, 1fr);
     gap: 0.25rem 1.5rem;
     align-items: baseline;
   }
-  .programm-eintrag > .noten-info,
-  .nachweis-eintrag > .nachweis-info {
+  .programm-eintrag > .noten-info {
     margin-block: 0;
   }
   .programm-eintrag > .programm-notiz {
@@ -2610,11 +2477,8 @@ fieldset.programm-verwaltung {
    Details und Formulare nehmen bei Bedarf eine eigene ganze Zeile ein. */
 @container (min-width: 52rem) {
   .auftritte-eintrag {
-    grid-template-columns: 10rem minmax(0, 1fr) auto auto;
+    grid-template-columns: 10rem minmax(0, 1fr) auto;
     gap: 0.2rem clamp(0.8rem, 1.5vw, 1.6rem);
-  }
-  .auftritte-eintrag > .lieder-status {
-    white-space: nowrap;
   }
   .auftritte-eintrag > .auftritte-aktionen {
     flex-wrap: nowrap;
@@ -2638,7 +2502,6 @@ fieldset.programm-verwaltung {
     grid-template-columns: minmax(0, 1fr);
     gap: 0.1rem;
   }
-  .auftritte-eintrag > .lieder-status,
   .auftritte-eintrag > .auftritte-aktionen,
   .programme-anzahl {
     grid-column: 1;

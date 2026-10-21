@@ -438,7 +438,7 @@ public sealed partial class ChatApiTests
 		var provider = new ShowSurfaceChatClient();
 		await using var factory = ChatFactory(chatClient: provider);
 		var ownerId = await SeedMemberAsync(factory, MemberA);
-		var eventId = await SeedEventAsync(factory, ownerId, "Frühlingskonzert", published: true);
+		var eventId = await SeedEventAsync(factory, ownerId, "Frühlingskonzert");
 		await SeedLiederAsync(factory, ownerId);
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
@@ -461,13 +461,14 @@ public sealed partial class ChatApiTests
 	}
 
 	[Fact]
-	public async Task AuftrittKarteShowsPublishedEventsOnlyAndQuellenOnlyKnownLieder()
+	public async Task AuftrittKarteShowsSavedEventsOnlyAndQuellenOnlyKnownLieder()
 	{
 		var provider = new ShowSurfaceChatClient();
 		await using var factory = ChatFactory(chatClient: provider);
 		var ownerId = await SeedMemberAsync(factory, MemberA);
-		var published = await SeedEventAsync(factory, ownerId, "Frühlingskonzert 1932", published: true);
-		var draft = await SeedEventAsync(factory, ownerId, "Interne Beratung", published: false);
+		var published = await SeedEventAsync(factory, ownerId, "Frühlingskonzert 1932");
+		// Never saved: an id no record stands behind resolves to nothing.
+		var draft = Guid.NewGuid();
 		var (liedId, unknownLied, _) = await SeedLiederAsync(factory, ownerId);
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
@@ -495,7 +496,6 @@ public sealed partial class ChatApiTests
 		Assert.Equal("Quellen", components[1].GetProperty("component").GetString());
 		var sources = components[1].GetProperty("quellen").EnumerateArray().ToList();
 		Assert.Equal(liedId.ToString(), Assert.Single(sources).GetProperty("liedId").GetString());
-		Assert.DoesNotContain("Interne Beratung", body);
 		Assert.DoesNotContain("Geheime Probe", body);
 	}
 
@@ -508,7 +508,7 @@ public sealed partial class ChatApiTests
 		var (publishedId, _, instructionId) = await SeedLiederAsync(factory, ownerId);
 		var events = new List<Guid>();
 		for (var i = 0; i < 4; i++)
-			events.Add(await SeedEventAsync(factory, ownerId, $"Konzert {i}", published: true));
+			events.Add(await SeedEventAsync(factory, ownerId, $"Konzert {i}"));
 		var session = await SignInAsync(factory, MemberA);
 		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
 		provider.Request = "[" + string.Join(",", events.Select(id => $$"""{"komponente":"AuftrittKarte","auftrittId":"{{id}}"}""")
@@ -579,7 +579,7 @@ public sealed partial class ChatApiTests
 			"{\"version\":\"v0.9\",\"updateComponents\":{\"surfaceId\":\"" + s.SurfaceId + "\",\"components\":[" + s.ComponentJson + "]}}",
 		})) + "]";
 
-	private static async Task<Guid> SeedEventAsync(AuthApiFactory factory, Guid ownerId, string title, bool published)
+	private static async Task<Guid> SeedEventAsync(AuthApiFactory factory, Guid ownerId, string title)
 	{
 		await using var scope = factory.Services.CreateAsyncScope();
 		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
@@ -591,8 +591,6 @@ public sealed partial class ChatApiTests
 			Venue = "Festsaal",
 			DateYear = 1932,
 			DateMonth = 5,
-			PublishedAt = published ? now : null,
-			PublishedByAccountId = published ? ownerId : null,
 			CreatedAt = now,
 			CreatedByAccountId = ownerId,
 			UpdatedAt = now,

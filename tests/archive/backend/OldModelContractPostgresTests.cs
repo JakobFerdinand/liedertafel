@@ -14,7 +14,7 @@ namespace Archive.Backend.Tests;
 /// #172 contract step on real PostgreSQL: the database is migrated to the last
 /// migration before the drop, seeded with accounts, a passkey and the old
 /// catalogue (songs, assets, revisions, Auftritt rows that only know a song)
-/// beside rows of the new model, and then migrated to head. The accounts and
+/// beside rows of the new model, and then migrated to the drop. The accounts and
 /// the new model must survive untouched; the old tables, the old columns and
 /// every row that only made sense through them must be gone.
 /// Skipped without <c>ARCHIVE_TEST_POSTGRES</c>.
@@ -22,6 +22,9 @@ namespace Archive.Backend.Tests;
 public sealed class OldModelContractPostgresTests(ITestOutputHelper output)
 {
 	private const string PreviousMigration = "20261017185113_AuftrittDateien";
+
+	/// <summary>The migration under test; later migrations (like the Programm simplification) have their own tests.</summary>
+	private const string TargetMigration = "20261017232616_DropOldCatalogue";
 
 	private static readonly string[] OldTables =
 	[
@@ -63,7 +66,7 @@ public sealed class OldModelContractPostgresTests(ITestOutputHelper output)
 				await seed.ExecuteNonQueryAsync();
 
 			await using (var scope = provider.CreateAsyncScope())
-				await scope.ServiceProvider.GetRequiredService<ArchiveDbContext>().Database.MigrateAsync();
+				await scope.ServiceProvider.GetRequiredService<ArchiveDbContext>().GetService<IMigrator>().MigrateAsync(TargetMigration);
 
 			// Accounts, roles and the passkey are untouched.
 			Assert.Equal(1, await Count(raw, "\"AspNetUsers\""));

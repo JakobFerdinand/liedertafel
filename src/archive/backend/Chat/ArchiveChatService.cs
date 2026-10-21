@@ -100,9 +100,9 @@ public sealed class ArchiveChatService(
 		  bei Nachfrage diese Seite. Bei limitReached bitte um eine gezieltere Suche, statt Vollständigkeit zu behaupten.
 		  totalCount zählt nur veröffentlichte Treffer; eine leere spätere Seite bedeutet nicht, dass das Archiv leer ist.
 		- Für Fragen zu einem einzelnen Lied (Besetzung, Tonart, Text, vorhandene Dateien) und dazu, wann oder
-		  bei welchen Auftritten es gesungen wurde, rufe lied_details auf. gesungen nennt Auftritte mit
-		  nachweis bestaetigt (belegt gesungen) oder erwaehnt (nur erwähnt); geplant nennt veröffentlichte Programme,
-		  deren Ablauf noch nicht bestätigt ist. Trenne beides klar und nenne Auftritt und Datum aus dem Ergebnis.
+		  bei welchen Auftritten es gesungen wurde, rufe lied_details auf. gesungen nennt vergangene Auftritte,
+		  in deren Programm das Lied steht oder zu denen eine Aufnahme gehört; geplant nennt kommende Auftritte mit
+		  dem Lied im Programm. Trenne beides klar und nenne Auftritt und Datum aus dem Ergebnis.
 		  Sind beide Listen leer, sage, dass im Archiv kein Auftritt verzeichnet ist.
 		- Belege Aussagen über einzelne Lieder mit [Quelle: Titel], wobei Titel exakt aus einem Werkzeugergebnis
 		  dieses Laufs stammen muss. Das gilt auch für Listen und Aufzählungen, etwa die Lieder eines Komponisten:

@@ -115,7 +115,7 @@ public static class DateiEndpoints
 			// ticket (publication and download switch), editors may also fetch
 			// the preserved original here.
 			if (datei.Event is not null && !LiedAccess.IsEditor(decision!)
-				&& (datei.Kind == DateiKinds.Aufnahme || !EventVisibility.IsMemberVisible(datei.Event)))
+				&& datei.Kind == DateiKinds.Aufnahme)
 				return Results.Problem(statusCode: 404, title: DateiUploads.DateiNotFoundMessage);
 			var lifetime = options.Value.ReadTicketLifetime;
 			string viewUrl;

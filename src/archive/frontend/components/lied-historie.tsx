@@ -9,20 +9,19 @@ import {
   type HistorieZeile,
 } from "@/lib/historie";
 
-// ARC-031: wo ein Lied dokumentiert ist. Bestätigte Aufführungen und
-// unbestätigte Programmangaben stehen getrennt, die Zahlen sind als
-// „nach erfasster Überlieferung“ gekennzeichnet (keine Chronik von 120
-// Jahren), unsichere Daten und mögliche
-// Doppelerfassungen bleiben sichtbar statt geglättet.
+// Wann ein Lied gesungen wurde (#160): je Auftritt eine Zeile, abgeleitet
+// aus den Programmen und aus Aufnahmen des Liedes, die einen Auftritt
+// nennen. Die Zahlen sind als „nach erfasster Überlieferung“ gekennzeichnet
+// (keine Chronik von 120 Jahren), unsichere Daten bleiben sichtbar statt
+// geglättet.
 
 type ErweiterungsPlatz = (zeile: HistorieZeile) => ReactNode;
 
 type LiedHistorieProps = {
   liedId: string;
-  isEditor: boolean;
-  // Erweiterungsplatz je Aufführung (Schlüssel: stabile Aufführungs-Id):
-  // ARC-032 hängt hier Aufnahmen und Passagen ein. Ohne Angabe bleibt der
-  // Platz unsichtbar — kein erfundener „keine Aufnahmen“-Zustand.
+  // Erweiterungsplatz je Auftritt: hier hängen die Aufnahmen mit Zeitmarken
+  // ein. Ohne Angabe bleibt der Platz unsichtbar — kein erfundener
+  // „keine Aufnahmen“-Zustand.
   erweiterung?: ErweiterungsPlatz;
 };
 
@@ -34,74 +33,33 @@ function auftrittUrl(zeile: HistorieZeile): string {
   return `/auftritt/?id=${encodeURIComponent(zeile.eventId)}`;
 }
 
-// Herkunft der Zeile: „Im Programm bestätigt“ gilt nur für bestätigte
-// Zeilen; eine zur Programmangabe herabgestufte Programmzeile bleibt
-// neutral („Aus dem Programm“) und liest sich nie als bestätigt.
-function herkunftText(zeile: HistorieZeile): string {
-  if (zeile.origin === "programme") {
-    return zeile.evidenceStatus === "confirmed"
-      ? "Im Programm bestätigt"
-      : "Aus dem Programm";
-  }
-  return "Aus Archivquelle erfasst";
-}
-
 function Zahlen({ historie }: { historie: HistorieAntwort }) {
-  const { confirmed, unconfirmed } = historie.counts;
-  const leer = confirmed.occurrences === 0 && unconfirmed.occurrences === 0;
+  const { events, inProgramme, uncertainDates } = historie.counts;
   return (
     <div className="historie-zahlen">
       <p className="noten-info historie-vorbehalt">
         Die Zahlen beruhen nur auf dem, was das Archiv bisher dokumentiert hat.
-        Sie sind keine vollständige Chronik der Aufführungen.
+        Sie sind keine vollständige Chronik der Auftritte.
       </p>
-      {leer ? (
+      {events === 0 ? (
         <p className="auftritt-leer">
-          Für dieses Lied sind noch keine Aufführungen oder Programmangaben
-          erfasst. Das heißt nicht, dass es nie gesungen wurde.
+          Für dieses Lied ist noch kein Auftritt erfasst. Das heißt nicht, dass
+          es nie gesungen wurde.
         </p>
       ) : (
         <dl className="historie-summen">
           <div>
-            <dt>Bestätigt</dt>
-            <dd>
-              {anzahl(confirmed.occurrences, "Aufführung", "Aufführungen")} bei{" "}
-              {anzahl(confirmed.events, "Auftritt", "Auftritten")}
-            </dd>
-            {confirmed.possiblyDuplicate > 0 && (
+            <dt>Gesungen</dt>
+            <dd>{anzahl(events, "Auftritt", "Auftritte")}</dd>
+            {inProgramme < events && (
               <dd className="noten-info historie-zusatz">
-                Davon {confirmed.possiblyDuplicate} möglicherweise doppelt
-                erfasst: von Hand eingetragen neben einer Programmbestätigung am
-                selben Auftritt. Die Zahl ist eine Obergrenze.
+                Bei {anzahl(events - inProgramme, "Auftritt", "Auftritten")}{" "}
+                steht das Lied nicht im Programm, es gibt aber eine Aufnahme.
               </dd>
             )}
-            {confirmed.uncertainDates > 0 && (
+            {uncertainDates > 0 && (
               <dd className="noten-info historie-zusatz">
-                Bei {confirmed.uncertainDates} ist das Datum unsicher oder
-                unbekannt.
-              </dd>
-            )}
-          </div>
-          <div>
-            <dt>Unbestätigt</dt>
-            <dd>
-              {anzahl(
-                unconfirmed.occurrences,
-                "Programmangabe",
-                "Programmangaben",
-              )}{" "}
-              bei {anzahl(unconfirmed.events, "Auftritt", "Auftritten")}
-            </dd>
-            {unconfirmed.onlyEvents > 0 && (
-              <dd className="noten-info historie-zusatz">
-                An {anzahl(unconfirmed.onlyEvents, "Auftritt", "Auftritten")}{" "}
-                liegt nur eine Programmangabe vor, ohne bestätigte Aufführung.
-              </dd>
-            )}
-            {unconfirmed.uncertainDates > 0 && (
-              <dd className="noten-info historie-zusatz">
-                Bei {unconfirmed.uncertainDates} ist das Datum unsicher oder
-                unbekannt.
+                Bei {uncertainDates} ist das Datum unsicher oder unbekannt.
               </dd>
             )}
           </div>
@@ -113,17 +71,14 @@ function Zahlen({ historie }: { historie: HistorieAntwort }) {
 
 function Eintrag({
   zeile,
-  isEditor,
   erweiterung,
 }: {
   zeile: HistorieZeile;
-  isEditor: boolean;
   erweiterung?: ErweiterungsPlatz;
 }) {
-  const bestaetigt = zeile.evidenceStatus === "confirmed";
   const platz = erweiterung?.(zeile);
   return (
-    <li className="historie-eintrag" data-performance-id={zeile.id}>
+    <li className="historie-eintrag" data-event-id={zeile.eventId}>
       <h4 className="historie-titel">
         <Link href={auftrittUrl(zeile)}>{zeile.eventTitle}</Link>
       </h4>
@@ -133,66 +88,35 @@ function Eintrag({
           <span className="datum-unsicher">Datum unsicher</span>
         )}
       </p>
-      <p className="nachweis-info">
-        <span className="nachweis-marke" data-art={zeile.evidenceStatus}>
-          {bestaetigt ? "Bestätigt" : "Programmangabe"}
-        </span>
-        {" · "}
+      <p className="historie-meta">
         {auftrittArtName(zeile.eventKind)}
         {" · "}
-        {herkunftText(zeile)}
+        {zeile.inProgramme
+          ? zeile.entries > 1
+            ? `${zeile.entries}-mal im Programm`
+            : "Im Programm"
+          : "Nicht im Programm, aber aufgenommen"}
       </p>
-      {zeile.possiblyDuplicateAtEvent && zeile.occurrence ? (
-        <p className="noten-info historie-hinweis">
-          {anzahl(
-            zeile.occurrence.of,
-            "bestätigter Eintrag",
-            "bestätigte Einträge",
-          )}{" "}
-          an diesem Auftritt – möglicherweise doppelt erfasst.
-        </p>
-      ) : (
-        zeile.occurrence &&
-        zeile.occurrence.of > 1 && (
-          <p className="noten-info historie-hinweis">
-            Mehrmals an diesem Auftritt gesungen: Aufführung{" "}
-            {zeile.occurrence.index} von {zeile.occurrence.of}.
-          </p>
-        )
-      )}
-      {zeile.possiblyDuplicate && (
-        <p className="noten-info historie-hinweis" data-art="warnung">
-          Möglicherweise dieselbe Aufführung wie ein im Programm bestätigter
-          Eintrag an diesem Auftritt, doppelt erfasst.
-        </p>
-      )}
-      {zeile.alsoConfirmedAtEvent && (
-        <p className="noten-info historie-hinweis">
-          An diesem Auftritt ist das Lied bestätigt; die Programmangabe gehört
-          vermutlich zur selben Aufführung.
-        </p>
-      )}
-      {isEditor && !zeile.eventPublished && (
-        <p className="noten-info historie-hinweis">
-          Auftritt noch nicht veröffentlicht, in keiner Zahl enthalten.
-        </p>
-      )}
-      {isEditor && zeile.sourceNote && (
-        <p className="noten-info">Quellenangabe: {zeile.sourceNote}</p>
+      {zeile.liedAufnahmen.length > 0 && (
+        <ul className="historie-aufnahmen" aria-label="Aufnahmen des Liedes">
+          {zeile.liedAufnahmen.map((aufnahme) => (
+            <li className="historie-aufnahme" key={aufnahme.id}>
+              <span>
+                Aufnahme „
+                {aufnahme.description ?? aufnahme.fileName ?? "ohne Namen"}“
+              </span>
+            </li>
+          ))}
+        </ul>
       )}
       {platz && <div className="historie-erweiterung">{platz}</div>}
     </li>
   );
 }
 
-export function LiedHistorie({
-  liedId,
-  isEditor,
-  erweiterung,
-}: LiedHistorieProps) {
+export function LiedHistorie({ liedId, erweiterung }: LiedHistorieProps) {
   const kennung = useId();
   const [seite, setSeite] = useState(1);
-  const [evidenz, setEvidenz] = useState("");
   const [versuch, setVersuch] = useState(0);
   const [historie, setHistorie] = useState<HistorieAntwort | null>(null);
   const [fehler, setFehler] = useState("");
@@ -204,7 +128,7 @@ export function LiedHistorie({
     void versuch;
     setFehler("");
     setLaedt(true);
-    fetchLiedHistorie(liedId, { page: seite, evidence: evidenz }, abort.signal)
+    fetchLiedHistorie(liedId, { page: seite }, abort.signal)
       .then((stand) => {
         if (abort.signal.aborted) return;
         setHistorie(stand);
@@ -221,28 +145,22 @@ export function LiedHistorie({
           return;
         }
         setFehler(
-          "Die Aufführungsgeschichte konnte nicht geladen werden. Bitte erneut versuchen.",
+          "Die Liedgeschichte konnte nicht geladen werden. Bitte erneut versuchen.",
         );
       });
     return () => abort.abort();
-  }, [liedId, seite, evidenz, versuch]);
-
-  function filterAendern(setzen: (wert: string) => void, wert: string) {
-    setzen(wert);
-    setSeite(1);
-  }
+  }, [liedId, seite, versuch]);
 
   const seitenZahl = historie
     ? Math.max(1, Math.ceil(historie.total / historie.pageSize))
     : 1;
-  const filterAktiv = evidenz !== "";
 
   return (
     <section
       className="noten-bereich lied-historie"
       aria-labelledby={`${kennung}-titel`}
     >
-      <h3 id={`${kennung}-titel`}>Aufführungsgeschichte</h3>
+      <h3 id={`${kennung}-titel`}>Wann gesungen</h3>
       {fehler ? (
         <div role="alert">
           <p className="feld-fehler">{fehler}</p>
@@ -256,66 +174,26 @@ export function LiedHistorie({
         </div>
       ) : historie === null ? (
         <p className="auftritt-leer" aria-live="polite">
-          Aufführungsgeschichte wird geladen …
+          Liedgeschichte wird geladen …
         </p>
       ) : (
         <>
           <Zahlen historie={historie} />
-          {(historie.total > 0 || filterAktiv) && (
-            <form
-              className="historie-filter"
-              aria-label="Geschichte eingrenzen"
-              onSubmit={(event) => event.preventDefault()}
-            >
-              <div>
-                <label htmlFor={`${kennung}-evidenz`}>Nachweis</label>
-                <select
-                  id={`${kennung}-evidenz`}
-                  value={evidenz}
-                  onChange={(event) =>
-                    filterAendern(setEvidenz, event.target.value)
-                  }
-                >
-                  <option value="">Alle Nachweise</option>
-                  <option value="confirmed">Bestätigte Aufführungen</option>
-                  <option value="mention">Programmangaben</option>
-                </select>
-              </div>
-            </form>
-          )}
           <output className="visually-hidden">
-            {anzahl(historie.total, "Eintrag", "Einträge")} in dieser Auswahl
+            {anzahl(historie.total, "Eintrag", "Einträge")}
           </output>
-          {isEditor && (historie.counts.draftEventOccurrences ?? 0) > 0 && (
-            <p className="noten-info historie-zusatz">
-              {anzahl(
-                historie.counts.draftEventOccurrences ?? 0,
-                "Eintrag gehört",
-                "Einträge gehören",
-              )}{" "}
-              zu unveröffentlichten Auftritten und{" "}
-              {historie.counts.draftEventOccurrences === 1 ? "ist" : "sind"} in
-              keiner Zahl mitgezählt. Die Liste kann sie enthalten.
-            </p>
-          )}
           <div className="historie-bereich" aria-busy={laedt}>
             {laedt && (
               <output className="noten-info historie-laedt">
                 Wird aktualisiert …
               </output>
             )}
-            {historie.total === 0 && filterAktiv && (
-              <p className="auftritt-leer" aria-live="polite">
-                Für diese Auswahl gibt es keine Einträge.
-              </p>
-            )}
-            {historie.performances.length > 0 && (
+            {historie.auftritte.length > 0 && (
               <ul className="historie-liste">
-                {historie.performances.map((zeile) => (
+                {historie.auftritte.map((zeile) => (
                   <Eintrag
-                    key={zeile.id}
+                    key={zeile.eventId}
                     zeile={zeile}
-                    isEditor={isEditor}
                     erweiterung={erweiterung}
                   />
                 ))}

@@ -14,9 +14,8 @@ namespace Archive.Backend.Chat;
 /// The chat tool allow-list: authorized retrieval functions only, built per
 /// request so the delegates capture the scoped <see cref="ArchiveDbContext"/>.
 /// Authorization is enforced INSIDE every tool: every saved Lied is visible to
-/// a member (ADR-0001), but a Lied's history only names performances and
-/// planned appearances at member-visible (published) Auftritte, so drafts can
-/// never reach the model or the thread content. No editing tools, no web
+/// a member (ADR-0001), but a Lied's history only names the Auftritte it was sung at and
+/// planned appearances. No editing tools, no web
 /// access.
 /// </summary>
 public static class CatalogueTools
@@ -56,9 +55,9 @@ public static class CatalogueTools
 			async ([Description("ID des gesuchten Liedes aus dem Liedverzeichnis.")] string liedId) => await DetailsAsync(db, liedId),
 			name: DetailsToolName,
 			description: "Liest ein einzelnes Lied aus dem Verzeichnis mit seinen Angaben (Besetzung, Tonart, Sprache, Anlass), "
-				+ "den vorhandenen Dateien und seiner Aufführungsgeschichte: gesungen nennt die Auftritte, bei denen das Lied "
-				+ "belegt gesungen wurde (nachweis bestaetigt) oder nur erwähnt ist (nachweis erwaehnt); geplant nennt "
-				+ "veröffentlichte Programme, in denen das Lied steht und deren Ablauf noch nicht bestätigt ist.");
+				+ "den vorhandenen Dateien und seiner Aufführungsgeschichte: gesungen nennt die vergangenen Auftritte, in deren "
+				+ "Programm das Lied steht oder zu denen eine Aufnahme des Liedes gehört; geplant nennt kommende Auftritte, "
+				+ "in deren Programm das Lied steht.");
 
 	private static async Task<string> SearchAsync(ArchiveDbContext db, string query, int page, CancellationToken token)
 	{
@@ -138,7 +137,7 @@ public static class CatalogueTools
 			join e in db.ExtractionJobs.AsNoTracking() on d.Id equals e.DateiId into texts
 			from e in texts.DefaultIfEmpty()
 			orderby d.Kind, d.Id
-			select new { d.Kind, d.IsPartitur, d.Stimme, d.Description, e.Status, e.Text })
+			select new { d.Kind, d.IsPartitur, d.Stimme, d.Description, Status = e == null ? (ExtractionStatus?)null : e.Status, Text = e == null ? null : e.Text })
 			.ToListAsync();
 		// Noten text read from the Dateien (#169): bounded per Datei and per
 		// Lied, and identical text (the same lyrics in every Stimme) goes out once.
@@ -182,54 +181,25 @@ public static class CatalogueTools
 
 	/// <summary>
 	/// Where the Lied was sung or is planned, from member-visible Auftritte
-	/// only (published events), newest first and bounded. Source notes and
-	/// editor attribution never leave this method.
+	/// only (published events), newest first and bounded. The Programm is the
+	/// record of what was sung; a Lied-Aufnahme naming an Auftritt also counts
+	/// as sung there. An Auftritt with an unknown date counts as past.
 	/// </summary>
 	private static async Task<(List<object> Gesungen, List<object> Geplant)> HistoryAsync(ArchiveDbContext db, Guid liedId)
 	{
-		var sung = await db.Performances.AsNoTracking()
-			.Where(p => p.LiedId == liedId && p.Event.PublishedAt != null)
-			.Select(p => new SungRow(p.Event.Title, p.Event.Kind, p.Event.Venue,
-				p.Event.DateYear, p.Event.DateMonth, p.Event.DateDay, p.Event.DateApproximate, p.EvidenceStatus))
-			.ToListAsync();
-		sung.Sort((a, b) => EventDate.CompareNewestFirst(a.DateYear, a.DateMonth, a.DateDay, b.DateYear, b.DateMonth, b.DateDay));
-		var gesungen = sung
-			.Take(MaxHistoryEntries)
-			.Select(p => (object)new
-			{
-				auftritt = p.Title,
-				art = p.Kind,
-				ort = p.Venue,
-				datum = EventDate.Display(p.DateYear, p.DateMonth, p.DateDay, p.DateApproximate),
-				nachweis = p.EvidenceStatus == PerformanceEvidenceStatus.Confirmed ? "bestaetigt" : "erwaehnt",
-			})
-			.ToList();
-
-		// Planned: the newest published revision of a published event's
-		// programme names the Lied and no confirmation states what was sung.
-		var programmes = await db.Programmes.AsNoTracking()
-			.Where(p => p.Event.PublishedAt != null)
-			.Include(p => p.Event)
-			.Include(p => p.Revisions).ThenInclude(r => r.Items)
-			.ToListAsync();
-		var confirmed = (await db.ProgrammeConfirmations.AsNoTracking()
-			.Select(c => c.ProgrammeId).ToListAsync()).ToHashSet();
-		var planned = programmes
-			.Where(p => !confirmed.Contains(p.Id)
-				&& ProgrammeVisibility.NewestPublished(p) is { } newest
-				&& newest.Items.Any(i => i.LiedId == liedId))
-			.OrderBy(p => p, Comparer<EventProgramme>.Create((a, b) => EventDate.CompareNewestFirst(
-				a.Event.DateYear, a.Event.DateMonth, a.Event.DateDay, b.Event.DateYear, b.Event.DateMonth, b.Event.DateDay)))
-			.Take(MaxHistoryEntries)
-			.Select(p => (object)new
-			{
-				auftritt = p.Event.Title,
-				art = p.Event.Kind,
-				ort = p.Event.Venue,
-				datum = EventDate.Display(p.Event.DateYear, p.Event.DateMonth, p.Event.DateDay, p.Event.DateApproximate),
-			})
-			.ToList();
-		return (gesungen, planned);
+		var events = await LiedAppearances.LoadAsync(db, liedId, CancellationToken.None);
+		events.Sort((a, b) => EventDate.CompareNewestFirst(a.DateYear, a.DateMonth, a.DateDay, b.DateYear, b.DateMonth, b.DateDay));
+		var today = EventDate.ViennaToday(DateTimeOffset.UtcNow);
+		static object Entry(LiedAppearance e) => new
+		{
+			auftritt = e.Title,
+			art = e.Kind,
+			ort = e.Venue,
+			datum = EventDate.Display(e.DateYear, e.DateMonth, e.DateDay, e.DateApproximate),
+		};
+		var gesungen = events.Where(e => !LiedAppearances.IsPlanned(e, today)).Take(MaxHistoryEntries).Select(Entry).ToList();
+		var geplant = events.Where(e => LiedAppearances.IsPlanned(e, today)).Take(MaxHistoryEntries).Select(Entry).ToList();
+		return (gesungen, geplant);
 	}
 
 	private static string SerializeSearch(IEnumerable<SearchRow> lieder, int page, int totalCount) => JsonSerializer.Serialize(new
@@ -254,9 +224,6 @@ public static class CatalogueTools
 				? (l.Lyrics.Length > ExcerptChars ? l.Lyrics[..ExcerptChars] : l.Lyrics)
 				: null,
 		});
-
-	private sealed record SungRow(string Title, string Kind, string? Venue,
-		int? DateYear, int? DateMonth, int? DateDay, bool DateApproximate, string EvidenceStatus);
 
 	private sealed record SearchRow(Guid Id, string Title, string? Composer, string? Arranger, string? Lyricist, string? Lyrics);
 }

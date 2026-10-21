@@ -4,14 +4,13 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { AuftrittAufnahmen } from "@/components/auftritt-aufnahmen";
-import { AuftrittBelege } from "@/components/auftritt-belege";
-import { AuftrittBestaetigung } from "@/components/auftritt-bestaetigung";
 import { AuftrittDokumente } from "@/components/auftritt-dokumente";
 import { AuftrittFormular } from "@/components/auftritt-formular";
+import { AuftrittLiedAufnahmen } from "@/components/auftritt-lied-aufnahmen";
 import { AuftrittProgramm } from "@/components/auftritt-programm";
-import { fetchMe, type MeResponse, postAuth } from "@/lib/auth";
+import { fetchMe, type MeResponse } from "@/lib/auth";
 import {
-  type AuftrittDetails,
+  type AuftrittDetailsMitProgramm,
   auftrittArtName,
   fetchEvent,
 } from "@/lib/events";
@@ -29,12 +28,13 @@ export function AuftrittDetail() {
   const startSekunden =
     Number.isFinite(zeitWert) && zeitWert >= 0 ? zeitWert : null;
   const [me, setMe] = useState<MeResponse | null>(null);
-  const [auftritt, setAuftritt] = useState<AuftrittDetails | null>(null);
+  const [auftritt, setAuftritt] = useState<AuftrittDetailsMitProgramm | null>(
+    null,
+  );
   const [nichtGefunden, setNichtGefunden] = useState(false);
   const [fehler, setFehler] = useState("");
   const [hinweis, setHinweis] = useState("");
   const [erfolg, setErfolg] = useState("");
-  const [aktionBusy, setAktionBusy] = useState("");
   const [bearbeitet, setBearbeitet] = useState(false);
   const [versuch, setVersuch] = useState(0);
 
@@ -87,30 +87,6 @@ export function AuftrittDetail() {
     });
     return () => abort.abort();
   }, [laden, versuch]);
-
-  async function veroeffentlichen(pfad: string, meldung: string) {
-    setHinweis("");
-    setErfolg("");
-    setAktionBusy(pfad);
-    try {
-      const response = await postAuth(pfad, {});
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        setHinweis(
-          payload?.title ?? "Das hat nicht geklappt. Bitte erneut versuchen.",
-        );
-        return;
-      }
-      if (payload?.event) setAuftritt(payload.event);
-      setErfolg(meldung);
-    } catch {
-      setHinweis(
-        "Sicherheitstoken konnte nicht geladen werden. Seite neu laden.",
-      );
-    } finally {
-      setAktionBusy("");
-    }
-  }
 
   // Nach Material-Änderungen kommt der Auftritt frisch; dieselben Zustände
   // wie beim ersten Laden (nicht gefunden / abgemeldet / Störung).
@@ -166,8 +142,7 @@ export function AuftrittDetail() {
       <div aria-live="polite">
         <h1>Auftritt nicht gefunden</h1>
         <p className="hinweis-block">
-          Der Auftritt wurde nicht gefunden. Er ist entweder nicht
-          veröffentlicht oder die Adresse ist nicht mehr gültig.
+          Der Auftritt wurde nicht gefunden. Die Adresse ist nicht mehr gültig.
         </p>
         <p>
           <Link href="/auftritte/">Zum Auftrittsverzeichnis</Link>
@@ -191,11 +166,6 @@ export function AuftrittDetail() {
     <div className="auftritt-detail">
       <article className="auftritt-ansicht">
         <h1>{auftritt.title}</h1>
-        {editor && (
-          <p className="lieder-status">
-            {auftritt.published ? "Veröffentlicht" : "Entwurf"}
-          </p>
-        )}
         <p className="auftritte-art">{auftrittArtName(auftritt.kind)}</p>
         <p className="auftritt-datum">
           {auftritt.dateDisplay}
@@ -216,42 +186,10 @@ export function AuftrittDetail() {
               className="knopf-leise"
               aria-expanded={bearbeitet}
               aria-controls="auftritt-bearbeiten-formular"
-              disabled={aktionBusy !== ""}
               onClick={() => setBearbeitet(!bearbeitet)}
             >
               {bearbeitet ? "Bearbeiten schließen" : "Bearbeiten"}
             </button>
-            {auftritt.published ? (
-              <button
-                type="button"
-                disabled={aktionBusy !== ""}
-                onClick={() =>
-                  veroeffentlichen(
-                    `/api/events/${encodeURIComponent(auftritt.id)}/unpublish`,
-                    "Auftritt zurückgezogen. Er ist für Mitglieder nicht mehr sichtbar.",
-                  )
-                }
-              >
-                {aktionBusy !== ""
-                  ? "Wird zurückgezogen …"
-                  : "Veröffentlichung zurückziehen"}
-              </button>
-            ) : (
-              <button
-                type="button"
-                disabled={aktionBusy !== ""}
-                onClick={() =>
-                  veroeffentlichen(
-                    `/api/events/${encodeURIComponent(auftritt.id)}/publish`,
-                    "Auftritt veröffentlicht. Mitglieder sehen ihn ab sofort.",
-                  )
-                }
-              >
-                {aktionBusy !== ""
-                  ? "Wird veröffentlicht …"
-                  : "Veröffentlichen"}
-              </button>
-            )}
           </div>
           <div
             id="auftritt-bearbeiten-formular"
@@ -306,22 +244,11 @@ export function AuftrittDetail() {
         </section>
       )}
 
-      {/* Ganze Aufnahmen stehen in AuftrittAufnahmen (ARC-030), Zeitmarken
-          zu einzelnen Liedern folgen (ARC-032); das Programm liest sich über
-          AuftrittProgramm (ARC-026), das tatsächlich Gesungene über
-          AuftrittBestaetigung (ARC-029), die Nachweise über
-          AuftrittBelege (ARC-028). */}
+      {/* Das eine Programm (es hält zugleich fest, was gesungen wurde) liest
+          und bearbeitet sich über AuftrittProgramm; ganze Aufnahmen mit
+          Zeitmarken stehen in AuftrittAufnahmen, Aufnahmen einzelner Lieder,
+          die diesen Auftritt nennen, in AuftrittLiedAufnahmen. */}
       <AuftrittProgramm
-        auftritt={auftritt}
-        isEditor={editor === true}
-        aktualisieren={aktualisieren}
-      />
-      <AuftrittBestaetigung
-        auftritt={auftritt}
-        isEditor={editor === true}
-        aktualisieren={aktualisieren}
-      />
-      <AuftrittBelege
         auftritt={auftritt}
         isEditor={editor === true}
         aktualisieren={aktualisieren}
@@ -331,6 +258,7 @@ export function AuftrittDetail() {
         isEditor={editor === true}
         aktualisieren={aktualisieren}
       />
+      <AuftrittLiedAufnahmen aufnahmen={auftritt.liedAufnahmen ?? []} />
       <AuftrittAufnahmen
         auftrittId={auftritt.id}
         isEditor={editor === true}

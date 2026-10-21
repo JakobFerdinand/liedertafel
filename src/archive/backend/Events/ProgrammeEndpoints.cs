@@ -1,11 +1,15 @@
 using Archive.Backend.Auth;
 using Archive.Backend.Data;
+using Archive.Backend.Recordings;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.EntityFrameworkCore;
 
 namespace Archive.Backend.Events;
 
-public sealed record SaveProgrammeItemsRequest(List<ProgrammeItemRequest>? Items, uint RowVersion);
+/// <summary>
+/// The full ordered Programm; <c>RowVersion</c> is required once a programme exists.
+/// </summary>
+public sealed record SaveProgrammeItemsRequest(List<ProgrammeItemRequest>? Items, uint? RowVersion);
 
 /// <summary>
 /// One requested programme entry; the array order defines the position. An
@@ -13,27 +17,17 @@ public sealed record SaveProgrammeItemsRequest(List<ProgrammeItemRequest>? Items
 /// </summary>
 public sealed record ProgrammeItemRequest(Guid? Id, Guid? LiedId, string? Note);
 
-public sealed record PublishProgrammeRequest(uint RowVersion);
-
 /// <summary>
-/// Programme API (ARC-026/027): editors order Lieder for an event's
-/// appearance and explicitly publish the revision members should follow.
-/// ARC-027 surfaces the frozen published-revision history to editors and
-/// guards publishing against an outdated base revision. Reads use the
-/// shared database decision: members see only the newest published revision
-/// of a member-visible event (see <see cref="ProgrammeVisibility"/> and
-/// <see cref="EventVisibility"/>), editors/administrators also the working
-/// draft. All mutations require the Editor or Administrator role from that
-/// decision, CSRF and antiforgery validation; members receive 403 and
-/// unauthenticated or revoked callers receive 401.
+/// Programm API (#160): an Auftritt has one editable Programm, which is also
+/// the record of what was sung. Saving the full ordered list publishes it;
+/// there are no revisions, drafts or confirmation, and a saved Auftritt is
+/// visible to every member. Mutations require the
+/// Editor or Administrator role, CSRF and antiforgery validation; members
+/// receive 403 and unauthenticated or revoked callers receive 401.
 /// </summary>
 public static class ProgrammeEndpoints
 {
-	public const string ConcurrencyMessage = "Der Programmentwurf wurde zwischenzeitlich geändert.";
-
-	public const string AlreadyPublishedMessage = "Das Programm wurde bereits veröffentlicht.";
-
-	public const string EmptyProgrammeMessage = "Das Programm enthält keine Lieder.";
+	public const string ConcurrencyMessage = "Das Programm wurde zwischenzeitlich geändert.";
 
 	public const string MissingLiedMessage = "Ein Programmpunkt verweist auf ein nicht vorhandenes Lied.";
 
@@ -41,7 +35,7 @@ public static class ProgrammeEndpoints
 
 	public const string InvalidItemMessage = "Ein Programmpunkt ist ungültig.";
 
-	/// <summary>Field maximum for the per-entry note (ARC-026 schema).</summary>
+	/// <summary>Field maximum for the per-entry note.</summary>
 	public const int NoteMaxLength = 500;
 
 	public static void MapProgrammeEndpoints(this WebApplication app)
@@ -65,7 +59,7 @@ public static class ProgrammeEndpoints
 			if (choirEvent is null)
 				return Results.Problem(statusCode: 404, title: EventEndpoints.NotFoundMessage);
 			var programme = await db.Programmes
-				.Include(p => p.Revisions).ThenInclude(r => r.Items)
+				.Include(p => p.Items)
 				.FirstOrDefaultAsync(p => p.EventId == eventId, token);
 			// Stale edits answer before any validation or write: the client
 			// must reload the fresh state and redo the change.
@@ -79,8 +73,7 @@ public static class ProgrammeEndpoints
 			var now = time.GetUtcNow();
 			if (programme is null)
 			{
-				// The first save creates the programme and its first draft
-				// revision implicitly; rowVersion is ignored on creation.
+				// The first save creates the programme; rowVersion is ignored then.
 				programme = new EventProgramme
 				{
 					EventId = eventId,
@@ -91,45 +84,28 @@ public static class ProgrammeEndpoints
 				};
 				db.Programmes.Add(programme);
 			}
-			var working = ProgrammeVisibility.WorkingDraft(programme);
-			if (working is null)
-			{
-				// Post-publication editing: a fresh draft revision (next
-				// number) seeded empty, so published revisions stay frozen.
-				// CreatedAt (= earliest accepted publish moment) and the
-				// creator attribute here so the ARC-027 publisher can guard
-				// the base revision; the clamp keeps a backwards clock step
-				// from freezing a stale base into the draft.
-				var baseAt = ProgrammeVisibility.NewestPublished(programme)?.PublishedAt;
-				working = new ProgrammeRevision
-				{
-					ProgrammeId = programme.Id,
-					Number = programme.Revisions.Count == 0
-						? 1 : programme.Revisions.Max(r => r.Number) + 1,
-					CreatedAt = baseAt is { } publishedAt && publishedAt > now
-						? publishedAt : now,
-					CreatedByAccountId = decision!.AccountId,
-				};
-				db.ProgrammeRevisions.Add(working);
-			}
-			// Stable item IDs within one working revision: entries with a
-			// known item ID update in place, the rest are created fresh and
-			// all rows renumber 1..n per array order. The snapshot keeps the
-			// freshly added entries (EF fixes them into the collection) out
-			// of the removal pass below.
-			var existingItems = working.Items.ToList();
+			// Stable item IDs: entries with a known item ID update in place,
+			// the rest are created fresh and all rows renumber 1..n per array
+			// order. The snapshot keeps the freshly added entries (EF fixes
+			// them into the collection) out of the removal pass below.
+			var existingItems = programme.Items.ToList();
 			var matchById = existingItems.ToDictionary(i => i.Id);
 			// Entries absent from the request are removed (full replacement).
 			var requestedIds = resolved
 				.Where(i => i.RequestedId is not null)
 				.Select(i => i.RequestedId!.Value)
 				.ToHashSet();
-			foreach (var orphan in existingItems.Where(i => !requestedIds.Contains(i.Id)))
+			var orphans = existingItems.Where(i => !requestedIds.Contains(i.Id)).ToList();
+			// An entry with Zeitmarken is never removed behind the editor's
+			// back: the marks have to go first.
+			if (await RecordingPassages.BlockedMessageAsync(db, orphans.Select(i => i.Id).ToList(), token) is { } blocked)
+				return Results.Problem(statusCode: 409, title: blocked);
+			foreach (var orphan in orphans)
 				db.ProgrammeItems.Remove(orphan);
 			// Two-phase renumber: landing the final 1..n positions in one
 			// pass is a dependency cycle for the relational command batch —
 			// two swapped surviving rows each wait for the other's unique
-			// (RevisionId, Position) slot, so EF throws before any SQL runs.
+			// (ProgrammeId, Position) slot, so EF throws before any SQL runs.
 			// Phase 1 parks every entry strictly above all current positions,
 			// phase 2 lands the final order. The parking base is also raised
 			// to the requested count when it grows: otherwise phase 2's
@@ -145,7 +121,7 @@ public static class ProgrammeEndpoints
 				{
 					item = new ProgrammeItem
 					{
-						RevisionId = working.Id,
+						ProgrammeId = programme.Id,
 						LiedId = entry.LiedId,
 						Note = entry.Note,
 					};
@@ -159,8 +135,8 @@ public static class ProgrammeEndpoints
 				item.Position = ++parkedPosition;
 				touched.Add(item);
 			}
-			// Programme attribution and the concurrency bump commit with the
-			// revision/item changes in one save; the event row stays untouched.
+			// Attribution and the concurrency bump commit with the item
+			// changes in one save; the event row stays untouched.
 			programme.UpdatedAt = now;
 			programme.UpdatedByAccountId = decision!.AccountId;
 			programme.RowVersion++;
@@ -183,67 +159,7 @@ public static class ProgrammeEndpoints
 			{
 				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
 			}
-			var embed = await LoadDetailEmbedAsync(db, IsEditor(decision!), eventId, token);
-			return Results.Ok(new { programme = embed });
-		}).DisableAntiforgery();
-
-		app.MapPost("/api/events/{eventId}/programme/publish", async (
-			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
-			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time, Guid eventId, CancellationToken token,
-			PublishProgrammeRequest? body) =>
-		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await RequireEditorAsync(context, accessor, access);
-			if (error is not null)
-				return error;
-			var choirEvent = await db.Events.AsNoTracking()
-				.FirstOrDefaultAsync(e => e.Id == eventId, token);
-			if (choirEvent is null)
-				return Results.Problem(statusCode: 404, title: EventEndpoints.NotFoundMessage);
-			var programme = await db.Programmes
-				.Include(p => p.Revisions).ThenInclude(r => r.Items)
-				.FirstOrDefaultAsync(p => p.EventId == eventId, token);
-			// Without a programme (nothing saved yet) or a working draft
-			// (everything already published) there is nothing to publish;
-			// ARC-026 has no unpublish, superseding means a newer revision.
-			if (programme is null)
-				return Results.Problem(statusCode: 409, title: AlreadyPublishedMessage);
-			var working = ProgrammeVisibility.WorkingDraft(programme);
-			if (working is null)
-				return Results.Problem(statusCode: 409, title: AlreadyPublishedMessage);
-			if (body?.RowVersion != programme.RowVersion)
-				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
-			// ARC-027 stale-base guard: a working draft written before the
-			// newest publication would publish against an outdated base
-			// revision. Structurally a draft is always created after the
-			// last publication, so this is defence in depth for future
-			// paths; the client reloads and redoes the edit (same contract
-			// language as the rowVersion conflict above).
-			if (working.CreatedAt < ProgrammeRevisions.EarliestAcceptedDraftMoment(programme))
-				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
-			if (working.Items.Count == 0)
-				return Results.Problem(statusCode: 400, title: EmptyProgrammeMessage);
-			// The publication stamp and the programme bump commit together in
-			// one save. Nothing else is written: no performance records, the
-			// event row (and its own publish stamps) stays untouched — merely
-			// passing the event date never marks Lieder performed.
-			working.PublishedAt = time.GetUtcNow();
-			working.PublishedByAccountId = decision!.AccountId;
-			programme.RowVersion++;
-			try
-			{
-				await db.SaveChangesAsync(token);
-			}
-			catch (DbUpdateConcurrencyException)
-			{
-				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
-			}
-			var embed = await LoadDetailEmbedAsync(db, IsEditor(decision!), eventId, token);
+			var embed = await LoadDetailEmbedAsync(db, eventId, token);
 			return Results.Ok(new { programme = embed });
 		}).DisableAntiforgery();
 
@@ -260,23 +176,21 @@ public static class ProgrammeEndpoints
 			// (unpaginated archive scale).
 			var rows = await db.Programmes.AsNoTracking()
 				.Include(p => p.Event)
-				.Include(p => p.Revisions).ThenInclude(r => r.Items)
+				.Include(p => p.Items)
 				.ToListAsync(token);
-			var today = ViennaToday(time.GetUtcNow());
+			var today = EventDate.ViennaToday(time.GetUtcNow());
 			var upcoming = new List<ProgrammeRow>();
 			foreach (var programme in rows)
 			{
-				if (!isEditor && !EventVisibility.IsMemberVisible(programme.Event))
-					continue;
-				var published = ProgrammeVisibility.NewestPublished(programme);
-				if (published is null || !IsUpcoming(programme.Event, today))
+				if (programme.Items.Count == 0 || !EventDate.IsUpcoming(
+					programme.Event.DateYear, programme.Event.DateMonth, programme.Event.DateDay, today))
 					continue;
 				upcoming.Add(new ProgrammeRow(
 					programme.Event.Id, programme.Event.Kind, programme.Event.Title,
 					programme.Event.Venue, programme.Event.StartTime,
 					programme.Event.DateYear, programme.Event.DateMonth,
 					programme.Event.DateDay, programme.Event.DateApproximate,
-					published.PublishedAt!.Value, published.Items.Count));
+					programme.UpdatedAt, programme.Items.Count));
 			}
 			upcoming.Sort(CompareUpcoming);
 			return Results.Ok(new { programmes = upcoming.Select(ProgrammeListItem) });
@@ -284,84 +198,27 @@ public static class ProgrammeEndpoints
 	}
 
 	/// <summary>
-	/// Role-filtered programme embed for the event detail (ARC-026/027):
-	/// members receive only the newest published revision, editors
-	/// additionally the working draft and the frozen published-revision
-	/// history. When no programme exists yet, the embed is null — an
-	/// absent programme is indistinguishable from no programme, so the
-	/// frontend shows the "anlegen" affordance.
+	/// The programme embed for the event detail: the same for members and
+	/// editors (the caller has already applied the event's visibility). When no
+	/// programme exists yet, the embed is null, so the frontend shows the
+	/// "anlegen" affordance.
 	/// </summary>
 	public static async Task<object?> LoadDetailEmbedAsync(
-		ArchiveDbContext db, bool isEditor, Guid eventId, CancellationToken token)
+		ArchiveDbContext db, Guid eventId, CancellationToken token)
 	{
-		var programme = await LoadProgrammeWithChainAsync(db, eventId, token);
-		if (programme is null)
-			return null;
-		var published = ProgrammeVisibility.NewestPublished(programme);
-		var working = isEditor ? ProgrammeVisibility.WorkingDraft(programme) : null;
-		if (!isEditor && published is null)
-			return null;
-		// ARC-029: the actual programme (what was really sung) rides next to
-		// the plan so members can tell the two apart.
-		var confirmation = await ProgrammeConfirmationEndpoints.LoadEmbedAsync(
-			db, programme, published, isEditor, token);
-		return Embed(programme, working, published, isEditor, confirmation);
+		var programme = await db.Programmes.AsNoTracking()
+			.Include(p => p.Items).ThenInclude(i => i.Lied)
+			.FirstOrDefaultAsync(p => p.EventId == eventId, token);
+		return programme is null ? null : Embed(programme);
 	}
 
-	/// <summary>
-	/// The programme with every revision, its items and their Lieder, untracked — shared by the
-	/// detail embed and the ARC-029 confirmation review.
-	/// </summary>
-	internal static Task<EventProgramme?> LoadProgrammeWithChainAsync(
-		ArchiveDbContext db, Guid eventId, CancellationToken token)
-		=> db.Programmes.AsNoTracking()
-			.Include(p => p.Revisions).ThenInclude(r => r.Items)
-			.ThenInclude(i => i.Lied)
-			.FirstOrDefaultAsync(p => p.EventId == eventId, token);
-
-	private static object Embed(
-		EventProgramme programme, ProgrammeRevision? working, ProgrammeRevision? published,
-		bool isEditor, object? confirmation) => new
+	private static object Embed(EventProgramme programme) => new
 	{
 		id = programme.Id,
 		rowVersion = programme.RowVersion,
-		working = working is null ? null : WorkingEmbed(programme, working),
-		published = published is null ? null : PublishedEmbed(published),
-		// ARC-027 revision history: every frozen published revision, oldest
-		// first; the newest one rides in `published`, the working draft is
-		// excluded. Members read only the newest publication and receive
-		// null.
-		history = isEditor
-			? programme.Revisions
-				.Where(r => r.PublishedAt is not null && (published is null || r.Id != published.Id))
-				.OrderBy(r => r.Number)
-				.Select(PublishedEmbed)
-				.ToList()
-			: null,
-		confirmation,
-	};
-
-	private static object WorkingEmbed(EventProgramme programme, ProgrammeRevision revision) => new
-	{
-		id = revision.Id,
-		number = revision.Number,
-		// The working embed's updatedAt tracks the programme aggregate (it
-		// bumps on every programme edit next to rowVersion), not the frozen
-		// revision creation instant.
 		updatedAt = programme.UpdatedAt,
-		items = OrderedItems(revision),
+		items = programme.Items.OrderBy(i => i.Position).ThenBy(i => i.Id).Select(ItemEmbed).ToList(),
 	};
-
-	private static object PublishedEmbed(ProgrammeRevision revision) => new
-	{
-		id = revision.Id,
-		number = revision.Number,
-		publishedAt = revision.PublishedAt,
-		items = OrderedItems(revision),
-	};
-
-	private static IEnumerable<object> OrderedItems(ProgrammeRevision revision)
-		=> revision.Items.OrderBy(i => i.Position).ThenBy(i => i.Id).Select(ItemEmbed);
 
 	private static object ItemEmbed(ProgrammeItem item) => new
 	{
@@ -413,44 +270,6 @@ public static class ProgrammeEndpoints
 	private sealed record ResolvedItem(Guid? RequestedId, Guid LiedId, string? Note);
 
 	/// <summary>
-	/// Honest precision-aware ARC-026 "upcoming" decision: exact dates count
-	/// from today on, month precision from the current month on, year
-	/// precision from the current year on, and unknown dates always count as
-	/// upcoming (they cannot honestly be called past).
-	/// </summary>
-	private static bool IsUpcoming(ChoirEvent choirEvent, DateOnly today)
-	{
-		if (choirEvent.DateYear is not { } year)
-			return true;
-		if (year != today.Year)
-			return year > today.Year;
-		if (choirEvent.DateMonth is not { } month)
-			return true;
-		if (month != today.Month)
-			return month > today.Month;
-		if (choirEvent.DateDay is not { } day)
-			return true;
-		return day >= today.Day;
-	}
-
-	/// <summary>
-	/// The choir's calendar day (Vienna local time), falling back to UTC when
-	/// the host lacks the zone definition.
-	/// </summary>
-	internal static DateOnly ViennaToday(DateTimeOffset utcNow)
-	{
-		try
-		{
-			return DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(
-				utcNow.UtcDateTime, TimeZoneInfo.FindSystemTimeZoneById("Europe/Vienna")));
-		}
-		catch (Exception exception) when (exception is TimeZoneNotFoundException or InvalidTimeZoneException)
-		{
-			return DateOnly.FromDateTime(utcNow.UtcDateTime);
-		}
-	}
-
-	/// <summary>
 	/// Upcoming order, soonest first: known dates ascending by their known
 	/// components (coarser precision sorts first within the same year);
 	/// unknown dates sort last, by id.
@@ -485,13 +304,13 @@ public static class ProgrammeEndpoints
 		dateApproximate = row.DateApproximate,
 		venue = row.Venue,
 		startTime = row.StartTime,
-		publishedAt = row.PublishedAt,
+		updatedAt = row.UpdatedAt,
 		itemCount = row.ItemCount,
 	};
 
 	private sealed record ProgrammeRow(Guid EventId, string Kind, string Title, string? Venue,
 		string? StartTime, int? DateYear, int? DateMonth, int? DateDay, bool DateApproximate,
-		DateTimeOffset PublishedAt, int ItemCount);
+		DateTimeOffset UpdatedAt, int ItemCount);
 
 	private static bool IsEditor(ArchiveAccessDecision decision)
 		=> decision.IsAdministrator || decision.Roles.Contains(ArchiveRoles.Editor);

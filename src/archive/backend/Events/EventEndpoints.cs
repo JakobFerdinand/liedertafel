@@ -16,13 +16,11 @@ public sealed record EventDatePatch(int? Year, int? Month, int? Day, bool Approx
 
 /// <summary>
 /// Historical event API (ARC-024): the choir's "Auftritte" record. Reads use
-/// the shared database decision: an active member sees published events,
-/// editors/administrators also see drafts (see <see cref="EventVisibility"/>).
-/// All mutations require the Editor or Administrator role from that decision,
+/// the shared database decision: every active member sees every saved Auftritt
+/// (ADR-0001, there is no draft or published state). All mutations require the Editor or Administrator role from that decision,
 /// CSRF and antiforgery validation; actors and timestamps are attributed from
 /// the decision and the injected TimeProvider. Members receive 403;
-/// unauthenticated or revoked callers receive 401; drafts answer an
-/// indistinguishable 404 for members.
+/// unauthenticated or revoked callers receive 401.
 /// </summary>
 public static class EventEndpoints
 {
@@ -87,11 +85,9 @@ public static class EventEndpoints
 			// C# (unpaginated archive scale).
 			var rows = await db.Events.AsNoTracking()
 				.Select(e => new EventRow(e.Id, e.Kind, e.Title, e.Venue, e.DateYear, e.DateMonth,
-					e.DateDay, e.DateApproximate, e.StartTime, e.PublishedAt))
+					e.DateDay, e.DateApproximate, e.StartTime))
 				.ToListAsync(token);
-			var visibleEvents = rows
-				.Where(e => isEditor || e.PublishedAt is not null)
-				.ToList();
+			var visibleEvents = rows;
 			// Years navigation ignores the year/kind filters: distinct years
 			// of the whole visible set, descending, with the unknown-year
 			// group always last under year null.
@@ -127,20 +123,9 @@ public static class EventEndpoints
 			var isEditor = IsEditor(decision!);
 			var choirEvent = await db.Events.AsNoTracking()
 				.FirstOrDefaultAsync(e => e.Id == id, token);
-			if (choirEvent is null || (!isEditor && !EventVisibility.IsMemberVisible(choirEvent)))
+			if (choirEvent is null)
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
-			// ARC-025: documents/photos ride the detail payload after
-			// sourceNote; members only see finalized material, pending items
-			// expose no tickets and stay editor-only.
-			var documents = await LoadEventDocumentsAsync(db, isEditor, id, token);
-			// ARC-026: the programme embed rides the detail payload after
-			// documents, role-filtered (members: newest published revision
-			// only; editors: working draft too).
-			var programme = await ProgrammeEndpoints.LoadDetailEmbedAsync(db, isEditor, id, token);
-			// ARC-028: the evidence embed rides after programme, role-
-			// filtered (members only the minimal occurrences, never notes).
-			var performances = await PerformanceEndpoints.LoadEventPerformancesAsync(db, isEditor, id, token);
-			return Results.Ok(new { @event = EventDetail(choirEvent, documents, programme, performances) });
+			return Results.Ok(new { @event = await LoadDetailAsync(db, choirEvent, token) });
 		});
 
 		app.MapPost("/api/events", async (
@@ -224,64 +209,7 @@ public static class EventEndpoints
 				new WriteActor(decision!.AccountId, time.GetUtcNow()), automated: false, token);
 			if (!outcome.IsSaved)
 				return Results.Problem(statusCode: outcome.HttpCode, title: outcome.Title);
-			var documents = await LoadEventDocumentsAsync(db, IsEditor(decision), id, token);
-			var programme = await ProgrammeEndpoints.LoadDetailEmbedAsync(db, IsEditor(decision), id, token);
-			var performances = await PerformanceEndpoints.LoadEventPerformancesAsync(db, IsEditor(decision), id, token);
-			return Results.Ok(new { @event = EventDetail(choirEvent, documents, programme, performances) });
-		}).DisableAntiforgery();
-
-		app.MapPost("/api/events/{id}/publish", async (
-			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
-			ArchiveAccessService access, ArchiveDbContext db, CatalogueWriteService writes,
-			TimeProvider time, Guid id, CancellationToken token) =>
-		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await RequireEditorAsync(context, accessor, access);
-			if (error is not null)
-				return error;
-			var choirEvent = await db.Events.FirstOrDefaultAsync(e => e.Id == id, token);
-			if (choirEvent is null)
-				return Results.Problem(statusCode: 404, title: NotFoundMessage);
-			// Publication is never automated; the editor's endpoint keeps
-			// idempotent first-publication semantics.
-			var outcome = await writes.PublishEventAsync(choirEvent, new WriteActor(decision!.AccountId, time.GetUtcNow()), null, token);
-			if (!outcome.IsSaved)
-				return Results.Problem(statusCode: outcome.HttpCode, title: outcome.Title);
-			var publishDocuments = await LoadEventDocumentsAsync(db, IsEditor(decision!), id, token);
-			var publishProgramme = await ProgrammeEndpoints.LoadDetailEmbedAsync(db, IsEditor(decision!), id, token);
-			var publishPerformances = await PerformanceEndpoints.LoadEventPerformancesAsync(db, IsEditor(decision!), id, token);
-			return Results.Ok(new { @event = EventDetail(choirEvent, publishDocuments, publishProgramme, publishPerformances) });
-		}).DisableAntiforgery();
-
-		app.MapPost("/api/events/{id}/unpublish", async (
-			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
-			ArchiveAccessService access, ArchiveDbContext db, CatalogueWriteService writes,
-			TimeProvider time, Guid id, CancellationToken token) =>
-		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await RequireEditorAsync(context, accessor, access);
-			if (error is not null)
-				return error;
-			var choirEvent = await db.Events.FirstOrDefaultAsync(e => e.Id == id, token);
-			if (choirEvent is null)
-				return Results.Problem(statusCode: 404, title: NotFoundMessage);
-			var outcome = await writes.UnpublishEventAsync(choirEvent, new WriteActor(decision!.AccountId, time.GetUtcNow()), null, token);
-			if (!outcome.IsSaved)
-				return Results.Problem(statusCode: outcome.HttpCode, title: outcome.Title);
-			var unpublishDocuments = await LoadEventDocumentsAsync(db, IsEditor(decision!), id, token);
-			var unpublishProgramme = await ProgrammeEndpoints.LoadDetailEmbedAsync(db, IsEditor(decision!), id, token);
-			var unpublishPerformances = await PerformanceEndpoints.LoadEventPerformancesAsync(db, IsEditor(decision!), id, token);
-			return Results.Ok(new { @event = EventDetail(choirEvent, unpublishDocuments, unpublishProgramme, unpublishPerformances) });
+			return Results.Ok(new { @event = await LoadDetailAsync(db, choirEvent, token) });
 		}).DisableAntiforgery();
 	}
 
@@ -317,10 +245,9 @@ public static class EventEndpoints
 		datePrecision = DatePrecision(e.DateYear, e.DateMonth, e.DateDay),
 		dateDisplay = EventDate.Display(e.DateYear, e.DateMonth, e.DateDay, e.DateApproximate),
 		startTime = e.StartTime,
-		published = e.PublishedAt is not null,
 	};
 
-	private static object EventDetail(ChoirEvent e, IReadOnlyList<object>? documents = null, object? programme = null, IReadOnlyList<object>? performances = null) => new
+	private static object EventDetail(ChoirEvent e, IReadOnlyList<object>? documents = null, object? programme = null, IReadOnlyList<object>? liedAufnahmen = null) => new
 	{
 		id = e.Id,
 		kind = e.Kind,
@@ -333,25 +260,33 @@ public static class EventEndpoints
 		datePrecision = DatePrecision(e.DateYear, e.DateMonth, e.DateDay),
 		dateDisplay = EventDate.Display(e.DateYear, e.DateMonth, e.DateDay, e.DateApproximate),
 		startTime = e.StartTime,
-		published = e.PublishedAt is not null,
 		notes = e.Notes,
 		sourceNote = e.SourceNote,
 		documents = documents ?? [],
 		programme,
-		performances = performances ?? [],
+		liedAufnahmen = liedAufnahmen ?? [],
 		rowVersion = e.RowVersion,
 		createdAt = e.CreatedAt,
 		updatedAt = e.UpdatedAt,
-		publishedAt = e.PublishedAt,
 	};
+
+	/// <summary>
+	/// The event detail payload: the event with its documents and photos, its
+	/// one Programm and the Lied-Aufnahmen that name it.
+	/// </summary>
+	private static async Task<object> LoadDetailAsync(ArchiveDbContext db, ChoirEvent choirEvent, CancellationToken token)
+		=> EventDetail(choirEvent,
+			await LoadEventDocumentsAsync(db, choirEvent.Id, token),
+			await ProgrammeEndpoints.LoadDetailEmbedAsync(db, choirEvent.Id, token),
+			await LoadLiedAufnahmenAsync(db, choirEvent.Id, token));
 
 	/// <summary>
 	/// Documents and photos of the event (#171): its live <c>sonstiges</c>
 	/// Dateien, sorted by createdAt then id. A photo is told from a document
-	/// by its content type. Draft events never reach members at all.
+	/// by its content type.
 	/// </summary>
 	private static async Task<List<object>> LoadEventDocumentsAsync(
-		ArchiveDbContext db, bool isEditor, Guid eventId, CancellationToken token)
+		ArchiveDbContext db, Guid eventId, CancellationToken token)
 	{
 		var dateien = await Lieder.DateiQueries.Visible(db).AsNoTracking()
 			.Where(d => d.EventId == eventId && d.Kind == Lieder.DateiKinds.Sonstiges)
@@ -368,6 +303,39 @@ public static class EventEndpoints
 				sizeBytes = d.SizeBytes,
 				createdAt = d.CreatedAt,
 				rowVersion = d.RowVersion,
+			})
+			.ToList();
+	}
+
+	/// <summary>
+	/// The Aufnahmen of single Lieder that name this Auftritt (GLOSSARY:
+	/// "optionally naming the Auftritt it came from"), live Dateien only, so
+	/// they show up on the Auftritt next to its own Aufnahmen. The player and
+	/// download live on the Lied's own Dateien.
+	/// </summary>
+	public static async Task<List<object>> LoadLiedAufnahmenAsync(
+		ArchiveDbContext db, Guid eventId, CancellationToken token)
+	{
+		var rows = await Lieder.DateiQueries.Visible(db).AsNoTracking()
+			.Where(d => d.Kind == Lieder.DateiKinds.Aufnahme && d.LiedId != null && d.RecordedAtEventId == eventId)
+			.Select(d => new
+			{
+				d.Id, LiedId = d.LiedId!.Value, LiedTitle = d.Lied!.Title, d.OriginalFileName, d.Description,
+				d.ContentType, d.SizeBytes, d.CreatedAt,
+			})
+			.ToListAsync(token);
+		return rows
+			.OrderBy(r => r.LiedTitle, StringComparer.CurrentCulture).ThenBy(r => r.CreatedAt).ThenBy(r => r.Id)
+			.Select(r => (object)new
+			{
+				id = r.Id,
+				liedId = r.LiedId,
+				liedTitle = r.LiedTitle,
+				fileName = r.OriginalFileName,
+				description = r.Description,
+				contentType = r.ContentType,
+				sizeBytes = r.SizeBytes,
+				createdAt = r.CreatedAt,
 			})
 			.ToList();
 	}
@@ -498,5 +466,5 @@ public static class EventEndpoints
 	/// <summary>Database-projected row for the C#-side list/filter/sort path.</summary>
 	private sealed record EventRow(Guid Id, string Kind, string Title, string? Venue,
 		int? DateYear, int? DateMonth, int? DateDay, bool DateApproximate,
-		string? StartTime, DateTimeOffset? PublishedAt);
+		string? StartTime);
 }

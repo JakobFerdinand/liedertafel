@@ -10,7 +10,7 @@ namespace Archive.Backend.Tests;
 
 /// <summary>
 /// #170: the chat answers "Wann haben wir dieses Lied gesungen?" for a Lied
-/// from what the audience may see: confirmed performances at published
+/// from what the audience may see: Lieder in the Programm of published
 /// Auftritte, never drafts, and shows the Lied's card (scripted client).
 /// </summary>
 public sealed partial class ChatApiTests
@@ -33,7 +33,6 @@ public sealed partial class ChatApiTests
 		var text = string.Concat(CollectTextDeltas(body));
 		Assert.Contains("Sängerfest", text);
 		Assert.Contains("1932", text);
-		Assert.DoesNotContain("Geheimes Konzert", body);
 		Assert.DoesNotContain(ScriptedChatClient.NoPerformanceDataAnswer, text);
 		Assert.Equal([waldfahrt.ToString()], CollectCitationIds(body));
 		var card = CollectA2uiMessages(body)
@@ -70,14 +69,10 @@ public sealed partial class ChatApiTests
 		var now = DateTimeOffset.UtcNow;
 		var waldfahrt = NewLied("Die Waldfahrt", "Friedrich Silcher", ownerId, now);
 		var abendlied = NewLied("Abendlied", "Franz Schubert", ownerId, now);
-		var published = NewEvent("Sängerfest", ownerId, now, published: true);
-		var draft = NewEvent("Geheimes Konzert", ownerId, now, published: false);
+		var sangerfest = NewEvent("Sängerfest", ownerId, now);
 		db.Lieder.AddRange(waldfahrt, abendlied);
-		db.Events.AddRange(published, draft);
-		db.Performances.AddRange(
-			NewPerformance(published, waldfahrt, ownerId, now),
-			NewPerformance(draft, waldfahrt, ownerId, now),
-			NewPerformance(draft, abendlied, ownerId, now));
+		db.Events.Add(sangerfest);
+		db.Programmes.Add(NewProgramme(sangerfest, ownerId, now, waldfahrt));
 		await db.SaveChangesAsync();
 		return (waldfahrt.Id, abendlied.Id);
 	}
@@ -92,30 +87,31 @@ public sealed partial class ChatApiTests
 		UpdatedByAccountId = ownerId,
 	};
 
-	private static ChoirEvent NewEvent(string title, Guid ownerId, DateTimeOffset now, bool published) => new()
+	private static ChoirEvent NewEvent(string title, Guid ownerId, DateTimeOffset now) => new()
 	{
 		Kind = "concert",
 		Title = title,
 		DateYear = 1932,
 		DateMonth = 5,
 		DateDay = 14,
-		PublishedAt = published ? now : null,
-		PublishedByAccountId = published ? ownerId : null,
 		CreatedAt = now,
 		CreatedByAccountId = ownerId,
 		UpdatedAt = now,
 		UpdatedByAccountId = ownerId,
 	};
 
-	private static Performance NewPerformance(ChoirEvent choirEvent, Lied lied, Guid ownerId, DateTimeOffset now) => new()
+	private static EventProgramme NewProgramme(ChoirEvent choirEvent, Guid ownerId, DateTimeOffset now, params Lied[] lieder)
 	{
-		EventId = choirEvent.Id,
-		LiedId = lied.Id,
-		Position = 1,
-		EvidenceStatus = PerformanceEvidenceStatus.Confirmed,
-		CreatedAt = now,
-		CreatedByAccountId = ownerId,
-		UpdatedAt = now,
-		UpdatedByAccountId = ownerId,
-	};
+		var programme = new EventProgramme
+		{
+			EventId = choirEvent.Id,
+			CreatedAt = now,
+			CreatedByAccountId = ownerId,
+			UpdatedAt = now,
+			UpdatedByAccountId = ownerId,
+		};
+		for (var i = 0; i < lieder.Length; i++)
+			programme.Items.Add(new ProgrammeItem { ProgrammeId = programme.Id, Position = i + 1, LiedId = lieder[i].Id });
+		return programme;
+	}
 }
