@@ -54,10 +54,12 @@ sung; it is edited afterwards if the actual order differed.
 _Avoid_: Programme revision, confirmation, performance
 
 **Entwurf** (draft):
-The form of a new Lied while Dateien are being dropped and filled in, before the
-Lied exists. It is the only unfinished state; it holds the form, which fields
-the editor touched and the Dateien without their bytes, never where a value came
-from. It ends when "Speichern" has uploaded every Datei, or when it is discarded.
+The form of a new Lied or a new Auftritt while Dateien are being dropped and
+filled in, before it exists. It is the only unfinished state; it holds the form
+(for an Auftritt also the Programm with the Lied chosen for each entry), which
+fields the editor touched and the Dateien without their bytes, never where a
+value came from. It ends when "Speichern" has uploaded every Datei, or when it
+is discarded.
 _Avoid_: Draft Lied, Entwurfs-Lied, Vorlage
 
 **Angefangen** (started, unfinished):
@@ -68,8 +70,11 @@ _Avoid_: Unfertig, Warteschlange
 
 **Lesung** (reading):
 One request to read a PDF of an Entwurf (embedded text first, a scan through the
-model) into suggestions for the form. It never writes a Lied: a suggestion fills
-only a field the editor has not touched and is marked until edited or saved.
+model) or, for an Auftritt, a programme scan or photo into suggestions for the
+form. It never writes a Lied or an Auftritt: a suggestion fills only a field the
+editor has not touched and is marked until edited or saved. For an Auftritt it
+also matches each Programm entry against the Lieder; a Lied is only offered or
+pre-selected, the editor decides.
 Discarding the Entwurf, removing the Datei, or a newer request for the same Datei
 stops it.
 _Avoid_: Extraktion (that is the text step of a stored Datei), Analyse

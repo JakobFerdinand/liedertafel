@@ -6,7 +6,7 @@ import type { Auftritt, AuftrittDetails } from "@/lib/events";
 
 // Auftrittstypen des Vertrags mit ihren deutschen Namen; die Auswahl
 // startet beim häufigsten Fall.
-const arten: Array<[string, string]> = [
+export const arten: Array<[string, string]> = [
   ["concert", "Konzert"],
   ["service", "Gottesdienst"],
   ["wedding", "Hochzeit"],
@@ -17,7 +17,7 @@ const arten: Array<[string, string]> = [
 
 // Monatsnamen wie der Server sie rendert (kulturinvariant, siehe
 // EventDate.MonthNames); der Wert bleibt die Zahl.
-const monatsNamen = [
+export const monatsNamen = [
   "Januar",
   "Februar",
   "März",

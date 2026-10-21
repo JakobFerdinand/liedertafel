@@ -624,6 +624,47 @@ and everything of the flat model are untouched.
   `noten-ansicht`), `datei-hochladen`, `lied-formular`, composed in `lied-detail`.
   The resume key is `arc-upload-lied-<liedId>-<kind>-<partitur|stimme>`.
 
+## Auftritt from a programme scan (#131)
+
+"Neuer Auftritt" opens the same kind of drop zone as "Neues Lied"; "ohne Datei anlegen"
+stays as the small secondary link to the manual form. `POST /api/auftritt-lesungen` (editor,
+antiforgery, multipart `entwurfId` GUID, `anfrageId` integer >= 1, `datei` a PDF or a
+JPEG/PNG/WebP photo) answers `{ entwurfId, anfrageId, felder: [{ feld, wert, sicher }],
+programm: [{ text, sicher, lied: { id, titel, sicher } | null, kandidaten: [{ id, titel }] }] }`.
+`ProgrammReader` takes the embedded text of a PDF, or transcribes a scan (first four pages)
+or a photo (turned upright, bounded like a rendered page), then asks the programme agent
+(`archive-programm-fields`, features `programm-transcription` / `programm-fields`, both
+through `AiGateway`) for title, `kind`, `jahr`/`monat`/`tag`, `unsicher` (the approximate-date
+flag, "um 1950") and `venue` plus the ordered entries. The reading job's checks apply: a value
+or entry needs a quote that stands in the text, a date must be plausible (a month needs a
+year, a day needs a month and exists in it), `kind` must be a known Auftritt kind; `sicher:
+false` marks an unsure value. Each entry is matched against the Lieder by `ProgrammMatcher`
+(no model): only an exact normalised title (case, umlauts as ae/oe/ue or plain, punctuation
+ignored) that names exactly one Lied is pre-selected as sure; a single clearly closest near
+miss (similarity >= 0.85 and 0.1 ahead) is pre-selected but `sicher: false`; ties and weak
+similarities (>= 0.6) are only `kandidaten`. Nothing is written: no Auftritt, Programm or Lied
+exists until "Speichern". Errors as for the Lied draft reading (409 reading off, 429 budget,
+422 not readable, 502 failure; the form stays manual). The form takes suggestions only into
+untouched, empty fields (reducer `frontend/lib/auftritt-entwurf/reducer.ts`), every programme
+entry needs a Lied before "Speichern" (pick a candidate, search, or "als neues Lied anlegen"
+with the title only), and "Speichern" creates the Auftritt, saves the Programm in scan order,
+uploads the scan as a document of the Auftritt and a dropped video or audio file as the
+Auftritt's Aufnahme (`createAufnahme`, upload, attach as `original`; the playable copy and
+Zeitmarken stay with #161/#163). Evaluation: `ProgrammLesenEvaluationTests` (scripted set in
+CI; the live set reads `ARCHIVE_PROGRAMM_EVAL_DIR`, `Category=ProgrammReadingEvaluationLive`).
+
+Auftritt drafts in "Angefangen" follow the Lied drafts, in one table `auftritt_entwuerfe`
+(migration `AuftrittEntwuerfe`): `GET /api/auftritt-entwuerfe`,
+`GET|PUT|DELETE /api/auftritt-entwuerfe/{id}` (editor, antiforgery on changes, own drafts
+only, at most 25 per editor). `PUT { entwurfId, titel, dateien, formular }` where `formular` is
+a versioned JSON object (`version: 1`, at most 100 000 characters) the browser owns: values,
+edited-field marks, suggestion marks, the programme rows with their Lied choices and the
+Dateien without bytes, never where a value came from. The reading itself is stateless, so a
+reading in flight when the tab closes is lost and is repeated ("Datei lesen") once the file
+is selected again. Once the Auftritt is created the draft remembers its id, so a retry never
+creates it twice, and it keeps only the Dateien that are not uploaded yet; it ends with the
+last upload.
+
 ## Runtime grants during `--migrate`
 
 The release's `--migrate` step applies the runtime role's privileges itself:

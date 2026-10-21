@@ -4,7 +4,7 @@
 // ARC-025/#171: Dokumente und Fotografien eines Auftritts sind Dateien und
 // nutzen den Upload aus lib/dateien.ts.
 
-import { putAuth } from "@/lib/auth";
+import { postAuth, putAuth } from "@/lib/auth";
 
 // Geschlossene Artenmenge des Vertrags; die deutschen Namen liest die
 // Oberfläche daraus.
@@ -122,6 +122,35 @@ export async function fetchEvent(
   if (!response.ok) throw response;
   const data = (await response.json()) as { event: AuftrittDetails };
   return data.event;
+}
+
+/**
+ * Legt einen Auftritt an (#131: "Speichern" des Formulars aus abgelegten
+ * Dateien). Das Datum ergibt sich aus den ausgefüllten Feldern; leere Felder
+ * bleiben ehrlich unbekannt.
+ */
+export async function legeAuftrittAn(werte: {
+  kind: string;
+  title: string;
+  jahr: string;
+  monat: string;
+  tag: string;
+  unsicher: boolean;
+  venue: string;
+}): Promise<AuftrittDetails> {
+  const zahl = (text: string) =>
+    text.trim() ? Number.parseInt(text.trim(), 10) : null;
+  const response = await postAuth("/api/events", {
+    kind: werte.kind,
+    title: werte.title.trim(),
+    venue: werte.venue.trim() || null,
+    dateYear: zahl(werte.jahr),
+    dateMonth: zahl(werte.monat),
+    dateDay: zahl(werte.tag),
+    dateApproximate: werte.unsicher,
+  });
+  if (!response.ok) throw response;
+  return ((await response.json()) as { event: AuftrittDetails }).event;
 }
 
 const dokumentInhaltstypNachEndung: Record<string, string> = {
