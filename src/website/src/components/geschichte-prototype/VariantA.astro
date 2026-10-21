@@ -217,20 +217,22 @@ const eraAnchor = (index: number) => `gp-a-era-${index}`;
 		position: relative;
 		margin: 1.1rem 0 0.2rem;
 		scroll-margin-top: 9.8rem;
+		/* dot centers on the era band's title line (band padding + h3 line, baseline-shifted) */
+		--dot-center: 1.67rem;
 	}
 
 	.gp-a__era::before {
 		content: "";
 		position: absolute;
 		left: var(--dot-left);
-		top: 0.72rem;
+		top: calc(var(--dot-center) - 0.475rem);
 		transform: translateX(-50%);
 		width: 0.95rem;
 		height: 0.95rem;
 		border-radius: 999px;
-		border: 2px solid rgba(255, 255, 255, 0.78);
-		background: rgba(255, 255, 255, 0.12);
-		box-shadow: 0 0 0 0.3rem rgba(255, 255, 255, 0.06);
+		border: 2px solid rgba(255, 255, 255, 0.85);
+		background: rgba(255, 255, 255, 0.16);
+		box-shadow: 0 0 0 0.3rem rgba(255, 255, 255, 0.08);
 	}
 
 	.gp-a__era-head {
@@ -238,6 +240,11 @@ const eraAnchor = (index: number) => `gp-a-era-${index}`;
 		align-items: baseline;
 		justify-content: space-between;
 		gap: 1rem;
+		padding: 0.6rem 0.9rem;
+		background: linear-gradient(135deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0.06) 100%);
+		border: 1px solid rgba(255, 255, 255, 0.32);
+		border-radius: 0.4rem;
+		box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
 	}
 
 	.gp-a__era-head h3 {
@@ -265,13 +272,15 @@ const eraAnchor = (index: number) => `gp-a-era-${index}`;
 	.gp-a__item {
 		position: relative;
 		scroll-margin-top: 9.8rem;
+		/* dot centers on the summary title line */
+		--dot-center: 1.96rem;
 	}
 
 	.gp-a__item::before {
 		content: "";
 		position: absolute;
 		left: var(--dot-left);
-		top: 1.55rem;
+		top: calc(var(--dot-center) - 0.35rem);
 		transform: translateX(-50%);
 		width: 0.7rem;
 		height: 0.7rem;
@@ -379,10 +388,13 @@ const eraAnchor = (index: number) => `gp-a-era-${index}`;
 
 		.gp-a__era {
 			scroll-margin-top: 10.4rem;
+			--dot-center: 1.67rem;
 		}
 
 		.gp-a__item {
 			scroll-margin-top: 10.4rem;
+			/* mobile summary stacks date first — align the dot with the date line */
+			--dot-center: 1.46rem;
 		}
 
 		.gp-a__card > summary {
