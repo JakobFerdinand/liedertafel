@@ -218,7 +218,7 @@ public sealed class ProgrammReader(
 
 	private static bool MonthStands(string quote, int month)
 	{
-		var folded = ProgrammMatcher.Normalize(quote);
+		var folded = ProgrammMatcher.Normalize(quote, bare: true);
 		if (folded.Contains(MonthNames[month - 1], StringComparison.Ordinal))
 			return true;
 		return Regex.IsMatch(quote, $@"(?<!\d)0?{month}\s*\.", RegexOptions.CultureInvariant);
