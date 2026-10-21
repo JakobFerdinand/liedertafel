@@ -132,10 +132,12 @@ if (timelineEntries.length > 0) {
 }
 
 // PROTOTYPE (throwaway): three structure variants for /geschichte, switchable via ?proto=
-// (A «Ein Strang», B «Epochen», C «Register»), rendered only by the dev server.
+// (A «Ein Strang», B «Epochen», C «Register»), rendered only when the prototype flag is on:
+// in the dev server, and in pull_request preview builds via PUBLIC_PROTOTYPE=true
+// (set in build-and-deploy-website.yml). Production builds stay prototype-free.
 // Question settled here: how can the double timeline rails plus collapsed groups become
 // one structure that keeps the timeline feel and the image lightbox but is easier to scan?
-const isDev = import.meta.env.DEV;
+const isDev = import.meta.env.DEV || import.meta.env.PUBLIC_PROTOTYPE === "true";
 const prototypeVariant = isDev ? (Astro.url.searchParams.get("proto") ?? "") : "";
 
 const prototypeGroups: PrototypeGroup[] = isDev
