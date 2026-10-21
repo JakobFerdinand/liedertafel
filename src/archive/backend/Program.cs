@@ -387,6 +387,7 @@ app.MapExtractionEndpoints();
 app.MapReadingEndpoints();
 app.MapDraftReadingEndpoints();
 app.MapProgrammReadingEndpoints();
+app.MapAuftrittEntwurfEndpoints();
 app.MapLiedEntwurfEndpoints();
 app.MapLiedEndpoints();
 app.MapDateiEndpoints();
