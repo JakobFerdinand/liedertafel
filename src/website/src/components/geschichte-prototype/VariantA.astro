@@ -110,10 +110,11 @@ const eraAnchor = (index: number) => `gp-a-era-${index}`;
 	}
 
 	.gp-a__bar-segment {
-		display: flex;
-		align-items: center;
-		gap: 0.15rem;
-		padding: 0 0.55rem;
+		display: inline-flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 0.2rem;
+		padding: 0.45rem 0.55rem;
 		border-radius: 0.9rem;
 	}
 
@@ -129,12 +130,11 @@ const eraAnchor = (index: number) => `gp-a-era-${index}`;
 
 	.gp-a__bar-era {
 		display: flex;
-		flex-direction: column;
-		align-items: flex-start;
-		gap: 0.1rem;
+		align-items: baseline;
+		gap: 0.45rem;
 		color: inherit;
 		text-decoration: none;
-		padding: 0.3rem 0.45rem;
+		padding: 0.15rem 0.45rem;
 		border-radius: 0.35rem;
 		white-space: nowrap;
 	}
@@ -157,16 +157,17 @@ const eraAnchor = (index: number) => `gp-a-era-${index}`;
 	}
 
 	.gp-a__bar-era-range {
-		font-size: 0.68rem;
+		font-size: 0.72rem;
 		font-weight: 600;
-		letter-spacing: 0.06em;
-		opacity: 0.8;
+		letter-spacing: 0.04em;
+		opacity: 0.75;
 	}
 
 	.gp-a__bar-years {
 		display: flex;
 		align-items: center;
 		gap: 0.1rem;
+		padding-left: 0.45rem;
 	}
 
 	.gp-a__bar-year {
@@ -215,7 +216,7 @@ const eraAnchor = (index: number) => `gp-a-era-${index}`;
 	.gp-a__era {
 		position: relative;
 		margin: 1.1rem 0 0.2rem;
-		scroll-margin-top: 8rem;
+		scroll-margin-top: 9.8rem;
 	}
 
 	.gp-a__era::before {
@@ -263,7 +264,7 @@ const eraAnchor = (index: number) => `gp-a-era-${index}`;
 
 	.gp-a__item {
 		position: relative;
-		scroll-margin-top: 8rem;
+		scroll-margin-top: 9.8rem;
 	}
 
 	.gp-a__item::before {
@@ -377,11 +378,11 @@ const eraAnchor = (index: number) => `gp-a-era-${index}`;
 		}
 
 		.gp-a__era {
-			scroll-margin-top: 8.6rem;
+			scroll-margin-top: 10.4rem;
 		}
 
 		.gp-a__item {
-			scroll-margin-top: 8.6rem;
+			scroll-margin-top: 10.4rem;
 		}
 
 		.gp-a__card > summary {
@@ -443,6 +444,10 @@ const eraAnchor = (index: number) => `gp-a-era-${index}`;
 
 		window.addEventListener("scroll", schedule, { passive: true });
 		window.addEventListener("resize", schedule);
+		window.addEventListener("load", schedule);
+		// Re-measure after late layout shifts (fonts, images) settle
+		window.setTimeout(schedule, 400);
+		window.setTimeout(schedule, 1200);
 		update();
 	}
 </script>
