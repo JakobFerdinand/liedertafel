@@ -562,6 +562,14 @@ const showExistingTimeline =
 		gap: 1.5rem;
 	}
 
+	/* The layout's overflow-x: hidden turns body into a scroll container and breaks
+	   position: sticky for the prototype's navigation bar on this page only.
+	   clip crops the same way without creating a scroll container. */
+	:global(html:has(.gp-a)),
+	:global(body:has(.gp-a)) {
+		overflow-x: clip;
+	}
+
 	.timeline[hidden],
 	.proto-panel[hidden] {
 		display: none;
