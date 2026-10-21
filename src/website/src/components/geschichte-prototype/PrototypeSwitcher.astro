@@ -1,0 +1,126 @@
+---
+// PROTOTYPE (throwaway) — floating variant switcher for the /geschichte prototype.
+// Cycles through the variants (and the current design) with arrows or keyboard,
+// keeps the choice in the URL (?proto=…) so it is shareable and reload-stable.
+interface Props {
+	current: string;
+	options: { key: string; label: string }[];
+}
+
+const { current, options } = Astro.props;
+const currentOption = options.find((option) => option.key === current) ?? options[0];
+---
+
+<div class="proto-switcher" data-proto-switcher data-proto-options={JSON.stringify(options)}>
+	<button type="button" class="proto-switcher__btn" data-proto-dir="-1" aria-label="Vorherige Variante">&lt;</button>
+	<span class="proto-switcher__label" data-proto-label>{currentOption?.label}</span>
+	<button type="button" class="proto-switcher__btn" data-proto-dir="1" aria-label="Nächste Variante">&gt;</button>
+</div>
+
+<style>
+	.proto-switcher {
+		position: fixed;
+		bottom: 1.2rem;
+		left: 50%;
+		transform: translateX(-50%);
+		z-index: 70;
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+		padding: 0.45rem 0.6rem;
+		background: rgba(18, 18, 18, 0.94);
+		color: #fff;
+		border-radius: 999px;
+		box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+		font-family: system-ui, sans-serif;
+		font-size: 0.85rem;
+	}
+
+	.proto-switcher__btn {
+		width: 2rem;
+		height: 2rem;
+		border-radius: 999px;
+		border: 1px solid rgba(255, 255, 255, 0.4);
+		background: rgba(255, 255, 255, 0.08);
+		color: #fff;
+		font-size: 1rem;
+		line-height: 1;
+		cursor: pointer;
+	}
+
+	.proto-switcher__btn:hover {
+		background: rgba(255, 255, 255, 0.25);
+	}
+
+	.proto-switcher__label {
+		min-width: 9.5rem;
+		text-align: center;
+		white-space: nowrap;
+	}
+</style>
+
+<script>
+	const bar = document.querySelector<HTMLElement>("[data-proto-switcher]");
+
+	if (bar) {
+		const options: { key: string; label: string }[] = JSON.parse(bar.dataset.protoOptions ?? "[]");
+		const label = bar.querySelector<HTMLElement>("[data-proto-label]");
+		const panels = Array.from(document.querySelectorAll<HTMLElement>("[data-proto-panel]"));
+
+		const apply = (key: string) => {
+			panels.forEach((panel) => {
+				panel.hidden = (panel.dataset.protoKey ?? "") !== key;
+			});
+
+			const url = new URL(window.location.href);
+			if (key) {
+				url.searchParams.set("proto", key);
+			} else {
+				url.searchParams.delete("proto");
+			}
+			window.history.replaceState(null, "", url.toString());
+
+			const current = options.find((option) => option.key === key);
+			if (label) {
+				label.textContent = current?.label ?? "Bestehende Seite";
+			}
+		};
+
+		const cycle = (direction: number) => {
+			const key = new URLSearchParams(window.location.search).get("proto") ?? "";
+			const index = options.findIndex((option) => option.key === key);
+			const safeIndex = index < 0 ? 0 : index;
+			const next = options[(((safeIndex + direction) % options.length) + options.length) % options.length];
+			apply(next.key);
+		};
+
+		bar.querySelectorAll<HTMLButtonElement>("[data-proto-dir]").forEach((button) => {
+			button.addEventListener("click", () => cycle(Number(button.dataset.protoDir ?? "0")));
+		});
+
+		document.addEventListener("keydown", (event) => {
+			if (document.querySelector("dialog[open]")) {
+				return;
+			}
+
+			const target = event.target;
+			if (target instanceof HTMLElement && (target.isContentEditable || /^(input|textarea|select)$/i.test(target.tagName))) {
+				return;
+			}
+
+			if (event.key === "ArrowRight") {
+				event.preventDefault();
+				cycle(1);
+			}
+
+			if (event.key === "ArrowLeft") {
+				event.preventDefault();
+				cycle(-1);
+			}
+		});
+
+		// Initial variant from the URL (Astro dev serves prerendered pages without
+		// query params, so resolve it client-side instead of via Astro.url).
+		apply(new URLSearchParams(window.location.search).get("proto") ?? "");
+	}
+</script>

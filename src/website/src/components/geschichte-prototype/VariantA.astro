@@ -1,0 +1,306 @@
+---
+// PROTOTYPE (throwaway) — Variant A «Ein Strang»: the whole chronicle on ONE timeline line.
+// Eras sit as markers ON the line (no second line inside groups), entries stay collapsible,
+// and a sticky year ribbon on top jumps to every entry. View via /geschichte?proto=A
+import type { PrototypeGroup } from "./types";
+import { Image } from "astro:assets";
+
+interface Props {
+	groups: PrototypeGroup[];
+}
+
+const { groups } = Astro.props;
+const allEntries = groups.flatMap((group) => group.entries);
+const mark = (id: string) => `gp-a-${id}`;
+---
+
+<div class="gp-a">
+	<nav class="gp-a__ribbon" aria-label="Springen nach Jahr">
+		{allEntries.map((entry) => (
+			<a class="gp-a__ribbon-link" href={`#${mark(entry.id)}`}>{entry.date.slice(0, 4)}</a>
+		))}
+	</nav>
+
+	<ol class="gp-a__rail">
+		{
+			groups.map((group) => [
+				<li class="gp-a__era">
+					<div class="gp-a__era-head">
+						<h3>{group.title}</h3>
+						<p>{group.rangeLabel}</p>
+					</div>
+					{group.message && <p class="gp-a__era-message">{group.message}</p>}
+				</li>,
+				...group.entries.map((entry) => (
+					<li class="gp-a__item" id={mark(entry.id)}>
+						<details class="gp-a__card" data-history-entry={mark(entry.id)}>
+							<summary>
+								<span class="gp-a__date">{entry.formattedDate}</span>
+								<div class="gp-a__heading">
+									<h4>{entry.title}</h4>
+									{entry.subtitle && <p>{entry.subtitle}</p>}
+								</div>
+							</summary>
+							{(entry.image || entry.hasContent) && (
+								<div class="timeline-content">
+									{entry.image && (
+										<button
+											type="button"
+											class="timeline-image-trigger"
+											data-image-src={entry.image.src}
+											data-image-alt={`Bild zu ${entry.title}`}
+											aria-label={`Bild zu ${entry.title} vergrößern`}
+										>
+											<Image src={entry.image} alt={`Bild zu ${entry.title}`} loading="lazy" />
+										</button>
+									)}
+									{entry.hasContent && <entry.Content />}
+								</div>
+							)}
+						</details>
+					</li>
+				)),
+			])
+		}
+	</ol>
+</div>
+
+<style>
+	.gp-a {
+		display: flex;
+		flex-direction: column;
+		gap: 1.1rem;
+	}
+
+	.gp-a__ribbon {
+		position: sticky;
+		top: 0.7rem;
+		z-index: 6;
+		display: flex;
+		align-items: center;
+		gap: 0.15rem;
+		overflow-x: auto;
+		overscroll-behavior-x: contain;
+		scrollbar-width: none;
+		padding: 0.4rem 0.55rem;
+		background: rgba(0, 0, 0, 0.42);
+		backdrop-filter: blur(10px);
+		border: 1px solid rgba(255, 255, 255, 0.22);
+		border-radius: 999px;
+	}
+
+	.gp-a__ribbon::-webkit-scrollbar {
+		display: none;
+	}
+
+	.gp-a__ribbon-link {
+		color: inherit;
+		text-decoration: none;
+		font-variant-numeric: tabular-nums;
+		font-size: 0.8rem;
+		line-height: 1;
+		padding: 0.4rem 0.5rem;
+		border-radius: 999px;
+		border: 1px solid transparent;
+		white-space: nowrap;
+	}
+
+	.gp-a__ribbon-link:hover {
+		background: rgba(255, 255, 255, 0.16);
+	}
+
+	.gp-a__rail {
+		list-style: none;
+		margin: 0;
+		padding: 0.3rem 0 1rem 1.9rem;
+		position: relative;
+		display: flex;
+		flex-direction: column;
+		gap: 0.9rem;
+		--dot-left: -1.35rem;
+	}
+
+	/* the one and only timeline line */
+	.gp-a__rail::before {
+		content: "";
+		position: absolute;
+		left: 0.55rem;
+		top: 0.5rem;
+		bottom: 1.6rem;
+		width: 2px;
+		background: rgba(255, 255, 255, 0.3);
+	}
+
+	.gp-a__era {
+		position: relative;
+		margin: 1.1rem 0 0.2rem;
+	}
+
+	.gp-a__era::before {
+		content: "";
+		position: absolute;
+		left: var(--dot-left);
+		top: 0.72rem;
+		transform: translateX(-50%);
+		width: 0.95rem;
+		height: 0.95rem;
+		border-radius: 999px;
+		border: 2px solid rgba(255, 255, 255, 0.78);
+		background: rgba(255, 255, 255, 0.12);
+		box-shadow: 0 0 0 0.3rem rgba(255, 255, 255, 0.06);
+	}
+
+	.gp-a__era-head {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 1rem;
+	}
+
+	.gp-a__era-head h3 {
+		margin: 0;
+		font-size: 1.55rem;
+	}
+
+	.gp-a__era-head p {
+		margin: 0;
+		font-size: 0.85rem;
+		font-weight: 600;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		opacity: 0.85;
+		white-space: nowrap;
+	}
+
+	.gp-a__era-message {
+		margin: 0.6rem 0 0;
+		line-height: 1.65;
+		opacity: 0.9;
+		white-space: pre-line;
+	}
+
+	.gp-a__item {
+		position: relative;
+		scroll-margin-top: 4rem;
+	}
+
+	.gp-a__item::before {
+		content: "";
+		position: absolute;
+		left: var(--dot-left);
+		top: 1.55rem;
+		transform: translateX(-50%);
+		width: 0.7rem;
+		height: 0.7rem;
+		border-radius: 999px;
+		border: 2px solid rgba(255, 255, 255, 0.78);
+		background: var(--color-brand);
+	}
+
+	.gp-a__card {
+		border-top: 1px solid rgba(255, 255, 255, 0.18);
+	}
+
+	.gp-a__card > summary {
+		list-style: none;
+		cursor: pointer;
+		padding: 1.05rem 0.4rem;
+		display: grid;
+		grid-template-columns: 9rem minmax(0, 1fr);
+		gap: 0.2rem 0.9rem;
+		align-items: start;
+	}
+
+	.gp-a__card > summary::-webkit-details-marker {
+		display: none;
+	}
+
+	.gp-a__date {
+		font-size: 0.85rem;
+		font-weight: 600;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		opacity: 0.85;
+		white-space: nowrap;
+		padding-top: 0.35rem;
+	}
+
+	.gp-a__heading h4 {
+		font-family: var(--font-heading);
+		font-size: 1.3rem;
+		font-weight: 500;
+		margin: 0;
+		line-height: 1.3;
+	}
+
+	.gp-a__heading p {
+		margin: 0.4rem 0 0;
+		opacity: 0.9;
+		line-height: 1.5;
+	}
+
+	.gp-a__card > summary:hover {
+		background: rgba(255, 255, 255, 0.06);
+	}
+
+	.gp-a__card[open] > summary {
+		padding-bottom: 0.6rem;
+	}
+
+	.gp-a .timeline-content {
+		padding: 0 0.4rem 1.1rem calc(9rem + 0.9rem);
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.gp-a .timeline-content > * {
+		margin: 0;
+	}
+
+	.gp-a .timeline-content :global(p) {
+		line-height: 1.65;
+		opacity: 0.95;
+	}
+
+	.gp-a .timeline-content :global(img) {
+		display: block;
+		max-width: 100%;
+		height: auto;
+	}
+
+	.gp-a .timeline-image-trigger {
+		display: block;
+		padding: 0;
+		border: 0;
+		background: transparent;
+		cursor: zoom-in;
+		margin: 0;
+	}
+
+	.gp-a .timeline-image-trigger :global(img) {
+		width: 100%;
+		max-height: 15rem;
+		object-fit: contain;
+	}
+
+	@media (max-width: 600px) {
+		.gp-a__rail {
+			padding-left: 1.3rem;
+			--dot-left: -0.75rem;
+		}
+
+		.gp-a__card > summary {
+			grid-template-columns: 1fr;
+			gap: 0.4rem;
+			padding: 0.9rem 0.1rem;
+		}
+
+		.gp-a__date {
+			padding-top: 0;
+		}
+
+		.gp-a .timeline-content {
+			padding: 0 0.1rem 1rem;
+		}	}
+</style>

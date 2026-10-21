@@ -4,6 +4,11 @@ import { Image } from "astro:assets";
 import { getCollection, render } from "astro:content";
 import Layout from "../layouts/Layout.astro";
 import Footer from "../components/Footer.astro";
+import PrototypeSwitcher from "../components/geschichte-prototype/PrototypeSwitcher.astro";
+import VariantA from "../components/geschichte-prototype/VariantA.astro";
+import VariantB from "../components/geschichte-prototype/VariantB.astro";
+import VariantC from "../components/geschichte-prototype/VariantC.astro";
+import type { PrototypeGroup } from "../components/geschichte-prototype/types";
 
 interface TimelineEntry {
 	id: string;
@@ -125,6 +130,28 @@ if (timelineEntries.length > 0) {
 
 	visibleTimelineGroups.push(...timelineGroups.filter((group) => group.entries.length > 0).reverse());
 }
+
+// PROTOTYPE (throwaway): three structure variants for /geschichte, switchable via ?proto=
+// (A «Ein Strang», B «Epochen», C «Register»), rendered only by the dev server.
+// Question settled here: how can the double timeline rails plus collapsed groups become
+// one structure that keeps the timeline feel and the image lightbox but is easier to scan?
+const isDev = import.meta.env.DEV;
+const prototypeVariant = isDev ? (Astro.url.searchParams.get("proto") ?? "") : "";
+
+const prototypeGroups: PrototypeGroup[] = isDev
+	? visibleTimelineGroups
+			.slice()
+			.reverse()
+			.map((group) => ({
+				title: group.title,
+				rangeLabel: group.rangeLabel,
+				message: group.message,
+				entries: [...group.entries].reverse(),
+			}))
+	: [];
+
+const showExistingTimeline =
+	!isDev || prototypeGroups.length === 0 || prototypeVariant === "";
 ---
 
 <Layout>
@@ -134,7 +161,7 @@ if (timelineEntries.length > 0) {
 		<p>Stationen unseres Chors - von der Gründung bis heute.</p>
 	</section>
 
-	<section class="timeline" aria-labelledby="timeline-heading">
+	<section class="timeline" aria-labelledby="timeline-heading" data-proto-panel={isDev || undefined} data-proto-key={isDev ? "" : undefined} hidden={!showExistingTimeline}>
 		<h2 class="timeline-heading" id="timeline-heading">Zeitleiste</h2>
 		{visibleTimelineGroups.length > 0 ? (
 			<ul class="timeline-list timeline-list--grouped">
@@ -193,6 +220,22 @@ if (timelineEntries.length > 0) {
 		)}
 	</section>
 
+	{
+		isDev && prototypeGroups.length > 0 && (
+			<>
+				<div class="proto-panel" data-proto-panel data-proto-key="A" hidden={prototypeVariant !== "A"}>
+					<VariantA groups={prototypeGroups} />
+				</div>
+				<div class="proto-panel" data-proto-panel data-proto-key="B" hidden={prototypeVariant !== "B"}>
+					<VariantB groups={prototypeGroups} />
+				</div>
+				<div class="proto-panel" data-proto-panel data-proto-key="C" hidden={prototypeVariant !== "C"}>
+					<VariantC groups={prototypeGroups} />
+				</div>
+			</>
+		)
+	}
+
 	<dialog class="image-lightbox" aria-label="Bild vergrößert anzeigen">
 		<button type="button" class="lightbox-close" aria-label="Vollbildansicht schließen">x</button>
 		<button type="button" class="lightbox-nav lightbox-nav--prev" aria-label="Vorheriges Bild anzeigen">
@@ -206,6 +249,20 @@ if (timelineEntries.length > 0) {
 			<figcaption class="lightbox-caption"></figcaption>
 		</figure>
 	</dialog>
+
+	{
+		isDev && prototypeGroups.length > 0 && (
+			<PrototypeSwitcher
+				current={prototypeVariant}
+				options={[
+					{ key: "", label: "Bestehendes Design" },
+					{ key: "A", label: "A · Ein Strang" },
+					{ key: "B", label: "B · Epochen" },
+					{ key: "C", label: "C · Register" },
+				]}
+			/>
+		)
+	}
 
 	<Footer />
 </Layout>
@@ -501,6 +558,15 @@ if (timelineEntries.length > 0) {
 		display: flex;
 		flex-direction: column;
 		gap: 1.5rem;
+	}
+
+	.timeline[hidden],
+	.proto-panel[hidden] {
+		display: none;
+	}
+
+	.proto-panel {
+		max-width: 940px;
 	}
 
 	.timeline-list {

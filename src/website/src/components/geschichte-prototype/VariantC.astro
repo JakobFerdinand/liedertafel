@@ -1,0 +1,377 @@
+---
+// PROTOTYPE (throwaway) — Variant C «Register»: the chronicle as a dense, fully open
+// register with a permanent jump index on the left and a search field on top.
+// View via /geschichte?proto=C
+import type { PrototypeGroup } from "./types";
+import { Image } from "astro:assets";
+
+interface Props {
+	groups: PrototypeGroup[];
+}
+
+const { groups } = Astro.props;
+const mark = (id: string) => `gp-c-${id}`;
+---
+
+<div class="gp-c" data-gp-c>
+	<div class="gp-c__toolbar">
+		<label class="gp-c__search">
+			<input type="search" data-gp-c-filter placeholder="Chronik durchsuchen …" aria-label="Chronik durchsuchen" />
+		</label>
+	</div>
+
+	<div class="gp-c__layout">
+		<nav class="gp-c__index" aria-label="Verzeichnis aller Einträge">
+			{
+				groups.map((group) => (
+					<div class="gp-c__index-era">
+						<p class="gp-c__index-era-title">{group.title}</p>
+						<ul class="gp-c__index-list">
+							{group.entries.map((entry) => (
+								<li>
+									<a href={`#${mark(entry.id)}`}>
+										<span class="gp-c__index-year">{entry.date.slice(0, 4)}</span>
+										{entry.title}
+									</a>
+								</li>
+							))}
+						</ul>
+					</div>
+				))
+			}
+		</nav>
+
+		<div class="gp-c__entries">
+			{
+				groups.map((group) => (
+					<section class="gp-c__era" data-gp-era>
+						<header class="gp-c__era-head">
+							<h3>{group.title}</h3>
+							<p>{group.rangeLabel}</p>
+						</header>
+						{group.message && <p class="gp-c__era-message">{group.message}</p>}
+						{group.entries.map((entry) => (
+							<article class="gp-c__entry" id={mark(entry.id)} data-gp-c-entry>
+								<span class="gp-c__entry-year">{entry.date.slice(0, 4)}</span>
+								<div class="gp-c__entry-main">
+									<header>
+										<h4>{entry.title}</h4>
+										{entry.subtitle && <p class="gp-c__entry-sub">{entry.subtitle}</p>}
+										<p class="gp-c__entry-date">{entry.formattedDate}</p>
+									</header>
+									{(entry.image || entry.hasContent) && (
+										<div class="timeline-content">
+											{entry.image && (
+												<button
+													type="button"
+													class="timeline-image-trigger"
+													data-image-src={entry.image.src}
+													data-image-alt={`Bild zu ${entry.title}`}
+													aria-label={`Bild zu ${entry.title} vergrößern`}
+												>
+													<Image src={entry.image} alt={`Bild zu ${entry.title}`} loading="lazy" />
+												</button>
+											)}
+											{entry.hasContent && <entry.Content />}
+										</div>
+									)}
+								</div>
+							</article>
+						))}
+					</section>
+				))
+			}
+		</div>
+	</div>
+</div>
+
+<style>
+	.gp-c__toolbar {
+		padding: 0 0 1rem;
+	}
+
+	.gp-c__search input {
+		width: 100%;
+		box-sizing: border-box;
+		font: inherit;
+		color: inherit;
+		padding: 0.65rem 0.9rem;
+		background: rgba(0, 0, 0, 0.3);
+		border: 1px solid rgba(255, 255, 255, 0.25);
+		border-radius: 0.35rem;
+	}
+
+	.gp-c__search input::placeholder {
+		color: rgba(255, 255, 255, 0.6);
+	}
+
+	.gp-c__layout {
+		display: grid;
+		grid-template-columns: 13.5rem minmax(0, 1fr);
+		gap: 1.6rem;
+		align-items: start;
+	}
+
+	.gp-c__index {
+		position: sticky;
+		top: 1rem;
+		display: flex;
+		flex-direction: column;
+		gap: 1.3rem;
+		max-height: calc(100vh - 2.2rem);
+		overflow-y: auto;
+		scrollbar-width: thin;
+		padding-right: 0.4rem;
+	}
+
+	.gp-c__index-era-title {
+		margin: 0 0 0.35rem;
+		font-size: 0.8rem;
+		font-weight: 600;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		opacity: 0.75;
+	}
+
+	.gp-c__index-era[hidden] {
+		display: none;
+	}
+
+	.gp-c__index-list {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.05rem;
+	}
+
+	.gp-c__index-list a {
+		color: inherit;
+		text-decoration: none;
+		display: flex;
+		align-items: baseline;
+		gap: 0.45rem;
+		font-size: 0.85rem;
+		line-height: 1.45;
+		padding: 0.25rem 0.3rem;
+		border-radius: 0.25rem;
+		overflow: hidden;
+	}
+
+	.gp-c__index-list a:hover {
+		background: rgba(255, 255, 255, 0.12);
+	}
+
+	.gp-c__index-year {
+		font-variant-numeric: tabular-nums;
+		font-weight: 600;
+		opacity: 0.8;
+		flex-shrink: 0;
+	}
+
+	.gp-c__era + .gp-c__era {
+		margin-top: 2rem;
+	}
+
+	.gp-c__era[hidden] {
+		display: none;
+	}
+
+	.gp-c__era-head {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 1rem;
+		border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+		padding-bottom: 0.45rem;
+		margin-bottom: 0.4rem;
+	}
+
+	.gp-c__era-head h3 {
+		margin: 0;
+		font-size: 1.55rem;
+	}
+
+	.gp-c__era-head p {
+		margin: 0;
+		font-size: 0.85rem;
+		font-weight: 600;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		opacity: 0.85;
+		white-space: nowrap;
+	}
+
+	.gp-c__era-message {
+		margin: 0;
+		padding: 0.6rem 0.3rem;
+		line-height: 1.65;
+		opacity: 0.9;
+		white-space: pre-line;
+	}
+
+	.gp-c__entry {
+		display: grid;
+		grid-template-columns: 4.2rem minmax(0, 1fr);
+		gap: 0.1rem 0.8rem;
+		padding: 1.1rem 0.3rem;
+		scroll-margin-top: 2.5rem;
+	}
+
+	.gp-c__entry + .gp-c__entry {
+		border-top: 1px solid rgba(255, 255, 255, 0.16);
+	}
+
+	.gp-c__entry[hidden] {
+		display: none;
+	}
+
+	.gp-c__entry-year {
+		font-family: var(--font-heading);
+		font-size: 1.45rem;
+		font-weight: 500;
+		line-height: 1.2;
+		text-align: right;
+		opacity: 0.85;
+		padding-top: 0.1rem;
+	}
+
+	.gp-c__entry-main {
+		min-width: 0;
+	}
+
+	.gp-c__entry-main h4 {
+		font-family: var(--font-heading);
+		font-size: 1.25rem;
+		font-weight: 500;
+		margin: 0;
+		line-height: 1.3;
+	}
+
+	.gp-c__entry-sub {
+		margin: 0.35rem 0 0;
+		opacity: 0.9;
+		line-height: 1.5;
+	}
+
+	.gp-c__entry-date {
+		margin: 0.3rem 0 0;
+		font-size: 0.8rem;
+		font-weight: 600;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		opacity: 0.7;
+	}
+
+	.gp-c .timeline-content {
+		margin-top: 0.6rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.7rem;
+	}
+
+	.gp-c .timeline-content > * {
+		margin: 0;
+	}
+
+	.gp-c .timeline-content :global(p) {
+		line-height: 1.65;
+		opacity: 0.95;
+	}
+
+	.gp-c .timeline-content :global(img) {
+		display: block;
+		max-width: 100%;
+		height: auto;
+	}
+
+	.gp-c .timeline-image-trigger {
+		display: block;
+		width: 100%;
+		margin: 0;
+		padding: 0;
+		border: 0;
+		background: transparent;
+		cursor: zoom-in;
+	}
+
+	.gp-c .timeline-image-trigger :global(img) {
+		width: 100%;
+		max-height: 13rem;
+		object-fit: contain;
+	}
+
+	@media (max-width: 760px) {
+		.gp-c__layout {
+			grid-template-columns: 1fr;
+			gap: 1.1rem;
+		}
+
+		.gp-c__index {
+			position: static;
+			max-height: none;
+			overflow: visible;
+			flex-direction: column;
+			gap: 0.8rem;
+		}
+
+		.gp-c__index-era {
+			display: flex;
+			align-items: baseline;
+			gap: 0.5rem;
+			overflow: hidden;
+		}
+
+		.gp-c__index-era-title {
+			margin: 0;
+			flex-shrink: 0;
+		}
+
+		.gp-c__index-list {
+			flex-direction: row;
+			flex-wrap: wrap;
+			gap: 0 0.6rem;
+		}
+
+		.gp-c__entry {
+			grid-template-columns: 1fr;
+			gap: 0.2rem;
+		}
+
+		.gp-c__entry-year {
+			text-align: left;
+			padding-top: 0;
+		}
+	}
+</style>
+
+<script>
+	const root = document.querySelector<HTMLElement>("[data-gp-c]");
+
+	if (root) {
+		const input = root.querySelector<HTMLInputElement>("[data-gp-c-filter]");
+		const entries = Array.from(root.querySelectorAll<HTMLElement>("[data-gp-c-entry]"));
+		const eras = Array.from(root.querySelectorAll<HTMLElement>("[data-gp-era]"));
+		const indexEras = Array.from(root.querySelectorAll<HTMLElement>(".gp-c__index-era"));
+
+		const applyFilter = () => {
+			const query = (input?.value ?? "").trim().toLowerCase();
+
+			entries.forEach((entry) => {
+				entry.hidden = query !== "" && !entry.textContent?.toLowerCase().includes(query);
+			});
+
+			eras.forEach((era) => {
+				const visibleEntries = era.querySelectorAll<HTMLElement>("[data-gp-c-entry]:not([hidden])");
+				era.hidden = visibleEntries.length === 0;
+			});
+
+			indexEras.forEach((era) => {
+				era.hidden = query !== "";
+			});
+		};
+
+		input?.addEventListener("input", applyFilter);
+	}
+</script>
