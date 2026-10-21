@@ -84,6 +84,16 @@ public sealed class ScriptedChatClient : IChatClient
 
 		// ARC-034-1: scan reading is not a chat; the offline stand-in answers
 		// its two requests (page images, text for fields) from a small script.
+		// #131: the programme agents of an Auftritt scan come first, their own instructions tell them apart.
+		if (Reading.ScriptedScanReader.IsProgrammTranscription(conversation, options)
+			|| Reading.ScriptedScanReader.IsProgrammFieldRequest(conversation, options))
+		{
+			var transcription = Reading.ScriptedScanReader.IsProgrammTranscription(conversation, options);
+			var answer = transcription ? Reading.ScriptedScanReader.TranscribeProgramm() : Reading.ScriptedScanReader.Programm(conversation);
+			yield return Text(answer);
+			yield return Usage(string.Join(' ', conversation.Select(m => m.Text)) + (transcription ? new string('x', 4000) : ""), answer);
+			yield break;
+		}
 		if (Reading.ScriptedScanReader.IsTranscription(conversation) || Reading.ScriptedScanReader.IsFieldRequest(conversation, options))
 		{
 			var transcription = Reading.ScriptedScanReader.IsTranscription(conversation);
