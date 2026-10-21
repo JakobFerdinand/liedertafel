@@ -1291,8 +1291,11 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         Assert.Equal(12.5, memberPassage.GetProperty("startSeconds").GetDouble());
         using var history = await GetAsync(api, $"/api/lieder/{liedId}/historie", memberSession, token);
         var historyBody = await history.Content.ReadFromJsonAsync<JsonElement>(token);
-        Assert.Equal(2, historyBody.GetProperty("auftritte")[0].GetProperty("recordings").GetArrayLength());
-        Assert.Equal(1, historyBody.GetProperty("counts").GetProperty("events").GetInt32());
+        // The other Auftritt also programmes this Lied, so it is a second appearance without recordings.
+        var concertRow = historyBody.GetProperty("auftritte").EnumerateArray()
+            .Single(a => a.GetProperty("eventId").GetString() == eventId.ToString());
+        Assert.Equal(2, concertRow.GetProperty("recordings").GetArrayLength());
+        Assert.Equal(2, historyBody.GetProperty("counts").GetProperty("events").GetInt32());
 
         // The entry cannot be removed while a passage hangs on it.
         using (var blockedDelete = await PutJsonAsync(api, $"/api/events/{eventId}/programme/items",
