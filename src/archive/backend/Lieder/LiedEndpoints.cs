@@ -97,7 +97,7 @@ public static class LiedEndpoints
 			// About 500 Lieder: project once, match in C# so InMemory tests and
 			// PostgreSQL agree on the German folding.
 			var rows = await db.Lieder.AsNoTracking()
-				.Select(l => new ListRow(l.Id, l.Title, l.Composer, l.Arranger, l.Lyricist, l.VoiceConfiguration,
+				.Select(l => new ListRow(l.Id, l.Title, l.Composer, l.Arranger, l.Lyricist, l.Lyrics, l.VoiceConfiguration,
 					l.MusicalKey, l.Language, l.Occasion))
 				.ToListAsync(token);
 			var kindRows = await DateiQueries.Visible(db).AsNoTracking()
@@ -108,34 +108,31 @@ public static class LiedEndpoints
 			var kindsByLied = kindRows.GroupBy(k => k.LiedId)
 				.ToDictionary(g => g.Key, g => g.Select(k => k.Kind).ToHashSet());
 
-			// Plain search also reads the text of each Lied's live Noten (#169):
-			// every word must stand in the title or in that text.
+			// Plain search reads the text of each Lied's live Noten (#169) and,
+			// since #142, matches the Liedtext and the creators too: every word
+			// must stand in at least one of those fields, the Treffer names them.
 			var noteTexts = tokens.Count == 0
 				? []
 				: await LoadNotenTextsAsync(db, token);
 
-			var matches = rows
-				.Where(r => voiceFilter.Length == 0 || CatalogueText.Fold(r.VoiceConfiguration) == voiceFilter)
-				.Where(r => occasionFilter.Length == 0 || CatalogueText.Fold(r.Occasion) == occasionFilter)
+			var matched = rows
+				.Select(r => (Row: r, Fields: FieldsOf(r, noteTexts.GetValueOrDefault(r.Id) ?? string.Empty)))
+				.Where(r => voiceFilter.Length == 0 || CatalogueText.Fold(r.Row.VoiceConfiguration) == voiceFilter)
+				.Where(r => occasionFilter.Length == 0 || CatalogueText.Fold(r.Row.Occasion) == occasionFilter)
 				.Where(r => wantedKinds.Count == 0
-					|| (kindsByLied.TryGetValue(r.Id, out var kinds) && wantedKinds.All(kinds.Contains)))
-				.Where(r =>
-				{
-					var title = CatalogueText.Fold(r.Title);
-					var notes = noteTexts.GetValueOrDefault(r.Id) ?? string.Empty;
-					return tokens.All(t => title.Contains(t) || notes.Contains(t));
-				})
-				.OrderBy(r => CatalogueText.Fold(r.Title), StringComparer.Ordinal)
-				.ThenBy(r => r.Id)
+					|| (kindsByLied.TryGetValue(r.Row.Id, out var kinds) && wantedKinds.All(kinds.Contains)))
+				.Where(r => CatalogueSearch.Matches(tokens, r.Fields))
+				.OrderBy(r => CatalogueText.Fold(r.Row.Title), StringComparer.Ordinal)
+				.ThenBy(r => r.Row.Id)
 				.ToList();
 			var requestedPage = page is null or < 1 ? 1 : page.Value;
-			var pageRows = matches.Skip((requestedPage - 1) * PageSize).Take(PageSize).ToList();
+			var pageRows = matched.Skip((requestedPage - 1) * PageSize).Take(PageSize).ToList();
 			return Results.Ok(new
 			{
 				query = query.Length == 0 ? null : query,
 				page = requestedPage,
 				pageSize = PageSize,
-				total = matches.Count,
+				total = matched.Count,
 				filters = new
 				{
 					voiceConfiguration = Clean(besetzung ?? voiceConfiguration),
@@ -149,16 +146,19 @@ public static class LiedEndpoints
 				},
 				lieder = pageRows.Select(r => new
 				{
-					id = r.Id,
-					title = r.Title,
-					composer = r.Composer,
-					arranger = r.Arranger,
-					lyricist = r.Lyricist,
-					voiceConfiguration = r.VoiceConfiguration,
-					musicalKey = r.MusicalKey,
-					language = r.Language,
-					occasion = r.Occasion,
-					dateiTypen = DateiKinds.All.Where(k => kindsByLied.TryGetValue(r.Id, out var kinds) && kinds.Contains(k)),
+					id = r.Row.Id,
+					title = r.Row.Title,
+					composer = r.Row.Composer,
+					arranger = r.Row.Arranger,
+					lyricist = r.Row.Lyricist,
+					voiceConfiguration = r.Row.VoiceConfiguration,
+					musicalKey = r.Row.MusicalKey,
+					language = r.Row.Language,
+					occasion = r.Row.Occasion,
+					// Where the Treffer stands, in the labels the members read
+					// ("im Liedtext", "in den Noten", …); empty without a query.
+					matchIn = tokens.Count == 0 ? [] : CatalogueSearch.MatchLabels(tokens, r.Fields),
+					dateiTypen = DateiKinds.All.Where(k => kindsByLied.TryGetValue(r.Row.Id, out var kinds) && kinds.Contains(k)),
 				}),
 			});
 		});
@@ -274,7 +274,34 @@ public static class LiedEndpoints
 		};
 	}
 
-	private sealed record ListRow(Guid Id, string Title, string? Composer, string? Arranger, string? Lyricist,
+	/// <summary>
+	/// The searchable fields of one Lied (title, creators, lyrics and the text
+	/// of its live Noten), folded once per row; empty fields contribute nothing.
+	/// </summary>
+	private static List<SearchField> FieldsOf(ListRow r, string foldedNoten)
+	{
+		var title = CatalogueText.Fold(r.Title);
+		var composer = CatalogueText.Fold(r.Composer);
+		var arranger = CatalogueText.Fold(r.Arranger);
+		var lyricist = CatalogueText.Fold(r.Lyricist);
+		var lyrics = CatalogueText.Fold(r.Lyrics);
+		var fields = new List<SearchField>(6);
+		if (title.Length > 0)
+			fields.Add(new(CatalogueSearch.TitleLabel, title));
+		if (composer.Length > 0)
+			fields.Add(new(CatalogueSearch.ComposerLabel, composer));
+		if (arranger.Length > 0)
+			fields.Add(new(CatalogueSearch.ArrangerLabel, arranger));
+		if (lyricist.Length > 0)
+			fields.Add(new(CatalogueSearch.LyricistLabel, lyricist));
+		if (lyrics.Length > 0)
+			fields.Add(new(CatalogueSearch.LyricsLabel, lyrics));
+		if (foldedNoten.Length > 0)
+			fields.Add(new(CatalogueSearch.NotenLabel, foldedNoten));
+		return fields;
+	}
+
+	private sealed record ListRow(Guid Id, string Title, string? Composer, string? Arranger, string? Lyricist, string? Lyrics,
 		string? VoiceConfiguration, string? MusicalKey, string? Language, string? Occasion);
 }
 
