@@ -1,6 +1,7 @@
 using Archive.Backend.Assets;
 using Archive.Backend.Auth;
 using Archive.Backend.Data;
+using Archive.Backend.Videos;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.EntityFrameworkCore;
 
@@ -23,6 +24,8 @@ public sealed class DateiReplacementHook : IDateiFinalizedHook
 			return;
 		DateiTrash.MoveToTrash(old, upload.ActorAccountId, upload.Now);
 		old.ReplacedByDateiId = datei.Id;
+		// #161: the playback copy of a replaced video leaves with it.
+		await VideoTrash.TrashCopyOfAsync(db, old, upload.ActorAccountId, upload.Now, token);
 	}
 }
 
@@ -60,6 +63,9 @@ public static class DateiTrashEndpoints
 			if (body?.RowVersion is not { } expected || expected != datei.RowVersion)
 				return Results.Problem(statusCode: 409, title: UploadEndpoints.ConcurrencyMessage);
 			DateiTrash.MoveToTrash(datei, decision!.AccountId, time.GetUtcNow());
+			// #161: the playback copy of a deleted video leaves with it.
+			await Archive.Backend.Videos.VideoTrash.TrashCopyOfAsync(db, datei, decision.AccountId,
+				time.GetUtcNow(), token);
 			try
 			{
 				await db.SaveChangesAsync(token);

@@ -2,6 +2,7 @@ using Archive.Backend.Events;
 using Archive.Backend.Auth;
 using Archive.Backend.Catalogue;
 using Archive.Backend.Data;
+using Archive.Backend.Videos;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.EntityFrameworkCore;
 
@@ -241,6 +242,8 @@ public static class LiedEndpoints
 		var dateien = await DateiQueries.Visible(db).AsNoTracking()
 			.Where(d => d.LiedId == lied.Id)
 			.ToListAsync(token);
+		// #161: automatic playback copies never show as entries of their own.
+		dateien = await VideoPlayback.WithoutCopiesAsync(db, dateien, token);
 		// An Aufnahme names its Auftritt; the link goes to the Auftritt page.
 		var eventIds = dateien.Where(d => d.RecordedAtEventId != null).Select(d => d.RecordedAtEventId!.Value).Distinct().ToList();
 		var events = eventIds.Count == 0

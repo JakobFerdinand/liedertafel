@@ -9,7 +9,7 @@ namespace Archive.Backend.Videos;
 /// enqueue failures never propagate — the persisted row is the durable work
 /// record that a later dispatch sweep rediscovers.
 /// </summary>
-public static class VideoService
+public static partial class VideoService
 {
 	/// <summary>Quiet enqueue bound: two send attempts, then give up for this caller.</summary>
 	private const int EnqueueAttempts = 2;

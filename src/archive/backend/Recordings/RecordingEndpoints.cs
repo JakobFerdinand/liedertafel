@@ -3,6 +3,7 @@ using Archive.Backend.Auth;
 using Archive.Backend.Data;
 using Archive.Backend.Events;
 using Archive.Backend.Lieder;
+using Archive.Backend.Videos;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -250,7 +251,10 @@ public static class RecordingEndpoints
 			if (body?.DateiId is not { } dateiId)
 				return Results.Problem(statusCode: 400, title: DateiRequiredMessage);
 			var datei = await DateiQueries.Visible(db).FirstOrDefaultAsync(d => d.Id == dateiId
-				&& d.EventId == recording.EventId && d.Kind == DateiKinds.Aufnahme, token);
+				&& d.EventId == recording.EventId && d.Kind == DateiKinds.Aufnahme
+				// #161: automatic playback copies are never attached by hand.
+				&& d.Id != recording.OriginalDateiId
+				&& !db.VideoJobs.Any(v => v.PlaybackDateiId == d.Id), token);
 			if (datei is null)
 				return Results.Problem(statusCode: 404, title: DateiUploads.DateiNotFoundMessage);
 			var currentId = isOriginal ? recording.OriginalDateiId : recording.PlaybackDateiId;
@@ -279,11 +283,24 @@ public static class RecordingEndpoints
 			{
 				DateiTrash.MoveToTrash(replaced, decision.AccountId, now);
 				replaced.ReplacedByDateiId = datei.Id;
+				// #161: the playback copy of a replaced original leaves with it.
+				await VideoTrash.TrashCopyOfAsync(db, replaced, decision.AccountId, now, token);
 			}
 			if (isOriginal)
 			{
 				recording.OriginalDateiId = datei.Id;
 				recording.OriginalDatei = datei;
+				// #161: an already-finished MP4 copy of this original fills the
+				// empty playback slot at once; an editor's own copy stays.
+				if (recording.Kind == RecordingKinds.Video
+					&& recording.PlaybackDateiId is null
+					&& await VideoPlayback.LiveCopyAsync(db, datei.Id, token) is { PlaybackDateiId: { } copyId })
+				{
+					recording.PlaybackDateiId = copyId;
+					recording.PlaybackDatei = await db.Dateien.SingleAsync(d => d.Id == copyId, token);
+					// A measured duration describes the file members play.
+					recording.DurationSeconds = null;
+				}
 			}
 			else
 			{
