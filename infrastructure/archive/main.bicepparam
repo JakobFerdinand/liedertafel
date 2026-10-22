@@ -19,6 +19,11 @@ param customDomain = 'archiv.liedertafel-mining.at'
 param bindCustomDomain = true
 param bindManagedCertificate = true
 param logAnalyticsDailyCapGb = 1
+
+// ARC-042: maintainer destination addresses (primary first, then the second
+// maintainer). Not secrets, but they appear in deployment diffs/portal — set
+// them here only. While this list is empty, every alert deploys disabled.
+// param maintainerAlertEmails = ["...@liedertafel-mining.at", "...@example.org"]
 param deployRoleAssignments = true
 // ARC-012: declared default only. Workflows override this per run with the
 // live value (infra) or the release window state (release), so neither a
