@@ -35,7 +35,7 @@ public sealed class AiOptions
 
 	/// <summary>
 	/// Prices per model key (the deployment name for Azure OpenAI), in EUR per
-	/// one million tokens. Example: <c>Archive:Ai:Models:gpt-5-4-mini:InputPricePerMillionEur</c>.
+	/// one million tokens. Example: <c>Archive:Ai:Models:gpt-6-luna:InputPricePerMillionEur</c>.
 	/// </summary>
 	public Dictionary<string, AiModelPrice> Models { get; set; } = [];
 
