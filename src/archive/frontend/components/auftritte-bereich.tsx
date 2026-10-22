@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { AuftrittAblegen } from "@/components/auftritt-ablegen";
 import { AuftrittFormular } from "@/components/auftritt-formular";
 import { fetchMe, type MeResponse } from "@/lib/auth";
 import {
@@ -34,6 +35,8 @@ export function AuftritteBereich() {
   const suchParameter = useSearchParams();
   const router = useRouter();
   const jahr = jahrAusAdresse(suchParameter.get("jahr"));
+  // "Angefangen" (#131) öffnet "Neuer Auftritt" mit dem gespeicherten Entwurf.
+  const entwurfId = suchParameter.get("entwurf");
 
   const [me, setMe] = useState<MeResponse | null>(null);
   const [ergebnis, setErgebnis] = useState<AuftrittSuchErgebnis | null>(null);
@@ -42,6 +45,10 @@ export function AuftritteBereich() {
   const [erfolg, setErfolg] = useState("");
   const [bearbeitet, setBearbeitet] = useState<string | null>(null);
   const [versuch, setVersuch] = useState(0);
+  // "Neuer Auftritt": Dateien ablegen (#131) oder ohne Datei von Hand.
+  const [vonHand, setVonHand] = useState(false);
+  // Ein neuer Entwurf nach dem Verwerfen bekommt einen frischen Hook.
+  const [ablageLauf, setAblageLauf] = useState(0);
 
   const editor = me?.authenticated && istEditor(me);
 
@@ -164,25 +171,49 @@ export function AuftritteBereich() {
         <details
           className="auth-karte auftritt-anlegen"
           aria-labelledby="auftritt-anlegen-titel"
+          open={entwurfId ? true : undefined}
         >
           <summary>
             <h2 id="auftritt-anlegen-titel">Neuer Auftritt</h2>
           </summary>
-          <AuftrittFormular
-            absendenText="Auftritt anlegen"
-            onSuccess={() => {
-              // Der ganze Bestand kommt frisch: so bleiben Sortierung
-              // und die Jahresleiste (years-Zusammenfassung) wahr,
-              // statt den neuen Eintrag ans Ende zu hängen.
-              laden().catch(() =>
-                setFehler(
-                  "Das Archiv antwortet nicht. Bitte erneut versuchen.",
-                ),
-              );
-              setErfolg("Auftritt angelegt.");
-              setHinweis("");
-            }}
-          />
+          {vonHand ? (
+            <>
+              <AuftrittFormular
+                absendenText="Auftritt anlegen"
+                onSuccess={() => {
+                  // Der ganze Bestand kommt frisch: so bleiben Sortierung
+                  // und die Jahresleiste (years-Zusammenfassung) wahr,
+                  // statt den neuen Eintrag ans Ende zu hängen.
+                  laden().catch(() =>
+                    setFehler(
+                      "Das Archiv antwortet nicht. Bitte erneut versuchen.",
+                    ),
+                  );
+                  setErfolg("Auftritt angelegt.");
+                  setHinweis("");
+                }}
+              />
+              <p className="feld-hinweis">
+                <button
+                  type="button"
+                  className="knopf-leise"
+                  onClick={() => setVonHand(false)}
+                >
+                  Stattdessen Dateien ablegen
+                </button>
+              </p>
+            </>
+          ) : (
+            <AuftrittAblegen
+              key={`${entwurfId ?? "neu"}-${ablageLauf}`}
+              entwurfId={ablageLauf === 0 ? entwurfId : null}
+              onOhneDatei={() => setVonHand(true)}
+              onVerworfen={() => {
+                setAblageLauf((n) => n + 1);
+                if (entwurfId) router.replace("/auftritte/");
+              }}
+            />
+          )}
         </details>
       )}
 

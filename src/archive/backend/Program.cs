@@ -269,6 +269,8 @@ builder.Services.AddSingleton<IReadingQueue>(ReadingQueue.Create(builder.Configu
 builder.Services.AddSingleton<IPdfPageRenderer, PdfiumPageRenderer>();
 builder.Services.AddSingleton<ScanReadingModel>();
 builder.Services.AddScoped<DraftReader>();
+// #131: reading a programme scan or photo for a new Auftritt, also in the request.
+builder.Services.AddScoped<ProgrammReader>();
 builder.Services.AddSingleton<DraftReadingRegistry>();
 builder.Services.AddScoped<UploadSessionCleaner>();
 builder.Services.AddHttpContextAccessor();
@@ -384,6 +386,8 @@ app.MapRecordingPassageEndpoints();
 app.MapExtractionEndpoints();
 app.MapReadingEndpoints();
 app.MapDraftReadingEndpoints();
+app.MapProgrammReadingEndpoints();
+app.MapAuftrittEntwurfEndpoints();
 app.MapLiedEntwurfEndpoints();
 app.MapLiedEndpoints();
 app.MapDateiEndpoints();

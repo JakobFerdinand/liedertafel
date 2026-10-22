@@ -577,6 +577,40 @@ namespace Archive.Backend.Data.Migrations
                     b.ToTable("chat_threads", (string)null);
                 });
 
+            modelBuilder.Entity("Archive.Backend.Events.AuftrittEntwurf", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("DateiCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Form")
+                        .IsRequired()
+                        .HasMaxLength(100000)
+                        .HasColumnType("character varying(100000)");
+
+                    b.Property<Guid>("OwnerAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OwnerAccountId", "UpdatedAt");
+
+                    b.ToTable("auftritt_entwuerfe", (string)null);
+                });
+
             modelBuilder.Entity("Archive.Backend.Events.ChoirEvent", b =>
                 {
                     b.Property<Guid>("Id")
