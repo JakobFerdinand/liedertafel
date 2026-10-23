@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Archive.Backend.Data;
 using Archive.Backend.Events;
+using Archive.Backend.Lieder;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 
@@ -316,14 +317,14 @@ public static class A2uiCatalog
 	{
 		if (!Guid.TryParse(request.AuftrittId, out var id))
 			return null;
-		var entry = await db.Events.AsNoTracking()
+		// A trashed Auftritt shows no programme to members until it is
+		// restored (#146); its one editable Programm is the record of what was sung.
+		var entry = await EventQueries.Visible(db).AsNoTracking()
 			.Where(e => e.Id == id)
 			.Select(e => new { e.Id, e.Title })
 			.FirstOrDefaultAsync(token);
 		if (entry is null)
 			return null;
-		// A saved Auftritt is visible to every member (ADR-0001); its one
-		// editable Programm is the record of what was sung.
 		var programme = await db.Programmes.AsNoTracking()
 			.Where(p => p.EventId == id)
 			.Select(p => new { p.Id })
@@ -331,7 +332,9 @@ public static class A2uiCatalog
 		if (programme is null)
 			return null;
 		var items = await db.ProgrammeItems.AsNoTracking()
-			.Where(i => i.ProgrammeId == programme.Id)
+			// A trashed Lied keeps its Programmpunkt out of the member view (#146)
+			// while its stored position is untouched.
+			.Where(i => i.ProgrammeId == programme.Id && LiedQueries.Visible(db).Any(l => l.Id == i.LiedId))
 			.OrderBy(i => i.Position)
 			.ThenBy(i => i.Id)
 			.Select(i => new { i.Position, i.LiedId, LiedTitle = i.Lied!.Title, i.Note })

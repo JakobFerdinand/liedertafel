@@ -497,6 +497,82 @@ public sealed partial class ChatApiTests
 	}
 
 	[Fact]
+	public async Task ProgrammListeHidesTrashedAuftritteAndTrashedLieder()
+	{
+		var provider = new ShowSurfaceChatClient();
+		await using var factory = ChatFactory(chatClient: provider);
+		var ownerId = await SeedMemberAsync(factory, MemberA);
+		var (eventId, _, _) = await SeedProgrammeAsync(factory, ownerId);
+		var trashEventId = Guid.NewGuid();
+		await using (var scope = factory.Services.CreateAsyncScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			var now = DateTimeOffset.UtcNow;
+			var trashLied = new Lied
+			{
+				Title = "Ausgemustertes Lied",
+				CreatedAt = now,
+				CreatedByAccountId = ownerId,
+				UpdatedAt = now,
+				UpdatedByAccountId = ownerId,
+				DeletedAt = now,
+				DeletedByAccountId = ownerId,
+			};
+			var programme = db.Programmes.Include(p => p.Items).Single(p => p.EventId == eventId);
+			programme.Items.Add(new ProgrammeItem { ProgrammeId = programme.Id, Position = 3, LiedId = trashLied.Id });
+			db.Lieder.Add(trashLied);
+			var trashEvent = new ChoirEvent
+			{
+				Id = trashEventId,
+				Kind = "concert",
+				Title = "Im Papierkorb",
+				DateYear = 1988,
+				CreatedAt = now,
+				CreatedByAccountId = ownerId,
+				UpdatedAt = now,
+				UpdatedByAccountId = ownerId,
+				DeletedAt = now,
+				DeletedByAccountId = ownerId,
+			};
+			var trashProgramme = new EventProgramme
+			{
+				EventId = trashEvent.Id,
+				CreatedAt = now,
+				CreatedByAccountId = ownerId,
+				UpdatedAt = now,
+				UpdatedByAccountId = ownerId,
+			};
+			trashProgramme.Items.Add(new ProgrammeItem { ProgrammeId = trashProgramme.Id, Position = 1, LiedId = trashLied.Id });
+			db.Events.Add(trashEvent);
+			db.Programmes.Add(trashProgramme);
+			await db.SaveChangesAsync();
+		}
+		var session = await SignInAsync(factory, MemberA);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		provider.Request = $$"""
+			[
+			 {"komponente":"ProgrammListe","auftrittId":"{{eventId}}"},
+			 {"komponente":"ProgrammListe","auftrittId":"{{trashEventId}}"}
+			]
+			""";
+
+		using var response = await RunChatAsync(client, session, Guid.NewGuid().ToString(), "Zeige das Programm");
+		var body = await response.Content.ReadAsStringAsync();
+		var components = CollectA2uiMessages(body)
+			.Where(m => m.TryGetProperty("updateComponents", out _))
+			.Select(m => m.GetProperty("updateComponents").GetProperty("components")[0])
+			.ToList();
+		var card = components.Single(c => c.GetProperty("component").GetString() == "ProgrammListe");
+		// The trashed Lied leaves the visible punkte untouched in its stored position.
+		var punkte = card.GetProperty("punkte").EnumerateArray().ToList();
+		Assert.Equal(2, punkte.Count);
+		Assert.DoesNotContain("Ausgemustertes Lied", body);
+		// No member sees a trashed Auftritt's programme even by its id.
+		Assert.Equal(eventId.ToString(), card.GetProperty("auftrittId").GetString());
+		Assert.DoesNotContain("Im Papierkorb", body);
+	}
+
+	[Fact]
 	public async Task AuftrittKarteShowsSavedEventsOnlyAndQuellenOnlyKnownLieder()
 	{
 		var provider = new ShowSurfaceChatClient();
