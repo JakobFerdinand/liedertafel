@@ -55,7 +55,7 @@ public sealed class AiCostNoticeTests
 	public async Task TheHighestReachedThresholdNotifiesOnceWithTheBreakdown()
 	{
 		using var harness = await NoticeHarness.CreateAsync(
-			o => o.NoticeThresholdsEur = [5m, 12m], seedMicroEur: 7_500_000);
+			o => o.NoticeThresholdsEur = "5,12", seedMicroEur: 7_500_000);
 		var state = await harness.Notice.ReviewAsync(CancellationToken.None);
 		Assert.Equal([5m, 12m, 15m], state.ThresholdsEur);
 		var line = Assert.Single(harness.Warnings);
@@ -72,7 +72,7 @@ public sealed class AiCostNoticeTests
 	public async Task AHigherThresholdNotifiesWhenTheSpendPassesIt()
 	{
 		using var harness = await NoticeHarness.CreateAsync(
-			o => o.NoticeThresholdsEur = [5m, 12m], seedMicroEur: 7_500_000);
+			o => o.NoticeThresholdsEur = "5,12", seedMicroEur: 7_500_000);
 		await harness.Notice.ReviewAsync(CancellationToken.None);
 		Assert.Single(harness.Warnings, w => w.Contains("Schwellwert 5.00 EUR"));
 		// The spend grows; the next review announces the next level.
@@ -99,7 +99,7 @@ public sealed class AiCostNoticeTests
 	public async Task ARaisedCapReEnablesTheCapNotice()
 	{
 		using var harness = await NoticeHarness.CreateAsync(
-			o => o.NoticeThresholdsEur = [10m], seedMicroEur: 12_000_000);
+			o => o.NoticeThresholdsEur = "10", seedMicroEur: 12_000_000);
 		await harness.Notice.ReviewAsync(CancellationToken.None);
 		Assert.Single(harness.Warnings, w => w.Contains("Schwellwert 10.00 EUR"));
 		// The maintainers raise the hard cap mid-month; the month spends past
@@ -108,6 +108,18 @@ public sealed class AiCostNoticeTests
 		await harness.SeedAsync(14_000_000);
 		await harness.Notice.ReviewAsync(CancellationToken.None);
 		Assert.Single(harness.Warnings, w => w.Contains("Monatsbudget erreicht (2026-10: 26.00 von 25.00 EUR)"));
+	}
+
+	[Fact]
+	public async Task AnUnusableExplicitEntryIsReportedAsAnErrorAndDropped()
+	{
+		var harness = await NoticeHarness.CreateAsync(
+			o => o.NoticeThresholdsEur = "5,bloss,7", seedMicroEur: 12_000_000);
+		await harness.Notice.ReviewAsync(CancellationToken.None);
+		// The usable levels stay live: 5 and 7 are below the 12 EUR spend; "bloss"
+		// is not silently forgotten.
+		Assert.Contains(harness.Lines, l => l.Contains("nicht lesbar") && l.Contains("bloss"));
+		Assert.Single(harness.Warnings, w => w.Contains("Schwellwert 7.00 EUR"));
 	}
 
 	[Fact]
@@ -147,6 +159,8 @@ public sealed class AiCostNoticeTests
 		public MutableCapOptions Options { get; }
 
 		public IReadOnlyList<string> Warnings => warnings.Warnings;
+
+		public IReadOnlyList<string> Lines => warnings.Lines;
 
 		public static async Task<NoticeHarness> CreateAsync(
 			Action<AiOptions> configureOptions, long? seedMicroEur = null)
@@ -232,22 +246,27 @@ public sealed class AiCostNoticeTests
 		public IDisposable? OnChange(Action<AiOptions, string?> listener) => null;
 	}
 
-	/// <summary>Collects the warnings the Azure alert rules would forward.</summary>
+	/// <summary>Collects the lines the Azure alert rules would forward.</summary>
 	private sealed class RecordingLogger : ILogger<AiCostNotice>
 	{
-		private readonly List<string> lines = [];
+		private readonly List<string> all = [];
+		private readonly List<string> warnings = [];
 
-		public IReadOnlyList<string> Warnings => lines;
+		public IReadOnlyList<string> Lines => all;
+
+		public IReadOnlyList<string> Warnings => warnings;
 
 		public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
 
-		public bool IsEnabled(LogLevel logLevel) => logLevel >= LogLevel.Warning;
+		public bool IsEnabled(LogLevel logLevel) => logLevel >= LogLevel.Information;
 
 		public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
 			Func<TState, Exception?, string> formatter)
 		{
+			var line = formatter(state, exception);
 			if (logLevel == LogLevel.Warning)
-				lines.Add(formatter(state, exception));
+				warnings.Add(line);
+			all.Add(line);
 		}
 	}
 }

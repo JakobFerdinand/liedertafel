@@ -139,10 +139,10 @@ public sealed class AlertQueryContractTests
 		var param = Regex.Match(bicep, @"param aiNoticeThresholdsEur string = '([^']*)'");
 		Assert.True(param.Success, "aiNoticeThresholdsEur must be a pass-through string parameter");
 		Assert.Equal(string.Empty, param.Groups[1].Value);
-		// The backend ships no default: an empty list is the disabled state.
+		// The backend ships no default: an empty string is the disabled state.
 		var options = BackendSource("Ai/AiOptions.cs");
 		Assert.Contains("NoticeThresholdsEur", options);
-		Assert.Matches(@"NoticeThresholdsEur \{ get; set; \} = \[\];", options);
+		Assert.Matches(@"NoticeThresholdsEur \{ get; set; \} = string\.Empty;", options);
 		// The dispatch sweep (and the app's view) carry the configured list;
 		// the --read-queue worker itself does not need it.
 		Assert.Equal(2, Regex.Matches(bicep, @"name: 'Archive__Ai__NoticeThresholdsEur'").Count);

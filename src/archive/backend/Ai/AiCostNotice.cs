@@ -28,10 +28,23 @@ public sealed class AiCostNotice(
 	/// <summary>Every configured threshold plus the hard cap, sorted ascending.</summary>
 	public IReadOnlyList<decimal> Levels()
 	{
-		var current = options.CurrentValue;
-		var levels = new List<decimal>(current.NoticeThresholdsEur);
-		if (!levels.Contains(current.MonthlyCapEur))
-			levels.Add(current.MonthlyCapEur);
+		var levels = new List<decimal>();
+		foreach (var (entry, amount, usable) in options.CurrentValue.ParseThresholds())
+		{
+			if (!usable)
+			{
+				// The numbers are explicit maintainer configuration; an
+				// unusable one stays a visible error, never an unnoticed drop.
+				logger.LogError(
+					"KI-Budget: Der Schwellwert-Eintrag '{Entry}' ist nicht lesbar; er ist vorerst ausgeschaltet.",
+					entry);
+				continue;
+			}
+			levels.Add(amount);
+		}
+		var cap = options.CurrentValue.MonthlyCapEur;
+		if (!levels.Contains(cap))
+			levels.Add(cap);
 		return levels.Order().Where(l => l > 0).ToList();
 	}
 
