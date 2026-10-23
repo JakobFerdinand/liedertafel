@@ -10,6 +10,7 @@ using Archive.Backend.Development;
 using Archive.Backend.Events;
 using Archive.Backend.Extraction;
 using Archive.Backend.Lieder;
+using Archive.Backend.Inventur;
 using Archive.Backend.Maintenance;
 using Archive.Backend.Reading;
 using Archive.Backend.Recordings;
@@ -23,6 +24,15 @@ using Microsoft.Extensions.Options;
 using ChatOptions = Archive.Backend.Chat.ChatOptions;
 
 var command = args.FirstOrDefault();
+// #98: the Quellen-Inventur is deterministic tooling (architecture §14): it
+// walks a source folder export and reports sizes, kinds, PDF text
+// availability and the analytical reading-cost estimate. It runs before any
+// job host is built, because it needs no database, queue or model.
+if (command == "--inventur")
+{
+    Environment.ExitCode = InventurCommand.Run(args.Skip(1).ToArray(), Console.Out);
+    return;
+}
 if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" or "--bootstrap-admin" or "--repair-admin" or "--seed-dev-auth" or "--send-test-mail" or "--cleanup-uploads" or "--cleanup-dropped-blobs" or "--extract-queue" or "--dispatch-extraction" or "--read-queue" or "--dispatch-reading")
 {
     var jobs = Host.CreateApplicationBuilder(args.Skip(1).ToArray());
