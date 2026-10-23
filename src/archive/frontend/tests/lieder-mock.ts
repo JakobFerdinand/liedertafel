@@ -57,6 +57,7 @@ export const mondEintrag = {
   musicalKey: "F-Dur",
   language: "Deutsch",
   occasion: "Abendlied",
+  matchIn: [],
   dateiTypen: ["noten"],
 };
 
@@ -70,6 +71,7 @@ export const wolkenEintrag = {
   musicalKey: null,
   language: null,
   occasion: "Frühling",
+  matchIn: [],
   dateiTypen: [],
 };
 
