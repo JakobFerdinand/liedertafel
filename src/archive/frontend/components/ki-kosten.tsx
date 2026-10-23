@@ -2,10 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { fetchMe, type MeResponse } from "@/lib/auth";
-import {
-  fetchKiKosten,
-  type KiKostenUeberblick,
-} from "@/lib/ki-kosten";
+import { fetchKiKosten, type KiKostenUeberblick } from "@/lib/ki-kosten";
 
 function eur(wert: number): string {
   return `${wert.toLocaleString("de-AT", {
@@ -96,9 +93,7 @@ export function KiKosten() {
           </thead>
           <tbody>
             {stand.features.map((eintrag) => (
-              <tr
-                key={`${eintrag.feature}-${eintrag.model}`}
-              >
+              <tr key={`${eintrag.feature}-${eintrag.model}`}>
                 <td>{eintrag.feature}</td>
                 <td>{eintrag.model}</td>
                 <td>{eintrag.calls}</td>
@@ -112,8 +107,8 @@ export function KiKosten() {
         </table>
       )}
       <p className="ki-kosten-hinweis">
-        Die harte Monatsgrenze gilt für alle KI-Nutzung zusammen (Archiv: 15
-        EUR im Monat); sie ist vom EUR-10-Ziel der übrigen Azure-Kosten getrennt.
+        Die harte Monatsgrenze gilt für alle KI-Nutzung zusammen (Archiv: 15 EUR
+        im Monat); sie ist vom EUR-10-Ziel der übrigen Azure-Kosten getrennt.
         Schwellwerte und Meldeweg stehen in der Infrastruktur, siehe
         infrastructure/archive/README.md, „Kostenübersicht (ARC-043)“.
       </p>
