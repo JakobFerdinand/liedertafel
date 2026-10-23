@@ -260,3 +260,30 @@ test("Noch einmal fallen und speichern verdoppelt kein Lied", async ({
   await expect(eintraege).toHaveCount(2);
   await expect.poll(async () => angelegt.length, { timeout: 15_000 }).toBe(1);
 });
+
+test("Klare Vorschläge gehen auf einmal, ohne dass einer den anderen berührt", async ({
+  page,
+}) => {
+  page.on("console", (nachricht) => console.log("PAGE:", nachricht.text()));
+  page.on("pageerror", (error) => console.log("PERR:", error.message));
+  const angelegt: { title?: string }[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.url().endsWith("/api/lieder"))
+      angelegt.push(request.postDataJSON() as { title?: string });
+  });
+  await mockUmgebung(page);
+  const wurzel = await fallsammlung();
+  await page.goto("/lieder/");
+  await ladeOrdner(page, wurzel, true);
+  const eintraege = vorschlaege(page);
+  await expect(eintraege).toHaveCount(2);
+  // Kein Eintrag ist aufgeklickt: die klaren Vorschläge öffnen und speichern sich selbst.
+  await page
+    .getByRole("button", { name: "2 klare Vorschläge speichern" })
+    .click();
+  await expect.poll(async () => angelegt.length, { timeout: 20_000 }).toBe(2);
+  expect(angelegt.map((a) => a.title).sort()).toEqual([
+    "Lied Eins",
+    "Lied Zwei",
+  ]);
+});

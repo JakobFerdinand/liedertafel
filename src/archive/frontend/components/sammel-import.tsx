@@ -38,6 +38,28 @@ type Klarheit =
   | { art: "arbeitet"; klar: boolean; liest: boolean }
   | { art: "fertig"; liedId: string };
 
+/** Die Klarheit eines Meldungszustands (dasselbe Maß wie die Meldung der Einträge). */
+function klarheitVon(zustand: Meldung["zustand"]): Klarheit {
+  if (zustand.phase === "gespeichert" && zustand.liedId)
+    return { art: "fertig", liedId: zustand.liedId };
+  const klar =
+    zustand.phase === "sammeln" &&
+    zustand.fehler === null &&
+    kannSpeichern(zustand) &&
+    !liestNoch(zustand) &&
+    // Ein angebotener Treffer ist eine Redaktionsentscheidung.
+    zustand.ziel.status !== "angeboten" &&
+    // Unsichere Vorschläge bleiben der Handarbeit.
+    !Object.values(zustand.vorschlaege).some((s) => s === "unsicher") &&
+    // Wo das Lesen scheiterte, entscheidet die Redaktion.
+    !zustand.dateien.some(
+      (d) =>
+        d.lesen.status === "fehlgeschlagen" ||
+        d.lesen.status === "nicht-verfuegbar",
+    );
+  return { art: "arbeitet", klar, liest: liestNoch(zustand) };
+}
+
 /** Der gegen das Backend gestellte Anfang für einen neuen Vorschlag. */
 function vorschlagEntwurf(gruppe: SammelGruppe): Gespeichert {
   return {
@@ -69,19 +91,10 @@ export function SammelImport() {
 
   const melde = useCallback((meldung: Meldung) => {
     meldungenRef.current.set(meldung.entwurfId, meldung);
-    const { zustand } = meldung;
-    let klarheit: Klarheit;
-    if (zustand.phase === "gespeichert" && zustand.liedId) {
-      klarheit = { art: "fertig", liedId: zustand.liedId };
-    } else {
-      const klar =
-        zustand.phase === "sammeln" &&
-        kannSpeichern(zustand) &&
-        !liestNoch(zustand) &&
-        !Object.values(zustand.vorschlaege).some((s) => s === "unsicher");
-      klarheit = { art: "arbeitet", klar, liest: liestNoch(zustand) };
-    }
-    setKlarheiten((bestand) => ({ ...bestand, [meldung.entwurfId]: klarheit }));
+    setKlarheiten((bestand) => ({
+      ...bestand,
+      [meldung.entwurfId]: klarheitVon(meldung.zustand),
+    }));
   }, []);
 
   const ordnerGewaehlt = useCallback(async (gewaehlt: File[]) => {
@@ -176,17 +189,46 @@ export function SammelImport() {
     return () => steuerung.abort();
   }, [gruppeOffen, geladen]);
 
-  /** Alle klaren Vorschläge nacheinander speichern. */
+  /**
+   * Alle klaren Vorschläge nacheinander speichern. Ein zugeklappter Eintrag
+   * wird dazu aufgeklappt und wartet kurz auf seine Meldung; was kein klarer
+   * Vorschlag ist (unsichere Vorschläge, laufende Lesungen, Bytes fehlen),
+   * bleibt der Handarbeit.
+   */
   const alleKlareSpeichern = useCallback(async () => {
     if (sperrRef.current || !plan) return;
     sperrRef.current = true;
     setLädt(true);
     try {
       for (const gruppe of plan.gruppen) {
+        const ausgang = klarheiten[gruppe.entwurfId];
+        if (ausgang?.art === "fertig") continue;
+        if ((dateienNachGruppe[gruppe.entwurfId] ?? []).length === 0) continue;
+        setOffen(gruppe.entwurfId);
+        // Der Eintrag braucht einen Moment: erst steht der Entwurf im
+        // Backend, dann wandern die Bytes nach; klarheitVon entscheidet.
+        let klarheit: Klarheit | null = null;
+        for (let schritt = 0; schritt < 240; schritt++) {
+          await new Promise((fertig) => setTimeout(fertig, 250));
+          const meldung = meldungenRef.current.get(gruppe.entwurfId);
+          const zustand = meldung?.zustand;
+          // Ohne Bytes im Zustand ist der Stand noch unterwegs: Warten.
+          klarheit =
+            zustand &&
+            !(zustand.phase === "sammeln" && zustand.dateien.length === 0)
+              ? klarheitVon(zustand)
+              : null;
+          if (
+            klarheit &&
+            (klarheit.art === "fertig" ||
+              (klarheit.art === "arbeitet" && !klarheit.liest))
+          )
+            // Endentscheidung: klar bleibt klar, Unklares bleibt der Handarbeit.
+            break;
+        }
+        if (klarheit?.art !== "arbeitet" || !klarheit.klar) continue;
         const meldung = meldungenRef.current.get(gruppe.entwurfId);
-        const klarheit = klarheiten[gruppe.entwurfId];
-        if (!meldung || klarheit?.art !== "arbeitet" || !klarheit.klar)
-          continue;
+        if (!meldung) continue;
         await meldung.speichern();
       }
     } catch {
@@ -197,12 +239,21 @@ export function SammelImport() {
       sperrRef.current = false;
       setLädt(false);
     }
-  }, [plan, klarheiten]);
+  }, [plan, klarheiten, dateienNachGruppe]);
 
+  // Klare und noch nicht angefasste Vorschläge: die noch nicht geöffneten
+  // gelten als klar, bis ihre Meldung sie zurückstuft.
   const klar =
     plan?.gruppen.filter((g) => {
       const k = klarheiten[g.entwurfId];
-      return k?.art === "arbeitet" && k.klar;
+      if (k?.art !== "arbeitet") return false;
+      return k.klar;
+    }).length ?? 0;
+  const anwärtige =
+    plan?.gruppen.filter((g) => {
+      const k = klarheiten[g.entwurfId];
+      if (k) return false;
+      return (dateienNachGruppe[g.entwurfId] ?? []).length > 0;
     }).length ?? 0;
   const fertig =
     plan?.gruppen.filter((g) => klarheiten[g.entwurfId]?.art === "fertig")
@@ -271,12 +322,12 @@ export function SammelImport() {
           <div className="auth-aktionen">
             <button
               type="button"
-              disabled={klar === 0 || lädt}
+              disabled={klar + anwärtige === 0 || lädt}
               onClick={() => void alleKlareSpeichern()}
             >
-              {klar === 1
+              {klar + anwärtige === 1
                 ? "1 klaren Vorschlag speichern"
-                : `${klar} klare Vorschläge speichern`}
+                : `${klar + anwärtige} klare Vorschläge speichern`}
             </button>
           </div>
         </>
