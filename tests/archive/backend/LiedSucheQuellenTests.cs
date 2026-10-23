@@ -75,6 +75,27 @@ public sealed class LiedSucheQuellenTests
 	}
 
 	[Fact]
+	public async Task AReplacedNotenStopsBeingFound()
+	{
+		await using var host = new LiedTestHost();
+		var editor = await host.EditorAsync();
+		var waldfahrt = await host.CreateLiedIdAsync(editor, "Waldfahrt");
+		var noten = await host.UploadNotenAsync(editor, waldfahrt, "Alle", isPartitur: true);
+		var altId = Guid.Parse(noten.GetProperty("id").GetString()!);
+		await SetTextAsync(host, altId, "Im Wald grünen die Tannen", ExtractionTextSource.Reading);
+
+		var replacement = await host.ReplaceAsync(editor, waldfahrt, altId.ToString(), "noten.pdf");
+		var neueId = Guid.Parse(replacement.GetProperty("id").GetString()!);
+		await SetTextAsync(host, neueId, "Nur Wolken ziehen über das Land", ExtractionTextSource.Reading);
+
+		var treffer = await RowsAsync(host, editor, "tannen");
+		Assert.Empty(treffer);
+		var wolken = await RowsAsync(host, editor, "wolken");
+		Assert.Equal(["Waldfahrt"], wolken.Select(t => t.GetProperty("title").GetString()!).ToArray());
+		Assert.Equal(["in den Noten"], Arranged(Assert.Single(wolken)));
+	}
+
+	[Fact]
 	public async Task GermanSpellVariantsMatchRegardlessOfUmlautsAndSz()
 	{
 		await using var host = new LiedTestHost();
