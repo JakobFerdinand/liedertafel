@@ -83,7 +83,7 @@ public static class EventEndpoints
 			// One materialized visible set so InMemory tests and PostgreSQL
 			// agree: filtering and the precision-aware ARC-024 sorting run in
 			// C# (unpaginated archive scale).
-			var rows = await db.Events.AsNoTracking()
+			var rows = await EventQueries.Visible(db).AsNoTracking()
 				.Select(e => new EventRow(e.Id, e.Kind, e.Title, e.Venue, e.DateYear, e.DateMonth,
 					e.DateDay, e.DateApproximate, e.StartTime))
 				.ToListAsync(token);
@@ -121,7 +121,7 @@ public static class EventEndpoints
 			if (error is not null)
 				return error;
 			var isEditor = IsEditor(decision!);
-			var choirEvent = await db.Events.AsNoTracking()
+			var choirEvent = await EventQueries.Visible(db).AsNoTracking()
 				.FirstOrDefaultAsync(e => e.Id == id, token);
 			if (choirEvent is null)
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
@@ -198,7 +198,7 @@ public static class EventEndpoints
 			var (decision, error) = await RequireEditorAsync(context, accessor, access);
 			if (error is not null)
 				return error;
-			var choirEvent = await db.Events
+			var choirEvent = await EventQueries.Visible(db)
 				.FirstOrDefaultAsync(e => e.Id == id, token);
 			if (choirEvent is null)
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);

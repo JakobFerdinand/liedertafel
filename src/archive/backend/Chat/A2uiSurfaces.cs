@@ -246,7 +246,7 @@ public static class A2uiCatalog
 	{
 		if (!Guid.TryParse(request.LiedId, out var id))
 			return null;
-		var lied = await db.Lieder.AsNoTracking()
+		var lied = await Lieder.LiedQueries.Visible(db).AsNoTracking()
 			.Where(s => s.Id == id)
 			.Select(s => new { s.Id, s.Title, s.Composer, s.Lyricist, s.Lyrics })
 			.FirstOrDefaultAsync(token);
@@ -263,7 +263,7 @@ public static class A2uiCatalog
 	{
 		if (!Guid.TryParse(request.AuftrittId, out var id))
 			return null;
-		var entry = await db.Events.AsNoTracking()
+		var entry = await EventQueries.Visible(db).AsNoTracking()
 			.Where(e => e.Id == id)
 			.Select(e => new { e.Id, e.Title, e.Kind, e.Venue, e.DateYear, e.DateMonth, e.DateDay, e.DateApproximate })
 			.FirstOrDefaultAsync(token);
@@ -287,7 +287,7 @@ public static class A2uiCatalog
 			.OfType<Guid>().Distinct().Take(MaxSources).ToList();
 		if (ids.Count == 0)
 			return null;
-		var lieder = await db.Lieder.AsNoTracking()
+		var lieder = await Lieder.LiedQueries.Visible(db).AsNoTracking()
 			.Where(s => ids.Contains(s.Id))
 			.Select(s => new { s.Id, s.Title, s.Composer })
 			.ToListAsync(token);

@@ -40,6 +40,11 @@ public sealed class Lied
 
 	public Guid UpdatedByAccountId { get; set; }
 
+	/// <summary>Trash (#146): set when the Lied was deleted with its Dateien; hidden from members until it is restored or removed.</summary>
+	public DateTimeOffset? DeletedAt { get; set; }
+
+	public Guid? DeletedByAccountId { get; set; }
+
 	/// <summary>Application-bumped optimistic-concurrency token; every mutation increments it.</summary>
 	public uint RowVersion { get; set; }
 

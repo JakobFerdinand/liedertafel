@@ -624,8 +624,22 @@ and everything of the flat model are untouched.
   `noten-ansicht`), `datei-hochladen`, `lied-formular`, composed in `lied-detail`.
   The resume key is `arc-upload-lied-<liedId>-<kind>-<partitur|stimme>`.
 
-## Runtime grants during `--migrate`
+## Failure alerts (ARC-042, #149)
 
+The Azure side lives in `infrastructure/archive/main.bicep` (action group,
+four scheduled-query rules over `ContainerAppConsoleLogs_CL` in the
+Log Analytics workspace, rule names `al-archive-*`) and its operator path /
+runbook in `infrastructure/archive/README.md`, section "Failure alerts
+(ARC-042)". Alerts key on the shipped console-log failure lines only —
+deterministic (architecture §14), no model involvement, no metric alerts on
+application meters (production has no OTLP endpoint; development keeps the
+Aspire path untouched). The queries' marker strings are pinned by
+`tests/archive/backend/AlertQueryContractTests.cs`, which runs in the normal
+backend suite: renaming one of the failure line templates in
+`service-defaults/Extensions.cs`, the workers or `Program.cs` breaks the
+build exactly when the deployed queries would stop matching.
+
+## Runtime grants during `--migrate`
 The release's `--migrate` step applies the runtime role's privileges itself:
 after `MigrateAsync`, `Data/RuntimeGrants.cs` runs the embedded
 `Data/runtime-grants.sql` (a byte-identical copy of

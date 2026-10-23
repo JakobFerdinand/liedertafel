@@ -96,7 +96,7 @@ public static class LiedEndpoints
 
 			// About 500 Lieder: project once, match in C# so InMemory tests and
 			// PostgreSQL agree on the German folding.
-			var rows = await db.Lieder.AsNoTracking()
+			var rows = await LiedQueries.Visible(db).AsNoTracking()
 				.Select(l => new ListRow(l.Id, l.Title, l.Composer, l.Arranger, l.Lyricist, l.VoiceConfiguration,
 					l.MusicalKey, l.Language, l.Occasion))
 				.ToListAsync(token);
@@ -171,7 +171,7 @@ public static class LiedEndpoints
 			var (decision, error) = await LiedAccess.RequireMemberAsync(context, accessor, access);
 			if (error is not null)
 				return error;
-			var lied = await db.Lieder.AsNoTracking().FirstOrDefaultAsync(l => l.Id == id, token);
+			var lied = await LiedQueries.Visible(db).AsNoTracking().FirstOrDefaultAsync(l => l.Id == id, token);
 			if (lied is null)
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
 			return Results.Ok(new { lied = await DetailAsync(db, lied, LiedAccess.IsEditor(decision!), token) });
@@ -211,7 +211,7 @@ public static class LiedEndpoints
 			var (decision, error) = await LiedAccess.RequireEditorAsync(context, accessor, access);
 			if (error is not null)
 				return error;
-			var lied = await db.Lieder.FirstOrDefaultAsync(l => l.Id == id, token);
+			var lied = await LiedQueries.Visible(db).FirstOrDefaultAsync(l => l.Id == id, token);
 			if (lied is null)
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
 			var outcome = await writes.PatchLiedAsync(
@@ -245,7 +245,7 @@ public static class LiedEndpoints
 		var eventIds = dateien.Where(d => d.RecordedAtEventId != null).Select(d => d.RecordedAtEventId!.Value).Distinct().ToList();
 		var events = eventIds.Count == 0
 			? []
-			: (await db.Events.AsNoTracking().Where(e => eventIds.Contains(e.Id)).ToListAsync(token))
+			: (await EventQueries.Visible(db).AsNoTracking().Where(e => eventIds.Contains(e.Id)).ToListAsync(token))
 				.ToDictionary(e => e.Id);
 		return new
 		{

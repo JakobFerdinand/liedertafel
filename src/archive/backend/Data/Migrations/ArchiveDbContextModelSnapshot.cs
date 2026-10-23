@@ -601,6 +601,12 @@ namespace Archive.Backend.Data.Migrations
                     b.Property<int?>("DateYear")
                         .HasColumnType("integer");
 
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("DeletedByAccountId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Kind")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -862,6 +868,12 @@ namespace Archive.Backend.Data.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid>("CreatedByAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("DeletedByAccountId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("Language")
