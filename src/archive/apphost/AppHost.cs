@@ -90,6 +90,16 @@ builder.AddProject<Projects.Archive_Backend>("archive-read", launchProfileName: 
     .WaitForCompletion(initialize)
     .WithExplicitStart();
 
+// #161: finite video-transcode job — its own queue (archive-videos). Entirely
+// deterministic (no model gateway); it needs ffmpeg on the host like the
+// production image installs it in its runtime stage.
+builder.AddProject<Projects.Archive_Backend>("archive-transcode", launchProfileName: null)
+    .WithArgs("--transcode-queue")
+    .WithArchiveTelemetry()
+    .WithArchiveDependencies(dependencies, mailSource)
+    .WaitForCompletion(initialize)
+    .WithExplicitStart();
+
 builder.AddJavaScriptApp("archive-frontend", "../frontend")
     .WithPnpm()
     .WithHttpEndpoint(env: "PORT")

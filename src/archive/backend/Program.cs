@@ -80,8 +80,6 @@ if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" o
         sp.GetRequiredService<IOptions<VideoOptions>>(),
         sp.GetRequiredService<IConfiguration>(), sp.GetRequiredService<TimeProvider>(),
         sp.GetRequiredService<ILogger<VideoPump>>()));
-    jobs.Services.AddOptions<ReadingOptions>().BindConfiguration(ReadingOptions.SectionName);
-    jobs.Services.AddSingleton<IReadingQueue>(ReadingQueue.Create(jobs.Configuration));
     jobs.Services.AddSingleton<IReadingMessageSource>(sp =>
     {
         var readingOptions = sp.GetRequiredService<IOptions<ReadingOptions>>();
