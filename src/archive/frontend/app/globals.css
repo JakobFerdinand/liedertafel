@@ -976,6 +976,19 @@ dd {
   border-radius: 50%;
   background: var(--brand);
 }
+/* Fundort eines Suchtreffers (#142): die beschrifteten Suchquellen. */
+.lieder-trefferfund {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  color: var(--muted);
+  font-size: var(--schrift-etikett);
+  margin: 0.35rem 0 0;
+}
+.lieder-trefferfund::before {
+  content: "→";
+  color: var(--brand);
+}
 /* Redaktions-Marke: Markenlinie im Etikettmaß der kleinen Textleiter. */
 .lieder-status {
   display: inline-block;
@@ -998,6 +1011,7 @@ dd {
       "titel stand aktionen"
       "urheber urheber urheber"
       "fund fund fund"
+      "trefferfund trefferfund trefferfund"
       "formular formular formular";
     gap: 0.3rem clamp(0.8rem, 1.5vw, 1.6rem);
     align-items: start;
@@ -1024,8 +1038,12 @@ dd {
     grid-template-areas:
       "titel urheber stand aktionen"
       "fund fund fund fund"
+      "trefferfund trefferfund trefferfund trefferfund"
       "formular formular formular formular";
   }
+}
+.lieder-eintrag > .lieder-trefferfund {
+  grid-area: trefferfund;
 }
 .lied-anlegen {
   margin: 0;

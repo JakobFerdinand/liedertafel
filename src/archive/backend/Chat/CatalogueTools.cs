@@ -43,14 +43,15 @@ public static class CatalogueTools
 	private const int MaxZeitmarkenPerAuftritt = 5;
 
 	private const string SearchToolDescription =
-		"Sucht im Liedverzeichnis nach Titeln, Komponisten, Bearbeitern, Textdichtern und Liedtexten. "
-		+ "Ein leerer Suchtext listet vorhandene Lieder auf. Liefert höchstens 10 Lieder pro Seite, "
+		"Sucht im Liedverzeichnis nach Titeln, Komponisten, Bearbeitern, Textdichtern, Liedtexten "
+		+ "und Wörtern in den Noten (aus PDFs gelesen); leerer Suchtext listet vorhandene Lieder. "
+		+ "trefferIn nennt die Fundstellen jedes Liedes. Liefert höchstens 10 Lieder pro Seite, "
 		+ "totalCount, nextPage und limitReached; höchstens 5 Seiten. Nur zurückgegebene Lieder zitieren.";
 
 	/// <summary>Creates the bounded catalogue search tool for one chat run.</summary>
 	public static AITool CreateCatalogueSearchTool(ArchiveDbContext db) =>
 		AIFunctionFactory.Create(
-			async ([Description("Suchtext; leer (\"\") für eine Übersicht aller Lieder. Sonst müssen alle Begriffe im Titel, beim Komponisten, Bearbeiter, Textdichter oder im Liedtext vorkommen.")] string query,
+			async ([Description("Suchtext; leer (\"\") für eine Übersicht aller Lieder. Sonst müssen alle Begriffe im Titel, beim Komponisten, Bearbeiter, Textdichter, im Liedtext oder in den Noten vorkommen.")] string query,
 				[Description("Seitennummer ab 1, höchstens 5; für weitere Treffer nextPage aus dem Ergebnis verwenden.")] int page = 1,
 				CancellationToken cancellationToken = default) => await SearchAsync(db, query, page, cancellationToken),
 			name: SearchToolName,
@@ -99,30 +100,33 @@ public static class CatalogueTools
 			.OrderBy(l => l.Id)
 			.Select(l => new SearchRow(l.Id, l.Title, l.Composer, l.Arranger, l.Lyricist, l.Lyrics))
 			.ToListAsync(token);
+		// Same Noten text as the member search (#142): words that only stand in
+		// the extracted text of a Lied's live Noten find it here too.
+		var noteTexts = await CatalogueSearch.LoadNotenTextsAsync(db, token);
 		var queryFold = CatalogueText.Fold(queryText);
-		var matches = new List<(SearchRow Lied, int Rank)>();
+		var matches = new List<(SearchRow Lied, int Rank, IReadOnlyList<SearchField> Fields)>();
 		foreach (var lied in all)
 		{
+			var notes = noteTexts.GetValueOrDefault(lied.Id) ?? string.Empty;
+			var fields = CatalogueSearch.FieldsOf(lied.Title, lied.Composer, lied.Arranger, lied.Lyricist, lied.Lyrics, notes);
 			var titleFold = CatalogueText.Fold(lied.Title);
-			var composerFold = CatalogueText.Fold(lied.Composer);
-			var arrangerFold = CatalogueText.Fold(lied.Arranger);
-			var lyricistFold = CatalogueText.Fold(lied.Lyricist);
-			var lyricsFold = CatalogueText.Fold(lied.Lyrics);
-			if (!tokens.All(t => titleFold.Contains(t) || composerFold.Contains(t) || arrangerFold.Contains(t)
-				|| lyricistFold.Contains(t) || lyricsFold.Contains(t)))
+			if (!CatalogueSearch.Matches(tokens, fields))
 				continue;
 			var rank = titleFold == queryFold ? 0
 				: tokens.All(t => titleFold.Contains(t)) ? 1
 				: 2;
-			matches.Add((lied, rank));
+			matches.Add((lied, rank, fields));
 		}
+		var trefferIn = matches
+			.Where(m => m.Rank < 3)
+			.ToDictionary(m => m.Lied.Id, m => CatalogueSearch.MatchLabels(tokens, m.Fields).ToArray());
 		var ordered = matches
 			.OrderBy(m => m.Rank)
 			.ThenBy(m => m.Lied.Id)
 			.Skip((requestedPage - 1) * PageSize)
 			.Take(PageSize)
 			.ToList();
-		return SerializeSearch(ordered.Select(m => m.Lied), requestedPage, matches.Count);
+		return SerializeSearch(ordered.Select(m => m.Lied), requestedPage, matches.Count, trefferIn);
 	}
 
 	/// <summary>Noten text sent per Datei and per Lied (characters).</summary>
@@ -243,9 +247,10 @@ public static class CatalogueTools
 			listed.Where(e => LiedAppearances.IsPlanned(e, today)).Select(Entry).ToList());
 	}
 
-	private static string SerializeSearch(IEnumerable<SearchRow> lieder, int page, int totalCount) => JsonSerializer.Serialize(new
+	private static string SerializeSearch(IEnumerable<SearchRow> lieder, int page, int totalCount,
+		IReadOnlyDictionary<Guid, string[]>? trefferIn = null) => JsonSerializer.Serialize(new
 	{
-		lieder = LiedPayload(lieder),
+		lieder = LiedPayload(lieder, trefferIn),
 		page,
 		pageSize = PageSize,
 		totalCount,
@@ -254,7 +259,7 @@ public static class CatalogueTools
 		limitReached = page == MaxPage && page * PageSize < totalCount,
 	});
 
-	private static IEnumerable<object> LiedPayload(IEnumerable<SearchRow> lieder) => lieder.Select(l => new
+	private static IEnumerable<object> LiedPayload(IEnumerable<SearchRow> lieder, IReadOnlyDictionary<Guid, string[]>? trefferIn = null) => lieder.Select(l => new
 		{
 			id = l.Id,
 			title = l.Title,
@@ -264,6 +269,11 @@ public static class CatalogueTools
 			lyricsExcerpt = l.Lyrics is { Length: > 0 }
 				? (l.Lyrics.Length > ExcerptChars ? l.Lyrics[..ExcerptChars] : l.Lyrics)
 				: null,
+			// Wo der Treffer stand ("im Liedtext", "in den Noten", …); beim
+			// Durchblättern ohne Suchbegriff bleibt es leer.
+			trefferIn = trefferIn is { } map && map.TryGetValue(l.Id, out var labels)
+				? labels
+				: Array.Empty<string>(),
 		});
 
 	private sealed record SearchRow(Guid Id, string Title, string? Composer, string? Arranger, string? Lyricist, string? Lyrics);
