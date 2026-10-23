@@ -108,6 +108,32 @@ public sealed class CatalogueToolsTests
 			.GetProperty("notenFakten").GetProperty("musicalKey").GetString());
 	}
 
+	[Fact]
+	public async Task SearchFindsAWordThatStandsOnlyInTheNoten()
+	{
+		await using var factory = new AuthApiFactory();
+		using var scope = factory.Services.CreateScope();
+		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+		var now = DateTimeOffset.UtcNow;
+		var lied = new Lied { Title = "Die Waldfahrt" };
+		var live = NewNoten(lied, now);
+		db.Lieder.Add(lied);
+		db.Dateien.Add(live);
+		db.ExtractionJobs.Add(new Archive.Backend.Extraction.ExtractionJob
+		{
+			DateiId = live.Id, Status = Archive.Backend.Extraction.ExtractionStatus.Completed,
+			Text = "Im Wald grünen die Tannen", TextSource = Archive.Backend.Extraction.ExtractionTextSource.Reading,
+			CreatedAt = now, UpdatedAt = now,
+		});
+		await db.SaveChangesAsync();
+
+		var tool = (AIFunction)CatalogueTools.CreateCatalogueSearchTool(db);
+		var treffer = await SearchAsync(tool, "tannen", 1);
+		Assert.Equal(["Die Waldfahrt"], Titles(treffer));
+		Assert.Equal(["in den Noten"], treffer.GetProperty("lieder")[0].GetProperty("trefferIn")
+			.EnumerateArray().Select(e => e.GetString()!).ToArray());
+	}
+
 	private static Archive.Backend.Lieder.Datei NewNoten(Lied lied, DateTimeOffset now) => new()
 	{
 		LiedId = lied.Id, Kind = Archive.Backend.Lieder.DateiKinds.Noten, IsPartitur = true,

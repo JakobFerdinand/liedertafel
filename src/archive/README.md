@@ -272,8 +272,17 @@ afterwards; workers and endpoints read through `DateiQueries.Visible`, so the
 trash means no work. Status and retry: `GET /api/dateien/extraction?ids=…`,
 `POST /api/dateien/{id}/extraction/retry`. Only empty Lied fields are filled
 (composer, lyricist, arranger, musical key, lyrics) through
-`AutomatedFieldWriter`; `/api/lieder?q=` also matches the extracted text of a
-Lied's live Noten.
+`AutomatedFieldWriter`; `/api/lieder?q=` (#142, extension of #169) matches every
+token against the title, the creators, the Liedtext and the folded text of a
+Lied's live Noten — embedded text and text transcribed by a reading job alike
+(`extraction_jobs.Text`, also with `TextSource=Reading`); a replaced or trashed
+Datei stops matching through `DateiQueries.Visible`. Each returned Lied carries
+`matchIn`, the German labels of the fields that contributed ("im Titel",
+"beim Komponisten", "beim Bearbeiter", "beim Texter", "im Liedtext",
+"in den Noten"). Matching stays in C# over fold tokens
+(`Catalogue/CatalogueSearch.cs`, shared by the chat tool `catalogue_search`,
+which reports `trefferIn` the same way) so EF InMemory tests and PostgreSQL
+agree; lexical SQL search and embeddings remain cut (ADR-0001).
 
 **Storage adapter.** `IAssetStorageAdapter` / `BlobAssetStorageAdapter`
 (`backend/Assets/AssetStorage.cs`, settings `Archive:Assets`, container
@@ -320,7 +329,7 @@ Run it once after the release that applied the contract migration, see
 Members chat with the archive at `/fragen` („Fragen zum Archiv"): `POST /api/chat` implements the AG-UI 1.0 wire contract (stable `AGUI.Server` 1.0.0 / `AGUI.Abstractions` 1.0.0 on `Microsoft.Extensions.AI` 10.10.0, superseding ARC-021's preview MAF hosting adapter). The bounded loop runs on an `IChatClient` provider seam — Development and tests use the deterministic `ScriptedChatClient` (cited answers from tool results only, honest unknown/refusal behaviour); the real Azure OpenAI implementation (managed identity, pinned GPT-6 Luna since ARC-021-1, formerly GPT-5.4-mini, EU Data Zone) plugs into the seam when credentials exist, and embeddings/pgvector move with it.
 
 - Threads persist in the existing PostgreSQL (`chat_threads`/`chat_messages`, migration `20260922214454_ArchiveChat`), are owned by the asking member, are bounded to the last 20 messages, and are validated for ownership on every request. The client generates the thread id (`localStorage` key `arc-chat-thread`); server-side history is authoritative — client-provided older messages are ignored as tamper-proof grounding. `GET /api/chat/thread/{id}` restores the owner's history; foreign/missing threads answer an indistinguishable 404.
-- Tools are allow-listed and authorized inside themselves: `catalogue_search` (all Lieder, `CatalogueText.Fold` token-AND, ≤ 10 results, 300-char lyrics excerpt) and `lied_details` (Lied fields, its live Dateien, where it was sung and where it is planned). Document text is data, never instructions; no editing tools, no raw queries, no general-knowledge answers.
+- Tools are allow-listed and authorized inside themselves: `catalogue_search` (all Lieder, `CatalogueText.Fold` token-AND, ≤ 10 results, 300-char lyrics excerpt; since #142 it also matches the text of the live Noten and reports the match source via `trefferIn`) and `lied_details` (Lied fields, its live Dateien, where it was sung and where it is planned). Document text is data, never instructions; no editing tools, no raw queries, no general-knowledge answers.
 - Per-request bounds are app-enforced: question ≤ 2000 chars, at most 5 model calls per run (`MaxToolCalls`; every call offers the tools, and a run whose fifth call still asks for a tool ends in the failure state without a sixth call), 30 s no-token abort per model call, 120 s overall cap, client-disconnect cancellation, one repetition of the run's first call when the provider fails before its first update (the only case with a sixth provider request), German `RUN_ERROR` failure state. Cost is bounded by the shared AI budget below.
 - The chat answers 503 „Der Archiv-Chat ist derzeit nicht verfügbar." unless `Archive:Chat:Enabled=true` and `Disabled=false`, so production stays inert until the provider step. Questions about whole Auftritte answer honestly that the chat has no Auftritt tools (a single Lied's history comes from `lied_details`); the synthetic evaluation (`tests/archive/backend/ChatEvaluationTests.cs`, `--filter FullyQualifiedName~ChatEvaluation`) verifies the grounding bar — every citation verifiable against the authorized result set, zero unsupported claims, honest unknown behaviour, recorded EUR-per-answer cost — and must be rerun against the pinned live model before first production chat use.
 

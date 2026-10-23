@@ -55,22 +55,11 @@ public static class LiedEndpoints
 	public const int LyricsMaxLength = 5000;
 
 	/// <summary>
-	/// The folded extracted text of every Lied's live Noten, joined per Lied.
-	/// Dateien in the trash contribute nothing, so a replaced or deleted Noten
-	/// stops being found.
+	/// The folded extracted text of every Lied's live Noten, joined per Lied —
+	/// the shared loader of member search and chat's catalogue search (#142).
 	/// </summary>
-	private static async Task<Dictionary<Guid, string>> LoadNotenTextsAsync(ArchiveDbContext db, CancellationToken token)
-	{
-		var texts = await (
-			from job in db.ExtractionJobs.AsNoTracking()
-			join datei in DateiQueries.Visible(db) on job.DateiId equals datei.Id
-			where datei.LiedId != null && datei.Kind == DateiKinds.Noten
-				&& job.Status == Extraction.ExtractionStatus.Completed && job.Text != null
-			select new { LiedId = datei.LiedId!.Value, job.Text })
-			.ToListAsync(token);
-		return texts.GroupBy(t => t.LiedId)
-			.ToDictionary(g => g.Key, g => string.Join('\n', g.Select(t => CatalogueText.Fold(t.Text))));
-	}
+	private static Task<Dictionary<Guid, string>> LoadNotenTextsAsync(ArchiveDbContext db, CancellationToken token)
+		=> CatalogueSearch.LoadNotenTextsAsync(db, token);
 
 	public static void MapLiedEndpoints(this IEndpointRouteBuilder app)
 	{
@@ -116,7 +105,8 @@ public static class LiedEndpoints
 				: await LoadNotenTextsAsync(db, token);
 
 			var matched = rows
-				.Select(r => (Row: r, Fields: FieldsOf(r, noteTexts.GetValueOrDefault(r.Id) ?? string.Empty)))
+				.Select(r => (Row: r, Fields: CatalogueSearch.FieldsOf(r.Title, r.Composer, r.Arranger,
+					r.Lyricist, r.Lyrics, noteTexts.GetValueOrDefault(r.Id) ?? string.Empty)))
 				.Where(r => voiceFilter.Length == 0 || CatalogueText.Fold(r.Row.VoiceConfiguration) == voiceFilter)
 				.Where(r => occasionFilter.Length == 0 || CatalogueText.Fold(r.Row.Occasion) == occasionFilter)
 				.Where(r => wantedKinds.Count == 0
@@ -272,33 +262,6 @@ public static class LiedEndpoints
 					? new { id = e.Id, title = e.Title, dateDisplay = EventDate.Display(e.DateYear, e.DateMonth, e.DateDay, e.DateApproximate) }
 					: null)),
 		};
-	}
-
-	/// <summary>
-	/// The searchable fields of one Lied (title, creators, lyrics and the text
-	/// of its live Noten), folded once per row; empty fields contribute nothing.
-	/// </summary>
-	private static List<SearchField> FieldsOf(ListRow r, string foldedNoten)
-	{
-		var title = CatalogueText.Fold(r.Title);
-		var composer = CatalogueText.Fold(r.Composer);
-		var arranger = CatalogueText.Fold(r.Arranger);
-		var lyricist = CatalogueText.Fold(r.Lyricist);
-		var lyrics = CatalogueText.Fold(r.Lyrics);
-		var fields = new List<SearchField>(6);
-		if (title.Length > 0)
-			fields.Add(new(CatalogueSearch.TitleLabel, title));
-		if (composer.Length > 0)
-			fields.Add(new(CatalogueSearch.ComposerLabel, composer));
-		if (arranger.Length > 0)
-			fields.Add(new(CatalogueSearch.ArrangerLabel, arranger));
-		if (lyricist.Length > 0)
-			fields.Add(new(CatalogueSearch.LyricistLabel, lyricist));
-		if (lyrics.Length > 0)
-			fields.Add(new(CatalogueSearch.LyricsLabel, lyrics));
-		if (foldedNoten.Length > 0)
-			fields.Add(new(CatalogueSearch.NotenLabel, foldedNoten));
-		return fields;
 	}
 
 	private sealed record ListRow(Guid Id, string Title, string? Composer, string? Arranger, string? Lyricist, string? Lyrics,

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Archive.Backend.Data;
 using Archive.Backend.Extraction;
@@ -46,6 +47,31 @@ public sealed class LiedSucheQuellenTests
 		var both = await RowsAsync(host, editor, "frische walde");
 		Assert.Equal(["Stille Frische"], both.Select(t => t.GetProperty("title").GetString()!).ToArray());
 		Assert.Equal(["im Titel", "im Liedtext"], Arranged(Assert.Single(both)));
+	}
+
+	[Fact]
+	public async Task AColdCatalogueWithNear500LiederStaysFast()
+	{
+		await using var host = new LiedTestHost();
+		var editor = await host.EditorAsync();
+		var liedTexte = new List<(Guid LiedId, Guid DateiId)>();
+		for (var i = 0; i < 499; i++)
+		{
+			var liedId = await host.CreateLiedIdAsync(editor, $"Lied {i:0000}");
+			var noten = await host.UploadNotenAsync(editor, liedId, "Alle", isPartitur: true);
+			liedTexte.Add((liedId, Guid.Parse(noten.GetProperty("id").GetString()!)));
+		}
+		await SetTextAsync(host, liedTexte[250].DateiId, "Nur gestrichelt Paula steht dort tief im Bergwald", ExtractionTextSource.Reading);
+
+		// Cold start: everything is read fresh per request, so once over the
+		// whole catalogue must stay in the usual latency band.
+		var started = Stopwatch.StartNew();
+		var treffer = await RowsAsync(host, editor, "paula bergwald");
+		var elapsed = started.Elapsed;
+
+		Assert.Equal(["Lied 0250"], treffer.Select(t => t.GetProperty("title").GetString()!).ToArray());
+		Assert.Equal(["in den Noten"], Arranged(Assert.Single(treffer)));
+		Assert.True(elapsed < TimeSpan.FromSeconds(10), $"cold search took {elapsed}");
 	}
 
 	[Fact]
