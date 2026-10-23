@@ -164,6 +164,86 @@ public sealed class CatalogueToolsTests
 		UpdatedAt = now,
 	};
 
+	[Fact]
+	public async Task DetailsCarryAuftrittIdsAufnahmenAndMemberVisibleZeitmarken()
+	{
+		await using var factory = new AuthApiFactory();
+		using var scope = factory.Services.CreateScope();
+		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+		var now = DateTimeOffset.UtcNow;
+		var lied = new Lied { Title = "Die Waldfahrt" };
+		var sungEvent = NewEvent("Sängerfest", 1950, now);
+		sungEvent.DateApproximate = true;
+		var aufnahmeEvent = NewEvent("Chronik 1910", 1910, now);
+		var plannedEvent = NewEvent("Adventskonzert", 2098, now);
+		db.Lieder.Add(lied);
+		db.Events.AddRange(sungEvent, aufnahmeEvent, plannedEvent);
+		foreach (var choirEvent in new[] { sungEvent, plannedEvent })
+		{
+			var programme = new EventProgramme { EventId = choirEvent.Id, CreatedAt = now, UpdatedAt = now };
+			programme.Items.Add(new ProgrammeItem { ProgrammeId = programme.Id, Position = 1, LiedId = lied.Id });
+			db.Programmes.Add(programme);
+		}
+		db.Dateien.Add(new Archive.Backend.Lieder.Datei
+		{
+			LiedId = lied.Id, Kind = Archive.Backend.Lieder.DateiKinds.Aufnahme, RecordedAtEventId = aufnahmeEvent.Id,
+			OriginalFileName = "choraufnahme.m4a",
+			BlobName = $"dateien/{Guid.NewGuid():N}", ContentType = "audio/mp4", SizeBytes = 10,
+			CreatedByAccountId = Guid.NewGuid(), CreatedAt = now, RowVersion = 1,
+		});
+		await db.SaveChangesAsync();
+		// A published Aufnahme carries a Zeitmarke on the Sängerfest entry; an
+		// unpublished recording never reaches the tool.
+		var markedItem = db.Programmes.Local.Single(p => p.EventId == sungEvent.Id).Items.Single();
+		var publishedRecording = new Archive.Backend.Recordings.Recording
+		{
+			EventId = sungEvent.Id, Label = "Konzertmitschnitt",
+			Kind = Archive.Backend.Recordings.RecordingKinds.Audio, PublishedAt = now,
+			CreatedAt = now, UpdatedAt = now,
+		};
+		var hiddenRecording = new Archive.Backend.Recordings.Recording
+		{
+			EventId = sungEvent.Id, Label = "Geheimmitschnitt",
+			Kind = Archive.Backend.Recordings.RecordingKinds.Audio, PublishedAt = null,
+			CreatedAt = now, UpdatedAt = now,
+		};
+		db.Recordings.AddRange(publishedRecording, hiddenRecording);
+		await db.SaveChangesAsync();
+		db.RecordingPassages.AddRange(
+			new Archive.Backend.Recordings.RecordingPassage
+			{
+				RecordingId = publishedRecording.Id, ProgrammeItemId = markedItem.Id, EventId = sungEvent.Id,
+				StartSeconds = 5, EndSeconds = 60, CreatedAt = now, UpdatedAt = now,
+			},
+			new Archive.Backend.Recordings.RecordingPassage
+			{
+				RecordingId = hiddenRecording.Id, ProgrammeItemId = markedItem.Id, EventId = sungEvent.Id,
+				StartSeconds = 5, EndSeconds = 60, CreatedAt = now, UpdatedAt = now,
+			});
+		await db.SaveChangesAsync();
+
+		var details = (AIFunction)CatalogueTools.CreateLiedDetailsTool(db);
+		var result = await details.InvokeAsync(new AIFunctionArguments(new Dictionary<string, object?> { ["liedId"] = lied.Id.ToString() }));
+		var text = result!.ToString()!;
+		using var document = JsonDocument.Parse(text);
+		var root = document.RootElement;
+		var sung = root.GetProperty("gesungen").EnumerateArray().ToList();
+		Assert.Equal([sungEvent.Id.ToString(), aufnahmeEvent.Id.ToString()],
+			sung.Select(s => s.GetProperty("auftrittId").GetString()).ToList());
+		// The honest date components reach the model as the event's display.
+		Assert.Equal("um 1950", sung[0].GetProperty("datum").GetString());
+		// A member-visible published Aufnahme with a Zeitmarke is named; the
+		// hidden recording and its mark are not.
+		var marks = sung[0].GetProperty("zeitmarken").EnumerateArray().ToList();
+		Assert.Single(marks, m => m.GetProperty("aufnahme").GetString() == "Konzertmitschnitt");
+		var planned = Assert.Single(root.GetProperty("geplant").EnumerateArray().ToList());
+		Assert.Equal(plannedEvent.Id.ToString(), planned.GetProperty("auftrittId").GetString());
+		Assert.Equal("Chronik 1910", sung[1].GetProperty("auftritt").GetString());
+		Assert.Equal("choraufnahme.m4a", Assert.Single(sung[1].GetProperty("aufnahmen").EnumerateArray().ToList()).GetString());
+		Assert.Empty(sung[0].GetProperty("aufnahmen").EnumerateArray().ToList());
+		Assert.DoesNotContain("Geheimmitschnitt", text);
+	}
+
 	private static string[] Titles(JsonElement result) => result.GetProperty("lieder").EnumerateArray()
 		.Select(s => s.GetProperty("title").GetString()!).ToArray();
 

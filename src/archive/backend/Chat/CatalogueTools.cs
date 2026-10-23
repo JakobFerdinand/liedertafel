@@ -5,6 +5,7 @@ using Archive.Backend.Data;
 using Archive.Backend.Events;
 using Archive.Backend.Extraction;
 using Archive.Backend.Lieder;
+using Archive.Backend.Recordings;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 
@@ -35,6 +36,12 @@ public static class CatalogueTools
 	/// <summary>Auftritte listed per Lied in the history part of the details.</summary>
 	private const int MaxHistoryEntries = 20;
 
+	/// <summary>Lied-Aufnahmen named per Auftritt in the history part.</summary>
+	private const int MaxAufnahmenPerAuftritt = 10;
+
+	/// <summary>Zeitmarken shown per Auftritt in the history part.</summary>
+	private const int MaxZeitmarkenPerAuftritt = 5;
+
 	private const string SearchToolDescription =
 		"Sucht im Liedverzeichnis nach Titeln, Komponisten, Bearbeitern, Textdichtern und Liedtexten. "
 		+ "Ein leerer Suchtext listet vorhandene Lieder auf. Liefert höchstens 10 Lieder pro Seite, "
@@ -52,12 +59,15 @@ public static class CatalogueTools
 	/// <summary>Creates the single-Lied lookup tool for one chat run.</summary>
 	public static AITool CreateLiedDetailsTool(ArchiveDbContext db) =>
 		AIFunctionFactory.Create(
-			async ([Description("ID des gesuchten Liedes aus dem Liedverzeichnis.")] string liedId) => await DetailsAsync(db, liedId),
+			async ([Description("ID des gesuchten Liedes aus dem Liedverzeichnis.")] string liedId,
+				CancellationToken cancellationToken = default) => await DetailsAsync(db, liedId, cancellationToken),
 			name: DetailsToolName,
 			description: "Liest ein einzelnes Lied aus dem Verzeichnis mit seinen Angaben (Besetzung, Tonart, Sprache, Anlass), "
 				+ "den vorhandenen Dateien und seiner Aufführungsgeschichte: gesungen nennt die vergangenen Auftritte, in deren "
 				+ "Programm das Lied steht oder zu denen eine Aufnahme des Liedes gehört; geplant nennt kommende Auftritte, "
-				+ "in deren Programm das Lied steht.");
+				+ "in deren Programm das Lied steht. Jeder Eintrag trägt die auftrittId, die Dateinamen der Lied-Aufnahmen "
+				+ "dazu und, wo vorhanden, die Zeitmarken in veröffentlichten Aufnahmen (aufnahme, start, status; eine "
+				+ "Zeitmarke in Prüfung kennt keine Startzeit). Daten sind ehrlich unvollständig, zum Beispiel „um 1950“.");
 
 	private static async Task<string> SearchAsync(ArchiveDbContext db, string query, int page, CancellationToken token)
 	{
@@ -120,7 +130,7 @@ public static class CatalogueTools
 
 	private const int ScoreTextBudget = 6000;
 
-	private static async Task<string> DetailsAsync(ArchiveDbContext db, string liedId)
+	private static async Task<string> DetailsAsync(ArchiveDbContext db, string liedId, CancellationToken token)
 	{
 		if (!Guid.TryParse(liedId, out var id))
 			return "{}";
@@ -157,7 +167,7 @@ public static class CatalogueTools
 			}
 			return new { d.Kind, d.IsPartitur, d.Stimme, d.Description, Facts = ExtractionEndpoints.FactsPayload(analysis?.Facts), Text = text };
 		}).ToList();
-		var (gesungen, geplant) = await HistoryAsync(db, id);
+		var (gesungen, geplant) = await HistoryAsync(db, id, token);
 		return JsonSerializer.Serialize(new
 		{
 			lieder = LiedPayload([new SearchRow(lied.Id, lied.Title, lied.Composer, lied.Arranger, lied.Lyricist, lied.Lyrics)]),
@@ -181,25 +191,56 @@ public static class CatalogueTools
 
 	/// <summary>
 	/// Where the Lied was sung or is planned, from member-visible Auftritte
-	/// only (published events), newest first and bounded. The Programm is the
-	/// record of what was sung; a Lied-Aufnahme naming an Auftritt also counts
-	/// as sung there. An Auftritt with an unknown date counts as past.
+	/// only, newest first and bounded. The Programm is the record of what was
+	/// sung; a Lied-Aufnahme naming an Auftritt also counts as sung there. An
+	/// Auftritt with an unknown date counts as past. Every entry carries the
+	/// Auftritt id the chat can show as a card, its Lied-Aufnahmen and, where
+	/// they exist, the member-visible Zeitmarken of published Aufnahmen — the
+	/// browser derives the links from the ids; nothing here invents a date:
+	/// approximate dates arrive as the event's honest display ("um 1950").
 	/// </summary>
-	private static async Task<(List<object> Gesungen, List<object> Geplant)> HistoryAsync(ArchiveDbContext db, Guid liedId)
+	private static async Task<(List<object> Gesungen, List<object> Geplant)> HistoryAsync(
+		ArchiveDbContext db, Guid liedId, CancellationToken token)
 	{
-		var events = await LiedAppearances.LoadAsync(db, liedId, CancellationToken.None);
-		events.Sort((a, b) => EventDate.CompareNewestFirst(a.DateYear, a.DateMonth, a.DateDay, b.DateYear, b.DateMonth, b.DateDay));
+		var appearances = await LiedAppearances.LoadAsync(db, liedId, token);
+		appearances.Sort((a, b) => EventDate.CompareNewestFirst(a.DateYear, a.DateMonth, a.DateDay, b.DateYear, b.DateMonth, b.DateDay));
 		var today = EventDate.ViennaToday(DateTimeOffset.UtcNow);
-		static object Entry(LiedAppearance e) => new
+		var listed = appearances.Take(MaxHistoryEntries).ToList();
+		var listedEventIds = listed.Select(e => e.EventId).ToList();
+		// Where Zeitmarken exist: the member-visible published Aufnahmen that
+		// mark one of the Lied's entries at these Auftritte (one shared
+		// visibility decision, the state computed per read).
+		var rows = await RecordingPassages.LoadRowsAsync(
+			RecordingPassages.VisibleTo(db.RecordingPassages.AsNoTracking(), isEditor: false)
+				.Where(p => listedEventIds.Contains(p.EventId) && p.ProgrammeItem.LiedId == liedId),
+			token);
+		var views = await RecordingPassages.ViewsAsync(db, rows, isEditor: false, token);
+		var zeitmarken = views
+			.OrderBy(v => v.Row.RecordingLabel, StringComparer.CurrentCulture).ThenBy(v => v.Row.Id)
+			.GroupBy(v => v.Row.EventId)
+			.ToDictionary(g => g.Key, g => g.Take(MaxZeitmarkenPerAuftritt).Select(v => (object)new
+			{
+				aufnahme = v.Row.RecordingLabel,
+				start = v.State == RecordingPassages.NeedsReview ? (double?)null : v.Row.StartSeconds,
+				status = v.State,
+			}).ToList());
+		object Entry(LiedAppearance appearance) => new
 		{
-			auftritt = e.Title,
-			art = e.Kind,
-			ort = e.Venue,
-			datum = EventDate.Display(e.DateYear, e.DateMonth, e.DateDay, e.DateApproximate),
+			auftritt = appearance.Title,
+			auftrittId = appearance.EventId.ToString(),
+			art = appearance.Kind,
+			ort = appearance.Venue,
+			datum = EventDate.Display(appearance.DateYear, appearance.DateMonth, appearance.DateDay, appearance.DateApproximate),
+			// Lied-Aufnahmen naming the Auftritt (file names only).
+			aufnahmen = appearance.Aufnahmen.Take(MaxAufnahmenPerAuftritt)
+				.Select(a => a.FileName ?? a.DateiId.ToString()).ToList(),
+			// Where Zeitmarken exist, the Aufnahme and the honest state are
+			// named; a mark under review shows no position to a member.
+			zeitmarken = zeitmarken.GetValueOrDefault(appearance.EventId) ?? [],
 		};
-		var gesungen = events.Where(e => !LiedAppearances.IsPlanned(e, today)).Take(MaxHistoryEntries).Select(Entry).ToList();
-		var geplant = events.Where(e => LiedAppearances.IsPlanned(e, today)).Take(MaxHistoryEntries).Select(Entry).ToList();
-		return (gesungen, geplant);
+		return (
+			listed.Where(e => !LiedAppearances.IsPlanned(e, today)).Select(Entry).ToList(),
+			listed.Where(e => LiedAppearances.IsPlanned(e, today)).Select(Entry).ToList());
 	}
 
 	private static string SerializeSearch(IEnumerable<SearchRow> lieder, int page, int totalCount) => JsonSerializer.Serialize(new
