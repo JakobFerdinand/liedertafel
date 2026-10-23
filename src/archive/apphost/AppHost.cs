@@ -90,6 +90,15 @@ builder.AddProject<Projects.Archive_Backend>("archive-read", launchProfileName: 
     .WaitForCompletion(initialize)
     .WithExplicitStart();
 
+// #146: the seven-day Papierkorb policy as a finite local run; production
+// schedules the same image as the ja-archive-papierkorb Container App Job.
+builder.AddProject<Projects.Archive_Backend>("archive-papierkorb-cleanup", launchProfileName: null)
+    .WithArgs("--cleanup-papierkorb")
+    .WithArchiveTelemetry()
+    .WithArchiveDependencies(dependencies, mailSource)
+    .WaitForCompletion(initialize)
+    .WithExplicitStart();
+
 builder.AddJavaScriptApp("archive-frontend", "../frontend")
     .WithPnpm()
     .WithHttpEndpoint(env: "PORT")

@@ -55,6 +55,12 @@ param readingDispatchIdentityName string = 'id-archive-read-dispatch'
 @description('Scheduled reading dispatch job name (ARC-034-1). Runs the same backend image with --dispatch-reading, which wakes work parked for budget.')
 param readingDispatchJobName string = 'ja-archive-read-dispatch'
 
+@description('Scheduled Papierkorb cleanup job name (#146). Runs the same backend image with --cleanup-papierkorb; removes trashed rows past the seven-day retention and releases their blobs.')
+param papierkorbCleanupJobName string = 'ja-archive-papierkorb'
+
+@description('Cron expression (UTC) of the Papierkorb cleanup. Daily is enough: retention is seven days, so nothing expires faster than that.')
+param papierkorbCleanupCron string = '43 2 * * *'
+
 @description('Cron expression (UTC) of the reading dispatch sweep. Daily is enough: parked work only has to wake when a new month starts or the cap is raised.')
 param readingDispatchCron string = '17 3 * * *'
 
@@ -1252,6 +1258,96 @@ resource readDispatchJob 'Microsoft.App/jobs@2025-01-01' = {
             {
               name: 'Archive__Chat__DeploymentName'
               value: aoaiChatDeployment.name
+            }
+            {
+              name: 'Archive__MaintenanceMode'
+              value: maintenanceMode ? 'true' : 'false'
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
+
+// #146 — scheduled Papierkorb cleanup. Runs `--cleanup-papierkorb` daily:
+// trashed Lieder, Auftritte and Dateien whose deletion is older than the
+// seven-day retention are removed for good, their blobs released afterwards.
+// It generates no model calls and never touches queues, so the runtime
+// identity suffices: it reads the vault secret for the database connection
+// and already holds Storage Blob Data Contributor on the assets account for
+// the blob release. Maintenance mode makes the run exit before touching the
+// database.
+resource papierkorbCleanupJob 'Microsoft.App/jobs@2025-01-01' = {
+  name: papierkorbCleanupJobName
+  location: location
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${runtimeIdentity.id}': {}
+    }
+  }
+  properties: {
+    environmentId: environment.id
+    workloadProfileName: 'Consumption'
+    configuration: {
+      identitySettings: [
+        {
+          identity: runtimeIdentity.id
+          lifecycle: 'All'
+        }
+      ]
+      registries: [
+        {
+          server: 'ghcr.io'
+          username: ghcrUsername
+          passwordSecretRef: 'ghcr-password'
+        }
+      ]
+      secrets: [
+        {
+          name: 'ghcr-password'
+          value: ghcrPassword
+        }
+        {
+          name: 'archive-db-connection'
+          keyVaultUrl: '${vault.properties.vaultUri}secrets/archive-db-connection'
+          identity: runtimeIdentity.id
+        }
+      ]
+      replicaTimeout: 900
+      replicaRetryLimit: 0
+      triggerType: 'Schedule'
+      scheduleTriggerConfig: {
+        cronExpression: papierkorbCleanupCron
+        parallelism: 1
+        replicaCompletionCount: 1
+      }
+    }
+    template: {
+      containers: [
+        {
+          name: 'papierkorb'
+          image: containerImage
+          args: [
+            '--cleanup-papierkorb'
+          ]
+          resources: {
+            cpu: json('0.25')
+            memory: '0.5Gi'
+          }
+          env: [
+            {
+              name: 'ConnectionStrings__archive-db'
+              secretRef: 'archive-db-connection'
+            }
+            {
+              name: 'AZURE_CLIENT_ID'
+              value: runtimeIdentity.properties.clientId
+            }
+            {
+              name: 'Archive__Assets__ServiceUri'
+              value: 'https://${storage.name}.blob.${az.environment().suffixes.storage}'
             }
             {
               name: 'Archive__MaintenanceMode'

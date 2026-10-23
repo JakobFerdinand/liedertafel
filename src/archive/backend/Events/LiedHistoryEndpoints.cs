@@ -37,7 +37,7 @@ public static class LiedHistoryEndpoints
 				return Results.Problem(statusCode: 401, title: "Anmeldung erforderlich.");
 			var isEditor = decision.IsAdministrator || decision.Roles.Contains(ArchiveRoles.Editor);
 
-			var lied = await db.Lieder.AsNoTracking()
+			var lied = await Lieder.LiedQueries.Visible(db).AsNoTracking()
 				.Where(l => l.Id == liedId).Select(l => new { l.Id, l.Title })
 				.FirstOrDefaultAsync(token);
 			if (lied is null)

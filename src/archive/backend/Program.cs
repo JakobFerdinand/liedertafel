@@ -23,7 +23,7 @@ using Microsoft.Extensions.Options;
 using ChatOptions = Archive.Backend.Chat.ChatOptions;
 
 var command = args.FirstOrDefault();
-if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" or "--bootstrap-admin" or "--repair-admin" or "--seed-dev-auth" or "--send-test-mail" or "--cleanup-uploads" or "--cleanup-dropped-blobs" or "--extract-queue" or "--dispatch-extraction" or "--read-queue" or "--dispatch-reading")
+if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" or "--bootstrap-admin" or "--repair-admin" or "--seed-dev-auth" or "--send-test-mail" or "--cleanup-uploads" or "--cleanup-dropped-blobs" or "--cleanup-papierkorb" or "--extract-queue" or "--dispatch-extraction" or "--read-queue" or "--dispatch-reading")
 {
     var jobs = Host.CreateApplicationBuilder(args.Skip(1).ToArray());
     jobs.AddServiceDefaults();
@@ -123,6 +123,21 @@ if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" o
                 .CleanAsync(args.Contains("--dry-run"), token);
             provider.GetRequiredService<ILoggerFactory>().CreateLogger("Archive.Jobs")
                 .LogInformation("Dropped-blob cleanup finished: {Result}", dropped);
+        }
+        else if (command == "--cleanup-papierkorb")
+        {
+            // #146 seven-day policy: expired trashed rows go for good, their
+            // blobs are released afterwards. --dry-run only counts. Like the
+            // reading sweep, a paused run exits before touching the database.
+            var cleanupLogger = provider.GetRequiredService<ILoggerFactory>().CreateLogger("Archive.Papierkorb");
+            if (MaintenanceConfiguration.IsEnabled(host.Services.GetRequiredService<IConfiguration>()))
+            {
+                cleanupLogger.LogInformation("Papierkorb cleanup paused: maintenance mode is enabled");
+                return;
+            }
+            var cleaned = await provider.GetRequiredService<PapierkorbCleaner>()
+                .CleanAsync(args.Contains("--dry-run"), token);
+            cleanupLogger.LogInformation("Papierkorb cleanup finished: {Result}", cleaned);
         }
         else if (command == "--extract-queue")
         {
@@ -283,6 +298,11 @@ builder.Services.AddScoped<CatalogueWriteService>();
 builder.Services.AddSingleton<ArchiveChatAgent>();
 builder.Services.AddSingleton<IDateiFinalizedHook, DateiReplacementHook>();
 builder.Services.AddSingleton<IDateiFinalizedHook, DateiExtractionHook>();
+// #146: restore of trashed entities and the Administrator's immediate removal
+// reuse the same ordered-removal service.
+builder.Services.AddScoped<PapierkorbRemoval>();
+// #146: the seven-day cleanup reuses the removal service in its own scope.
+builder.Services.AddScoped<PapierkorbCleaner>();
 builder.Services.AddScoped<ArchiveChatService>();
 builder.Services.AddArchiveAuth(builder.Configuration, builder.Environment);
 // ARC-011: Container Apps terminates TLS at the front proxy and forwards
@@ -388,6 +408,7 @@ app.MapLiedEntwurfEndpoints();
 app.MapLiedEndpoints();
 app.MapDateiEndpoints();
 app.MapDateiTrashEndpoints();
+app.MapPapierkorbRecoveryEndpoints();
 app.MapLiedHistoryEndpoints();
 app.MapDevelopmentDiagnostics();
 
