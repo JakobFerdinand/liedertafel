@@ -4,6 +4,7 @@ using System.Text.Json;
 using Archive.Backend.Chat;
 using Archive.Backend.Data;
 using Archive.Backend.Events;
+using Archive.Backend.Lieder;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
@@ -430,7 +431,6 @@ public sealed partial class ChatApiTests
 	}
 
 	[Theory]
-	[InlineData("ProgrammListe")]
 	[InlineData("VorschlagKarte")]
 	[InlineData("AenderungsVorschau")]
 	public async Task CatalogComponentsWithoutAMemberResolverAndRemovedOnesAreDroppedAndNeverOffered(string component)
@@ -454,10 +454,46 @@ public sealed partial class ChatApiTests
 		Assert.Contains("LiedKarte", provider.ToolDescription);
 		Assert.Contains("AuftrittKarte", provider.ToolDescription);
 		Assert.Contains("Quellen", provider.ToolDescription);
-		Assert.DoesNotContain("ProgrammListe", provider.ToolDescription);
-		// Suggestions are no longer part of the catalog: not even as an argument.
+		// ProgrammListe now resolves (#124); suggestions are no longer part
+		// of the catalog: not even as an argument.
+		Assert.Contains("ProgrammListe", provider.ToolDescription);
 		Assert.DoesNotContain("orschlag", provider.ToolDescription, StringComparison.OrdinalIgnoreCase);
 		Assert.DoesNotContain("AenderungsVorschau", provider.ToolDescription);
+	}
+
+	[Fact]
+	public async Task ProgrammListeShowsTheProgrammeOfASavedAuftrittInItsOrder()
+	{
+		var provider = new ShowSurfaceChatClient();
+		await using var factory = ChatFactory(chatClient: provider);
+		var ownerId = await SeedMemberAsync(factory, MemberA);
+		var (eventId, emptyEventId, hiddenLiedId) = await SeedProgrammeAsync(factory, ownerId);
+		var session = await SignInAsync(factory, MemberA);
+		using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+		provider.Request = $$"""
+			[
+			 {"komponente":"ProgrammListe","auftrittId":"{{eventId}}"},
+			 {"komponente":"ProgrammListe","auftrittId":"{{emptyEventId}}"},
+			 {"komponente":"ProgrammListe","auftrittId":"{{Guid.NewGuid()}}"}
+			]
+			""";
+
+		using var response = await RunChatAsync(client, session, Guid.NewGuid().ToString(), "Zeige das Programm");
+		var body = await response.Content.ReadAsStringAsync();
+		var components = CollectA2uiMessages(body)
+			.Where(m => m.TryGetProperty("updateComponents", out _))
+			.Select(m => m.GetProperty("updateComponents").GetProperty("components")[0])
+			.ToList();
+		Assert.Single(components, c => c.GetProperty("component").GetString() == "ProgrammListe");
+		var card = components.Single(c => c.GetProperty("component").GetString() == "ProgrammListe");
+		Assert.Equal(eventId.ToString(), card.GetProperty("auftrittId").GetString());
+		var punkte = card.GetProperty("punkte").EnumerateArray().ToList();
+		Assert.Equal(2, punkte.Count);
+		Assert.Equal(1, punkte[0].GetProperty("position").GetInt32());
+		Assert.Equal("Eröffnung", punkte[0].GetProperty("notiz").GetString());
+		Assert.False(punkte[1].TryGetProperty("notiz", out _));
+		Assert.DoesNotContain(emptyEventId.ToString(), body);
+		Assert.DoesNotContain(hiddenLiedId.ToString(), body);
 	}
 
 	[Fact]
@@ -578,6 +614,69 @@ public sealed partial class ChatApiTests
 			"{\"version\":\"v0.9\",\"createSurface\":{\"surfaceId\":\"" + s.SurfaceId + "\",\"catalogId\":\"" + CatalogId + "\"}}",
 			"{\"version\":\"v0.9\",\"updateComponents\":{\"surfaceId\":\"" + s.SurfaceId + "\",\"components\":[" + s.ComponentJson + "]}}",
 		})) + "]";
+
+	/// <summary>An Auftritt with a two-entry Programm, one with no Programm and an id saved nowhere.</summary>
+	private static async Task<(Guid WithProgramme, Guid WithoutProgramme, Guid UnsavedLiedId)> SeedProgrammeAsync(
+		AuthApiFactory factory, Guid ownerId)
+	{
+		await using var scope = factory.Services.CreateAsyncScope();
+		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+		var now = DateTimeOffset.UtcNow;
+		var liedA = new Lied
+		{
+			Title = "Die Waldfahrt",
+			Composer = "Friedrich Silcher",
+			CreatedAt = now,
+			CreatedByAccountId = ownerId,
+			UpdatedAt = now,
+			UpdatedByAccountId = ownerId,
+		};
+		var liedB = new Lied
+		{
+			Title = "Wanderers Nachtlied",
+			Composer = "Franz Schubert",
+			CreatedAt = now,
+			CreatedByAccountId = ownerId,
+			UpdatedAt = now,
+			UpdatedByAccountId = ownerId,
+		};
+		var withProgramme = new ChoirEvent
+		{
+			Kind = "concert",
+			Title = "Frühlingskonzert 1950",
+			Venue = "Festsaal",
+			DateYear = 1950,
+			CreatedAt = now,
+			CreatedByAccountId = ownerId,
+			UpdatedAt = now,
+			UpdatedByAccountId = ownerId,
+		};
+		var withoutProgramme = new ChoirEvent
+		{
+			Kind = "concert",
+			Title = "Kammerabend",
+			DateYear = 1999,
+			CreatedAt = now,
+			CreatedByAccountId = ownerId,
+			UpdatedAt = now,
+			UpdatedByAccountId = ownerId,
+		};
+		var programme = new EventProgramme
+		{
+			EventId = withProgramme.Id,
+			CreatedAt = now,
+			CreatedByAccountId = ownerId,
+			UpdatedAt = now,
+			UpdatedByAccountId = ownerId,
+		};
+		programme.Items.Add(new ProgrammeItem { ProgrammeId = programme.Id, Position = 1, LiedId = liedA.Id, Note = "Eröffnung" });
+		programme.Items.Add(new ProgrammeItem { ProgrammeId = programme.Id, Position = 2, LiedId = liedB.Id });
+		db.Lieder.AddRange(liedA, liedB);
+		db.Events.AddRange(withProgramme, withoutProgramme);
+		db.Programmes.Add(programme);
+		await db.SaveChangesAsync();
+		return (withProgramme.Id, withoutProgramme.Id, Guid.NewGuid());
+	}
 
 	private static async Task<Guid> SeedEventAsync(AuthApiFactory factory, Guid ownerId, string title)
 	{

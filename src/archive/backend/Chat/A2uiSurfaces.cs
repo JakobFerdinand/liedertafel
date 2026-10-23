@@ -42,7 +42,12 @@ public static class A2uiCatalog
 	/// <summary>Lieder one <c>Quellen</c> list shows.</summary>
 	internal const int MaxSources = 10;
 
+	/// <summary>Programmpunkte one <c>ProgrammListe</c> shows.</summary>
+	internal const int MaxProgrammPunkte = 60;
+
 	private const int MaxTitleChars = 200;
+
+	private const int MaxNoteChars = 500;
 
 	private const int MaxLineChars = 160;
 
@@ -60,9 +65,9 @@ public static class A2uiCatalog
 		new("Quellen", A2uiArgument.LiedIds,
 			"Liste von bis zu 10 Liedern als Verweise ins Archiv.",
 			ResolveSourcesAsync),
-		// Defined and validated, but not yet resolvable in the member chat: the
-		// event tools (ARC-022-1) bring its resolver with their own visibility rules.
-		new("ProgrammListe", A2uiArgument.AuftrittId, "Programm eines Auftritts.", null),
+		new("ProgrammListe", A2uiArgument.AuftrittId,
+			"Das Programm eines Auftritts (Lieder in ihrer Reihenfolge) mit Verweis ins Archiv.",
+			ResolveProgrammeListeAsync),
 	];
 
 	/// <summary>Short German description of the components a run's tool offers.</summary>
@@ -240,7 +245,8 @@ public static class A2uiCatalog
 	/// <summary>A JSON string value, or null for anything else (never throws on a foreign JSON type).</summary>
 	private static string? StringOf(JsonNode? node) => node is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
 
-	// ---- resolvers (what a member may see: every saved Lied, published Auftritte) ----
+	// ---- resolvers (what a member may see: every saved Lied, every saved
+	// Auftritt — ADR-0001 has no draft or published state for the Auftritte) ----
 
 	private static async Task<JsonObject?> ResolveLiedCardAsync(ArchiveDbContext db, SurfaceRequest request, CancellationToken token)
 	{
@@ -304,6 +310,55 @@ public static class A2uiCatalog
 			sources.Add(entry);
 		}
 		return new JsonObject { ["quellen"] = sources };
+	}
+
+	private static async Task<JsonObject?> ResolveProgrammeListeAsync(ArchiveDbContext db, SurfaceRequest request, CancellationToken token)
+	{
+		if (!Guid.TryParse(request.AuftrittId, out var id))
+			return null;
+		var entry = await db.Events.AsNoTracking()
+			.Where(e => e.Id == id)
+			.Select(e => new { e.Id, e.Title })
+			.FirstOrDefaultAsync(token);
+		if (entry is null)
+			return null;
+		// A saved Auftritt is visible to every member (ADR-0001); its one
+		// editable Programm is the record of what was sung.
+		var programme = await db.Programmes.AsNoTracking()
+			.Where(p => p.EventId == id)
+			.Select(p => new { p.Id })
+			.FirstOrDefaultAsync(token);
+		if (programme is null)
+			return null;
+		var items = await db.ProgrammeItems.AsNoTracking()
+			.Where(i => i.ProgrammeId == programme.Id)
+			.OrderBy(i => i.Position)
+			.ThenBy(i => i.Id)
+			.Select(i => new { i.Position, i.LiedId, LiedTitle = i.Lied!.Title, i.Note })
+			.ToListAsync(token);
+		if (items.Count == 0)
+			return null;
+		var card = new JsonObject
+		{
+			["auftrittId"] = entry.Id.ToString(),
+			["titel"] = Clip(entry.Title, MaxTitleChars),
+			["punkte"] = new JsonArray(items
+				.Take(MaxProgrammPunkte)
+				.Select(i =>
+				{
+					var punkt = new JsonObject
+					{
+						["position"] = i.Position,
+						["liedId"] = i.LiedId.ToString(),
+						["titel"] = Clip(i.LiedTitle, MaxTitleChars),
+					};
+					if (!string.IsNullOrWhiteSpace(i.Note))
+						punkt["notiz"] = Clip(i.Note.Trim(), MaxNoteChars);
+					return punkt;
+				})
+				.ToArray<JsonNode?>()),
+		};
+		return card;
 	}
 
 	private static void SetIfPresent(JsonObject target, string key, string? value)
