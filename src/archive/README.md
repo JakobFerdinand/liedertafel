@@ -346,7 +346,7 @@ The chat page reads the run with `@ag-ui/client` 1.0.2 (`HttpAgent` in `frontend
 
 - **Wire:** the server library wrote protocol fields it does not use as explicit nulls (`usage[].model`, `parentRunId` …), which the strict client rejects as a schema violation. `ChatEndpoints` now serializes events without null properties. `RUN_FINISHED`, `RUN_ERROR` with its `code`, the `archive.citations` custom event and the budget state are unchanged for the page.
 - **The tool:** the agent calls `zeige_oberflaeche(komponenten)`; each entry is a component name and exactly the one record id it is built from (`liedId`, `liedIds`, `auftrittId`). `Chat/A2uiSurfaces.cs` (`A2uiCatalog`) validates every entry against the catalog (known component, only its own id, valid GUIDs, at most 12 entries looked at, at most 4 surfaces per answer, one card per record), resolves the ids to what a member may see (Lieder and published Auftritte only) and builds the A2UI messages itself: `createSurface` plus one `updateComponents` with a single `root` component per surface. Anything else is dropped before streaming; the model only learns how many entries were not shown, never which or why. The model supplies no text and no URL, and the server sends none: the browser derives links (`/lied/?id=…`, `/auftritt/?id=…`) from the ids. The tool call itself is removed from the AG-UI stream; the validated messages travel in one `CUSTOM` event `archive.a2ui` (before the `archive.citations` chips, which stay the server-built event).
-- **Member chat offers:** `LiedKarte` (title, composer, lyricist, first lines), `AuftrittKarte` (title, kind, date, venue) and `Quellen` (up to 10 Lieder). `ProgrammListe` is defined with its wire shape and the browser renders it, but the member chat has no resolver for it yet (always dropped, not offered to the model); ARC-022-1 and ARC-022-2 add its resolver to `A2uiCatalog.Components`.
+- **Member chat offers:** `LiedKarte` (title, composer, lyricist, first lines), `AuftrittKarte` (title, kind, date, venue), `ProgrammListe` (a saved Auftritt's Programm, Lieder in their order with notes; up to 60 entries) and `Quellen` (up to 10 Lieder). #124 added the `ProgrammListe` resolver: the model names only the `auftrittId`, the server builds the entries from that Auftritt's Programm.
 - **Storage and reload:** the validated messages are stored with the assistant answer in `chat_messages."A2uiJson"` (`jsonb`, migration `20261011160524_ChatMessageA2ui`; a card-only answer stores empty content and is not fed back to the model as history). `GET /api/chat/thread/{id}` never returns the stored JSON as it is: `A2uiCatalog.RecheckAsync` rebuilds each surface from the record ids it names, so a card for a since-unpublished Auftritt or a deleted Lied is gone, tampered or unreadable stored content yields nothing, and data is fresh. The message then has an `a2ui` array (or none).
 - **Browser safety:** `leseA2uiOberflaechen` keeps only surfaces of exactly one `createSurface` (this catalog) and one `root` update with a catalog component and exactly its allowed properties (strict schemas: no `href`, `url`, data model or extra fields); the A2UI `MessageProcessor` then runs with `STRICT_VALIDATION` as a second check, and a surface it refuses is removed. Malformed or out-of-catalog messages show no card and no error.
 - **Clicks:** cards link to archive pages that load their own data over REST; nothing goes back through the chat.
@@ -433,7 +433,14 @@ data).
   and `dateUncertain` (a year-only or approximate date). `counts` has `events`,
   `inProgramme`, `uncertainDates`. An unknown Lied is 404.
 - Chat: `lied_details` reads the same data; `gesungen` lists past Auftritte with
-  the Lied in the Programm or an Aufnahme, `geplant` upcoming ones.
+  the Lied in the Programm or an Aufnahme, `geplant` upcoming ones. #124 made the
+  history answer full: every entry carries `auftrittId` (the model can show the
+  `AuftrittKarte`, or a `ProgrammListe` when nothing is sung yet), the file names
+  of Lied-Aufnahmen naming the Auftritt and the member-visible Zeitmarken
+  (`aufnahme` label, `start`, `status` — a mark under review shows no start).
+  Approximate dates arrive as the record keeps them ("um 1950") and the system
+  prompt forbids inventing more precision; the scripted client states the date
+  and names the Aufnahme with the Zeitmarke in its answer.
 - Frontend: `components/auftritt-programm.tsx` (reading list and the editor's
   "Programm bearbeiten"), `auftritt-lied-aufnahmen.tsx`, `lied-historie.tsx`
   ("Wann gesungen"), `lied-wahl.tsx`. Tests: `AuftrittProgrammTests`,
