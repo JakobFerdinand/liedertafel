@@ -28,6 +28,9 @@ namespace Archive.Backend.Data.Migrations
                         .HasMaxLength(7)
                         .HasColumnType("character varying(7)");
 
+                    b.Property<long>("NotifiedMicroEur")
+                        .HasColumnType("bigint");
+
                     b.HasKey("YearMonth");
 
                     b.ToTable("ai_budget_months", (string)null);

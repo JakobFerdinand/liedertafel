@@ -2847,6 +2847,26 @@ details.aufnahme-anlegen {
   margin: 0;
   padding: 0;
 }
+/* #150: KI-Kostenüberblick der Verwaltung — reine Lesesicht. */
+.ki-kosten {
+  display: grid;
+  gap: 0.6rem;
+}
+.ki-kosten .ki-kosten-tabelle {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+.ki-kosten .ki-kosten-tabelle th,
+.ki-kosten .ki-kosten-tabelle td {
+  text-align: left;
+  padding: 0.35rem 0.6rem 0.35rem 0;
+  border-bottom: 1px solid var(--rule);
+}
+.ki-kosten .ki-kosten-hinweis {
+  font-size: var(--schrift-neben);
+  color: var(--muted);
+}
 /* Neues Lied durch Ablegen von Dateien (#175). */
 .lied-ablegen-zone {
   display: grid;

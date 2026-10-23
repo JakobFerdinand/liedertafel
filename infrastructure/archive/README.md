@@ -802,3 +802,145 @@ Future import jobs must receive and check the same flag before conflicting
 work and quiesce existing executions while `maintenance` is true. Probes plus
 `/api/build` and `/api/maintenance` always stay available for observers.
 The reading jobs (ARC-034-1) follow the same rule.
+
+## Cost overview (ARC-043, #150)
+
+The monthly cost review (about 30 minutes, by the second maintainer, no
+memory required) checks four places before the "review before a higher
+recurring commitment" decision (architecture §2). Written so it runs without
+the primary maintainer; escalate anything that is not just reading numbers.
+
+### Azure group budget — portal-managed (documented finding)
+
+The budget alert is **not** provisioned through Bicep. On 2026-09-23 the
+Consumption budgets API answered `401 Unauthorized` to every programmatic
+budget PUT on this subscription — four CI runs of the ARC-021 provider step
+and then an identical PUT performed by the subscription Owner (same
+api-version, same shape), while reads against the same resource provider
+succeeded with the same identity. This is an RP-level restriction on
+programmatic budget creation for this identity class, not a permissions gap;
+the Bicep budget resource was removed the same day. The portal flow is the
+documented working path.
+
+One-off and after any amount change:
+
+1. Azure portal → **Cost Management** → **Budgets** → **Add**.
+2. Scope `RG-Liedertafel-Archive`; name `budget-liedertafel-archive`;
+   monthly reset; the amount comes from the cost worksheet below (baseline
+   EUR 10 for the group).
+3. Alert conditions: **Actual 80 %**, **Actual 100 %** and **Forecast 100 %**.
+4. Recipients: both alert addresses of `maintainerAlertEmails`
+   (main.bicepparam) and the Owner contact role.
+5. Confirm the first alert mail reaches both maintainers (test the action
+   group from "Cost Management → Budgets → the budget → Alerts" or the
+   action group's Test pane; see the ARC-042 verification steps above for
+   how receipt is checked).
+
+**The budget alert is an alert, never a cap.** Azure keeps billing past the
+alert; the only hard cap in the whole estate is the application-level AI cap
+(ARC-022-3). Wording everywhere reflects that: nothing here "spends", it
+notifies.
+
+### AI spend per feature (read from the usage ledger)
+
+The usage ledger (`ai_usage_entries`/`ai_budget_months`, written by the ARC-022-3
+budget) is the only source of AI spending truth; nothing of it is replicated.
+
+- **View:** as an editor open `/verwaltung/ki-budget/` (the page calls
+  `GET /api/maintenance/ai-budget`): the current month's spend per feature and
+  model (calls, tokens, EUR including open reservations), the EUR 15 cap and
+  the configured thresholds with each level's notified state. `no-store`; the
+  endpoint only reads — verifying costs costs nothing.
+- **Notices:** the daily reading dispatch sweep (`ja-archive-read-dispatch`,
+  03:17 UTC) compares the month against the configured thresholds and logs a
+  warning once per newly reached level, the cap included:
+  - threshold: `al-archive-ai-threshold` (severity 2), line
+    `KI-Budget: Schwellwert … EUR im Monat … erreicht (… von … EUR): <per-feature breakdown>`;
+  - cap: `al-archive-ai-cap` (severity 1), line `KI-Budget: Monatsbudget erreicht …`,
+    the same marker the refused chat/reading calls log. Both mail the
+    maintainers through the same action group as every other archive alert.
+  - Once per level per month (the month's row remembers the level); raising
+    the cap mid-month re-enables the notices above the old level.
+- **Thresholds are explicit configuration:** `aiNoticeThresholdsEur`
+  (main.bicepparam, comma separated, e.g. `aiNoticeThresholdsEur = '5,12'`)
+  relays to `Archive:Ai:NoticeThresholdsEur` on the web app and the reading
+  sweep job. The list is **empty by default — that is a deliberate disabled
+  state, not a default value**; maintainers choose the numbers when they edit
+  main.bicepparam (suggestion pending maintainer decision: 5 and 12). The
+  cap itself always notifies.
+- AI stays out of the EUR 10 group target: AI has its own EUR 15 hard
+  monthly cap; the group budget above only ever sees the rest of the estate.
+
+### Neon Free headroom (bounded check — the sleeping database is never touched)
+
+The check reads the **management plane** only:
+
+1. Neon Console (console.neon.tech) → project `*archive*` → **Usage**: the
+   month's branch storage, data transfer, and compute hours against the plan
+   allowances. This is a dashboard read; no database connection is opened.
+2. Alternatively read-only via the management API with the Neon API key
+   (`curl -H "Authorization: Bearer $NEON_API_KEY"
+   https://console.neon.tech/api/v2/projects/<project-id>/consumption`);
+   the key is a credential: keep it in the vault/secret store, never in
+   logs or shells history.
+3. Never `psql` into the branch just to "check size": the archive's
+   bounded connection design (zero keep-alive) exists so the sleeping
+   database stays asleep; inode/storage growth shows up in the console
+   storage graph.
+4. Review **before** upgrading anything: when branch storage passes about
+   80 % of the plan allowance, or transfer/consume hours trend at the
+   allowance, decide with the primary maintainer whether the plan rises or
+   a feature pauses (edition rate: no automatic upgrade is wired anywhere).
+
+### Credentials and expiry reminders (values are never logged)
+
+| Credential | Expiry | Owner | Renewal |
+| --- | --- | --- | --- |
+| GHCR pull PAT (`GHCR_PULL_PAT_ARCHIVE`, fine-grained, `packages:read` on `liedertafel-archive` only) | ≤ 1 year | primary maintainer | see "Pull-credential ownership and renewal" above; add the calendar reminder when creating a new PAT and confirm the date at every monthly check |
+| Azure managed identities (mail, Blob keys, Key Vault, OpenAI, queue send) | none | — | nothing expires; all grants are role assignments visible via `az role assignment list` |
+| Neon role passwords (`archive_migrator`, runtime, local admin; in Key Vault) | none | primary maintainer | rotation is manual (infrastructure/neon/README.md); no reminder needed |
+| Neon API key(s) | user-set | primary maintainer | rotate from the Neon console Zapier/API page as needed; never log the value |
+| Azure Communication Services sender (`archiv@liedertafel-mining.at`) | none | — | falls out of the verified domain; managed identity sends keyless |
+
+Renewing a credential never logs its value: the runbooks only ever say
+"update the secret"; GitHub Actions secrets and Key Vault references handle
+the transfer.
+
+### Cost worksheet (inventory sizes and explicit workload assumptions)
+
+The EUR 10 group target is a target, not a cap (architecture §2); AI is
+tracked separately under its own EUR 15 hard cap. Assumptions:
+
+| Item | Inventory / workload assumption | Measured by |
+| --- | --- | --- |
+| Container Apps Consumption (web app) | Scales to 0; assumed < ~4 active hours/day (≈ 5 members); 2 replicas worst case | Azure Cost Management per service |
+| Blob storage (member files) | Free plan until the imports: hot Dateien plus Cold originals; the collection budget tops a Lied/Auftritt at 40 GiB, the inventory target is 500 Lieder / 100–500 GB (long-term, review before importing at scale) | Azure Cost Management storage meter |
+| Neon Free (metadata) | Catalogue rows only, well under the Free storage allowance; the database sleeps between requests | Neon Console usage (above) |
+| Azure OpenAI (chat + scan reading) | Per-token; chat ≈ cents per session at the pinned Luna prices, scan reading a few cents per document | the ledger view (`/verwaltung/ki-budget/`), cap 15 EUR/month |
+| Email (ACS send-only) | Sign-in codes + invitations; assumed well under the plan's monthly allowance | ACS metrics in the portal — currently unmeasured |
+| Log Analytics ingestion | ≤ 1 GB/day cap (Bicep), 31-day retention; assumed a fraction of it | workspace ingestion view — currently unmeasured |
+| Jobs (`--extract-queue`, `--read-queue`, sweeps, cleanup) | Consumption CPU-seconds, sweep runs are short (≤ 15 min execution budget) | Container Apps execution metrics — currently unmeasured |
+| GHCR (private image) | Small registry, pulls per release | GitHub — unmeasured |
+
+Unmeasured items are deliberate observations, not omissions: at the monthly
+check, note in the review (repo docs or the ticket) whether any unmeasured
+number has left "clearly small" territory. Items that never exist: egress
+from Blob is member-driven (signed URLs) — spot-check the first heavy usage
+month; DB backup/export is out of scope by decision (editor trash is the
+recovery path).
+
+### Monthly check — step by step (second maintainer)
+
+1. **Azure:** Cost Management → group `RG-Liedertafel-Archive`, current
+   month per service; compare against the worksheet assumptions; open the
+   budget's monthly view if one exists.
+2. **AI:** the `/verwaltung/ki-budget/` page (needs editor sign-in) or the
+   Log Analytics query behind `al-archive-ai-threshold`/`al-archive-ai-cap`;
+   note the month's total and the biggest feature.
+3. **Neon:** Console → Usage; branch storage/transfer/compute hours vs the
+   allowances.
+4. **Credentials:** confirm the GHCR PAT expiry (GitHub → Settings →
+   Developer settings → PAT list) and open the credentials table above.
+5. **Decide:** any reading above ~80 % of its assumed envelope → record it
+   in the review with the primary maintainer (upgrade review, feature
+   pause, or expectation adjusted in this worksheet).

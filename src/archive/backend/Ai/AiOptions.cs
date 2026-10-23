@@ -39,6 +39,17 @@ public sealed class AiOptions
 	/// </summary>
 	public Dictionary<string, AiModelPrice> Models { get; set; } = [];
 
+	/// <summary>
+	/// ARC-043 (#150): the maintainer notice thresholds in EUR, in ascending
+	/// order. At each threshold the monthly review once logs a warning that an
+	/// Azure alert rule forwards to the maintainers, before the hard cap above.
+	/// The hard cap itself always notifies once. Empty means nothing is
+	/// notified — there is deliberately no hidden default value; the value is
+	/// explicit configuration (Bicep <c>aiNoticeThresholdsEur</c>, comma
+	/// separated, e.g. <c>Archive:Ai:NoticeThresholdsEur=5,12</c>).
+	/// </summary>
+	public decimal[] NoticeThresholdsEur { get; set; } = [];
+
 	/// <summary>Looks a model up without regard to case; null when the model has no usable price.</summary>
 	public AiModelPrice? FindPrice(string model)
 	{

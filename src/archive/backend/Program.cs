@@ -100,6 +100,8 @@ if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" o
     });
     jobs.Services.AddSingleton<IPdfPageRenderer, PdfiumPageRenderer>();
     jobs.Services.AddArchiveAi(jobs.Configuration);
+    // ARC-043 (#150): the daily sweep's AI cost review reads the same ledger.
+    jobs.Services.AddAiCostNotice();
     jobs.Services.AddScoped<CatalogueWriteService>();
     jobs.Services.AddScoped<AutomatedFieldWriter>();
     jobs.Services.AddSingleton<ScanReadingModel>();
@@ -278,6 +280,10 @@ if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" o
                 provider.GetRequiredService<IOptions<ReadingOptions>>(),
                 provider.GetRequiredService<TimeProvider>(),
                 sweepLogger, token);
+            // ARC-043 (#150): the deterministic daily moment of the AI cost
+            // review — one comparison against the configured thresholds, no
+            // model call, nothing logged while no level is newly reached.
+            await provider.GetRequiredService<AiCostNotice>().ReviewAsync(token);
             sweepLogger.LogInformation("Reading dispatch handed {Dispatched} rows to the queue", handed);
         }
         else if (command == "--transcode-queue")
@@ -375,6 +381,8 @@ builder.Services.AddOptions<ChatOptions>()
 // ARC-022-3: provider selection, model keys, usage ledger, hard monthly cap
 // and the gateway. Whatever injects IChatClient gets the budgeted pipeline.
 builder.Services.AddArchiveAi(builder.Configuration);
+// ARC-043 (#150): maintainer view and threshold review over the usage ledger.
+builder.Services.AddAiCostNotice();
 // The shared, validated write path of the catalogue and event endpoints.
 builder.Services.AddScoped<CatalogueWriteService>();
 builder.Services.AddSingleton<ArchiveChatAgent>();
@@ -475,6 +483,7 @@ app.MapGet("/api/antiforgery", (HttpContext context, IAntiforgery antiforgery) =
 // /api/maintenance) stay available; the frontend keeps serving so members
 // see the German maintenance banner.
 app.MapMaintenanceEndpoints();
+app.MapAiBudgetEndpoints();
 app.MapAuthEndpoints();
 app.MapPasskeyEndpoints();
 app.MapMemberAdminEndpoints();

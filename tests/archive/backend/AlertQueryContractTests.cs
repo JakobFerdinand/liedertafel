@@ -32,7 +32,7 @@ public sealed class AlertQueryContractTests
 		// Every alert is a scheduled query rule scoped to the Log Analytics
 		// workspace, and every one is disabled while no destination exists.
 		var rules = Regex.Matches(bicep, @"resource \w+ 'Microsoft\.Insights/scheduledQueryRules@[^']+'");
-		Assert.True(rules.Count >= 4, $"expected job, item, app and maintenance alerts; found {rules.Count}");
+		Assert.True(rules.Count >= 6, $"expected job, item, app, maintenance, ai-threshold and ai-cap alerts; found {rules.Count}");
 		Assert.Contains("actionGroupId: alertsEnabled ? maintainerActionGroup.id : ''", bicep);
 	}
 
@@ -99,6 +99,53 @@ public sealed class AlertQueryContractTests
 		// The line comes from the finite jobs, never from member traffic.
 		foreach (var falsePositive in new[] { "Wartungsarbeiten", "wartung" })
 			Assert.DoesNotContain($"has \"{falsePositive}\"", bicep);
+	}
+
+	[Fact]
+	public void TheAiCostAlertsKeyOnTheLedgerNoticeAndCapLines()
+	{
+		var bicep = Bicep();
+		var notice = Source("backend", "Ai", "AiCostNotice.cs");
+		var ledger = Source("backend", "Ai", "AiBudgetLedger.cs");
+
+		// Pre-cap threshold: the review logs one deterministic German warning
+		// line per newly reached level; the alert is keyed on its fixed prefix,
+		// never on an amount or feature name.
+		Assert.Contains("KI-Budget: Schwellwert {NoticeEur} EUR", notice);
+		Assert.Contains("has \"KI-Budget: Schwellwert\"", bicep);
+		// The cap: refused calls (AiBudgetLedger) and the daily review share
+		// one marker, so one rule covers a refused call and a review that
+		// states the cap even when no call happens after it.
+		Assert.Contains("KI-Budget: Monatsbudget erreicht", ledger);
+		Assert.Contains("KI-Budget: Monatsbudget erreicht ", notice);
+		Assert.Contains("has \"Monatsbudget erreicht\"", bicep);
+		// The threshold rule must not match cap lines and vice versa.
+		foreach (var query in Regex.Matches(bicep, @"query: '''(?<q>.*?)'''", RegexOptions.Singleline)
+			.SelectMany(m => new[] { m.Groups["q"].Value }))
+		{
+			if (query.Contains("Monatsbudget erreicht"))
+				Assert.DoesNotContain("Schwellwert", query);
+			if (query.Contains("Schwellwert"))
+				Assert.DoesNotContain("Monatsbudget erreicht", query);
+		}
+	}
+
+	[Fact]
+	public void TheAiNoticeThresholdsAreExplicitConfigurationWithNoHiddenDefault()
+	{
+		var bicep = Bicep();
+		// The Bicep value is pass-through text: empty = off, and no default
+		// threshold is invented in the template either.
+		var param = Regex.Match(bicep, @"param aiNoticeThresholdsEur string = '([^']*)'");
+		Assert.True(param.Success, "aiNoticeThresholdsEur must be a pass-through string parameter");
+		Assert.Equal(string.Empty, param.Groups[1].Value);
+		// The backend ships no default: an empty list is the disabled state.
+		var options = BackendSource("Ai/AiOptions.cs");
+		Assert.Contains("NoticeThresholdsEur", options);
+		Assert.Matches(@"NoticeThresholdsEur \{ get; set; \} = \[\];", options);
+		// The dispatch sweep (and the app's view) carry the configured list;
+		// the --read-queue worker itself does not need it.
+		Assert.Equal(2, Regex.Matches(bicep, @"name: 'Archive__Ai__NoticeThresholdsEur'").Count);
 	}
 
 	[Fact]

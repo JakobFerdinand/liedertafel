@@ -84,6 +84,19 @@ internal sealed class InMemoryAiLedgerStore(IServiceScopeFactory scopes) : IAiLe
 		return await SpentAsync(Context(scope), yearMonth, cancellationToken);
 	}
 
+	public async Task<IReadOnlyList<AiMonthEntry>> MonthEntriesAsync(string yearMonth, CancellationToken cancellationToken)
+	{
+		await using var scope = scopes.CreateAsyncScope();
+		var db = Context(scope);
+		var rows = await db.AiUsageEntries.Where(e => e.YearMonth == yearMonth)
+			.GroupBy(e => new { e.Feature, e.Model })
+			.Select(x => new AiMonthEntry(
+				x.Key.Feature, x.Key.Model, x.Sum(e => e.Calls), x.Sum(e => e.InputTokens),
+				x.Sum(e => e.OutputTokens), x.Sum(e => e.CostMicroEur), x.Sum(e => e.ReservedMicroEur)))
+			.ToListAsync(cancellationToken);
+		return rows.OrderBy(e => e.Feature, StringComparer.Ordinal).ToList();
+	}
+
 	private ArchiveDbContext Context(AsyncServiceScope scope)
 		=> Broken
 			? throw new InvalidOperationException("Test: Verbrauchsbuch nicht erreichbar.")

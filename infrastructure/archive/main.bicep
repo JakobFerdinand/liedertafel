@@ -116,6 +116,9 @@ param logAnalyticsDailyCapGb int = 1
 @description('Maintainer alert destinations (ARC-042). Email addresses of the primary and second maintainer, most specific first. Alerts stay disabled while this is empty, so a template deploy never invents a receiver. The addresses are not secrets but they do appear in deployment diffs, the portal and alert mails: list them in main.bicepparam, never inline in main.bicep.')
 param maintainerAlertEmails array = []
 
+@description('ARC-043 (#150): comma-separated EUR thresholds for the AI spend notices before the hard cap, relayed to the app and the reading jobs as Archive:Ai:NoticeThresholdsEur (suggested 5,12). Empty = disabled; there is intentionally no template default, the maintainers choose the values here.')
+param aiNoticeThresholdsEur string = ''
+
 @description('Deploy the RBAC role assignments. PR what-if uses a Contributor-only preview identity without Microsoft.Authorization/roleAssignments/write, so it previews with false; real deploys keep true.')
 param deployRoleAssignments bool = true
 
@@ -200,6 +203,7 @@ resource workspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
 // warnings only. Deployed shape is verified by the group what-if below.
 var alertsEnabled = length(maintainerAlertEmails) > 0
 var alertRunbook = 'https://github.com/JakobFerdinand/liedertafel/blob/main/infrastructure/archive/README.md#failure-alerts-arc-042'
+var costRunbook = 'https://github.com/JakobFerdinand/liedertafel/blob/main/infrastructure/archive/README.md#cost-overview-arc-043'
 
 resource maintainerActionGroup 'Microsoft.Insights/actionGroups@2023-03-01' = if (alertsEnabled) {
   name: 'ag-archive-maintainers'
@@ -387,6 +391,95 @@ resource maintenanceWindowAlert 'Microsoft.Insights/scheduledQueryRules@2023-12-
 ContainerAppConsoleLogs_CL
 | where TimeGenerated > ago(1h)
   and Log_s has "paused: maintenance mode is enabled"'''
+          timeAggregation: 'Count'
+          operator: 'GreaterThan'
+          threshold: 0
+          failingPeriods: {
+            numberOfEvaluationPeriods: 1
+            minFailingPeriodsToAlert: 1
+          }
+        }
+      ]
+    }
+  }
+}
+
+// ARC-043 (#150) — AI spend notices. The application's own ledger is the
+// only place AI spending is visible (the model calls never leave a
+// platform-side cost signal that separates AI from the group's other
+// charges), so the notices travel over the same console logs: the daily
+// reading dispatch sweep compares the month against the explicitly
+// configured thresholds (aiNoticeThresholdsEur) and logs a warning exactly
+// once per level per month, the hard cap included. The never-excepted
+// refused-call line (KI-Budget: Monatsbudget erreicht …) shares the cap
+// marker, so a chat run past the cap pages even when the sweep is somehow
+// not running. Everything fires through the same maintainer action group;
+// AI stays out of the EUR 10 group budget (no Azure budget resource exists
+// — see "Cost overview (ARC-043)" in the README).
+resource aiThresholdAlert 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = {
+  name: 'al-archive-ai-threshold'
+  location: 'global'
+  properties: {
+    displayName: 'Archiv: KI-Kosten Schwellwert erreicht'
+    description: 'The archive AI spend reached an agreed threshold of the EUR 15 hard cap before it. Operator path: infrastructure/archive/README.md, "Cost overview (ARC-043)".'
+    severity: 2
+    enabled: alertsEnabled
+    evaluationFrequency: 'PT1H'
+    windowSize: 'PT1H'
+    scopes: [workspace.id]
+    autoMitigate: true
+    actions: {
+      actionGroupId: alertsEnabled ? maintainerActionGroup.id : ''
+      actionType: 'LogAlert'
+      customProperties: {
+        runbook: costRunbook
+      }
+    }
+    criteria: {
+      allOf: [
+        {
+          query: '''
+ContainerAppConsoleLogs_CL
+| where TimeGenerated > ago(1h) and Log_s has "KI-Budget: Schwellwert"
+  and Log_s has " EUR im Monat " and Log_s has " EUR): "'''
+          timeAggregation: 'Count'
+          operator: 'GreaterThan'
+          threshold: 0
+          failingPeriods: {
+            numberOfEvaluationPeriods: 1
+            minFailingPeriodsToAlert: 1
+          }
+        }
+      ]
+    }
+  }
+}
+
+resource aiCapAlert 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = {
+  name: 'al-archive-ai-cap'
+  location: 'global'
+  properties: {
+    displayName: 'Archiv: KI-Monatsbudget erreicht'
+    description: 'The archive AI spend reached the EUR 15 hard monthly cap; chat and scan reading answer refusals until the month rolls over. This is an application budget, not an Azure spending cap. Operator path: infrastructure/archive/README.md, "Cost overview (ARC-043)".'
+    severity: 1
+    enabled: alertsEnabled
+    evaluationFrequency: 'PT1H'
+    windowSize: 'PT1H'
+    scopes: [workspace.id]
+    autoMitigate: true
+    actions: {
+      actionGroupId: alertsEnabled ? maintainerActionGroup.id : ''
+      actionType: 'LogAlert'
+      customProperties: {
+        runbook: costRunbook
+      }
+    }
+    criteria: {
+      allOf: [
+        {
+          query: '''
+ContainerAppConsoleLogs_CL
+| where TimeGenerated > ago(1h) and Log_s has "Monatsbudget erreicht"'''
           timeAggregation: 'Count'
           operator: 'GreaterThan'
           threshold: 0
@@ -1115,6 +1208,13 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
               name: 'Archive__Reading__Enabled'
               value: readingEnabled ? 'true' : 'false'
             }
+            // ARC-043 (#150): the editor's AI budget view and the daily
+            // review run on the same ledger; the maintainers set the
+            // thresholds explicitly, empty stays disabled.
+            {
+              name: 'Archive__Ai__NoticeThresholdsEur'
+              value: aiNoticeThresholdsEur
+            }
           ]
           probes: [
             {
@@ -1592,6 +1692,13 @@ resource readDispatchJob 'Microsoft.App/jobs@2025-01-01' = {
             {
               name: 'Archive__MaintenanceMode'
               value: maintenanceMode ? 'true' : 'false'
+            }
+            // ARC-043 (#150): this daily sweep is the AI cost review's
+            // deterministic moment; the maintainers set the thresholds
+            // explicitly, empty stays disabled.
+            {
+              name: 'Archive__Ai__NoticeThresholdsEur'
+              value: aiNoticeThresholdsEur
             }
           ]
         }
