@@ -18,7 +18,11 @@ Use this guide when editing or extending the codebase.
   inside the release's `--migrate` as `archive_migrator` (embedded copy at
   `src/archive/backend/Data/runtime-grants.sql`, kept identical by a test);
   run it by hand only as a fallback. OpenTofu was trialled but is not adopted.
-- Plans and tickets: GitHub Issues (see `## Agent skills`); the choir archive is parent issue #96 with sub-issues ordered by milestone (Vereinfachung, Bestand, Betrieb). `src/archive/docs/architecture.md` is the archive architecture (§14 governs AI assistance).
+- Plans and tickets: GitHub Issues (see `## Agent skills`); the choir archive is parent issue #96 with sub-issues ordered by milestone (Vereinfachung, Bestand, Betrieb). `src/archive/docs/architecture.md` is the archive architecture (§14 governs AI assistance). The deterministic
+source-folder inventory (Drive, #98) runbook lives at
+`src/archive/docs/drive-inventur.md`; its sanitized fixture corpus and
+`mapping.json` for the bulk import (#143) at
+`tests/archive/fixtures/drive-inventur/`.
 - docs/agents: issue tracker, triage label and domain doc conventions for agent skills.
 - liedertafel.slnx: .NET solution that opens all API projects together; global.json pins the .NET SDK.
 
@@ -46,6 +50,7 @@ Use this guide when editing or extending the codebase.
 - Archive scan reading on real PostgreSQL (migration over existing extraction rows, constraints, the budget sweep, real ledger SQL; skip when unconfigured): `dotnet test tests/archive/backend --filter "Category=PostgresReading"` with `ARCHIVE_TEST_POSTGRES` set as for the AI ledger
 - Archive migration contracts on real PostgreSQL (the data-migrating migrations `DropOldCatalogue` and `AuftrittProgramm` over seeded rows; skip when unconfigured): `dotnet test tests/archive/backend --filter "Category=PostgresContract"` with `ARCHIVE_TEST_POSTGRES` set as for the AI ledger
 - Archive A2UI cards on real PostgreSQL (migration with existing rows, jsonb round trip, resolvers and load-time re-check as real SQL; skip when unconfigured): `dotnet test tests/archive/backend --filter "Category=PostgresA2ui"` with `ARCHIVE_TEST_POSTGRES` set as for the AI ledger
+- Archive deterministic source/folder inventory (no database, queue or model; #98): `dotnet run --project src/archive/backend -- --inventur <verzeichnis> [--model <schluessel> --out bericht.json]` — runbook in `src/archive/docs/drive-inventur.md`
 - Archive integration test: `dotnet test tests/archive/apphost` (fresh containers; stop a running archive AppHost first).
 - Archive frontend deps/check/build: from `src/archive/frontend`, `pnpm install --frozen-lockfile`, `pnpm run check`, `pnpm run build`.
 - Archive frontend reducer tests (pure, no browser; Node's built-in runner with type stripping, Node 24): from `src/archive/frontend`, `pnpm run test:unit`. Single file: `node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test lib/lied-entwurf/reducer.test.ts`. Tests sit beside the module as `*.test.ts` under `lib/`; modules under test import siblings with `.ts` extensions and must not use the `@/` alias.

@@ -645,6 +645,23 @@ case creates the fixed roles and an `archive` database, migrates as
 `archive_migrator`, and asserts the privileges (runtime can use the new tables
 and later tables, never `__EFMigrationsHistory`; an admin connection skips).
 
+## Quellen-Inventur (#98)
+
+The deterministic Drive/source inventory lives in `backend/Inventur/`: the
+console command `--inventur <verzeichnis>` walks one folder export without any
+database, queue or model (architecture §14) and reports file counts, aggregate
+and largest sizes, leading-byte container sniffs (reusing `RecordingFormats`
+and the MIDI gate), MIDI presence, per-PDF PDFium page counts plus PdfPig
+extractable-text classification, duplicate-name candidates (never resolved by
+the walk) and the analytical scan-reading cost estimate priced from
+`Archive:Ai:Models` (`--model <schlüssel>`), bounded by the reading job's own
+page/image assumptions. Its report documents the maintainer
+runbook (`src/archive/docs/drive-inventur.md`), including the real source-link
+handling in git-ignored `src/archive/.local/source-inventory.md`. The sanitized fixture
+corpus for the bulk import (#143) lives in
+`tests/archive/fixtures/drive-inventur/` with the machine-readable
+`mapping.json`; `InventurTests` keeps corpus, mapping and report agreed.
+
 ## Focused verification
 
 From the repository root:
