@@ -1546,7 +1546,8 @@ footer {
 }
 /* Zugeklappt sind es Werkzeugknöpfe statt zweier zusätzlicher Karten. */
 .lieder-werkzeuge > .lieder-filter,
-.lieder-werkzeuge > .lied-anlegen {
+.lieder-werkzeuge > .lied-anlegen,
+.lieder-werkzeuge > .sammel-import {
   flex: 0 0 auto;
   max-width: none;
   margin: 0;
@@ -1556,38 +1557,64 @@ footer {
   background: transparent;
 }
 .lieder-werkzeuge > .lieder-filter[open],
-.lieder-werkzeuge > .lied-anlegen[open] {
+.lieder-werkzeuge > .lied-anlegen[open],
+.lieder-werkzeuge > .sammel-import[open] {
   flex-basis: 100%;
   max-width: 38rem;
   border-top: 1px solid var(--rule);
   padding-top: 0.6rem;
 }
-.lieder-werkzeuge > .lied-anlegen[open] {
+.lieder-werkzeuge > .lied-anlegen[open],
+.lieder-werkzeuge > .sammel-import[open] {
   background: var(--wash);
   padding: 1rem;
   border-radius: var(--radius-knopf);
   box-sizing: border-box;
 }
+/* Der Sammel-Import (#143): die Vorschlagsliste als einfache Zeilen. */
+.sammel-vorschläge {
+  list-style: none;
+  margin: 0.6rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.6rem;
+}
+.sammel-vorschlag {
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-knopf);
+  padding: 0.5rem 0.75rem;
+}
+.sammel-vorschlag-kopf {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  align-items: baseline;
+  margin: 0;
+}
 .lieder-werkzeuge > .lieder-filter summary,
-.lieder-werkzeuge > .lied-anlegen summary {
+.lieder-werkzeuge > .lied-anlegen summary,
+.lieder-werkzeuge > .sammel-import summary {
   min-height: 3.2rem;
   gap: 0.45rem;
   color: var(--brand);
 }
 .lieder-werkzeuge > .lieder-filter summary h2,
-.lieder-werkzeuge > .lied-anlegen summary h2 {
+.lieder-werkzeuge > .lied-anlegen summary h2,
+.lieder-werkzeuge > .sammel-import summary h2 {
   font:
     600 var(--schrift-neben) Arial,
     Helvetica,
     sans-serif;
 }
 .lieder-werkzeuge > .lieder-filter summary:hover h2,
-.lieder-werkzeuge > .lied-anlegen summary:hover h2 {
+.lieder-werkzeuge > .lied-anlegen summary:hover h2,
+.lieder-werkzeuge > .sammel-import summary:hover h2 {
   text-decoration: underline;
   text-underline-offset: 0.25em;
 }
 .lieder-werkzeuge > .lieder-filter summary::after,
-.lieder-werkzeuge > .lied-anlegen summary::after {
+.lieder-werkzeuge > .lied-anlegen summary::after,
+.lieder-werkzeuge > .sammel-import summary::after {
   content: "+";
   font-size: 1.15rem;
   line-height: 1;

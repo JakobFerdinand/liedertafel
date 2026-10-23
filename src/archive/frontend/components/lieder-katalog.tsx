@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { LiedAblegen } from "@/components/lied-ablegen";
+import { SammelImport } from "@/components/sammel-import";
 import { fetchMe, type MeResponse } from "@/lib/auth";
 import {
   type DateiArt,
@@ -342,6 +343,17 @@ export function LiederKatalog() {
               <h2 id="lied-anlegen-titel">Neues Lied</h2>
             </summary>
             <LiedAblegen entwurfId={entwurfId} />
+          </details>
+        )}
+        {editor && (
+          <details
+            className="auth-karte sammel-import"
+            aria-labelledby="sammel-import-titel"
+          >
+            <summary>
+              <h2 id="sammel-import-titel">Ordner importieren</h2>
+            </summary>
+            <SammelImport />
           </details>
         )}
       </div>

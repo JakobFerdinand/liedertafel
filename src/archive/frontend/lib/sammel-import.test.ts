@@ -53,7 +53,10 @@ test("Material-Unterordner wie „1. Noten“ gliedern nicht, sie sammeln", asyn
     datei("Sample B/1. Noten/PT - Sample B.pdf"),
     datei("Sample B/2. Media/Sample B.mp3"),
   ]);
-  assert.deepEqual(plan.gruppen.map((g) => g.ordner), ["Sample B"]);
+  assert.deepEqual(
+    plan.gruppen.map((g) => g.ordner),
+    ["Sample B"],
+  );
   assert.equal(plan.gruppen[0].dateien.length, 2);
 });
 
@@ -126,20 +129,18 @@ test("MIDI ist eine Übe-Datei; ihr Stimmenwert wird nie erraten", async () => {
   );
   assert.ok(unbekannt);
   assert.equal(unbekannt?.stimmeUnbekannt, true);
-  const bekannt = gruppe.dateien.find(
-    (d) => d.name === "Beispiel Tenor 1.mid",
-  );
+  const bekannt = gruppe.dateien.find((d) => d.name === "Beispiel Tenor 1.mid");
   assert.equal(bekannt?.stimmeUnbekannt, false);
 });
 
 test("Lose Dateien im gewählten Ordner bilden einen eigenen Vorschlag", async () => {
-	const plan = await gruppiereImport([
-		datei("Liederheft/Ave Maria.pdf"),
-		datei("Liederheft/Ave Maria.mp3"),
-	]);
-	assert.equal(plan.gruppen.length, 1);
-	assert.equal(plan.gruppen[0].ordner, "Liederheft");
-	assert.equal(plan.gruppen[0].dateien.length, 2);
+  const plan = await gruppiereImport([
+    datei("Liederheft/Ave Maria.pdf"),
+    datei("Liederheft/Ave Maria.mp3"),
+  ]);
+  assert.equal(plan.gruppen.length, 1);
+  assert.equal(plan.gruppen[0].ordner, "Liederheft");
+  assert.equal(plan.gruppen[0].dateien.length, 2);
 });
 
 test("Die Entwurf-Ids sind aus dem Ordnerinhalt bestimmt: gleiches Angebot, gleiches Id", async () => {
@@ -154,7 +155,10 @@ test("Die Entwurf-Ids sind aus dem Ordnerinhalt bestimmt: gleiches Angebot, glei
   const anders = await gruppiereImport([
     datei("Liederheft/Sample A/Sample A Partitur.pdf"),
   ]);
-  assert.notEqual(eins.gruppen[0].entwurfId, "00000000-0000-0000-0000-000000000000");
+  assert.notEqual(
+    eins.gruppen[0].entwurfId,
+    "00000000-0000-0000-0000-000000000000",
+  );
   assert.equal(eins.gruppen[0].entwurfId, zwei.gruppen[0].entwurfId);
   assert.notEqual(eins.gruppen[0].entwurfId, anders.gruppen[0].entwurfId);
   for (const gruppe of [...eins.gruppen, ...anders.gruppen])
