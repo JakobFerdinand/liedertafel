@@ -97,6 +97,16 @@ internal sealed class FakeAssetStorage : IAssetStorageAdapter
 		return Task.CompletedTask;
 	}
 
+	/// <summary>#161: stores the copied object with its content type, unique-name rule.</summary>
+	public async Task UploadAsync(string blobName, Stream content, string? contentType, CancellationToken cancellationToken)
+	{
+		using var reader = new MemoryStream();
+		await content.CopyToAsync(reader, cancellationToken);
+		if (!objects.TryAdd(blobName, (reader.ToArray(), contentType)))
+			throw new InvalidOperationException("Speicherdienst nicht erreichbar.");
+		await Task.CompletedTask;
+	}
+
 	private string NextUrl(string blobName, string kind)
 	{
 		var number = Interlocked.Increment(ref sequence);

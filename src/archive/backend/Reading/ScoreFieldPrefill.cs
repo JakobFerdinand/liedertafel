@@ -54,7 +54,7 @@ public sealed class ScoreFieldPrefill(
 		// Datei in the trash keeps its text but never writes fields.
 		if (datei.LiedId is not { } liedId || datei.DeletedAt is not null || string.IsNullOrWhiteSpace(text))
 			return;
-		var lied = await db.Lieder.FirstOrDefaultAsync(l => l.Id == liedId, token);
+		var lied = await Lieder.LiedQueries.Visible(db).FirstOrDefaultAsync(l => l.Id == liedId, token);
 		if (lied is null)
 			return;
 

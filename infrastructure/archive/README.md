@@ -531,6 +531,156 @@ aoai-liedertafel-archive -g RG-Liedertafel-Archive --query id -o tsv)` shows
 journey check (upload a scan, watch the reading) is in
 [ARC-034-1 (#141)](https://github.com/JakobFerdinand/liedertafel/issues/141).
 
+## Failure alerts (ARC-042)
+`main.bicep` declares the maintainer alert wiring (nothing else alerts
+today). Every rule is a scheduled query over the environment console logs
+that already flow into `log-liedertafel-archive` (`ContainerAppConsoleLogs_CL`)
+and keys on the exact shipped failure lines; the line markers are pinned by
+`tests/archive/backend/AlertQueryContractTests.cs` in the backend test run
+(renaming a log line breaks the build before an alert can silently die).
+Deterministic by design (architecture §14): no model involvement, and
+budget-cap parks (`WaitingForBudget`) plus controlled transient retries are
+normal states that no rule matches.
+
+There are no metric alerts on application meters: the OTLP pipeline targets
+Aspire in development only, and in production no OTLP endpoint is configured
+(development keeps the Aspire path untouched; local runs never send to
+production monitoring). Log volume/age stay bounded by the workspace's
+31-day retention and the 1 GB/day ingestion cap.
+
+### Destination and enablement
+
+`param maintainerAlertEmails` (main.bicepparam, maintainer-managed, not a
+secret): primary maintainer first, then the second maintainer. While the
+list is empty every rule deploys with `enabled: false` — an infra re-run
+cannot invent a receiver. Set the addresses, commit the params file, and
+merge; the infra workflow deploys them (the addresses appear in the PR
+what-if diff).
+
+| Alert (name `al-archive-…`) | Severity | Marker | Means |
+| --- | --- | --- | --- |
+| `job-failed` | 1 | `Archive job … failed (…)` from a finite job run | A queue job or dispatch sweep execution ended in terminal failure |
+| `item-failed` | 2 | `… exhausted its attempts` / `… failed deterministically`, dimension `DateiId_s` | A Datei is terminal-Failed and needs an editor retry or repair |
+| `app-failed` | 2 | `Archive request failed (…)` on the app revision | Unhandled request 500s (DB outage, bad revision, bug) |
+| `maintenance-open` | 1 | `… paused: maintenance mode is enabled` outside a release | A stuck maintenance window — a failed release keeps members locked out |
+
+Release failures (`archive.yml`) most directly mail through GitHub's own
+workflow-failure notifications — keep both maintainers watching the repo.
+Azure-side, a failed release deterministically leaves maintenance open, which
+the `maintenance-open` alert picks up from the next finite job run (the
+daily dispatch sweep logs the pause line every day at 03:17 UTC, so a
+stuck window re-alerts daily). Migration failures run inside the release
+workflow's docker step and are covered by the GitHub notification as well,
+never by the `job-failed` rule.
+
+### Operator path (second maintainer, no memory required)
+
+1. Open the alert mail; it links to this section and carries the query and
+   the extracted `Job_s`/`DateiId_s` dimension. In the alert instance, jump
+   to "View query" / Log Analytics for the full context (timestamps,
+   `ContainerJobName_s`, `RevisionName_s`).
+2. Identify the run:
+   `az containerapp job execution list -n <job> -g RG-Liedertafel-Archive -o table`
+   and `az containerapp job execution show` for the failed execution (the
+   identity under `Web app > Azure`, or ask the primary maintainer for
+   deploy rights; read access plus this runbook is enough).
+3. One-time job failure or stuck window during a release: follow
+   [Controlled database releases](#controlled-database-releases-arc-012)
+   (maintenance stays active by design; fix forward, re-release). Check
+   members are not locked out: `curl https://archiv.liedertafel-mining.at/api/maintenance`.
+4. Recurring/undrained queue job failure: jobs restart automatically on the
+   next queue message (or the daily sweep); if executions keep failing,
+   stop churn with maintenance mode and follow the AI reading/extraction
+   sections above (max attempts, stale leases, budget state). Escalate to
+   the primary maintainer before any fixes beyond retry.
+5. Item failure (`item-failed`): open the Datei in the archive UI
+   (Wartung/"paper bin" tools show extraction/reading status); the editor's
+   retry action restarts the work fresh. Only repair via maintenance commands
+   (`--cleanup-uploads`, selection repair per its own section) with the
+   primary maintainer.
+6. App failure (`app-failed`): check the current revision health
+   (`az containerapp show -g RG-Liedertafel-Archive -n ca-liedertafel-archive`)
+   and the last release run; if Neon is unavailable the bounded monthly log
+   cap and low traffic mean a few failed requests — verify the database
+   rather than the app first.
+7. Resolve the alert instance (auto-mitigates when the marker stops repeating;
+   verify resolution in the portal alert rules view "Alerts").
+
+Ownership: alert destinations and thresholds are owned by the primary
+maintainer (Bicep params), actionable in this file; changes go through the
+ordinary infra PR path with what-if review. Never add model-based
+classification to an alert (stay deterministic, architecture §14).
+
+### Verify receipt and inject safe failures (one-off after first enablement)
+
+1. Receipt, without touching the app: in the Azure portal open
+   `ag-archive-maintainers` → "Test notifications" (or
+   `az monitor action-group show -g RG-Liedertafel-Archive -n ag-archive-maintainers`
+   to confirm both receivers, then trigger a test mail from the portal
+   "Test" pane). Both maintainers confirm receipt of the test and an alert
+   mail with the common alert schema.
+2. Safe job-failure injection — simulate a failed release window (also
+   exercises `maintenance-open`). This is reversible within minutes and
+   never touches member data:
+   ```bash
+   az containerapp job update -n ja-archive-read-dispatch -g RG-Liedertafel-Archive \
+     --set-env-vars Archive__MaintenanceMode=true
+   az containerapp job start -n ja-archive-read-dispatch -g RG-Liedertafel-Archive
+   # job run receives no env override mistake; it logs its pause line and exits 0 —
+   # correctness of the run is irrelevant, only the log line is.
+   az monitor log-analytics query --workspace 1be7abbb-ed4d-4938-9cc2-08fd723637ac \
+     --analytics-query 'ContainerAppConsoleLogs_CL | where TimeGenerated > ago(1h)
+     and Log_s has "paused: maintenance mode is enabled"'
+   # after the mail arrives (≤ ~15 min + eval):
+   az containerapp job update -n ja-archive-read-dispatch -g RG-Liedertafel-Archive \
+     --set-env-vars Archive__MaintenanceMode=false
+   ```
+   Then resolve the alert instance (or let auto-mitigate close it).
+3. Verify alert→run trace: from the alert instance, use "See in Azure
+   Monitor/Log query" and confirm `ContainerJobName_s` points at the
+   execution listed in step 2. For a local end check, repeat any finite-job
+   failure through AppHost (`src/archive`, see root AGENTS.md) and confirm
+   the correlated trace/logs/metrics arrive in the Aspire dashboard after
+   the job shuts down — development instrumentation is unchanged.
+
+Never deploy alerts with a `what-if` receiver you can't justify; the deploy
+guard rejects Delete/Replace changes, so all alert resources must remain
+additions/modifications.
+
+## Video playback copies (#161)
+
+Every uploaded video (Auftritt Aufnahmen AND Lied-Aufnahmen) automatically
+gains a playable MP4 playback copy; the transcode is a third finite job
+(related to the reading path) with everything declared in `main.bicep`.
+
+| Resource | Purpose |
+| --- | --- |
+| queue `archive-videos` | same storage account as `archive-extraction`; the finalize hook, editor sends and both sweeps go here |
+| `id-archive-video` | transcode job identity |
+| `ja-archive-video` | event job, same image parameter, `--transcode-queue` |
+| `id-archive-video-dispatch` | identity of the dispatch sweep |
+| `ja-archive-video-dispatch` | cron job (daily 04:23 UTC, `videoDispatchCron`), same image parameter, `--dispatch-videos` |
+
+Same job contract as the extraction/reading jobs: KEDA `azure-queue` rule on
+`archive-videos` (`visibleonly`, queue length 1, min 0, at most 1 execution)
+authenticated as its own identity, platform retries 0, the runtime identity
+attached with lifecycle `None` only to resolve the Key Vault
+`archive-db-connection` secret. Differences: the video identity is the ONLY
+job identity that writes blobs (it uploads the new MP4 copy under `dateien/`,
+a Datei creation at finalize time, never a rewrite), so it holds `Storage
+Blob Data Contributor` beside `Storage Queue Data Contributor`; CPU 2 and
+memory 3 Gi bound hours-long concerts, with `Archive__Video__TimeBudget` and
+`Archive__Video__DrainBudget` pinned to 2 h each inside replicaTimeout 4 h;
+and `--transcode-queue` is entirely deterministic — ffmpeg/ffprobe from the
+image's package, no model gateway registration, no spend cap to watch.
+`archive.yml` pauses, stops and pins both video jobs with the
+extraction/reading jobs through the shared resolve step; the `video_jobs`
+schema of the same migration carries progress and the terminal German failure
+on the Datei (`GET /api/dateien/videos`, `POST /api/dateien/{id}/video/retry`).
+The dispatch sweep identity holds the queue role alone. The local ffmpeg
+caveat: a worker host without ffmpeg records a clear German failure per Datei
+and exits finitely — no crash loop; see the root `AGENTS.md` install note.
+
 ## One-off blob cleanup after the contract migration (#172)
 
 The migration that dropped the asset/revision model cannot reach Blob storage.

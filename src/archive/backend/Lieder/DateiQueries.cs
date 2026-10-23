@@ -5,12 +5,17 @@ namespace Archive.Backend.Lieder;
 /// <summary>
 /// The one place that decides which Dateien are live. Every read of Dateien for
 /// display, search or playback goes through <see cref="Visible"/>, so the trash
-/// (#168) changes this single predicate and nothing else.
+/// (#168) changes this single predicate and nothing else. A Datei is also
+/// invisible while its Lied or Auftritt is in the trash (#146): restoring the
+/// owner brings its live Dateien back without any bookkeeping, individually
+/// trashed Dateien stay in the trash even when the owner returns.
 /// </summary>
 public static class DateiQueries
 {
 	public static IQueryable<Datei> Visible(ArchiveDbContext db) =>
-		db.Dateien.Where(d => d.DeletedAt == null);
+		db.Dateien.Where(d => d.DeletedAt == null
+			&& (d.LiedId == null || d.Lied!.DeletedAt == null)
+			&& (d.EventId == null || d.Event!.DeletedAt == null));
 
 	/// <summary>The trash: deleted or replaced Dateien, for the editor list only.</summary>
 	public static IQueryable<Datei> Trashed(ArchiveDbContext db) =>
