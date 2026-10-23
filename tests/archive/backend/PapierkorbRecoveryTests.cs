@@ -1,10 +1,13 @@
-using System.Net;
-using System.Text.Json;
 using Archive.Backend.Auth;
 using Archive.Backend.Data;
+using Archive.Backend.Lieder;
+using System.Net;
+using System.Text.Json;
 using System.Net.Http.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Archive.Backend.Tests;
 
@@ -185,8 +188,103 @@ public sealed class PapierkorbRecoveryTests
 		Assert.NotEqual(neuId, next.GetProperty("id").GetString());
 	}
 
-	// ===== Sofortiges Entfernen (Administrator) ==========================
+	// ===== Sieben-Tage-Frist und Besitzer im Papierkorb ==================
 
+	[Fact]
+	public async Task RestoringAfterSevenDaysRefusesAndTheCleanupFinishesTheRow()
+	{
+		await using var host = new LiedTestHost();
+		var editor = await host.EditorAsync();
+		var liedId = await host.CreateLiedIdAsync(editor, "Zu spät");
+		var datei = await host.UploadNotenAsync(editor, liedId, "Tenor 1", fileName: "noten.pdf");
+		string blob;
+		using (var ok = await host.PostAsync($"/api/lieder/{liedId}/delete", new { rowVersion = 1u }, editor))
+			Assert.Equal(HttpStatusCode.NoContent, ok.StatusCode);
+		using (var scope = host.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			var stored = await db.Lieder.SingleAsync(l => l.Id == liedId);
+			stored.DeletedAt = DateTimeOffset.UtcNow - TimeSpan.FromDays(8);
+			foreach (var dateiRow in await db.Dateien.Where(d => d.LiedId == liedId).ToListAsync())
+				dateiRow.DeletedAt = stored.DeletedAt;
+			await db.SaveChangesAsync();
+			blob = (await db.Dateien.SingleAsync(d => d.Id == Guid.Parse(datei.GetProperty("id").GetString()!))).BlobName;
+		}
+
+		using (var refused = await host.PostAsync($"/api/lieder/{liedId}/restore", new { }, editor))
+		{
+			Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+			var problem = await refused.Content.ReadFromJsonAsync<JsonElement>();
+			Assert.Contains("Aufbewahrungsfrist", problem.GetProperty("title").GetString());
+		}
+
+		// The daily cleanup still removes the expired row and its blob.
+		using (var scope = host.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			var cleaner = new PapierkorbCleaner(db,
+				new PapierkorbRemoval(db, host.Factory.Storage,
+					NullLogger<PapierkorbRemoval>.Instance),
+				TimeProvider.System, new ConfigurationBuilder().Build(),
+				NullLogger<PapierkorbCleaner>.Instance);
+			var result = await cleaner.CleanAsync(dryRun: false, CancellationToken.None);
+			Assert.Equal(1, result.Lieder);
+			Assert.Equal(1, result.Dateien);
+		}
+		Assert.False(await WithDbContext(host, db => db.Lieder.AnyAsync(l => l.Id == liedId)));
+		Assert.False(await WithDbContext(host, db => db.Dateien.AnyAsync(d => d.LiedId == liedId)));
+		Assert.False(host.Factory.Storage.Has(blob));
+	}
+
+	[Fact]
+	public async Task ADateiUnderATrashedLiedRestoresOnlyAfterTheLiedCameBack()
+	{
+		await using var host = new LiedTestHost();
+		var editor = await host.EditorAsync();
+		var liedId = await host.CreateLiedIdAsync(editor, "Zuerst das Lied");
+		var datei = await host.UploadNotenAsync(editor, liedId, "Bass 2", fileName: "noten.pdf");
+		var dateiId = datei.GetProperty("id").GetString()!;
+
+		await host.PostAsync($"/api/dateien/{dateiId}/delete", new { rowVersion = 1u }, editor);
+		await host.PostAsync($"/api/lieder/{liedId}/delete", new { rowVersion = 1u }, editor);
+
+		using (var refused = await host.PostAsync($"/api/dateien/{dateiId}/restore", new { }, editor))
+		{
+			Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+			var problem = await refused.Content.ReadFromJsonAsync<JsonElement>();
+			Assert.Contains("Papierkorb", problem.GetProperty("title").GetString());
+		}
+
+		using (var liedRestored = await host.PostAsync($"/api/lieder/{liedId}/restore", new { }, editor))
+			Assert.Equal(HttpStatusCode.NoContent, liedRestored.StatusCode);
+		using (var restored = await host.PostAsync($"/api/dateien/{dateiId}/restore", new { }, editor))
+			Assert.Equal(HttpStatusCode.NoContent, restored.StatusCode);
+
+		var lied = (await host.GetJsonAsync($"/api/lieder/{liedId}", editor)).GetProperty("lied");
+		Assert.Equal(["noten.pdf"],
+			lied.GetProperty("dateien").EnumerateArray().Select(d => d.GetProperty("fileName").GetString()));
+	}
+
+	[Fact]
+	public async Task RestoringRightBeforeTheSevenDaysPassStillWorks()
+	{
+		await using var host = new LiedTestHost();
+		var editor = await host.EditorAsync();
+		var liedId = await host.CreateLiedIdAsync(editor, "Knapp");
+		await host.PostAsync($"/api/lieder/{liedId}/delete", new { rowVersion = 1u }, editor);
+		using (var scope = host.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			var stored = await db.Lieder.SingleAsync(l => l.Id == liedId);
+			stored.DeletedAt = DateTimeOffset.UtcNow - TimeSpan.FromDays(7) + TimeSpan.FromMinutes(1);
+			await db.SaveChangesAsync();
+		}
+		using var restored = await host.PostAsync($"/api/lieder/{liedId}/restore", new { }, editor);
+		Assert.Equal(HttpStatusCode.NoContent, restored.StatusCode);
+		Assert.True((await host.GetJsonAsync("/api/lieder", editor)).GetProperty("lieder").GetArrayLength() == 1);
+	}
+
+	// ===== Sofortiges Entfernen (Administrator) ==========================
 	[Fact]
 	public async Task AnAdministratorRemovesATrashedLiedForGoodWithEverythingThatBelongsToIt()
 	{
@@ -217,5 +315,11 @@ public sealed class PapierkorbRecoveryTests
 		Assert.Equal(0, await db.Dateien.CountAsync(d => d.LiedId == liedId));
 		Assert.Equal(0, await db.ProgrammeItems.CountAsync(i => i.LiedId == liedId));
 		Assert.False(host.Factory.Storage.Has(blob));
+	}
+
+	private static async Task<bool> WithDbContext(LiedTestHost host, Func<ArchiveDbContext, Task<bool>> query)
+	{
+		using var scope = host.Services.CreateScope();
+		return await query(scope.ServiceProvider.GetRequiredService<ArchiveDbContext>());
 	}
 }

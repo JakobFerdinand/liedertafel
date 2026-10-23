@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { fetchMe, type MeResponse } from "@/lib/auth";
 import { fetchPapierkorb, type PapierkorbEintrag } from "@/lib/dateien";
-import { groesseText } from "@/lib/uebertragung";
+import { stelleWiederHer } from "@/lib/papierkorb";
+import { groesseText, problemTitel } from "@/lib/uebertragung";
 
 const artText: Record<string, string> = {
   noten: "Noten",
@@ -35,6 +36,10 @@ export function Papierkorb() {
   const [me, setMe] = useState<MeResponse | null>(null);
   const [eintraege, setEintraege] = useState<PapierkorbEintrag[] | null>(null);
   const [fehler, setFehler] = useState("");
+  const [herstellend, setHerstellend] = useState<string | null>(null);
+  const [wiederherstellFehler, setWiederherstellFehler] = useState<
+    string | null
+  >(null);
 
   useEffect(() => {
     const abbruch = new AbortController();
@@ -63,33 +68,73 @@ export function Papierkorb() {
   if (eintraege.length === 0) {
     return <p className="noten-info">Der Papierkorb ist leer.</p>;
   }
+
+  // #146: Wiederherstellen beansprucht die Datei aus dem Papierkorb zurück;
+  // eine Ablehnung des Archivs (Frist abgelaufen, Besitzer noch im Papierkorb)
+  // zeigt ihren deutschen ProblemDetails-Titel.
+  async function zurueckholen(eintrag: PapierkorbEintrag) {
+    setHerstellend(eintrag.id);
+    setWiederherstellFehler(null);
+    try {
+      await stelleWiederHer("dateien", eintrag.id);
+      setEintraege(
+        (bisher) => bisher?.filter((e) => e.id !== eintrag.id) ?? null,
+      );
+    } catch (ursache) {
+      setWiederherstellFehler(
+        await problemTitel(
+          ursache,
+          "Die Datei konnte nicht wiederhergestellt werden.",
+        ),
+      );
+    } finally {
+      setHerstellend(null);
+    }
+  }
+
   return (
-    <ul className="papierkorb-liste" aria-label="Gelöschte Dateien">
-      {eintraege.map((eintrag) => (
-        <li className="material-eintrag" key={eintrag.id}>
-          <p className="material-stimme">{eintrag.fileName ?? "Datei"}</p>
-          <p className="noten-info">
-            {artText[eintrag.kind] ?? eintrag.kind}
-            {eintrag.stimme ? ` · ${eintrag.stimme}` : ""}
-            {eintrag.isPartitur ? " · Partitur" : ""} ·{" "}
-            {groesseText(eintrag.sizeBytes)}
-          </p>
-          <p className="noten-info">
-            {eintrag.liedId ? (
-              <Link href={`/lied/?id=${eintrag.liedId}`}>
-                {eintrag.liedTitle}
-              </Link>
-            ) : (
-              (eintrag.eventTitle ?? "Auftritt")
-            )}
-          </p>
-          <p className="noten-info">
-            {eintrag.replaced ? "Ersetzt" : "Gelöscht"} am{" "}
-            {datumText(eintrag.deletedAt)}
-            {eintrag.deletedBy ? ` von ${eintrag.deletedBy}` : ""}
-          </p>
-        </li>
-      ))}
-    </ul>
+    <>
+      {wiederherstellFehler && (
+        <output aria-live="polite" className="feld-fehler">
+          {wiederherstellFehler}
+        </output>
+      )}
+      <ul className="papierkorb-liste" aria-label="Gelöschte Dateien">
+        {eintraege.map((eintrag) => (
+          <li className="material-eintrag" key={eintrag.id}>
+            <p className="material-stimme">{eintrag.fileName ?? "Datei"}</p>
+            <p className="noten-info">
+              {artText[eintrag.kind] ?? eintrag.kind}
+              {eintrag.stimme ? ` · ${eintrag.stimme}` : ""}
+              {eintrag.isPartitur ? " · Partitur" : ""} ·{" "}
+              {groesseText(eintrag.sizeBytes)}
+            </p>
+            <p className="noten-info">
+              {eintrag.liedId ? (
+                <Link href={`/lied/?id=${eintrag.liedId}`}>
+                  {eintrag.liedTitle}
+                </Link>
+              ) : (
+                (eintrag.eventTitle ?? "Auftritt")
+              )}
+            </p>
+            <p className="noten-info">
+              {eintrag.replaced ? "Ersetzt" : "Gelöscht"} am{" "}
+              {datumText(eintrag.deletedAt)}
+              {eintrag.deletedBy ? ` von ${eintrag.deletedBy}` : ""}
+            </p>
+            <button
+              type="button"
+              className="knopf-leise"
+              disabled={herstellend !== null}
+              onClick={() => void zurueckholen(eintrag)}
+              aria-label={`Wiederherstellen · ${eintrag.fileName ?? "Datei"}`}
+            >
+              Wiederherstellen
+            </button>
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }

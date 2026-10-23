@@ -169,3 +169,66 @@ test("Der Papierkorb ist für Mitglieder nicht sichtbar", async ({ page }) => {
     page.getByText("Der Papierkorb ist nur für die Redaktion sichtbar."),
   ).toBeVisible();
 });
+
+test("Redaktion stellt eine Datei wieder her; die Ablehnung zeigt den deutschen Hinweis", async ({
+  page,
+}) => {
+  await mockSitzung(page, editorMe);
+  let aktuell = [
+    {
+      id: altId,
+      kind: "noten",
+      isPartitur: false,
+      stimme: "Tenor 1",
+      fileName: "alt.pdf",
+      sizeBytes: 400000,
+      liedId: mondId,
+      liedTitle: "Der Mond ist aufgegangen",
+      eventId: null,
+      eventTitle: null,
+      deletedAt: "2026-09-20T10:30:00.000Z",
+      deletedBy: "Redaktion",
+      replaced: false,
+    },
+  ];
+  await page.route("**/api/papierkorb", (route) =>
+    route.fulfill(json({ dateien: aktuell })),
+  );
+  await page.route(`**/api/dateien/${altId}/restore`, (route) =>
+    route.fulfill(
+      json(
+        {
+          title: "Der übergeordnete Eintrag ist noch im Papierkorb.",
+          detail:
+            "Der übergeordnete Eintrag ist noch im Papierkorb und muss erst wiederhergestellt werden.",
+          status: 409,
+        },
+        409,
+      ),
+    ),
+  );
+
+  await page.goto("/verwaltung/papierkorb/");
+  await page
+    .getByRole("button", { name: "Wiederherstellen · alt.pdf" })
+    .click();
+  await expect(
+    page.getByText(
+      "Der übergeordnete Eintrag ist noch im Papierkorb und muss erst wiederhergestellt werden.",
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Wiederherstellen · alt.pdf" }),
+  ).toBeVisible();
+
+  // A second try succeeds: the entry leaves the list.
+  await page.unroute(`**/api/dateien/${altId}/restore`);
+  await page.route(`**/api/dateien/${altId}/restore`, (route) => {
+    aktuell = [];
+    return route.fulfill({ status: 204 });
+  });
+  await page
+    .getByRole("button", { name: "Wiederherstellen · alt.pdf" })
+    .click();
+  await expect(page.getByText("Der Papierkorb ist leer.")).toBeVisible();
+});

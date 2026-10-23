@@ -6,6 +6,7 @@ using Archive.Backend.Extraction;
 using Archive.Backend.Recordings;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 
 namespace Archive.Backend.Lieder;
 
@@ -92,7 +93,7 @@ public static class PapierkorbEndpoints
 
 		app.MapPost("/api/lieder/{id}/restore", async (
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
-			ArchiveDbContext db, Guid id, CancellationToken token) =>
+			ArchiveDbContext db, TimeProvider time, IConfiguration configuration, Guid id, CancellationToken token) =>
 		{
 			try { await antiforgery.ValidateRequestAsync(context); }
 			catch (AntiforgeryValidationException)
@@ -106,6 +107,9 @@ public static class PapierkorbEndpoints
 			var lied = await db.Lieder.FirstOrDefaultAsync(l => l.Id == id, token);
 			if (lied is null)
 				return Results.Problem(statusCode: 404, title: LiedEndpoints.NotFoundMessage);
+			var liedRetentionDays = configuration.GetValue(PapierkorbCleaner.RetentionDaysPath, PapierkorbCleaner.DefaultRetentionDays);
+			if (PapierkorbRestore.IsExpired(lied.DeletedAt, time.GetUtcNow(), liedRetentionDays))
+				return PapierkorbRestore.ExpiredProblem(liedRetentionDays);
 			if (lied.DeletedAt is not null)
 			{
 				lied.DeletedAt = null;
@@ -118,7 +122,7 @@ public static class PapierkorbEndpoints
 
 		app.MapPost("/api/events/{id}/restore", async (
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
-			ArchiveDbContext db, Guid id, CancellationToken token) =>
+			ArchiveDbContext db, TimeProvider time, IConfiguration configuration, Guid id, CancellationToken token) =>
 		{
 			try { await antiforgery.ValidateRequestAsync(context); }
 			catch (AntiforgeryValidationException)
@@ -132,6 +136,9 @@ public static class PapierkorbEndpoints
 			var choirEvent = await db.Events.FirstOrDefaultAsync(e => e.Id == id, token);
 			if (choirEvent is null)
 				return Results.Problem(statusCode: 404, title: EventEndpoints.NotFoundMessage);
+			var eventRetentionDays = configuration.GetValue(PapierkorbCleaner.RetentionDaysPath, PapierkorbCleaner.DefaultRetentionDays);
+			if (PapierkorbRestore.IsExpired(choirEvent.DeletedAt, time.GetUtcNow(), eventRetentionDays))
+				return PapierkorbRestore.ExpiredProblem(eventRetentionDays);
 			if (choirEvent.DeletedAt is not null)
 			{
 				choirEvent.DeletedAt = null;
@@ -144,7 +151,7 @@ public static class PapierkorbEndpoints
 
 		app.MapPost("/api/dateien/{id}/restore", async (
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
-			ArchiveDbContext db, Guid id, CancellationToken token) =>
+			ArchiveDbContext db, TimeProvider time, IConfiguration configuration, Guid id, CancellationToken token) =>
 		{
 			try { await antiforgery.ValidateRequestAsync(context); }
 			catch (AntiforgeryValidationException)
@@ -158,6 +165,15 @@ public static class PapierkorbEndpoints
 			var datei = await db.Dateien.FirstOrDefaultAsync(d => d.Id == id, token);
 			if (datei is null)
 				return Results.Problem(statusCode: 404, title: DateiUploads.DateiNotFoundMessage);
+			var retentionDays = configuration.GetValue(PapierkorbCleaner.RetentionDaysPath, PapierkorbCleaner.DefaultRetentionDays);
+			if (PapierkorbRestore.IsExpired(datei.DeletedAt, time.GetUtcNow(), retentionDays))
+				return PapierkorbRestore.ExpiredProblem(retentionDays);
+			// The owner comes back first: a Datei under a trashed Lied or
+			// Auftritt restores only after that parent is restored.
+			if (datei.DeletedAt is not null &&
+				(datei.LiedId is { } liedOwner && await db.Lieder.AnyAsync(l => l.Id == liedOwner && l.DeletedAt != null, token) ||
+				 datei.EventId is { } eventOwner && await db.Events.AnyAsync(e => e.Id == eventOwner && e.DeletedAt != null, token)))
+				return PapierkorbRestore.ParentInTrashProblem;
 			if (datei.DeletedAt is not null)
 			{
 				// Restoring a replaced Datei gives it back as the current one;
@@ -244,6 +260,33 @@ public static class PapierkorbEndpoints
 }
 
 public sealed record DeletePapierkorbRequest(uint? RowVersion);
+
+/// <summary>
+/// The restore-side half of the seven-day policy (#146, ADR-0001):
+/// an editor may restore a trashed entry only within the retention
+/// (<see cref="PapierkorbCleaner.DefaultRetentionDays"/>, the same setting the
+/// cleaner honors), and a Datei whose owning Lied or Auftritt is still in the
+/// trash waits for that restore.
+/// </summary>
+internal static class PapierkorbRestore
+{
+	public const string ExpiredTitle = "Die Aufbewahrungsfrist ist abgelaufen.";
+	public const string ParentInTrashTitle = "Der übergeordnete Eintrag ist noch im Papierkorb.";
+
+	/// <summary>True when the deletion is at or past the retention, so the next cleanup would remove it.</summary>
+	public static bool IsExpired(DateTimeOffset? deletedAt, DateTimeOffset now, int retentionDays) =>
+		deletedAt is { } deleted && deleted + TimeSpan.FromDays(retentionDays) <= now;
+
+	public static IResult ExpiredProblem(int retentionDays) => Results.Problem(
+		statusCode: 409,
+		title: ExpiredTitle,
+		detail: $"Einträge bleiben {retentionDays} Tage im Papierkorb und werden danach endgültig entfernt.");
+
+	public static IResult ParentInTrashProblem => Results.Problem(
+		statusCode: 409,
+		title: ParentInTrashTitle,
+		detail: "Der übergeordnete Eintrag ist noch im Papierkorb und muss erst wiederhergestellt werden.");
+}
 
 internal static class LiedTrash
 {

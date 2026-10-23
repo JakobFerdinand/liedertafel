@@ -514,7 +514,13 @@ deleted into the Papierkorb; both are soft deletes of the old Datei (`DeletedAt`
 - **Papierkorb:** `GET /api/papierkorb` (editor) lists trashed Dateien with
   owner (Lied or Auftritt), who deleted them, when and whether they were
   replaced; the page is `/verwaltung/papierkorb/`. The collection budget still
-  counts trashed bytes. Restoring (#146) clears the trash columns.
+  counts trashed bytes. Restoring (#146) clears the trash columns, but only
+  within the retention (`Archive:Papierkorb:RetentionDays`, default seven days):
+  past it the restore endpoints answer 409 (the daily cleanup removes the entry
+  for good), and a Datei whose owning Lied or Auftritt is still in the trash
+  answers 409 until that owner is restored — individually trashed Dateien stay
+  trashed when their owner is restored. Administrators' immediate removal is
+  untouched by both guards.
 - `DateiQueries.Visible(db)` is the only "live Dateien" predicate; read Dateien
   through it. `DateiQueries.Trashed(db)` is the trash.
 - A Datei is immutable: a changed file is a new Datei. Zeitmarken, extraction
