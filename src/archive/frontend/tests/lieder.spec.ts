@@ -90,11 +90,12 @@ test("Die Suche nennt, wo der Treffer stand", async ({ page }) => {
   });
 
   await page.goto("/lieder/");
+  // Ohne Suche steht die Fundort-Zeile nicht da.
+  await expect(page.getByText(/Gefunden:/)).toHaveCount(0);
+  // Erst im Suchzustand erscheint die Zeile am Treffer.
   await page.getByLabel("Lieder suchen").fill("tannen");
   await page.getByRole("button", { name: "Suchen" }).click();
   await expect(page.getByRole("heading", { name: "1 Treffer" })).toBeVisible();
-  // Ohne Suche steht die Fundort-Zeile nicht da.
-  await expect(page.getByText(/Gefunden:/)).toHaveCount(0);
   await expect(
     page.getByText("Gefunden: im Liedtext · in den Noten"),
   ).toBeVisible();
