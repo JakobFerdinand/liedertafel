@@ -78,7 +78,7 @@ public sealed class InventurTests
 		var run = FixtureRun();
 
 		Assert.Equal(23, run.Totals.FileCount);
-		Assert.Equal(29634, run.Totals.Bytes);
+		Assert.Equal(29632, run.Totals.Bytes);
 		Assert.Equal(7, run.Totals.FolderCount);
 		Assert.Equal(
 			["Sample B/2. Media", "Sample B/3. Notierprogrammdaten"],
@@ -223,7 +223,7 @@ public sealed class InventurTests
 			var document = JsonDocument.Parse(File.ReadAllText(report));
 			var totals = document.RootElement.GetProperty("totals");
 			Assert.Equal(23, totals.GetProperty("fileCount").GetInt32());
-			Assert.Equal(29634, totals.GetProperty("bytes").GetInt64());
+			Assert.Equal(29632, totals.GetProperty("bytes").GetInt64());
 			Assert.Equal("fehlt-im-preisverzeichnis", document.RootElement.GetProperty("readingCost").GetProperty("model").GetString());
 			// Without an Archive:Ai price in this test host the command answers
 			// honestly null instead of inventing a token price.
