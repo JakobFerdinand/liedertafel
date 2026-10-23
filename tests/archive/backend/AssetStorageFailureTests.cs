@@ -166,6 +166,9 @@ public sealed class AssetStorageFailureTests
 		public Task DeleteAsync(string blobName, CancellationToken cancellationToken) =>
 			throw new InvalidOperationException("Speicherdienst nicht erreichbar.");
 
+		public Task UploadAsync(string blobName, Stream content, string? contentType, CancellationToken cancellationToken) =>
+			throw new InvalidOperationException("Speicherdienst nicht erreichbar.");
+
 		public IAsyncEnumerable<string> ListAsync(string prefix, CancellationToken cancellationToken) =>
 			throw new InvalidOperationException("Speicherdienst nicht erreichbar.");
 	}

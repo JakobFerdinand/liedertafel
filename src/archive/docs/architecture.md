@@ -338,11 +338,13 @@ executions, with separate identities/permissions where the operation warrants it
 Queue-based scaling checks storage rather than polling the database. Bound job
 parallelism, execution duration, and retries to control resource usage.
 
-The initial job use cases are Google Drive import and PDF text extraction.
-Necessary cleanup, such as expired trash and abandoned uploads, may use a bounded
+The initial job use cases are Google Drive import and PDF text extraction; the
+video playback copy (#161) is a third finite job — deterministic ffmpeg
+transcoding (no model calls), its own `archive-videos` queue, identity and
+retry ladder, with the playback copy recorded on the Datei. Necessary cleanup,
+such as expired trash and abandoned uploads, may use a bounded
 scheduled job or suitable storage lifecycle rules. It is maintenance work, not a
-keep-alive mechanism. There are no scheduled backup jobs or automatic media
-transcoding jobs in this baseline.
+keep-alive mechanism. There are no scheduled backup jobs in this baseline.
 
 The Google Drive importer preserves source references, checkpoints progress,
 supports safe reruns, and keeps uncertain matches in editor review. Its scoped

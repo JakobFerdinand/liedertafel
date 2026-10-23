@@ -6,9 +6,14 @@ import { DateiSpieler } from "@/components/datei-spieler";
 import { ExtraktionStatus } from "@/components/extraktion-status";
 import { ExtraktionUebersichtProvider } from "@/components/extraktion-uebersicht";
 import { NotenAnsicht } from "@/components/noten-ansicht";
+import {
+  VideoKonvertierung,
+  VideoUebersichtProvider,
+} from "@/components/video-uebersicht";
 import { fetchDateiZugriff } from "@/lib/dateien";
 import { dateiArten, dateiTitel, type LiedDatei } from "@/lib/lieder";
 import { groesseText } from "@/lib/uebertragung";
+import { istVideoMaterial } from "@/lib/videos";
 
 /**
  * Sonstige Dateien (#166): Name, Größe und Herunterladen. Übe-Dateien und
@@ -70,53 +75,68 @@ export function DateiListe({
   if (dateien.length === 0) {
     return <p className="noten-info">Noch keine Dateien hochgeladen.</p>;
   }
+  const istRedaktion = Boolean(liedId && onGeaendert);
   return (
     <ExtraktionUebersichtProvider>
-      <div className="material-liste">
-        {dateiArten.map(([art, titel]) => {
-          const gruppe = dateien.filter((datei) => datei.kind === art);
-          if (gruppe.length === 0) return null;
-          return (
-            <div className="material-gruppe" key={art}>
-              <h4>{titel}</h4>
-              {gruppe.map((datei) => (
-                <div key={datei.id}>
-                  {art === "noten" ? (
-                    <>
-                      <NotenAnsicht datei={datei} />
-                      {liedId && onGeaendert && (
-                        <ExtraktionStatus
-                          dateiId={datei.id}
-                          isEditor
-                          kannLesen
-                          angabenBekannt
-                          bezeichnung={dateiTitel(datei)}
-                          onErkannt={onGeaendert}
+      <VideoUebersichtProvider>
+        <div className="material-liste">
+          {dateiArten.map(([art, titel]) => {
+            const gruppe = dateien.filter((datei) => datei.kind === art);
+            if (gruppe.length === 0) return null;
+            return (
+              <div className="material-gruppe" key={art}>
+                <h4>{titel}</h4>
+                {gruppe.map((datei) => (
+                  <div key={datei.id}>
+                    {art === "noten" ? (
+                      <>
+                        <NotenAnsicht datei={datei} />
+                        {liedId && onGeaendert && (
+                          <ExtraktionStatus
+                            dateiId={datei.id}
+                            isEditor
+                            kannLesen
+                            angabenBekannt
+                            bezeichnung={dateiTitel(datei)}
+                            onErkannt={onGeaendert}
+                          />
+                        )}
+                      </>
+                    ) : art === "uebe" || art === "aufnahme" ? (
+                      <>
+                        <DateiSpieler
+                          datei={datei}
+                          aktiv={spielendeDatei === datei.id}
+                          onAbspielen={() => setSpielendeDatei(datei.id)}
                         />
-                      )}
-                    </>
-                  ) : art === "uebe" || art === "aufnahme" ? (
-                    <DateiSpieler
-                      datei={datei}
-                      aktiv={spielendeDatei === datei.id}
-                      onAbspielen={() => setSpielendeDatei(datei.id)}
-                    />
-                  ) : (
-                    <EinfacheDatei datei={datei} />
-                  )}
-                  {liedId && onGeaendert && (
-                    <DateiAktionen
-                      liedId={liedId}
-                      datei={datei}
-                      onGeaendert={onGeaendert}
-                    />
-                  )}
-                </div>
-              ))}
-            </div>
-          );
-        })}
-      </div>
+                        {/* #161: der Stand der automatischen Abspielkopie */}
+                        {istVideoMaterial(datei.kind, datei.contentType) &&
+                          istRedaktion && (
+                            <VideoKonvertierung
+                              dateiId={datei.id}
+                              isEditor
+                              bezeichnung={dateiTitel(datei)}
+                              onAbgeschlossen={onGeaendert}
+                            />
+                          )}
+                      </>
+                    ) : (
+                      <EinfacheDatei datei={datei} />
+                    )}
+                    {liedId && onGeaendert && (
+                      <DateiAktionen
+                        liedId={liedId}
+                        datei={datei}
+                        onGeaendert={onGeaendert}
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      </VideoUebersichtProvider>
     </ExtraktionUebersichtProvider>
   );
 }

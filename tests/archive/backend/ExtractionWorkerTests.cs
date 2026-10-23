@@ -1259,6 +1259,9 @@ public sealed class ExtractionWorkerTests
 		public Task DeleteAsync(string blobName, CancellationToken cancellationToken) =>
 			inner.DeleteAsync(blobName, cancellationToken);
 
+		public Task UploadAsync(string blobName, Stream content, string? contentType, CancellationToken cancellationToken) =>
+			inner.UploadAsync(blobName, content, contentType, cancellationToken);
+
 		public IAsyncEnumerable<string> ListAsync(string prefix, CancellationToken cancellationToken) =>
 			inner.ListAsync(prefix, cancellationToken);
 	}

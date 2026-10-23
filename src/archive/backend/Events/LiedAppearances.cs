@@ -41,7 +41,7 @@ public static class LiedAppearances
 			.ToDictionary(g => g.Key, g => (IReadOnlyList<LiedAufnahmeRef>)g
 				.Select(a => new LiedAufnahmeRef(a.Id, a.OriginalFileName, a.ContentType, a.Description)).ToList());
 		var eventIds = entryCounts.Keys.Concat(aufnahmenByEvent.Keys).Distinct().ToList();
-		var events = await db.Events.AsNoTracking()
+		var events = await EventQueries.Visible(db).AsNoTracking()
 			.Where(e => eventIds.Contains(e.Id))
 			.Select(e => new { e.Id, e.Title, e.Kind, e.Venue, e.DateYear, e.DateMonth, e.DateDay, e.DateApproximate })
 			.ToListAsync(token);

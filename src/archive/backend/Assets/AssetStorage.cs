@@ -52,6 +52,9 @@ public interface IAssetStorageAdapter
 
 	Task DeleteAsync(string blobName, CancellationToken cancellationToken);
 
+	/// <summary>#161: stores the upload-copy bytes the worker produced itself.</summary>
+	Task UploadAsync(string blobName, Stream content, string? contentType, CancellationToken cancellationToken);
+
 	/// <summary>#172: the names of all objects whose name starts with <paramref name="prefix"/>, in name order.</summary>
 	IAsyncEnumerable<string> ListAsync(string prefix, CancellationToken cancellationToken);
 }
@@ -233,6 +236,18 @@ public sealed class BlobAssetStorageAdapter(
 	public Task DeleteAsync(string blobName, CancellationToken cancellationToken) =>
 		ExecuteAsync("delete", async () =>
 			await Blob(blobName).DeleteIfExistsAsync(cancellationToken: cancellationToken));
+
+	/// <summary>
+	/// #161: the transcode worker stores the playback copy itself. The object
+	/// name is unique, so an existing object is an error, not a silent overwrite.
+	/// </summary>
+	public Task UploadAsync(string blobName, Stream content, string? contentType, CancellationToken cancellationToken) =>
+		ExecuteAsync<object?>("upload", async () =>
+		{
+			var headers = contentType is { Length: > 0 } ? new BlobHttpHeaders { ContentType = contentType } : null;
+			await Blob(blobName).UploadAsync(content, new BlobUploadOptions { HttpHeaders = headers }, cancellationToken);
+			return null;
+		});
 
 	public async IAsyncEnumerable<string> ListAsync(
 		string prefix, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)

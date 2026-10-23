@@ -601,6 +601,12 @@ namespace Archive.Backend.Data.Migrations
                     b.Property<int?>("DateYear")
                         .HasColumnType("integer");
 
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("DeletedByAccountId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Kind")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -862,6 +868,12 @@ namespace Archive.Backend.Data.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid>("CreatedByAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("DeletedByAccountId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("Language")
@@ -1261,6 +1273,53 @@ namespace Archive.Backend.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Archive.Backend.Videos.VideoJob", b =>
+                {
+                    b.Property<Guid>("DateiId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FailureReason")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<DateTimeOffset?>("LastAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("LastEnqueuedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("PlaybackDateiId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("RowVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("TriggeredByAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("DateiId");
+
+                    b.HasIndex("PlaybackDateiId");
+
+                    b.ToTable("video_jobs", (string)null);
+                });
+
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<System.Guid>", b =>
                 {
                     b.Property<int>("Id")
@@ -1587,6 +1646,24 @@ namespace Archive.Backend.Data.Migrations
                     b.Navigation("ProgrammeItem");
 
                     b.Navigation("Recording");
+                });
+
+            modelBuilder.Entity("Archive.Backend.Videos.VideoJob", b =>
+                {
+                    b.HasOne("Archive.Backend.Lieder.Datei", "Datei")
+                        .WithMany()
+                        .HasForeignKey("DateiId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Archive.Backend.Lieder.Datei", "PlaybackDatei")
+                        .WithMany()
+                        .HasForeignKey("PlaybackDateiId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Datei");
+
+                    b.Navigation("PlaybackDatei");
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<System.Guid>", b =>

@@ -2,6 +2,7 @@ using Archive.Backend.Assets;
 using Archive.Backend.Auth;
 using Archive.Backend.Data;
 using Archive.Backend.Events;
+using Archive.Backend.Videos;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -117,13 +118,21 @@ public static class DateiEndpoints
 			if (datei.Event is not null && !LiedAccess.IsEditor(decision!)
 				&& datei.Kind == DateiKinds.Aufnahme)
 				return Results.Problem(statusCode: 404, title: DateiUploads.DateiNotFoundMessage);
+			// #161: the member PLAYS the automatic MP4 playback copy while the
+			// download stays the original; editors who confirm the copy in the
+			// lists still see it under `playbackDateiId`. With no copy yet the
+			// view ticket serves the original itself.
+			var copy = VideoService.IsVideoMaterial(datei.Kind, datei.ContentType)
+				? await VideoPlayback.LiveCopyAsync(db, datei.Id, token)
+				: null;
+			var viewFile = copy?.PlaybackDatei ?? datei;
 			var lifetime = options.Value.ReadTicketLifetime;
 			string viewUrl;
 			string downloadUrl;
 			try
 			{
 				viewUrl = await storage.CreateReadTicketAsync(
-					datei.BlobName, lifetime, asDownload: false, contentType: datei.ContentType, token);
+					viewFile.BlobName, lifetime, asDownload: false, contentType: viewFile.ContentType, token);
 				downloadUrl = await storage.CreateReadTicketAsync(
 					datei.BlobName, lifetime, asDownload: true, contentType: datei.ContentType, token);
 			}
@@ -135,10 +144,11 @@ public static class DateiEndpoints
 			{
 				dateiId = datei.Id,
 				kind = datei.Kind,
-				contentType = datei.ContentType,
-				sizeBytes = datei.SizeBytes,
+				contentType = viewFile.ContentType,
+				sizeBytes = viewFile.SizeBytes,
 				fileName = datei.OriginalFileName,
 				createdAt = datei.CreatedAt,
+				playbackDateiId = copy?.PlaybackDateiId,
 				viewUrl,
 				downloadUrl,
 				expiresAt = time.GetUtcNow() + lifetime,

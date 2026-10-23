@@ -87,15 +87,15 @@ public static class CatalogueTools
 		if (tokens.Count == 0)
 		{
 			// Browsing is a bounded database page, not an empty search result.
-			var total = await db.Lieder.AsNoTracking().CountAsync(token);
-			var lieder = await db.Lieder.AsNoTracking().OrderBy(l => l.Title).ThenBy(l => l.Id)
+			var total = await LiedQueries.Visible(db).AsNoTracking().CountAsync(token);
+			var lieder = await LiedQueries.Visible(db).AsNoTracking().OrderBy(l => l.Title).ThenBy(l => l.Id)
 				.Skip((requestedPage - 1) * PageSize).Take(PageSize)
 				.Select(l => new SearchRow(l.Id, l.Title, l.Composer, l.Arranger, l.Lyricist, l.Lyrics))
 				.ToListAsync(token);
 			return SerializeSearch(lieder, requestedPage, total);
 		}
 
-		var all = await db.Lieder.AsNoTracking()
+		var all = await LiedQueries.Visible(db).AsNoTracking()
 			.OrderBy(l => l.Id)
 			.Select(l => new SearchRow(l.Id, l.Title, l.Composer, l.Arranger, l.Lyricist, l.Lyrics))
 			.ToListAsync(token);
@@ -136,7 +136,7 @@ public static class CatalogueTools
 			return "{}";
 		// Unknown ids return the same empty payload: the chat surface never
 		// distinguishes a missing Lied from a malformed id.
-		var lied = await db.Lieder.AsNoTracking()
+		var lied = await LiedQueries.Visible(db).AsNoTracking()
 			.Where(l => l.Id == id)
 			.FirstOrDefaultAsync();
 		if (lied is null)
