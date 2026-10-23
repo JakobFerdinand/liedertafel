@@ -502,12 +502,28 @@ public sealed partial class ChatApiTests
 		var provider = new ShowSurfaceChatClient();
 		await using var factory = ChatFactory(chatClient: provider);
 		var ownerId = await SeedMemberAsync(factory, MemberA);
-		var (eventId, _, _) = await SeedProgrammeAsync(factory, ownerId);
+		var eventId = Guid.NewGuid();
 		var trashEventId = Guid.NewGuid();
 		await using (var scope = factory.Services.CreateAsyncScope())
 		{
 			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
 			var now = DateTimeOffset.UtcNow;
+			var liedA = new Lied
+			{
+				Title = "Die Waldfahrt",
+				CreatedAt = now,
+				CreatedByAccountId = ownerId,
+				UpdatedAt = now,
+				UpdatedByAccountId = ownerId,
+			};
+			var liedB = new Lied
+			{
+				Title = "Wanderers Nachtlied",
+				CreatedAt = now,
+				CreatedByAccountId = ownerId,
+				UpdatedAt = now,
+				UpdatedByAccountId = ownerId,
+			};
 			var trashLied = new Lied
 			{
 				Title = "Ausgemustertes Lied",
@@ -518,9 +534,18 @@ public sealed partial class ChatApiTests
 				DeletedAt = now,
 				DeletedByAccountId = ownerId,
 			};
-			var programme = db.Programmes.Include(p => p.Items).Single(p => p.EventId == eventId);
-			programme.Items.Add(new ProgrammeItem { ProgrammeId = programme.Id, Position = 3, LiedId = trashLied.Id });
-			db.Lieder.Add(trashLied);
+			var liveEvent = new ChoirEvent
+			{
+				Id = eventId,
+				Kind = "concert",
+				Title = "Frühlingskonzert 1950",
+				Venue = "Festsaal",
+				DateYear = 1950,
+				CreatedAt = now,
+				CreatedByAccountId = ownerId,
+				UpdatedAt = now,
+				UpdatedByAccountId = ownerId,
+			};
 			var trashEvent = new ChoirEvent
 			{
 				Id = trashEventId,
@@ -534,6 +559,19 @@ public sealed partial class ChatApiTests
 				DeletedAt = now,
 				DeletedByAccountId = ownerId,
 			};
+			var liveProgramme = new EventProgramme
+			{
+				EventId = liveEvent.Id,
+				CreatedAt = now,
+				CreatedByAccountId = ownerId,
+				UpdatedAt = now,
+				UpdatedByAccountId = ownerId,
+			};
+			liveProgramme.Items.Add(new ProgrammeItem { ProgrammeId = liveProgramme.Id, Position = 1, LiedId = liedA.Id, Note = "Eröffnung" });
+			liveProgramme.Items.Add(new ProgrammeItem { ProgrammeId = liveProgramme.Id, Position = 2, LiedId = liedB.Id });
+			// A trashed Lied keeps its Programmpunkt in the stored programme —
+			// it only stays out of the member view.
+			liveProgramme.Items.Add(new ProgrammeItem { ProgrammeId = liveProgramme.Id, Position = 3, LiedId = trashLied.Id });
 			var trashProgramme = new EventProgramme
 			{
 				EventId = trashEvent.Id,
@@ -542,9 +580,10 @@ public sealed partial class ChatApiTests
 				UpdatedAt = now,
 				UpdatedByAccountId = ownerId,
 			};
-			trashProgramme.Items.Add(new ProgrammeItem { ProgrammeId = trashProgramme.Id, Position = 1, LiedId = trashLied.Id });
-			db.Events.Add(trashEvent);
-			db.Programmes.Add(trashProgramme);
+			trashProgramme.Items.Add(new ProgrammeItem { ProgrammeId = trashProgramme.Id, Position = 1, LiedId = liedA.Id });
+			db.Lieder.AddRange(liedA, liedB, trashLied);
+			db.Events.AddRange(liveEvent, trashEvent);
+			db.Programmes.AddRange(liveProgramme, trashProgramme);
 			await db.SaveChangesAsync();
 		}
 		var session = await SignInAsync(factory, MemberA);
