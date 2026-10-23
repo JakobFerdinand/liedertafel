@@ -275,6 +275,36 @@ trash means no work. Status and retry: `GET /api/dateien/extraction?ids=…`,
 `AutomatedFieldWriter`; `/api/lieder?q=` also matches the extracted text of a
 Lied's live Noten.
 
+**Video playback copies** (#161). Every video Aufnahme — the concert Aufnahmen
+of an Auftritt AND Lied-Aufnahmen — automatically gains a playable MP4 copy:
+original resolution up to 1080p, H.264 CRF 20, AAC 192 kbit/s, `+faststart`. The work runs through the
+finite-job pattern: `VideoHook` writes the
+`video_jobs` row in the finalize save (`IDateiFinalizedHook`) and sends to the
+`archive-videos` queue afterwards (quiet: a lost send is rediscovered by the
+dispatch sweep), and the finite worker `--transcode-queue` sweeps and drains.
+ffmpeg/ffprobe run from `Archive:Video:FfmpegPath`/`FfprobePath` (PATH by
+default; the Dockerfile installs the package in its runtime stage — local
+hosts without ffmpeg make the worker record the deterministic German
+`MissingToolReason` on the Datei instead of a crash loop). The copy is a real
+Datei (`… - Abspielkopie.mp4`, kind `aufnahme`, `video/mp4`): members play it
+through the usual access tickets (view), while the download stays the original
+— never re-encoded, always kept for editors. Already-playable originals up to
+1080p end in `notNeeded` without a second object. Failures are terminal with a
+German reason on the Datei; status and retry:
+`GET /api/dateien/videos?ids=…`, `POST /api/dateien/{id}/video/retry`. The
+Auftritt recording's empty playback slot receives the copy in the same save;
+an editor's own playback slot entry is never overwritten, and a replaced
+original takes its copy with it into the trash (`VideoTrash`).
+
+*Scale/cost estimate for a 2-hour concert (one ~4K30 HEVC original, roughly
+40–60 GiB): the 1080p H.264 CRF 20 copy lands around 5–10 GiB (10–20 % of the
+original — matches the architecture's 20 % assumption); every clip of an
+evening counts its own share. Job compute: 2 vCPU/3 Gi for 1–2 h of encode
+≈ EUR 0.15–0.30 per concert clip; the daily sweep adds fractions of a cent.
+Ongoing cost is dominated by hot-tier storage of originals plus copies and
+blob egress for replay — see the capacity table under cost model. No model
+spend, ever.*
+
 **Storage adapter.** `IAssetStorageAdapter` / `BlobAssetStorageAdapter`
 (`backend/Assets/AssetStorage.cs`, settings `Archive:Assets`, container
 `archive-assets`) issue blob-scoped 15-minute read tickets and write tickets,

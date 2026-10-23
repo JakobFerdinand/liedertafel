@@ -531,6 +531,40 @@ aoai-liedertafel-archive -g RG-Liedertafel-Archive --query id -o tsv)` shows
 journey check (upload a scan, watch the reading) is in
 [ARC-034-1 (#141)](https://github.com/JakobFerdinand/liedertafel/issues/141).
 
+## Video playback copies (#161)
+
+Every uploaded video (Auftritt Aufnahmen AND Lied-Aufnahmen) automatically
+gains a playable MP4 playback copy; the transcode is a third finite job
+(related to the reading path) with everything declared in `main.bicep`.
+
+| Resource | Purpose |
+| --- | --- |
+| queue `archive-videos` | same storage account as `archive-extraction`; the finalize hook, editor sends and both sweeps go here |
+| `id-archive-video` | transcode job identity |
+| `ja-archive-video` | event job, same image parameter, `--transcode-queue` |
+| `id-archive-video-dispatch` | identity of the dispatch sweep |
+| `ja-archive-video-dispatch` | cron job (daily 04:23 UTC, `videoDispatchCron`), same image parameter, `--dispatch-videos` |
+
+Same job contract as the extraction/reading jobs: KEDA `azure-queue` rule on
+`archive-videos` (`visibleonly`, queue length 1, min 0, at most 1 execution)
+authenticated as its own identity, platform retries 0, the runtime identity
+attached with lifecycle `None` only to resolve the Key Vault
+`archive-db-connection` secret. Differences: the video identity is the ONLY
+job identity that writes blobs (it uploads the new MP4 copy under `dateien/`,
+a Datei creation at finalize time, never a rewrite), so it holds `Storage
+Blob Data Contributor` beside `Storage Queue Data Contributor`; CPU 2 and
+memory 3 Gi bound hours-long concerts, with `Archive__Video__TimeBudget` and
+`Archive__Video__DrainBudget` pinned to 2 h each inside replicaTimeout 4 h;
+and `--transcode-queue` is entirely deterministic — ffmpeg/ffprobe from the
+image's package, no model gateway registration, no spend cap to watch.
+`archive.yml` pauses, stops and pins both video jobs with the
+extraction/reading jobs through the shared resolve step; the `video_jobs`
+schema of the same migration carries progress and the terminal German failure
+on the Datei (`GET /api/dateien/videos`, `POST /api/dateien/{id}/video/retry`).
+The dispatch sweep identity holds the queue role alone. The local ffmpeg
+caveat: a worker host without ffmpeg records a clear German failure per Datei
+and exits finitely — no crash loop; see the root `AGENTS.md` install note.
+
 ## One-off blob cleanup after the contract migration (#172)
 
 The migration that dropped the asset/revision model cannot reach Blob storage.
