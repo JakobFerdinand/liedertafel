@@ -440,6 +440,12 @@ export function LiederKatalog() {
                     {angaben.length > 0 && (
                       <p className="lieder-fundstelle">{angaben.join(" · ")}</p>
                     )}
+                    {/* Die Suche nennt, wo der Treffer stand (#142). */}
+                    {abfrage && lied.matchIn && lied.matchIn.length > 0 && (
+                      <p className="lieder-trefferfund">
+                        <span>Gefunden: {lied.matchIn.join(" · ")}</span>
+                      </p>
+                    )}
                   </li>
                 );
               })}

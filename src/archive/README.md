@@ -272,8 +272,47 @@ afterwards; workers and endpoints read through `DateiQueries.Visible`, so the
 trash means no work. Status and retry: `GET /api/dateien/extraction?ids=…`,
 `POST /api/dateien/{id}/extraction/retry`. Only empty Lied fields are filled
 (composer, lyricist, arranger, musical key, lyrics) through
-`AutomatedFieldWriter`; `/api/lieder?q=` also matches the extracted text of a
-Lied's live Noten.
+`AutomatedFieldWriter`; `/api/lieder?q=` (#142, extension of #169) matches every
+token against the title, the creators, the Liedtext and the folded text of a
+Lied's live Noten — embedded text and text transcribed by a reading job alike
+(`extraction_jobs.Text`, also with `TextSource=Reading`); a replaced or trashed
+Datei stops matching through `DateiQueries.Visible`. Each returned Lied carries
+`matchIn`, the German labels of the fields that contributed ("im Titel",
+"beim Komponisten", "beim Bearbeiter", "beim Texter", "im Liedtext",
+"in den Noten"). Matching stays in C# over fold tokens
+(`Catalogue/CatalogueSearch.cs`, shared by the chat tool `catalogue_search`,
+which reports `trefferIn` the same way) so EF InMemory tests and PostgreSQL
+agree; lexical SQL search and embeddings remain cut (ADR-0001).
+
+**Video playback copies** (#161). Every video Aufnahme — the concert Aufnahmen
+of an Auftritt AND Lied-Aufnahmen — automatically gains a playable MP4 copy:
+original resolution up to 1080p, H.264 CRF 20, AAC 192 kbit/s, `+faststart`. The work runs through the
+finite-job pattern: `VideoHook` writes the
+`video_jobs` row in the finalize save (`IDateiFinalizedHook`) and sends to the
+`archive-videos` queue afterwards (quiet: a lost send is rediscovered by the
+dispatch sweep), and the finite worker `--transcode-queue` sweeps and drains.
+ffmpeg/ffprobe run from `Archive:Video:FfmpegPath`/`FfprobePath` (PATH by
+default; the Dockerfile installs the package in its runtime stage — local
+hosts without ffmpeg make the worker record the deterministic German
+`MissingToolReason` on the Datei instead of a crash loop). The copy is a real
+Datei (`… - Abspielkopie.mp4`, kind `aufnahme`, `video/mp4`): members play it
+through the usual access tickets (view), while the download stays the original
+— never re-encoded, always kept for editors. Already-playable originals up to
+1080p end in `notNeeded` without a second object. Failures are terminal with a
+German reason on the Datei; status and retry:
+`GET /api/dateien/videos?ids=…`, `POST /api/dateien/{id}/video/retry`. The
+Auftritt recording's empty playback slot receives the copy in the same save;
+an editor's own playback slot entry is never overwritten, and a replaced
+original takes its copy with it into the trash (`VideoTrash`).
+
+*Scale/cost estimate for a 2-hour concert (one ~4K30 HEVC original, roughly
+40–60 GiB): the 1080p H.264 CRF 20 copy lands around 5–10 GiB (10–20 % of the
+original — matches the architecture's 20 % assumption); every clip of an
+evening counts its own share. Job compute: 2 vCPU/3 Gi for 1–2 h of encode
+≈ EUR 0.15–0.30 per concert clip; the daily sweep adds fractions of a cent.
+Ongoing cost is dominated by hot-tier storage of originals plus copies and
+blob egress for replay — see the capacity table under cost model. No model
+spend, ever.*
 
 **Storage adapter.** `IAssetStorageAdapter` / `BlobAssetStorageAdapter`
 (`backend/Assets/AssetStorage.cs`, settings `Archive:Assets`, container
@@ -320,7 +359,7 @@ Run it once after the release that applied the contract migration, see
 Members chat with the archive at `/fragen` („Fragen zum Archiv"): `POST /api/chat` implements the AG-UI 1.0 wire contract (stable `AGUI.Server` 1.0.0 / `AGUI.Abstractions` 1.0.0 on `Microsoft.Extensions.AI` 10.10.0, superseding ARC-021's preview MAF hosting adapter). The bounded loop runs on an `IChatClient` provider seam — Development and tests use the deterministic `ScriptedChatClient` (cited answers from tool results only, honest unknown/refusal behaviour); the real Azure OpenAI implementation (managed identity, pinned GPT-6 Luna since ARC-021-1, formerly GPT-5.4-mini, EU Data Zone) plugs into the seam when credentials exist, and embeddings/pgvector move with it.
 
 - Threads persist in the existing PostgreSQL (`chat_threads`/`chat_messages`, migration `20260922214454_ArchiveChat`), are owned by the asking member, are bounded to the last 20 messages, and are validated for ownership on every request. The client generates the thread id (`localStorage` key `arc-chat-thread`); server-side history is authoritative — client-provided older messages are ignored as tamper-proof grounding. `GET /api/chat/thread/{id}` restores the owner's history; foreign/missing threads answer an indistinguishable 404.
-- Tools are allow-listed and authorized inside themselves: `catalogue_search` (all Lieder, `CatalogueText.Fold` token-AND, ≤ 10 results, 300-char lyrics excerpt) and `lied_details` (Lied fields, its live Dateien, where it was sung and where it is planned). Document text is data, never instructions; no editing tools, no raw queries, no general-knowledge answers.
+- Tools are allow-listed and authorized inside themselves: `catalogue_search` (all Lieder, `CatalogueText.Fold` token-AND, ≤ 10 results, 300-char lyrics excerpt; since #142 it also matches the text of the live Noten and reports the match source via `trefferIn`) and `lied_details` (Lied fields, its live Dateien, where it was sung and where it is planned). Document text is data, never instructions; no editing tools, no raw queries, no general-knowledge answers.
 - Per-request bounds are app-enforced: question ≤ 2000 chars, at most 5 model calls per run (`MaxToolCalls`; every call offers the tools, and a run whose fifth call still asks for a tool ends in the failure state without a sixth call), 30 s no-token abort per model call, 120 s overall cap, client-disconnect cancellation, one repetition of the run's first call when the provider fails before its first update (the only case with a sixth provider request), German `RUN_ERROR` failure state. Cost is bounded by the shared AI budget below.
 - The chat answers 503 „Der Archiv-Chat ist derzeit nicht verfügbar." unless `Archive:Chat:Enabled=true` and `Disabled=false`, so production stays inert until the provider step. Questions about whole Auftritte answer honestly that the chat has no Auftritt tools (a single Lied's history comes from `lied_details`); the synthetic evaluation (`tests/archive/backend/ChatEvaluationTests.cs`, `--filter FullyQualifiedName~ChatEvaluation`) verifies the grounding bar — every citation verifiable against the authorized result set, zero unsupported claims, honest unknown behaviour, recorded EUR-per-answer cost — and must be rerun against the pinned live model before first production chat use.
 
@@ -346,7 +385,7 @@ The chat page reads the run with `@ag-ui/client` 1.0.2 (`HttpAgent` in `frontend
 
 - **Wire:** the server library wrote protocol fields it does not use as explicit nulls (`usage[].model`, `parentRunId` …), which the strict client rejects as a schema violation. `ChatEndpoints` now serializes events without null properties. `RUN_FINISHED`, `RUN_ERROR` with its `code`, the `archive.citations` custom event and the budget state are unchanged for the page.
 - **The tool:** the agent calls `zeige_oberflaeche(komponenten)`; each entry is a component name and exactly the one record id it is built from (`liedId`, `liedIds`, `auftrittId`). `Chat/A2uiSurfaces.cs` (`A2uiCatalog`) validates every entry against the catalog (known component, only its own id, valid GUIDs, at most 12 entries looked at, at most 4 surfaces per answer, one card per record), resolves the ids to what a member may see (Lieder and published Auftritte only) and builds the A2UI messages itself: `createSurface` plus one `updateComponents` with a single `root` component per surface. Anything else is dropped before streaming; the model only learns how many entries were not shown, never which or why. The model supplies no text and no URL, and the server sends none: the browser derives links (`/lied/?id=…`, `/auftritt/?id=…`) from the ids. The tool call itself is removed from the AG-UI stream; the validated messages travel in one `CUSTOM` event `archive.a2ui` (before the `archive.citations` chips, which stay the server-built event).
-- **Member chat offers:** `LiedKarte` (title, composer, lyricist, first lines), `AuftrittKarte` (title, kind, date, venue) and `Quellen` (up to 10 Lieder). `ProgrammListe` is defined with its wire shape and the browser renders it, but the member chat has no resolver for it yet (always dropped, not offered to the model); ARC-022-1 and ARC-022-2 add its resolver to `A2uiCatalog.Components`.
+- **Member chat offers:** `LiedKarte` (title, composer, lyricist, first lines), `AuftrittKarte` (title, kind, date, venue), `ProgrammListe` (a saved Auftritt's Programm, Lieder in their order with notes; up to 60 entries) and `Quellen` (up to 10 Lieder). #124 added the `ProgrammListe` resolver: the model names only the `auftrittId`, the server builds the entries from that Auftritt's Programm.
 - **Storage and reload:** the validated messages are stored with the assistant answer in `chat_messages."A2uiJson"` (`jsonb`, migration `20261011160524_ChatMessageA2ui`; a card-only answer stores empty content and is not fed back to the model as history). `GET /api/chat/thread/{id}` never returns the stored JSON as it is: `A2uiCatalog.RecheckAsync` rebuilds each surface from the record ids it names, so a card for a since-unpublished Auftritt or a deleted Lied is gone, tampered or unreadable stored content yields nothing, and data is fresh. The message then has an `a2ui` array (or none).
 - **Browser safety:** `leseA2uiOberflaechen` keeps only surfaces of exactly one `createSurface` (this catalog) and one `root` update with a catalog component and exactly its allowed properties (strict schemas: no `href`, `url`, data model or extra fields); the A2UI `MessageProcessor` then runs with `STRICT_VALIDATION` as a second check, and a surface it refuses is removed. Malformed or out-of-catalog messages show no card and no error.
 - **Clicks:** cards link to archive pages that load their own data over REST; nothing goes back through the chat.
@@ -433,7 +472,14 @@ data).
   and `dateUncertain` (a year-only or approximate date). `counts` has `events`,
   `inProgramme`, `uncertainDates`. An unknown Lied is 404.
 - Chat: `lied_details` reads the same data; `gesungen` lists past Auftritte with
-  the Lied in the Programm or an Aufnahme, `geplant` upcoming ones.
+  the Lied in the Programm or an Aufnahme, `geplant` upcoming ones. #124 made the
+  history answer full: every entry carries `auftrittId` (the model can show the
+  `AuftrittKarte`, or a `ProgrammListe` when nothing is sung yet), the file names
+  of Lied-Aufnahmen naming the Auftritt and the member-visible Zeitmarken
+  (`aufnahme` label, `start`, `status` — a mark under review shows no start).
+  Approximate dates arrive as the record keeps them ("um 1950") and the system
+  prompt forbids inventing more precision; the scripted client states the date
+  and names the Aufnahme with the Zeitmarke in its answer.
 - Frontend: `components/auftritt-programm.tsx` (reading list and the editor's
   "Programm bearbeiten"), `auftritt-lied-aufnahmen.tsx`, `lied-historie.tsx`
   ("Wann gesungen"), `lied-wahl.tsx`. Tests: `AuftrittProgrammTests`,

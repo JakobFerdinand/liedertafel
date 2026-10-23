@@ -67,6 +67,24 @@ param readingDispatchCron string = '17 3 * * *'
 @description('Archive:Reading:Enabled (ARC-034-1). True lets the extraction job hand scores to the AI reading job and shows the reading to editors. Set false (and redeploy) to switch the feature off again: nothing is handed over, the editor actions answer 409 and the pages hide the reading.')
 param readingEnabled bool = true
 
+// #161 — least-privilege identity of the queue-triggered video-transcode job.
+// Queue contributor plus Blob Data Contributor on the assets account (it
+// uploads the MP4 playback copy next to the original); no vault, key-ring,
+// mail, model or database roles are involved.
+param videoIdentityName string = 'id-archive-video'
+
+@description('Queue-triggered video-transcode job name (#161). Runs the same backend image with --transcode-queue as a finite run.')
+param videoJobName string = 'ja-archive-video'
+
+@description('Identity of the scheduled video dispatch sweep (#161). Queue contributor on the assets storage account only: no blob access.')
+param videoDispatchIdentityName string = 'id-archive-video-dispatch'
+
+@description('Scheduled video dispatch job name (#161). Runs the same backend image with --dispatch-videos, handing rows whose enqueue send failed to the queue.')
+param videoDispatchJobName string = 'ja-archive-video-dispatch'
+
+@description('Cron expression (UTC) of the video dispatch sweep. Daily: a lost queue send only costs latency, never a duplicate.')
+param videoDispatchCron string = '23 4 * * *'
+
 @description('Key Vault name (RBAC model). Holds the GHCR pull credential lifecycle; runtime secrets arrive in ARC-011.')
 param vaultName string = 'kv-liedertafel-archive'
 
@@ -414,6 +432,22 @@ resource readingDispatchIdentity 'Microsoft.ManagedIdentity/userAssignedIdentiti
   location: location
 }
 
+// #161 — identity of the queue-triggered video-transcode job. It reads the
+// original, encodes with ffmpeg and uploads the MP4 copy, so it holds Queue
+// Data Contributor AND Blob Data Contributor on the assets account; no
+// vault, key-ring, mail or model roles.
+resource videoIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: videoIdentityName
+  location: location
+}
+
+// #161 — identity of the scheduled video dispatch sweep: it reads and stamps
+// `video_jobs` rows and sends queue messages. Queue role alone, no blobs.
+resource videoDispatchIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: videoDispatchIdentityName
+  location: location
+}
+
 resource vault 'Microsoft.KeyVault/vaults@2023-07-01' = {
   name: vaultName
   location: location
@@ -563,6 +597,17 @@ var readingQueueName = 'archive-reading'
 resource readingQueue 'Microsoft.Storage/storageAccounts/queueServices/queues@2023-05-01' = {
   parent: queueService
   name: readingQueueName
+}
+
+// #161: the video-transcode queue, same account (declared here so KEDA can
+// poll it before any worker ran). The name must match
+// VideoOptions.QueueName. Video code falls back to the extraction queue's
+// service URI (same account), so the app and the jobs need no extra setting.
+var videoQueueName = 'archive-videos'
+
+resource videoQueue 'Microsoft.Storage/storageAccounts/queueServices/queues@2023-05-01' = {
+  parent: queueService
+  name: videoQueueName
 }
 
 // ARC-021 — Azure OpenAI (Microsoft Foundry) chat path. The account carries
@@ -805,6 +850,50 @@ resource readingDispatchQueueContributor 'Microsoft.Authorization/roleAssignment
       '974c5e8b-45b9-4653-ba55-5f855dd0fb88'
     )
     principalId: readingDispatchIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// #161: video-transcode job identity. Queue Data Contributor (same contract
+// as the other job identities) plus Blob Data Contributor — the only job
+// identity that WRITES blobs, because its result is the new MP4 copy under
+// `dateien/` (a Datei creation at finalize time, never a rewrite).
+resource videoQueueContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployRoleAssignments) {
+  name: guid(storage.id, videoIdentity.id, 'queue-data-contributor')
+  scope: storage
+  properties: {
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      '974c5e8b-45b9-4653-ba55-5f855dd0fb88'
+    )
+    principalId: videoIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource videoBlobContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployRoleAssignments) {
+  name: guid(storage.id, videoIdentity.id, 'blob-data-contributor')
+  scope: storage
+  properties: {
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      'ba92f5b4-2d11-4538-92e3-a1f6a6d1c8bc'
+    )
+    principalId: videoIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// #161: video dispatch sweep identity, Queue Data Contributor alone.
+resource videoDispatchQueueContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployRoleAssignments) {
+  name: guid(storage.id, videoDispatchIdentity.id, 'queue-data-contributor')
+  scope: storage
+  properties: {
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      '974c5e8b-45b9-4653-ba55-5f855dd0fb88'
+    )
+    principalId: videoDispatchIdentity.properties.principalId
     principalType: 'ServicePrincipal'
   }
 }
@@ -1608,6 +1697,241 @@ resource papierkorbCleanupJob 'Microsoft.App/jobs@2025-01-01' = {
 // dependsOn: the app references the certificate once bound, so an explicit
 // back-reference would be circular; the persisted hostname from the first
 // stage satisfies the issuance prerequisite.
+// #161 — queue-triggered video-transcode job (finite run of
+// `--transcode-queue`: sweep un-enqueued rows, then drain `archive-videos`).
+// Same image parameter as the app; deterministic ffmpeg work, no model. Its
+// identity is the only job one writing blobs (the MP4 copy, under `dateien/`;
+// a new object at finalize, never a rewrite). One execution at a time like
+// the reading job: two-hour concerts encode for hours, so a second run would
+// only burn CPU for nothing. Platform retries stay off (`replicaRetryLimit`
+// 0): the worker's own bounded attempt ladder is the retry contract. The
+// worker's per-message time budget and drain budget are pinned to 2 h each
+// so the whole run, cold start and OTLP flush included, stays inside
+// replicaTimeout 4 h — headroom like the reading job's.
+resource videoJob 'Microsoft.App/jobs@2025-01-01' = {
+  name: videoJobName
+  location: location
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${videoIdentity.id}': {}
+      // Resolves the Key Vault-referenced database secret only; lifecycle
+      // None keeps it unavailable inside the container, exactly like the
+      // extraction job.
+      '${runtimeIdentity.id}': {}
+    }
+  }
+  properties: {
+    environmentId: environment.id
+    workloadProfileName: 'Consumption'
+    configuration: {
+      identitySettings: [
+        {
+          identity: runtimeIdentity.id
+          lifecycle: 'None'
+        }
+        {
+          identity: videoIdentity.id
+          lifecycle: 'All'
+        }
+      ]
+      registries: [
+        {
+          server: 'ghcr.io'
+          username: ghcrUsername
+          passwordSecretRef: 'ghcr-password'
+        }
+      ]
+      secrets: [
+        {
+          name: 'ghcr-password'
+          value: ghcrPassword
+        }
+        {
+          name: 'archive-db-connection'
+          keyVaultUrl: '${vault.properties.vaultUri}secrets/archive-db-connection'
+          identity: runtimeIdentity.id
+        }
+      ]
+      replicaTimeout: 14400
+      replicaRetryLimit: 0
+      triggerType: 'Event'
+      eventTriggerConfig: {
+        replicaCompletionCount: 1
+        parallelism: 1
+        scale: {
+          minExecutions: 0
+          maxExecutions: 1
+          pollingInterval: 30
+          rules: [
+            {
+              name: 'video-queue'
+              type: 'azure-queue'
+              // Same scaler contract as the reading rule: Entra-only
+              // account, so the rule authenticates as the video identity;
+              // queueName must match VideoOptions.DefaultQueueName.
+              metadata: {
+                queueName: videoQueue.name
+                queueLength: '1'
+                queueLengthStrategy: 'visibleonly'
+                accountName: storage.name
+              }
+              identity: videoIdentity.id
+            }
+          ]
+        }
+      }
+    }
+    template: {
+      containers: [
+        {
+          name: 'video'
+          image: containerImage
+          args: [
+            '--transcode-queue'
+          ]
+          resources: {
+            cpu: json('2')
+            memory: '3Gi'
+          }
+          env: [
+            {
+              name: 'ConnectionStrings__archive-db'
+              secretRef: 'archive-db-connection'
+            }
+            {
+              name: 'AZURE_CLIENT_ID'
+              value: videoIdentity.properties.clientId
+            }
+            {
+              name: 'Archive__Assets__ServiceUri'
+              value: 'https://${storage.name}.blob.${az.environment().suffixes.storage}'
+            }
+            {
+              name: 'Archive__Video__QueueServiceUri'
+              value: extractionQueueUri
+            }
+            {
+              name: 'Archive__Video__TimeBudget'
+              value: '02:00:00'
+            }
+            {
+              name: 'Archive__Video__DrainBudget'
+              value: '02:00:00'
+            }
+            {
+              name: 'Archive__Video__ReceiveVisibility'
+              value: '02:05:00'
+            }
+            {
+              name: 'Archive__MaintenanceMode'
+              value: maintenanceMode ? 'true' : 'false'
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
+
+// #161 — scheduled video dispatch sweep (`--dispatch-videos`, daily): hands
+// Queued rows whose enqueue send never reached the queue to it. Without it a
+// lost send would only recover when the NEXT transcode message triggered a
+// run. Minimal identity (queue contributor only), no blobs, no model.
+resource videoDispatchJob 'Microsoft.App/jobs@2025-01-01' = {
+  name: videoDispatchJobName
+  location: location
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${videoDispatchIdentity.id}': {}
+      '${runtimeIdentity.id}': {}
+    }
+  }
+  properties: {
+    environmentId: environment.id
+    workloadProfileName: 'Consumption'
+    configuration: {
+      identitySettings: [
+        {
+          identity: runtimeIdentity.id
+          lifecycle: 'None'
+        }
+        {
+          identity: videoDispatchIdentity.id
+          lifecycle: 'All'
+        }
+      ]
+      registries: [
+        {
+          server: 'ghcr.io'
+          username: ghcrUsername
+          passwordSecretRef: 'ghcr-password'
+        }
+      ]
+      secrets: [
+        {
+          name: 'ghcr-password'
+          value: ghcrPassword
+        }
+        {
+          name: 'archive-db-connection'
+          keyVaultUrl: '${vault.properties.vaultUri}secrets/archive-db-connection'
+          identity: runtimeIdentity.id
+        }
+      ]
+      replicaTimeout: 900
+      replicaRetryLimit: 0
+      triggerType: 'Schedule'
+      scheduleTriggerConfig: {
+        cronExpression: videoDispatchCron
+        parallelism: 1
+        replicaCompletionCount: 1
+      }
+    }
+    template: {
+      containers: [
+        {
+          name: 'video-dispatch'
+          image: containerImage
+          args: [
+            '--dispatch-videos'
+          ]
+          resources: {
+            cpu: json('0.25')
+            memory: '0.5Gi'
+          }
+          env: [
+            {
+              name: 'ConnectionStrings__archive-db'
+              secretRef: 'archive-db-connection'
+            }
+            {
+              name: 'AZURE_CLIENT_ID'
+              value: videoDispatchIdentity.properties.clientId
+            }
+            {
+              name: 'Archive__Video__QueueServiceUri'
+              value: extractionQueueUri
+            }
+            {
+              name: 'Archive__MaintenanceMode'
+              value: maintenanceMode ? 'true' : 'false'
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
+
+// Managed certificate with CNAME domain control validation. Second stage only:
+// the hostname must already be attached to the app (bindCustomDomain run) and
+// the CNAME plus asuid TXT records must exist (see
+// infrastructure/archive/README.md); otherwise issuance fails. No explicit
+// dependsOn: the app references the certificate once bound, so an explicit
+// back-reference would be circular; the persisted hostname from the first
+// stage satisfies the issuance prerequisite.
 resource certificate 'Microsoft.App/managedEnvironments/managedCertificates@2024-03-01' = if (bindCustomDomain && bindManagedCertificate) {
   parent: environment
   name: 'archiv-cert'
@@ -1635,6 +1959,9 @@ output assetsQueueServiceUri string = extractionQueueUri
 // ARC-034-1: reading queue name on the same account (the reading code falls
 // back to the extraction queue service URI for the endpoint).
 output readingQueueName string = readingQueue.name
+// #161: video queue name on the same account (video code falls back to the
+// extraction queue's service URI for the endpoint).
+output videoQueueName string = videoQueue.name
 // ARC-021: Azure OpenAI inference endpoint (custom subdomain of the AI
 // account), same value the app receives as `Archive__Chat__Endpoint`.
 output aiEndpoint string = aiEndpointUri
