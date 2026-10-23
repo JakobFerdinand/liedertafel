@@ -55,6 +55,12 @@ param readingDispatchIdentityName string = 'id-archive-read-dispatch'
 @description('Scheduled reading dispatch job name (ARC-034-1). Runs the same backend image with --dispatch-reading, which wakes work parked for budget.')
 param readingDispatchJobName string = 'ja-archive-read-dispatch'
 
+@description('Scheduled Papierkorb cleanup job name (#146). Runs the same backend image with --cleanup-papierkorb; removes trashed rows past the seven-day retention and releases their blobs.')
+param papierkorbCleanupJobName string = 'ja-archive-papierkorb'
+
+@description('Cron expression (UTC) of the Papierkorb cleanup. Daily is enough: retention is seven days, so nothing expires faster than that.')
+param papierkorbCleanupCron string = '43 2 * * *'
+
 @description('Cron expression (UTC) of the reading dispatch sweep. Daily is enough: parked work only has to wake when a new month starts or the cap is raised.')
 param readingDispatchCron string = '17 3 * * *'
 
@@ -107,6 +113,9 @@ param bindManagedCertificate bool = false
 @description('Log Analytics daily ingestion cap in GB. ARC-009 decision: 1 GB/day; the shell needs far less and PAYG retention stays at 31 days.')
 param logAnalyticsDailyCapGb int = 1
 
+@description('Maintainer alert destinations (ARC-042). Email addresses of the primary and second maintainer, most specific first. Alerts stay disabled while this is empty, so a template deploy never invents a receiver. The addresses are not secrets but they do appear in deployment diffs, the portal and alert mails: list them in main.bicepparam, never inline in main.bicep.')
+param maintainerAlertEmails array = []
+
 @description('Deploy the RBAC role assignments. PR what-if uses a Contributor-only preview identity without Microsoft.Authorization/roleAssignments/write, so it previews with false; real deploys keep true.')
 param deployRoleAssignments bool = true
 
@@ -149,6 +158,244 @@ resource workspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
     retentionInDays: 31
     workspaceCapping: {
       dailyQuotaGb: logAnalyticsDailyCapGb
+    }
+  }
+}
+
+// ARC-042 — maintainer failure alerts. Deterministic end to end: every rule
+// is a scheduled query over console logs that the environment already sends
+// to this workspace (managedEnvironments appLogsConfiguration above), keyed
+// on the exact shipped log lines. There are deliberately no metric alerts on
+// the application meters: the OTLP pipeline targets Aspire in development
+// only, and in production no OTLP endpoint is configured, so the application
+// meters never reach Azure Monitor; Azure's own platform metrics for the
+// jobs carry no failure dimension worth alerting on. Failure classes:
+// - job         an execution of a finite job ended in a terminal error
+//               (RunArchiveJobAsync's LogError line; archive-migrate runs as
+//               a docker step of the release workflow and is covered by the
+//               GitHub Actions failure notification instead).
+// - work item   a Datei's bounded retry ladder ran out (the row is Failed
+//               and needs an editor retry or a maintenance repair).
+// - app         an unhandled request exception on the public app (500s from
+//               DB outages land here; /alive stays green by contract).
+// - window      a release that failed after opening the maintenance window
+//               leaves the window open — a finite job run logs its pause line
+//               while it is. This is the Azure-side release-failure signal;
+//               an ordinary failed release run also mails via GitHub Actions.
+// Controlled transient retries are per-attempt LogWarning lines with
+// ({ExceptionType}) and budget parks (WaitingForBudget) are a normal state:
+// neither is a marker of any rule. The daily-ingestion cap and the 31-day
+// retention above bound log volume and age; the rules themselves query only
+// Azure Monitor and never touch Neon or the web app. Log-line markers are
+// contract-tested in tests/archive/backend/AlertQueryContractTests.cs — keep
+// them in step with the shipped log lines.
+//
+// The action groups and rules materialize only once destination emails exist
+// (maintainerAlertEmails in main.bicepparam); while the list is empty the
+// rules deploy as enabled=false and no receiver is invented.
+// Known Bicep type inaccuracies (like the jobs' triggerType placement above):
+// the scheduledQueryRules types reject `actions.actionGroupId`/`actionType`
+// and want `operator`/`values` on dimensions — the runtime schema for
+// 2023-12-01 does accept the deployed shape, so these are BCP037/BCP035/BCP089
+// warnings only. Deployed shape is verified by the group what-if below.
+var alertsEnabled = length(maintainerAlertEmails) > 0
+var alertRunbook = 'https://github.com/JakobFerdinand/liedertafel/blob/main/infrastructure/archive/README.md#failure-alerts-arc-042'
+
+resource maintainerActionGroup 'Microsoft.Insights/actionGroups@2023-03-01' = if (alertsEnabled) {
+  name: 'ag-archive-maintainers'
+  location: 'global'
+  properties: {
+    groupShortName: 'archiv'
+    enabled: true
+    emailReceivers: [for (email, index) in maintainerAlertEmails: {
+      name: 'maintainer-${(index + 1)}'
+      emailAddress: email
+      useCommonAlertSchema: true
+    }]
+  }
+}
+
+// An execution of --extract-queue / --read-queue / --dispatch-reading ended
+// in the terminal failure line, with the job name as a dimension so the mail
+// names the run to inspect.
+resource jobFailureAlert 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = {
+  name: 'al-archive-job-failed'
+  location: 'global'
+  properties: {
+    displayName: 'Archiv: fehlgeschlagene Jobausführung'
+    description: 'A finite archive job run ended in terminal failure. Operator path: infrastructure/archive/README.md, "Failure alerts (ARC-042)".'
+    severity: 1
+    enabled: alertsEnabled
+    evaluationFrequency: 'PT15M'
+    windowSize: 'PT1H'
+    scopes: [workspace.id]
+    autoMitigate: true
+    actions: {
+      actionGroupId: alertsEnabled ? maintainerActionGroup.id : ''
+      actionType: 'LogAlert'
+      customProperties: {
+        runbook: alertRunbook
+      }
+    }
+    criteria: {
+      allOf: [
+        {
+          query: '''
+ContainerAppConsoleLogs_CL
+| where TimeGenerated > ago(1h)
+  and isnotempty(ContainerJobName_s)
+  and Log_s has "Archive job " and Log_s has " failed ("
+| extend Job_s = tostring(extract(@"Archive job (\S+) failed", 1, Log_s))'''
+          timeAggregation: 'Count'
+          operator: 'GreaterThan'
+          threshold: 0
+          failingPeriods: {
+            numberOfEvaluationPeriods: 1
+            minFailingPeriodsToAlert: 1
+          }
+          dimensions: [
+            {
+              name: 'Job_s'
+              column: 'Job_s'
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
+
+// A Datei's bounded retry ladder ran out (extraction or reading): the row is
+// terminal-Failed and the mail carries the DateiId to look up. Per-attempt
+// transient warnings are never matched.
+resource itemFailureAlert 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = {
+  name: 'al-archive-item-failed'
+  location: 'global'
+  properties: {
+    displayName: 'Archiv: Dokument verarbeitung endgültig fehlgeschlagen'
+    description: 'A Datei exhausted its bounded attempts (extraction or reading) and is terminal-Failed. Operator path: infrastructure/archive/README.md, "Failure alerts (ARC-042)".'
+    severity: 2
+    enabled: alertsEnabled
+    evaluationFrequency: 'PT1H'
+    windowSize: 'PT1H'
+    scopes: [workspace.id]
+    autoMitigate: true
+    actions: {
+      actionGroupId: alertsEnabled ? maintainerActionGroup.id : ''
+      actionType: 'LogAlert'
+      customProperties: {
+        runbook: alertRunbook
+      }
+    }
+    criteria: {
+      allOf: [
+        {
+          query: '''
+ContainerAppConsoleLogs_CL
+| where TimeGenerated > ago(1h)
+  and (Log_s has "exhausted its attempts" or Log_s has "failed deterministically")
+| extend DateiId_s = tostring(extract(@"Datei ([0-9a-f-]{36})", 1, Log_s))'''
+          timeAggregation: 'Count'
+          operator: 'GreaterThan'
+          threshold: 0
+          failingPeriods: {
+            numberOfEvaluationPeriods: 1
+            minFailingPeriodsToAlert: 1
+          }
+          dimensions: [
+            {
+              name: 'DateiId_s'
+              column: 'DateiId_s'
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
+
+// Unhandled request exceptions on the public app: a DB outage, a bad
+// revision or a real bug shows up here even though /alive stays green.
+resource appFailureAlert 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = {
+  name: 'al-archive-app-failed'
+  location: 'global'
+  properties: {
+    displayName: 'Archiv: unbehandelte Fehler auf dem App-Container'
+    description: 'The public archive app logged unhandled request failures. Operator path: infrastructure/archive/README.md, "Failure alerts (ARC-042)".'
+    severity: 2
+    enabled: alertsEnabled
+    evaluationFrequency: 'PT15M'
+    windowSize: 'PT1H'
+    scopes: [workspace.id]
+    autoMitigate: true
+    actions: {
+      actionGroupId: alertsEnabled ? maintainerActionGroup.id : ''
+      actionType: 'LogAlert'
+      customProperties: {
+        runbook: alertRunbook
+      }
+    }
+    criteria: {
+      allOf: [
+        {
+          query: '''
+ContainerAppConsoleLogs_CL
+| where TimeGenerated > ago(1h)
+  and isnotempty(RevisionName_s)
+  and Log_s has "Archive request failed ("'''
+          timeAggregation: 'Count'
+          operator: 'GreaterThan'
+          threshold: 0
+          failingPeriods: {
+            numberOfEvaluationPeriods: 1
+            minFailingPeriodsToAlert: 1
+          }
+        }
+      ]
+    }
+  }
+}
+
+// A release that failed after opening the maintenance window keeps the window
+// open; every finite job run that starts while it is open logs its pause
+// line. The daily dispatch sweep guarantees at least one such line per day,
+// so a stuck window (a failed release without GitHub's own mail noticed)
+// shows up repeatedly instead of silently persisting.
+resource maintenanceWindowAlert 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = {
+  name: 'al-archive-maintenance-open'
+  location: 'global'
+  properties: {
+    displayName: 'Archiv: Wartungsfenster offen (mögliche fehlgeschlagene Veröffentlichung)'
+    description: 'The maintenance window is open outside a release (a release failure keeps members locked out). Operator path: infrastructure/archive/README.md, "Failure alerts (ARC-042)".'
+    severity: 1
+    enabled: alertsEnabled
+    evaluationFrequency: 'PT15M'
+    windowSize: 'PT1H'
+    scopes: [workspace.id]
+    autoMitigate: true
+    actions: {
+      actionGroupId: alertsEnabled ? maintainerActionGroup.id : ''
+      actionType: 'LogAlert'
+      customProperties: {
+        runbook: alertRunbook
+      }
+    }
+    criteria: {
+      allOf: [
+        {
+          query: '''
+ContainerAppConsoleLogs_CL
+| where TimeGenerated > ago(1h)
+  and Log_s has "paused: maintenance mode is enabled"'''
+          timeAggregation: 'Count'
+          operator: 'GreaterThan'
+          threshold: 0
+          failingPeriods: {
+            numberOfEvaluationPeriods: 1
+            minFailingPeriodsToAlert: 1
+          }
+        }
+      ]
     }
   }
 }
@@ -1341,6 +1588,96 @@ resource readDispatchJob 'Microsoft.App/jobs@2025-01-01' = {
             {
               name: 'Archive__Chat__DeploymentName'
               value: aoaiChatDeployment.name
+            }
+            {
+              name: 'Archive__MaintenanceMode'
+              value: maintenanceMode ? 'true' : 'false'
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
+
+// #146 — scheduled Papierkorb cleanup. Runs `--cleanup-papierkorb` daily:
+// trashed Lieder, Auftritte and Dateien whose deletion is older than the
+// seven-day retention are removed for good, their blobs released afterwards.
+// It generates no model calls and never touches queues, so the runtime
+// identity suffices: it reads the vault secret for the database connection
+// and already holds Storage Blob Data Contributor on the assets account for
+// the blob release. Maintenance mode makes the run exit before touching the
+// database.
+resource papierkorbCleanupJob 'Microsoft.App/jobs@2025-01-01' = {
+  name: papierkorbCleanupJobName
+  location: location
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${runtimeIdentity.id}': {}
+    }
+  }
+  properties: {
+    environmentId: environment.id
+    workloadProfileName: 'Consumption'
+    configuration: {
+      identitySettings: [
+        {
+          identity: runtimeIdentity.id
+          lifecycle: 'All'
+        }
+      ]
+      registries: [
+        {
+          server: 'ghcr.io'
+          username: ghcrUsername
+          passwordSecretRef: 'ghcr-password'
+        }
+      ]
+      secrets: [
+        {
+          name: 'ghcr-password'
+          value: ghcrPassword
+        }
+        {
+          name: 'archive-db-connection'
+          keyVaultUrl: '${vault.properties.vaultUri}secrets/archive-db-connection'
+          identity: runtimeIdentity.id
+        }
+      ]
+      replicaTimeout: 900
+      replicaRetryLimit: 0
+      triggerType: 'Schedule'
+      scheduleTriggerConfig: {
+        cronExpression: papierkorbCleanupCron
+        parallelism: 1
+        replicaCompletionCount: 1
+      }
+    }
+    template: {
+      containers: [
+        {
+          name: 'papierkorb'
+          image: containerImage
+          args: [
+            '--cleanup-papierkorb'
+          ]
+          resources: {
+            cpu: json('0.25')
+            memory: '0.5Gi'
+          }
+          env: [
+            {
+              name: 'ConnectionStrings__archive-db'
+              secretRef: 'archive-db-connection'
+            }
+            {
+              name: 'AZURE_CLIENT_ID'
+              value: runtimeIdentity.properties.clientId
+            }
+            {
+              name: 'Archive__Assets__ServiceUri'
+              value: 'https://${storage.name}.blob.${az.environment().suffixes.storage}'
             }
             {
               name: 'Archive__MaintenanceMode'

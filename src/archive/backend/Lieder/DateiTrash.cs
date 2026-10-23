@@ -1,6 +1,7 @@
 using Archive.Backend.Assets;
 using Archive.Backend.Auth;
 using Archive.Backend.Data;
+using Archive.Backend.Events;
 using Archive.Backend.Videos;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.EntityFrameworkCore;
@@ -85,7 +86,7 @@ public static class DateiTrashEndpoints
 			var (_, error) = await LiedAccess.RequireEditorAsync(context, accessor, access);
 			if (error is not null)
 				return error;
-			var rows = await DateiQueries.Trashed(db).AsNoTracking()
+			var dateiRows = await DateiQueries.Trashed(db).AsNoTracking()
 				.Select(d => new
 				{
 					d.Id,
@@ -103,12 +104,21 @@ public static class DateiTrashEndpoints
 					Replaced = d.ReplacedByDateiId != null,
 				})
 				.ToListAsync(token);
-			var accountIds = rows.Where(r => r.DeletedByAccountId != null).Select(r => r.DeletedByAccountId!.Value).Distinct().ToList();
-			var names = await db.Users.AsNoTracking().Where(u => accountIds.Contains(u.Id))
+			var liedRows = await LiedQueries.Trashed(db).AsNoTracking()
+				.Select(l => new { l.Id, l.Title, l.DeletedAt, l.DeletedByAccountId })
+				.ToListAsync(token);
+			var eventRows = await EventQueries.Trashed(db).AsNoTracking()
+				.Select(e => new { e.Id, e.Title, e.Kind, e.DeletedAt, e.DeletedByAccountId })
+				.ToListAsync(token);
+			var owners = dateiRows.Select(r => r.DeletedByAccountId)
+				.Concat(liedRows.Select(r => r.DeletedByAccountId))
+				.Concat(eventRows.Select(r => r.DeletedByAccountId))
+				.OfType<Guid>().Distinct().ToList();
+			var names = await db.Users.AsNoTracking().Where(u => owners.Contains(u.Id))
 				.ToDictionaryAsync(u => u.Id, u => u.DisplayName ?? u.Email ?? u.UserName, token);
 			return Results.Ok(new
 			{
-				dateien = rows.OrderByDescending(r => r.DeletedAt).ThenBy(r => r.Id).Select(r => new
+				dateien = dateiRows.OrderByDescending(r => r.DeletedAt).ThenBy(r => r.Id).Select(r => new
 				{
 					id = r.Id,
 					kind = r.Kind,
@@ -123,6 +133,20 @@ public static class DateiTrashEndpoints
 					deletedAt = r.DeletedAt,
 					deletedBy = r.DeletedByAccountId is { } by && names.TryGetValue(by, out var name) ? name : null,
 					replaced = r.Replaced,
+				}),
+				lieder = liedRows.OrderByDescending(r => r.DeletedAt).ThenBy(r => r.Id).Select(r => new
+				{
+					id = r.Id,
+					title = r.Title,
+					deletedAt = r.DeletedAt,
+					deletedBy = r.DeletedByAccountId is { } by && names.TryGetValue(by, out var name) ? name : null,
+				}),
+				auftritte = eventRows.OrderByDescending(r => r.DeletedAt).ThenBy(r => r.Id).Select(r => new
+				{
+					id = r.Id,
+					title = r.Title,
+					deletedAt = r.DeletedAt,
+					deletedBy = r.DeletedByAccountId is { } by && names.TryGetValue(by, out var name) ? name : null,
 				}),
 			});
 		});

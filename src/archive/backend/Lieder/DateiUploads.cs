@@ -1,4 +1,5 @@
 using Archive.Backend.Assets;
+using Archive.Backend.Events;
 using Archive.Backend.Auth;
 using Archive.Backend.Data;
 using Archive.Backend.Recordings;
@@ -40,7 +41,7 @@ public static class DateiUploads
 		ArchiveDbContext db, TimeProvider time, AssetStorageOptions storageOptions, IAssetStorageAdapter storage,
 		Guid accountId, Guid liedId, CreateDateiUploadRequest? body, CancellationToken token)
 	{
-		if (!await db.Lieder.AnyAsync(l => l.Id == liedId, token))
+		if (!await LiedQueries.Visible(db).AnyAsync(l => l.Id == liedId, token))
 			return Results.Problem(statusCode: 404, title: LiedEndpoints.NotFoundMessage);
 		// Replacing (#168): the new Datei keeps the target's kind, Stimme and
 		// Partitur flag; only a live Datei of this very Lied can be replaced.
@@ -67,7 +68,7 @@ public static class DateiUploads
 			recordedAtEventId = replaces.RecordedAtEventId;
 		else if (kind == DateiKinds.Aufnahme && body?.RecordedAtEventId is { } eventId)
 		{
-			if (!await db.Events.AnyAsync(e => e.Id == eventId, token))
+			if (!await EventQueries.Visible(db).AnyAsync(e => e.Id == eventId, token))
 				return Results.Problem(statusCode: 400, title: RecordedAtEventNotFoundMessage);
 			recordedAtEventId = eventId;
 		}
@@ -151,7 +152,7 @@ public static class DateiUploads
 		ArchiveDbContext db, TimeProvider time, AssetStorageOptions storageOptions, IAssetStorageAdapter storage,
 		Guid accountId, Guid eventId, CreateDateiUploadRequest? body, CancellationToken token)
 	{
-		if (!await db.Events.AnyAsync(e => e.Id == eventId, token))
+		if (!await Events.EventQueries.Visible(db).AnyAsync(e => e.Id == eventId, token))
 			return Results.Problem(statusCode: 404, title: Events.EventEndpoints.NotFoundMessage);
 		Datei? replaces = null;
 		if (body?.ReplacesDateiId is { } replacesId)

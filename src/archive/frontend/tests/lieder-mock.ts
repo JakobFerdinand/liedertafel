@@ -21,6 +21,13 @@ export const memberMe = {
   verifiedAt: new Date().toISOString(),
 };
 
+export const adminMe = {
+  ...editorMe,
+  accountId: "00000000-0000-0000-0000-000000000003",
+  email: "chef@liedertafel.test",
+  roles: ["Administrator"],
+};
+
 export function json(body: unknown, status = 200) {
   return {
     status,

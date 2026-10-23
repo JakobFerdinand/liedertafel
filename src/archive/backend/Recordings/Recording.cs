@@ -81,18 +81,18 @@ public static class RecordingKinds
 
 /// <summary>
 /// Shared visibility decision for recordings: the event's own decision plus
-/// the recording's publication: an Auftritt is always visible, a recording only
-/// once an editor published it.
+/// the recording's publication: an Auftritt is visible until it is in the
+/// trash (#146), a recording only once an editor published it.
 /// </summary>
 public static class RecordingVisibility
 {
 	public static bool IsMemberVisible(Recording recording, ChoirEvent choirEvent) =>
-		recording.PublishedAt is not null;
+		recording.PublishedAt is not null && choirEvent.DeletedAt is null;
 
 	/// <summary>
 	/// The same decision as a query filter for Zeitmarken: a Zeitmarke is
-	/// member-visible with its recording.
+	/// member-visible with its recording and its Auftritt.
 	/// </summary>
 	public static IQueryable<RecordingPassage> OfMemberVisible(IQueryable<RecordingPassage> passages) =>
-		passages.Where(p => p.Recording.PublishedAt != null);
+		passages.Where(p => p.Recording.PublishedAt != null && p.Recording.Event.DeletedAt == null);
 }

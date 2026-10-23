@@ -93,7 +93,7 @@ public static class RecordingEndpoints
 			if (error is not null)
 				return error;
 			var isEditor = IsEditor(decision!);
-			var choirEvent = await db.Events.AsNoTracking().FirstOrDefaultAsync(e => e.Id == id, token);
+			var choirEvent = await Events.EventQueries.Visible(db).AsNoTracking().FirstOrDefaultAsync(e => e.Id == id, token);
 			if (choirEvent is null)
 				return Results.Problem(statusCode: 404, title: EventEndpoints.NotFoundMessage);
 			var recordings = await WithFiles(db.Recordings.AsNoTracking())
@@ -129,7 +129,7 @@ public static class RecordingEndpoints
 			var kind = (body?.Kind ?? string.Empty).Trim();
 			if (!RecordingKinds.Known.Contains(kind))
 				return Results.Problem(statusCode: 400, title: KindUnknownMessage);
-			if (!await db.Events.AnyAsync(e => e.Id == id, token))
+			if (!await Events.EventQueries.Visible(db).AnyAsync(e => e.Id == id, token))
 				return Results.Problem(statusCode: 404, title: EventEndpoints.NotFoundMessage);
 			var now = time.GetUtcNow();
 			// The slots stay empty until the browser attaches uploaded
