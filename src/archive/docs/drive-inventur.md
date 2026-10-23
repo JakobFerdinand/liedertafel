@@ -130,8 +130,10 @@ enter the formula.
 
 - #143 bulk import consumes `tests/fixtures/drive-inventur/mapping.json` (the
   `MappingFileStaysTruthfulToTheFixtureCorpus` test defines the contract);
-  the importer must keep the mapping's rules: empty folders import nothing,
+  the importer keeps the mapping's rules: empty folders import nothing,
   shortcuts deduplicate, both unresolved duplicates survive, incomplete voice
-  sets are supported, and `.xls`/`.capx` need separate inspection.
+  sets are supported, and `.xls`/`.capx` need separate inspection
+  (implemented on the "Ordner importieren" card, see README "Bulk folder
+  import (#143)").
 - ARC-017 (upload resumability) receives `largest` once the real run exists.
 - ARC-034-1 planning receives `readingCost` (scanned pages × page counts).

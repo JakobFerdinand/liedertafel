@@ -722,6 +722,37 @@ corpus for the bulk import (#143) lives in
 `tests/archive/fixtures/drive-inventur/` with the machine-readable
 `mapping.json`; `InventurTests` keeps corpus, mapping and report agreed.
 
+## Bulk folder import (#143)
+
+The editor uploads a whole folder (or a Drive export as unpacked files) through
+the same upload-first path as single Lieder. The browser-side importer
+(`frontend/components/sammel-import.tsx`, card "Ordner importieren" on the
+Liederkatalog) groups the chosen folder's files with
+`frontend/lib/sammel-import.ts` following the #98 mapping rules: one subfolder
+becomes one suggested Lied, empty folders (and view fixtures like `.gitkeep`,
+`.DS_Store`) import nothing, numbered material subfolders (`1. Noten`,
+`2. Media`) classify instead of splitting, a shortcut (`Verknüpfung - X.url`,
+`.webloc`) whose target folder lies in the import counts once, an unresolvable
+shortcut is reported, same-named duplicates (`… B1 (1).pdf`) are both kept —
+nothing deduplicates by filename, and `.xls`/`.xlsx`/`.capx` are listed as
+"separat prüfen" and never auto-imported.
+
+Suggestions use the existing seam untouched: every suggested Lied is a normal
+Lied-Entwurf (#178) that the editor opens from the list, whose PDFs go through
+the draft reading (#177/#159) and whose save creates the Lied and uploads its
+Dateien with their own bytes — matches with existing Lieder are offered as
+"hinzufügen" by the usual title search. Resume safety (acceptance: no
+duplicate Lieder or Dateien) comes from content-addressed draft ids
+(`gruppiereImport` SHA-256 → UUID): re-dropping the same folder re-derives the
+same entwurf ids, the backend list decides "Fortsetzen" vs a fresh draft, and
+after a save the id is gone with the finished draft. There is no Drive
+connector: an export is files; nothing fetches or links to Drive.
+
+Tests: the mapping rules stay truthful in
+`frontend/lib/sammel-import.test.ts` and the flows in
+`frontend/tests/sammel-import.spec.ts` (mocked API, folder picker fed by
+Playwright's directory input).
+
 ## Focused verification
 
 From the repository root:
