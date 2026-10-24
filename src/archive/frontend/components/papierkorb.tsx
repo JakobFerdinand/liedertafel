@@ -2,19 +2,12 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { auftrittArtName } from "@/lib/events";
 import { fetchMe, type MeResponse } from "@/lib/auth";
-import type { ReactNode } from "react";
-import {
-  fetchPapierkorb,
-  type PapierkorbAuftrittEintrag,
-  type PapierkorbEintrag,
-  type PapierkorbInhalt,
-  type PapierkorbLiedEintrag,
-} from "@/lib/dateien";
-import { entferneEndgueltig, stelleWiederHer } from "@/lib/papierkorb";
+import { fetchPapierkorb, type PapierkorbInhalt } from "@/lib/dateien";
+import { auftrittArtName } from "@/lib/events";
 import type { PapierkorbArt } from "@/lib/papierkorb";
-import { groesseText, problemTitel } from "@/lib/uebertragung";
+import { entferneEndgueltig, stelleWiederHer } from "@/lib/papierkorb";
+import { groesseText, problemMeldung } from "@/lib/uebertragung";
 
 const artText: Record<string, string> = {
   noten: "Noten",
@@ -45,12 +38,6 @@ const stellWiederHerFehler: Record<PapierkorbArt, string> = {
   lieder: "Das Lied konnte nicht wiederhergestellt werden.",
   auftritte: "Der Auftritt konnte nicht wiederhergestellt werden.",
   dateien: "Die Datei konnte nicht wiederhergestellt werden.",
-};
-
-type EintragAktionen = {
-  herstellend: string | null;
-  entferneKnopf: (art: PapierkorbArt, id: string, name: string) => ReactNode;
-  zurueckholen: (art: PapierkorbArt, id: string) => Promise<void>;
 };
 
 /**
@@ -124,7 +111,9 @@ export function Papierkorb() {
       await stelleWiederHer(art, id);
       entferne(art, id);
     } catch (ursache) {
-      setAktionsFehler(await problemTitel(ursache, stellWiederHerFehler[art]));
+      setAktionsFehler(
+        await problemMeldung(ursache, stellWiederHerFehler[art]),
+      );
     } finally {
       setBeschaftigt(null);
     }
@@ -140,7 +129,7 @@ export function Papierkorb() {
       entferne(art, id);
     } catch (ursache) {
       setAktionsFehler(
-        await problemTitel(
+        await problemMeldung(
           ursache,
           "Der Eintrag konnte nicht endgültig entfernt werden.",
         ),
@@ -152,7 +141,8 @@ export function Papierkorb() {
   }
 
   const leer =
-    inhalt.dateien.length + inhalt.lieder.length + inhalt.auftritte.length === 0;
+    inhalt.dateien.length + inhalt.lieder.length + inhalt.auftritte.length ===
+    0;
   if (leer) return <p className="noten-info">Der Papierkorb ist leer.</p>;
 
   const entferneKnopf = (art: PapierkorbArt, id: string, name: string) => {
@@ -234,9 +224,7 @@ export function Papierkorb() {
             {inhalt.auftritte.map((eintrag) => (
               <li className="material-eintrag" key={eintrag.id}>
                 <p className="material-stimme">{eintrag.title}</p>
-                <p className="noten-info">
-                  {auftrittArtName(eintrag.kind)}
-                </p>
+                <p className="noten-info">{auftrittArtName(eintrag.kind)}</p>
                 <p className="noten-info">
                   {datumText(eintrag.deletedAt)}
                   {eintrag.deletedBy ? ` von ${eintrag.deletedBy}` : ""}

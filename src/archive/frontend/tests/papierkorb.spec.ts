@@ -182,10 +182,12 @@ test("Der Papierkorb zeigt Lieder, Auftritte und Dateien; die Redaktion sieht ke
     page.getByRole("heading", { name: "Dateien", level: 2 }),
   ).toBeVisible();
   const lied = page
+    .getByLabel("Gelöschte Lieder")
     .getByRole("listitem")
     .filter({ hasText: "Der Mond ist aufgegangen" });
   await expect(lied).toContainText("21.09.2026");
   const auftritt = page
+    .getByLabel("Gelöschte Auftritte")
     .getByRole("listitem")
     .filter({ hasText: "Frühjahrskonzert" });
   await expect(auftritt).toContainText("Konzert");
@@ -229,7 +231,9 @@ test("Redaktion stellt ein Lied wieder her; die Frist-Ablehnung zeigt den deutsc
 
   await page.goto("/verwaltung/papierkorb/");
   await page
-    .getByRole("button", { name: `Wiederherstellen · Der Mond ist aufgegangen` })
+    .getByRole("button", {
+      name: `Wiederherstellen · Der Mond ist aufgegangen`,
+    })
     .click();
   await expect(
     page.getByText(
@@ -244,12 +248,14 @@ test("Redaktion stellt ein Lied wieder her; die Frist-Ablehnung zeigt den deutsc
 
   // A second try succeeds: the empty trash shows its empty state.
   await page.unroute(`**/api/lieder/${mondId}/restore`);
-  await page.route(`**/api/lieder/${mondId}/restore`, () => {
+  await page.route(`**/api/lieder/${mondId}/restore`, (route) => {
     papierkorb = { ...papierkorb, lieder: [] };
     return route.fulfill({ status: 204 });
   });
   await page
-    .getByRole("button", { name: `Wiederherstellen · Der Mond ist aufgegangen` })
+    .getByRole("button", {
+      name: `Wiederherstellen · Der Mond ist aufgegangen`,
+    })
     .click();
   await expect(page.getByText("Der Papierkorb ist leer.")).toBeVisible();
 });
@@ -316,7 +322,9 @@ test("Die Verwaltung entfernt ein Lied endgültig; die Bestätigung schützt vor
   await page.goto("/verwaltung/papierkorb/");
   expect(entfernungen).toEqual([]);
   await page
-    .getByRole("button", { name: "Endgültig entfernen · Der Mond ist aufgegangen" })
+    .getByRole("button", {
+      name: "Endgültig entfernen · Der Mond ist aufgegangen",
+    })
     .click();
   expect(entfernungen).toEqual([]);
   await page
@@ -347,10 +355,13 @@ test("Die Verwaltung entfernt einen Auftritt endgültig", async ({ page }) => {
   await page.route("**/api/papierkorb", (route) =>
     route.fulfill(json(papierkorb)),
   );
-  await page.route(`**/api/papierkorb/auftritte/${auftrittId}/remove`, (route) => {
-    papierkorb = { ...papierkorb, auftritte: [] };
-    return route.fulfill({ status: 204 });
-  });
+  await page.route(
+    `**/api/papierkorb/auftritte/${auftrittId}/remove`,
+    (route) => {
+      papierkorb = { ...papierkorb, auftritte: [] };
+      return route.fulfill({ status: 204 });
+    },
+  );
 
   await page.goto("/verwaltung/papierkorb/");
   await page
