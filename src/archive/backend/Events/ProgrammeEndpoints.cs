@@ -54,7 +54,7 @@ public static class ProgrammeEndpoints
 			var (decision, error) = await RequireEditorAsync(context, accessor, access);
 			if (error is not null)
 				return error;
-			var choirEvent = await db.Events.AsNoTracking()
+			var choirEvent = await EventQueries.Visible(db).AsNoTracking()
 				.FirstOrDefaultAsync(e => e.Id == eventId, token);
 			if (choirEvent is null)
 				return Results.Problem(statusCode: 404, title: EventEndpoints.NotFoundMessage);
@@ -182,7 +182,8 @@ public static class ProgrammeEndpoints
 			var upcoming = new List<ProgrammeRow>();
 			foreach (var programme in rows)
 			{
-				if (programme.Items.Count == 0 || !EventDate.IsUpcoming(
+				// A trashed Auftritt stays hidden with its Programm (#146).
+				if (programme.Items.Count == 0 || programme.Event.DeletedAt is not null || !EventDate.IsUpcoming(
 					programme.Event.DateYear, programme.Event.DateMonth, programme.Event.DateDay, today))
 					continue;
 				upcoming.Add(new ProgrammeRow(
@@ -251,7 +252,7 @@ public static class ProgrammeEndpoints
 			.Select(i => i.LiedId!.Value)
 			.Distinct()
 			.ToList();
-		var knownLieder = (await db.Lieder.AsNoTracking()
+		var knownLieder = (await Lieder.LiedQueries.Visible(db).AsNoTracking()
 			.Where(l => liedIds.Contains(l.Id)).Select(l => l.Id).ToListAsync(token)).ToHashSet();
 		var resolved = new List<ResolvedItem>(requested.Count);
 		foreach (var entry in requested)

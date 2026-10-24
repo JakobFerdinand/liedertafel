@@ -272,8 +272,47 @@ afterwards; workers and endpoints read through `DateiQueries.Visible`, so the
 trash means no work. Status and retry: `GET /api/dateien/extraction?ids=…`,
 `POST /api/dateien/{id}/extraction/retry`. Only empty Lied fields are filled
 (composer, lyricist, arranger, musical key, lyrics) through
-`AutomatedFieldWriter`; `/api/lieder?q=` also matches the extracted text of a
-Lied's live Noten.
+`AutomatedFieldWriter`; `/api/lieder?q=` (#142, extension of #169) matches every
+token against the title, the creators, the Liedtext and the folded text of a
+Lied's live Noten — embedded text and text transcribed by a reading job alike
+(`extraction_jobs.Text`, also with `TextSource=Reading`); a replaced or trashed
+Datei stops matching through `DateiQueries.Visible`. Each returned Lied carries
+`matchIn`, the German labels of the fields that contributed ("im Titel",
+"beim Komponisten", "beim Bearbeiter", "beim Texter", "im Liedtext",
+"in den Noten"). Matching stays in C# over fold tokens
+(`Catalogue/CatalogueSearch.cs`, shared by the chat tool `catalogue_search`,
+which reports `trefferIn` the same way) so EF InMemory tests and PostgreSQL
+agree; lexical SQL search and embeddings remain cut (ADR-0001).
+
+**Video playback copies** (#161). Every video Aufnahme — the concert Aufnahmen
+of an Auftritt AND Lied-Aufnahmen — automatically gains a playable MP4 copy:
+original resolution up to 1080p, H.264 CRF 20, AAC 192 kbit/s, `+faststart`. The work runs through the
+finite-job pattern: `VideoHook` writes the
+`video_jobs` row in the finalize save (`IDateiFinalizedHook`) and sends to the
+`archive-videos` queue afterwards (quiet: a lost send is rediscovered by the
+dispatch sweep), and the finite worker `--transcode-queue` sweeps and drains.
+ffmpeg/ffprobe run from `Archive:Video:FfmpegPath`/`FfprobePath` (PATH by
+default; the Dockerfile installs the package in its runtime stage — local
+hosts without ffmpeg make the worker record the deterministic German
+`MissingToolReason` on the Datei instead of a crash loop). The copy is a real
+Datei (`… - Abspielkopie.mp4`, kind `aufnahme`, `video/mp4`): members play it
+through the usual access tickets (view), while the download stays the original
+— never re-encoded, always kept for editors. Already-playable originals up to
+1080p end in `notNeeded` without a second object. Failures are terminal with a
+German reason on the Datei; status and retry:
+`GET /api/dateien/videos?ids=…`, `POST /api/dateien/{id}/video/retry`. The
+Auftritt recording's empty playback slot receives the copy in the same save;
+an editor's own playback slot entry is never overwritten, and a replaced
+original takes its copy with it into the trash (`VideoTrash`).
+
+*Scale/cost estimate for a 2-hour concert (one ~4K30 HEVC original, roughly
+40–60 GiB): the 1080p H.264 CRF 20 copy lands around 5–10 GiB (10–20 % of the
+original — matches the architecture's 20 % assumption); every clip of an
+evening counts its own share. Job compute: 2 vCPU/3 Gi for 1–2 h of encode
+≈ EUR 0.15–0.30 per concert clip; the daily sweep adds fractions of a cent.
+Ongoing cost is dominated by hot-tier storage of originals plus copies and
+blob egress for replay — see the capacity table under cost model. No model
+spend, ever.*
 
 **Storage adapter.** `IAssetStorageAdapter` / `BlobAssetStorageAdapter`
 (`backend/Assets/AssetStorage.cs`, settings `Archive:Assets`, container
@@ -320,7 +359,7 @@ Run it once after the release that applied the contract migration, see
 Members chat with the archive at `/fragen` („Fragen zum Archiv"): `POST /api/chat` implements the AG-UI 1.0 wire contract (stable `AGUI.Server` 1.0.0 / `AGUI.Abstractions` 1.0.0 on `Microsoft.Extensions.AI` 10.10.0, superseding ARC-021's preview MAF hosting adapter). The bounded loop runs on an `IChatClient` provider seam — Development and tests use the deterministic `ScriptedChatClient` (cited answers from tool results only, honest unknown/refusal behaviour); the real Azure OpenAI implementation (managed identity, pinned GPT-6 Luna since ARC-021-1, formerly GPT-5.4-mini, EU Data Zone) plugs into the seam when credentials exist, and embeddings/pgvector move with it.
 
 - Threads persist in the existing PostgreSQL (`chat_threads`/`chat_messages`, migration `20260922214454_ArchiveChat`), are owned by the asking member, are bounded to the last 20 messages, and are validated for ownership on every request. The client generates the thread id (`localStorage` key `arc-chat-thread`); server-side history is authoritative — client-provided older messages are ignored as tamper-proof grounding. `GET /api/chat/thread/{id}` restores the owner's history; foreign/missing threads answer an indistinguishable 404.
-- Tools are allow-listed and authorized inside themselves: `catalogue_search` (all Lieder, `CatalogueText.Fold` token-AND, ≤ 10 results, 300-char lyrics excerpt) and `lied_details` (Lied fields, its live Dateien, where it was sung and where it is planned). Document text is data, never instructions; no editing tools, no raw queries, no general-knowledge answers.
+- Tools are allow-listed and authorized inside themselves: `catalogue_search` (all Lieder, `CatalogueText.Fold` token-AND, ≤ 10 results, 300-char lyrics excerpt; since #142 it also matches the text of the live Noten and reports the match source via `trefferIn`) and `lied_details` (Lied fields, its live Dateien, where it was sung and where it is planned). Document text is data, never instructions; no editing tools, no raw queries, no general-knowledge answers.
 - Per-request bounds are app-enforced: question ≤ 2000 chars, at most 5 model calls per run (`MaxToolCalls`; every call offers the tools, and a run whose fifth call still asks for a tool ends in the failure state without a sixth call), 30 s no-token abort per model call, 120 s overall cap, client-disconnect cancellation, one repetition of the run's first call when the provider fails before its first update (the only case with a sixth provider request), German `RUN_ERROR` failure state. Cost is bounded by the shared AI budget below.
 - The chat answers 503 „Der Archiv-Chat ist derzeit nicht verfügbar." unless `Archive:Chat:Enabled=true` and `Disabled=false`, so production stays inert until the provider step. Questions about whole Auftritte answer honestly that the chat has no Auftritt tools (a single Lied's history comes from `lied_details`); the synthetic evaluation (`tests/archive/backend/ChatEvaluationTests.cs`, `--filter FullyQualifiedName~ChatEvaluation`) verifies the grounding bar — every citation verifiable against the authorized result set, zero unsupported claims, honest unknown behaviour, recorded EUR-per-answer cost — and must be rerun against the pinned live model before first production chat use.
 
@@ -329,6 +368,15 @@ Members chat with the archive at `/fragen` („Fragen zum Archiv"): `POST /api/c
 The chat runs on a Microsoft Agent Framework agent (`Microsoft.Agents.AI` 1.23.0, stable) named `archive-chat` (`Chat/ArchiveChatAgent.cs`, built once per process on the gateway and wrapped with the framework's OpenTelemetry instrumentation). `ArchiveChatService` supplies what belongs to one run through the run options: the tools on the request's database context, the thread's `ChatThreadHistoryProvider`, and the run pipeline tool loop → citation filter → per-call bounds. Thread history stays in `chat_threads`/`chat_messages`; the endpoint, its membership and ownership checks and the AG-UI wire contract (`AGUI.Server` 1.0.0) are unchanged. The Agent Framework hosting adapter and workflows are not used.
 
 `Ai/AiGateway` is the only path to a model provider: OpenTelemetry → `BudgetedChatClient` → provider. The raw provider client is registered under the service key `AiGateway.ProviderKey` and nothing else resolves it; injecting `IChatClient` yields the budgeted pipeline. `AddArchiveAi(configuration)` registers provider selection, model keys, ledger, budget and gateway in one call (API host today, job hosts later). A feature attaches an `AiOperation` (feature name, operation id, member or none, optional lower output bound, estimate for non-text input) to the options of its run; a call without one is refused. An embedding provider registered under the same key (ARC-052) is wrapped by `BudgetedEmbeddingGenerator` the same way.
+
+### The maintainer side of the AI budget (ARC-043, #150)
+
+The ledger already holds everything; nothing is added to it:
+
+- **View:** `GET /api/maintenance/ai-budget` (editor-only, `no-store`, reads only, available even while maintenance mode is on, like the other diagnostics) reports the current month per feature and model (calls, tokens, EUR = settled cost plus open reservations), the EUR 15 cap and the configured thresholds with each level's notified state. The Verwaltung shows it at `/verwaltung/ki-budget/` (`components/ki-kosten.tsx`, pure read; nothing in the page pays money).
+- **Notices:** the daily reading dispatch sweep (`--dispatch-reading`) runs the deterministic monthly review (`Ai/AiCostNotice.cs`): for each newly reached level — the configured thresholds plus the cap — one warning is logged, exactly once per level per month (the month's row in `ai_budget_months` remembers its level in `NotifiedMicroEur`, migration `20261023215101_AiCostNotices`; a raised cap re-enables). Two Azure alert rules (`al-archive-ai-threshold` severity 2, `al-archive-ai-cap` severity 1, `infrastructure/archive/main.bicep`) forward those lines to the maintainers through the shared action group, so the review warns before the cap and the refused calls' existing warning pages at it.
+- **Thresholds:** `Archive:Ai:NoticeThresholdsEur` (comma separated) is explicit configuration and ships **empty — a disabled state, not a default**; relayed from the Bicep parameter `aiNoticeThresholdsEur` (main.bicepparam) to the web app and the sweep job. Values are maintainer-owned (suggestion pending decision: 5 and 12). A read-only summary with the monthly path lives in `infrastructure/archive/README.md`, "Cost overview (ARC-043)". Threshold evaluation keys on the fixed line prefixes only (`has "KI-Budget: Schwellwert"` / `has "Monatsbudget erreicht"`); amounts and feature names never enter an alert rule or a test.
+- **Checks:** `dotnet test tests/archive/backend --filter "FullyQualifiedName~AiCostNotice|FullyQualifiedName~AlertQueryContract"` (per-feature sums, threshold/cap once-per-month evaluation, breakdown formatting, raised-cap re-enable; the Bicep contract test keeps the notice lines and the pass-through thresholds in step). The ledger's SQL remains the `AiBudgetLedgerTests` PostgreSQL cases; renaming a review line breaks the build in `AlertQueryContractTests`, before an alert can silently die.
 
 - **Cap:** EUR 15 per calendar month in Europe/Vienna, for all AI features together. Before each model call the middleware reserves the call's worst case (estimated input plus the output bound at the model's price). A reservation that would pass the cap is refused and the provider is not called. Guarantee: settled cost + open reservations + the worst case of a newly admitted call never exceeds the cap. After the call the reservation is replaced by the usage the provider reported; a call that ends without a usage report (failure, timeout, client disconnect, abandoned stream) costs its full reservation.
 - **Ledger:** `ai_usage_entries` (renamed from `chat_usage_entries` by migration `20261006111010_AiUsageLedger`): one row per operation and model with feature, model, summed tokens of all its calls, settled cost and open reservation in micro-EUR. The month's spend is the sum over its rows; nothing is cached in memory. `ai_budget_months` holds one row per month as a lock: a reservation runs in one transaction that takes `SELECT … FOR UPDATE` on it, so reservations of a month queue on every replica (5 s lock timeout, then refused). A settlement is one relative `UPDATE` of its own row, retried three times, then logged at error and counted. `Ai/PostgresAiLedgerStore` is SQL; tests on the EF in-memory provider use `tests/archive/backend/InMemoryAiLedgerStore.cs` behind `IAiLedgerStore`.
@@ -346,7 +394,7 @@ The chat page reads the run with `@ag-ui/client` 1.0.2 (`HttpAgent` in `frontend
 
 - **Wire:** the server library wrote protocol fields it does not use as explicit nulls (`usage[].model`, `parentRunId` …), which the strict client rejects as a schema violation. `ChatEndpoints` now serializes events without null properties. `RUN_FINISHED`, `RUN_ERROR` with its `code`, the `archive.citations` custom event and the budget state are unchanged for the page.
 - **The tool:** the agent calls `zeige_oberflaeche(komponenten)`; each entry is a component name and exactly the one record id it is built from (`liedId`, `liedIds`, `auftrittId`). `Chat/A2uiSurfaces.cs` (`A2uiCatalog`) validates every entry against the catalog (known component, only its own id, valid GUIDs, at most 12 entries looked at, at most 4 surfaces per answer, one card per record), resolves the ids to what a member may see (Lieder and published Auftritte only) and builds the A2UI messages itself: `createSurface` plus one `updateComponents` with a single `root` component per surface. Anything else is dropped before streaming; the model only learns how many entries were not shown, never which or why. The model supplies no text and no URL, and the server sends none: the browser derives links (`/lied/?id=…`, `/auftritt/?id=…`) from the ids. The tool call itself is removed from the AG-UI stream; the validated messages travel in one `CUSTOM` event `archive.a2ui` (before the `archive.citations` chips, which stay the server-built event).
-- **Member chat offers:** `LiedKarte` (title, composer, lyricist, first lines), `AuftrittKarte` (title, kind, date, venue) and `Quellen` (up to 10 Lieder). `ProgrammListe` is defined with its wire shape and the browser renders it, but the member chat has no resolver for it yet (always dropped, not offered to the model); ARC-022-1 and ARC-022-2 add its resolver to `A2uiCatalog.Components`.
+- **Member chat offers:** `LiedKarte` (title, composer, lyricist, first lines), `AuftrittKarte` (title, kind, date, venue), `ProgrammListe` (a saved Auftritt's Programm, Lieder in their order with notes; up to 60 entries) and `Quellen` (up to 10 Lieder). #124 added the `ProgrammListe` resolver: the model names only the `auftrittId`, the server builds the entries from that Auftritt's Programm.
 - **Storage and reload:** the validated messages are stored with the assistant answer in `chat_messages."A2uiJson"` (`jsonb`, migration `20261011160524_ChatMessageA2ui`; a card-only answer stores empty content and is not fed back to the model as history). `GET /api/chat/thread/{id}` never returns the stored JSON as it is: `A2uiCatalog.RecheckAsync` rebuilds each surface from the record ids it names, so a card for a since-unpublished Auftritt or a deleted Lied is gone, tampered or unreadable stored content yields nothing, and data is fresh. The message then has an `a2ui` array (or none).
 - **Browser safety:** `leseA2uiOberflaechen` keeps only surfaces of exactly one `createSurface` (this catalog) and one `root` update with a catalog component and exactly its allowed properties (strict schemas: no `href`, `url`, data model or extra fields); the A2UI `MessageProcessor` then runs with `STRICT_VALIDATION` as a second check, and a surface it refuses is removed. Malformed or out-of-catalog messages show no card and no error.
 - **Clicks:** cards link to archive pages that load their own data over REST; nothing goes back through the chat.
@@ -433,7 +481,14 @@ data).
   and `dateUncertain` (a year-only or approximate date). `counts` has `events`,
   `inProgramme`, `uncertainDates`. An unknown Lied is 404.
 - Chat: `lied_details` reads the same data; `gesungen` lists past Auftritte with
-  the Lied in the Programm or an Aufnahme, `geplant` upcoming ones.
+  the Lied in the Programm or an Aufnahme, `geplant` upcoming ones. #124 made the
+  history answer full: every entry carries `auftrittId` (the model can show the
+  `AuftrittKarte`, or a `ProgrammListe` when nothing is sung yet), the file names
+  of Lied-Aufnahmen naming the Auftritt and the member-visible Zeitmarken
+  (`aufnahme` label, `start`, `status` — a mark under review shows no start).
+  Approximate dates arrive as the record keeps them ("um 1950") and the system
+  prompt forbids inventing more precision; the scripted client states the date
+  and names the Aufnahme with the Zeitmarke in its answer.
 - Frontend: `components/auftritt-programm.tsx` (reading list and the editor's
   "Programm bearbeiten"), `auftritt-lied-aufnahmen.tsx`, `lied-historie.tsx`
   ("Wann gesungen"), `lied-wahl.tsx`. Tests: `AuftrittProgrammTests`,
@@ -456,10 +511,19 @@ deleted into the Papierkorb; both are soft deletes of the old Datei (`DeletedAt`
   abandoned.
 - **Delete:** `POST /api/dateien/{id}/delete` `{ rowVersion }` → 204; stale 409,
   gone 404, member 403. Works for Dateien of Lieder and of Auftritte.
-- **Papierkorb:** `GET /api/papierkorb` (editor) lists trashed Dateien with
-  owner (Lied or Auftritt), who deleted them, when and whether they were
-  replaced; the page is `/verwaltung/papierkorb/`. The collection budget still
-  counts trashed bytes. Restoring (#146) clears the trash columns.
+- **Papierkorb:** `GET /api/papierkorb` (editor) lists all three arts in one
+  payload — `lieder` (title), `auftritte` (title, kind) and `dateien` with owner
+  (Lied or Auftritt), who deleted them, when and whether they were replaced; the
+  page is `/verwaltung/papierkorb/`, sectioned „Lieder“, „Auftritte“ and
+  „Dateien“, with restore for the whole Redaktion and Administrators confirming
+  the immediate removal of every art. The collection budget still counts trashed
+  bytes. Restoring (#146) clears the trash columns, but only
+  within the retention (`Archive:Papierkorb:RetentionDays`, default seven days):
+  past it the restore endpoints answer 409 (the daily cleanup removes the entry
+  for good), and a Datei whose owning Lied or Auftritt is still in the trash
+  answers 409 until that owner is restored — individually trashed Dateien stay
+  trashed when their owner is restored. Administrators' immediate removal is
+  untouched by both guards.
 - `DateiQueries.Visible(db)` is the only "live Dateien" predicate; read Dateien
   through it. `DateiQueries.Trashed(db)` is the trash.
 - A Datei is immutable: a changed file is a new Datei. Zeitmarken, extraction
@@ -624,8 +688,22 @@ and everything of the flat model are untouched.
   `noten-ansicht`), `datei-hochladen`, `lied-formular`, composed in `lied-detail`.
   The resume key is `arc-upload-lied-<liedId>-<kind>-<partitur|stimme>`.
 
-## Runtime grants during `--migrate`
+## Failure alerts (ARC-042, #149)
 
+The Azure side lives in `infrastructure/archive/main.bicep` (action group,
+four scheduled-query rules over `ContainerAppConsoleLogs_CL` in the
+Log Analytics workspace, rule names `al-archive-*`) and its operator path /
+runbook in `infrastructure/archive/README.md`, section "Failure alerts
+(ARC-042)". Alerts key on the shipped console-log failure lines only —
+deterministic (architecture §14), no model involvement, no metric alerts on
+application meters (production has no OTLP endpoint; development keeps the
+Aspire path untouched). The queries' marker strings are pinned by
+`tests/archive/backend/AlertQueryContractTests.cs`, which runs in the normal
+backend suite: renaming one of the failure line templates in
+`service-defaults/Extensions.cs`, the workers or `Program.cs` breaks the
+build exactly when the deployed queries would stop matching.
+
+## Runtime grants during `--migrate`
 The release's `--migrate` step applies the runtime role's privileges itself:
 after `MigrateAsync`, `Data/RuntimeGrants.cs` runs the embedded
 `Data/runtime-grants.sql` (a byte-identical copy of
@@ -644,6 +722,54 @@ with `ARCHIVE_TEST_POSTGRES` set to a throwaway superuser connection the live
 case creates the fixed roles and an `archive` database, migrates as
 `archive_migrator`, and asserts the privileges (runtime can use the new tables
 and later tables, never `__EFMigrationsHistory`; an admin connection skips).
+
+## Quellen-Inventur (#98)
+
+The deterministic Drive/source inventory lives in `backend/Inventur/`: the
+console command `--inventur <verzeichnis>` walks one folder export without any
+database, queue or model (architecture §14) and reports file counts, aggregate
+and largest sizes, leading-byte container sniffs (reusing `RecordingFormats`
+and the MIDI gate), MIDI presence, per-PDF PDFium page counts plus PdfPig
+extractable-text classification, duplicate-name candidates (never resolved by
+the walk) and the analytical scan-reading cost estimate priced from
+`Archive:Ai:Models` (`--model <schlüssel>`), bounded by the reading job's own
+page/image assumptions. Its report documents the maintainer
+runbook (`src/archive/docs/drive-inventur.md`), including the real source-link
+handling in git-ignored `src/archive/.local/source-inventory.md`. The sanitized fixture
+corpus for the bulk import (#143) lives in
+`tests/archive/fixtures/drive-inventur/` with the machine-readable
+`mapping.json`; `InventurTests` keeps corpus, mapping and report agreed.
+
+## Bulk folder import (#143)
+
+The editor uploads a whole folder (or a Drive export as unpacked files) through
+the same upload-first path as single Lieder. The browser-side importer
+(`frontend/components/sammel-import.tsx`, card "Ordner importieren" on the
+Liederkatalog) groups the chosen folder's files with
+`frontend/lib/sammel-import.ts` following the #98 mapping rules: one subfolder
+becomes one suggested Lied, empty folders (and view fixtures like `.gitkeep`,
+`.DS_Store`) import nothing, numbered material subfolders (`1. Noten`,
+`2. Media`) classify instead of splitting, a shortcut (`Verknüpfung - X.url`,
+`.webloc`) whose target folder lies in the import counts once, an unresolvable
+shortcut is reported, same-named duplicates (`… B1 (1).pdf`) are both kept —
+nothing deduplicates by filename, and `.xls`/`.xlsx`/`.capx` are listed as
+"separat prüfen" and never auto-imported.
+
+Suggestions use the existing seam untouched: every suggested Lied is a normal
+Lied-Entwurf (#178) that the editor opens from the list, whose PDFs go through
+the draft reading (#177/#159) and whose save creates the Lied and uploads its
+Dateien with their own bytes — matches with existing Lieder are offered as
+"hinzufügen" by the usual title search. Resume safety (acceptance: no
+duplicate Lieder or Dateien) comes from content-addressed draft ids
+(`gruppiereImport` SHA-256 → UUID): re-dropping the same folder re-derives the
+same entwurf ids, the backend list decides "Fortsetzen" vs a fresh draft, and
+after a save the id is gone with the finished draft. There is no Drive
+connector: an export is files; nothing fetches or links to Drive.
+
+Tests: the mapping rules stay truthful in
+`frontend/lib/sammel-import.test.ts` and the flows in
+`frontend/tests/sammel-import.spec.ts` (mocked API, folder picker fed by
+Playwright's directory input).
 
 ## Focused verification
 

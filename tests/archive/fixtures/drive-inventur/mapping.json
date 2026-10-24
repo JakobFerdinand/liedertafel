@@ -1,0 +1,225 @@
+{
+	"scheme": "liedertafel.drive-inventur.mapping",
+	"version": 1,
+	"verbraucher": "Auftrags-Ticket 143 (bulk import) konsumiert dieses Format über tests/archive/backend/InventurTests.cs::MappingFileStaysTruthfulToTheFixtureCorpus; die Prüfung hält Pfade, Flags und ContentType-Angaben mit dem Korpus und dem Inventur-Werkzeug stimmig.",
+	"hinweise": [
+		"Pfade sind '/'-relativ zum Korpuswurzel (Kriterium des --inventur-Walkers).",
+		"Flags tragen nur vom Werkzeug beobachtbare Fakten (shortcut, midi, oleCompoundFile, zipContainer, textLike, unknown, unresolvedDuplicateCandidate, sameSizeDuplicateCandidate).",
+		"Jede aus dem Problem #98 übernommene Realbeobachtung ist hier als Beobachtung gekennzeichnet; alle Dateinamenschlüsse sind Vermutungen (siehe src/archive/docs/drive-inventur.md)."
+	],
+	"lieder": [
+		{
+			"id": "beispiel-a",
+			"titel": "Sample A",
+			"quelle": "Beispiel A: flacher Notenordner. Ein Partitur-PDF, Einzel-Stimmen-PDFs (Bass 1, Bass 2, Tenor 1, Tenor 2, Solo) und ein .xls-Verzeichnis in demselben Ordner; an der Archivwurzel liegen sowohl der Ordner als auch eine Verknüpfung auf denselben [beobachtet 2026-09-14].",
+			"unsicherheiten": [
+				"Nur die Ordnerliste war sichtbar; PDF-Inhalte, Audio-Codecs und Verzeichnisnamen zur Bedeutung sind nicht geprüft [beobachtet].",
+				"Ob die .xls ein Notenverzeichnis ist, muss separat geprüft werden [vermutet].",
+				"Die Verknüpfung zielt auf denselben Ordner wie der Ordner selbst [vermutet aus der Ordnerliste]; beim Import darf der Lied nur einmal entstehen."
+			],
+			"dateien": [
+				{
+					"path": "Sample A/Sample A Partitur.pdf",
+					"art": "noten",
+					"partitur": true,
+					"stimme": null,
+					"contentType": "application/pdf",
+					"bemerkung": "Vollpartitur; Name ist eine Namenskonvention, belegte Dateiliste [vermutet]."
+				},
+				{
+					"path": "Sample A/Sample A Bass 1.pdf",
+					"art": "noten",
+					"partitur": false,
+					"stimme": "Bass 1",
+					"contentType": "application/pdf",
+					"bemerkung": "Stimme aus dem Dateinamen [vermutet]."
+				},
+				{
+					"path": "Sample A/Sample A Bass 2.pdf",
+					"art": "noten",
+					"partitur": false,
+					"stimme": "Bass 2",
+					"contentType": "application/pdf"
+				},
+				{
+					"path": "Sample A/Sample A Tenor 1.pdf",
+					"art": "noten",
+					"partitur": false,
+					"stimme": "Tenor 1",
+					"contentType": "application/pdf"
+				},
+				{
+					"path": "Sample A/Sample A Tenor 2.pdf",
+					"art": "noten",
+					"partitur": false,
+					"stimme": "Tenor 2",
+					"contentType": "application/pdf"
+				},
+				{
+					"path": "Sample A/Sample A Solo.pdf",
+					"art": "noten",
+					"partitur": false,
+					"stimme": "Solo",
+					"contentType": "application/pdf",
+					"bemerkung": "Solo-Stimme: freier Stimmenname, auch 'Alle' ist möglich; Konvention muss editorisch geprüft werden [vermutet]."
+				}
+			]
+		},
+		{
+			"id": "beispiel-b",
+			"titel": "Sample B",
+			"quelle": "Beispiel B: Dateityp-Unterordner '1. Noten' mit PT-Sample-B.pdf (~297 KB Anzeige), '2. Media' und '3. Notierprogrammdaten' beide leer in der Ansicht; PT bedeutet vom Betreiber bestätigt Partitur [beobachtet 2026-09-14].",
+			"unsicherheiten": [
+				"Die drei Unterordner gliedern Materialien, nicht Fassungen; PT bedeutet Partitur [beobachtet/betreiberbestätigt].",
+				"Leere Ordner erzeugen keine Datei-Datensätze und keine Medienzuordnung ihrerseits [maßnahme].",
+				"Der PDF-Inhalt war im Weblisting nicht zugänglich; Text eingebettet oder Scan ist dort noch ungeprüft — im Korpus steht die Scanprobe stellvertretend [vermutet]."
+			],
+			"dateien": [
+				{
+					"path": "Sample B/1. Noten/PT - Sample B.pdf",
+					"art": "noten",
+					"partitur": true,
+					"stimme": null,
+					"contentType": "application/pdf",
+					"bemerkung": "PT = Partitur [beobachtet]; im Korpus ist die Datei bewusst eine Scanprobe, das echte Beispiel ist ungeprüft."
+				}
+			]
+		},
+		{
+			"id": "beispiel-c",
+			"titel": "Sample C",
+			"quelle": "Beispiel C: elf gelistete Dateien — fünf PDFs (Partitur, T1, B2, zwei identische B1-Dateinamen), fünf MP3s (~1,6–1,8 MB Anzeigegröße) und eine .capx-Datei mit Endziffer 3 [beobachtet 2026-09-14].",
+			"unsicherheiten": [
+				"Die zwei B1-PDFs haben unterschiedliche Anzeigegrößen und Daten (~21 KB / 2023-10-24, ~316 KB / 2023-11-01): vermuteter versehentlicher Doppelname, Beziehung ungeklärt [beobachtet]; Bytegleichheit bzw. Korrekturzusammenhang sind nicht belegt.",
+				"T2-Audio existiert, aber kein T2-PDF [beobachtet]: unvollständige Stimmenreihen müssen importierbar bleiben.",
+				"Endziffer 3 am .capx-Namen belegt keine Fassungsidentität [beobachtet].",
+				"Eine Partituraufnahme-MP3 und Stimmen-MP3s; Zuordnung von Aufnahme zu Stimme kommt aus dem Dateinamen [vermutet]."
+			],
+			"dateien": [
+				{
+					"path": "Sample C/Sample C Partitur.pdf",
+					"art": "noten",
+					"partitur": true,
+					"stimme": null,
+					"contentType": "application/pdf"
+				},
+				{
+					"path": "Sample C/Sample C T1.pdf",
+					"art": "noten",
+					"partitur": false,
+					"stimme": "Tenor 1",
+					"contentType": "application/pdf"
+				},
+				{
+					"path": "Sample C/Sample C B2.pdf",
+					"art": "noten",
+					"partitur": false,
+					"stimme": "Bass 2",
+					"contentType": "application/pdf"
+				},
+				{
+					"path": "Sample C/Sample C B1.pdf",
+					"art": "noten",
+					"partitur": false,
+					"stimme": "Bass 1",
+					"contentType": "application/pdf",
+					"flags": ["unresolvedDuplicateCandidate"],
+					"bemerkung": "Kleinerer Beleger (~21 KB, 2023-10-24) [beobachtet]: beiden B1-Kandidaten bleiben vergleichen, niemals nach Dateiname deduplizieren, nie automatisch das neuere Datum vorziehen."
+				},
+				{
+					"path": "Sample C/Sample C B1 (1).pdf",
+					"art": "noten",
+					"partitur": false,
+					"stimme": "Bass 1",
+					"contentType": "application/pdf",
+					"flags": ["unresolvedDuplicateCandidate"],
+					"bemerkung": "Größerer Beleger (~316 KB, 2023-11-01) [beobachtet]; der ' (1)'-Suffix kommt vom Exportverhalten und ist im echten Bestand noch zu verifizieren [vermutet]."
+				},
+				{
+					"path": "Sample C/Sample C Partituraufnahme.mp3",
+					"art": "uebe",
+					"stimme": "Alle",
+					"contentType": "audio/mpeg",
+					"bemerkung": "Partiturgekennzeichnete Übe-Aufnahme [vermutet]; Anzeigegröße ~1,6–1,8 MB [beobachtet]."
+				},
+				{
+					"path": "Sample C/Sample C T1.mp3",
+					"art": "uebe",
+					"stimme": "Tenor 1",
+					"contentType": "audio/mpeg"
+				},
+				{
+					"path": "Sample C/Sample C T2.mp3",
+					"art": "uebe",
+					"stimme": "Tenor 2",
+					"contentType": "audio/mpeg",
+					"bemerkung": "T2-Audio ohne T2-PDF [beobachtet]: unvollständiger Stimmenbestand wird unterstützt."
+				},
+				{
+					"path": "Sample C/Sample C B1.mp3",
+					"art": "uebe",
+					"stimme": "Bass 1",
+					"contentType": "audio/mpeg"
+				},
+				{
+					"path": "Sample C/Sample C B2.mp3",
+					"art": "uebe",
+					"stimme": "Bass 2",
+					"contentType": "audio/mpeg"
+				}
+			]
+		},
+		{
+			"id": "midi-beispiel",
+			"titel": null,
+			"projected": true,
+			"quelle": "Jeder aus der Realquelle abgeleitete MIDI-Fall fehlt noch in der Ordneransicht; das Korpus trägt ein einzelnes MIDI als Übe-Datei-Nachweis (#167), weil der Import es gleich behandeln muss [projiziert, nicht beobachtet].",
+			"unsicherheiten": [
+				"Kein reales MIDI-Beispiel ist bislang gefunden [beobachtet]: der Fall steht nur stellvertretend für Übe-MIDI."
+			],
+			"dateien": [
+				{
+					"path": "Midi-Beispiel/Beispiel Uebefassung.mid",
+					"art": "uebe",
+					"stimme": null,
+					"contentType": "audio/midi",
+					"flags": ["midi"],
+					"bemerkung": "Stimme unbekannt: null, kein erratener Wert."
+				}
+			]
+		}
+	],
+	"ohneLiedzuordnung": [
+		{
+			"path": "Verknüpfung - Sample A.url",
+			"disposition": "shortcut",
+			"betrifft": "beispiel-a",
+			"flags": ["shortcut"],
+			"bemerkung": "Verknüpfung wie Ordner an der Archivwurzel [beobachtet]: Ziel auflösen und genau ein Lied importieren."
+		},
+		{
+			"path": "Sample A/Sample A Verzeichnis.xls",
+			"disposition": "separatelyInspect",
+			"flags": ["oleCompoundFile"],
+			"bemerkung": "Das Katalogblatt braucht separate Prüfung, wird nicht automatisch als Noten behandelt [maßnahme aus #98]."
+		},
+		{
+			"path": "Sample B/2. Media/.gitkeep",
+			"disposition": "fixtureMeta",
+			"flags": ["unknown"],
+			"bemerkung": "Platzhalter für den leeren Ordner '2. Media' — der Commit braucht ihn; im echten Bestand kommt er nicht vor."
+		},
+		{
+			"path": "Sample B/3. Notierprogrammdaten/.gitkeep",
+			"disposition": "fixtureMeta",
+			"flags": ["unknown"],
+			"bemerkung": "Platzhalter für den leeren Ordner '3. Notierprogrammdaten'."
+		},
+		{
+			"path": "Sample C/Sample C 3.capx",
+			"disposition": "separatelyInspect",
+			"flags": ["textLike"],
+			"bemerkung": "Notationsquellen-Kandidat; Endziffer 3 allein belegt keine Fassungsidentität, eine .capx ist auch kein MIDI-Beleg [beobachtet]."
+		}
+	]
+}

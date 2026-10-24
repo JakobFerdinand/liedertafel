@@ -62,9 +62,9 @@ public sealed class CatalogueWriteService(ArchiveDbContext db)
 	public async Task<object?> LoadEntityAsync(string entityType, Guid entityId, CancellationToken token)
 		=> entityType switch
 		{
-			FieldCatalog.EntityTypeLied => await db.Lieder
+			FieldCatalog.EntityTypeLied => await Lieder.LiedQueries.Visible(db)
 				.FirstOrDefaultAsync(l => l.Id == entityId, token),
-			FieldCatalog.EntityTypeEvent => await db.Events
+			FieldCatalog.EntityTypeEvent => await Events.EventQueries.Visible(db)
 				.FirstOrDefaultAsync(e => e.Id == entityId, token),
 			_ => null,
 		};

@@ -531,6 +531,156 @@ aoai-liedertafel-archive -g RG-Liedertafel-Archive --query id -o tsv)` shows
 journey check (upload a scan, watch the reading) is in
 [ARC-034-1 (#141)](https://github.com/JakobFerdinand/liedertafel/issues/141).
 
+## Failure alerts (ARC-042)
+`main.bicep` declares the maintainer alert wiring (nothing else alerts
+today). Every rule is a scheduled query over the environment console logs
+that already flow into `log-liedertafel-archive` (`ContainerAppConsoleLogs_CL`)
+and keys on the exact shipped failure lines; the line markers are pinned by
+`tests/archive/backend/AlertQueryContractTests.cs` in the backend test run
+(renaming a log line breaks the build before an alert can silently die).
+Deterministic by design (architecture §14): no model involvement, and
+budget-cap parks (`WaitingForBudget`) plus controlled transient retries are
+normal states that no rule matches.
+
+There are no metric alerts on application meters: the OTLP pipeline targets
+Aspire in development only, and in production no OTLP endpoint is configured
+(development keeps the Aspire path untouched; local runs never send to
+production monitoring). Log volume/age stay bounded by the workspace's
+31-day retention and the 1 GB/day ingestion cap.
+
+### Destination and enablement
+
+`param maintainerAlertEmails` (main.bicepparam, maintainer-managed, not a
+secret): primary maintainer first, then the second maintainer. While the
+list is empty every rule deploys with `enabled: false` — an infra re-run
+cannot invent a receiver. Set the addresses, commit the params file, and
+merge; the infra workflow deploys them (the addresses appear in the PR
+what-if diff).
+
+| Alert (name `al-archive-…`) | Severity | Marker | Means |
+| --- | --- | --- | --- |
+| `job-failed` | 1 | `Archive job … failed (…)` from a finite job run | A queue job or dispatch sweep execution ended in terminal failure |
+| `item-failed` | 2 | `… exhausted its attempts` / `… failed deterministically`, dimension `DateiId_s` | A Datei is terminal-Failed and needs an editor retry or repair |
+| `app-failed` | 2 | `Archive request failed (…)` on the app revision | Unhandled request 500s (DB outage, bad revision, bug) |
+| `maintenance-open` | 1 | `… paused: maintenance mode is enabled` outside a release | A stuck maintenance window — a failed release keeps members locked out |
+
+Release failures (`archive.yml`) most directly mail through GitHub's own
+workflow-failure notifications — keep both maintainers watching the repo.
+Azure-side, a failed release deterministically leaves maintenance open, which
+the `maintenance-open` alert picks up from the next finite job run (the
+daily dispatch sweep logs the pause line every day at 03:17 UTC, so a
+stuck window re-alerts daily). Migration failures run inside the release
+workflow's docker step and are covered by the GitHub notification as well,
+never by the `job-failed` rule.
+
+### Operator path (second maintainer, no memory required)
+
+1. Open the alert mail; it links to this section and carries the query and
+   the extracted `Job_s`/`DateiId_s` dimension. In the alert instance, jump
+   to "View query" / Log Analytics for the full context (timestamps,
+   `ContainerJobName_s`, `RevisionName_s`).
+2. Identify the run:
+   `az containerapp job execution list -n <job> -g RG-Liedertafel-Archive -o table`
+   and `az containerapp job execution show` for the failed execution (the
+   identity under `Web app > Azure`, or ask the primary maintainer for
+   deploy rights; read access plus this runbook is enough).
+3. One-time job failure or stuck window during a release: follow
+   [Controlled database releases](#controlled-database-releases-arc-012)
+   (maintenance stays active by design; fix forward, re-release). Check
+   members are not locked out: `curl https://archiv.liedertafel-mining.at/api/maintenance`.
+4. Recurring/undrained queue job failure: jobs restart automatically on the
+   next queue message (or the daily sweep); if executions keep failing,
+   stop churn with maintenance mode and follow the AI reading/extraction
+   sections above (max attempts, stale leases, budget state). Escalate to
+   the primary maintainer before any fixes beyond retry.
+5. Item failure (`item-failed`): open the Datei in the archive UI
+   (Wartung/"paper bin" tools show extraction/reading status); the editor's
+   retry action restarts the work fresh. Only repair via maintenance commands
+   (`--cleanup-uploads`, selection repair per its own section) with the
+   primary maintainer.
+6. App failure (`app-failed`): check the current revision health
+   (`az containerapp show -g RG-Liedertafel-Archive -n ca-liedertafel-archive`)
+   and the last release run; if Neon is unavailable the bounded monthly log
+   cap and low traffic mean a few failed requests — verify the database
+   rather than the app first.
+7. Resolve the alert instance (auto-mitigates when the marker stops repeating;
+   verify resolution in the portal alert rules view "Alerts").
+
+Ownership: alert destinations and thresholds are owned by the primary
+maintainer (Bicep params), actionable in this file; changes go through the
+ordinary infra PR path with what-if review. Never add model-based
+classification to an alert (stay deterministic, architecture §14).
+
+### Verify receipt and inject safe failures (one-off after first enablement)
+
+1. Receipt, without touching the app: in the Azure portal open
+   `ag-archive-maintainers` → "Test notifications" (or
+   `az monitor action-group show -g RG-Liedertafel-Archive -n ag-archive-maintainers`
+   to confirm both receivers, then trigger a test mail from the portal
+   "Test" pane). Both maintainers confirm receipt of the test and an alert
+   mail with the common alert schema.
+2. Safe job-failure injection — simulate a failed release window (also
+   exercises `maintenance-open`). This is reversible within minutes and
+   never touches member data:
+   ```bash
+   az containerapp job update -n ja-archive-read-dispatch -g RG-Liedertafel-Archive \
+     --set-env-vars Archive__MaintenanceMode=true
+   az containerapp job start -n ja-archive-read-dispatch -g RG-Liedertafel-Archive
+   # job run receives no env override mistake; it logs its pause line and exits 0 —
+   # correctness of the run is irrelevant, only the log line is.
+   az monitor log-analytics query --workspace 1be7abbb-ed4d-4938-9cc2-08fd723637ac \
+     --analytics-query 'ContainerAppConsoleLogs_CL | where TimeGenerated > ago(1h)
+     and Log_s has "paused: maintenance mode is enabled"'
+   # after the mail arrives (≤ ~15 min + eval):
+   az containerapp job update -n ja-archive-read-dispatch -g RG-Liedertafel-Archive \
+     --set-env-vars Archive__MaintenanceMode=false
+   ```
+   Then resolve the alert instance (or let auto-mitigate close it).
+3. Verify alert→run trace: from the alert instance, use "See in Azure
+   Monitor/Log query" and confirm `ContainerJobName_s` points at the
+   execution listed in step 2. For a local end check, repeat any finite-job
+   failure through AppHost (`src/archive`, see root AGENTS.md) and confirm
+   the correlated trace/logs/metrics arrive in the Aspire dashboard after
+   the job shuts down — development instrumentation is unchanged.
+
+Never deploy alerts with a `what-if` receiver you can't justify; the deploy
+guard rejects Delete/Replace changes, so all alert resources must remain
+additions/modifications.
+
+## Video playback copies (#161)
+
+Every uploaded video (Auftritt Aufnahmen AND Lied-Aufnahmen) automatically
+gains a playable MP4 playback copy; the transcode is a third finite job
+(related to the reading path) with everything declared in `main.bicep`.
+
+| Resource | Purpose |
+| --- | --- |
+| queue `archive-videos` | same storage account as `archive-extraction`; the finalize hook, editor sends and both sweeps go here |
+| `id-archive-video` | transcode job identity |
+| `ja-archive-video` | event job, same image parameter, `--transcode-queue` |
+| `id-archive-video-dispatch` | identity of the dispatch sweep |
+| `ja-archive-video-dispatch` | cron job (daily 04:23 UTC, `videoDispatchCron`), same image parameter, `--dispatch-videos` |
+
+Same job contract as the extraction/reading jobs: KEDA `azure-queue` rule on
+`archive-videos` (`visibleonly`, queue length 1, min 0, at most 1 execution)
+authenticated as its own identity, platform retries 0, the runtime identity
+attached with lifecycle `None` only to resolve the Key Vault
+`archive-db-connection` secret. Differences: the video identity is the ONLY
+job identity that writes blobs (it uploads the new MP4 copy under `dateien/`,
+a Datei creation at finalize time, never a rewrite), so it holds `Storage
+Blob Data Contributor` beside `Storage Queue Data Contributor`; CPU 2 and
+memory 3 Gi bound hours-long concerts, with `Archive__Video__TimeBudget` and
+`Archive__Video__DrainBudget` pinned to 2 h each inside replicaTimeout 4 h;
+and `--transcode-queue` is entirely deterministic — ffmpeg/ffprobe from the
+image's package, no model gateway registration, no spend cap to watch.
+`archive.yml` pauses, stops and pins both video jobs with the
+extraction/reading jobs through the shared resolve step; the `video_jobs`
+schema of the same migration carries progress and the terminal German failure
+on the Datei (`GET /api/dateien/videos`, `POST /api/dateien/{id}/video/retry`).
+The dispatch sweep identity holds the queue role alone. The local ffmpeg
+caveat: a worker host without ffmpeg records a clear German failure per Datei
+and exits finitely — no crash loop; see the root `AGENTS.md` install note.
+
 ## One-off blob cleanup after the contract migration (#172)
 
 The migration that dropped the asset/revision model cannot reach Blob storage.
@@ -652,3 +802,145 @@ Future import jobs must receive and check the same flag before conflicting
 work and quiesce existing executions while `maintenance` is true. Probes plus
 `/api/build` and `/api/maintenance` always stay available for observers.
 The reading jobs (ARC-034-1) follow the same rule.
+
+## Cost overview (ARC-043, #150)
+
+The monthly cost review (about 30 minutes, by the second maintainer, no
+memory required) checks four places before the "review before a higher
+recurring commitment" decision (architecture §2). Written so it runs without
+the primary maintainer; escalate anything that is not just reading numbers.
+
+### Azure group budget — portal-managed (documented finding)
+
+The budget alert is **not** provisioned through Bicep. On 2026-09-23 the
+Consumption budgets API answered `401 Unauthorized` to every programmatic
+budget PUT on this subscription — four CI runs of the ARC-021 provider step
+and then an identical PUT performed by the subscription Owner (same
+api-version, same shape), while reads against the same resource provider
+succeeded with the same identity. This is an RP-level restriction on
+programmatic budget creation for this identity class, not a permissions gap;
+the Bicep budget resource was removed the same day. The portal flow is the
+documented working path.
+
+One-off and after any amount change:
+
+1. Azure portal → **Cost Management** → **Budgets** → **Add**.
+2. Scope `RG-Liedertafel-Archive`; name `budget-liedertafel-archive`;
+   monthly reset; the amount comes from the cost worksheet below (baseline
+   EUR 10 for the group).
+3. Alert conditions: **Actual 80 %**, **Actual 100 %** and **Forecast 100 %**.
+4. Recipients: both alert addresses of `maintainerAlertEmails`
+   (main.bicepparam) and the Owner contact role.
+5. Confirm the first alert mail reaches both maintainers (test the action
+   group from "Cost Management → Budgets → the budget → Alerts" or the
+   action group's Test pane; see the ARC-042 verification steps above for
+   how receipt is checked).
+
+**The budget alert is an alert, never a cap.** Azure keeps billing past the
+alert; the only hard cap in the whole estate is the application-level AI cap
+(ARC-022-3). Wording everywhere reflects that: nothing here "spends", it
+notifies.
+
+### AI spend per feature (read from the usage ledger)
+
+The usage ledger (`ai_usage_entries`/`ai_budget_months`, written by the ARC-022-3
+budget) is the only source of AI spending truth; nothing of it is replicated.
+
+- **View:** as an editor open `/verwaltung/ki-budget/` (the page calls
+  `GET /api/maintenance/ai-budget`): the current month's spend per feature and
+  model (calls, tokens, EUR including open reservations), the EUR 15 cap and
+  the configured thresholds with each level's notified state. `no-store`; the
+  endpoint only reads — verifying costs costs nothing.
+- **Notices:** the daily reading dispatch sweep (`ja-archive-read-dispatch`,
+  03:17 UTC) compares the month against the configured thresholds and logs a
+  warning once per newly reached level, the cap included:
+  - threshold: `al-archive-ai-threshold` (severity 2), line
+    `KI-Budget: Schwellwert … EUR im Monat … erreicht (… von … EUR): <per-feature breakdown>`;
+  - cap: `al-archive-ai-cap` (severity 1), line `KI-Budget: Monatsbudget erreicht …`,
+    the same marker the refused chat/reading calls log. Both mail the
+    maintainers through the same action group as every other archive alert.
+  - Once per level per month (the month's row remembers the level); raising
+    the cap mid-month re-enables the notices above the old level.
+- **Thresholds are explicit configuration:** `aiNoticeThresholdsEur`
+  (main.bicepparam, comma separated, e.g. `aiNoticeThresholdsEur = '5,12'`)
+  relays to `Archive:Ai:NoticeThresholdsEur` on the web app and the reading
+  sweep job. The list is **empty by default — that is a deliberate disabled
+  state, not a default value**; maintainers choose the numbers when they edit
+  main.bicepparam (suggestion pending maintainer decision: 5 and 12). The
+  cap itself always notifies.
+- AI stays out of the EUR 10 group target: AI has its own EUR 15 hard
+  monthly cap; the group budget above only ever sees the rest of the estate.
+
+### Neon Free headroom (bounded check — the sleeping database is never touched)
+
+The check reads the **management plane** only:
+
+1. Neon Console (console.neon.tech) → project `*archive*` → **Usage**: the
+   month's branch storage, data transfer, and compute hours against the plan
+   allowances. This is a dashboard read; no database connection is opened.
+2. Alternatively read-only via the management API with the Neon API key
+   (`curl -H "Authorization: Bearer $NEON_API_KEY"
+   https://console.neon.tech/api/v2/projects/<project-id>/consumption`);
+   the key is a credential: keep it in the vault/secret store, never in
+   logs or shells history.
+3. Never `psql` into the branch just to "check size": the archive's
+   bounded connection design (zero keep-alive) exists so the sleeping
+   database stays asleep; inode/storage growth shows up in the console
+   storage graph.
+4. Review **before** upgrading anything: when branch storage passes about
+   80 % of the plan allowance, or transfer/consume hours trend at the
+   allowance, decide with the primary maintainer whether the plan rises or
+   a feature pauses (edition rate: no automatic upgrade is wired anywhere).
+
+### Credentials and expiry reminders (values are never logged)
+
+| Credential | Expiry | Owner | Renewal |
+| --- | --- | --- | --- |
+| GHCR pull PAT (`GHCR_PULL_PAT_ARCHIVE`, fine-grained, `packages:read` on `liedertafel-archive` only) | ≤ 1 year | primary maintainer | see "Pull-credential ownership and renewal" above; add the calendar reminder when creating a new PAT and confirm the date at every monthly check |
+| Azure managed identities (mail, Blob keys, Key Vault, OpenAI, queue send) | none | — | nothing expires; all grants are role assignments visible via `az role assignment list` |
+| Neon role passwords (`archive_migrator`, runtime, local admin; in Key Vault) | none | primary maintainer | rotation is manual (infrastructure/neon/README.md); no reminder needed |
+| Neon API key(s) | user-set | primary maintainer | rotate from the Neon console Zapier/API page as needed; never log the value |
+| Azure Communication Services sender (`archiv@liedertafel-mining.at`) | none | — | falls out of the verified domain; managed identity sends keyless |
+
+Renewing a credential never logs its value: the runbooks only ever say
+"update the secret"; GitHub Actions secrets and Key Vault references handle
+the transfer.
+
+### Cost worksheet (inventory sizes and explicit workload assumptions)
+
+The EUR 10 group target is a target, not a cap (architecture §2); AI is
+tracked separately under its own EUR 15 hard cap. Assumptions:
+
+| Item | Inventory / workload assumption | Measured by |
+| --- | --- | --- |
+| Container Apps Consumption (web app) | Scales to 0; assumed < ~4 active hours/day (≈ 5 members); 2 replicas worst case | Azure Cost Management per service |
+| Blob storage (member files) | Free plan until the imports: hot Dateien plus Cold originals; the collection budget tops a Lied/Auftritt at 40 GiB, the inventory target is 500 Lieder / 100–500 GB (long-term, review before importing at scale) | Azure Cost Management storage meter |
+| Neon Free (metadata) | Catalogue rows only, well under the Free storage allowance; the database sleeps between requests | Neon Console usage (above) |
+| Azure OpenAI (chat + scan reading) | Per-token; chat ≈ cents per session at the pinned Luna prices, scan reading a few cents per document | the ledger view (`/verwaltung/ki-budget/`), cap 15 EUR/month |
+| Email (ACS send-only) | Sign-in codes + invitations; assumed well under the plan's monthly allowance | ACS metrics in the portal — currently unmeasured |
+| Log Analytics ingestion | ≤ 1 GB/day cap (Bicep), 31-day retention; assumed a fraction of it | workspace ingestion view — currently unmeasured |
+| Jobs (`--extract-queue`, `--read-queue`, sweeps, cleanup) | Consumption CPU-seconds, sweep runs are short (≤ 15 min execution budget) | Container Apps execution metrics — currently unmeasured |
+| GHCR (private image) | Small registry, pulls per release | GitHub — unmeasured |
+
+Unmeasured items are deliberate observations, not omissions: at the monthly
+check, note in the review (repo docs or the ticket) whether any unmeasured
+number has left "clearly small" territory. Items that never exist: egress
+from Blob is member-driven (signed URLs) — spot-check the first heavy usage
+month; DB backup/export is out of scope by decision (editor trash is the
+recovery path).
+
+### Monthly check — step by step (second maintainer)
+
+1. **Azure:** Cost Management → group `RG-Liedertafel-Archive`, current
+   month per service; compare against the worksheet assumptions; open the
+   budget's monthly view if one exists.
+2. **AI:** the `/verwaltung/ki-budget/` page (needs editor sign-in) or the
+   Log Analytics query behind `al-archive-ai-threshold`/`al-archive-ai-cap`;
+   note the month's total and the biggest feature.
+3. **Neon:** Console → Usage; branch storage/transfer/compute hours vs the
+   allowances.
+4. **Credentials:** confirm the GHCR PAT expiry (GitHub → Settings →
+   Developer settings → PAT list) and open the credentials table above.
+5. **Decide:** any reading above ~80 % of its assumed envelope → record it
+   in the review with the primary maintainer (upgrade review, feature
+   pause, or expectation adjusted in this worksheet).

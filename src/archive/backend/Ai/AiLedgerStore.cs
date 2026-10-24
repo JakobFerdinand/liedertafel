@@ -34,7 +34,19 @@ public interface IAiLedgerStore
 	Task<bool> SettleAsync(AiLedgerSettlement settlement, CancellationToken cancellationToken);
 
 	Task<long> SpentAsync(string yearMonth, CancellationToken cancellationToken);
+
+	/// <summary>
+	/// The month's ledger rows summed per feature and model (ARC-043 #150). A
+	/// maintainer-facing read: no reservation, no change, no lock on
+	/// <c>ai_budget_months</c>.
+	/// </summary>
+	Task<IReadOnlyList<AiMonthEntry>> MonthEntriesAsync(string yearMonth, CancellationToken cancellationToken);
 }
+
+/// <summary>One feature on one model, summed over a budget month's ledger rows.</summary>
+public sealed record AiMonthEntry(
+	string Feature, string Model, int Calls, long InputTokens, long OutputTokens,
+	long CostMicroEur, long ReservedMicroEur);
 
 /// <summary>
 /// The ledger on PostgreSQL. A reservation runs in one transaction that locks
@@ -114,4 +126,19 @@ public sealed class PostgresAiLedgerStore(IServiceScopeFactory scopes) : IAiLedg
 			SELECT COALESCE(SUM("CostMicroEur" + "ReservedMicroEur"), 0)::bigint AS "Value"
 			FROM ai_usage_entries WHERE "YearMonth" = {yearMonth}
 			""").ToListAsync(cancellationToken)).Single();
+
+	public async Task<IReadOnlyList<AiMonthEntry>> MonthEntriesAsync(string yearMonth, CancellationToken cancellationToken)
+	{
+		await using var scope = scopes.CreateAsyncScope();
+		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+		var rows = await db.AiUsageEntries.AsNoTracking()
+			.Where(e => e.YearMonth == yearMonth)
+			.GroupBy(e => new { e.Feature, e.Model })
+			.Select(x => new AiMonthEntry(
+				x.Key.Feature, x.Key.Model, x.Sum(e => e.Calls), x.Sum(e => e.InputTokens),
+				x.Sum(e => e.OutputTokens), x.Sum(e => e.CostMicroEur), x.Sum(e => e.ReservedMicroEur)))
+			.ToListAsync(cancellationToken);
+		return rows.OrderBy(e => e.Feature, StringComparer.Ordinal)
+			.ThenBy(e => e.Model, StringComparer.Ordinal).ToList();
+	}
 }

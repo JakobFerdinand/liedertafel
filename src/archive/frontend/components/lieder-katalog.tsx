@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { LiedAblegen } from "@/components/lied-ablegen";
+import { SammelImport } from "@/components/sammel-import";
 import { fetchMe, type MeResponse } from "@/lib/auth";
 import {
   type DateiArt,
@@ -344,6 +345,17 @@ export function LiederKatalog() {
             <LiedAblegen entwurfId={entwurfId} />
           </details>
         )}
+        {editor && (
+          <details
+            className="auth-karte sammel-import"
+            aria-labelledby="sammel-import-titel"
+          >
+            <summary>
+              <h2 id="sammel-import-titel">Ordner importieren</h2>
+            </summary>
+            <SammelImport />
+          </details>
+        )}
       </div>
 
       {hatFilter && (
@@ -439,6 +451,12 @@ export function LiederKatalog() {
                     </p>
                     {angaben.length > 0 && (
                       <p className="lieder-fundstelle">{angaben.join(" · ")}</p>
+                    )}
+                    {/* Die Suche nennt, wo der Treffer stand (#142). */}
+                    {abfrage && lied.matchIn && lied.matchIn.length > 0 && (
+                      <p className="lieder-trefferfund">
+                        <span>Gefunden: {lied.matchIn.join(" · ")}</span>
+                      </p>
                     )}
                   </li>
                 );

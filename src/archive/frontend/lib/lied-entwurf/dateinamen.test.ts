@@ -74,3 +74,14 @@ test("ein einzelner Buchstabe ohne Nummer ist keine Stimme", () => {
 test("besteht der Name nur aus einer Stimme, bleibt er der Titel", () => {
   assert.equal(ausDateiname("T1.mp3").titel, "T1");
 });
+
+test("die Doppelmarke des Exports fällt weg, die Stimme steht", () => {
+  // #98: gleiche Namen im Drive-Bestand, Export als " (1)"; die Marke belegt
+  // keine Fassung.
+  const ergebnis = ausDateiname("Sample C B1 (1).pdf");
+  assert.deepEqual(ergebnis, {
+    titel: "Sample C",
+    art: "noten",
+    stimme: "Bass 1",
+  });
+});

@@ -107,7 +107,7 @@ public static class RecordingPassages
 		ArchiveDbContext db, IReadOnlyCollection<Guid> liedIds, CancellationToken token) =>
 		liedIds.Count == 0
 			? []
-			: await db.Lieder.AsNoTracking().Where(l => liedIds.Contains(l.Id))
+			: await Lieder.LiedQueries.Visible(db).AsNoTracking().Where(l => liedIds.Contains(l.Id))
 				.ToDictionaryAsync(l => l.Id, l => l.Title, token);
 
 	/// <summary>

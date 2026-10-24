@@ -24,6 +24,12 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 COPY --from=backend /app/ ./
 ENV ASPNETCORE_HTTP_PORTS=8080
+# #161: the transcode job shells out to ffmpeg/ffprobe (H.264 x264 and AAC
+# encoders ship in the distro package); the image therefore needs both on the
+# PATH so the deterministic MissingTool failure never fires in production.
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends ffmpeg \
+	&& rm -rf /var/lib/apt/lists/*
 USER $APP_UID
 EXPOSE 8080
 ENTRYPOINT ["dotnet", "Archive.Backend.dll"]

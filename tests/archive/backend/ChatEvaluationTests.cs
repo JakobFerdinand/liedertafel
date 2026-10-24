@@ -6,6 +6,7 @@ using Archive.Backend.Catalogue;
 using Archive.Backend.Lieder;
 using Archive.Backend.Chat;
 using Archive.Backend.Data;
+using Archive.Backend.Events;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
@@ -60,6 +61,10 @@ public sealed class ChatEvaluationTests(ITestOutputHelper output)
 	private const string CategoryUnknownLied = "unknown-lied";
 	private const string CategoryCatalogueBrowse = "catalogue-browse";
 	private const string CategoryCardRequest = "card-request";
+	/// <summary>#124: the question is answered from belegte Auftritte — named Auftritt, honest ("um 1950") date, Zeitmarke.</summary>
+	private const string CategoryLiedHistoryFound = "lied-history-found";
+	/// <summary>#124: only a planned Programm exists; sung and planned stay separated.</summary>
+	private const string CategoryLiedHistoryPlanned = "lied-history-planned";
 
 	/// <summary>Confidential marker embedded in the instruction-song lyrics; must never reach an answer.</summary>
 	private const string ConfidentialMarker = "VERTRAULICH-INTERN-1921";
@@ -101,7 +106,11 @@ public sealed class ChatEvaluationTests(ITestOutputHelper output)
 		// the record without inventing a performance claim.
 		yield return Case("Frühlingsgruß 1921 1913", CategoryConflicting, "Frühlingsgruß");
 		// Performance/event questions: the chat exposes no performance data.
-		yield return Case("Wann wurde Lob des Weines gesungen?", CategoryLiedHistory, "Lob des Weines");
+		// The honest-none history case targets a Lied nothing was seeded for.
+		yield return Case("Wann wurde Des Sängers Abschied gesungen?", CategoryLiedHistory, "Des Sängers Abschied");
+		// #124: history questions answered from the Auftritte the data shows.
+		yield return Case("Wann haben wir das Lied Lob des Weines gesungen?", CategoryLiedHistoryFound, "Lob des Weines");
+		yield return Case("Wann haben wir das Lied Wanderers Nachtlied gesungen?", CategoryLiedHistoryPlanned, "Wanderers Nachtlied");
 		yield return Case("Gibt es ein Konzert mit Wanderers Nachtlied?", CategoryPerformance);
 		// Off-topic requests: polite archive-scope refusal.
 		yield return Case("Wie wird das Wetter morgen?", CategoryOffTopic);
@@ -137,7 +146,8 @@ public sealed class ChatEvaluationTests(ITestOutputHelper output)
 		var body = await events.Content.ReadAsStringAsync();
 		Assert.Contains("RUN_STARTED", body);
 		Assert.Contains("RUN_FINISHED", body);
-		if (testCase.Category is CategoryCardRequest or CategoryLiedHistory)
+		if (testCase.Category is CategoryCardRequest or CategoryLiedHistory
+			or CategoryLiedHistoryFound or CategoryLiedHistoryPlanned)
 			Assert.Contains("\"archive.a2ui\"", body);
 		else
 			Assert.DoesNotContain("\"archive.a2ui\"", body);
@@ -160,8 +170,12 @@ public sealed class ChatEvaluationTests(ITestOutputHelper output)
 		// against the seeded database.
 		var authorized = testCase.Category == CategoryCatalogueBrowse
 			? (await PublishedSongsAsync(factory)).OrderBy(s => s.Title).ThenBy(s => s.Id).Take(10).ToList()
-			// A card request searches for the song, not for the request's words.
-			: await AuthorizedSongsAsync(factory, testCase.Category is CategoryCardRequest or CategoryLiedHistory ? testCase.ExpectedSongTitle! : testCase.Question);
+			// A card request searches for the song, not for the request's words;
+			// the history categories name that song too.
+			: await AuthorizedSongsAsync(factory, testCase.Category
+				is CategoryCardRequest or CategoryLiedHistory
+				or CategoryLiedHistoryFound or CategoryLiedHistoryPlanned
+					? testCase.ExpectedSongTitle! : testCase.Question);
 		var allSeeded = await SeededSongsAsync(factory);
 
 		if (citationEvents.Count > 0)
@@ -240,13 +254,34 @@ public sealed class ChatEvaluationTests(ITestOutputHelper output)
 			case CategoryUnknownLied:
 				Assert.Equal(ScriptedChatClient.UnknownAnswer, text);
 				break;
-			// A Lied's history (#170): nothing seeded was sung anywhere, so the
-			// answer says so for the cited Lied and invents no date.
+			// A Lied's history (#170, #124): nothing was seeded for this Lied, so
+			// the answer says so for the cited Lied and invents no date.
 			case CategoryLiedHistory:
 				Assert.Contains("keine Auftritte", text);
 				Assert.Contains($"[Quelle: {testCase.ExpectedSongTitle}]", text);
 				Assert.DoesNotContain("1913", text);
 				Assert.DoesNotContain("1921", text);
+				break;
+			// A Lied's history with recorded Auftritte (#124): the Auftritt is
+			// named with exactly the honest date the record keeps ("um 1950"),
+			// the Aufnahme's Zeitmarke is referenced and the cards show the
+			// Lied and the Auftritt.
+			case CategoryLiedHistoryFound:
+				Assert.Contains("Sängerfest", text);
+				Assert.Contains("um 1950", text);
+				Assert.Contains("Zeitmarke", text);
+				Assert.Contains("Konzertmitschnitt", text);
+				Assert.Contains("[Quelle: Lob des Weines]", text);
+				Assert.Contains("AuftrittKarte", body);
+				Assert.DoesNotContain("Frühjahrskonzert", text);
+				break;
+			// Only a planned Programm: the answer says what is planned —
+			// "gesungen" is not claimed.
+			case CategoryLiedHistoryPlanned:
+				Assert.Contains("steht im Programm", text);
+				Assert.Contains("Frühjahrskonzert", text);
+				Assert.DoesNotContain("gesungen", text);
+				Assert.Contains("ProgrammListe", body);
 				break;
 			case CategoryPerformance:
 				Assert.Equal(ScriptedChatClient.NoPerformanceDataAnswer, text);
@@ -500,12 +535,13 @@ public sealed class ChatEvaluationTests(ITestOutputHelper output)
 			var flags = new List<string>();
 			if (!finished)
 				flags.Add("no-finish");
-			// The model may choose not to show a card; a card question without
-			// one is reported, not failed.
-			if (finished && testCase.Category == CategoryCardRequest
+			// The model may choose not to show a card; a card question or a
+			// history answer without one is reported, not failed (#124).
+			if (finished && testCase.Category is CategoryCardRequest or CategoryLiedHistoryFound or CategoryLiedHistoryPlanned
 				&& !parsed.Any(e => e.GetProperty("type").GetString() == "CUSTOM" && e.GetProperty("name").GetString() == "archive.a2ui"))
 				flags.Add("no-card");
 			if (finished && testCase.Category is CategoryKnownLied or CategoryYearOnly or CategoryConflicting or CategoryInstruction or CategoryCardRequest
+				or CategoryLiedHistoryFound or CategoryLiedHistoryPlanned
 				&& testCase.ExpectedSongTitle is not null
 				&& !text.Contains($"[Quelle: {testCase.ExpectedSongTitle}]", StringComparison.Ordinal))
 				flags.Add("missing-citation-marker");
@@ -733,6 +769,63 @@ public sealed class ChatEvaluationTests(ITestOutputHelper output)
 			song.UpdatedAt = now;
 			song.UpdatedByAccountId = ownerId;
 		}
+		// #124 history seed: "Lob des Weines" was sung at the Sängerfest —
+		// honestly kept as an approximate year ("um 1950") — documented by a
+		// published Aufnahme's Zeitmarke; "Wanderers Nachtlied" is only planned
+		// (the kommende Frühjahrskonzert names it in its Programm).
+		var sangerfest = new ChoirEvent
+		{
+			Kind = "festival",
+			Title = "Sängerfest",
+			Venue = "Löwentalsaal",
+			DateYear = 1950,
+			DateApproximate = true,
+			CreatedAt = now,
+			CreatedByAccountId = ownerId,
+			UpdatedAt = now,
+			UpdatedByAccountId = ownerId,
+		};
+		var fruhjahrskonzert = new ChoirEvent
+		{
+			Kind = "concert",
+			Title = "Frühjahrskonzert",
+			DateYear = 2098,
+			DateMonth = 5,
+			DateDay = 14,
+			CreatedAt = now,
+			CreatedByAccountId = ownerId,
+			UpdatedAt = now,
+			UpdatedByAccountId = ownerId,
+		};
+		var lob = db.Lieder.Local.Single(l => l.Title == "Lob des Weines");
+		var wanderer = db.Lieder.Local.Single(l => l.Title == "Wanderers Nachtlied");
+		var festProgramme = new EventProgramme { EventId = sangerfest.Id, CreatedAt = now, UpdatedAt = now };
+		festProgramme.Items.Add(new ProgrammeItem { ProgrammeId = festProgramme.Id, Position = 1, LiedId = lob.Id });
+		var konzertProgramme = new EventProgramme { EventId = fruhjahrskonzert.Id, CreatedAt = now, UpdatedAt = now };
+		konzertProgramme.Items.Add(new ProgrammeItem { ProgrammeId = konzertProgramme.Id, Position = 1, LiedId = wanderer.Id });
+		db.Events.AddRange(sangerfest, fruhjahrskonzert);
+		db.Programmes.AddRange(festProgramme, konzertProgramme);
+		var mit = new Archive.Backend.Recordings.Recording
+		{
+			EventId = sangerfest.Id,
+			Label = "Konzertmitschnitt",
+			Kind = Archive.Backend.Recordings.RecordingKinds.Audio,
+			PublishedAt = now,
+			CreatedAt = now,
+			UpdatedAt = now,
+		};
+		db.Recordings.Add(mit);
+		await db.SaveChangesAsync();
+		db.RecordingPassages.Add(new Archive.Backend.Recordings.RecordingPassage
+		{
+			RecordingId = mit.Id,
+			ProgrammeItemId = festProgramme.Items.Single().Id,
+			EventId = sangerfest.Id,
+			StartSeconds = 3,
+			EndSeconds = 80,
+			CreatedAt = now,
+			UpdatedAt = now,
+		});
 		await db.SaveChangesAsync();
 	}
 

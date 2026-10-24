@@ -30,6 +30,9 @@
          container stack sharing the frontend working directory and the
          API's fixed launch-profile port (see the archive README). -->
     <None Update="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The #161 transcode input: a committed 6.7 KB MPEG-4 test clip that
+         keeps the real-ffmpeg case host- and CI-independent. -->
+    <Content Include="TestAssets/**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

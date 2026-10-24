@@ -113,6 +113,26 @@ export async function problemTitel(
   return ersatz;
 }
 
+/** Liest den deutschen Hinweis eines ProblemDetails: das Detail, wenn es eines gibt, sonst den Titel. */
+export async function problemMeldung(
+  ursache: unknown,
+  ersatz: string,
+): Promise<string> {
+  if (ursache instanceof Response) {
+    const inhalt = (await ursache.json().catch(() => null)) as {
+      title?: unknown;
+      detail?: unknown;
+    } | null;
+    if (inhalt && typeof inhalt.detail === "string" && inhalt.detail) {
+      return inhalt.detail;
+    }
+    if (inhalt && typeof inhalt.title === "string" && inhalt.title) {
+      return inhalt.title;
+    }
+  }
+  return ersatz;
+}
+
 export type DateiIdentitaet = {
   sizeBytes: number;
   fileName: string;
