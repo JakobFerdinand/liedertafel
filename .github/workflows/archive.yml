@@ -174,6 +174,10 @@ jobs:
         working-directory: src/archive/frontend
       - name: Backend and OTLP regression checks
         run: dotnet test tests/archive/backend
+      # The apphost stack's video worker shells the runner's ffmpeg (the
+      # production image ships its own); hosts without ffmpeg skip the case.
+      - name: Install ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
       - name: Clean Aspire stack integration
         run: dotnet test tests/archive/apphost
       - name: Install browser
