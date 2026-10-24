@@ -1407,20 +1407,12 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
     [Fact]
     public async Task AVideoAufnahmeFinishesWithAPlayableH264CopyOnTheRealStack()
     {
-        // The clip is encoded with the host's ffmpeg; hosts without one (a
-        // fresh CI image, a dependency-free dev box) skip this case, like the
-        // archive's real-PostgreSQL suites skip without ARCHIVE_TEST_POSTGRES.
-        if (!HostHasFfmpeg())
-        {
-            output.WriteLine("Skipped: install ffmpeg on the host (CI installs it in archive.yml).");
-            return;
-        }
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(10));
         var token = timeout.Token;
-        // Generate the clip before the stack comes up: the ffmpeg child runs
-        // on the tiny Raspberry host at its idle budget, not beside four
-        // containers and the platform worker.
-        var video = GenerateTranscodeVideo(token);
+        // The transcode input is the committed test fixture (see TestAssets):
+        // no host ffmpeg is needed, the worker's container carries the tools
+        // and does the actual encoding — that is the path under test.
+        var video = TranscodeFixture();
         var builder = await DistributedApplicationTestingBuilder.CreateAsync<Projects.Archive_AppHost>(
             ["--Archive:PersistLocalData=false", "DcpPublisher:RandomizePorts=false"],
             (options, _) => options.DisableDashboard = false, token);
@@ -1577,103 +1569,18 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         Assert.NotNull(memberBody.GetProperty("viewUrl"));
     }
 
-    /// <summary>Whether an ffmpeg binary is on the host's PATH (sans start).</summary>
-    private static bool HostHasFfmpeg()
-    {
-        try
-        {
-            using var probe = Process.Start(new ProcessStartInfo("ffmpeg", "-version")
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-            });
-            if (probe is null)
-                return false;
-            // Drain a pipe so the process cannot end the wait blocked.
-            _ = probe.StandardOutput.ReadToEndAsync();
-            _ = probe.StandardError.ReadToEndAsync();
-            return probe.WaitForExit(TimeSpan.FromSeconds(5));
-        }
-        catch (System.ComponentModel.Win32Exception)
-        {
-            return false;
-        }
-    }
-
     /// <summary>
-    /// Encodes the smallest workable transcode input with the host's ffmpeg —
-    /// #161 runs the worker on the host locally like the production runtime
-    /// image installs the tools — as a two-second 64x36 clip. The deliberately
-    /// not-browser-playable MPEG‑4 Part 2 video codec forces a real copy.
+    /// The committed transcode fixture (<see cref="kurzfilm"/>: 6,7 KB, two
+    /// seconds, 64x36, MPEG‑4 Part 2 — deliberately not browser-playable,
+    /// so the worker has real work) read from the test output. Generated once
+    /// with fd lavfi sources and committed so neither host nor CI runtime
+    /// needs an ffmpeg binary just to start the case.
     /// </summary>
-    private static byte[] GenerateTranscodeVideo(CancellationToken token)
+    private static byte[] TranscodeFixture()
     {
-        // Two bounded attempts: the worker runs the ffmpeg child beside the
-        // full stack, and a rare resource-bound failure retries once; the
-        // message names the failure instead of failing silently.
-        string? error = null;
-        for (var attempt = 0; attempt < 2; attempt++)
-        {
-            error = EncodeOnce($"archive-transcode-test-{attempt}-{Guid.NewGuid():N}.mp4", out var result);
-            if (error is null)
-                return result;
-        }
-        throw new Xunit.Sdk.XunitException($"ffmpeg failed: {error}");
-    }
-
-    private static string? EncodeOnce(string testName, out byte[] result)    {
-        var target = Path.Combine(Path.GetTempPath(), testName);
-        result = [];
-        try
-        {
-            using var process = Process.Start(new ProcessStartInfo("ffmpeg")
-            {
-                Arguments = "-hide_banner -nostdin -loglevel error -y "
-                    + "-f lavfi -i \"testsrc2=duration=2:size=64x36:rate=5\" "
-                    + "-f lavfi -i \"sine=duration=2:sample_rate=8000\" "
-                    + "-c:v mpeg4 -qscale:v 31 -c:a aac -b:a 16k "
-                    + "-movflags +faststart \"" + target + "\"",
-                RedirectStandardError = true,
-                RedirectStandardOutput = true,
-            });
-            if (process is null)
-                return "ffmpeg is not available on this host; the #161 runtime image installs it.";
-            var error = process.StandardError.ReadToEnd();
-            var stdout = process.StandardOutput.ReadToEnd();
-            var pid = process.Id;
-            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-            if (!process.WaitForExit(TimeSpan.FromSeconds(60).Milliseconds))
-            {
-                process.Kill(entireProcessTree: true);
-                return $"ffmpeg did not finish in 60 seconds (pid {pid}, waited {stopwatch.ElapsedMilliseconds} ms); "
-                    + DiagnoseChild(pid);
-            }
-            if (process.ExitCode != 0)
-                return error is { Length: > 0 } ? error
-                    : stdout is { Length: > 0 } ? stdout
-                    : $"exit code {process.ExitCode}";
-            result = File.ReadAllBytes(target);
-            return null;
-        }
-        finally
-        {
-            try { if (File.Exists(target)) File.Delete(target); }
-            catch (IOException) { }
-        }
-    }
-
-    /// <summary>Debug aid for a stubborn ffmpeg child: state from /proc.</summary>
-    private static string DiagnoseChild(int pid)
-    {
-        try
-        {
-            return $"stat={File.ReadAllText($"/proc/{pid}/stat").Split(' ')[2]} "
-                + $"wchan={File.ReadAllText($"/proc/{pid}/wchan").Trim()}";
-        }
-        catch (Exception)
-        {
-            return "the child is gone meanwhile";
-        }
+        var pfad = Path.Combine(AppContext.BaseDirectory, "TestAssets", "kurzfilm.mp4");
+        Assert.True(File.Exists(pfad), $"Test fixture missing: {pfad}");
+        return File.ReadAllBytes(pfad);
     }
 
     /// <summary>Bounded poll of the editor batch status until the copy exists.</summary>

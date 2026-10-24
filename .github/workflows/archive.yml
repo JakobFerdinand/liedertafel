@@ -174,8 +174,6 @@ jobs:
         working-directory: src/archive/frontend
       - name: Backend and OTLP regression checks
         run: dotnet test tests/archive/backend
-      - name: Install ffmpeg
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
       - name: Clean Aspire stack integration
         run: dotnet test tests/archive/apphost
       - name: Install browser
