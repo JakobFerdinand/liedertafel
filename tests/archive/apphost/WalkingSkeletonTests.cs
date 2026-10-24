@@ -1407,6 +1407,14 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
     [Fact]
     public async Task AVideoAufnahmeFinishesWithAPlayableH264CopyOnTheRealStack()
     {
+        // The clip is encoded with the host's ffmpeg; hosts without one (a
+        // fresh CI image, a dependency-free dev box) skip this case, like the
+        // archive's real-PostgreSQL suites skip without ARCHIVE_TEST_POSTGRES.
+        if (!HostHasFfmpeg())
+        {
+            output.WriteLine("Skipped: install ffmpeg on the host (CI installs it in archive.yml).");
+            return;
+        }
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(10));
         var token = timeout.Token;
         // Generate the clip before the stack comes up: the ffmpeg child runs
@@ -1567,6 +1575,29 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         Assert.Equal(playbackDateiId, Guid.Parse(memberBody.GetProperty("dateiId").GetString()!));
         Assert.Equal("video/mp4", memberBody.GetProperty("contentType").GetString());
         Assert.NotNull(memberBody.GetProperty("viewUrl"));
+    }
+
+    /// <summary>Whether an ffmpeg binary is on the host's PATH (sans start).</summary>
+    private static bool HostHasFfmpeg()
+    {
+        try
+        {
+            using var probe = Process.Start(new ProcessStartInfo("ffmpeg", "-version")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            });
+            if (probe is null)
+                return false;
+            // Drain a pipe so the process cannot end the wait blocked.
+            _ = probe.StandardOutput.ReadToEndAsync();
+            _ = probe.StandardError.ReadToEndAsync();
+            return probe.WaitForExit(TimeSpan.FromSeconds(5));
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            return false;
+        }
     }
 
     /// <summary>
