@@ -511,10 +511,13 @@ deleted into the Papierkorb; both are soft deletes of the old Datei (`DeletedAt`
   abandoned.
 - **Delete:** `POST /api/dateien/{id}/delete` `{ rowVersion }` → 204; stale 409,
   gone 404, member 403. Works for Dateien of Lieder and of Auftritte.
-- **Papierkorb:** `GET /api/papierkorb` (editor) lists trashed Dateien with
-  owner (Lied or Auftritt), who deleted them, when and whether they were
-  replaced; the page is `/verwaltung/papierkorb/`. The collection budget still
-  counts trashed bytes. Restoring (#146) clears the trash columns, but only
+- **Papierkorb:** `GET /api/papierkorb` (editor) lists all three arts in one
+  payload — `lieder` (title), `auftritte` (title, kind) and `dateien` with owner
+  (Lied or Auftritt), who deleted them, when and whether they were replaced; the
+  page is `/verwaltung/papierkorb/`, sectioned „Lieder“, „Auftritte“ and
+  „Dateien“, with restore for the whole Redaktion and Administrators confirming
+  the immediate removal of every art. The collection budget still counts trashed
+  bytes. Restoring (#146) clears the trash columns, but only
   within the retention (`Archive:Papierkorb:RetentionDays`, default seven days):
   past it the restore endpoints answer 409 (the daily cleanup removes the entry
   for good), and a Datei whose owning Lied or Auftritt is still in the trash

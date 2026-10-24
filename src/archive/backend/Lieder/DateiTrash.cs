@@ -144,6 +144,7 @@ public static class DateiTrashEndpoints
 				auftritte = eventRows.OrderByDescending(r => r.DeletedAt).ThenBy(r => r.Id).Select(r => new
 				{
 					id = r.Id,
+					kind = r.Kind,
 					title = r.Title,
 					deletedAt = r.DeletedAt,
 					deletedBy = r.DeletedByAccountId is { } by && names.TryGetValue(by, out var name) ? name : null,

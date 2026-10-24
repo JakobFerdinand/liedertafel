@@ -122,6 +122,8 @@ public sealed class PapierkorbRecoveryTests
 		var entry = Assert.Single((await host.GetJsonAsync("/api/papierkorb", editor)).GetProperty("auftritte").EnumerateArray());
 		Assert.Equal(eventId.ToString(), entry.GetProperty("id").GetString());
 		Assert.Equal("Frühjahrskonzert", entry.GetProperty("title").GetString());
+		Assert.Equal("concert", entry.GetProperty("kind").GetString());
+		Assert.False(string.IsNullOrEmpty(entry.GetProperty("deletedBy").GetString()));
 
 		using (var restored = await host.PostAsync($"/api/events/{eventId}/restore", new { }, editor))
 			Assert.Equal(HttpStatusCode.NoContent, restored.StatusCode);
@@ -282,6 +284,31 @@ public sealed class PapierkorbRecoveryTests
 		using var restored = await host.PostAsync($"/api/lieder/{liedId}/restore", new { }, editor);
 		Assert.Equal(HttpStatusCode.NoContent, restored.StatusCode);
 		Assert.True((await host.GetJsonAsync("/api/lieder", editor)).GetProperty("lieder").GetArrayLength() == 1);
+	}
+
+	[Fact]
+	public async Task TheTrashListingShowsAllThreeArtsTogether()
+	{
+		await using var host = new LiedTestHost();
+		var editor = await host.EditorAsync();
+		var liedId = await host.CreateLiedIdAsync(editor, "Gelöstes Lied");
+		var datei = await host.UploadNotenAsync(editor, liedId, "Tenor 1", fileName: "noten.pdf");
+		var eventId = await host.CreateEventAsync(editor, "Gelöster Auftritt");
+		await host.UploadEventDateiAsync(editor, eventId, "sonstiges",
+			LiedTestHost.Png(2048), "foto.png", "image/png");
+
+		await host.PostAsync($"/api/dateien/{datei.GetProperty("id").GetString()}/delete", new { rowVersion = 1u }, editor);
+		await host.PostAsync($"/api/lieder/{liedId}/delete", new { rowVersion = 1u }, editor);
+		var eventVersion = (await host.GetJsonAsync($"/api/events/{eventId}", editor))
+			.GetProperty("event").GetProperty("rowVersion").GetUInt32();
+		await host.PostAsync($"/api/events/{eventId}/delete", new { rowVersion = eventVersion }, editor);
+
+		var trash = await host.GetJsonAsync("/api/papierkorb", editor);
+		var liedEntry = Assert.Single(trash.GetProperty("lieder").EnumerateArray());
+		Assert.Equal("Gelöstes Lied", liedEntry.GetProperty("title").GetString());
+		var auftrittEntry = Assert.Single(trash.GetProperty("auftritte").EnumerateArray());
+		Assert.Equal("Gelöster Auftritt", auftrittEntry.GetProperty("title").GetString());
+		Assert.Equal(1, trash.GetProperty("dateien").GetArrayLength());
 	}
 
 	// ===== Sofortiges Entfernen (Administrator) ==========================
