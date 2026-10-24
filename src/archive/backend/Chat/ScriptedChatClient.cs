@@ -122,12 +122,16 @@ public sealed class ScriptedChatClient : IChatClient
 				}
 			}
 			// A question that asks for a card, or a history answer about one
-			// Lied: after the lookup, show the first Lied found, then answer
-			// from the lookup result as usual.
+			// Lied: after the lookup, show the Lied and — from the history —
+			// the Auftritte it was sung at (their Programm when nothing is
+			// sung yet), then answer from the lookup result as usual.
 			var cardSource = asksHistory ? DetailsToolName : SearchToolName;
 			if (offersCards && (asksHistory || AsksForCard(askedQuestion)) && calledTool == cardSource
 				&& ParseLieder(result.Result) is [{ } first, ..])
 			{
+				var komponenten = asksHistory
+					? HistorySurfaces(result.Result, first.Id)
+					: new[] { new { komponente = "LiedKarte", liedId = first.Id } };
 				yield return new ChatResponseUpdate
 				{
 					MessageId = MessageId,
@@ -135,7 +139,7 @@ public sealed class ScriptedChatClient : IChatClient
 						new Dictionary<string, object?>
 						{
 							["komponenten"] = JsonDocument.Parse(
-								JsonSerializer.Serialize(new[] { new { komponente = "LiedKarte", liedId = first.Id } })).RootElement.Clone(),
+								JsonSerializer.Serialize(komponenten)).RootElement.Clone(),
 						})],
 				};
 				yield break;
@@ -356,6 +360,53 @@ public sealed class ScriptedChatClient : IChatClient
 
 	private static string CatalogueFold(string text) => Archive.Backend.Catalogue.CatalogueText.Fold(text);
 
+	/// <summary>
+	/// The cards a scripted history answer shows (in this order): the Lied,
+	/// then each sung Auftritt as its card, and a Programm only when nothing
+	/// is sung yet. Every id comes from the details result — the model never
+	/// invents one. Bounded to the run's surface bound.
+	/// </summary>
+	private static object[] HistorySurfaces(object? detailsJson, string liedId)
+	{
+		var list = new List<object>();
+		try
+		{
+			if (detailsJson is string json)
+			{
+				using var document = JsonDocument.Parse(json);
+				var sung = AuftrittIds(document.RootElement, "gesungen").ToList();
+				var geplant = AuftrittIds(document.RootElement, "geplant").ToList();
+				list.Add(new { komponente = "LiedKarte", liedId });
+				foreach (var auftrittId in sung)
+					list.Add(new { komponente = "AuftrittKarte", auftrittId });
+				if (sung.Count == 0 && geplant.Count > 0)
+				{
+					list.Add(new { komponente = "ProgrammListe", auftrittId = geplant[0] });
+					foreach (var auftrittId in geplant.Skip(1))
+						list.Add(new { komponente = "AuftrittKarte", auftrittId });
+				}
+			}
+		}
+		catch (JsonException)
+		{
+			// Malformed tool output shows nothing extra; the text answer stands.
+			return [];
+		}
+		return [.. list.Take(A2uiCatalog.MaxSurfacesPerAnswer)];
+	}
+
+	private static IEnumerable<string> AuftrittIds(JsonElement root, string name)
+	{
+		if (!root.TryGetProperty(name, out var list) || list.ValueKind is not JsonValueKind.Array)
+			yield break;
+		foreach (var item in list.EnumerateArray())
+		{
+			if (item.TryGetProperty("auftrittId", out var id) && id.GetString() is { Length: > 0 } value)
+				yield return value;
+		}
+	}
+
+
 	/// <summary>The German answer sentences for a Lied's history, from the details result only.</summary>
 	private static string HistorySentences(string title, string detailsJson)
 	{
@@ -366,6 +417,10 @@ public sealed class ScriptedChatClient : IChatClient
 			foreach (var entry in Entries(document.RootElement, "gesungen"))
 			{
 				sentences.Add($"„{title}“ wurde beim Auftritt „{entry.Auftritt}“ ({entry.Datum}) gesungen.");
+				if (entry.Zeitmarken.Count > 0)
+					sentences.Add($"Dafür gibt es eine Zeitmarke in der Aufnahme „{entry.Zeitmarken[0].Label}“.");
+				if (entry.Aufnahmen.Count > 0)
+					sentences.Add("Dafür gibt es auch eine Aufnahme des Liedes.");
 			}
 			foreach (var entry in Entries(document.RootElement, "geplant"))
 				sentences.Add($"„{title}“ steht im Programm des kommenden Auftritts „{entry.Auftritt}“ ({entry.Datum}).");
@@ -378,16 +433,38 @@ public sealed class ScriptedChatClient : IChatClient
 			? $"Zu „{title}“ sind im Archiv keine Auftritte verzeichnet."
 			: string.Join(' ', sentences);
 
-		static IEnumerable<(string Auftritt, string Datum)> Entries(JsonElement root, string name)
+		static IEnumerable<HistoryEntry> Entries(JsonElement root, string name)
 		{
 			if (!root.TryGetProperty(name, out var list) || list.ValueKind is not JsonValueKind.Array)
 				yield break;
 			foreach (var item in list.EnumerateArray())
-				yield return (
+			{
+				var marks = new List<(string Label, double? Start)>();
+				if (item.TryGetProperty("zeitmarken", out var zeitmarken) && zeitmarken.ValueKind is JsonValueKind.Array)
+				{
+					foreach (var mark in zeitmarken.EnumerateArray())
+					{
+						if (mark.TryGetProperty("aufnahme", out var label) && label.GetString() is { Length: > 0 } labelValue)
+							marks.Add((labelValue,
+								mark.TryGetProperty("start", out var start) && start.ValueKind == JsonValueKind.Number
+									? start.GetDouble() : null));
+					}
+				}
+				var files = new List<string>();
+				if (item.TryGetProperty("aufnahmen", out var aufnahmen) && aufnahmen.ValueKind is JsonValueKind.Array)
+					files.AddRange(aufnahmen.EnumerateArray()
+						.Where(f => f.ValueKind is JsonValueKind.String)
+						.Select(f => f.GetString() ?? string.Empty)
+						.Where(f => f.Length > 0));
+				yield return new HistoryEntry(
 					item.TryGetProperty("auftritt", out var a) ? a.GetString() ?? string.Empty : string.Empty,
-					item.TryGetProperty("datum", out var d) ? d.GetString() ?? string.Empty : string.Empty);
+					item.TryGetProperty("datum", out var d) ? d.GetString() ?? string.Empty : string.Empty,
+					marks, files);
+			}
 		}
 	}
+
+	private sealed record HistoryEntry(string Auftritt, string Datum, List<(string Label, double? Start)> Zeitmarken, List<string> Aufnahmen);
 
 	private static bool IsNextPageRequest(string question) => ContainsAny(question, "weitere lieder", "nächste seite");
 

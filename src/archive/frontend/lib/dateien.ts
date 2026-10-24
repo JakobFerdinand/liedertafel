@@ -221,16 +221,42 @@ export type PapierkorbEintrag = {
   replaced: boolean;
 };
 
+export type PapierkorbLiedEintrag = {
+  id: string;
+  title: string;
+  deletedAt: string;
+  deletedBy: string | null;
+};
+
+export type PapierkorbAuftrittEintrag = {
+  id: string;
+  kind: string;
+  title: string;
+  deletedAt: string;
+  deletedBy: string | null;
+};
+
+export type PapierkorbInhalt = {
+  dateien: PapierkorbEintrag[];
+  lieder: PapierkorbLiedEintrag[];
+  auftritte: PapierkorbAuftrittEintrag[];
+};
+
 export async function fetchPapierkorb(
   signal?: AbortSignal,
-): Promise<PapierkorbEintrag[]> {
+): Promise<PapierkorbInhalt> {
   const response = await fetch("/api/papierkorb", {
     credentials: "same-origin",
     cache: "no-store",
     signal,
   });
   if (!response.ok) throw response;
-  return ((await response.json()) as { dateien: PapierkorbEintrag[] }).dateien;
+  const data = (await response.json()) as Partial<PapierkorbInhalt>;
+  return {
+    dateien: data.dateien ?? [],
+    lieder: data.lieder ?? [],
+    auftritte: data.auftritte ?? [],
+  };
 }
 
 // Dateien eines Auftritts (#171): Dokumente, Fotografien und Konzertdateien.

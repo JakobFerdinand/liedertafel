@@ -59,9 +59,13 @@ public static class DateiKindRules
 			[.. AudioTypes, .. MidiTypes],
 			InvalidUebeMessage,
 			(header, type) => MatchesMedia(header, type, video: false)),
-		// Aufnahme: audio or video of the choir.
+		// Aufnahme: audio or video of the choir. #161: camera containers
+		// (Matroska, AVI) upload too — their playable MP4 Abspielkopie is the
+		// automatic answer; the header gate keeps recognizing them from the
+		// leading bytes.
 		[DateiKinds.Aufnahme] = new DateiKindRule(
-			[.. AudioTypes, "audio/webm", "video/mp4", "video/quicktime", "video/webm"],
+			[.. AudioTypes, "audio/webm", "video/mp4", "video/quicktime", "video/webm",
+				"video/x-matroska", "video/x-msvideo"],
 			InvalidAufnahmeMessage,
 			(header, type) => MatchesMedia(header, type, video: type.StartsWith("video/", StringComparison.Ordinal))),
 		// Sonstiges: a short whitelist of document and image types, downloaded not played.

@@ -18,6 +18,10 @@ import {
   type SpielerAbschnitt,
 } from "@/components/medien-spieler";
 import {
+  VideoKonvertierung,
+  VideoUebersichtProvider,
+} from "@/components/video-uebersicht";
+import {
   type Aufnahme,
   type AufnahmeArt,
   type AufnahmeDatei,
@@ -752,7 +756,7 @@ export function AuftrittAufnahmen({
       setMeldung(
         `${platzName(platz)} für „${aufnahme.label}“ gespeichert${
           neu?.playback.state === "needsPlaybackCopy"
-            ? ". Die Datei bleibt erhalten, ist aber im Browser nicht abspielbar; bitte eine Abspielfassung ergänzen."
+            ? ". Das Archiv erstellt die Abspielkopie automatisch; das Original bleibt erhalten."
             : "."
         }`,
       );
@@ -822,208 +826,217 @@ export function AuftrittAufnahmen({
           Zu diesem Auftritt sind noch keine Aufnahmen hinterlegt.
         </p>
       ) : (
-        <div className="material-liste aufnahmen-liste">
-          {aufnahmen.map((aufnahme) => {
-            const zugriff = zugriffe[aufnahme.id];
-            const titelId = `aufnahme-titel-${aufnahme.id}`;
-            return (
-              <article
-                className="material-eintrag aufnahme"
-                key={aufnahme.id}
-                aria-labelledby={titelId}
-              >
-                <h4
-                  id={titelId}
-                  tabIndex={-1}
-                  ref={(element) => {
-                    if (element) titelRefs.current.set(aufnahme.id, element);
-                    else titelRefs.current.delete(aufnahme.id);
-                  }}
+        <VideoUebersichtProvider>
+          <div className="material-liste aufnahmen-liste">
+            {aufnahmen.map((aufnahme) => {
+              const zugriff = zugriffe[aufnahme.id];
+              const titelId = `aufnahme-titel-${aufnahme.id}`;
+              return (
+                <article
+                  className="material-eintrag aufnahme"
+                  key={aufnahme.id}
+                  aria-labelledby={titelId}
                 >
-                  {aufnahme.label}
-                </h4>
-                {isEditor && (
-                  <p className="lieder-status">
-                    {aufnahme.isPublished ? "Veröffentlicht" : "Entwurf"}
-                    {" · "}
-                    {aufnahme.downloadEnabled
-                      ? "Herunterladen erlaubt"
-                      : "Herunterladen gesperrt"}
-                  </p>
-                )}
-                <p className="noten-info">{infoZeile(aufnahme)}</p>
-                {aufnahme.playback.state === "needsPlaybackCopy" && (
-                  <p className="aufnahme-zustand">
-                    Diese Aufnahme liegt im Archiv, kann aber noch nicht im
-                    Browser abgespielt werden.
-                    {aufnahme.downloadEnabled
-                      ? " Die Originaldatei kann heruntergeladen werden."
-                      : ""}
-                  </p>
-                )}
-                {aufnahme.playback.state === "missing" && (
-                  <p className="aufnahme-zustand">
-                    Zu dieser Aufnahme wurde noch keine Datei hochgeladen.
-                  </p>
-                )}
-                <div className="noten-aktionen">
-                  {aufnahme.playback.state === "ready" && (
-                    <button
-                      type="button"
-                      aria-expanded={zugriff !== undefined}
-                      aria-label={
-                        zugriff
-                          ? `${aufnahme.label} schließen`
-                          : aufnahme.kind === "video"
-                            ? `${aufnahme.label} ansehen`
-                            : `${aufnahme.label} anhören`
-                      }
-                      // Nicht `disabled`: der Knopf behält den Fokus, während
-                      // das Ticket geholt wird.
-                      aria-disabled={beschaeftigt === `oeffnen:${aufnahme.id}`}
-                      onClick={() => {
-                        if (beschaeftigt !== "") return;
-                        if (zugriff) schliessen(aufnahme.id);
-                        else void oeffnen(aufnahme.id);
-                      }}
-                    >
-                      {beschaeftigt === `oeffnen:${aufnahme.id}`
-                        ? "Wird geöffnet …"
-                        : zugriff
-                          ? "Schließen"
-                          : aufnahme.kind === "video"
-                            ? "Ansehen"
-                            : "Anhören"}
-                    </button>
+                  <h4
+                    id={titelId}
+                    tabIndex={-1}
+                    ref={(element) => {
+                      if (element) titelRefs.current.set(aufnahme.id, element);
+                      else titelRefs.current.delete(aufnahme.id);
+                    }}
+                  >
+                    {aufnahme.label}
+                  </h4>
+                  {isEditor && (
+                    <p className="lieder-status">
+                      {aufnahme.isPublished ? "Veröffentlicht" : "Entwurf"}
+                      {" · "}
+                      {aufnahme.downloadEnabled
+                        ? "Herunterladen erlaubt"
+                        : "Herunterladen gesperrt"}
+                    </p>
                   )}
-                  {aufnahme.downloadEnabled &&
-                    aufnahme.playback.state !== "missing" && (
+                  <p className="noten-info">{infoZeile(aufnahme)}</p>
+                  {aufnahme.playback.state === "needsPlaybackCopy" && (
+                    <p className="aufnahme-zustand">
+                      Diese Aufnahme liegt im Archiv, kann aber noch nicht im
+                      Browser abgespielt werden.
+                      {aufnahme.downloadEnabled
+                        ? " Die Originaldatei kann heruntergeladen werden."
+                        : ""}
+                    </p>
+                  )}
+                  {aufnahme.playback.state === "missing" && (
+                    <p className="aufnahme-zustand">
+                      Zu dieser Aufnahme wurde noch keine Datei hochgeladen.
+                    </p>
+                  )}
+                  <div className="noten-aktionen">
+                    {aufnahme.playback.state === "ready" && (
                       <button
                         type="button"
-                        className="knopf-leise"
-                        aria-label={`${aufnahme.label} herunterladen`}
-                        aria-disabled={beschaeftigt === `laden:${aufnahme.id}`}
+                        aria-expanded={zugriff !== undefined}
+                        aria-label={
+                          zugriff
+                            ? `${aufnahme.label} schließen`
+                            : aufnahme.kind === "video"
+                              ? `${aufnahme.label} ansehen`
+                              : `${aufnahme.label} anhören`
+                        }
+                        // Nicht `disabled`: der Knopf behält den Fokus, während
+                        // das Ticket geholt wird.
+                        aria-disabled={
+                          beschaeftigt === `oeffnen:${aufnahme.id}`
+                        }
                         onClick={() => {
-                          if (beschaeftigt === "") void herunterladen(aufnahme);
+                          if (beschaeftigt !== "") return;
+                          if (zugriff) schliessen(aufnahme.id);
+                          else void oeffnen(aufnahme.id);
                         }}
                       >
-                        Herunterladen
+                        {beschaeftigt === `oeffnen:${aufnahme.id}`
+                          ? "Wird geöffnet …"
+                          : zugriff
+                            ? "Schließen"
+                            : aufnahme.kind === "video"
+                              ? "Ansehen"
+                              : "Anhören"}
                       </button>
                     )}
-                </div>
-                <div role="alert">
-                  {zugriffFehler[aufnahme.id] && (
-                    <p className="feld-fehler">{zugriffFehler[aufnahme.id]}</p>
-                  )}
-                </div>
-                {zugriff && (
-                  <MedienSpieler
-                    kennung={aufnahme.id}
-                    art={aufnahme.kind}
-                    name={aufnahme.label}
-                    zugriff={zugriff}
-                    holeZugriff={async () => {
-                      const neu = await holeSpielZugriff(aufnahme.id);
-                      // Ohne abspielbare Datei gibt es nichts zu erneuern.
-                      if (neu === null) {
-                        throw new Response(null, { status: 404 });
-                      }
-                      return neu;
-                    }}
-                    aktiv={spielend === aufnahme.id}
-                    onAbspielen={() => setSpielend(aufnahme.id)}
-                    onErneuert={(neu) => {
-                      setZugriffe((vorher) =>
-                        vorher[aufnahme.id]
-                          ? { ...vorher, [aufnahme.id]: neu }
-                          : vorher,
-                      );
-                      // Ein erneuertes Ticket kann eine andere Datei nennen.
-                      dateiPruefen(aufnahme.id, neu.dateiId);
-                    }}
-                    ladeMeldung={LadeErsatz}
-                    formatMeldung={
-                      aufnahme.downloadEnabled
-                        ? "Diese Aufnahme kann in diesem Browser nicht wiedergegeben werden. Sie kann weiterhin heruntergeladen werden."
-                        : "Diese Aufnahme kann in diesem Browser nicht wiedergegeben werden."
-                    }
-                    herunterladenErlaubt={aufnahme.downloadEnabled}
-                    onPosition={(sekunden) =>
-                      positionen.current.set(aufnahme.id, sekunden)
-                    }
-                    abschnitt={abschnitte[aufnahme.id]}
-                    sprung={
-                      wiederaufnahme[aufnahme.id] ??
-                      (aufnahme.id === startAufnahmeId &&
-                      !startStelleId &&
-                      startSekunden !== null &&
-                      startSekunden !== undefined
-                        ? { sekunden: startSekunden, marke: 0 }
-                        : undefined)
-                    }
-                  />
-                )}
-                {stellen[aufnahme.id] === "fehler" && (
-                  <div role="alert">
-                    <p className="feld-fehler">
-                      Die Zeitmarken konnten nicht geladen werden.
-                    </p>
-                    <div className="noten-aktionen">
-                      <button
-                        type="button"
-                        className="knopf-leise"
-                        onClick={() => void ladeStellen(aufnahme.id)}
-                      >
-                        Zeitmarken erneut laden
-                      </button>
-                    </div>
+                    {aufnahme.downloadEnabled &&
+                      aufnahme.playback.state !== "missing" && (
+                        <button
+                          type="button"
+                          className="knopf-leise"
+                          aria-label={`${aufnahme.label} herunterladen`}
+                          aria-disabled={
+                            beschaeftigt === `laden:${aufnahme.id}`
+                          }
+                          onClick={() => {
+                            if (beschaeftigt === "")
+                              void herunterladen(aufnahme);
+                          }}
+                        >
+                          Herunterladen
+                        </button>
+                      )}
                   </div>
-                )}
-                {(() => {
-                  const stand = stellen[aufnahme.id];
-                  if (stand === undefined || stand === "fehler") return null;
-                  return isEditor ? (
-                    aufnahme.editor && (
-                      <ZeitmarkenRedaktion
+                  <div role="alert">
+                    {zugriffFehler[aufnahme.id] && (
+                      <p className="feld-fehler">
+                        {zugriffFehler[aufnahme.id]}
+                      </p>
+                    )}
+                  </div>
+                  {zugriff && (
+                    <MedienSpieler
+                      kennung={aufnahme.id}
+                      art={aufnahme.kind}
+                      name={aufnahme.label}
+                      zugriff={zugriff}
+                      holeZugriff={async () => {
+                        const neu = await holeSpielZugriff(aufnahme.id);
+                        // Ohne abspielbare Datei gibt es nichts zu erneuern.
+                        if (neu === null) {
+                          throw new Response(null, { status: 404 });
+                        }
+                        return neu;
+                      }}
+                      aktiv={spielend === aufnahme.id}
+                      onAbspielen={() => setSpielend(aufnahme.id)}
+                      onErneuert={(neu) => {
+                        setZugriffe((vorher) =>
+                          vorher[aufnahme.id]
+                            ? { ...vorher, [aufnahme.id]: neu }
+                            : vorher,
+                        );
+                        // Ein erneuertes Ticket kann eine andere Datei nennen.
+                        dateiPruefen(aufnahme.id, neu.dateiId);
+                      }}
+                      ladeMeldung={LadeErsatz}
+                      formatMeldung={
+                        aufnahme.downloadEnabled
+                          ? "Diese Aufnahme kann in diesem Browser nicht wiedergegeben werden. Sie kann weiterhin heruntergeladen werden."
+                          : "Diese Aufnahme kann in diesem Browser nicht wiedergegeben werden."
+                      }
+                      herunterladenErlaubt={aufnahme.downloadEnabled}
+                      onPosition={(sekunden) =>
+                        positionen.current.set(aufnahme.id, sekunden)
+                      }
+                      abschnitt={abschnitte[aufnahme.id]}
+                      sprung={
+                        wiederaufnahme[aufnahme.id] ??
+                        (aufnahme.id === startAufnahmeId &&
+                        !startStelleId &&
+                        startSekunden !== null &&
+                        startSekunden !== undefined
+                          ? { sekunden: startSekunden, marke: 0 }
+                          : undefined)
+                      }
+                    />
+                  )}
+                  {stellen[aufnahme.id] === "fehler" && (
+                    <div role="alert">
+                      <p className="feld-fehler">
+                        Die Zeitmarken konnten nicht geladen werden.
+                      </p>
+                      <div className="noten-aktionen">
+                        <button
+                          type="button"
+                          className="knopf-leise"
+                          onClick={() => void ladeStellen(aufnahme.id)}
+                        >
+                          Zeitmarken erneut laden
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {(() => {
+                    const stand = stellen[aufnahme.id];
+                    if (stand === undefined || stand === "fehler") return null;
+                    return isEditor ? (
+                      aufnahme.editor && (
+                        <ZeitmarkenRedaktion
+                          aufnahme={aufnahme}
+                          stand={stand}
+                          spielerOffen={zugriff !== undefined}
+                          leseposition={() =>
+                            positionen.current.get(aufnahme.id) ?? null
+                          }
+                          onSpringen={(marke) => springen(aufnahme, marke)}
+                          onGeaendert={() => ladeStellen(aufnahme.id)}
+                          onDateiGewechselt={() => dateiGewechselt(aufnahme.id)}
+                          onMeldung={setMeldung}
+                        />
+                      )
+                    ) : (
+                      <ZeitmarkenListe
                         aufnahme={aufnahme}
                         stand={stand}
-                        spielerOffen={zugriff !== undefined}
-                        leseposition={() =>
-                          positionen.current.get(aufnahme.id) ?? null
-                        }
                         onSpringen={(marke) => springen(aufnahme, marke)}
-                        onGeaendert={() => ladeStellen(aufnahme.id)}
-                        onDateiGewechselt={() => dateiGewechselt(aufnahme.id)}
-                        onMeldung={setMeldung}
                       />
-                    )
-                  ) : (
-                    <ZeitmarkenListe
+                    );
+                  })()}
+                  {isEditor && aufnahme.editor && (
+                    <AufnahmeRedaktion
                       aufnahme={aufnahme}
-                      stand={stand}
-                      onSpringen={(marke) => springen(aufnahme, marke)}
+                      uebertragungen={uebertragungen}
+                      onGespeichert={(gespeichert, text) => {
+                        uebernehmen(gespeichert);
+                        setMeldung(text);
+                      }}
+                      onVeraltet={() => void laden()}
+                      onDatei={(platz, datei) =>
+                        void hochladen(aufnahme, platz, datei)
+                      }
+                      onAbbrechen={abbrechen}
                     />
-                  );
-                })()}
-                {isEditor && aufnahme.editor && (
-                  <AufnahmeRedaktion
-                    aufnahme={aufnahme}
-                    uebertragungen={uebertragungen}
-                    onGespeichert={(gespeichert, text) => {
-                      uebernehmen(gespeichert);
-                      setMeldung(text);
-                    }}
-                    onVeraltet={() => void laden()}
-                    onDatei={(platz, datei) =>
-                      void hochladen(aufnahme, platz, datei)
-                    }
-                    onAbbrechen={abbrechen}
-                  />
-                )}
-              </article>
-            );
-          })}
-        </div>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        </VideoUebersichtProvider>
       )}
       {isEditor && aufnahmen !== null && !ladeFehler && (
         <NeueAufnahme auftrittId={auftrittId} onAngelegt={angelegt} />
@@ -1241,6 +1254,15 @@ function AufnahmeRedaktion({
               Original herunterladen
             </button>
           </div>
+        )}
+        {/* #161: der Stand der automatischen Abspielkopie des Originals. */}
+        {aufnahme.kind === "video" && original && (
+          <VideoKonvertierung
+            dateiId={original.dateiId}
+            isEditor
+            bezeichnung={`${aufnahme.label} (Original)`}
+            onAbgeschlossen={onVeraltet}
+          />
         )}
         <div role="alert">
           {ladeFehler && <p className="feld-fehler">{ladeFehler}</p>}

@@ -52,6 +52,16 @@ public sealed class ChoirEvent
 	public Guid UpdatedByAccountId { get; set; }
 
 	/// <summary>
+	/// Trash (#146): set when the Auftritt was deleted with its Programm,
+	/// Aufnahmen and Dateien; hidden from members until restored or removed.
+	/// <see cref="EventProgramme"/>, the <see cref="Recordings.Recording"/>en
+	/// and their Zeitmarken stay untouched, so restoring brings everything back.
+	/// </summary>
+	public DateTimeOffset? DeletedAt { get; set; }
+
+	public Guid? DeletedByAccountId { get; set; }
+
+	/// <summary>
 	/// Application-bumped optimistic-concurrency token, mirroring the catalogue
 	/// entities: every mutation increments it alongside the change.
 	/// </summary>

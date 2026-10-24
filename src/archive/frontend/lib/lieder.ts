@@ -42,6 +42,8 @@ export type LiedEintrag = {
   musicalKey: string | null;
   language: string | null;
   occasion: string | null;
+  /** Wo der Treffer stand ("im Liedtext", "in den Noten", …). */
+  matchIn?: string[];
   dateiTypen: DateiArt[];
 };
 

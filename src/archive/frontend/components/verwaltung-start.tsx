@@ -16,6 +16,10 @@ export function VerwaltungStart() {
           <li>
             <Link href="/verwaltung/papierkorb/">Papierkorb</Link>
           </li>
+          {/* ARC-043 (#150): der KI-Kostenüberblick der Verwaltung. */}
+          <li>
+            <Link href="/verwaltung/ki-budget/">KI-Kosten</Link>
+          </li>
         </ul>
       </nav>
       <AngefangenListe />

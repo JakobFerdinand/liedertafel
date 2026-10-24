@@ -15,7 +15,8 @@ internal static class FiniteJobs
 	{
 		"--migrate" or "--bootstrap-admin" or "--repair-admin" or "--cleanup-dropped-blobs"
 			or "--extract-queue" or "--dispatch-extraction"
-			or "--read-queue" or "--dispatch-reading" => false,
+			or "--read-queue" or "--dispatch-reading"
+			or "--transcode-queue" or "--dispatch-videos" => false,
 		_ => true,
 	};
 }

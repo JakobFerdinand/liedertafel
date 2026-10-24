@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import {
+  adminMe,
   datei,
   editorMe,
   json,
@@ -122,6 +123,256 @@ test("Mitglied sieht weder Ersetzen noch Löschen", async ({ page }) => {
   ).toHaveCount(0);
 });
 
+test("Der Papierkorb zeigt Lieder, Auftritte und Dateien; die Redaktion sieht kein endgültiges Entfernen", async ({
+  page,
+}) => {
+  await mockSitzung(page, editorMe);
+  await page.route("**/api/papierkorb", (route) =>
+    route.fulfill(
+      json({
+        dateien: [
+          {
+            id: altId,
+            kind: "noten",
+            isPartitur: false,
+            stimme: "Tenor 1",
+            fileName: "alt.pdf",
+            sizeBytes: 400000,
+            liedId: mondId,
+            liedTitle: "Der Mond ist aufgegangen",
+            eventId: null,
+            eventTitle: null,
+            deletedAt: "2026-09-20T10:30:00.000Z",
+            deletedBy: "Redaktion",
+            replaced: true,
+          },
+        ],
+        lieder: [
+          {
+            id: mondId,
+            title: "Der Mond ist aufgegangen",
+            deletedAt: "2026-09-21T08:00:00.000Z",
+            deletedBy: "Chef",
+          },
+        ],
+        auftritte: [
+          {
+            id: "00000000-0000-0000-0000-00000000b001",
+            kind: "concert",
+            title: "Frühjahrskonzert",
+            deletedAt: "2026-09-22T19:00:00.000Z",
+            deletedBy: "Chef",
+          },
+        ],
+      }),
+    ),
+  );
+
+  await page.goto("/verwaltung/papierkorb/");
+  await expect(
+    page.getByRole("heading", { name: "Papierkorb", level: 1 }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Lieder", level: 2 }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Auftritte", level: 2 }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Dateien", level: 2 }),
+  ).toBeVisible();
+  const lied = page
+    .getByLabel("Gelöschte Lieder")
+    .getByRole("listitem")
+    .filter({ hasText: "Der Mond ist aufgegangen" });
+  await expect(lied).toContainText("21.09.2026");
+  const auftritt = page
+    .getByLabel("Gelöschte Auftritte")
+    .getByRole("listitem")
+    .filter({ hasText: "Frühjahrskonzert" });
+  await expect(auftritt).toContainText("Konzert");
+  await expect(
+    page.getByRole("button", { name: /Endgültig entfernen/ }),
+  ).toHaveCount(0);
+});
+
+test("Redaktion stellt ein Lied wieder her; die Frist-Ablehnung zeigt den deutschen Hinweis", async ({
+  page,
+}) => {
+  await mockSitzung(page, editorMe);
+  let papierkorb = {
+    dateien: [],
+    lieder: [
+      {
+        id: mondId,
+        title: "Der Mond ist aufgegangen",
+        deletedAt: "2026-09-20T08:00:00.000Z",
+        deletedBy: "Chef",
+      },
+    ],
+    auftritte: [],
+  };
+  await page.route("**/api/papierkorb", (route) =>
+    route.fulfill(json(papierkorb)),
+  );
+  await page.route(`**/api/lieder/${mondId}/restore`, (route) =>
+    route.fulfill(
+      json(
+        {
+          title: "Die Aufbewahrungsfrist ist abgelaufen.",
+          detail:
+            "Einträge bleiben 7 Tage im Papierkorb und werden danach endgültig entfernt.",
+          status: 409,
+        },
+        409,
+      ),
+    ),
+  );
+
+  await page.goto("/verwaltung/papierkorb/");
+  await page
+    .getByRole("button", {
+      name: `Wiederherstellen · Der Mond ist aufgegangen`,
+    })
+    .click();
+  await expect(
+    page.getByText(
+      "Einträge bleiben 7 Tage im Papierkorb und werden danach endgültig entfernt.",
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", {
+      name: `Wiederherstellen · Der Mond ist aufgegangen`,
+    }),
+  ).toBeVisible();
+
+  // A second try succeeds: the empty trash shows its empty state.
+  await page.unroute(`**/api/lieder/${mondId}/restore`);
+  await page.route(`**/api/lieder/${mondId}/restore`, (route) => {
+    papierkorb = { ...papierkorb, lieder: [] };
+    return route.fulfill({ status: 204 });
+  });
+  await page
+    .getByRole("button", {
+      name: `Wiederherstellen · Der Mond ist aufgegangen`,
+    })
+    .click();
+  await expect(page.getByText("Der Papierkorb ist leer.")).toBeVisible();
+});
+
+test("Redaktion stellt einen Auftritt wieder her", async ({ page }) => {
+  await mockSitzung(page, editorMe);
+  const auftrittId = "00000000-0000-0000-0000-00000000b001";
+  let papierkorb = {
+    dateien: [],
+    lieder: [],
+    auftritte: [
+      {
+        id: auftrittId,
+        kind: "concert",
+        title: "Jubiläumskonzert",
+        deletedAt: "2026-09-22T19:00:00.000Z",
+        deletedBy: "Chef",
+      },
+    ],
+  };
+  await page.route("**/api/papierkorb", (route) =>
+    route.fulfill(json(papierkorb)),
+  );
+  await page.route(`**/api/events/${auftrittId}/restore`, (route) => {
+    papierkorb = { ...papierkorb, auftritte: [] };
+    return route.fulfill({ status: 204 });
+  });
+
+  await page.goto("/verwaltung/papierkorb/");
+  const wiederherstellen = page.getByRole("button", {
+    name: "Wiederherstellen · Jubiläumskonzert",
+  });
+  await expect(wiederherstellen).toBeVisible();
+  await wiederherstellen.click();
+  await expect(page.getByText("Der Papierkorb ist leer.")).toBeVisible();
+});
+
+test("Die Verwaltung entfernt ein Lied endgültig; die Bestätigung schützt vor dem Versehen", async ({
+  page,
+}) => {
+  await mockSitzung(page, adminMe);
+  let papierkorb = {
+    dateien: [],
+    lieder: [
+      {
+        id: mondId,
+        title: "Der Mond ist aufgegangen",
+        deletedAt: "2026-09-20T08:00:00.000Z",
+        deletedBy: "Chef",
+      },
+    ],
+    auftritte: [],
+  };
+  await page.route("**/api/papierkorb", (route) =>
+    route.fulfill(json(papierkorb)),
+  );
+  const entfernungen: unknown[] = [];
+  await page.route(`**/api/papierkorb/lieder/${mondId}/remove`, (route) => {
+    entfernungen.push(route.request().postDataJSON());
+    papierkorb = { ...papierkorb, lieder: [] };
+    return route.fulfill({ status: 204 });
+  });
+
+  await page.goto("/verwaltung/papierkorb/");
+  expect(entfernungen).toEqual([]);
+  await page
+    .getByRole("button", {
+      name: "Endgültig entfernen · Der Mond ist aufgegangen",
+    })
+    .click();
+  expect(entfernungen).toEqual([]);
+  await page
+    .getByRole("button", {
+      name: "Ja, endgültig entfernen · Der Mond ist aufgegangen",
+    })
+    .click();
+  await expect(page.getByText("Der Papierkorb ist leer.")).toBeVisible();
+  expect(entfernungen).toEqual([{}]);
+});
+
+test("Die Verwaltung entfernt einen Auftritt endgültig", async ({ page }) => {
+  await mockSitzung(page, adminMe);
+  const auftrittId = "00000000-0000-0000-0000-00000000b001";
+  let papierkorb = {
+    dateien: [],
+    lieder: [],
+    auftritte: [
+      {
+        id: auftrittId,
+        kind: "concert",
+        title: "Jubiläumskonzert",
+        deletedAt: "2026-09-22T19:00:00.000Z",
+        deletedBy: "Chef",
+      },
+    ],
+  };
+  await page.route("**/api/papierkorb", (route) =>
+    route.fulfill(json(papierkorb)),
+  );
+  await page.route(
+    `**/api/papierkorb/auftritte/${auftrittId}/remove`,
+    (route) => {
+      papierkorb = { ...papierkorb, auftritte: [] };
+      return route.fulfill({ status: 204 });
+    },
+  );
+
+  await page.goto("/verwaltung/papierkorb/");
+  await page
+    .getByRole("button", { name: "Endgültig entfernen · Jubiläumskonzert" })
+    .click();
+  await page
+    .getByRole("button", { name: "Ja, endgültig entfernen · Jubiläumskonzert" })
+    .click();
+  await expect(page.getByText("Der Papierkorb ist leer.")).toBeVisible();
+});
+
 test("Der Papierkorb listet Dateiname, Lied und Datum für die Redaktion", async ({
   page,
 }) => {
@@ -168,4 +419,67 @@ test("Der Papierkorb ist für Mitglieder nicht sichtbar", async ({ page }) => {
   await expect(
     page.getByText("Der Papierkorb ist nur für die Redaktion sichtbar."),
   ).toBeVisible();
+});
+
+test("Redaktion stellt eine Datei wieder her; die Ablehnung zeigt den deutschen Hinweis", async ({
+  page,
+}) => {
+  await mockSitzung(page, editorMe);
+  let aktuell = [
+    {
+      id: altId,
+      kind: "noten",
+      isPartitur: false,
+      stimme: "Tenor 1",
+      fileName: "alt.pdf",
+      sizeBytes: 400000,
+      liedId: mondId,
+      liedTitle: "Der Mond ist aufgegangen",
+      eventId: null,
+      eventTitle: null,
+      deletedAt: "2026-09-20T10:30:00.000Z",
+      deletedBy: "Redaktion",
+      replaced: false,
+    },
+  ];
+  await page.route("**/api/papierkorb", (route) =>
+    route.fulfill(json({ dateien: aktuell })),
+  );
+  await page.route(`**/api/dateien/${altId}/restore`, (route) =>
+    route.fulfill(
+      json(
+        {
+          title: "Der übergeordnete Eintrag ist noch im Papierkorb.",
+          detail:
+            "Der übergeordnete Eintrag ist noch im Papierkorb und muss erst wiederhergestellt werden.",
+          status: 409,
+        },
+        409,
+      ),
+    ),
+  );
+
+  await page.goto("/verwaltung/papierkorb/");
+  await page
+    .getByRole("button", { name: "Wiederherstellen · alt.pdf" })
+    .click();
+  await expect(
+    page.getByText(
+      "Der übergeordnete Eintrag ist noch im Papierkorb und muss erst wiederhergestellt werden.",
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Wiederherstellen · alt.pdf" }),
+  ).toBeVisible();
+
+  // A second try succeeds: the entry leaves the list.
+  await page.unroute(`**/api/dateien/${altId}/restore`);
+  await page.route(`**/api/dateien/${altId}/restore`, (route) => {
+    aktuell = [];
+    return route.fulfill({ status: 204 });
+  });
+  await page
+    .getByRole("button", { name: "Wiederherstellen · alt.pdf" })
+    .click();
+  await expect(page.getByText("Der Papierkorb ist leer.")).toBeVisible();
 });

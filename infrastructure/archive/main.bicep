@@ -55,11 +55,35 @@ param readingDispatchIdentityName string = 'id-archive-read-dispatch'
 @description('Scheduled reading dispatch job name (ARC-034-1). Runs the same backend image with --dispatch-reading, which wakes work parked for budget.')
 param readingDispatchJobName string = 'ja-archive-read-dispatch'
 
+@description('Scheduled Papierkorb cleanup job name (#146). Runs the same backend image with --cleanup-papierkorb; removes trashed rows past the seven-day retention and releases their blobs.')
+param papierkorbCleanupJobName string = 'ja-archive-papierkorb'
+
+@description('Cron expression (UTC) of the Papierkorb cleanup. Daily is enough: retention is seven days, so nothing expires faster than that.')
+param papierkorbCleanupCron string = '43 2 * * *'
+
 @description('Cron expression (UTC) of the reading dispatch sweep. Daily is enough: parked work only has to wake when a new month starts or the cap is raised.')
 param readingDispatchCron string = '17 3 * * *'
 
 @description('Archive:Reading:Enabled (ARC-034-1). True lets the extraction job hand scores to the AI reading job and shows the reading to editors. Set false (and redeploy) to switch the feature off again: nothing is handed over, the editor actions answer 409 and the pages hide the reading.')
 param readingEnabled bool = true
+
+// #161 — least-privilege identity of the queue-triggered video-transcode job.
+// Queue contributor plus Blob Data Contributor on the assets account (it
+// uploads the MP4 playback copy next to the original); no vault, key-ring,
+// mail, model or database roles are involved.
+param videoIdentityName string = 'id-archive-video'
+
+@description('Queue-triggered video-transcode job name (#161). Runs the same backend image with --transcode-queue as a finite run.')
+param videoJobName string = 'ja-archive-video'
+
+@description('Identity of the scheduled video dispatch sweep (#161). Queue contributor on the assets storage account only: no blob access.')
+param videoDispatchIdentityName string = 'id-archive-video-dispatch'
+
+@description('Scheduled video dispatch job name (#161). Runs the same backend image with --dispatch-videos, handing rows whose enqueue send failed to the queue.')
+param videoDispatchJobName string = 'ja-archive-video-dispatch'
+
+@description('Cron expression (UTC) of the video dispatch sweep. Daily: a lost queue send only costs latency, never a duplicate.')
+param videoDispatchCron string = '23 4 * * *'
 
 @description('Key Vault name (RBAC model). Holds the GHCR pull credential lifecycle; runtime secrets arrive in ARC-011.')
 param vaultName string = 'kv-liedertafel-archive'
@@ -88,6 +112,12 @@ param bindManagedCertificate bool = false
 
 @description('Log Analytics daily ingestion cap in GB. ARC-009 decision: 1 GB/day; the shell needs far less and PAYG retention stays at 31 days.')
 param logAnalyticsDailyCapGb int = 1
+
+@description('Maintainer alert destinations (ARC-042). Email addresses of the primary and second maintainer, most specific first. Alerts stay disabled while this is empty, so a template deploy never invents a receiver. The addresses are not secrets but they do appear in deployment diffs, the portal and alert mails: list them in main.bicepparam, never inline in main.bicep.')
+param maintainerAlertEmails array = []
+
+@description('ARC-043 (#150): comma-separated EUR thresholds for the AI spend notices before the hard cap, relayed to the app and the reading jobs as Archive:Ai:NoticeThresholdsEur (suggested 5,12). Empty = disabled; there is intentionally no template default, the maintainers choose the values here.')
+param aiNoticeThresholdsEur string = ''
 
 @description('Deploy the RBAC role assignments. PR what-if uses a Contributor-only preview identity without Microsoft.Authorization/roleAssignments/write, so it previews with false; real deploys keep true.')
 param deployRoleAssignments bool = true
@@ -135,6 +165,334 @@ resource workspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   }
 }
 
+// ARC-042 — maintainer failure alerts. Deterministic end to end: every rule
+// is a scheduled query over console logs that the environment already sends
+// to this workspace (managedEnvironments appLogsConfiguration above), keyed
+// on the exact shipped log lines. There are deliberately no metric alerts on
+// the application meters: the OTLP pipeline targets Aspire in development
+// only, and in production no OTLP endpoint is configured, so the application
+// meters never reach Azure Monitor; Azure's own platform metrics for the
+// jobs carry no failure dimension worth alerting on. Failure classes:
+// - job         an execution of a finite job ended in a terminal error
+//               (RunArchiveJobAsync's LogError line; archive-migrate runs as
+//               a docker step of the release workflow and is covered by the
+//               GitHub Actions failure notification instead).
+// - work item   a Datei's bounded retry ladder ran out (the row is Failed
+//               and needs an editor retry or a maintenance repair).
+// - app         an unhandled request exception on the public app (500s from
+//               DB outages land here; /alive stays green by contract).
+// - window      a release that failed after opening the maintenance window
+//               leaves the window open — a finite job run logs its pause line
+//               while it is. This is the Azure-side release-failure signal;
+//               an ordinary failed release run also mails via GitHub Actions.
+// Controlled transient retries are per-attempt LogWarning lines with
+// ({ExceptionType}) and budget parks (WaitingForBudget) are a normal state:
+// neither is a marker of any rule. The daily-ingestion cap and the 31-day
+// retention above bound log volume and age; the rules themselves query only
+// Azure Monitor and never touch Neon or the web app. Log-line markers are
+// contract-tested in tests/archive/backend/AlertQueryContractTests.cs — keep
+// them in step with the shipped log lines.
+//
+// The action groups and rules materialize only once destination emails exist
+// (maintainerAlertEmails in main.bicepparam); while the list is empty the
+// rules deploy as enabled=false and no receiver is invented.
+// Known Bicep type inaccuracies (like the jobs' triggerType placement above):
+// the scheduledQueryRules types reject `actions.actionGroupId`/`actionType`
+// and want `operator`/`values` on dimensions — the runtime schema for
+// 2023-12-01 does accept the deployed shape, so these are BCP037/BCP035/BCP089
+// warnings only. Deployed shape is verified by the group what-if below.
+var alertsEnabled = length(maintainerAlertEmails) > 0
+var alertRunbook = 'https://github.com/JakobFerdinand/liedertafel/blob/main/infrastructure/archive/README.md#failure-alerts-arc-042'
+var costRunbook = 'https://github.com/JakobFerdinand/liedertafel/blob/main/infrastructure/archive/README.md#cost-overview-arc-043'
+
+resource maintainerActionGroup 'Microsoft.Insights/actionGroups@2023-03-01' = if (alertsEnabled) {
+  name: 'ag-archive-maintainers'
+  location: 'global'
+  properties: {
+    groupShortName: 'archiv'
+    enabled: true
+    emailReceivers: [for (email, index) in maintainerAlertEmails: {
+      name: 'maintainer-${(index + 1)}'
+      emailAddress: email
+      useCommonAlertSchema: true
+    }]
+  }
+}
+
+// An execution of --extract-queue / --read-queue / --dispatch-reading ended
+// in the terminal failure line, with the job name as a dimension so the mail
+// names the run to inspect.
+resource jobFailureAlert 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = {
+  name: 'al-archive-job-failed'
+  location: 'global'
+  properties: {
+    displayName: 'Archiv: fehlgeschlagene Jobausführung'
+    description: 'A finite archive job run ended in terminal failure. Operator path: infrastructure/archive/README.md, "Failure alerts (ARC-042)".'
+    severity: 1
+    enabled: alertsEnabled
+    evaluationFrequency: 'PT15M'
+    windowSize: 'PT1H'
+    scopes: [workspace.id]
+    autoMitigate: true
+    actions: {
+      actionGroupId: alertsEnabled ? maintainerActionGroup.id : ''
+      actionType: 'LogAlert'
+      customProperties: {
+        runbook: alertRunbook
+      }
+    }
+    criteria: {
+      allOf: [
+        {
+          query: '''
+ContainerAppConsoleLogs_CL
+| where TimeGenerated > ago(1h)
+  and isnotempty(ContainerJobName_s)
+  and Log_s has "Archive job " and Log_s has " failed ("
+| extend Job_s = tostring(extract(@"Archive job (\S+) failed", 1, Log_s))'''
+          timeAggregation: 'Count'
+          operator: 'GreaterThan'
+          threshold: 0
+          failingPeriods: {
+            numberOfEvaluationPeriods: 1
+            minFailingPeriodsToAlert: 1
+          }
+          dimensions: [
+            {
+              name: 'Job_s'
+              column: 'Job_s'
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
+
+// A Datei's bounded retry ladder ran out (extraction or reading): the row is
+// terminal-Failed and the mail carries the DateiId to look up. Per-attempt
+// transient warnings are never matched.
+resource itemFailureAlert 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = {
+  name: 'al-archive-item-failed'
+  location: 'global'
+  properties: {
+    displayName: 'Archiv: Dokument verarbeitung endgültig fehlgeschlagen'
+    description: 'A Datei exhausted its bounded attempts (extraction or reading) and is terminal-Failed. Operator path: infrastructure/archive/README.md, "Failure alerts (ARC-042)".'
+    severity: 2
+    enabled: alertsEnabled
+    evaluationFrequency: 'PT1H'
+    windowSize: 'PT1H'
+    scopes: [workspace.id]
+    autoMitigate: true
+    actions: {
+      actionGroupId: alertsEnabled ? maintainerActionGroup.id : ''
+      actionType: 'LogAlert'
+      customProperties: {
+        runbook: alertRunbook
+      }
+    }
+    criteria: {
+      allOf: [
+        {
+          query: '''
+ContainerAppConsoleLogs_CL
+| where TimeGenerated > ago(1h)
+  and (Log_s has "exhausted its attempts" or Log_s has "failed deterministically")
+| extend DateiId_s = tostring(extract(@"Datei ([0-9a-f-]{36})", 1, Log_s))'''
+          timeAggregation: 'Count'
+          operator: 'GreaterThan'
+          threshold: 0
+          failingPeriods: {
+            numberOfEvaluationPeriods: 1
+            minFailingPeriodsToAlert: 1
+          }
+          dimensions: [
+            {
+              name: 'DateiId_s'
+              column: 'DateiId_s'
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
+
+// Unhandled request exceptions on the public app: a DB outage, a bad
+// revision or a real bug shows up here even though /alive stays green.
+resource appFailureAlert 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = {
+  name: 'al-archive-app-failed'
+  location: 'global'
+  properties: {
+    displayName: 'Archiv: unbehandelte Fehler auf dem App-Container'
+    description: 'The public archive app logged unhandled request failures. Operator path: infrastructure/archive/README.md, "Failure alerts (ARC-042)".'
+    severity: 2
+    enabled: alertsEnabled
+    evaluationFrequency: 'PT15M'
+    windowSize: 'PT1H'
+    scopes: [workspace.id]
+    autoMitigate: true
+    actions: {
+      actionGroupId: alertsEnabled ? maintainerActionGroup.id : ''
+      actionType: 'LogAlert'
+      customProperties: {
+        runbook: alertRunbook
+      }
+    }
+    criteria: {
+      allOf: [
+        {
+          query: '''
+ContainerAppConsoleLogs_CL
+| where TimeGenerated > ago(1h)
+  and isnotempty(RevisionName_s)
+  and Log_s has "Archive request failed ("'''
+          timeAggregation: 'Count'
+          operator: 'GreaterThan'
+          threshold: 0
+          failingPeriods: {
+            numberOfEvaluationPeriods: 1
+            minFailingPeriodsToAlert: 1
+          }
+        }
+      ]
+    }
+  }
+}
+
+// A release that failed after opening the maintenance window keeps the window
+// open; every finite job run that starts while it is open logs its pause
+// line. The daily dispatch sweep guarantees at least one such line per day,
+// so a stuck window (a failed release without GitHub's own mail noticed)
+// shows up repeatedly instead of silently persisting.
+resource maintenanceWindowAlert 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = {
+  name: 'al-archive-maintenance-open'
+  location: 'global'
+  properties: {
+    displayName: 'Archiv: Wartungsfenster offen (mögliche fehlgeschlagene Veröffentlichung)'
+    description: 'The maintenance window is open outside a release (a release failure keeps members locked out). Operator path: infrastructure/archive/README.md, "Failure alerts (ARC-042)".'
+    severity: 1
+    enabled: alertsEnabled
+    evaluationFrequency: 'PT15M'
+    windowSize: 'PT1H'
+    scopes: [workspace.id]
+    autoMitigate: true
+    actions: {
+      actionGroupId: alertsEnabled ? maintainerActionGroup.id : ''
+      actionType: 'LogAlert'
+      customProperties: {
+        runbook: alertRunbook
+      }
+    }
+    criteria: {
+      allOf: [
+        {
+          query: '''
+ContainerAppConsoleLogs_CL
+| where TimeGenerated > ago(1h)
+  and Log_s has "paused: maintenance mode is enabled"'''
+          timeAggregation: 'Count'
+          operator: 'GreaterThan'
+          threshold: 0
+          failingPeriods: {
+            numberOfEvaluationPeriods: 1
+            minFailingPeriodsToAlert: 1
+          }
+        }
+      ]
+    }
+  }
+}
+
+// ARC-043 (#150) — AI spend notices. The application's own ledger is the
+// only place AI spending is visible (the model calls never leave a
+// platform-side cost signal that separates AI from the group's other
+// charges), so the notices travel over the same console logs: the daily
+// reading dispatch sweep compares the month against the explicitly
+// configured thresholds (aiNoticeThresholdsEur) and logs a warning exactly
+// once per level per month, the hard cap included. The never-excepted
+// refused-call line (KI-Budget: Monatsbudget erreicht …) shares the cap
+// marker, so a chat run past the cap pages even when the sweep is somehow
+// not running. Everything fires through the same maintainer action group;
+// AI stays out of the EUR 10 group budget (no Azure budget resource exists
+// — see "Cost overview (ARC-043)" in the README).
+resource aiThresholdAlert 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = {
+  name: 'al-archive-ai-threshold'
+  location: 'global'
+  properties: {
+    displayName: 'Archiv: KI-Kosten Schwellwert erreicht'
+    description: 'The archive AI spend reached an agreed threshold of the EUR 15 hard cap before it. Operator path: infrastructure/archive/README.md, "Cost overview (ARC-043)".'
+    severity: 2
+    enabled: alertsEnabled
+    evaluationFrequency: 'PT1H'
+    windowSize: 'PT1H'
+    scopes: [workspace.id]
+    autoMitigate: true
+    actions: {
+      actionGroupId: alertsEnabled ? maintainerActionGroup.id : ''
+      actionType: 'LogAlert'
+      customProperties: {
+        runbook: costRunbook
+      }
+    }
+    criteria: {
+      allOf: [
+        {
+          query: '''
+ContainerAppConsoleLogs_CL
+| where TimeGenerated > ago(1h) and Log_s has "KI-Budget: Schwellwert"
+  and Log_s has " EUR im Monat " and Log_s has " EUR): "'''
+          timeAggregation: 'Count'
+          operator: 'GreaterThan'
+          threshold: 0
+          failingPeriods: {
+            numberOfEvaluationPeriods: 1
+            minFailingPeriodsToAlert: 1
+          }
+        }
+      ]
+    }
+  }
+}
+
+resource aiCapAlert 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = {
+  name: 'al-archive-ai-cap'
+  location: 'global'
+  properties: {
+    displayName: 'Archiv: KI-Monatsbudget erreicht'
+    description: 'The archive AI spend reached the EUR 15 hard monthly cap; chat and scan reading answer refusals until the month rolls over. This is an application budget, not an Azure spending cap. Operator path: infrastructure/archive/README.md, "Cost overview (ARC-043)".'
+    severity: 1
+    enabled: alertsEnabled
+    evaluationFrequency: 'PT1H'
+    windowSize: 'PT1H'
+    scopes: [workspace.id]
+    autoMitigate: true
+    actions: {
+      actionGroupId: alertsEnabled ? maintainerActionGroup.id : ''
+      actionType: 'LogAlert'
+      customProperties: {
+        runbook: costRunbook
+      }
+    }
+    criteria: {
+      allOf: [
+        {
+          query: '''
+ContainerAppConsoleLogs_CL
+| where TimeGenerated > ago(1h) and Log_s has "Monatsbudget erreicht"'''
+          timeAggregation: 'Count'
+          operator: 'GreaterThan'
+          threshold: 0
+          failingPeriods: {
+            numberOfEvaluationPeriods: 1
+            minFailingPeriodsToAlert: 1
+          }
+        }
+      ]
+    }
+  }
+}
+
 resource runtimeIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
   name: runtimeIdentityName
   location: location
@@ -164,6 +522,22 @@ resource readingIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-
 // queue role alone: no blob access and no Azure OpenAI role.
 resource readingDispatchIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
   name: readingDispatchIdentityName
+  location: location
+}
+
+// #161 — identity of the queue-triggered video-transcode job. It reads the
+// original, encodes with ffmpeg and uploads the MP4 copy, so it holds Queue
+// Data Contributor AND Blob Data Contributor on the assets account; no
+// vault, key-ring, mail or model roles.
+resource videoIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: videoIdentityName
+  location: location
+}
+
+// #161 — identity of the scheduled video dispatch sweep: it reads and stamps
+// `video_jobs` rows and sends queue messages. Queue role alone, no blobs.
+resource videoDispatchIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: videoDispatchIdentityName
   location: location
 }
 
@@ -316,6 +690,17 @@ var readingQueueName = 'archive-reading'
 resource readingQueue 'Microsoft.Storage/storageAccounts/queueServices/queues@2023-05-01' = {
   parent: queueService
   name: readingQueueName
+}
+
+// #161: the video-transcode queue, same account (declared here so KEDA can
+// poll it before any worker ran). The name must match
+// VideoOptions.QueueName. Video code falls back to the extraction queue's
+// service URI (same account), so the app and the jobs need no extra setting.
+var videoQueueName = 'archive-videos'
+
+resource videoQueue 'Microsoft.Storage/storageAccounts/queueServices/queues@2023-05-01' = {
+  parent: queueService
+  name: videoQueueName
 }
 
 // ARC-021 — Azure OpenAI (Microsoft Foundry) chat path. The account carries
@@ -562,6 +947,50 @@ resource readingDispatchQueueContributor 'Microsoft.Authorization/roleAssignment
   }
 }
 
+// #161: video-transcode job identity. Queue Data Contributor (same contract
+// as the other job identities) plus Blob Data Contributor — the only job
+// identity that WRITES blobs, because its result is the new MP4 copy under
+// `dateien/` (a Datei creation at finalize time, never a rewrite).
+resource videoQueueContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployRoleAssignments) {
+  name: guid(storage.id, videoIdentity.id, 'queue-data-contributor')
+  scope: storage
+  properties: {
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      '974c5e8b-45b9-4653-ba55-5f855dd0fb88'
+    )
+    principalId: videoIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource videoBlobContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployRoleAssignments) {
+  name: guid(storage.id, videoIdentity.id, 'blob-data-contributor')
+  scope: storage
+  properties: {
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      'ba92f5b4-2d11-4538-92e3-a1f6a6d1c8bc'
+    )
+    principalId: videoIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// #161: video dispatch sweep identity, Queue Data Contributor alone.
+resource videoDispatchQueueContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployRoleAssignments) {
+  name: guid(storage.id, videoDispatchIdentity.id, 'queue-data-contributor')
+  scope: storage
+  properties: {
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      '974c5e8b-45b9-4653-ba55-5f855dd0fb88'
+    )
+    principalId: videoDispatchIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
 resource cryptoUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployRoleAssignments) {
   name: guid(vault.id, runtimeIdentity.id, 'crypto-user')
   scope: vault
@@ -778,6 +1207,13 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
             {
               name: 'Archive__Reading__Enabled'
               value: readingEnabled ? 'true' : 'false'
+            }
+            // ARC-043 (#150): the editor's AI budget view and the daily
+            // review run on the same ledger; the maintainers set the
+            // thresholds explicitly, empty stays disabled.
+            {
+              name: 'Archive__Ai__NoticeThresholdsEur'
+              value: aiNoticeThresholdsEur
             }
           ]
           probes: [
@@ -1257,6 +1693,338 @@ resource readDispatchJob 'Microsoft.App/jobs@2025-01-01' = {
               name: 'Archive__MaintenanceMode'
               value: maintenanceMode ? 'true' : 'false'
             }
+            // ARC-043 (#150): this daily sweep is the AI cost review's
+            // deterministic moment; the maintainers set the thresholds
+            // explicitly, empty stays disabled.
+            {
+              name: 'Archive__Ai__NoticeThresholdsEur'
+              value: aiNoticeThresholdsEur
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
+
+// #146 — scheduled Papierkorb cleanup. Runs `--cleanup-papierkorb` daily:
+// trashed Lieder, Auftritte and Dateien whose deletion is older than the
+// seven-day retention are removed for good, their blobs released afterwards.
+// It generates no model calls and never touches queues, so the runtime
+// identity suffices: it reads the vault secret for the database connection
+// and already holds Storage Blob Data Contributor on the assets account for
+// the blob release. Maintenance mode makes the run exit before touching the
+// database.
+resource papierkorbCleanupJob 'Microsoft.App/jobs@2025-01-01' = {
+  name: papierkorbCleanupJobName
+  location: location
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${runtimeIdentity.id}': {}
+    }
+  }
+  properties: {
+    environmentId: environment.id
+    workloadProfileName: 'Consumption'
+    configuration: {
+      identitySettings: [
+        {
+          identity: runtimeIdentity.id
+          lifecycle: 'All'
+        }
+      ]
+      registries: [
+        {
+          server: 'ghcr.io'
+          username: ghcrUsername
+          passwordSecretRef: 'ghcr-password'
+        }
+      ]
+      secrets: [
+        {
+          name: 'ghcr-password'
+          value: ghcrPassword
+        }
+        {
+          name: 'archive-db-connection'
+          keyVaultUrl: '${vault.properties.vaultUri}secrets/archive-db-connection'
+          identity: runtimeIdentity.id
+        }
+      ]
+      replicaTimeout: 900
+      replicaRetryLimit: 0
+      triggerType: 'Schedule'
+      scheduleTriggerConfig: {
+        cronExpression: papierkorbCleanupCron
+        parallelism: 1
+        replicaCompletionCount: 1
+      }
+    }
+    template: {
+      containers: [
+        {
+          name: 'papierkorb'
+          image: containerImage
+          args: [
+            '--cleanup-papierkorb'
+          ]
+          resources: {
+            cpu: json('0.25')
+            memory: '0.5Gi'
+          }
+          env: [
+            {
+              name: 'ConnectionStrings__archive-db'
+              secretRef: 'archive-db-connection'
+            }
+            {
+              name: 'AZURE_CLIENT_ID'
+              value: runtimeIdentity.properties.clientId
+            }
+            {
+              name: 'Archive__Assets__ServiceUri'
+              value: 'https://${storage.name}.blob.${az.environment().suffixes.storage}'
+            }
+            {
+              name: 'Archive__MaintenanceMode'
+              value: maintenanceMode ? 'true' : 'false'
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
+
+// Managed certificate with CNAME domain control validation. Second stage only:
+// the hostname must already be attached to the app (bindCustomDomain run) and
+// the CNAME plus asuid TXT records must exist (see
+// infrastructure/archive/README.md); otherwise issuance fails. No explicit
+// dependsOn: the app references the certificate once bound, so an explicit
+// back-reference would be circular; the persisted hostname from the first
+// stage satisfies the issuance prerequisite.
+// #161 — queue-triggered video-transcode job (finite run of
+// `--transcode-queue`: sweep un-enqueued rows, then drain `archive-videos`).
+// Same image parameter as the app; deterministic ffmpeg work, no model. Its
+// identity is the only job one writing blobs (the MP4 copy, under `dateien/`;
+// a new object at finalize, never a rewrite). One execution at a time like
+// the reading job: two-hour concerts encode for hours, so a second run would
+// only burn CPU for nothing. Platform retries stay off (`replicaRetryLimit`
+// 0): the worker's own bounded attempt ladder is the retry contract. The
+// worker's per-message time budget and drain budget are pinned to 2 h each
+// so the whole run, cold start and OTLP flush included, stays inside
+// replicaTimeout 4 h — headroom like the reading job's.
+resource videoJob 'Microsoft.App/jobs@2025-01-01' = {
+  name: videoJobName
+  location: location
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${videoIdentity.id}': {}
+      // Resolves the Key Vault-referenced database secret only; lifecycle
+      // None keeps it unavailable inside the container, exactly like the
+      // extraction job.
+      '${runtimeIdentity.id}': {}
+    }
+  }
+  properties: {
+    environmentId: environment.id
+    workloadProfileName: 'Consumption'
+    configuration: {
+      identitySettings: [
+        {
+          identity: runtimeIdentity.id
+          lifecycle: 'None'
+        }
+        {
+          identity: videoIdentity.id
+          lifecycle: 'All'
+        }
+      ]
+      registries: [
+        {
+          server: 'ghcr.io'
+          username: ghcrUsername
+          passwordSecretRef: 'ghcr-password'
+        }
+      ]
+      secrets: [
+        {
+          name: 'ghcr-password'
+          value: ghcrPassword
+        }
+        {
+          name: 'archive-db-connection'
+          keyVaultUrl: '${vault.properties.vaultUri}secrets/archive-db-connection'
+          identity: runtimeIdentity.id
+        }
+      ]
+      replicaTimeout: 14400
+      replicaRetryLimit: 0
+      triggerType: 'Event'
+      eventTriggerConfig: {
+        replicaCompletionCount: 1
+        parallelism: 1
+        scale: {
+          minExecutions: 0
+          maxExecutions: 1
+          pollingInterval: 30
+          rules: [
+            {
+              name: 'video-queue'
+              type: 'azure-queue'
+              // Same scaler contract as the reading rule: Entra-only
+              // account, so the rule authenticates as the video identity;
+              // queueName must match VideoOptions.DefaultQueueName.
+              metadata: {
+                queueName: videoQueue.name
+                queueLength: '1'
+                queueLengthStrategy: 'visibleonly'
+                accountName: storage.name
+              }
+              identity: videoIdentity.id
+            }
+          ]
+        }
+      }
+    }
+    template: {
+      containers: [
+        {
+          name: 'video'
+          image: containerImage
+          args: [
+            '--transcode-queue'
+          ]
+          resources: {
+            cpu: json('2')
+            memory: '3Gi'
+          }
+          env: [
+            {
+              name: 'ConnectionStrings__archive-db'
+              secretRef: 'archive-db-connection'
+            }
+            {
+              name: 'AZURE_CLIENT_ID'
+              value: videoIdentity.properties.clientId
+            }
+            {
+              name: 'Archive__Assets__ServiceUri'
+              value: 'https://${storage.name}.blob.${az.environment().suffixes.storage}'
+            }
+            {
+              name: 'Archive__Video__QueueServiceUri'
+              value: extractionQueueUri
+            }
+            {
+              name: 'Archive__Video__TimeBudget'
+              value: '02:00:00'
+            }
+            {
+              name: 'Archive__Video__DrainBudget'
+              value: '02:00:00'
+            }
+            {
+              name: 'Archive__Video__ReceiveVisibility'
+              value: '02:05:00'
+            }
+            {
+              name: 'Archive__MaintenanceMode'
+              value: maintenanceMode ? 'true' : 'false'
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
+
+// #161 — scheduled video dispatch sweep (`--dispatch-videos`, daily): hands
+// Queued rows whose enqueue send never reached the queue to it. Without it a
+// lost send would only recover when the NEXT transcode message triggered a
+// run. Minimal identity (queue contributor only), no blobs, no model.
+resource videoDispatchJob 'Microsoft.App/jobs@2025-01-01' = {
+  name: videoDispatchJobName
+  location: location
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${videoDispatchIdentity.id}': {}
+      '${runtimeIdentity.id}': {}
+    }
+  }
+  properties: {
+    environmentId: environment.id
+    workloadProfileName: 'Consumption'
+    configuration: {
+      identitySettings: [
+        {
+          identity: runtimeIdentity.id
+          lifecycle: 'None'
+        }
+        {
+          identity: videoDispatchIdentity.id
+          lifecycle: 'All'
+        }
+      ]
+      registries: [
+        {
+          server: 'ghcr.io'
+          username: ghcrUsername
+          passwordSecretRef: 'ghcr-password'
+        }
+      ]
+      secrets: [
+        {
+          name: 'ghcr-password'
+          value: ghcrPassword
+        }
+        {
+          name: 'archive-db-connection'
+          keyVaultUrl: '${vault.properties.vaultUri}secrets/archive-db-connection'
+          identity: runtimeIdentity.id
+        }
+      ]
+      replicaTimeout: 900
+      replicaRetryLimit: 0
+      triggerType: 'Schedule'
+      scheduleTriggerConfig: {
+        cronExpression: videoDispatchCron
+        parallelism: 1
+        replicaCompletionCount: 1
+      }
+    }
+    template: {
+      containers: [
+        {
+          name: 'video-dispatch'
+          image: containerImage
+          args: [
+            '--dispatch-videos'
+          ]
+          resources: {
+            cpu: json('0.25')
+            memory: '0.5Gi'
+          }
+          env: [
+            {
+              name: 'ConnectionStrings__archive-db'
+              secretRef: 'archive-db-connection'
+            }
+            {
+              name: 'AZURE_CLIENT_ID'
+              value: videoDispatchIdentity.properties.clientId
+            }
+            {
+              name: 'Archive__Video__QueueServiceUri'
+              value: extractionQueueUri
+            }
+            {
+              name: 'Archive__MaintenanceMode'
+              value: maintenanceMode ? 'true' : 'false'
+            }
           ]
         }
       ]
@@ -1298,6 +2066,9 @@ output assetsQueueServiceUri string = extractionQueueUri
 // ARC-034-1: reading queue name on the same account (the reading code falls
 // back to the extraction queue service URI for the endpoint).
 output readingQueueName string = readingQueue.name
+// #161: video queue name on the same account (video code falls back to the
+// extraction queue's service URI for the endpoint).
+output videoQueueName string = videoQueue.name
 // ARC-021: Azure OpenAI inference endpoint (custom subdomain of the AI
 // account), same value the app receives as `Archive__Chat__Endpoint`.
 output aiEndpoint string = aiEndpointUri

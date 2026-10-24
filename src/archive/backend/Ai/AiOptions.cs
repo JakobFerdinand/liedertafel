@@ -39,6 +39,31 @@ public sealed class AiOptions
 	/// </summary>
 	public Dictionary<string, AiModelPrice> Models { get; set; } = [];
 
+	/// <summary>
+	/// ARC-043 (#150): the maintainer notice thresholds in EUR, comma
+	/// separated and in EUR (e.g. <c>Archive:Ai:NoticeThresholdsEur=5,12</c>).
+	/// At each threshold the monthly review once logs a warning that an Azure
+	/// alert rule forwards to the maintainers, before the hard cap above; the
+	/// hard cap itself always notifies once. The default is the empty string:
+	/// that is a deliberate disabled state, not a hidden value — the numbers
+	/// are explicit configuration (Bicep <c>aiNoticeThresholdsEur</c>).
+	/// </summary>
+	public string NoticeThresholdsEur { get; set; } = string.Empty;
+
+	/// <summary>The configured thresholds, parsed deterministically: comma separated, invariant decimal format.</summary>
+	public IReadOnlyList<(string Entry, decimal Amount, bool Usable)> ParseThresholds()
+	{
+		var list = new List<(string, decimal, bool)>();
+		var parts = NoticeThresholdsEur.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+		foreach (var part in parts)
+		{
+			var usable = decimal.TryParse(part, System.Globalization.NumberStyles.Number,
+				System.Globalization.CultureInfo.InvariantCulture, out var threshold) && threshold > 0;
+			list.Add((part, threshold, usable));
+		}
+		return list;
+	}
+
 	/// <summary>Looks a model up without regard to case; null when the model has no usable price.</summary>
 	public AiModelPrice? FindPrice(string model)
 	{
