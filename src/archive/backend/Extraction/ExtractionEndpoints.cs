@@ -39,8 +39,7 @@ public static class ExtractionEndpoints
 			ArchiveDbContext db, IOptions<ReadingOptions> readingOptions, IOptions<ExtractionOptions> extractionOptions,
 			CancellationToken token) =>
 		{
-			context.Response.Headers.CacheControl = "no-store";
-			var (_, error) = await RequireEditorAsync(context, accessor, access);
+			var (_, error) = await ArchiveAccess.RequireEditorAsync(context, accessor, access);
 			if (error is not null)
 				return error;
 			var ids = ParseIds(context.Request.Query["ids"]);
@@ -79,13 +78,7 @@ public static class ExtractionEndpoints
 			ILoggerFactory loggerFactory, IExtractionQueue queue, IOptions<ExtractionOptions> options,
 			IOptions<ReadingOptions> readingOptions, Guid id, CancellationToken token) =>
 		{
-			context.Response.Headers.CacheControl = "no-store";
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			var (decision, error) = await RequireEditorAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			var datei = await DateiQueries.Visible(db).FirstOrDefaultAsync(d => d.Id == id, token);
@@ -242,11 +235,4 @@ public static class ExtractionEndpoints
 		}
 		return ids;
 	}
-
-	internal static bool IsEditor(ArchiveAccessDecision decision)
-		=> decision.IsAdministrator || decision.Roles.Contains(ArchiveRoles.Editor);
-
-	internal static Task<(ArchiveAccessDecision? Decision, IResult? Error)> RequireEditorAsync(
-		HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access)
-		=> Lieder.LiedAccess.RequireEditorAsync(context, accessor, access);
 }

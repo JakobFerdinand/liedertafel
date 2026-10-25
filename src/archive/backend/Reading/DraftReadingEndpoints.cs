@@ -48,10 +48,7 @@ public static class DraftReadingEndpoints
 			IOptions<ReadingOptions> options, DraftReader reader, DraftReadingRegistry registry, ArchiveDbContext db,
 			TimeProvider time, ILoggerFactory loggers, CancellationToken token) =>
 		{
-			context.Response.Headers.CacheControl = "no-store";
-			if (await LiedAccess.ValidateAntiforgeryAsync(antiforgery, context) is { } csrf)
-				return csrf;
-			var (decision, error) = await LiedAccess.RequireEditorAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			if (!context.Request.HasFormContentType)

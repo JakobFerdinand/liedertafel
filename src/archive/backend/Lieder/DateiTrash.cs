@@ -49,13 +49,7 @@ public static class DateiTrashEndpoints
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
 			ArchiveDbContext db, TimeProvider time, Guid id, CancellationToken token, DeleteDateiRequest? body) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await LiedAccess.RequireEditorAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			var datei = await DateiQueries.Visible(db).FirstOrDefaultAsync(d => d.Id == id, token);
@@ -82,8 +76,7 @@ public static class DateiTrashEndpoints
 			HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access, ArchiveDbContext db,
 			CancellationToken token) =>
 		{
-			context.Response.Headers.CacheControl = "no-store";
-			var (_, error) = await LiedAccess.RequireEditorAsync(context, accessor, access);
+			var (_, error) = await ArchiveAccess.RequireEditorAsync(context, accessor, access);
 			if (error is not null)
 				return error;
 			var dateiRows = await DateiQueries.Trashed(db).AsNoTracking()

@@ -26,13 +26,7 @@ public static class DateiEndpoints
 			ArchiveDbContext db, TimeProvider time, IOptions<AssetStorageOptions> options, IAssetStorageAdapter storage,
 			Guid id, CancellationToken token, CreateDateiUploadRequest? body) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await LiedAccess.RequireEditorAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			return await DateiUploads.CreateForLiedAsync(
@@ -45,13 +39,7 @@ public static class DateiEndpoints
 			ArchiveDbContext db, TimeProvider time, IOptions<AssetStorageOptions> options, IAssetStorageAdapter storage,
 			Guid id, CancellationToken token, CreateDateiUploadRequest? body) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await LiedAccess.RequireEditorAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			return await DateiUploads.CreateForEventAsync(
@@ -63,13 +51,7 @@ public static class DateiEndpoints
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
 			ArchiveDbContext db, Guid id, CancellationToken token, PatchDateiRequest? body) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
-			var (_, error) = await LiedAccess.RequireEditorAsync(context, accessor, access);
+			var (_, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			var datei = await DateiQueries.Visible(db)
@@ -102,8 +84,7 @@ public static class DateiEndpoints
 			TimeProvider time, IOptions<AssetStorageOptions> options, IAssetStorageAdapter storage,
 			Guid id, CancellationToken token) =>
 		{
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await LiedAccess.RequireMemberAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireMemberAsync(context, accessor, access);
 			if (error is not null)
 				return error;
 			var datei = await DateiQueries.Visible(db).AsNoTracking()
@@ -115,7 +96,7 @@ public static class DateiEndpoints
 			// members get concert files only through their recording's own
 			// ticket (publication and download switch), editors may also fetch
 			// the preserved original here.
-			if (datei.Event is not null && !LiedAccess.IsEditor(decision!)
+			if (datei.Event is not null && !ArchiveAccess.IsEditor(decision!)
 				&& datei.Kind == DateiKinds.Aufnahme)
 				return Results.Problem(statusCode: 404, title: DateiUploads.DateiNotFoundMessage);
 			// #161: the member PLAYS the automatic MP4 playback copy while the

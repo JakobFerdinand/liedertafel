@@ -35,13 +35,7 @@ public static class PapierkorbEndpoints
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
 			ArchiveDbContext db, TimeProvider time, Guid id, CancellationToken token, DeletePapierkorbRequest? body) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await LiedAccess.RequireEditorAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			var lied = await LiedQueries.Visible(db).FirstOrDefaultAsync(l => l.Id == id, token);
@@ -65,13 +59,7 @@ public static class PapierkorbEndpoints
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
 			ArchiveDbContext db, TimeProvider time, Guid id, CancellationToken token, DeletePapierkorbRequest? body) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await LiedAccess.RequireEditorAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			var choirEvent = await EventQueries.Visible(db).FirstOrDefaultAsync(e => e.Id == id, token);
@@ -95,13 +83,7 @@ public static class PapierkorbEndpoints
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
 			ArchiveDbContext db, TimeProvider time, IConfiguration configuration, Guid id, CancellationToken token) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
-			var (_, error) = await LiedAccess.RequireEditorAsync(context, accessor, access);
+			var (_, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			var lied = await db.Lieder.FirstOrDefaultAsync(l => l.Id == id, token);
@@ -124,13 +106,7 @@ public static class PapierkorbEndpoints
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
 			ArchiveDbContext db, TimeProvider time, IConfiguration configuration, Guid id, CancellationToken token) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
-			var (_, error) = await LiedAccess.RequireEditorAsync(context, accessor, access);
+			var (_, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			var choirEvent = await db.Events.FirstOrDefaultAsync(e => e.Id == id, token);
@@ -153,13 +129,7 @@ public static class PapierkorbEndpoints
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
 			ArchiveDbContext db, TimeProvider time, IConfiguration configuration, Guid id, CancellationToken token) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
-			var (_, error) = await LiedAccess.RequireEditorAsync(context, accessor, access);
+			var (_, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			var datei = await db.Dateien.FirstOrDefaultAsync(d => d.Id == id, token);
@@ -190,12 +160,8 @@ public static class PapierkorbEndpoints
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
 			ArchiveDbContext db, PapierkorbRemoval removal, Guid id, CancellationToken token) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
+			if (await ArchiveAccess.ValidateAntiforgeryAsync(context, antiforgery) is { } rejected)
+				return rejected;
 			var error = await RequireAdministratorAsync(context, accessor, access);
 			if (error is not null)
 				return error;
@@ -209,12 +175,8 @@ public static class PapierkorbEndpoints
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
 			ArchiveDbContext db, PapierkorbRemoval removal, Guid id, CancellationToken token) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
+			if (await ArchiveAccess.ValidateAntiforgeryAsync(context, antiforgery) is { } rejected)
+				return rejected;
 			var error = await RequireAdministratorAsync(context, accessor, access);
 			if (error is not null)
 				return error;
@@ -228,12 +190,8 @@ public static class PapierkorbEndpoints
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
 			ArchiveDbContext db, PapierkorbRemoval removal, Guid id, CancellationToken token) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
+			if (await ArchiveAccess.ValidateAntiforgeryAsync(context, antiforgery) is { } rejected)
+				return rejected;
 			var error = await RequireAdministratorAsync(context, accessor, access);
 			if (error is not null)
 				return error;

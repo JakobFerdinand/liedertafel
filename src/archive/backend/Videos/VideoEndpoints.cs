@@ -1,7 +1,6 @@
 using Archive.Backend.Auth;
 using Archive.Backend.Data;
 using Archive.Backend.Lieder;
-using Archive.Backend.Extraction;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -37,8 +36,7 @@ public static class VideoEndpoints
 			HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access,
 			ArchiveDbContext db, CancellationToken token) =>
 		{
-			context.Response.Headers.CacheControl = "no-store";
-			var (_, error) = await Lieder.LiedAccess.RequireEditorAsync(context, accessor, access);
+			var (_, error) = await ArchiveAccess.RequireEditorAsync(context, accessor, access);
 			if (error is not null)
 				return error;
 			var ids = ParseIds(context.Request.Query["ids"]);
@@ -68,13 +66,7 @@ public static class VideoEndpoints
 			ILoggerFactory loggerFactory, IVideoQueue queue, IOptions<VideoOptions> options,
 			Guid id, CancellationToken token) =>
 		{
-			context.Response.Headers.CacheControl = "no-store";
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			var (decision, error) = await Lieder.LiedAccess.RequireEditorAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			var datei = await DateiQueries.Visible(db).FirstOrDefaultAsync(d => d.Id == id, token);

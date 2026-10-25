@@ -120,7 +120,7 @@ public sealed class UploadSessionResumeTests
 		{
 			Assert.Equal(HttpStatusCode.Forbidden, memberResponse.StatusCode);
 			var memberProblem = await memberResponse.Content.ReadFromJsonAsync<JsonElement>();
-			Assert.Equal(LiedEndpoints.ForbiddenMessage, memberProblem.GetProperty("title").GetString());
+			Assert.Equal(ArchiveAccess.ForbiddenMessage, memberProblem.GetProperty("title").GetString());
 		}
 
 		var (anonCookie, anonToken) = await GetCsrfAsync(client);

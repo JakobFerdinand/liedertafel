@@ -74,13 +74,7 @@ public static class UploadEndpoints
 			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time,
 			IOptions<AssetStorageOptions> options, IAssetStorageAdapter storage, Guid id, CancellationToken token) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await Lieder.LiedAccess.RequireEditorAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			var session = await db.UploadSessions.FirstOrDefaultAsync(s => s.Id == id, token);
@@ -126,13 +120,7 @@ public static class UploadEndpoints
 			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time,
 			IAssetStorageAdapter storage, Guid id, CancellationToken token) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await Lieder.LiedAccess.RequireEditorAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			var session = await db.UploadSessions.FirstOrDefaultAsync(s => s.Id == id, token);
@@ -159,13 +147,7 @@ public static class UploadEndpoints
 			Guid id, CancellationToken token,
 			FinalizeUploadRequest? body) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await Lieder.LiedAccess.RequireEditorAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			var session = await db.UploadSessions.FirstOrDefaultAsync(s => s.Id == id, token);
