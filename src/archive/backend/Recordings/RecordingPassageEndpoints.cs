@@ -57,8 +57,6 @@ public sealed record ReviewPassagesRequest(Guid? ExpectedPlaybackDateiId, List<R
 /// </summary>
 public static class RecordingPassageEndpoints
 {
-	public const string ForbiddenMessage = "Keine Berechtigung für die Zeitmarken.";
-
 	public const string NotFoundMessage = "Zeitmarke nicht gefunden.";
 
 	public const string ProgrammeItemNotInEventMessage = "Der Programmpunkt gehört nicht zum Programm dieses Auftritts.";
@@ -97,11 +95,10 @@ public static class RecordingPassageEndpoints
 			HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access,
 			ArchiveDbContext db, Guid id, CancellationToken token) =>
 		{
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await RequireMemberAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireMemberAsync(context, accessor, access);
 			if (error is not null)
 				return error;
-			var isEditor = IsEditor(decision!);
+			var isEditor = ArchiveAccess.IsEditor(decision!);
 			var recording = await RecordingEndpoints.WithFiles(db.Recordings.AsNoTracking())
 				.Include(r => r.Event)
 				.FirstOrDefaultAsync(r => r.Id == id, token);
@@ -127,10 +124,7 @@ public static class RecordingPassageEndpoints
 			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time, Guid id, CancellationToken token,
 			CreatePassageRequest? body) =>
 		{
-			if (await RejectAntiforgeryAsync(antiforgery, context) is { } rejected)
-				return rejected;
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await RequireEditorAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			if (body?.ExpectedPlaybackDateiId is not { } expectedDatei)
@@ -201,10 +195,7 @@ public static class RecordingPassageEndpoints
 			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time, Guid id, Guid passageId,
 			CancellationToken token, PatchPassageRequest? body) =>
 		{
-			if (await RejectAntiforgeryAsync(antiforgery, context) is { } rejected)
-				return rejected;
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await RequireEditorAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			if (body?.ExpectedPlaybackDateiId is not { } expectedDatei)
@@ -259,10 +250,7 @@ public static class RecordingPassageEndpoints
 			ArchiveAccessService access, ArchiveDbContext db, Guid id, Guid passageId,
 			CancellationToken token, DeletePassageRequest? body) =>
 		{
-			if (await RejectAntiforgeryAsync(antiforgery, context) is { } rejected)
-				return rejected;
-			context.Response.Headers.CacheControl = "no-store";
-			var (_, error) = await RequireEditorAsync(context, accessor, access);
+			var (_, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			var passage = await db.RecordingPassages
@@ -288,10 +276,7 @@ public static class RecordingPassageEndpoints
 			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time, Guid id,
 			CancellationToken token, ReviewPassagesRequest? body) =>
 		{
-			if (await RejectAntiforgeryAsync(antiforgery, context) is { } rejected)
-				return rejected;
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await RequireEditorAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			if (body?.ExpectedPlaybackDateiId is not { } expectedDatei)
@@ -406,43 +391,5 @@ public static class RecordingPassageEndpoints
 			liedTitle = titles.GetValueOrDefault(i.LiedId),
 			passageId = byItem.TryGetValue(i.Id, out var passageId) ? (Guid?)passageId : null,
 		}).ToList();
-	}
-
-	private static async Task<IResult?> RejectAntiforgeryAsync(IAntiforgery antiforgery, HttpContext context)
-	{
-		try
-		{
-			await antiforgery.ValidateRequestAsync(context);
-			return null;
-		}
-		catch (AntiforgeryValidationException)
-		{
-			return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-		}
-	}
-
-	private static bool IsEditor(ArchiveAccessDecision decision)
-		=> decision.IsAdministrator || decision.Roles.Contains(ArchiveRoles.Editor);
-
-	private static async Task<(ArchiveAccessDecision? Decision, IResult? Error)> RequireMemberAsync(
-		HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access)
-	{
-		if (accessor.Current is null)
-			return (null, Results.Problem(statusCode: 401, title: "Anmeldung erforderlich."));
-		var decision = await access.GetDecisionAsync(context.User);
-		if (decision is null || !decision.IsActive)
-			return (null, Results.Problem(statusCode: 401, title: "Anmeldung erforderlich."));
-		return (decision, null);
-	}
-
-	private static async Task<(ArchiveAccessDecision? Decision, IResult? Error)> RequireEditorAsync(
-		HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access)
-	{
-		var (decision, error) = await RequireMemberAsync(context, accessor, access);
-		if (error is not null)
-			return (null, error);
-		if (!IsEditor(decision!))
-			return (null, Results.Problem(statusCode: 403, title: ForbiddenMessage));
-		return (decision, null);
 	}
 }
