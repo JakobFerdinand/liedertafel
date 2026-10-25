@@ -29,13 +29,10 @@ public static class LiedHistoryEndpoints
 			HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access,
 			ArchiveDbContext db, Guid liedId, CancellationToken token, int? page) =>
 		{
-			context.Response.Headers.CacheControl = "no-store";
-			if (accessor.Current is null)
-				return Results.Problem(statusCode: 401, title: "Anmeldung erforderlich.");
-			var decision = await access.GetDecisionAsync(context.User);
-			if (decision is null || !decision.IsActive)
-				return Results.Problem(statusCode: 401, title: "Anmeldung erforderlich.");
-			var isEditor = decision.IsAdministrator || decision.Roles.Contains(ArchiveRoles.Editor);
+			var (decision, error) = await ArchiveAccess.RequireMemberAsync(context, accessor, access);
+			if (error is not null)
+				return error;
+			var isEditor = ArchiveAccess.IsEditor(decision);
 
 			var lied = await Lieder.LiedQueries.Visible(db).AsNoTracking()
 				.Where(l => l.Id == liedId).Select(l => new { l.Id, l.Title })

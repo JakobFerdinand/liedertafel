@@ -38,7 +38,7 @@ public sealed class EventsApiTests
 		using var memberResponse = await client.SendAsync(memberCreate);
 		Assert.Equal(HttpStatusCode.Forbidden, memberResponse.StatusCode);
 		var memberProblem = await memberResponse.Content.ReadFromJsonAsync<JsonElement>();
-		Assert.Equal(EventEndpoints.ForbiddenMessage, memberProblem.GetProperty("title").GetString());
+		Assert.Equal(ArchiveAccess.ForbiddenMessage, memberProblem.GetProperty("title").GetString());
 
 		var (anonymousCookie, anonymousToken) = await GetCsrfAsync(client);
 		using var anonymousCreate = AuthedPost("/api/events",
