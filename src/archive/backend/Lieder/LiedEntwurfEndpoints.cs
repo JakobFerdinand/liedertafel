@@ -57,8 +57,7 @@ public static class LiedEntwurfEndpoints
 			HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access, ArchiveDbContext db,
 			CancellationToken token) =>
 		{
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await LiedAccess.RequireEditorAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, accessor, access);
 			if (error is not null)
 				return error;
 			var rows = await db.LiedEntwuerfe.AsNoTracking()
@@ -76,8 +75,7 @@ public static class LiedEntwurfEndpoints
 			HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access, ArchiveDbContext db,
 			TimeProvider time, Guid id, CancellationToken token) =>
 		{
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await LiedAccess.RequireEditorAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, accessor, access);
 			if (error is not null)
 				return error;
 			var entwurf = await db.LiedEntwuerfe.AsNoTracking()
@@ -93,10 +91,7 @@ public static class LiedEntwurfEndpoints
 			ArchiveDbContext db, TimeProvider time, DraftReadingRegistry readings, Guid id, CancellationToken token,
 			SaveEntwurfRequest? body) =>
 		{
-			if (await LiedAccess.ValidateAntiforgeryAsync(antiforgery, context) is { } csrf)
-				return csrf;
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await LiedAccess.RequireEditorAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			if (Validate(id, body) is { } invalid)
@@ -132,10 +127,7 @@ public static class LiedEntwurfEndpoints
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
 			ArchiveDbContext db, DraftReadingRegistry readings, Guid id, CancellationToken token) =>
 		{
-			if (await LiedAccess.ValidateAntiforgeryAsync(antiforgery, context) is { } csrf)
-				return csrf;
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await LiedAccess.RequireEditorAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			var entwurf = await db.LiedEntwuerfe

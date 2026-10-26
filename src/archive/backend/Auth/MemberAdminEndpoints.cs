@@ -32,8 +32,8 @@ public static class MemberAdminEndpoints
 		app.MapGet("/api/admin/members", async (HttpContext context, CurrentUserAccessor accessor,
 			ArchiveAccessService access, MemberInvitationService invitations, CancellationToken token) =>
 		{
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await RequireAdministratorAsync(context, accessor, access, requireFresh: false);
+			ArchiveAccess.NoStore(context);
+			var (decision, error) = await RequireMemberAdministrationAsync(context, accessor, access, requireFresh: false);
 			if (error is not null)
 				return error;
 			_ = decision;
@@ -62,13 +62,9 @@ public static class MemberAdminEndpoints
 			ArchiveAccessService access, MemberInvitationService invitations, TimeProvider time, CancellationToken token,
 			InviteRequest? body) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await RequireAdministratorAsync(context, accessor, access, requireFresh: true);
+			if (await ArchiveAccess.ValidateAntiforgeryAsync(context, antiforgery) is { } rejected)
+				return rejected;
+			var (decision, error) = await RequireMemberAdministrationAsync(context, accessor, access, requireFresh: true);
 			if (error is not null)
 				return error;
 			if (!AuthSecurity.TryNormalizeEmail(body?.Email, out var normalized))
@@ -117,13 +113,9 @@ public static class MemberAdminEndpoints
 			ArchiveAccessService access, MemberInvitationService invitations, TimeProvider time, CancellationToken token,
 			ResendRequest? body) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await RequireAdministratorAsync(context, accessor, access, requireFresh: true);
+			if (await ArchiveAccess.ValidateAntiforgeryAsync(context, antiforgery) is { } rejected)
+				return rejected;
+			var (decision, error) = await RequireMemberAdministrationAsync(context, accessor, access, requireFresh: true);
 			if (error is not null)
 				return error;
 			if (!AuthSecurity.TryNormalizeEmail(body?.Email, out var normalized))
@@ -155,13 +147,9 @@ public static class MemberAdminEndpoints
 			ArchiveAccessService access, MemberRevocationService revocation, TimeProvider time, CancellationToken token,
 			DeactivateRequest? body) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await RequireAdministratorAsync(context, accessor, access, requireFresh: true);
+			if (await ArchiveAccess.ValidateAntiforgeryAsync(context, antiforgery) is { } rejected)
+				return rejected;
+			var (decision, error) = await RequireMemberAdministrationAsync(context, accessor, access, requireFresh: true);
 			if (error is not null)
 				return error;
 			if (!Guid.TryParse(body?.AccountId, out var targetId) || targetId == Guid.Empty)
@@ -189,13 +177,9 @@ public static class MemberAdminEndpoints
 			UserManager<ArchiveUser> users, TimeProvider time, CancellationToken token,
 			ReactivateRequest? body) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await RequireAdministratorAsync(context, accessor, access, requireFresh: true);
+			if (await ArchiveAccess.ValidateAntiforgeryAsync(context, antiforgery) is { } rejected)
+				return rejected;
+			var (decision, error) = await RequireMemberAdministrationAsync(context, accessor, access, requireFresh: true);
 			if (error is not null)
 				return error;
 			if (!Guid.TryParse(body?.AccountId, out var targetId) || targetId == Guid.Empty)
@@ -220,13 +204,9 @@ public static class MemberAdminEndpoints
 			ArchiveAccessService access, MemberRevocationService revocation, TimeProvider time, CancellationToken token,
 			RoleChangeRequest? body) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await RequireAdministratorAsync(context, accessor, access, requireFresh: true);
+			if (await ArchiveAccess.ValidateAntiforgeryAsync(context, antiforgery) is { } rejected)
+				return rejected;
+			var (decision, error) = await RequireMemberAdministrationAsync(context, accessor, access, requireFresh: true);
 			if (error is not null)
 				return error;
 			if (!Guid.TryParse(body?.AccountId, out var targetId) || targetId == Guid.Empty)
@@ -260,13 +240,9 @@ public static class MemberAdminEndpoints
 			ArchiveAccessService access, MemberEmailChangeService emailChange, TimeProvider time, CancellationToken token,
 			EmailChangeRequest? body) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await RequireAdministratorAsync(context, accessor, access, requireFresh: true);
+			if (await ArchiveAccess.ValidateAntiforgeryAsync(context, antiforgery) is { } rejected)
+				return rejected;
+			var (decision, error) = await RequireMemberAdministrationAsync(context, accessor, access, requireFresh: true);
 			if (error is not null)
 				return error;
 			if (!Guid.TryParse(body?.AccountId, out var targetId) || targetId == Guid.Empty)
@@ -297,13 +273,9 @@ public static class MemberAdminEndpoints
 			ArchiveAccessService access, MemberEmailChangeService emailChange, TimeProvider time, CancellationToken token,
 			EmailChangeConfirm? body) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await RequireAdministratorAsync(context, accessor, access, requireFresh: true);
+			if (await ArchiveAccess.ValidateAntiforgeryAsync(context, antiforgery) is { } rejected)
+				return rejected;
+			var (decision, error) = await RequireMemberAdministrationAsync(context, accessor, access, requireFresh: true);
 			if (error is not null)
 				return error;
 			if (!Guid.TryParse(body?.AccountId, out var targetId) || targetId == Guid.Empty)
@@ -332,17 +304,20 @@ public static class MemberAdminEndpoints
 		}).DisableAntiforgery();
 	}
 
-	private static async Task<(ArchiveAccessDecision? Decision, IResult? Error)> RequireAdministratorAsync(
+	/// <summary>
+	/// The member-administration rule, kept here because no other endpoint
+	/// has it: the membership decision comes from
+	/// <see cref="ArchiveAccess.RequireMemberAsync"/>; on top of that an
+	/// Administrator is required, and a mutation additionally a fresh code
+	/// verification (10-minute window, <paramref name="requireFresh"/>).
+	/// </summary>
+	private static async Task<(ArchiveAccessDecision? Decision, IResult? Error)> RequireMemberAdministrationAsync(
 		HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access, bool requireFresh)
 	{
-		// Cookie presence first for a useful signed-out state: revoked or
-		// signed-out callers have no principal and get 401.
-		if (accessor.Current is null)
-			return (null, Results.Problem(statusCode: 401, title: "Anmeldung erforderlich."));
-		var decision = await access.GetDecisionAsync(context.User);
-		if (decision is null || !decision.IsActive)
-			return (null, Results.Problem(statusCode: 401, title: "Anmeldung erforderlich."));
-		if (!decision.IsAdministrator)
+		var (decision, memberError) = await ArchiveAccess.RequireMemberAsync(context, accessor, access);
+		if (memberError is not null)
+			return (null, memberError);
+		if (!decision!.IsAdministrator)
 			return (null, Results.Problem(statusCode: 403, title: MemberInvitationService.ForbiddenMessage));
 		if (requireFresh && !accessor.RequireFreshVerification())
 			return (null, Results.Problem(statusCode: 403, title: MemberInvitationService.FreshVerificationMessage));

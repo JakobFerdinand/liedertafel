@@ -46,8 +46,6 @@ public sealed record PatchRecordingRequest(
 /// </summary>
 public static class RecordingEndpoints
 {
-	public const string ForbiddenMessage = "Keine Berechtigung für die Aufnahmen.";
-
 	public const string NotFoundMessage = "Aufnahme nicht gefunden.";
 
 	public const string LabelRequiredMessage = "Die Bezeichnung ist erforderlich.";
@@ -88,11 +86,10 @@ public static class RecordingEndpoints
 			HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access,
 			ArchiveDbContext db, Guid id, CancellationToken token) =>
 		{
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await RequireMemberAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireMemberAsync(context, accessor, access);
 			if (error is not null)
 				return error;
-			var isEditor = IsEditor(decision!);
+			var isEditor = ArchiveAccess.IsEditor(decision!);
 			var choirEvent = await Events.EventQueries.Visible(db).AsNoTracking().FirstOrDefaultAsync(e => e.Id == id, token);
 			if (choirEvent is null)
 				return Results.Problem(statusCode: 404, title: EventEndpoints.NotFoundMessage);
@@ -115,13 +112,7 @@ public static class RecordingEndpoints
 			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time, Guid id, CancellationToken token,
 			CreateRecordingRequest? body) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await RequireEditorAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			if (!TryValidateLabel(body?.Label, out var label, out var labelError))
@@ -156,13 +147,7 @@ public static class RecordingEndpoints
 			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time, Guid id, CancellationToken token,
 			PatchRecordingRequest? body) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await RequireEditorAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			var label = string.Empty;
@@ -231,13 +216,7 @@ public static class RecordingEndpoints
 			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time, Guid id, string slot,
 			CancellationToken token, AttachDateiRequest? body) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await RequireEditorAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			var isOriginal = slot == OriginalSlot;
@@ -246,7 +225,7 @@ public static class RecordingEndpoints
 			var recording = await WithFiles(db.Recordings).FirstOrDefaultAsync(r => r.Id == id, token);
 			if (recording is null)
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
-			if (recording.CreatedByAccountId != decision!.AccountId)
+			if (!ArchiveAccess.CanChangeRecordingFiles(decision!, recording))
 				return Results.Problem(statusCode: 403, title: FilesOwnerMessage);
 			if (body?.DateiId is not { } dateiId)
 				return Results.Problem(statusCode: 400, title: DateiRequiredMessage);
@@ -337,15 +316,13 @@ public static class RecordingEndpoints
 			ArchiveDbContext db, TimeProvider time, IOptions<AssetStorageOptions> options,
 			IAssetStorageAdapter storage, Guid id, CancellationToken token) =>
 		{
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await RequireMemberAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireMemberAsync(context, accessor, access);
 			if (error is not null)
 				return error;
 			var recording = await WithFiles(db.Recordings.AsNoTracking())
 				.Include(r => r.Event)
 				.FirstOrDefaultAsync(r => r.Id == id, token);
-			if (recording is null
-				|| (!IsEditor(decision!) && !RecordingVisibility.IsMemberVisible(recording, recording.Event)))
+			if (recording is null || !ArchiveAccess.IsAufnahmeMemberVisible(decision!, recording, recording.Event))
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
 			var files = RecordingFiles.Resolve(recording);
 			var file = files.Playable ?? files.Preserved;
@@ -456,31 +433,6 @@ public static class RecordingEndpoints
 				? Results.Problem(statusCode: 400, title: LabelTooLongMessage)
 				: null;
 		return error is null;
-	}
-
-	private static bool IsEditor(ArchiveAccessDecision decision)
-		=> decision.IsAdministrator || decision.Roles.Contains(ArchiveRoles.Editor);
-
-	private static async Task<(ArchiveAccessDecision? Decision, IResult? Error)> RequireMemberAsync(
-		HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access)
-	{
-		if (accessor.Current is null)
-			return (null, Results.Problem(statusCode: 401, title: "Anmeldung erforderlich."));
-		var decision = await access.GetDecisionAsync(context.User);
-		if (decision is null || !decision.IsActive)
-			return (null, Results.Problem(statusCode: 401, title: "Anmeldung erforderlich."));
-		return (decision, null);
-	}
-
-	private static async Task<(ArchiveAccessDecision? Decision, IResult? Error)> RequireEditorAsync(
-		HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access)
-	{
-		var (decision, error) = await RequireMemberAsync(context, accessor, access);
-		if (error is not null)
-			return (null, error);
-		if (!IsEditor(decision!))
-			return (null, Results.Problem(statusCode: 403, title: ForbiddenMessage));
-		return (decision, null);
 	}
 }
 

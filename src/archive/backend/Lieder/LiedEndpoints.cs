@@ -47,8 +47,6 @@ public static class LiedEndpoints
 
 	public const string UnknownDateiTypMessage = "Unbekannter Dateityp.";
 
-	public const string ForbiddenMessage = "Keine Berechtigung für das Liedverzeichnis.";
-
 	public const string ConcurrencyMessage = "Der Eintrag wurde zwischenzeitlich geändert.";
 
 	public const int FieldMaxLength = 200;
@@ -69,8 +67,7 @@ public static class LiedEndpoints
 			CancellationToken token, string? q, int? page, string? besetzung, string? voiceConfiguration,
 			string? anlass, string? occasion, string[]? dateiTyp) =>
 		{
-			context.Response.Headers.CacheControl = "no-store";
-			var (_, error) = await LiedAccess.RequireMemberAsync(context, accessor, access);
+			var (_, error) = await ArchiveAccess.RequireMemberAsync(context, accessor, access);
 			if (error is not null)
 				return error;
 			var query = (q ?? string.Empty).Trim();
@@ -158,27 +155,20 @@ public static class LiedEndpoints
 			HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access, ArchiveDbContext db,
 			Guid id, CancellationToken token) =>
 		{
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await LiedAccess.RequireMemberAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireMemberAsync(context, accessor, access);
 			if (error is not null)
 				return error;
 			var lied = await LiedQueries.Visible(db).AsNoTracking().FirstOrDefaultAsync(l => l.Id == id, token);
 			if (lied is null)
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
-			return Results.Ok(new { lied = await DetailAsync(db, lied, LiedAccess.IsEditor(decision!), token) });
+			return Results.Ok(new { lied = await DetailAsync(db, lied, ArchiveAccess.IsEditor(decision!), token) });
 		});
 
 		app.MapPost("/api/lieder", async (
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
 			ArchiveDbContext db, CatalogueWriteService writes, TimeProvider time, CancellationToken token, CreateLiedRequest? body) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await LiedAccess.RequireEditorAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			var (outcome, lied) = await writes.CreateLiedAsync(
@@ -193,13 +183,7 @@ public static class LiedEndpoints
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
 			ArchiveDbContext db, CatalogueWriteService writes, TimeProvider time, Guid id, CancellationToken token, PatchLiedRequest? body) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await LiedAccess.RequireEditorAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			var lied = await LiedQueries.Visible(db).FirstOrDefaultAsync(l => l.Id == id, token);
@@ -288,47 +272,4 @@ public static class DateiPayloads
 		rowVersion = d.RowVersion,
 		recordedAtEvent,
 	};
-}
-
-/// <summary>Access decisions shared by the Lied and Datei endpoints.</summary>
-internal static class LiedAccess
-{
-	public static bool IsEditor(ArchiveAccessDecision decision)
-		=> decision.IsAdministrator || decision.Roles.Contains(ArchiveRoles.Editor);
-
-	public static async Task<(ArchiveAccessDecision? Decision, IResult? Error)> RequireMemberAsync(
-		HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access)
-	{
-		if (accessor.Current is null)
-			return (null, Results.Problem(statusCode: 401, title: "Anmeldung erforderlich."));
-		var decision = await access.GetDecisionAsync(context.User);
-		if (decision is null || !decision.IsActive)
-			return (null, Results.Problem(statusCode: 401, title: "Anmeldung erforderlich."));
-		return (decision, null);
-	}
-
-	/// <summary>The 400 answer for a missing or wrong antiforgery token, otherwise null.</summary>
-	public static async Task<IResult?> ValidateAntiforgeryAsync(IAntiforgery antiforgery, HttpContext context)
-	{
-		try
-		{
-			await antiforgery.ValidateRequestAsync(context);
-			return null;
-		}
-		catch (AntiforgeryValidationException)
-		{
-			return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-		}
-	}
-
-	public static async Task<(ArchiveAccessDecision? Decision, IResult? Error)> RequireEditorAsync(
-		HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access)
-	{
-		var (decision, error) = await RequireMemberAsync(context, accessor, access);
-		if (error is not null)
-			return (null, error);
-		if (!IsEditor(decision!))
-			return (null, Results.Problem(statusCode: 403, title: LiedEndpoints.ForbiddenMessage));
-		return (decision, null);
-	}
 }

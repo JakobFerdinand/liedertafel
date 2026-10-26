@@ -45,13 +45,7 @@ public static class ProgrammeEndpoints
 			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time, Guid eventId, CancellationToken token,
 			SaveProgrammeItemsRequest? body) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await RequireEditorAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			var choirEvent = await EventQueries.Visible(db).AsNoTracking()
@@ -166,11 +160,9 @@ public static class ProgrammeEndpoints
 		app.MapGet("/api/programmes", async (HttpContext context, CurrentUserAccessor accessor,
 			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time, CancellationToken token) =>
 		{
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await RequireMemberAsync(context, accessor, access);
+			var (_, error) = await ArchiveAccess.RequireMemberAsync(context, accessor, access);
 			if (error is not null)
 				return error;
-			var isEditor = IsEditor(decision!);
 			// One materialized set so InMemory tests and PostgreSQL agree:
 			// the precision-aware upcoming filter and sorting run in C#
 			// (unpaginated archive scale).
@@ -312,33 +304,4 @@ public static class ProgrammeEndpoints
 	private sealed record ProgrammeRow(Guid EventId, string Kind, string Title, string? Venue,
 		string? StartTime, int? DateYear, int? DateMonth, int? DateDay, bool DateApproximate,
 		DateTimeOffset UpdatedAt, int ItemCount);
-
-	private static bool IsEditor(ArchiveAccessDecision decision)
-		=> decision.IsAdministrator || decision.Roles.Contains(ArchiveRoles.Editor);
-
-	private static async Task<(ArchiveAccessDecision? Decision, IResult? Error)> RequireMemberAsync(
-		HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access)
-	{
-		// Cookie presence first for a useful signed-out state: revoked or
-		// signed-out callers have no principal and get 401.
-		if (accessor.Current is null)
-			return (null, Results.Problem(statusCode: 401, title: "Anmeldung erforderlich."));
-		var decision = await access.GetDecisionAsync(context.User);
-		if (decision is null || !decision.IsActive)
-			return (null, Results.Problem(statusCode: 401, title: "Anmeldung erforderlich."));
-		return (decision, null);
-	}
-
-	private static async Task<(ArchiveAccessDecision? Decision, IResult? Error)> RequireEditorAsync(
-		HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access)
-	{
-		if (accessor.Current is null)
-			return (null, Results.Problem(statusCode: 401, title: "Anmeldung erforderlich."));
-		var decision = await access.GetDecisionAsync(context.User);
-		if (decision is null || !decision.IsActive)
-			return (null, Results.Problem(statusCode: 401, title: "Anmeldung erforderlich."));
-		if (!IsEditor(decision))
-			return (null, Results.Problem(statusCode: 403, title: EventEndpoints.ForbiddenMessage));
-		return (decision, null);
-	}
 }

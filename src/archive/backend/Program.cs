@@ -466,6 +466,8 @@ using var meter = new Meter(Extensions.MeterName);
 var buildRequests = meter.CreateCounter<long>("archive.build.requests");
 app.MapGet("/api/build", (HttpContext context) =>
 {
+    // Build-probe cache policy ("no-cache, no-store"), deliberately not the
+    // access module's no-store rule: this is a probe, not an access endpoint.
     context.Response.Headers.CacheControl = "no-cache, no-store";
     buildRequests.Add(1);
     var version = typeof(Program).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "unknown";
@@ -474,7 +476,7 @@ app.MapGet("/api/build", (HttpContext context) =>
 });
 app.MapGet("/api/antiforgery", (HttpContext context, IAntiforgery antiforgery) =>
 {
-    context.Response.Headers.CacheControl = "no-store";
+    ArchiveAccess.NoStore(context);
     return Results.Ok(new { token = antiforgery.GetAndStoreTokens(context).RequestToken });
 });
 // ARC-012: maintenance contract endpoint. The pausing middleware runs

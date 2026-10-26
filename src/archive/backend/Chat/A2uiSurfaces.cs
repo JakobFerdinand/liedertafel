@@ -2,9 +2,9 @@ using System.ComponentModel;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Archive.Backend.Auth;
 using Archive.Backend.Data;
 using Archive.Backend.Events;
-using Archive.Backend.Lieder;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 
@@ -253,7 +253,7 @@ public static class A2uiCatalog
 	{
 		if (!Guid.TryParse(request.LiedId, out var id))
 			return null;
-		var lied = await Lieder.LiedQueries.Visible(db).AsNoTracking()
+		var lied = await ArchiveAccess.MemberLieder(db).AsNoTracking()
 			.Where(s => s.Id == id)
 			.Select(s => new { s.Id, s.Title, s.Composer, s.Lyricist, s.Lyrics })
 			.FirstOrDefaultAsync(token);
@@ -270,7 +270,7 @@ public static class A2uiCatalog
 	{
 		if (!Guid.TryParse(request.AuftrittId, out var id))
 			return null;
-		var entry = await EventQueries.Visible(db).AsNoTracking()
+		var entry = await ArchiveAccess.MemberAuftritte(db).AsNoTracking()
 			.Where(e => e.Id == id)
 			.Select(e => new { e.Id, e.Title, e.Kind, e.Venue, e.DateYear, e.DateMonth, e.DateDay, e.DateApproximate })
 			.FirstOrDefaultAsync(token);
@@ -294,7 +294,7 @@ public static class A2uiCatalog
 			.OfType<Guid>().Distinct().Take(MaxSources).ToList();
 		if (ids.Count == 0)
 			return null;
-		var lieder = await Lieder.LiedQueries.Visible(db).AsNoTracking()
+		var lieder = await ArchiveAccess.MemberLieder(db).AsNoTracking()
 			.Where(s => ids.Contains(s.Id))
 			.Select(s => new { s.Id, s.Title, s.Composer })
 			.ToListAsync(token);
@@ -319,7 +319,7 @@ public static class A2uiCatalog
 			return null;
 		// A trashed Auftritt shows no programme to members until it is
 		// restored (#146); its one editable Programm is the record of what was sung.
-		var entry = await EventQueries.Visible(db).AsNoTracking()
+		var entry = await ArchiveAccess.MemberAuftritte(db).AsNoTracking()
 			.Where(e => e.Id == id)
 			.Select(e => new { e.Id, e.Title })
 			.FirstOrDefaultAsync(token);
@@ -334,7 +334,7 @@ public static class A2uiCatalog
 		var items = await db.ProgrammeItems.AsNoTracking()
 			// A trashed Lied keeps its Programmpunkt out of the member view (#146)
 			// while its stored position is untouched.
-			.Where(i => i.ProgrammeId == programme.Id && LiedQueries.Visible(db).Any(l => l.Id == i.LiedId))
+			.Where(i => i.ProgrammeId == programme.Id && ArchiveAccess.MemberLieder(db).Any(l => l.Id == i.LiedId))
 			.OrderBy(i => i.Position)
 			.ThenBy(i => i.Id)
 			.Select(i => new { i.Position, i.LiedId, LiedTitle = i.Lied!.Title, i.Note })

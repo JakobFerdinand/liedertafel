@@ -35,13 +35,7 @@ public static class ChatEndpoints
 		app.MapPost("/api/chat", async (HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
 			ArchiveAccessService access, ArchiveChatService chat, CancellationToken token, IOptionsSnapshot<ChatOptions> chatOptions) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await RequireMemberAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireMemberAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			if (!chatOptions.Value.IsAvailable)
@@ -73,8 +67,7 @@ public static class ChatEndpoints
 		app.MapGet("/api/chat/thread/{id:guid}", async (HttpContext context, CurrentUserAccessor accessor,
 			ArchiveAccessService access, ArchiveDbContext db, Guid id, CancellationToken token) =>
 		{
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await RequireMemberAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireMemberAsync(context, accessor, access);
 			if (error is not null)
 				return error;
 			// Missing and foreign threads answer identically: existence is never disclosed.
@@ -115,18 +108,5 @@ public static class ChatEndpoints
 	{
 		await foreach (var @event in events.WithCancellation(token))
 			yield return new SseItem<JsonElement>(JsonSerializer.SerializeToElement<BaseEvent>(@event, WireJson));
-	}
-
-	private static async Task<(ArchiveAccessDecision? Decision, IResult? Error)> RequireMemberAsync(
-		HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access)
-	{
-		// Cookie presence first for a useful signed-out state: revoked or
-		// signed-out callers have no principal and get 401.
-		if (accessor.Current is null)
-			return (null, Results.Problem(statusCode: 401, title: "Anmeldung erforderlich."));
-		var decision = await access.GetDecisionAsync(context.User);
-		if (decision is null || !decision.IsActive)
-			return (null, Results.Problem(statusCode: 401, title: "Anmeldung erforderlich."));
-		return (decision, null);
 	}
 }

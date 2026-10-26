@@ -1,8 +1,6 @@
 using Microsoft.AspNetCore.Http;
-// The trash endpoints' access helpers live in the Lieder/Auth features.
 using Archive.Backend.Auth;
 using Archive.Backend.Data;
-using Archive.Backend.Lieder;
 
 namespace Archive.Backend.Ai;
 
@@ -23,8 +21,7 @@ public static class AiBudgetEndpoints
 			HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access,
 			AiCostNotice notices, CancellationToken token) =>
 		{
-			context.Response.Headers.CacheControl = "no-store";
-			var (_, error) = await LiedAccess.RequireEditorAsync(context, accessor, access);
+			var (_, error) = await ArchiveAccess.RequireEditorAsync(context, accessor, access);
 			if (error is not null)
 				return error;
 			var state = await notices.StateAsync(token);
