@@ -474,7 +474,7 @@ app.MapGet("/api/build", (HttpContext context) =>
 });
 app.MapGet("/api/antiforgery", (HttpContext context, IAntiforgery antiforgery) =>
 {
-    context.Response.Headers.CacheControl = "no-store";
+    ArchiveAccess.NoStore(context);
     return Results.Ok(new { token = antiforgery.GetAndStoreTokens(context).RequestToken });
 });
 // ARC-012: maintenance contract endpoint. The pausing middleware runs

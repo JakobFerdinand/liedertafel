@@ -25,14 +25,10 @@ public static class PasskeyEndpoints
 		app.MapPost("/api/auth/passkeys/register/options", async (
 			HttpContext context, IAntiforgery antiforgery, PasskeyService passkeys, CancellationToken token) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
+			if (await ArchiveAccess.ValidateAntiforgeryAsync(context, antiforgery) is { } rejected)
+				return rejected;
 			if (context.User.Identity?.IsAuthenticated != true)
 				return Results.Problem(statusCode: 401, title: "Anmeldung erforderlich.");
-			context.Response.Headers.CacheControl = "no-store";
 			return await passkeys.MakeEnrollOptionsAsync(context.User, token);
 		}).DisableAntiforgery();
 
@@ -40,14 +36,10 @@ public static class PasskeyEndpoints
 			HttpContext context, IAntiforgery antiforgery, PasskeyService passkeys, TimeProvider time, CancellationToken token,
 			PasskeyEnrollRequest? body) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
+			if (await ArchiveAccess.ValidateAntiforgeryAsync(context, antiforgery) is { } rejected)
+				return rejected;
 			if (context.User.Identity?.IsAuthenticated != true)
 				return Results.Problem(statusCode: 401, title: "Anmeldung erforderlich.");
-			context.Response.Headers.CacheControl = "no-store";
 			return await passkeys.VerifyEnrollAsync(
 				context.User, body?.Credential, body?.Name, time.GetUtcNow(), token);
 		}).DisableAntiforgery();
@@ -55,7 +47,7 @@ public static class PasskeyEndpoints
 		app.MapPost("/api/auth/passkeys/login/options", async (
 			HttpContext context, PasskeyService passkeys, CancellationToken token) =>
 		{
-			context.Response.Headers.CacheControl = "no-store";
+			ArchiveAccess.NoStore(context);
 			return await passkeys.MakeLoginOptionsAsync(token);
 		});
 
@@ -63,12 +55,8 @@ public static class PasskeyEndpoints
 			HttpContext context, IAntiforgery antiforgery, PasskeyService passkeys, TimeProvider time, CancellationToken token,
 			PasskeyVerifyRequest? body) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
+			if (await ArchiveAccess.ValidateAntiforgeryAsync(context, antiforgery) is { } rejected)
+				return rejected;
 			return await passkeys.VerifyLoginAsync(body?.Credential, time.GetUtcNow(), token);
 		}).DisableAntiforgery();
 
@@ -77,7 +65,7 @@ public static class PasskeyEndpoints
 		{
 			if (context.User.Identity?.IsAuthenticated != true)
 				return Results.Problem(statusCode: 401, title: "Anmeldung erforderlich.");
-			context.Response.Headers.CacheControl = "no-store";
+			ArchiveAccess.NoStore(context);
 			return await passkeys.ListPasskeysAsync(context.User);
 		});
 
@@ -85,14 +73,10 @@ public static class PasskeyEndpoints
 			HttpContext context, IAntiforgery antiforgery, PasskeyService passkeys, TimeProvider time, CancellationToken token,
 			PasskeyRenameRequest? body) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
+			if (await ArchiveAccess.ValidateAntiforgeryAsync(context, antiforgery) is { } rejected)
+				return rejected;
 			if (context.User.Identity?.IsAuthenticated != true)
 				return Results.Problem(statusCode: 401, title: "Anmeldung erforderlich.");
-			context.Response.Headers.CacheControl = "no-store";
 			return await passkeys.RenamePasskeyAsync(
 				context.User, body?.CredentialId, body?.Name, time.GetUtcNow(), token);
 		}).DisableAntiforgery();
@@ -101,14 +85,10 @@ public static class PasskeyEndpoints
 			HttpContext context, IAntiforgery antiforgery, PasskeyService passkeys, TimeProvider time, CancellationToken token,
 			PasskeyRemoveRequest? body) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
+			if (await ArchiveAccess.ValidateAntiforgeryAsync(context, antiforgery) is { } rejected)
+				return rejected;
 			if (context.User.Identity?.IsAuthenticated != true)
 				return Results.Problem(statusCode: 401, title: "Anmeldung erforderlich.");
-			context.Response.Headers.CacheControl = "no-store";
 			return await passkeys.RemovePasskeyAsync(
 				context.User, body?.CredentialId, time.GetUtcNow(), token);
 		}).DisableAntiforgery();

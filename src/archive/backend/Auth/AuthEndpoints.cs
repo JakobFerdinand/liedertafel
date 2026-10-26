@@ -18,16 +18,12 @@ public static class AuthEndpoints
 			HttpContext context, IAntiforgery antiforgery, SignInCodeService codes, TimeProvider time, CancellationToken token,
 			CodeRequest? body) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
+			if (await ArchiveAccess.ValidateAntiforgeryAsync(context, antiforgery) is { } rejected)
+				return rejected;
 			if (!AuthSecurity.TryNormalizeEmail(body?.Email, out var normalized))
 				return Results.Problem(statusCode: 400, title: "Die E-Mail-Adresse ist ungültig.");
 			var outcome = await codes.RequestCodeAsync(
 				normalized, AuthSecurity.HashIp(context.Connection.RemoteIpAddress?.ToString()), time.GetUtcNow(), token);
-			context.Response.Headers.CacheControl = "no-store";
 			return outcome switch
 			{
 				CodeRequestOutcome.RateLimited => Results.Problem(statusCode: 429, title: "Zu viele Anfragen. Bitte später erneut versuchen."),
@@ -39,11 +35,8 @@ public static class AuthEndpoints
 			HttpContext context, IAntiforgery antiforgery, SignInManager<ArchiveUser> signIn, SignInCodeService codes, TimeProvider time, CancellationToken token,
 			CodeVerify? body) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
+			if (await ArchiveAccess.ValidateAntiforgeryAsync(context, antiforgery) is { } rejected)
+				return rejected;
 			if (!AuthSecurity.TryNormalizeEmail(body?.Email, out var normalized))
 				return Results.Problem(statusCode: 400, title: "Der Code ist ungültig oder abgelaufen.");
 			var code = AuthSecurity.NormalizeCode(body?.Code ?? string.Empty);
@@ -51,7 +44,6 @@ public static class AuthEndpoints
 				return Results.Problem(statusCode: 400, title: "Der Code ist ungültig oder abgelaufen.");
 			var (outcome, user, roles) = await codes.VerifyCodeAsync(
 				normalized, code, AuthSecurity.HashIp(context.Connection.RemoteIpAddress?.ToString()), time.GetUtcNow(), token);
-			context.Response.Headers.CacheControl = "no-store";
 			if (outcome == CodeVerifyOutcome.RateLimited)
 				return Results.Problem(statusCode: 429, title: "Zu viele Anfragen. Bitte später erneut versuchen.");
 			if (outcome != CodeVerifyOutcome.Verified || user is null)
@@ -69,11 +61,8 @@ public static class AuthEndpoints
 		app.MapPost("/api/auth/logout", async (
 			HttpContext context, IAntiforgery antiforgery, SignInManager<ArchiveUser> signIn) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
+			if (await ArchiveAccess.ValidateAntiforgeryAsync(context, antiforgery) is { } rejected)
+				return rejected;
 			if (context.User.Identity?.IsAuthenticated != true)
 				return Results.Problem(statusCode: 401, title: "Anmeldung erforderlich.");
 			var user = await signIn.UserManager.GetUserAsync(context.User);
@@ -91,13 +80,12 @@ public static class AuthEndpoints
 				}
 			}
 			await signIn.SignOutAsync();
-			context.Response.Headers.CacheControl = "no-store";
 			return Results.Ok(new { message = "Abmeldung erfolgreich." });
 		}).DisableAntiforgery();
 
 		app.MapGet("/api/auth/me", (HttpContext context, CurrentUserAccessor users) =>
 		{
-			context.Response.Headers.CacheControl = "no-store";
+			ArchiveAccess.NoStore(context);
 			var current = users.Current;
 			if (current is null)
 				return Results.Ok(new { authenticated = false });
