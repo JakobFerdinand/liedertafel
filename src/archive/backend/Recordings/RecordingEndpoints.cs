@@ -322,8 +322,7 @@ public static class RecordingEndpoints
 			var recording = await WithFiles(db.Recordings.AsNoTracking())
 				.Include(r => r.Event)
 				.FirstOrDefaultAsync(r => r.Id == id, token);
-			if (recording is null
-				|| (!ArchiveAccess.IsEditor(decision!) && !RecordingVisibility.IsMemberVisible(recording, recording.Event)))
+			if (recording is null || !ArchiveAccess.IsAufnahmeMemberVisible(decision!, recording, recording.Event))
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
 			var files = RecordingFiles.Resolve(recording);
 			var file = files.Playable ?? files.Preserved;

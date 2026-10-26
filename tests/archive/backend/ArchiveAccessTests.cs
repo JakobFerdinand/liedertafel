@@ -221,6 +221,33 @@ public sealed class ArchiveAccessTests
 	}
 
 	[Fact]
+	public void IsAufnahmeMemberVisibleFollowsPublicationAndAccessTicketRule()
+	{
+		var member = ActiveMember();
+		var editor = member with { Roles = [ArchiveRoles.Member, ArchiveRoles.Editor] };
+		var admin = member with { Roles = [ArchiveRoles.Administrator], IsAdministrator = true };
+		var auftritt = new ChoirEvent { Kind = EventKinds.Known[0], Title = "Frühschoppen" };
+		var trashed = new ChoirEvent { Kind = EventKinds.Known[0], Title = "Gelöscht", DeletedAt = DateTimeOffset.UtcNow };
+		var published = new Recording { Label = "Vormittag", Kind = RecordingKinds.Audio, PublishedAt = DateTimeOffset.UtcNow };
+		var unpublished = new Recording { Label = "Rohfassung", Kind = RecordingKinds.Audio };
+
+		// Published on a live Auftritt: the member walks in to the access ticket.
+		Assert.True(ArchiveAccess.IsAufnahmeMemberVisible(member, published, auftritt));
+		Assert.True(ArchiveAccess.IsAufnahmeMemberVisible(editor, published, auftritt));
+		Assert.True(ArchiveAccess.IsAufnahmeMemberVisible(admin, published, auftritt));
+
+		// Unpublished on the live Auftritt: the 404 path, except for editors.
+		Assert.False(ArchiveAccess.IsAufnahmeMemberVisible(member, unpublished, auftritt));
+		Assert.True(ArchiveAccess.IsAufnahmeMemberVisible(editor, unpublished, auftritt));
+		Assert.True(ArchiveAccess.IsAufnahmeMemberVisible(admin, unpublished, auftritt));
+
+		// Trashed Auftritt: no member access either way.
+		Assert.False(ArchiveAccess.IsAufnahmeMemberVisible(member, published, trashed));
+		Assert.True(ArchiveAccess.IsAufnahmeMemberVisible(editor, published, trashed));
+		Assert.False(ArchiveAccess.IsAufnahmeMemberVisible(member, unpublished, trashed));
+	}
+
+	[Fact]
 	public void CanChangeRecordingFilesRequiresTheCreatingAccount()
 	{
 		var creator = ActiveMember();

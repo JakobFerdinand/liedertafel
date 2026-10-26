@@ -22,10 +22,15 @@ public static class ArchiveAccess
 	public static void NoStore(HttpContext context)
 		=> context.Response.Headers.CacheControl = "no-store";
 
-	/// <summary>Applies <c>no-store</c> and validates antiforgery, returning a 400 Problem on failure or null when valid.</summary>
-	public static async Task<IResult?> ValidateAntiforgeryAsync(HttpContext context, IAntiforgery antiforgery)
+	/// <summary>
+	/// Applies <c>no-store</c> (the access rule; opt out for dev diagnostics
+	/// that must keep their own responses) and validates antiforgery,
+	/// returning a 400 Problem on failure or null when valid.
+	/// </summary>
+	public static async Task<IResult?> ValidateAntiforgeryAsync(HttpContext context, IAntiforgery antiforgery, bool noStore = true)
 	{
-		NoStore(context);
+		if (noStore)
+			NoStore(context);
 		try
 		{
 			await antiforgery.ValidateRequestAsync(context);
@@ -130,6 +135,17 @@ public static class ArchiveAccess
 		=> datei.Event is null || IsEditor(decision) || datei.Kind != DateiKinds.Aufnahme;
 
 	/// <summary>
+	/// The access ticket of one Aufnahme (#191): the endpoints for a
+	/// recording (its /access ticket and its Zeitmarken) answer 404 unless
+	/// the caller gets in — members see a published Aufnahme on a saved
+	/// Auftritt, the queryable rule of
+	/// <see cref="RecordingVisibility.IsMemberVisible"/>; an editor may also
+	/// open an unpublished recording.
+	/// </summary>
+	public static bool IsAufnahmeMemberVisible(ArchiveAccessDecision decision, Recording recording, ChoirEvent choirEvent)
+		=> IsEditor(decision) || RecordingVisibility.IsMemberVisible(recording, choirEvent);
+
+	/// <summary>
 	/// Only the account that created an Aufnahme may change its files — an
 	/// editor or Administrator who did not create it still may not (the rule
 	/// of the attachment endpoint, decided here for every caller).
@@ -139,6 +155,15 @@ public static class ArchiveAccess
 
 	/// <summary>The Lieder a member may see: every saved one, none in the trash (#146).</summary>
 	public static IQueryable<Lied> MemberLieder(ArchiveDbContext db) => LiedQueries.Visible(db);
+
+	/// <summary>
+	/// The Zeitmarken an endpoint lists: editors see every one, members only
+	/// those of the Aufnahmen they may open
+	/// (<see cref="IsAufnahmeMemberVisible"/>). Chat tools decide this
+	/// composition themselves through <c>RecordingPassages.VisibleTo</c>.
+	/// </summary>
+	public static IQueryable<RecordingPassage> MemberZeitmarken(IQueryable<RecordingPassage> passages, ArchiveAccessDecision decision)
+		=> IsEditor(decision) ? passages : RecordingVisibility.OfMemberVisible(passages);
 
 	/// <summary>
 	/// The Auftritte a member may see: every saved one — ADR-0001 has no draft

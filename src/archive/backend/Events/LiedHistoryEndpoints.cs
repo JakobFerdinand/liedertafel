@@ -32,7 +32,6 @@ public static class LiedHistoryEndpoints
 			var (decision, error) = await ArchiveAccess.RequireMemberAsync(context, accessor, access);
 			if (error is not null)
 				return error;
-			var isEditor = ArchiveAccess.IsEditor(decision);
 
 			var lied = await Lieder.LiedQueries.Visible(db).AsNoTracking()
 				.Where(l => l.Id == liedId).Select(l => new { l.Id, l.Title })
@@ -53,7 +52,7 @@ public static class LiedHistoryEndpoints
 			var requestedPage = Math.Min(page is null or < 1 ? 1 : page.Value, lastPage);
 			var pageRows = rows.Skip((requestedPage - 1) * PageSize).Take(PageSize).ToList();
 			var recordingLinks = await RecordingPassages.LinksByEventAsync(
-				db, isEditor, liedId, pageRows.Select(r => r.EventId).ToList(), token);
+				db, decision!, liedId, pageRows.Select(r => r.EventId).ToList(), token);
 			return Results.Ok(new
 			{
 				lied = new { id = lied.Id, title = lied.Title },

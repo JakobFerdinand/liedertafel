@@ -102,9 +102,9 @@ public static class RecordingPassageEndpoints
 			var recording = await RecordingEndpoints.WithFiles(db.Recordings.AsNoTracking())
 				.Include(r => r.Event)
 				.FirstOrDefaultAsync(r => r.Id == id, token);
-			if (recording is null || (!isEditor && !RecordingVisibility.IsMemberVisible(recording, recording.Event)))
+			if (recording is null || !ArchiveAccess.IsAufnahmeMemberVisible(decision!, recording, recording.Event))
 				return Results.Problem(statusCode: 404, title: RecordingEndpoints.NotFoundMessage);
-			var views = await LoadViewsAsync(db, id, isEditor, token);
+			var views = await LoadViewsAsync(db, id, decision!, token);
 			var passages = views.Select(v => RecordingPassages.Payload(v, isEditor)).ToList();
 			if (!isEditor)
 				return Results.Ok(new { recordingId = id, eventId = recording.EventId, passages });
@@ -320,7 +320,7 @@ public static class RecordingPassageEndpoints
 			{
 				return Results.Problem(statusCode: 409, title: ConcurrencyMessage);
 			}
-			var views = await LoadViewsAsync(db, id, isEditor: true, token);
+			var views = await LoadViewsAsync(db, id, decision!, token);
 			return Results.Ok(new
 			{
 				recordingId = id,
@@ -350,10 +350,11 @@ public static class RecordingPassageEndpoints
 	}
 
 	private static async Task<List<RecordingPassages.PassageView>> LoadViewsAsync(
-		ArchiveDbContext db, Guid recordingId, bool isEditor, CancellationToken token)
+		ArchiveDbContext db, Guid recordingId, ArchiveAccessDecision decision, CancellationToken token)
 	{
+		var isEditor = ArchiveAccess.IsEditor(decision);
 		var rows = await RecordingPassages.LoadRowsAsync(
-			RecordingPassages.VisibleTo(db.RecordingPassages.AsNoTracking(), isEditor)
+			ArchiveAccess.MemberZeitmarken(db.RecordingPassages.AsNoTracking(), decision)
 				.Where(p => p.RecordingId == recordingId),
 			token);
 		var views = await RecordingPassages.ViewsAsync(db, rows, isEditor, token);

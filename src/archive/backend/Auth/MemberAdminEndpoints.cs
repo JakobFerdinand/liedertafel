@@ -33,7 +33,7 @@ public static class MemberAdminEndpoints
 			ArchiveAccessService access, MemberInvitationService invitations, CancellationToken token) =>
 		{
 			ArchiveAccess.NoStore(context);
-			var (decision, error) = await RequireAdministratorAsync(context, accessor, access, requireFresh: false);
+			var (decision, error) = await RequireMemberAdministrationAsync(context, accessor, access, requireFresh: false);
 			if (error is not null)
 				return error;
 			_ = decision;
@@ -64,7 +64,7 @@ public static class MemberAdminEndpoints
 		{
 			if (await ArchiveAccess.ValidateAntiforgeryAsync(context, antiforgery) is { } rejected)
 				return rejected;
-			var (decision, error) = await RequireAdministratorAsync(context, accessor, access, requireFresh: true);
+			var (decision, error) = await RequireMemberAdministrationAsync(context, accessor, access, requireFresh: true);
 			if (error is not null)
 				return error;
 			if (!AuthSecurity.TryNormalizeEmail(body?.Email, out var normalized))
@@ -115,7 +115,7 @@ public static class MemberAdminEndpoints
 		{
 			if (await ArchiveAccess.ValidateAntiforgeryAsync(context, antiforgery) is { } rejected)
 				return rejected;
-			var (decision, error) = await RequireAdministratorAsync(context, accessor, access, requireFresh: true);
+			var (decision, error) = await RequireMemberAdministrationAsync(context, accessor, access, requireFresh: true);
 			if (error is not null)
 				return error;
 			if (!AuthSecurity.TryNormalizeEmail(body?.Email, out var normalized))
@@ -149,7 +149,7 @@ public static class MemberAdminEndpoints
 		{
 			if (await ArchiveAccess.ValidateAntiforgeryAsync(context, antiforgery) is { } rejected)
 				return rejected;
-			var (decision, error) = await RequireAdministratorAsync(context, accessor, access, requireFresh: true);
+			var (decision, error) = await RequireMemberAdministrationAsync(context, accessor, access, requireFresh: true);
 			if (error is not null)
 				return error;
 			if (!Guid.TryParse(body?.AccountId, out var targetId) || targetId == Guid.Empty)
@@ -179,7 +179,7 @@ public static class MemberAdminEndpoints
 		{
 			if (await ArchiveAccess.ValidateAntiforgeryAsync(context, antiforgery) is { } rejected)
 				return rejected;
-			var (decision, error) = await RequireAdministratorAsync(context, accessor, access, requireFresh: true);
+			var (decision, error) = await RequireMemberAdministrationAsync(context, accessor, access, requireFresh: true);
 			if (error is not null)
 				return error;
 			if (!Guid.TryParse(body?.AccountId, out var targetId) || targetId == Guid.Empty)
@@ -206,7 +206,7 @@ public static class MemberAdminEndpoints
 		{
 			if (await ArchiveAccess.ValidateAntiforgeryAsync(context, antiforgery) is { } rejected)
 				return rejected;
-			var (decision, error) = await RequireAdministratorAsync(context, accessor, access, requireFresh: true);
+			var (decision, error) = await RequireMemberAdministrationAsync(context, accessor, access, requireFresh: true);
 			if (error is not null)
 				return error;
 			if (!Guid.TryParse(body?.AccountId, out var targetId) || targetId == Guid.Empty)
@@ -242,7 +242,7 @@ public static class MemberAdminEndpoints
 		{
 			if (await ArchiveAccess.ValidateAntiforgeryAsync(context, antiforgery) is { } rejected)
 				return rejected;
-			var (decision, error) = await RequireAdministratorAsync(context, accessor, access, requireFresh: true);
+			var (decision, error) = await RequireMemberAdministrationAsync(context, accessor, access, requireFresh: true);
 			if (error is not null)
 				return error;
 			if (!Guid.TryParse(body?.AccountId, out var targetId) || targetId == Guid.Empty)
@@ -275,7 +275,7 @@ public static class MemberAdminEndpoints
 		{
 			if (await ArchiveAccess.ValidateAntiforgeryAsync(context, antiforgery) is { } rejected)
 				return rejected;
-			var (decision, error) = await RequireAdministratorAsync(context, accessor, access, requireFresh: true);
+			var (decision, error) = await RequireMemberAdministrationAsync(context, accessor, access, requireFresh: true);
 			if (error is not null)
 				return error;
 			if (!Guid.TryParse(body?.AccountId, out var targetId) || targetId == Guid.Empty)
@@ -304,11 +304,16 @@ public static class MemberAdminEndpoints
 		}).DisableAntiforgery();
 	}
 
-	private static async Task<(ArchiveAccessDecision? Decision, IResult? Error)> RequireAdministratorAsync(
+	/// <summary>
+	/// The member-administration rule, kept here because no other endpoint
+	/// has it: the membership decision comes from
+	/// <see cref="ArchiveAccess.RequireMemberAsync"/>; on top of that an
+	/// Administrator is required, and a mutation additionally a fresh code
+	/// verification (10-minute window, <paramref name="requireFresh"/>).
+	/// </summary>
+	private static async Task<(ArchiveAccessDecision? Decision, IResult? Error)> RequireMemberAdministrationAsync(
 		HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access, bool requireFresh)
 	{
-		// The member decision comes from the access module; the fresh-verification
-		// administrator rule stays here, it is unique to the member administration.
 		var (decision, memberError) = await ArchiveAccess.RequireMemberAsync(context, accessor, access);
 		if (memberError is not null)
 			return (null, memberError);

@@ -42,7 +42,7 @@ public static class DiagnosticEndpoints
         app.MapPost("/api/dev/exercise", async (HttpContext context, IAntiforgery antiforgery,
             LocalServices services, ILoggerFactory loggerFactory, CancellationToken token) =>
         {
-            if (await ArchiveAccess.ValidateAntiforgeryAsync(context, antiforgery) is { } rejected)
+            if (await ArchiveAccess.ValidateAntiforgeryAsync(context, antiforgery, noStore: false) is { } rejected)
                 return rejected;
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
             timeout.CancelAfter(TimeSpan.FromSeconds(30));
@@ -57,7 +57,7 @@ public static class DiagnosticEndpoints
         app.MapPost("/api/dev/extraction-duplicate", async (HttpContext context, IAntiforgery antiforgery,
             IExtractionQueue queue, Guid? dateiId, CancellationToken token) =>
         {
-            if (await ArchiveAccess.ValidateAntiforgeryAsync(context, antiforgery) is { } rejected)
+            if (await ArchiveAccess.ValidateAntiforgeryAsync(context, antiforgery, noStore: false) is { } rejected)
                 return rejected;
             if (dateiId is null || dateiId == Guid.Empty)
             {
@@ -76,7 +76,7 @@ public static class DiagnosticEndpoints
         app.MapPost("/api/dev/auth/seed", async (HttpContext context, IAntiforgery antiforgery,
             UserManager<ArchiveUser> users, RoleManager<ArchiveRole> roles, CancellationToken token) =>
         {
-            if (await ArchiveAccess.ValidateAntiforgeryAsync(context, antiforgery) is { } rejected)
+            if (await ArchiveAccess.ValidateAntiforgeryAsync(context, antiforgery, noStore: false) is { } rejected)
                 return rejected;
             var accounts = await AuthSeed.EnsureTestAccountsAsync(users, roles, token);
             return Results.Ok(new

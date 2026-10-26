@@ -1,3 +1,4 @@
+using Archive.Backend.Auth;
 using Archive.Backend.Data;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -76,6 +77,10 @@ public static class RecordingPassages
 	public static string StateOf(Guid? playbackDateiId, Guid? playable) =>
 		playable is { } current && playbackDateiId == current ? Current : NeedsReview;
 
+	/// <summary>
+	/// The chat-side composition of the Zeitmarken visibility; the endpoints
+	/// decide it through <c>ArchiveAccess.MemberZeitmarken</c>.
+	/// </summary>
 	public static IQueryable<RecordingPassage> VisibleTo(IQueryable<RecordingPassage> passages, bool isEditor) =>
 		isEditor ? passages : RecordingVisibility.OfMemberVisible(passages);
 
@@ -161,12 +166,13 @@ public static class RecordingPassages
 	/// given events.
 	/// </summary>
 	public static async Task<Dictionary<Guid, List<object>>> LinksByEventAsync(
-		ArchiveDbContext db, bool isEditor, Guid liedId, IReadOnlyCollection<Guid> eventIds, CancellationToken token)
+		ArchiveDbContext db, ArchiveAccessDecision decision, Guid liedId, IReadOnlyCollection<Guid> eventIds, CancellationToken token)
 	{
 		if (eventIds.Count == 0)
 			return [];
+		var isEditor = ArchiveAccess.IsEditor(decision);
 		var rows = await LoadRowsAsync(
-			VisibleTo(db.RecordingPassages.AsNoTracking(), isEditor)
+			ArchiveAccess.MemberZeitmarken(db.RecordingPassages.AsNoTracking(), decision)
 				.Where(p => eventIds.Contains(p.EventId) && p.ProgrammeItem.LiedId == liedId),
 			token);
 		var views = await ViewsAsync(db, rows, isEditor, token);
