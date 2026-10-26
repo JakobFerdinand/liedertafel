@@ -225,7 +225,7 @@ public static class RecordingEndpoints
 			var recording = await WithFiles(db.Recordings).FirstOrDefaultAsync(r => r.Id == id, token);
 			if (recording is null)
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
-			if (recording.CreatedByAccountId != decision!.AccountId)
+			if (!ArchiveAccess.CanChangeRecordingFiles(decision!, recording))
 				return Results.Problem(statusCode: 403, title: FilesOwnerMessage);
 			if (body?.DateiId is not { } dateiId)
 				return Results.Problem(statusCode: 400, title: DateiRequiredMessage);

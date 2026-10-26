@@ -92,12 +92,9 @@ public static class DateiEndpoints
 				.FirstOrDefaultAsync(d => d.Id == id, token);
 			if (datei is null)
 				return Results.Problem(statusCode: 404, title: DateiUploads.DateiNotFoundMessage);
-			// #171: Dateien of an Auftritt follow the Auftritt's visibility;
-			// members get concert files only through their recording's own
-			// ticket (publication and download switch), editors may also fetch
-			// the preserved original here.
-			if (datei.Event is not null && !ArchiveAccess.IsEditor(decision!)
-				&& datei.Kind == DateiKinds.Aufnahme)
+			// #171: members get an Auftritt's Aufnahme only through their
+			// recording's own ticket; the stop's rule lives in the access module.
+			if (!ArchiveAccess.IsAuftrittsAufnahmeMemberVisible(decision!, datei))
 				return Results.Problem(statusCode: 404, title: DateiUploads.DateiNotFoundMessage);
 			// #161: the member PLAYS the automatic MP4 playback copy while the
 			// download stays the original; editors who confirm the copy in the

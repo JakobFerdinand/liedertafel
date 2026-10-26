@@ -1,9 +1,16 @@
 using System.Security.Claims;
 using Archive.Backend.Auth;
+using Archive.Backend.Data;
+using Archive.Backend.Events;
+using Archive.Backend.Lieder;
+using Archive.Backend.Recordings;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -170,6 +177,172 @@ public sealed class ArchiveAccessTests
 		var csrfEditorProblem = Assert.IsType<ProblemHttpResult>(csrfEditorError);
 		Assert.Equal(StatusCodes.Status400BadRequest, csrfEditorProblem.StatusCode);
 		Assert.Equal(ArchiveAccess.InvalidAntiforgeryMessage, csrfEditorProblem.ProblemDetails.Title);
+	}
+
+	[Fact]
+	public void IsAuftrittsAufnahmeMemberVisibleKeepsConcertRecordingsFromMembers()
+	{
+		var member = ActiveMember();
+		var editor = member with { Roles = [ArchiveRoles.Member, ArchiveRoles.Editor] };
+		var admin = member with { Roles = [ArchiveRoles.Administrator], IsAdministrator = true };
+
+		// #171: the preserved original of an Auftritt's Aufnahme is not for
+		// members — they play the recording through its own ticket.
+		var auftrittAufnahme = new Datei
+		{
+			Kind = DateiKinds.Aufnahme,
+			BlobName = "auftritte/aufnahme-original.m4a",
+			ContentType = "audio/mp4",
+			Event = new ChoirEvent { Kind = EventKinds.Known[0], Title = "Frühschoppen" },
+		};
+
+		Assert.False(ArchiveAccess.IsAuftrittsAufnahmeMemberVisible(member, auftrittAufnahme));
+		Assert.True(ArchiveAccess.IsAuftrittsAufnahmeMemberVisible(editor, auftrittAufnahme));
+		Assert.True(ArchiveAccess.IsAuftrittsAufnahmeMemberVisible(admin, auftrittAufnahme));
+
+		// Documents and photos of the Auftritt follow the Auftritt's own visibility.
+		var auftrittSonstiges = new Datei
+		{
+			Kind = DateiKinds.Sonstiges,
+			BlobName = "auftritte/plakat.jpg",
+			ContentType = "image/jpeg",
+			Event = auftrittAufnahme.Event,
+		};
+		Assert.True(ArchiveAccess.IsAuftrittsAufnahmeMemberVisible(member, auftrittSonstiges));
+
+		// A Lied-Aufnahme belongs to the Lied, not to the stop's file list.
+		var liedAufnahme = new Datei
+		{
+			Kind = DateiKinds.Aufnahme,
+			BlobName = "lieder/aufnahme.mp3",
+			ContentType = "audio/mpeg",
+		};
+		Assert.True(ArchiveAccess.IsAuftrittsAufnahmeMemberVisible(member, liedAufnahme));
+	}
+
+	[Fact]
+	public void CanChangeRecordingFilesRequiresTheCreatingAccount()
+	{
+		var creator = ActiveMember();
+		var recording = new Recording { Label = "Vormittag", Kind = RecordingKinds.Audio, CreatedByAccountId = creator.AccountId };
+
+		Assert.True(ArchiveAccess.CanChangeRecordingFiles(creator, recording));
+
+		var stranger = creator with { AccountId = Guid.CreateVersion7() };
+		Assert.False(ArchiveAccess.CanChangeRecordingFiles(stranger, recording));
+
+		// Even an editor or Administrator who did not create the recording may not change its files.
+		var editingStranger = stranger with { Roles = [ArchiveRoles.Member, ArchiveRoles.Editor] };
+		Assert.False(ArchiveAccess.CanChangeRecordingFiles(editingStranger, recording));
+		var administrationStranger = stranger with { Roles = [ArchiveRoles.Administrator], IsAdministrator = true };
+		Assert.False(ArchiveAccess.CanChangeRecordingFiles(administrationStranger, recording));
+	}
+
+	[Fact]
+	public void DecideAdministratorRequiresAnActiveAdministratorWithTheUnifiedForbiddenTitle()
+	{
+		var member = ActiveMember();
+		var admin = member with { Roles = [ArchiveRoles.Administrator], IsAdministrator = true };
+		var inactive = admin with { IsAuthenticated = false, IsActive = false };
+
+		var (adminDecision, adminError) = ArchiveAccess.DecideAdministrator(admin);
+		Assert.Same(admin, adminDecision);
+		Assert.Null(adminError);
+
+		var (memberDecision, memberError) = ArchiveAccess.DecideAdministrator(member);
+		Assert.Null(memberDecision);
+		var memberProblem = Assert.IsType<ProblemHttpResult>(memberError);
+		Assert.Equal(StatusCodes.Status403Forbidden, memberProblem.StatusCode);
+		Assert.Equal(ArchiveAccess.ForbiddenMessage, memberProblem.ProblemDetails.Title);
+
+		var (nullDecision, nullError) = ArchiveAccess.DecideAdministrator(null);
+		Assert.Null(nullDecision);
+		var nullProblem = Assert.IsType<ProblemHttpResult>(nullError);
+		Assert.Equal(StatusCodes.Status401Unauthorized, nullProblem.StatusCode);
+		Assert.Equal(ArchiveAccess.UnauthorizedMessage, nullProblem.ProblemDetails.Title);
+
+		var (inactiveDecision, inactiveError) = ArchiveAccess.DecideAdministrator(inactive);
+		Assert.Null(inactiveDecision);
+		var inactiveProblem = Assert.IsType<ProblemHttpResult>(inactiveError);
+		Assert.Equal(StatusCodes.Status401Unauthorized, inactiveProblem.StatusCode);
+		Assert.Equal(ArchiveAccess.UnauthorizedMessage, inactiveProblem.ProblemDetails.Title);
+	}
+
+	[Fact]
+	public async Task RequireAdministratorAppliesNoStoreAntiforgeryAndTheAdministratorRule()
+	{
+		var accountId = Guid.CreateVersion7();
+		var now = new DateTimeOffset(2026, 10, 26, 8, 0, 0, TimeSpan.Zero);
+		var user = new ArchiveUser { Id = accountId, Email = "chef@liedertafel.at", EmailConfirmed = true };
+
+		var memberContext = AuthenticatedContext(accountId, now);
+		var memberAccess = CreateAccessService(user, lockedOut: false, [ArchiveRoles.Member]);
+		var (memberDecision, memberError) = await ArchiveAccess.RequireAdministratorAsync(
+			memberContext, CreateAccessor(memberContext, now), memberAccess);
+		Assert.Equal("no-store", memberContext.Response.Headers.CacheControl.ToString());
+		Assert.Null(memberDecision);
+		var memberProblem = Assert.IsType<ProblemHttpResult>(memberError);
+		Assert.Equal(StatusCodes.Status403Forbidden, memberProblem.StatusCode);
+		Assert.Equal(ArchiveAccess.ForbiddenMessage, memberProblem.ProblemDetails.Title);
+
+		var adminContext = AuthenticatedContext(accountId, now);
+		var adminAccess = CreateAccessService(user, lockedOut: false, [ArchiveRoles.Administrator]);
+		var (adminDecision, adminError) = await ArchiveAccess.RequireAdministratorAsync(
+			adminContext, new StubAntiforgery(reject: false), CreateAccessor(adminContext, now), adminAccess);
+		Assert.Equal("no-store", adminContext.Response.Headers.CacheControl.ToString());
+		Assert.Null(adminError);
+		Assert.NotNull(adminDecision);
+		Assert.Equal(accountId, adminDecision.AccountId);
+
+		var csrfAdminContext = AuthenticatedContext(accountId, now);
+		var (csrfDecision, csrfError) = await ArchiveAccess.RequireAdministratorAsync(
+			csrfAdminContext, new StubAntiforgery(reject: true), CreateAccessor(csrfAdminContext, now), adminAccess);
+		Assert.Equal("no-store", csrfAdminContext.Response.Headers.CacheControl.ToString());
+		Assert.Null(csrfDecision);
+		var csrfProblem = Assert.IsType<ProblemHttpResult>(csrfError);
+		Assert.Equal(StatusCodes.Status400BadRequest, csrfProblem.StatusCode);
+		Assert.Equal(ArchiveAccess.InvalidAntiforgeryMessage, csrfProblem.ProblemDetails.Title);
+
+		var anonymousContext = new DefaultHttpContext();
+		var (anonDecision, anonError) = await ArchiveAccess.RequireAdministratorAsync(
+			anonymousContext, CreateAccessor(anonymousContext, now), adminAccess);
+		Assert.Equal("no-store", anonymousContext.Response.Headers.CacheControl.ToString());
+		Assert.Null(anonDecision);
+		var anonProblem = Assert.IsType<ProblemHttpResult>(anonError);
+		Assert.Equal(StatusCodes.Status401Unauthorized, anonProblem.StatusCode);
+		Assert.Equal(ArchiveAccess.UnauthorizedMessage, anonProblem.ProblemDetails.Title);
+	}
+
+	[Fact]
+	public async Task MemberLiederAndMemberAuftritteResolveTheMemberVisibleRecords()
+	{
+		var now = DateTimeOffset.UtcNow;
+		var db = CreateDb();
+		db.Lieder.AddRange(new Lied { Title = "Lebendig" }, new Lied { Title = "Gelöscht", DeletedAt = now });
+		db.Events.AddRange(
+			new ChoirEvent { Kind = EventKinds.Known[0], Title = "Vormittag" },
+			new ChoirEvent { Kind = EventKinds.Known[0], Title = "Gelöscht", DeletedAt = now });
+		await db.SaveChangesAsync();
+
+		var lieder = await ArchiveAccess.MemberLieder(db).ToListAsync();
+		Assert.Equal(["Lebendig"], lieder.Select(l => l.Title));
+
+		var auftritte = await ArchiveAccess.MemberAuftritte(db).ToListAsync();
+		Assert.Equal(["Vormittag"], auftritte.Select(e => e.Title));
+	}
+
+	private static ArchiveDbContext CreateDb()
+	{
+		var identity = new IdentityOptions
+		{
+			Stores = { SchemaVersion = IdentitySchemaVersions.Version3 },
+		};
+		var services = new ServiceCollection();
+		services.AddSingleton<Microsoft.Extensions.Options.IOptions<IdentityOptions>>(
+			new Microsoft.Extensions.Options.OptionsWrapper<IdentityOptions>(identity));
+		return new ArchiveDbContext(new DbContextOptionsBuilder<ArchiveDbContext>()
+			.UseInMemoryDatabase($"archive-access-{Guid.NewGuid():N}", new InMemoryDatabaseRoot())
+			.UseApplicationServiceProvider(services.BuildServiceProvider()).Options);
 	}
 
 	private static DefaultHttpContext AuthenticatedContext(Guid accountId, DateTimeOffset now)

@@ -23,8 +23,6 @@ namespace Archive.Backend.Lieder;
 /// </summary>
 public static class PapierkorbEndpoints
 {
-	public const string AdminOnlyMessage = "Keine Berechtigung für den Papierkorb.";
-
 	public const string NotFoundMessage = "Der Eintrag wurde nicht gefunden.";
 
 	public const string ConcurrencyMessage = "Der Eintrag wurde zwischenzeitlich geändert.";
@@ -160,9 +158,7 @@ public static class PapierkorbEndpoints
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
 			ArchiveDbContext db, PapierkorbRemoval removal, Guid id, CancellationToken token) =>
 		{
-			if (await ArchiveAccess.ValidateAntiforgeryAsync(context, antiforgery) is { } rejected)
-				return rejected;
-			var error = await RequireAdministratorAsync(context, accessor, access);
+			var (_, error) = await ArchiveAccess.RequireAdministratorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			if (!await db.Lieder.AnyAsync(l => l.Id == id, token))
@@ -175,9 +171,7 @@ public static class PapierkorbEndpoints
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
 			ArchiveDbContext db, PapierkorbRemoval removal, Guid id, CancellationToken token) =>
 		{
-			if (await ArchiveAccess.ValidateAntiforgeryAsync(context, antiforgery) is { } rejected)
-				return rejected;
-			var error = await RequireAdministratorAsync(context, accessor, access);
+			var (_, error) = await ArchiveAccess.RequireAdministratorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			if (!await db.Events.AnyAsync(e => e.Id == id, token))
@@ -190,9 +184,7 @@ public static class PapierkorbEndpoints
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
 			ArchiveDbContext db, PapierkorbRemoval removal, Guid id, CancellationToken token) =>
 		{
-			if (await ArchiveAccess.ValidateAntiforgeryAsync(context, antiforgery) is { } rejected)
-				return rejected;
-			var error = await RequireAdministratorAsync(context, accessor, access);
+			var (_, error) = await ArchiveAccess.RequireAdministratorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			if (!await db.Dateien.AnyAsync(d => d.Id == id, token))
@@ -200,20 +192,6 @@ public static class PapierkorbEndpoints
 			await removal.RemoveDateiAsync(id, token);
 			return Results.NoContent();
 		}).DisableAntiforgery();
-	}
-
-	/// <summary>Restore endpoints are editor-only; the immediate removal is Administrator-only.</summary>
-	private static async Task<IResult?> RequireAdministratorAsync(
-		HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access)
-	{
-		if (accessor.Current is null)
-			return Results.Problem(statusCode: 401, title: "Anmeldung erforderlich.");
-		var decision = await access.GetDecisionAsync(context.User);
-		if (decision is null || !decision.IsActive)
-			return Results.Problem(statusCode: 401, title: "Anmeldung erforderlich.");
-		if (!decision.IsAdministrator)
-			return Results.Problem(statusCode: 403, title: AdminOnlyMessage);
-		return null;
 	}
 }
 

@@ -1,3 +1,7 @@
+using Archive.Backend.Data;
+using Archive.Backend.Events;
+using Archive.Backend.Lieder;
+using Archive.Backend.Recordings;
 using Microsoft.AspNetCore.Antiforgery;
 
 namespace Archive.Backend.Auth;
@@ -54,6 +58,16 @@ public static class ArchiveAccess
 		return (member, null);
 	}
 
+	public static (ArchiveAccessDecision? Decision, IResult? Error) DecideAdministrator(ArchiveAccessDecision? decision)
+	{
+		var (member, error) = DecideMember(decision);
+		if (error is not null)
+			return (null, error);
+		if (!member!.IsAdministrator)
+			return (null, Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: ForbiddenMessage));
+		return (member, null);
+	}
+
 	public static async Task<(ArchiveAccessDecision? Decision, IResult? Error)> RequireMemberAsync(
 		HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access)
 	{
@@ -88,4 +102,47 @@ public static class ArchiveAccess
 			return (null, rejected);
 		return await RequireEditorAsync(context, accessor, access);
 	}
+
+	public static async Task<(ArchiveAccessDecision? Decision, IResult? Error)> RequireAdministratorAsync(
+		HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access)
+	{
+		var (decision, error) = await RequireMemberAsync(context, accessor, access);
+		if (error is not null)
+			return (null, error);
+		return DecideAdministrator(decision);
+	}
+
+	public static async Task<(ArchiveAccessDecision? Decision, IResult? Error)> RequireAdministratorAsync(
+		HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access)
+	{
+		if (await ValidateAntiforgeryAsync(context, antiforgery) is { } rejected)
+			return (null, rejected);
+		return await RequireAdministratorAsync(context, accessor, access);
+	}
+
+	/// <summary>
+	/// #171: Dateien of an Auftritt follow the Auftritt's visibility; members
+	/// get concert files only through their recording's own ticket
+	/// (publication and download switch), editors may also fetch the
+	/// preserved original here. A Datei of a Lied (no Auftritt) is not affected.
+	/// </summary>
+	public static bool IsAuftrittsAufnahmeMemberVisible(ArchiveAccessDecision decision, Datei datei)
+		=> datei.Event is null || IsEditor(decision) || datei.Kind != DateiKinds.Aufnahme;
+
+	/// <summary>
+	/// Only the account that created an Aufnahme may change its files — an
+	/// editor or Administrator who did not create it still may not (the rule
+	/// of the attachment endpoint, decided here for every caller).
+	/// </summary>
+	public static bool CanChangeRecordingFiles(ArchiveAccessDecision decision, Recording recording)
+		=> recording.CreatedByAccountId == decision.AccountId;
+
+	/// <summary>The Lieder a member may see: every saved one, none in the trash (#146).</summary>
+	public static IQueryable<Lied> MemberLieder(ArchiveDbContext db) => LiedQueries.Visible(db);
+
+	/// <summary>
+	/// The Auftritte a member may see: every saved one — ADR-0001 has no draft
+	/// or published state for the Auftritte — none in the trash (#146).
+	/// </summary>
+	public static IQueryable<ChoirEvent> MemberAuftritte(ArchiveDbContext db) => EventQueries.Visible(db);
 }
