@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { LiedFormular } from "@/components/lied-formular";
 import { EntwurfFehler, ladeEntwurf } from "@/lib/lied-entwuerfe";
 import type { Gespeichert } from "@/lib/lied-entwurf/gespeichert";
@@ -178,6 +178,12 @@ export function LiedAblegen({ entwurfId }: { entwurfId?: string | null }) {
  * Die Ablage und das Formular dazu. Mit `festesLied` (Lied-Seite, #179) fügt
  * sie Dateien genau diesem Lied hinzu: derselbe Ablauf, aber ohne Lied-Felder,
  * ohne Lesen und ohne angefangenen Entwurf.
+ *
+ * Der Sammel-Import (#143) hängt sich hier an: `wiederablage` reicht
+ * wiederhergestellte Dateien nach, `ohneWeiterleitung` meldet das Ende über
+ * `onFertig` statt zur Lied-Seite weiterzuleiten, und `sammelAnmeldung`
+ * meldet den laufenden Zustand samt Speichern hoch, damit die Redaktion
+ * mehrere klare Vorschläge auf einmal speichern kann.
  */
 export function DateienAblegen({
   gespeichert,
@@ -185,12 +191,24 @@ export function DateienAblegen({
   onOhneDatei,
   onVerworfen,
   onFertig,
+  wiederablage,
+  ohneWeiterleitung,
+  sammelAnmeldung,
 }: {
   gespeichert?: Gespeichert;
   festesLied?: FestesLied;
   onOhneDatei?: () => void;
   onVerworfen?: () => void;
   onFertig?: () => void;
+  /** Datei-Bytes, die einem wiederhergestellten Entwurf nachgereicht werden. */
+  wiederablage?: File[];
+  /** Nur melden, nicht zur Lied-Seite gehen. */
+  ohneWeiterleitung?: boolean;
+  sammelAnmeldung?: (meldung: {
+    entwurfId: string;
+    zustand: Exclude<Zustand, { phase: "leer" | "verworfen" }>;
+    speichern: () => Promise<void>;
+  }) => void;
 }) {
   const router = useRouter();
   const idPraefix = useId();
@@ -210,15 +228,45 @@ export function DateienAblegen({
     trefferAblehnen,
   } = useLiedEntwurf(gespeichert, festesLied);
 
+  // Die nachgereichten Bytes laufen genau einmal durch die Ablage: dieselbe
+  // Bewertung wie beim Ablegen, zurück im Reducer.
+  const nachgereicht = useRef<File[] | null>(null);
+  useEffect(() => {
+    if (!wiederablage || nachgereicht.current === wiederablage) return;
+    nachgereicht.current = wiederablage;
+    ablegen(wiederablage);
+  }, [wiederablage, ablegen]);
+
+  // Der Sammel-Import sieht den Zustand, um klare Vorschläge auf einmal zu
+  // speichern; gemeldet wird, was sich ändert.
+  const meldungRef = useRef(sammelAnmeldung);
+  meldungRef.current = sammelAnmeldung;
+  useEffect(() => {
+    if (
+      !meldungRef.current ||
+      zustand.phase === "leer" ||
+      zustand.phase === "verworfen"
+    )
+      return;
+    meldungRef.current({
+      entwurfId: zustand.entwurfId,
+      zustand,
+      speichern,
+    });
+  }, [zustand, speichern]);
+
   const gespeichertId =
     zustand.phase === "gespeichert" && fehlgeschlagene(zustand).length === 0
       ? zustand.liedId
       : null;
   useEffect(() => {
     if (!gespeichertId) return;
-    if (festesLied) onFertig?.();
-    else router.push(`/lied/?id=${encodeURIComponent(gespeichertId)}`);
-  }, [gespeichertId, router, festesLied, onFertig]);
+    if (festesLied || ohneWeiterleitung) {
+      onFertig?.();
+      return;
+    }
+    router.push(`/lied/?id=${encodeURIComponent(gespeichertId)}`);
+  }, [gespeichertId, router, festesLied, ohneWeiterleitung, onFertig]);
 
   const ziel =
     zustand.phase === "leer" || zustand.phase === "verworfen"

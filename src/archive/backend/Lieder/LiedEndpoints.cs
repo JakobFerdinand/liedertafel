@@ -2,6 +2,7 @@ using Archive.Backend.Events;
 using Archive.Backend.Auth;
 using Archive.Backend.Catalogue;
 using Archive.Backend.Data;
+using Archive.Backend.Videos;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.EntityFrameworkCore;
 
@@ -46,8 +47,6 @@ public static class LiedEndpoints
 
 	public const string UnknownDateiTypMessage = "Unbekannter Dateityp.";
 
-	public const string ForbiddenMessage = "Keine Berechtigung für das Liedverzeichnis.";
-
 	public const string ConcurrencyMessage = "Der Eintrag wurde zwischenzeitlich geändert.";
 
 	public const int FieldMaxLength = 200;
@@ -55,22 +54,11 @@ public static class LiedEndpoints
 	public const int LyricsMaxLength = 5000;
 
 	/// <summary>
-	/// The folded extracted text of every Lied's live Noten, joined per Lied.
-	/// Dateien in the trash contribute nothing, so a replaced or deleted Noten
-	/// stops being found.
+	/// The folded extracted text of every Lied's live Noten, joined per Lied —
+	/// the shared loader of member search and chat's catalogue search (#142).
 	/// </summary>
-	private static async Task<Dictionary<Guid, string>> LoadNotenTextsAsync(ArchiveDbContext db, CancellationToken token)
-	{
-		var texts = await (
-			from job in db.ExtractionJobs.AsNoTracking()
-			join datei in DateiQueries.Visible(db) on job.DateiId equals datei.Id
-			where datei.LiedId != null && datei.Kind == DateiKinds.Noten
-				&& job.Status == Extraction.ExtractionStatus.Completed && job.Text != null
-			select new { LiedId = datei.LiedId!.Value, job.Text })
-			.ToListAsync(token);
-		return texts.GroupBy(t => t.LiedId)
-			.ToDictionary(g => g.Key, g => string.Join('\n', g.Select(t => CatalogueText.Fold(t.Text))));
-	}
+	private static Task<Dictionary<Guid, string>> LoadNotenTextsAsync(ArchiveDbContext db, CancellationToken token)
+		=> CatalogueSearch.LoadNotenTextsAsync(db, token);
 
 	public static void MapLiedEndpoints(this IEndpointRouteBuilder app)
 	{
@@ -79,8 +67,7 @@ public static class LiedEndpoints
 			CancellationToken token, string? q, int? page, string? besetzung, string? voiceConfiguration,
 			string? anlass, string? occasion, string[]? dateiTyp) =>
 		{
-			context.Response.Headers.CacheControl = "no-store";
-			var (_, error) = await LiedAccess.RequireMemberAsync(context, accessor, access);
+			var (_, error) = await ArchiveAccess.RequireMemberAsync(context, accessor, access);
 			if (error is not null)
 				return error;
 			var query = (q ?? string.Empty).Trim();
@@ -96,8 +83,8 @@ public static class LiedEndpoints
 
 			// About 500 Lieder: project once, match in C# so InMemory tests and
 			// PostgreSQL agree on the German folding.
-			var rows = await db.Lieder.AsNoTracking()
-				.Select(l => new ListRow(l.Id, l.Title, l.Composer, l.Arranger, l.Lyricist, l.VoiceConfiguration,
+			var rows = await LiedQueries.Visible(db).AsNoTracking()
+				.Select(l => new ListRow(l.Id, l.Title, l.Composer, l.Arranger, l.Lyricist, l.Lyrics, l.VoiceConfiguration,
 					l.MusicalKey, l.Language, l.Occasion))
 				.ToListAsync(token);
 			var kindRows = await DateiQueries.Visible(db).AsNoTracking()
@@ -108,34 +95,32 @@ public static class LiedEndpoints
 			var kindsByLied = kindRows.GroupBy(k => k.LiedId)
 				.ToDictionary(g => g.Key, g => g.Select(k => k.Kind).ToHashSet());
 
-			// Plain search also reads the text of each Lied's live Noten (#169):
-			// every word must stand in the title or in that text.
+			// Plain search reads the text of each Lied's live Noten (#169) and,
+			// since #142, matches the Liedtext and the creators too: every word
+			// must stand in at least one of those fields, the Treffer names them.
 			var noteTexts = tokens.Count == 0
 				? []
 				: await LoadNotenTextsAsync(db, token);
 
-			var matches = rows
-				.Where(r => voiceFilter.Length == 0 || CatalogueText.Fold(r.VoiceConfiguration) == voiceFilter)
-				.Where(r => occasionFilter.Length == 0 || CatalogueText.Fold(r.Occasion) == occasionFilter)
+			var matched = rows
+				.Select(r => (Row: r, Fields: CatalogueSearch.FieldsOf(r.Title, r.Composer, r.Arranger,
+					r.Lyricist, r.Lyrics, noteTexts.GetValueOrDefault(r.Id) ?? string.Empty)))
+				.Where(r => voiceFilter.Length == 0 || CatalogueText.Fold(r.Row.VoiceConfiguration) == voiceFilter)
+				.Where(r => occasionFilter.Length == 0 || CatalogueText.Fold(r.Row.Occasion) == occasionFilter)
 				.Where(r => wantedKinds.Count == 0
-					|| (kindsByLied.TryGetValue(r.Id, out var kinds) && wantedKinds.All(kinds.Contains)))
-				.Where(r =>
-				{
-					var title = CatalogueText.Fold(r.Title);
-					var notes = noteTexts.GetValueOrDefault(r.Id) ?? string.Empty;
-					return tokens.All(t => title.Contains(t) || notes.Contains(t));
-				})
-				.OrderBy(r => CatalogueText.Fold(r.Title), StringComparer.Ordinal)
-				.ThenBy(r => r.Id)
+					|| (kindsByLied.TryGetValue(r.Row.Id, out var kinds) && wantedKinds.All(kinds.Contains)))
+				.Where(r => CatalogueSearch.Matches(tokens, r.Fields))
+				.OrderBy(r => CatalogueText.Fold(r.Row.Title), StringComparer.Ordinal)
+				.ThenBy(r => r.Row.Id)
 				.ToList();
 			var requestedPage = page is null or < 1 ? 1 : page.Value;
-			var pageRows = matches.Skip((requestedPage - 1) * PageSize).Take(PageSize).ToList();
+			var pageRows = matched.Skip((requestedPage - 1) * PageSize).Take(PageSize).ToList();
 			return Results.Ok(new
 			{
 				query = query.Length == 0 ? null : query,
 				page = requestedPage,
 				pageSize = PageSize,
-				total = matches.Count,
+				total = matched.Count,
 				filters = new
 				{
 					voiceConfiguration = Clean(besetzung ?? voiceConfiguration),
@@ -149,16 +134,19 @@ public static class LiedEndpoints
 				},
 				lieder = pageRows.Select(r => new
 				{
-					id = r.Id,
-					title = r.Title,
-					composer = r.Composer,
-					arranger = r.Arranger,
-					lyricist = r.Lyricist,
-					voiceConfiguration = r.VoiceConfiguration,
-					musicalKey = r.MusicalKey,
-					language = r.Language,
-					occasion = r.Occasion,
-					dateiTypen = DateiKinds.All.Where(k => kindsByLied.TryGetValue(r.Id, out var kinds) && kinds.Contains(k)),
+					id = r.Row.Id,
+					title = r.Row.Title,
+					composer = r.Row.Composer,
+					arranger = r.Row.Arranger,
+					lyricist = r.Row.Lyricist,
+					voiceConfiguration = r.Row.VoiceConfiguration,
+					musicalKey = r.Row.MusicalKey,
+					language = r.Row.Language,
+					occasion = r.Row.Occasion,
+					// Where the Treffer stands, in the labels the members read
+					// ("im Liedtext", "in den Noten", …); empty without a query.
+					matchIn = tokens.Count == 0 ? [] : CatalogueSearch.MatchLabels(tokens, r.Fields),
+					dateiTypen = DateiKinds.All.Where(k => kindsByLied.TryGetValue(r.Row.Id, out var kinds) && kinds.Contains(k)),
 				}),
 			});
 		});
@@ -167,27 +155,20 @@ public static class LiedEndpoints
 			HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access, ArchiveDbContext db,
 			Guid id, CancellationToken token) =>
 		{
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await LiedAccess.RequireMemberAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireMemberAsync(context, accessor, access);
 			if (error is not null)
 				return error;
-			var lied = await db.Lieder.AsNoTracking().FirstOrDefaultAsync(l => l.Id == id, token);
+			var lied = await LiedQueries.Visible(db).AsNoTracking().FirstOrDefaultAsync(l => l.Id == id, token);
 			if (lied is null)
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
-			return Results.Ok(new { lied = await DetailAsync(db, lied, LiedAccess.IsEditor(decision!), token) });
+			return Results.Ok(new { lied = await DetailAsync(db, lied, ArchiveAccess.IsEditor(decision!), token) });
 		});
 
 		app.MapPost("/api/lieder", async (
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
 			ArchiveDbContext db, CatalogueWriteService writes, TimeProvider time, CancellationToken token, CreateLiedRequest? body) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await LiedAccess.RequireEditorAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			var (outcome, lied) = await writes.CreateLiedAsync(
@@ -202,16 +183,10 @@ public static class LiedEndpoints
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
 			ArchiveDbContext db, CatalogueWriteService writes, TimeProvider time, Guid id, CancellationToken token, PatchLiedRequest? body) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await LiedAccess.RequireEditorAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
-			var lied = await db.Lieder.FirstOrDefaultAsync(l => l.Id == id, token);
+			var lied = await LiedQueries.Visible(db).FirstOrDefaultAsync(l => l.Id == id, token);
 			if (lied is null)
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
 			var outcome = await writes.PatchLiedAsync(
@@ -241,11 +216,13 @@ public static class LiedEndpoints
 		var dateien = await DateiQueries.Visible(db).AsNoTracking()
 			.Where(d => d.LiedId == lied.Id)
 			.ToListAsync(token);
+		// #161: automatic playback copies never show as entries of their own.
+		dateien = await VideoPlayback.WithoutCopiesAsync(db, dateien, token);
 		// An Aufnahme names its Auftritt; the link goes to the Auftritt page.
 		var eventIds = dateien.Where(d => d.RecordedAtEventId != null).Select(d => d.RecordedAtEventId!.Value).Distinct().ToList();
 		var events = eventIds.Count == 0
 			? []
-			: (await db.Events.AsNoTracking().Where(e => eventIds.Contains(e.Id)).ToListAsync(token))
+			: (await EventQueries.Visible(db).AsNoTracking().Where(e => eventIds.Contains(e.Id)).ToListAsync(token))
 				.ToDictionary(e => e.Id);
 		return new
 		{
@@ -274,7 +251,7 @@ public static class LiedEndpoints
 		};
 	}
 
-	private sealed record ListRow(Guid Id, string Title, string? Composer, string? Arranger, string? Lyricist,
+	private sealed record ListRow(Guid Id, string Title, string? Composer, string? Arranger, string? Lyricist, string? Lyrics,
 		string? VoiceConfiguration, string? MusicalKey, string? Language, string? Occasion);
 }
 
@@ -295,47 +272,4 @@ public static class DateiPayloads
 		rowVersion = d.RowVersion,
 		recordedAtEvent,
 	};
-}
-
-/// <summary>Access decisions shared by the Lied and Datei endpoints.</summary>
-internal static class LiedAccess
-{
-	public static bool IsEditor(ArchiveAccessDecision decision)
-		=> decision.IsAdministrator || decision.Roles.Contains(ArchiveRoles.Editor);
-
-	public static async Task<(ArchiveAccessDecision? Decision, IResult? Error)> RequireMemberAsync(
-		HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access)
-	{
-		if (accessor.Current is null)
-			return (null, Results.Problem(statusCode: 401, title: "Anmeldung erforderlich."));
-		var decision = await access.GetDecisionAsync(context.User);
-		if (decision is null || !decision.IsActive)
-			return (null, Results.Problem(statusCode: 401, title: "Anmeldung erforderlich."));
-		return (decision, null);
-	}
-
-	/// <summary>The 400 answer for a missing or wrong antiforgery token, otherwise null.</summary>
-	public static async Task<IResult?> ValidateAntiforgeryAsync(IAntiforgery antiforgery, HttpContext context)
-	{
-		try
-		{
-			await antiforgery.ValidateRequestAsync(context);
-			return null;
-		}
-		catch (AntiforgeryValidationException)
-		{
-			return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-		}
-	}
-
-	public static async Task<(ArchiveAccessDecision? Decision, IResult? Error)> RequireEditorAsync(
-		HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access)
-	{
-		var (decision, error) = await RequireMemberAsync(context, accessor, access);
-		if (error is not null)
-			return (null, error);
-		if (!IsEditor(decision!))
-			return (null, Results.Problem(statusCode: 403, title: LiedEndpoints.ForbiddenMessage));
-		return (decision, null);
-	}
 }

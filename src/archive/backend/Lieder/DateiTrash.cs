@@ -1,6 +1,8 @@
 using Archive.Backend.Assets;
 using Archive.Backend.Auth;
 using Archive.Backend.Data;
+using Archive.Backend.Events;
+using Archive.Backend.Videos;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.EntityFrameworkCore;
 
@@ -23,6 +25,8 @@ public sealed class DateiReplacementHook : IDateiFinalizedHook
 			return;
 		DateiTrash.MoveToTrash(old, upload.ActorAccountId, upload.Now);
 		old.ReplacedByDateiId = datei.Id;
+		// #161: the playback copy of a replaced video leaves with it.
+		await VideoTrash.TrashCopyOfAsync(db, old, upload.ActorAccountId, upload.Now, token);
 	}
 }
 
@@ -45,13 +49,7 @@ public static class DateiTrashEndpoints
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
 			ArchiveDbContext db, TimeProvider time, Guid id, CancellationToken token, DeleteDateiRequest? body) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await LiedAccess.RequireEditorAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			var datei = await DateiQueries.Visible(db).FirstOrDefaultAsync(d => d.Id == id, token);
@@ -60,6 +58,9 @@ public static class DateiTrashEndpoints
 			if (body?.RowVersion is not { } expected || expected != datei.RowVersion)
 				return Results.Problem(statusCode: 409, title: UploadEndpoints.ConcurrencyMessage);
 			DateiTrash.MoveToTrash(datei, decision!.AccountId, time.GetUtcNow());
+			// #161: the playback copy of a deleted video leaves with it.
+			await Archive.Backend.Videos.VideoTrash.TrashCopyOfAsync(db, datei, decision.AccountId,
+				time.GetUtcNow(), token);
 			try
 			{
 				await db.SaveChangesAsync(token);
@@ -75,11 +76,10 @@ public static class DateiTrashEndpoints
 			HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access, ArchiveDbContext db,
 			CancellationToken token) =>
 		{
-			context.Response.Headers.CacheControl = "no-store";
-			var (_, error) = await LiedAccess.RequireEditorAsync(context, accessor, access);
+			var (_, error) = await ArchiveAccess.RequireEditorAsync(context, accessor, access);
 			if (error is not null)
 				return error;
-			var rows = await DateiQueries.Trashed(db).AsNoTracking()
+			var dateiRows = await DateiQueries.Trashed(db).AsNoTracking()
 				.Select(d => new
 				{
 					d.Id,
@@ -97,12 +97,21 @@ public static class DateiTrashEndpoints
 					Replaced = d.ReplacedByDateiId != null,
 				})
 				.ToListAsync(token);
-			var accountIds = rows.Where(r => r.DeletedByAccountId != null).Select(r => r.DeletedByAccountId!.Value).Distinct().ToList();
-			var names = await db.Users.AsNoTracking().Where(u => accountIds.Contains(u.Id))
+			var liedRows = await LiedQueries.Trashed(db).AsNoTracking()
+				.Select(l => new { l.Id, l.Title, l.DeletedAt, l.DeletedByAccountId })
+				.ToListAsync(token);
+			var eventRows = await EventQueries.Trashed(db).AsNoTracking()
+				.Select(e => new { e.Id, e.Title, e.Kind, e.DeletedAt, e.DeletedByAccountId })
+				.ToListAsync(token);
+			var owners = dateiRows.Select(r => r.DeletedByAccountId)
+				.Concat(liedRows.Select(r => r.DeletedByAccountId))
+				.Concat(eventRows.Select(r => r.DeletedByAccountId))
+				.OfType<Guid>().Distinct().ToList();
+			var names = await db.Users.AsNoTracking().Where(u => owners.Contains(u.Id))
 				.ToDictionaryAsync(u => u.Id, u => u.DisplayName ?? u.Email ?? u.UserName, token);
 			return Results.Ok(new
 			{
-				dateien = rows.OrderByDescending(r => r.DeletedAt).ThenBy(r => r.Id).Select(r => new
+				dateien = dateiRows.OrderByDescending(r => r.DeletedAt).ThenBy(r => r.Id).Select(r => new
 				{
 					id = r.Id,
 					kind = r.Kind,
@@ -117,6 +126,21 @@ public static class DateiTrashEndpoints
 					deletedAt = r.DeletedAt,
 					deletedBy = r.DeletedByAccountId is { } by && names.TryGetValue(by, out var name) ? name : null,
 					replaced = r.Replaced,
+				}),
+				lieder = liedRows.OrderByDescending(r => r.DeletedAt).ThenBy(r => r.Id).Select(r => new
+				{
+					id = r.Id,
+					title = r.Title,
+					deletedAt = r.DeletedAt,
+					deletedBy = r.DeletedByAccountId is { } by && names.TryGetValue(by, out var name) ? name : null,
+				}),
+				auftritte = eventRows.OrderByDescending(r => r.DeletedAt).ThenBy(r => r.Id).Select(r => new
+				{
+					id = r.Id,
+					kind = r.Kind,
+					title = r.Title,
+					deletedAt = r.DeletedAt,
+					deletedBy = r.DeletedByAccountId is { } by && names.TryGetValue(by, out var name) ? name : null,
 				}),
 			});
 		});

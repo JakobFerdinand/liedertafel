@@ -354,7 +354,7 @@ public sealed partial class RecordingPassageApiTests
 		{
 			using var denied = await scenario.SendAsync(method, route, payload, scenario.MemberSession);
 			Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
-			Assert.Equal("Keine Berechtigung für die Zeitmarken.", await TitleAsync(denied));
+			Assert.Equal(ArchiveAccess.ForbiddenMessage, await TitleAsync(denied));
 		}
 
 		// Mutations need the antiforgery token.

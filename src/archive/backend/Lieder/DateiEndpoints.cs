@@ -2,6 +2,7 @@ using Archive.Backend.Assets;
 using Archive.Backend.Auth;
 using Archive.Backend.Data;
 using Archive.Backend.Events;
+using Archive.Backend.Videos;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -25,13 +26,7 @@ public static class DateiEndpoints
 			ArchiveDbContext db, TimeProvider time, IOptions<AssetStorageOptions> options, IAssetStorageAdapter storage,
 			Guid id, CancellationToken token, CreateDateiUploadRequest? body) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await LiedAccess.RequireEditorAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			return await DateiUploads.CreateForLiedAsync(
@@ -44,13 +39,7 @@ public static class DateiEndpoints
 			ArchiveDbContext db, TimeProvider time, IOptions<AssetStorageOptions> options, IAssetStorageAdapter storage,
 			Guid id, CancellationToken token, CreateDateiUploadRequest? body) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await LiedAccess.RequireEditorAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			return await DateiUploads.CreateForEventAsync(
@@ -62,13 +51,7 @@ public static class DateiEndpoints
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
 			ArchiveDbContext db, Guid id, CancellationToken token, PatchDateiRequest? body) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
-			var (_, error) = await LiedAccess.RequireEditorAsync(context, accessor, access);
+			var (_, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			var datei = await DateiQueries.Visible(db)
@@ -101,8 +84,7 @@ public static class DateiEndpoints
 			TimeProvider time, IOptions<AssetStorageOptions> options, IAssetStorageAdapter storage,
 			Guid id, CancellationToken token) =>
 		{
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await LiedAccess.RequireMemberAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireMemberAsync(context, accessor, access);
 			if (error is not null)
 				return error;
 			var datei = await DateiQueries.Visible(db).AsNoTracking()
@@ -110,20 +92,25 @@ public static class DateiEndpoints
 				.FirstOrDefaultAsync(d => d.Id == id, token);
 			if (datei is null)
 				return Results.Problem(statusCode: 404, title: DateiUploads.DateiNotFoundMessage);
-			// #171: Dateien of an Auftritt follow the Auftritt's visibility;
-			// members get concert files only through their recording's own
-			// ticket (publication and download switch), editors may also fetch
-			// the preserved original here.
-			if (datei.Event is not null && !LiedAccess.IsEditor(decision!)
-				&& datei.Kind == DateiKinds.Aufnahme)
+			// #171: members get an Auftritt's Aufnahme only through their
+			// recording's own ticket; the stop's rule lives in the access module.
+			if (!ArchiveAccess.IsAuftrittsAufnahmeMemberVisible(decision!, datei))
 				return Results.Problem(statusCode: 404, title: DateiUploads.DateiNotFoundMessage);
+			// #161: the member PLAYS the automatic MP4 playback copy while the
+			// download stays the original; editors who confirm the copy in the
+			// lists still see it under `playbackDateiId`. With no copy yet the
+			// view ticket serves the original itself.
+			var copy = VideoService.IsVideoMaterial(datei.Kind, datei.ContentType)
+				? await VideoPlayback.LiveCopyAsync(db, datei.Id, token)
+				: null;
+			var viewFile = copy?.PlaybackDatei ?? datei;
 			var lifetime = options.Value.ReadTicketLifetime;
 			string viewUrl;
 			string downloadUrl;
 			try
 			{
 				viewUrl = await storage.CreateReadTicketAsync(
-					datei.BlobName, lifetime, asDownload: false, contentType: datei.ContentType, token);
+					viewFile.BlobName, lifetime, asDownload: false, contentType: viewFile.ContentType, token);
 				downloadUrl = await storage.CreateReadTicketAsync(
 					datei.BlobName, lifetime, asDownload: true, contentType: datei.ContentType, token);
 			}
@@ -135,10 +122,11 @@ public static class DateiEndpoints
 			{
 				dateiId = datei.Id,
 				kind = datei.Kind,
-				contentType = datei.ContentType,
-				sizeBytes = datei.SizeBytes,
+				contentType = viewFile.ContentType,
+				sizeBytes = viewFile.SizeBytes,
 				fileName = datei.OriginalFileName,
 				createdAt = datei.CreatedAt,
+				playbackDateiId = copy?.PlaybackDateiId,
 				viewUrl,
 				downloadUrl,
 				expiresAt = time.GetUtcNow() + lifetime,

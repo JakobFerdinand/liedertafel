@@ -62,6 +62,13 @@ export function ausDateiname(dateiname: string): AusDateiname {
     : dateiname;
   let teile = ohneEndung.split(/[\s_\-.]+/).filter(Boolean);
 
+  // Der Export hängt an Doppelnamen Sammler-Marke wie " (1)" an (#98); sie
+  // belegen keine Fassung und fallen weg, bevor eine Stimme am Ende gelesen
+  // wird.
+  while (teile.length > 1 && /^\(\d+\)$/.test(teile.at(-1) ?? "")) {
+    teile = teile.slice(0, -1);
+  }
+
   let stimme = "";
   const gefunden = stimmeAmEnde(teile);
   if (gefunden && gefunden.rest.length > 0) {

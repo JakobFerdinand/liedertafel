@@ -12,7 +12,9 @@ export default function PapierkorbSeite() {
         aria-labelledby="papierkorb-titel"
       >
         <h1 id="papierkorb-titel">Papierkorb</h1>
-        <p>Gelöschte und ersetzte Dateien. Mitglieder sehen sie nicht.</p>
+        <p>
+          Gelöschte Lieder, Auftritte und Dateien. Mitglieder sehen sie nicht.
+        </p>
       </section>
       <Papierkorb />
     </>

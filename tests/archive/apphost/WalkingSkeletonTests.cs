@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -1399,6 +1400,209 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
             return await response.Content.ReadFromJsonAsync<JsonElement>(token);
         }
+    }
+
+    // ===== #161: the video transcode path on the real AppHost stack ======
+
+    [Fact]
+    public async Task AVideoAufnahmeFinishesWithAPlayableH264CopyOnTheRealStack()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(10));
+        var token = timeout.Token;
+        // The transcode input is the committed test fixture (see TestAssets):
+        // no host ffmpeg is needed, the worker's container carries the tools
+        // and does the actual encoding — that is the path under test.
+        var video = TranscodeFixture();
+        var builder = await DistributedApplicationTestingBuilder.CreateAsync<Projects.Archive_AppHost>(
+            ["--Archive:PersistLocalData=false", "DcpPublisher:RandomizePorts=false"],
+            (options, _) => options.DisableDashboard = false, token);
+        await using var app = await builder.BuildAsync(token);
+        await app.StartAsync(token);
+        try
+        {
+            await app.ResourceNotifications.WaitForResourceHealthyAsync("archive-api", token);
+        }
+        catch
+        {
+            var logs = app.Services.GetRequiredService<ResourceLoggerService>();
+            foreach (var name in new[] { "archive-api", "archive-storage-init" })
+                await foreach (var batch in logs.GetAllAsync(name))
+                    foreach (var line in batch) output.WriteLine($"{name}: {line.Content}");
+            throw;
+        }
+        await app.ResourceNotifications.WaitForResourceHealthyAsync("archive-frontend", token);
+
+        var commands = app.Services.GetRequiredService<ResourceCommandService>();
+        await commands.ExecuteCommandAsync("archive-migrate", "start", token);
+        await AssertSuccessfulCompletion(app.ResourceNotifications, "archive-migrate", token);
+
+        using var frontend = app.CreateHttpClient("archive-frontend", "http");
+        using var mail = app.CreateHttpClient("archive-mail", "http");
+        using var api = new HttpClient(new HttpClientHandler { UseCookies = false })
+        {
+            BaseAddress = frontend.BaseAddress,
+        };
+        using var storage = new HttpClient();
+
+        var (seedCsrfCookie, seedToken) = await GetCsrfAsync(api, null, token);
+        using var seed = new HttpRequestMessage(HttpMethod.Post, "/api/dev/auth/seed");
+        seed.Headers.Add("Cookie", seedCsrfCookie);
+        seed.Headers.Add("X-CSRF-TOKEN", seedToken);
+        seed.Content = JsonContent.Create(new { });
+        using var seedResponse = await api.SendAsync(seed, token);
+        Assert.Equal(HttpStatusCode.OK, seedResponse.StatusCode);
+
+        var editorSession = await SignInAsync(api, mail, "redaktion@liedertafel.test", token);
+        var memberSession = await SignInAsync(api, mail, "mitglied@liedertafel.test", token);
+
+        // The smallest video the flow accepts: two seconds of 64x36 MPEG‑4
+        // Part 2 video with AAC audio in an MP4 container. The legacy MPEG‑4
+        // video codec is deliberately not browser-playable, so the worker must
+        // build a real H.264/AAC copy instead of keeping the original.
+        Assert.True(video.Length > 0);
+
+        using var eventResponse = await PostJsonAsync(api, "/api/events",
+            new { kind = "concert", title = "Transcodekonzert" }, editorSession, token);
+        Assert.Equal(HttpStatusCode.Created, eventResponse.StatusCode);
+        var eventId = Guid.Parse((await eventResponse.Content.ReadFromJsonAsync<JsonElement>(token))
+            .GetProperty("event").GetProperty("id").GetString()!);
+
+        using var recordingResponse = await PostJsonAsync(api, $"/api/events/{eventId}/recordings",
+            new { label = "Konzertfilm", kind = "video" }, editorSession, token);
+        Assert.Equal(HttpStatusCode.Created, recordingResponse.StatusCode);
+        var recording = (await recordingResponse.Content.ReadFromJsonAsync<JsonElement>(token))
+            .GetProperty("recording");
+        var recordingId = Guid.Parse(recording.GetProperty("id").GetString()!);
+        Assert.Equal("missing", recording.GetProperty("playback").GetProperty("state").GetString());
+
+        // Upload: create the Aufnahme session on the Auftritt, transfer the
+        // bytes direct-to-blob and finalize — the finalize outbox queues the
+        // transcode work.
+        using var sessionResponse = await PostJsonAsync(api,
+            $"/api/events/{eventId}/dateien/upload-session",
+            new { kind = "aufnahme", contentType = "video/mp4", fileName = "probe.mp4", sizeBytes = video.Length },
+            editorSession, token);
+        Assert.Equal(HttpStatusCode.Created, sessionResponse.StatusCode);
+        var sessionBody = await sessionResponse.Content.ReadFromJsonAsync<JsonElement>(token);
+        var uploadSessionId = sessionBody.GetProperty("uploadSessionId").GetString()!;
+        var uploadUrl = sessionBody.GetProperty("uploadUrl").GetString()!;
+        using (var put = new HttpRequestMessage(HttpMethod.Put, uploadUrl)
+        {
+            Content = new ByteArrayContent(video),
+        })
+        {
+            put.Content.Headers.ContentType = new("video/mp4");
+            put.Headers.Add("x-ms-blob-type", "BlockBlob");
+            using var putResponse = await storage.SendAsync(put, token);
+            Assert.Equal(HttpStatusCode.Created, putResponse.StatusCode);
+        }
+        using var finalize = await PostJsonAsync(api,
+            $"/api/upload-sessions/{uploadSessionId}/finalize", new { }, editorSession, token);
+        Assert.True(finalize.StatusCode == HttpStatusCode.OK,
+            $"finalize was {finalize.StatusCode}: {await finalize.Content.ReadAsStringAsync(token)}");
+        var originalId = Guid.Parse((await finalize.Content.ReadFromJsonAsync<JsonElement>(token))
+            .GetProperty("datei").GetProperty("id").GetString()!);
+
+        // The empty playback slot receives the original as its preserved file.
+        using var attach = await PutJsonAsync(api,
+            $"/api/recordings/{recordingId}/dateien/original", new { dateiId = originalId }, editorSession, token);
+        Assert.True(attach.StatusCode == HttpStatusCode.OK,
+            $"attach was {attach.StatusCode}: {await attach.Content.ReadAsStringAsync(token)}");
+
+        // The finite transcode job: dispatch + drain at explicit start.
+        await commands.ExecuteCommandAsync("archive-transcode", "start", token);
+        await AssertSuccessfulCompletion(app.ResourceNotifications, "archive-transcode", token);
+
+        // The Datei reaches the terminal completed state with a real copy.
+        var playbackDateiId = await WaitForTranscodeAsync(api, originalId, editorSession, token);
+        Assert.NotEqual(Guid.Empty, playbackDateiId);
+        Assert.NotEqual(originalId, playbackDateiId);
+
+        // Download is the untouched original for the editor; the view ticket
+        // serves the H.264/AAC MP4 copy.
+        using var access = await GetAsync(api, $"/api/dateien/{originalId}/access", editorSession, token);
+        Assert.Equal(HttpStatusCode.OK, access.StatusCode);
+        var accessBody = await access.Content.ReadFromJsonAsync<JsonElement>(token);
+        Assert.Equal(playbackDateiId, Guid.Parse(accessBody.GetProperty("playbackDateiId").GetString()!));
+        Assert.Equal("video/mp4", accessBody.GetProperty("contentType").GetString());
+        var viewUrl = accessBody.GetProperty("viewUrl").GetString()!;
+        var downloadUrl = accessBody.GetProperty("downloadUrl").GetString()!;
+        byte[] copyBytes;
+        using (var copyResponse = await storage.GetAsync(viewUrl, token))
+        {
+            Assert.Equal(HttpStatusCode.OK, copyResponse.StatusCode);
+            Assert.Equal("video/mp4", copyResponse.Content.Headers.ContentType?.MediaType);
+            copyBytes = await copyResponse.Content.ReadAsByteArrayAsync(token);
+        }
+        // MP4 box header: the copy plays and is not the original bytes.
+        Assert.True(copyBytes.Length > 12 && copyBytes.AsSpan(4, 4).SequenceEqual("ftyp"u8),
+            "the playback copy is not an MP4 container");
+        using (var downloadResponse = await storage.GetAsync(downloadUrl, token))
+        {
+            Assert.Equal(HttpStatusCode.OK, downloadResponse.StatusCode);
+            Assert.Equal(video, await downloadResponse.Content.ReadAsByteArrayAsync(token));
+        }
+
+        // The recording access flow: the worker healed the empty playback
+        // slot; a published recording plays the MP4 for members. The worker's
+        // slot help bumped the row, so the publish patch reads a fresh version.
+        using var recordingList = await GetAsync(api, $"/api/events/{eventId}/recordings", editorSession, token);
+        Assert.Equal(HttpStatusCode.OK, recordingList.StatusCode);
+        var recordingFresh = (await recordingList.Content.ReadFromJsonAsync<JsonElement>(token))
+            .GetProperty("recordings").EnumerateArray()
+            .Single(r => Guid.Parse(r.GetProperty("id").GetString()!) == recordingId);
+        var healedCopyId = Guid.Parse(recordingFresh.GetProperty("playback").GetProperty("dateiId").GetString()!);
+        Assert.Equal(playbackDateiId, healedCopyId);
+        var editorVersion = recordingFresh.GetProperty("editor").GetProperty("version").GetUInt32();
+        using var publish = await PatchJsonAsync(api, $"/api/recordings/{recordingId}",
+            new { isPublished = true, expectedVersion = editorVersion }, editorSession, token);
+        Assert.True(publish.StatusCode == HttpStatusCode.OK,
+            $"publish was {publish.StatusCode}: {await publish.Content.ReadAsStringAsync(token)}");
+        using var memberAccess = await GetAsync(api, $"/api/recordings/{recordingId}/access", memberSession, token);
+        Assert.True(memberAccess.StatusCode == HttpStatusCode.OK,
+            $"member access was {memberAccess.StatusCode}: {await memberAccess.Content.ReadAsStringAsync(token)}");
+        var memberBody = await memberAccess.Content.ReadFromJsonAsync<JsonElement>(token);
+        // The playable file is the copy that was produced; the member never
+        // downloads the whole original (download off), it streams the view.
+        Assert.Equal(playbackDateiId, Guid.Parse(memberBody.GetProperty("dateiId").GetString()!));
+        Assert.Equal("video/mp4", memberBody.GetProperty("contentType").GetString());
+        Assert.NotNull(memberBody.GetProperty("viewUrl"));
+    }
+
+    /// <summary>
+    /// The committed transcode fixture (<see cref="kurzfilm"/>: 6,7 KB, two
+    /// seconds, 64x36, MPEG‑4 Part 2 — deliberately not browser-playable,
+    /// so the worker has real work) read from the test output. Generated once
+    /// with fd lavfi sources and committed so neither host nor CI runtime
+    /// needs an ffmpeg binary just to start the case.
+    /// </summary>
+    private static byte[] TranscodeFixture()
+    {
+        var pfad = Path.Combine(AppContext.BaseDirectory, "TestAssets", "kurzfilm.mp4");
+        Assert.True(File.Exists(pfad), $"Test fixture missing: {pfad}");
+        return File.ReadAllBytes(pfad);
+    }
+
+    /// <summary>Bounded poll of the editor batch status until the copy exists.</summary>
+    private static async Task<Guid> WaitForTranscodeAsync(
+        HttpClient api, Guid originalId, string editorSession, CancellationToken token)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromMinutes(3);
+        while (DateTime.UtcNow < deadline)
+        {
+            using var status = await GetAsync(api, $"/api/dateien/videos?ids={originalId}", editorSession, token);
+            Assert.Equal(HttpStatusCode.OK, status.StatusCode);
+            var body = await status.Content.ReadFromJsonAsync<JsonElement>(token);
+            var entry = body.GetProperty("results").EnumerateArray().FirstOrDefault();
+            var statusText = entry.GetProperty("status").GetString();
+            if (statusText == "completed")
+                return Guid.Parse(entry.GetProperty("playbackDateiId").GetString()!);
+            if (statusText is "failed" or "notNeeded")
+                throw new Xunit.Sdk.XunitException(
+                    $"The transcode ended {statusText}: {entry.GetProperty("failureReason").GetString()}");
+            await Task.Delay(TimeSpan.FromSeconds(2), token);
+        }
+        throw new Xunit.Sdk.XunitException("The transcode did not reach a terminal state in time.");
     }
 
     private static async Task AssertMemberChatListsLiedAsync(

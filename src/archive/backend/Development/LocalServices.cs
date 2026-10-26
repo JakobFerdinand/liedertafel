@@ -12,7 +12,8 @@ using MimeKit;
 namespace Archive.Backend.Development;
 
 public sealed class LocalServices(IConfiguration configuration, IOptions<ExtractionOptions> extractionOptions,
-    IOptions<Archive.Backend.Reading.ReadingOptions> readingOptions)
+    IOptions<Archive.Backend.Reading.ReadingOptions> readingOptions,
+    IOptions<Archive.Backend.Videos.VideoOptions> videoOptions)
 {
     public const string ContainerName = "archive-assets";
 
@@ -31,6 +32,9 @@ public sealed class LocalServices(IConfiguration configuration, IOptions<Extract
             .CreateIfNotExistsAsync(cancellationToken: cancellationToken);
         // ARC-034-1: and the AI reading queue.
         await Queues.GetQueueClient(readingOptions.Value.QueueName)
+            .CreateIfNotExistsAsync(cancellationToken: cancellationToken);
+        // #161: and the video transcode queue.
+        await Queues.GetQueueClient(videoOptions.Value.QueueName)
             .CreateIfNotExistsAsync(cancellationToken: cancellationToken);
         await AssetStorageEmulatorBootstrap.EnsureEmulatorCorsAsync(Blobs, cancellationToken);
     }

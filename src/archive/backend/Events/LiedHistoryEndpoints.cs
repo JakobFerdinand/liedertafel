@@ -29,15 +29,11 @@ public static class LiedHistoryEndpoints
 			HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access,
 			ArchiveDbContext db, Guid liedId, CancellationToken token, int? page) =>
 		{
-			context.Response.Headers.CacheControl = "no-store";
-			if (accessor.Current is null)
-				return Results.Problem(statusCode: 401, title: "Anmeldung erforderlich.");
-			var decision = await access.GetDecisionAsync(context.User);
-			if (decision is null || !decision.IsActive)
-				return Results.Problem(statusCode: 401, title: "Anmeldung erforderlich.");
-			var isEditor = decision.IsAdministrator || decision.Roles.Contains(ArchiveRoles.Editor);
+			var (decision, error) = await ArchiveAccess.RequireMemberAsync(context, accessor, access);
+			if (error is not null)
+				return error;
 
-			var lied = await db.Lieder.AsNoTracking()
+			var lied = await Lieder.LiedQueries.Visible(db).AsNoTracking()
 				.Where(l => l.Id == liedId).Select(l => new { l.Id, l.Title })
 				.FirstOrDefaultAsync(token);
 			if (lied is null)
@@ -56,7 +52,7 @@ public static class LiedHistoryEndpoints
 			var requestedPage = Math.Min(page is null or < 1 ? 1 : page.Value, lastPage);
 			var pageRows = rows.Skip((requestedPage - 1) * PageSize).Take(PageSize).ToList();
 			var recordingLinks = await RecordingPassages.LinksByEventAsync(
-				db, isEditor, liedId, pageRows.Select(r => r.EventId).ToList(), token);
+				db, decision!, liedId, pageRows.Select(r => r.EventId).ToList(), token);
 			return Results.Ok(new
 			{
 				lied = new { id = lied.Id, title = lied.Title },

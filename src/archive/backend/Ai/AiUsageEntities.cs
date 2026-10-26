@@ -59,6 +59,15 @@ public sealed class AiUsageEntry
 public sealed class AiBudgetMonth
 {
 	public required string YearMonth { get; set; }
+
+	/// <summary>
+	/// ARC-043 (#150): the highest notice level (a threshold or the cap, in
+	/// micro-EUR) the maintainer has already been notified about this month.
+	/// The daily review raises it stepwise, so each threshold notifies exactly
+	/// once per month; a raised cap during the month re-enables the notices.
+	/// It holds no association to a receiver or destination.
+	/// </summary>
+	public long NotifiedMicroEur { get; set; }
 }
 
 /// <summary>The budget month of an instant: the calendar month in Europe/Vienna.</summary>

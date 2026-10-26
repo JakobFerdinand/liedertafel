@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Synthetic sanitized fixture: a capella notation-source candidate
+     whose name ends in 3. Never a MIDI example and never evidence of a
+     musical version on its own. -->
+<capella version="5.0">
+  <name>Namensplatz</name>
+</capella>

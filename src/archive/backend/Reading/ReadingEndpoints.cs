@@ -55,13 +55,7 @@ public static class ReadingEndpoints
 		IOptions<ReadingOptions> options, IOptions<ExtractionOptions> extractionOptions, Guid id, bool restart,
 		CancellationToken token)
 	{
-		context.Response.Headers.CacheControl = "no-store";
-		try { await antiforgery.ValidateRequestAsync(context); }
-		catch (AntiforgeryValidationException)
-		{
-			return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-		}
-		var (decision, error) = await ExtractionEndpoints.RequireEditorAsync(context, accessor, access);
+		var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 		if (error is not null)
 			return error;
 		if (!options.Value.Enabled)

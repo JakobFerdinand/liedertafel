@@ -100,6 +100,9 @@ env:
   # image too; they are paused, stopped and pinned together with the extraction
   # job (skipped with a warning while infrastructure has not created them yet).
   READING_JOB_NAMES: ja-archive-read ja-archive-read-dispatch
+  # #161: the video-transcode job and its dispatch sweep follow the same
+  # contract (same image, maintenance pause, digest pin).
+  VIDEO_JOB_NAMES: ja-archive-video ja-archive-video-dispatch
   VAULT_NAME: kv-liedertafel-archive
 
 jobs:
@@ -171,6 +174,10 @@ jobs:
         working-directory: src/archive/frontend
       - name: Backend and OTLP regression checks
         run: dotnet test tests/archive/backend
+      # The apphost stack's video worker shells the runner's ffmpeg (the
+      # production image ships its own); hosts without ffmpeg skip the case.
+      - name: Install ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
       - name: Clean Aspire stack integration
         run: dotnet test tests/archive/apphost
       - name: Install browser
@@ -284,15 +291,16 @@ jobs:
             --query "properties.configuration.ingress.fqdn" -o tsv)
           echo "fqdn=$FQDN" >> "$GITHUB_OUTPUT"
 
-      - name: Resolve reading jobs
+      - name: Resolve reading and video jobs
         id: reading
         run: |
-          # ARC-034-1: the reading jobs are created by infra-deploy-archive.yml.
-          # A release that runs before that must not fail halfway through the
-          # maintenance window, so only jobs that exist take part; any other
-          # lookup failure stops the release before maintenance starts.
+          # ARC-034-1/#161: the reading and video jobs are created by
+          # infra-deploy-archive.yml. A release that runs before that must not
+          # fail halfway through the maintenance window, so only jobs that
+          # exist take part; any other lookup failure stops the release before
+          # maintenance starts.
           EXISTING=""
-          for JOB in $READING_JOB_NAMES; do
+          for JOB in $READING_JOB_NAMES $VIDEO_JOB_NAMES; do
             if ERR=$(az containerapp job show --name "$JOB" --resource-group "$RESOURCE_GROUP" --query name -o tsv 2>&1 >/dev/null); then
               EXISTING="$EXISTING $JOB"
             elif echo "$ERR" | grep -qiE "ResourceNotFound|could not be found|not found"; then
@@ -446,12 +454,12 @@ jobs:
             --image "${{ steps.image.outputs.digest }}"
           echo "- extraction job pinned to ${{ steps.image.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Deploy reading job images
+      - name: Deploy reading and video job images
         if: steps.reading.outputs.names != ''
-        # ARC-034-1: the AI reading job and its dispatch sweep run the SAME
-        # digest as the app and the extraction job; the reading envelope and
-        # the stored reading rows are shared code. Unconditional like the
-        # extraction pin (also on run_migration=false code-only releases).
+        # ARC-034-1/#161: the reading and video jobs and their dispatch sweeps
+        # run the SAME digest as the app and the extraction job; the envelopes
+        # and stored rows are shared code. Unconditional like the extraction
+        # pin (also on run_migration=false code-only releases).
         run: |
           for JOB in ${{ steps.reading.outputs.names }}; do
             az containerapp job update \

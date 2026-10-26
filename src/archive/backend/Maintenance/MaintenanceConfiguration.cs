@@ -1,3 +1,4 @@
+using Archive.Backend.Auth;
 using Microsoft.AspNetCore.Http;
 
 namespace Archive.Backend.Maintenance;
@@ -36,7 +37,7 @@ public static class MaintenanceConfiguration
 		app.MapGet(MaintenanceEndpoint, (HttpContext context, IConfiguration configuration) =>
 		{
 			// Releases toggle this within minutes; never let it go stale.
-			context.Response.Headers.CacheControl = "no-store";
+			ArchiveAccess.NoStore(context);
 			var enabled = IsEnabled(configuration);
 			return Results.Ok(new
 			{

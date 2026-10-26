@@ -69,6 +69,38 @@ test("Die Titelsuche schickt den Begriff und zeigt die Treffer", async ({
   expect(anfragen).toContain("?q=mond");
 });
 
+test("Die Suche nennt, wo der Treffer stand", async ({ page }) => {
+  await mockSitzung(page, memberMe);
+  const waldEintrag = {
+    ...wolkenEintrag,
+    id: mondId,
+    title: "Die Waldfahrt",
+    matchIn: ["im Liedtext", "in den Noten"],
+  };
+  await page.route("**/api/lieder*", (route) => {
+    const url = new URL(route.request().url());
+    const treffer = url.searchParams.get("q") === "tannen";
+    return route.fulfill(
+      json(
+        liste(treffer ? [waldEintrag] : [mondEintrag, wolkenEintrag], {
+          query: url.searchParams.get("q"),
+        }),
+      ),
+    );
+  });
+
+  await page.goto("/lieder/");
+  // Ohne Suche steht die Fundort-Zeile nicht da.
+  await expect(page.getByText(/Gefunden:/)).toHaveCount(0);
+  // Erst im Suchzustand erscheint die Zeile am Treffer.
+  await page.getByLabel("Lieder suchen").fill("tannen");
+  await page.getByRole("button", { name: "Suchen" }).click();
+  await expect(page.getByRole("heading", { name: "1 Treffer" })).toBeVisible();
+  await expect(
+    page.getByText("Gefunden: im Liedtext · in den Noten"),
+  ).toBeVisible();
+});
+
 test("Filter für Besetzung, Anlass und Dateityp stehen in der Adresse", async ({
   page,
 }) => {

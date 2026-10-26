@@ -10,9 +10,11 @@ using Archive.Backend.Development;
 using Archive.Backend.Events;
 using Archive.Backend.Extraction;
 using Archive.Backend.Lieder;
+using Archive.Backend.Inventur;
 using Archive.Backend.Maintenance;
 using Archive.Backend.Reading;
 using Archive.Backend.Recordings;
+using Archive.Backend.Videos;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -22,8 +24,18 @@ using Microsoft.Extensions.Options;
 // Microsoft.Extensions.AI.ChatOptions; the alias keeps the usage sites short.
 using ChatOptions = Archive.Backend.Chat.ChatOptions;
 
+
 var command = args.FirstOrDefault();
-if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" or "--bootstrap-admin" or "--repair-admin" or "--seed-dev-auth" or "--send-test-mail" or "--cleanup-uploads" or "--cleanup-dropped-blobs" or "--extract-queue" or "--dispatch-extraction" or "--read-queue" or "--dispatch-reading")
+// #98: the Quellen-Inventur is deterministic tooling (architecture §14): it
+// walks a source folder export and reports sizes, kinds, PDF text
+// availability and the analytical reading-cost estimate. It runs before any
+// job host is built, because it needs no database, queue or model.
+if (command == "--inventur")
+{
+    Environment.ExitCode = InventurCommand.Run(args.Skip(1).ToArray(), Console.Out);
+    return;
+}
+if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" or "--bootstrap-admin" or "--repair-admin" or "--seed-dev-auth" or "--send-test-mail" or "--cleanup-uploads" or "--cleanup-dropped-blobs" or "--cleanup-papierkorb" or "--extract-queue" or "--dispatch-extraction" or "--read-queue" or "--dispatch-reading" or "--transcode-queue" or "--dispatch-videos")
 {
     var jobs = Host.CreateApplicationBuilder(args.Skip(1).ToArray());
     jobs.AddServiceDefaults();
@@ -60,6 +72,25 @@ if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" o
     // model gateway. Field writes go through the shared automated writer.
     jobs.Services.AddOptions<ReadingOptions>().BindConfiguration(ReadingOptions.SectionName);
     jobs.Services.AddSingleton<IReadingQueue>(ReadingQueue.Create(jobs.Configuration));
+    // #161: the video transcode job. Its own queue (archive-videos) and
+    // bounds; it is entirely deterministic — no model gateway registration.
+    jobs.Services.AddOptions<VideoOptions>().BindConfiguration(VideoOptions.SectionName);
+    jobs.Services.AddSingleton<IVideoQueue>(VideoQueue.Create(jobs.Configuration));
+    jobs.Services.AddSingleton<IVideoMessageSource>(sp =>
+    {
+        var videoOptions = sp.GetRequiredService<IOptions<VideoOptions>>();
+        var queueClient = VideoQueue.Client(jobs.Configuration, videoOptions.Value)
+            ?? throw new InvalidOperationException("Kein Warteschlangen-Endpunkt für die Video-Konvertierung konfiguriert.");
+        return new AzureVideoMessageSource(queueClient, videoOptions);
+    });
+    jobs.Services.AddSingleton<IVideoTranscoder, FfmpegVideoTranscoder>();
+    jobs.Services.AddScoped<VideoWorker>();
+    jobs.Services.AddSingleton<VideoPump>(sp => new VideoPump(
+        sp.GetRequiredService<IVideoMessageSource>(),
+        () => sp.GetRequiredService<IServiceScopeFactory>().CreateAsyncScope(),
+        sp.GetRequiredService<IOptions<VideoOptions>>(),
+        sp.GetRequiredService<IConfiguration>(), sp.GetRequiredService<TimeProvider>(),
+        sp.GetRequiredService<ILogger<VideoPump>>()));
     jobs.Services.AddSingleton<IReadingMessageSource>(sp =>
     {
         var readingOptions = sp.GetRequiredService<IOptions<ReadingOptions>>();
@@ -69,6 +100,8 @@ if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" o
     });
     jobs.Services.AddSingleton<IPdfPageRenderer, PdfiumPageRenderer>();
     jobs.Services.AddArchiveAi(jobs.Configuration);
+    // ARC-043 (#150): the daily sweep's AI cost review reads the same ledger.
+    jobs.Services.AddAiCostNotice();
     jobs.Services.AddScoped<CatalogueWriteService>();
     jobs.Services.AddScoped<AutomatedFieldWriter>();
     jobs.Services.AddSingleton<ScanReadingModel>();
@@ -123,6 +156,21 @@ if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" o
                 .CleanAsync(args.Contains("--dry-run"), token);
             provider.GetRequiredService<ILoggerFactory>().CreateLogger("Archive.Jobs")
                 .LogInformation("Dropped-blob cleanup finished: {Result}", dropped);
+        }
+        else if (command == "--cleanup-papierkorb")
+        {
+            // #146 seven-day policy: expired trashed rows go for good, their
+            // blobs are released afterwards. --dry-run only counts. Like the
+            // reading sweep, a paused run exits before touching the database.
+            var cleanupLogger = provider.GetRequiredService<ILoggerFactory>().CreateLogger("Archive.Papierkorb");
+            if (MaintenanceConfiguration.IsEnabled(host.Services.GetRequiredService<IConfiguration>()))
+            {
+                cleanupLogger.LogInformation("Papierkorb cleanup paused: maintenance mode is enabled");
+                return;
+            }
+            var cleaned = await provider.GetRequiredService<PapierkorbCleaner>()
+                .CleanAsync(args.Contains("--dry-run"), token);
+            cleanupLogger.LogInformation("Papierkorb cleanup finished: {Result}", cleaned);
         }
         else if (command == "--extract-queue")
         {
@@ -232,7 +280,57 @@ if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" o
                 provider.GetRequiredService<IOptions<ReadingOptions>>(),
                 provider.GetRequiredService<TimeProvider>(),
                 sweepLogger, token);
+            // ARC-043 (#150): the deterministic daily moment of the AI cost
+            // review — one comparison against the configured thresholds, no
+            // model call, nothing logged while no level is newly reached.
+            await provider.GetRequiredService<AiCostNotice>().ReviewAsync(token);
             sweepLogger.LogInformation("Reading dispatch handed {Dispatched} rows to the queue", handed);
+        }
+        else if (command == "--transcode-queue")
+        {
+            // #161: like --extract-queue, a paused run touches nothing and
+            // exits 0; the queue scale rule re-triggers it later. The run
+            // first hands un-enqueued rows over, then drains the video queue.
+            var videoLogger = provider.GetRequiredService<ILoggerFactory>().CreateLogger("Archive.Videos");
+            if (MaintenanceConfiguration.IsEnabled(host.Services.GetRequiredService<IConfiguration>()))
+            {
+                videoLogger.LogInformation("Video worker paused: maintenance mode is enabled");
+                return;
+            }
+            await VideoQueue.EnsureQueueAsync(host.Services.GetRequiredService<IConfiguration>(), token);
+            int dispatched;
+            using (var dispatchScope = host.Services.CreateScope())
+            {
+                dispatched = await VideoDispatcher.DispatchPendingAsync(
+                    dispatchScope.ServiceProvider.GetRequiredService<ArchiveDbContext>(),
+                    dispatchScope.ServiceProvider.GetRequiredService<IVideoQueue>(),
+                    dispatchScope.ServiceProvider.GetRequiredService<IOptions<VideoOptions>>(),
+                    dispatchScope.ServiceProvider.GetRequiredService<TimeProvider>(),
+                    videoLogger, token);
+            }
+            var processed = await provider.GetRequiredService<VideoPump>().DrainAsync(token);
+            videoLogger.LogInformation(
+                "Video worker dispatched {Dispatched} rows and processed {Processed} messages", dispatched, processed);
+        }
+        else if (command == "--dispatch-videos")
+        {
+            // The sweep alone: rows whose queue send never reached the queue.
+            // No scheduled run refers to it; a maintainer triggers it like the
+            // extraction sweep.
+            var videoDispatchLogger = provider.GetRequiredService<ILoggerFactory>().CreateLogger("Archive.Videos");
+            if (MaintenanceConfiguration.IsEnabled(host.Services.GetRequiredService<IConfiguration>()))
+            {
+                videoDispatchLogger.LogInformation("Video dispatch paused: maintenance mode is enabled");
+                return;
+            }
+            await VideoQueue.EnsureQueueAsync(provider.GetRequiredService<IConfiguration>(), token);
+            var dispatched = await VideoDispatcher.DispatchPendingAsync(
+                provider.GetRequiredService<ArchiveDbContext>(),
+                provider.GetRequiredService<IVideoQueue>(),
+                provider.GetRequiredService<IOptions<VideoOptions>>(),
+                provider.GetRequiredService<TimeProvider>(),
+                videoDispatchLogger, token);
+            videoDispatchLogger.LogInformation("Video dispatch handed {Dispatched} rows to the queue", dispatched);
         }
         else if (command == "--seed-dev-auth")
             await OperatorConfiguration.SeedDevAuthAsync(provider, token);
@@ -265,6 +363,11 @@ builder.Services.AddSingleton<IExtractionQueue>(ExtractionQueue.Create(builder.C
 // reading itself runs only in the finite job.
 builder.Services.AddOptions<ReadingOptions>().BindConfiguration(ReadingOptions.SectionName);
 builder.Services.AddSingleton<IReadingQueue>(ReadingQueue.Create(builder.Configuration));
+// #161: video playback copies — the finalize hook queues the transcode, the
+// editor surfaces use the same queue seam. No model is involved.
+builder.Services.AddOptions<VideoOptions>().BindConfiguration(VideoOptions.SectionName);
+builder.Services.AddSingleton<IVideoQueue>(VideoQueue.Create(builder.Configuration));
+builder.Services.AddSingleton<IVideoTranscoder, FfmpegVideoTranscoder>();
 // #177: reading a Lied draft's PDF runs in the request, before any Lied exists.
 builder.Services.AddSingleton<IPdfPageRenderer, PdfiumPageRenderer>();
 builder.Services.AddSingleton<ScanReadingModel>();
@@ -280,11 +383,19 @@ builder.Services.AddOptions<ChatOptions>()
 // ARC-022-3: provider selection, model keys, usage ledger, hard monthly cap
 // and the gateway. Whatever injects IChatClient gets the budgeted pipeline.
 builder.Services.AddArchiveAi(builder.Configuration);
+// ARC-043 (#150): maintainer view and threshold review over the usage ledger.
+builder.Services.AddAiCostNotice();
 // The shared, validated write path of the catalogue and event endpoints.
 builder.Services.AddScoped<CatalogueWriteService>();
 builder.Services.AddSingleton<ArchiveChatAgent>();
 builder.Services.AddSingleton<IDateiFinalizedHook, DateiReplacementHook>();
 builder.Services.AddSingleton<IDateiFinalizedHook, DateiExtractionHook>();
+builder.Services.AddSingleton<IDateiFinalizedHook, VideoHook>();
+// #146: restore of trashed entities and the Administrator's immediate removal
+// reuse the same ordered-removal service.
+builder.Services.AddScoped<PapierkorbRemoval>();
+// #146: the seven-day cleanup reuses the removal service in its own scope.
+builder.Services.AddScoped<PapierkorbCleaner>();
 builder.Services.AddScoped<ArchiveChatService>();
 builder.Services.AddArchiveAuth(builder.Configuration, builder.Environment);
 // ARC-011: Container Apps terminates TLS at the front proxy and forwards
@@ -357,6 +468,8 @@ using var meter = new Meter(Extensions.MeterName);
 var buildRequests = meter.CreateCounter<long>("archive.build.requests");
 app.MapGet("/api/build", (HttpContext context) =>
 {
+    // Build-probe cache policy ("no-cache, no-store"), deliberately not the
+    // access module's no-store rule: this is a probe, not an access endpoint.
     context.Response.Headers.CacheControl = "no-cache, no-store";
     buildRequests.Add(1);
     var version = typeof(Program).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "unknown";
@@ -365,7 +478,7 @@ app.MapGet("/api/build", (HttpContext context) =>
 });
 app.MapGet("/api/antiforgery", (HttpContext context, IAntiforgery antiforgery) =>
 {
-    context.Response.Headers.CacheControl = "no-store";
+    ArchiveAccess.NoStore(context);
     return Results.Ok(new { token = antiforgery.GetAndStoreTokens(context).RequestToken });
 });
 // ARC-012: maintenance contract endpoint. The pausing middleware runs
@@ -374,6 +487,7 @@ app.MapGet("/api/antiforgery", (HttpContext context, IAntiforgery antiforgery) =
 // /api/maintenance) stay available; the frontend keeps serving so members
 // see the German maintenance banner.
 app.MapMaintenanceEndpoints();
+app.MapAiBudgetEndpoints();
 app.MapAuthEndpoints();
 app.MapPasskeyEndpoints();
 app.MapMemberAdminEndpoints();
@@ -384,6 +498,7 @@ app.MapUploadEndpoints();
 app.MapRecordingEndpoints();
 app.MapRecordingPassageEndpoints();
 app.MapExtractionEndpoints();
+app.MapVideoEndpoints();
 app.MapReadingEndpoints();
 app.MapDraftReadingEndpoints();
 app.MapProgrammReadingEndpoints();
@@ -392,6 +507,7 @@ app.MapLiedEntwurfEndpoints();
 app.MapLiedEndpoints();
 app.MapDateiEndpoints();
 app.MapDateiTrashEndpoints();
+app.MapPapierkorbRecoveryEndpoints();
 app.MapLiedHistoryEndpoints();
 app.MapDevelopmentDiagnostics();
 

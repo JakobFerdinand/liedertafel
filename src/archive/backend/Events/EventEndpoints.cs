@@ -24,8 +24,6 @@ public sealed record EventDatePatch(int? Year, int? Month, int? Day, bool Approx
 /// </summary>
 public static class EventEndpoints
 {
-	public const string ForbiddenMessage = "Keine Berechtigung für das Auftrittsverzeichnis.";
-
 	public const string NotFoundMessage = "Der Auftritt wurde nicht gefunden.";
 
 	public const string ConcurrencyMessage = "Der Eintrag wurde zwischenzeitlich geändert.";
@@ -67,11 +65,9 @@ public static class EventEndpoints
 			ArchiveAccessService access, ArchiveDbContext db, CancellationToken token,
 			int? year, string? kind) =>
 		{
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await RequireMemberAsync(context, accessor, access);
+			var (_, error) = await ArchiveAccess.RequireMemberAsync(context, accessor, access);
 			if (error is not null)
 				return error;
-			var isEditor = IsEditor(decision!);
 			string? kindFilter = null;
 			var kindParameter = (kind ?? string.Empty).Trim();
 			if (kindParameter.Length > 0)
@@ -83,7 +79,7 @@ public static class EventEndpoints
 			// One materialized visible set so InMemory tests and PostgreSQL
 			// agree: filtering and the precision-aware ARC-024 sorting run in
 			// C# (unpaginated archive scale).
-			var rows = await db.Events.AsNoTracking()
+			var rows = await EventQueries.Visible(db).AsNoTracking()
 				.Select(e => new EventRow(e.Id, e.Kind, e.Title, e.Venue, e.DateYear, e.DateMonth,
 					e.DateDay, e.DateApproximate, e.StartTime))
 				.ToListAsync(token);
@@ -116,12 +112,10 @@ public static class EventEndpoints
 		app.MapGet("/api/events/{id}", async (HttpContext context, CurrentUserAccessor accessor,
 			ArchiveAccessService access, ArchiveDbContext db, Guid id, CancellationToken token) =>
 		{
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await RequireMemberAsync(context, accessor, access);
+			var (_, error) = await ArchiveAccess.RequireMemberAsync(context, accessor, access);
 			if (error is not null)
 				return error;
-			var isEditor = IsEditor(decision!);
-			var choirEvent = await db.Events.AsNoTracking()
+			var choirEvent = await EventQueries.Visible(db).AsNoTracking()
 				.FirstOrDefaultAsync(e => e.Id == id, token);
 			if (choirEvent is null)
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
@@ -133,13 +127,7 @@ public static class EventEndpoints
 			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time, CancellationToken token,
 			CreateEventRequest? body) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await RequireEditorAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			if (!TryValidateTitle(body?.Title, out var title, out var titleError))
@@ -189,16 +177,10 @@ public static class EventEndpoints
 			TimeProvider time, Guid id, CancellationToken token,
 			PatchEventRequest? body) =>
 		{
-			try { await antiforgery.ValidateRequestAsync(context); }
-			catch (AntiforgeryValidationException)
-			{
-				return Results.Problem(statusCode: 400, title: "Ungültiger Sicherheitstoken.");
-			}
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await RequireEditorAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
-			var choirEvent = await db.Events
+			var choirEvent = await EventQueries.Visible(db)
 				.FirstOrDefaultAsync(e => e.Id == id, token);
 			if (choirEvent is null)
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
@@ -432,35 +414,6 @@ public static class EventEndpoints
 		if (day is not null && (day is < 1 || day.Value > DateTime.DaysInMonth(year!.Value, month!.Value)))
 			return Results.Problem(statusCode: 400, title: InvalidDateMessage);
 		return null;
-	}
-
-	private static bool IsEditor(ArchiveAccessDecision decision)
-		=> decision.IsAdministrator || decision.Roles.Contains(ArchiveRoles.Editor);
-
-	private static async Task<(ArchiveAccessDecision? Decision, IResult? Error)> RequireMemberAsync(
-		HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access)
-	{
-		// Cookie presence first for a useful signed-out state: revoked or
-		// signed-out callers have no principal and get 401.
-		if (accessor.Current is null)
-			return (null, Results.Problem(statusCode: 401, title: "Anmeldung erforderlich."));
-		var decision = await access.GetDecisionAsync(context.User);
-		if (decision is null || !decision.IsActive)
-			return (null, Results.Problem(statusCode: 401, title: "Anmeldung erforderlich."));
-		return (decision, null);
-	}
-
-	private static async Task<(ArchiveAccessDecision? Decision, IResult? Error)> RequireEditorAsync(
-		HttpContext context, CurrentUserAccessor accessor, ArchiveAccessService access)
-	{
-		if (accessor.Current is null)
-			return (null, Results.Problem(statusCode: 401, title: "Anmeldung erforderlich."));
-		var decision = await access.GetDecisionAsync(context.User);
-		if (decision is null || !decision.IsActive)
-			return (null, Results.Problem(statusCode: 401, title: "Anmeldung erforderlich."));
-		if (!IsEditor(decision))
-			return (null, Results.Problem(statusCode: 403, title: ForbiddenMessage));
-		return (decision, null);
 	}
 
 	/// <summary>Database-projected row for the C#-side list/filter/sort path.</summary>

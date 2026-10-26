@@ -976,6 +976,19 @@ dd {
   border-radius: 50%;
   background: var(--brand);
 }
+/* Fundort eines Suchtreffers (#142): die beschrifteten Suchquellen. */
+.lieder-trefferfund {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  color: var(--muted);
+  font-size: var(--schrift-etikett);
+  margin: 0.35rem 0 0;
+}
+.lieder-trefferfund::before {
+  content: "→";
+  color: var(--brand);
+}
 /* Redaktions-Marke: Markenlinie im Etikettmaß der kleinen Textleiter. */
 .lieder-status {
   display: inline-block;
@@ -998,6 +1011,7 @@ dd {
       "titel stand aktionen"
       "urheber urheber urheber"
       "fund fund fund"
+      "trefferfund trefferfund trefferfund"
       "formular formular formular";
     gap: 0.3rem clamp(0.8rem, 1.5vw, 1.6rem);
     align-items: start;
@@ -1024,8 +1038,12 @@ dd {
     grid-template-areas:
       "titel urheber stand aktionen"
       "fund fund fund fund"
+      "trefferfund trefferfund trefferfund trefferfund"
       "formular formular formular formular";
   }
+}
+.lieder-eintrag > .lieder-trefferfund {
+  grid-area: trefferfund;
 }
 .lied-anlegen {
   margin: 0;
@@ -1528,7 +1546,8 @@ footer {
 }
 /* Zugeklappt sind es Werkzeugknöpfe statt zweier zusätzlicher Karten. */
 .lieder-werkzeuge > .lieder-filter,
-.lieder-werkzeuge > .lied-anlegen {
+.lieder-werkzeuge > .lied-anlegen,
+.lieder-werkzeuge > .sammel-import {
   flex: 0 0 auto;
   max-width: none;
   margin: 0;
@@ -1538,38 +1557,64 @@ footer {
   background: transparent;
 }
 .lieder-werkzeuge > .lieder-filter[open],
-.lieder-werkzeuge > .lied-anlegen[open] {
+.lieder-werkzeuge > .lied-anlegen[open],
+.lieder-werkzeuge > .sammel-import[open] {
   flex-basis: 100%;
   max-width: 38rem;
   border-top: 1px solid var(--rule);
   padding-top: 0.6rem;
 }
-.lieder-werkzeuge > .lied-anlegen[open] {
+.lieder-werkzeuge > .lied-anlegen[open],
+.lieder-werkzeuge > .sammel-import[open] {
   background: var(--wash);
   padding: 1rem;
   border-radius: var(--radius-knopf);
   box-sizing: border-box;
 }
+/* Der Sammel-Import (#143): die Vorschlagsliste als einfache Zeilen. */
+.sammel-vorschläge {
+  list-style: none;
+  margin: 0.6rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.6rem;
+}
+.sammel-vorschlag {
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-knopf);
+  padding: 0.5rem 0.75rem;
+}
+.sammel-vorschlag-kopf {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  align-items: baseline;
+  margin: 0;
+}
 .lieder-werkzeuge > .lieder-filter summary,
-.lieder-werkzeuge > .lied-anlegen summary {
+.lieder-werkzeuge > .lied-anlegen summary,
+.lieder-werkzeuge > .sammel-import summary {
   min-height: 3.2rem;
   gap: 0.45rem;
   color: var(--brand);
 }
 .lieder-werkzeuge > .lieder-filter summary h2,
-.lieder-werkzeuge > .lied-anlegen summary h2 {
+.lieder-werkzeuge > .lied-anlegen summary h2,
+.lieder-werkzeuge > .sammel-import summary h2 {
   font:
     600 var(--schrift-neben) Arial,
     Helvetica,
     sans-serif;
 }
 .lieder-werkzeuge > .lieder-filter summary:hover h2,
-.lieder-werkzeuge > .lied-anlegen summary:hover h2 {
+.lieder-werkzeuge > .lied-anlegen summary:hover h2,
+.lieder-werkzeuge > .sammel-import summary:hover h2 {
   text-decoration: underline;
   text-underline-offset: 0.25em;
 }
 .lieder-werkzeuge > .lieder-filter summary::after,
-.lieder-werkzeuge > .lied-anlegen summary::after {
+.lieder-werkzeuge > .lied-anlegen summary::after,
+.lieder-werkzeuge > .sammel-import summary::after {
   content: "+";
   font-size: 1.15rem;
   line-height: 1;
@@ -2801,6 +2846,26 @@ details.aufnahme-anlegen {
   list-style: none;
   margin: 0;
   padding: 0;
+}
+/* #150: KI-Kostenüberblick der Verwaltung — reine Lesesicht. */
+.ki-kosten {
+  display: grid;
+  gap: 0.6rem;
+}
+.ki-kosten .ki-kosten-tabelle {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+.ki-kosten .ki-kosten-tabelle th,
+.ki-kosten .ki-kosten-tabelle td {
+  text-align: left;
+  padding: 0.35rem 0.6rem 0.35rem 0;
+  border-bottom: 1px solid var(--rule);
+}
+.ki-kosten .ki-kosten-hinweis {
+  font-size: var(--schrift-neben);
+  color: var(--muted);
 }
 /* Neues Lied durch Ablegen von Dateien (#175). */
 .lied-ablegen-zone {

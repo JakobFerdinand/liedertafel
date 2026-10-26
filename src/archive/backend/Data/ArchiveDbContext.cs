@@ -49,6 +49,9 @@ public sealed class ArchiveDbContext(DbContextOptions<ArchiveDbContext> options)
 	/// <summary>ARC-034: text extraction work, one row per Datei.</summary>
 	public DbSet<ExtractionJob> ExtractionJobs => Set<ExtractionJob>();
 
+	/// <summary>#161: one transcode work item per video Datei.</summary>
+	public DbSet<Videos.VideoJob> VideoJobs => Set<Videos.VideoJob>();
+
 	public DbSet<Reading.ReadingJob> ReadingJobs => Set<Reading.ReadingJob>();
 
 	public DbSet<Chat.ChatThread> ChatThreads => Set<Chat.ChatThread>();
