@@ -31,7 +31,7 @@ public static class AuftrittEntwurfEndpoints
 			CancellationToken token) =>
 		{
 			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await LiedAccess.RequireEditorAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, accessor, access);
 			if (error is not null)
 				return error;
 			var rows = await db.AuftrittEntwuerfe.AsNoTracking()
@@ -50,7 +50,7 @@ public static class AuftrittEntwurfEndpoints
 			Guid id, CancellationToken token) =>
 		{
 			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await LiedAccess.RequireEditorAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, accessor, access);
 			if (error is not null)
 				return error;
 			var entwurf = await db.AuftrittEntwuerfe.AsNoTracking()
@@ -75,10 +75,7 @@ public static class AuftrittEntwurfEndpoints
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
 			ArchiveDbContext db, TimeProvider time, Guid id, CancellationToken token, SaveAuftrittEntwurfRequest? body) =>
 		{
-			if (await LiedAccess.ValidateAntiforgeryAsync(antiforgery, context) is { } csrf)
-				return csrf;
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await LiedAccess.RequireEditorAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			if (Validate(id, body) is { } invalid)
@@ -110,10 +107,7 @@ public static class AuftrittEntwurfEndpoints
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
 			ArchiveDbContext db, Guid id, CancellationToken token) =>
 		{
-			if (await LiedAccess.ValidateAntiforgeryAsync(antiforgery, context) is { } csrf)
-				return csrf;
-			context.Response.Headers.CacheControl = "no-store";
-			var (decision, error) = await LiedAccess.RequireEditorAsync(context, accessor, access);
+			var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
 			var entwurf = await db.AuftrittEntwuerfe
