@@ -19,9 +19,9 @@ public sealed class LiedSearchModuleTests
 		return lied;
 	}
 
-	private static Lied MitFeld(Func<LiedField, bool> field, string value) => Lied("", lied =>
+	private static Lied MitFeld(Func<LiedField, bool> praedikat, string value) => Lied("", lied =>
 	{
-		var entry = FieldCatalog.LiedFields.First(field);
+		var entry = FieldCatalog.LiedFields.First(praedikat);
 		entry.Set(lied, value);
 		lied.Title = "Titel";
 	});
@@ -44,7 +44,7 @@ public sealed class LiedSearchModuleTests
 	}
 
 	[Fact]
-	public void FieldsOfExposeOnlyTitleTheSoundableFieldsAndTheNoten()
+	public void FieldsOfExposeOnlyTitleTheSearchableFieldsAndTheNoten()
 	{
 		// #192: even where every field carries a value, only the title, the
 		// fields the catalog marks searchable and the Noten text contribute;
@@ -88,9 +88,8 @@ public sealed class LiedSearchModuleTests
 		var erster = Lied("Mond");
 		var zweiter = Lied("mond");
 		// The id decides what the title fold cannot: Mond from Mond; the
-		// expected order follows the ids, not the creation order.
+		// expected order follows the ids, not the creation order or the title.
 		var matches = LiedSearch.Match(LiedSearch.TokensOf("mond"), [zweiter, erster], KeineNoten, "mond");
-		// The expected order follows the ids, not the creation order or the title.
 		var (kleiner, groesser) = erster.Id.CompareTo(zweiter.Id) < 0 ? (erster, zweiter) : (zweiter, erster);
 		Assert.Equal([kleiner.Id, groesser.Id], matches.Select(m => m.Lied.Id).ToArray());
 	}

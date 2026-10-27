@@ -91,6 +91,28 @@ export type LiedEingabeFeld = LiedFeld | "occasion";
  */
 export const liedEingabeFelder: LiedEingabeFeld[] = [...liedFelder, "occasion"];
 
+/**
+ * Anker und Beschriftung jedes Lied-Feldes außer dem Titel (#192): Name und
+ * Text stehen hier nebeneinander, damit ein neues Feld mit der Feldliste
+ * ankommt, ohne eine zweite Beschriftung zu schreiben. Komponenten leiten
+ * ihre Zeilen hieraus ab und ergänzen "(optional)", wo das Feld freiwillig
+ * ist. Der Anker ist die Kennung der Zeile im Anlegen-Formular; der Anlass
+ * trägt sein Feld nur auf der Liedseite.
+ */
+export const liedFeldBeschriftung: Record<
+  Exclude<LiedEingabeFeld, "title">,
+  [string, string]
+> = {
+  composer: ["komponist", "Komponist"],
+  arranger: ["bearbeiter", "Bearbeiter"],
+  lyricist: ["texter", "Texter"],
+  voiceConfiguration: ["besetzung", "Besetzung"],
+  musicalKey: ["tonart", "Tonart"],
+  language: ["sprache", "Sprache"],
+  occasion: ["anlass", "Anlass"],
+  lyrics: ["liedtext", "Liedtext"],
+};
+
 /** Die Eingabe eines leeren Formulars. */
 export function leerEingabe(): LiedEingabe {
   return Object.fromEntries(

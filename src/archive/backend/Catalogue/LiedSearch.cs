@@ -104,6 +104,16 @@ public static class LiedSearch
 	public static List<SearchMatch> Page(IReadOnlyList<SearchMatch> matches, int page, int pageSize) =>
 		pageSize <= 0 ? [] : matches.Skip(Math.Max(0, page - 1) * pageSize).Take(pageSize).ToList();
 
+	/// <summary>The requested page of an adapter: absent or below one reads as the first.</summary>
+	public static int RequestedPage(int? page) => page is null or < 1 ? 1 : page.Value;
+
+	/// <summary>The Noten texts an adapter's query needs: none without tokens.</summary>
+	public static Task<Dictionary<Guid, string>> LoadNotenTextsAsync(
+		ArchiveDbContext db, IReadOnlyList<string> tokens, CancellationToken token)
+		=> tokens.Count == 0
+			? Task.FromResult(new Dictionary<Guid, string>())
+			: LoadNotenTextsAsync(db, token);
+
 	/// <summary>
 	/// The folded extracted text of every Lied's live Noten, joined per Lied.
 	/// Dateien in the trash contribute nothing, so a replaced or deleted Noten

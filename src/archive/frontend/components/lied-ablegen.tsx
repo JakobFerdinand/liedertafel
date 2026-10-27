@@ -18,6 +18,7 @@ import {
   type FestesLied,
   useLiedEntwurf,
 } from "@/lib/lied-entwurf/use-lied-entwurf";
+import { liedFeldBeschriftung } from "@/lib/lieder";
 import { groesseText } from "@/lib/uebertragung";
 
 const dateiTypen: [string, string][] = [
@@ -27,27 +28,6 @@ const dateiTypen: [string, string][] = [
   ["aufnahme", "Aufnahme"],
   ["sonstiges", "Sonstiges"],
 ];
-
-/**
- * Die Zeilen des Anlegeformulars aus der Feldliste des Reducers (#192): ohne
- * den Titel, der aus dem Dateinamen kommt, in der Reihenfolge der Liste. Nur
- * die Beschriftung und die Zeilenform ist Browsertext hier.
- */
-const feldBeschriftung: Record<
-  Exclude<LiedFeld, "title">,
-  [string, "kurz" | "lang"]
-> = {
-  composer: ["Komponist", "kurz"],
-  arranger: ["Bearbeiter", "kurz"],
-  lyricist: ["Texter", "kurz"],
-  voiceConfiguration: ["Besetzung", "kurz"],
-  musicalKey: ["Tonart", "kurz"],
-  language: ["Sprache", "kurz"],
-  lyrics: ["Liedtext", "lang"],
-};
-
-const liedFelder: [Exclude<LiedFeld, "title">, string, "kurz" | "lang"][] =
-  liedFormularFelder.map((feld) => [feld, ...feldBeschriftung[feld]]);
 
 function lesenText(datei: DateiEntwurf): string | null {
   switch (datei.lesen.status) {
@@ -395,10 +375,12 @@ export function DateienAblegen({
             </>
           )}
           {liedFelderSichtbar &&
-            liedFelder.map(([feld, beschriftung, art]) => (
+            liedFormularFelder.map((feld) => (
               <div key={feld}>
-                <label htmlFor={`${idPraefix}-${feld}`}>{beschriftung}</label>
-                {art === "lang" ? (
+                <label htmlFor={`${idPraefix}-${feld}`}>
+                  {liedFeldBeschriftung[feld][1]}
+                </label>
+                {feld === "lyrics" ? (
                   <textarea
                     id={`${idPraefix}-${feld}`}
                     rows={4}

@@ -26,6 +26,19 @@ public sealed class FieldCatalogTests
 	}
 
 	[Fact]
+	public void ListRowFieldsMatchThePinnedContract()
+	{
+		// Mirror of the Lied list's rows: the plain fields the list carries
+		// beside the title, without the Liedtext. The row projection follows
+		// the InList flag, not a field's length; a wrong flag or a new field
+		// turns this red on purpose, so it can only be fixed together with
+		// the wire clients.
+		Assert.Equal(
+			["composer", "arranger", "lyricist", "voiceConfiguration", "musicalKey", "language", "occasion"],
+			FieldCatalog.LiedListFields.Select(f => f.Form).ToArray());
+	}
+
+	[Fact]
 	public void DraftFormNamesMatchThePinnedContract()
 	{
 		// Mirror of the browser's Anlegen form (a title plus the fields the

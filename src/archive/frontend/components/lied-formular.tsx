@@ -5,35 +5,22 @@ import {
   aendereLied,
   eingabeAusLied,
   type LiedEingabe,
-  type LiedEingabeFeld,
   type LiedMitDateien,
   leerEingabe,
   legeLiedAn,
   liedEingabeFelder,
+  liedFeldBeschriftung,
 } from "@/lib/lieder";
 import { problemTitel } from "@/lib/uebertragung";
 
 /**
- * Die Zeilen der Kurzfelder aus der Feldliste der Eingabe (#192): ohne den
- * Titel (oben) und den Liedtext (unten die Fläche). Erst die Beschriftung
- * und der Anker sind Browsertext hier.
+ * Die Zeilen der Kurzfelder aus der Feldliste und den Beschriftungen der
+ * Eingabe (#192): ohne den Titel (oben) und den Liedtext (unten die Fläche).
+ * Hier steht allein, dass die Felder von Hand freiwillig sind.
  */
-const feldBeschriftung: Record<
-  Exclude<LiedEingabeFeld, "title" | "lyrics">,
-  [string, string]
-> = {
-  composer: ["komponist", "Komponist (optional)"],
-  arranger: ["bearbeiter", "Bearbeiter (optional)"],
-  lyricist: ["texter", "Texter (optional)"],
-  voiceConfiguration: ["besetzung", "Besetzung (optional)"],
-  musicalKey: ["tonart", "Tonart (optional)"],
-  language: ["sprache", "Sprache (optional)"],
-  occasion: ["anlass", "Anlass (optional)"],
-};
-
 const kurzeFelder: [keyof LiedEingabe, string, string][] = liedEingabeFelder
   .filter((feld) => feld !== "title" && feld !== "lyrics")
-  .map((feld) => [feld, ...feldBeschriftung[feld]]);
+  .map((feld) => [feld, ...liedFeldBeschriftung[feld]]);
 
 /**
  * Formular für ein Lied von Hand (#166): Titel, Komponist, Bearbeiter, Texter,
@@ -122,7 +109,9 @@ export function LiedFormular({
       )}
       {kurzeFelder.map(([feld, name, beschriftung]) => (
         <div key={feld}>
-          <label htmlFor={`${idPraefix}-${name}`}>{beschriftung}</label>
+          <label htmlFor={`${idPraefix}-${name}`}>
+            {beschriftung} (optional)
+          </label>
           <input
             id={`${idPraefix}-${name}`}
             type="text"

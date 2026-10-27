@@ -75,9 +75,7 @@ public static class LiedEndpoints
 
 			// Plain search reads the text of each Lied's live Noten (#169) and,
 			// since #142, matches the Liedtext and the creators too.
-			var noteTexts = tokens.Count == 0
-				? []
-				: await LiedSearch.LoadNotenTextsAsync(db, token);
+			var noteTexts = await LiedSearch.LoadNotenTextsAsync(db, tokens, token);
 
 			var filtered = rows
 				.Where(r => voiceFilter.Length == 0 || CatalogueText.Fold(voiceField.Get(r)) == voiceFilter)
@@ -85,7 +83,7 @@ public static class LiedEndpoints
 				.Where(r => wantedKinds.Count == 0
 					|| (kindsByLied.TryGetValue(r.Id, out var kinds) && wantedKinds.All(kinds.Contains)));
 			var matches = LiedSearch.Match(tokens, filtered, noteTexts, query);
-			var requestedPage = page is null or < 1 ? 1 : page.Value;
+			var requestedPage = LiedSearch.RequestedPage(page);
 			var pageRows = LiedSearch.Page(matches, requestedPage, PageSize);
 			return Results.Ok(new
 			{
@@ -162,10 +160,11 @@ public static class LiedEndpoints
 	}
 
 	/// <summary>
-	/// One list row: the plain fields the catalog knows in the order the
-	/// members read them, without the Liedtext (that is the detail's); where
-	/// the Treffer stands, in the field labels of the search ("im Liedtext",
-	/// "in den Noten", …), empty without a query.
+	/// One list row: the plain fields the catalog marks for the list, beside
+	/// the title, in the order the members read them, without the Liedtext
+	/// (that is the detail's); where the Treffer stands, in the field labels
+	/// of the search ("im Liedtext", "in den Noten", …), empty without a
+	/// query.
 	/// </summary>
 	private static object Row(SearchMatch match, IReadOnlyList<string> tokens,
 		IReadOnlyDictionary<Guid, HashSet<string>> kindsByLied)
@@ -176,7 +175,7 @@ public static class LiedEndpoints
 			["id"] = lied.Id,
 			["title"] = lied.Title,
 		};
-		foreach (var field in FieldCatalog.LiedFields.Where(f => f.MaxLength <= FieldCatalog.FieldMaxLength))
+		foreach (var field in FieldCatalog.LiedListFields)
 			row[field.Form] = field.Get(lied);
 		row["matchIn"] = tokens.Count == 0
 			? Array.Empty<string>()

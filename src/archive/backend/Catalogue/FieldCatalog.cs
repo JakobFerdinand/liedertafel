@@ -11,14 +11,15 @@ namespace Archive.Backend.Catalogue;
 /// <paramref name="SearchLabel"/> the member search names when a Treffer
 /// stands here (non-null means searchable), the <paramref name="MaxLength"/>,
 /// whether <paramref name="InDraft"/> joins the Lied-Entwurf form (the title
-/// is that form's own extra field), how the request values are read and how
-/// the value is read and written on a <see cref="Lied"/> and on a
+/// is that form's own extra field), whether <paramref name="InList"/> shows
+/// on a list row of <c>/api/lieder</c>, how the request values are read and
+/// how the value is read and written on a <see cref="Lied"/> and on a
 /// <see cref="LiedEntwurf"/>. Adding a field to a Lied means adding one entry
 /// here; the request records, the Entwurf, the search and the reading all
 /// derive from these entries.
 /// </summary>
 public sealed record LiedField(
-	string Name, string? Label, string? SearchLabel, string? Prompt, int MaxLength, bool InDraft,
+	string Name, string? Label, string? SearchLabel, string? Prompt, int MaxLength, bool InDraft, bool InList,
 	Func<Lied, string?> Get, Action<Lied, string?> Set,
 	Func<LiedEntwurf, string> GetDraft, Action<LiedEntwurf, string> SetDraft)
 {
@@ -51,30 +52,31 @@ public static class FieldCatalog
 	public static readonly IReadOnlyList<LiedField> LiedFields =
 	[
 		new("composer", "Komponist", "beim Komponisten", "Komponist (Musik von), nur der Name.",
-			FieldMaxLength, InDraft: true,
+			FieldMaxLength, InDraft: true, InList: true,
 			l => l.Composer, (l, v) => l.Composer = v, e => e.Composer, (e, v) => e.Composer = v),
 		new("arranger", "Bearbeiter", "beim Bearbeiter", "Arrangeur (Satz von), nur der Name.",
-			FieldMaxLength, InDraft: true,
+			FieldMaxLength, InDraft: true, InList: true,
 			l => l.Arranger, (l, v) => l.Arranger = v, e => e.Arranger, (e, v) => e.Arranger = v),
 		new("lyricist", "Textdichter", "beim Texter", "Textdichter (Worte von), nur der Name.",
-			FieldMaxLength, InDraft: true,
+			FieldMaxLength, InDraft: true, InList: true,
 			l => l.Lyricist, (l, v) => l.Lyricist = v, e => e.Lyricist, (e, v) => e.Lyricist = v),
 		new("voice_configuration", null, null, "Besetzung, zum Beispiel \"Männerchor a cappella\" oder \"TTBB\".",
-			FieldMaxLength, InDraft: true,
+			FieldMaxLength, InDraft: true, InList: true,
 			l => l.VoiceConfiguration, (l, v) => l.VoiceConfiguration = v, e => e.VoiceConfiguration, (e, v) => e.VoiceConfiguration = v),
 		new("musical_key", "Tonart", null, "Tonart, zum Beispiel \"G-Dur\" oder \"d-Moll\".",
-			FieldMaxLength, InDraft: true,
+			FieldMaxLength, InDraft: true, InList: true,
 			l => l.MusicalKey, (l, v) => l.MusicalKey = v, e => e.MusicalKey, (e, v) => e.MusicalKey = v),
 		new("language", null, null, "Sprache des Liedtexts, zum Beispiel \"Deutsch\" oder \"Latein\".",
-			FieldMaxLength, InDraft: true,
+			FieldMaxLength, InDraft: true, InList: true,
 			l => l.Language, (l, v) => l.Language = v, e => e.Language, (e, v) => e.Language = v),
+		// The Liedtext is the detail's: a list row carries no lyrics.
 		new("lyrics", "Liedtext", "im Liedtext",
 			"der gesungene Liedtext mit allen Strophen, Zeilen durch Zeilenumbrüche getrennt, ohne Titel,\n  Namen, Tempo- oder Stimmangaben.",
-			LyricsMaxLength, InDraft: true,
+			LyricsMaxLength, InDraft: true, InList: false,
 			l => l.Lyrics, (l, v) => l.Lyrics = v, e => e.Lyrics, (e, v) => e.Lyrics = v),
 		// The Anlass is no draft field and carries no prompt: the Anlegen form
 		// holds no value for it, so the draft accessors are never called.
-		new("occasion", null, null, null, FieldMaxLength, InDraft: false,
+		new("occasion", null, null, null, FieldMaxLength, InDraft: false, InList: true,
 			l => l.Occasion, (l, v) => l.Occasion = v, e => string.Empty, (_, _) => { }),
 	];
 
@@ -96,6 +98,9 @@ public static class FieldCatalog
 
 	/// <summary>The Lied fields a word may match in.</summary>
 	public static IEnumerable<LiedField> LiedSearchFields => LiedFields.Where(f => f.SearchLabel is not null);
+
+	/// <summary>The Lied fields a list row on <c>/api/lieder</c> carries beside the title.</summary>
+	public static IEnumerable<LiedField> LiedListFields => LiedFields.Where(f => f.InList);
 
 	/// <summary>The Lied fields scan reading may fill automatically.</summary>
 	public static IEnumerable<LiedField> LiedAutomatedFields => LiedFields.Where(f => f.Label is not null);

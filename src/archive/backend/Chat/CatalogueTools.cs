@@ -78,16 +78,14 @@ public static class CatalogueTools
 		var queryText = (query ?? string.Empty).Trim();
 		if (queryText.Length > MaxQueryChars)
 			queryText = queryText[..MaxQueryChars];
-		var requestedPage = Math.Max(1, page);
+		var requestedPage = LiedSearch.RequestedPage(page);
 		if (requestedPage > MaxPage)
 			return JsonSerializer.Serialize(new { lieder = Array.Empty<object>(), error = "Höchstens 5 Seiten abrufbar. Bitte die Suche eingrenzen.", limitReached = true });
 		var tokens = LiedSearch.TokensOf(queryText);
 		var all = await LiedQueries.Visible(db).AsNoTracking().ToListAsync(token);
 		// Same Noten text as the member search (#142, #169): words that only
 		// stand in the extracted text of a Lied's live Noten find it here too.
-		var noteTexts = tokens.Count == 0
-			? []
-			: await LiedSearch.LoadNotenTextsAsync(db, token);
+		var noteTexts = await LiedSearch.LoadNotenTextsAsync(db, tokens, token);
 		var matches = LiedSearch.Match(tokens, all, noteTexts, queryText);
 		var paged = LiedSearch.Page(matches, requestedPage, PageSize);
 		return SerializeSearch(paged, tokens, requestedPage, matches.Count);
