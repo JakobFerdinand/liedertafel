@@ -1,15 +1,12 @@
 using System.Text.Json;
 using Archive.Backend.Auth;
+using Archive.Backend.Catalogue;
 using Archive.Backend.Data;
 using Archive.Backend.Reading;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.EntityFrameworkCore;
 
 namespace Archive.Backend.Lieder;
-
-public sealed record EntwurfLiedBody(
-	string? Title, string? Composer, string? Arranger, string? Lyricist, string? VoiceConfiguration,
-	string? MusicalKey, string? Language, string? Lyrics);
 
 public sealed record EntwurfLesenBody(string? Status, int? AnfrageId, string? Meldung);
 
@@ -149,10 +146,15 @@ public static class LiedEntwurfEndpoints
 		if (body is null || body.EntwurfId != id || body.Lied is null)
 			return InvalidMessage;
 		var lied = body.Lied;
-		if (new[] { lied.Title, lied.Composer, lied.Arranger, lied.Lyricist, lied.VoiceConfiguration, lied.MusicalKey, lied.Language }
-			.Any(v => v is { Length: > LiedEndpoints.FieldMaxLength })
-			|| lied.Lyrics is { Length: > LiedEndpoints.LyricsMaxLength })
+		// A field the browser sent that the form does not know is rejected,
+		// never silently dropped (#192).
+		if (lied.Unknown.Count > 0)
+			return CatalogueWriteService.UnknownFieldMessage;
+		if (lied.Title is { Length: > LiedEndpoints.FieldMaxLength })
 			return LiedEndpoints.FieldTooLongMessage;
+		foreach (var field in FieldCatalog.LiedDraftFields)
+			if (lied.Value(field) is { Length: var length } && length > field.MaxLength)
+				return LiedEndpoints.FieldTooLongMessage;
 		if ((body.Bearbeitet ?? []).Any(f => !LiedEntwurfRules.Felder.Contains(f)))
 			return InvalidMessage;
 		if ((body.Vorschlaege ?? []).Any(v => !LiedEntwurfRules.Felder.Contains(v.Key) || v.Value is not ("sicher" or "unsicher")))
@@ -181,13 +183,8 @@ public static class LiedEntwurfEndpoints
 	{
 		var lied = body.Lied!;
 		entwurf.Title = lied.Title ?? string.Empty;
-		entwurf.Composer = lied.Composer ?? string.Empty;
-		entwurf.Arranger = lied.Arranger ?? string.Empty;
-		entwurf.Lyricist = lied.Lyricist ?? string.Empty;
-		entwurf.VoiceConfiguration = lied.VoiceConfiguration ?? string.Empty;
-		entwurf.MusicalKey = lied.MusicalKey ?? string.Empty;
-		entwurf.Language = lied.Language ?? string.Empty;
-		entwurf.Lyrics = lied.Lyrics ?? string.Empty;
+		foreach (var field in FieldCatalog.LiedDraftFields)
+			field.SetDraft(entwurf, lied.Value(field) ?? string.Empty);
 		entwurf.EditedFields = string.Join(',', LiedEntwurfRules.Felder.Where((body.Bearbeitet ?? []).Contains));
 		entwurf.Suggestions = string.Join(',', LiedEntwurfRules.Felder
 			.Where((body.Vorschlaege ?? []).ContainsKey)
@@ -219,20 +216,22 @@ public static class LiedEntwurfEndpoints
 		}
 	}
 
+	/// <summary>The form's field values, in the order the browser reads them: the title plus the draft fields.</summary>
+	private static object EntwurfValues(LiedEntwurf e)
+	{
+		Dictionary<string, object?> values = new(StringComparer.Ordinal)
+		{
+			["title"] = e.Title,
+		};
+		foreach (var field in FieldCatalog.LiedDraftFields)
+			values[field.Form] = field.GetDraft(e);
+		return values;
+	}
+
 	private static object Payload(LiedEntwurf e, DateTimeOffset now) => new
 	{
 		entwurfId = e.Id,
-		lied = new
-		{
-			title = e.Title,
-			composer = e.Composer,
-			arranger = e.Arranger,
-			lyricist = e.Lyricist,
-			voiceConfiguration = e.VoiceConfiguration,
-			musicalKey = e.MusicalKey,
-			language = e.Language,
-			lyrics = e.Lyrics,
-		},
+		lied = EntwurfValues(e),
 		bearbeitet = e.EditedFields.Split(',', StringSplitOptions.RemoveEmptyEntries),
 		vorschlaege = e.Suggestions.Split(',', StringSplitOptions.RemoveEmptyEntries)
 			.Select(s => s.Split(':'))

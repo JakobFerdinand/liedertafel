@@ -25,6 +25,16 @@ export const liedFelder = [
   "lyrics",
 ] as const;
 
+/**
+ * Die Felder des Anlegeformulars: alle außer dem Titel, der allein aus dem
+ * Dateinamen kommt. `liedFelder` ist die eine Feldliste des Browser (#192);
+ * Formulare leiten ihre Zeilen hieraus ab, damit ein neues Feld ankommt,
+ * ohne zweite Listen zu schreiben.
+ */
+export const liedFormularFelder = liedFelder.filter(
+  (feld): feld is Exclude<LiedFeld, "title"> => feld !== "title",
+);
+
 export type LiedFeld = (typeof liedFelder)[number];
 
 /** Wie sicher sich das Lesen bei einem Vorschlag ist. */

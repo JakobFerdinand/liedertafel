@@ -11,6 +11,7 @@ import {
   fehlgeschlagene,
   kannSpeichern,
   type LiedFeld,
+  liedFormularFelder,
   type Zustand,
 } from "@/lib/lied-entwurf/reducer";
 import {
@@ -27,15 +28,26 @@ const dateiTypen: [string, string][] = [
   ["sonstiges", "Sonstiges"],
 ];
 
-const liedFelder: [LiedFeld, string, "kurz" | "lang"][] = [
-  ["composer", "Komponist", "kurz"],
-  ["arranger", "Bearbeiter", "kurz"],
-  ["lyricist", "Texter", "kurz"],
-  ["voiceConfiguration", "Besetzung", "kurz"],
-  ["musicalKey", "Tonart", "kurz"],
-  ["language", "Sprache", "kurz"],
-  ["lyrics", "Liedtext", "lang"],
-];
+/**
+ * Die Zeilen des Anlegeformulars aus der Feldliste des Reducers (#192): ohne
+ * den Titel, der aus dem Dateinamen kommt, in der Reihenfolge der Liste. Nur
+ * die Beschriftung und die Zeilenform ist Browsertext hier.
+ */
+const feldBeschriftung: Record<
+  Exclude<LiedFeld, "title">,
+  [string, "kurz" | "lang"]
+> = {
+  composer: ["Komponist", "kurz"],
+  arranger: ["Bearbeiter", "kurz"],
+  lyricist: ["Texter", "kurz"],
+  voiceConfiguration: ["Besetzung", "kurz"],
+  musicalKey: ["Tonart", "kurz"],
+  language: ["Sprache", "kurz"],
+  lyrics: ["Liedtext", "lang"],
+};
+
+const liedFelder: [Exclude<LiedFeld, "title">, string, "kurz" | "lang"][] =
+  liedFormularFelder.map((feld) => [feld, ...feldBeschriftung[feld]]);
 
 function lesenText(datei: DateiEntwurf): string | null {
   switch (datei.lesen.status) {

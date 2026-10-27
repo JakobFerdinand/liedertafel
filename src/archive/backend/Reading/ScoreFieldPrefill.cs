@@ -44,8 +44,12 @@ public sealed class ScoreFieldPrefill(
 
 	private const int MinLyricsQuoteLength = 10;
 
-	private static readonly string[] FieldOrder =
-		["composer", "lyricist", "arranger", "musical_key", "lyrics"];
+	/// <summary>
+	/// The automated write targets, straight off the catalog (#192): the
+	/// fields the German labels mark as automatable, in catalog order.
+	/// </summary>
+	private static readonly IReadOnlyList<string> AutomatedOrder =
+		[.. FieldCatalog.LiedAutomatedFields.Select(f => f.Name)];
 
 	public async Task RunAsync(
 		Datei datei, string text, Guid? accountId, PrefillProgress progress, CancellationToken token)
@@ -58,14 +62,8 @@ public sealed class ScoreFieldPrefill(
 		if (lied is null)
 			return;
 
-		var targets = new Dictionary<string, Target>(StringComparer.Ordinal)
-		{
-			["composer"] = new(FieldCatalog.EntityTypeLied, lied.Id, lied.Composer),
-			["lyricist"] = new(FieldCatalog.EntityTypeLied, lied.Id, lied.Lyricist),
-			["lyrics"] = new(FieldCatalog.EntityTypeLied, lied.Id, lied.Lyrics),
-			["arranger"] = new(FieldCatalog.EntityTypeLied, lied.Id, lied.Arranger),
-			["musical_key"] = new(FieldCatalog.EntityTypeLied, lied.Id, lied.MusicalKey),
-		};
+		var targets = FieldCatalog.LiedAutomatedFields
+			.ToDictionary(f => f.Name, f => new Target(lied.Id, f.Get(lied)), StringComparer.Ordinal);
 		var open = targets
 			.Where(pair => string.IsNullOrWhiteSpace(pair.Value.Current))
 			.Select(pair => pair.Key)
@@ -79,9 +77,8 @@ public sealed class ScoreFieldPrefill(
 		{
 			if (!open.Contains(field))
 				continue;
-			var target = targets[field];
 			var outcome = await writer.WriteFieldAsync(
-				new AutomatedFieldWriter.FieldWriteRequest(target.EntityType, target.EntityId, field, value), accountId, token);
+				new AutomatedFieldWriter.FieldWriteRequest(FieldCatalog.EntityTypeLied, lied.Id, field, value), accountId, token);
 			open.Remove(field);
 			Count(outcome, progress);
 		}
@@ -89,7 +86,7 @@ public sealed class ScoreFieldPrefill(
 			return;
 
 		// 2. The agent, for the fields that are still empty.
-		var wanted = FieldOrder.Where(open.Contains).ToList();
+		var wanted = AutomatedOrder.Where(open.Contains).ToList();
 		var reading = await model.ReadFieldsAsync(text, wanted, accountId, token);
 		var seen = new HashSet<string>(StringComparer.Ordinal);
 		foreach (var read in reading.Fields ?? [])
@@ -106,9 +103,8 @@ public sealed class ScoreFieldPrefill(
 			var certain = string.Equals(read.Certainty?.Trim(), "sicher", StringComparison.OrdinalIgnoreCase);
 			if (!certain || !QuoteIsVerified(read, value, text))
 				continue;
-			var target = targets[read.Field];
 			var outcome = await writer.WriteFieldAsync(
-				new AutomatedFieldWriter.FieldWriteRequest(target.EntityType, target.EntityId, read.Field, value), accountId, token);
+				new AutomatedFieldWriter.FieldWriteRequest(FieldCatalog.EntityTypeLied, lied.Id, read.Field, value), accountId, token);
 			Count(outcome, progress);
 		}
 	}
@@ -197,5 +193,5 @@ public sealed class ScoreFieldPrefill(
 			? string.Empty
 			: Regex.Replace(value.Replace("­", ""), @"\s+", " ").Trim().ToLowerInvariant();
 
-	private sealed record Target(string EntityType, Guid EntityId, string? Current);
+	private sealed record Target(Guid EntityId, string? Current);
 }

@@ -1,3 +1,4 @@
+using Archive.Backend.Catalogue;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -10,14 +11,10 @@ public sealed class LiedModelConfiguration : IEntityTypeConfiguration<Lied>, IEn
 		builder.ToTable("lieder");
 		builder.HasKey(x => x.Id);
 		builder.Property(x => x.Title).HasMaxLength(200).IsRequired();
-		builder.Property(x => x.Composer).HasMaxLength(200);
-		builder.Property(x => x.Arranger).HasMaxLength(200);
-		builder.Property(x => x.Lyricist).HasMaxLength(200);
-		builder.Property(x => x.VoiceConfiguration).HasMaxLength(200);
-		builder.Property(x => x.MusicalKey).HasMaxLength(200);
-		builder.Property(x => x.Language).HasMaxLength(200);
-		builder.Property(x => x.Occasion).HasMaxLength(200);
-		builder.Property(x => x.Lyrics).HasMaxLength(5000);
+		// The lengths are the field catalog's (#192); Title is the required
+		// key the catalog holds separately.
+		foreach (var field in FieldCatalog.LiedFields)
+			builder.Property(field.EntityProperty).HasMaxLength(field.MaxLength);
 		builder.Property(x => x.RowVersion).IsConcurrencyToken();
 		builder.HasIndex(x => x.Title);
 	}
