@@ -76,6 +76,9 @@ public sealed class ArchiveDbContext(DbContextOptions<ArchiveDbContext> options)
 
 	public DbSet<Lieder.LiedEntwurfLesung> LiedEntwurfLesungen => Set<Lieder.LiedEntwurfLesung>();
 
+	/// <summary>#131: unfinished Auftritt uploads ("Angefangen"), the form as the browser keeps it.</summary>
+	public DbSet<Events.AuftrittEntwurf> AuftrittEntwuerfe => Set<Events.AuftrittEntwurf>();
+
 	protected override void OnModelCreating(ModelBuilder modelBuilder)
 	{
 		base.OnModelCreating(modelBuilder);

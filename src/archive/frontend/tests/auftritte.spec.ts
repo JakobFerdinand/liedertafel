@@ -160,6 +160,8 @@ async function auftrittAnlegenAufklappen(page: Page) {
     "open",
     "",
   );
+  // Seit #131 beginnt "Neuer Auftritt" mit der Ablage; ohne Datei geht es von Hand.
+  await page.getByRole("button", { name: "ohne Datei anlegen" }).click();
 }
 
 test("Mitglied sieht Auftritte mit Jahresleiste und ehrlichen Daten", async ({

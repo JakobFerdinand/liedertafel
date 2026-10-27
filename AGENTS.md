@@ -48,6 +48,7 @@ source-folder inventory (Drive, #98) runbook lives at
 - Archive video transcode worker (#161, deterministic ffmpeg): `dotnet run --project src/archive/backend -- --transcode-queue`; the `--dispatch-videos` command sweeps un-enqueued `video_jobs` rows. Local runs need `ffmpeg`/`ffprobe` on the PATH (`Archive:Video:FfmpegPath`/`FfprobePath` set them); without them the worker records a clear German failure on the Datei and exits finitely. The AppHost resource `archive-transcode` runs it with `WithArchiveDependencies`; the AppHost video roundtrip test requires ffmpeg on the test host's PATH.
 - Archive AI ledger on real PostgreSQL (the production SQL; the PostgreSQL-only cases skip when unconfigured): `dotnet test tests/archive/backend --filter "FullyQualifiedName~AiBudgetLedgerTests"` with `ARCHIVE_TEST_POSTGRES` set to a connection string for a throwaway server whose user may create databases (each test creates, migrates and drops its own)
 - Archive scan reading (ARC-034-1) evaluation: `dotnet test tests/archive/backend --filter "Category=ScanReadingEvaluation"` runs generated scans through the whole reading job with the scripted client (no provider). `--filter "Category=ScanReadingEvaluationLive"` reads the maintainer's private scans (`ARCHIVE_SCAN_EVAL_DIR` with the PDFs and an `expected.json`, optional `ARCHIVE_SCAN_EVAL_REPORT`) with `ARCHIVE_CHAT_ENDPOINT` and `ARCHIVE_CHAT_DEPLOYMENT_NAME` set (az login) and skips when unconfigured; it costs a few cents per document.
+- Archive programme scan (#131) evaluation: `dotnet test tests/archive/backend --filter "Category=ProgrammReadingEvaluation"` runs generated programme photographs through `ProgrammReader` with the scripted model (no provider) and reports header errors, wrong matches and cost. `--filter "Category=ProgrammReadingEvaluationLive"` reads the maintainer's private scans (`ARCHIVE_PROGRAMM_EVAL_DIR` with the scans and an `expected.json`, optional `ARCHIVE_PROGRAMM_EVAL_REPORT`) with `ARCHIVE_CHAT_ENDPOINT` and `ARCHIVE_CHAT_DEPLOYMENT_NAME` set (az login) and skips when unconfigured.
 - Archive scan reading on real PostgreSQL (migration over existing extraction rows, constraints, the budget sweep, real ledger SQL; skip when unconfigured): `dotnet test tests/archive/backend --filter "Category=PostgresReading"` with `ARCHIVE_TEST_POSTGRES` set as for the AI ledger
 - Archive migration contracts on real PostgreSQL (the data-migrating migrations `DropOldCatalogue` and `AuftrittProgramm` over seeded rows; skip when unconfigured): `dotnet test tests/archive/backend --filter "Category=PostgresContract"` with `ARCHIVE_TEST_POSTGRES` set as for the AI ledger
 - Archive A2UI cards on real PostgreSQL (migration with existing rows, jsonb round trip, resolvers and load-time re-check as real SQL; skip when unconfigured): `dotnet test tests/archive/backend --filter "Category=PostgresA2ui"` with `ARCHIVE_TEST_POSTGRES` set as for the AI ledger
@@ -187,6 +188,15 @@ uses its generated Next.js/Biome conventions and local `AGENTS.md`.
   `DraftReadingRegistry` when its draft is discarded, its Datei removed or a newer
   `anfrageId` arrives (not when the tab merely closes, so resume works). It
   answers 409 while `Archive:Reading:Enabled` is false, 429 at the monthly cap.
+- The Auftritt-from-scan reading (#131, `POST /api/auftritt-lesungen`,
+  `backend/Reading/ProgrammReader`, `ProgrammMatcher`, `ProgrammReadingEndpoints`) follows
+  the Lied draft reading: in the web app, through `AiGateway` (features `programm-*`),
+  writes nothing but suggestions (title, date, place, Programm entries). Matching a Programm
+  entry to a Lied is deterministic code (`ProgrammMatcher`); only an exact title naming one
+  Lied is pre-selected as sure, near misses are marked unsure, the editor picks or creates
+  the Lied. Auftritt drafts live in `auftritt_entwuerfe` (`Events/AuftrittEntwurf*`); the
+  evaluation set is `tests/archive/backend/ProgrammLesenEvaluationTests.cs`
+  (`Category=ProgrammReadingEvaluation`, live variant `ProgrammReadingEvaluationLive`).
 - Keep liveness dependency-free. Local diagnostics/mail/storage operations are
   Development-only; no production credentials are needed for ordinary startup.
 - Root SDK and site Functions now select .NET 10 with latest-feature roll-forward.

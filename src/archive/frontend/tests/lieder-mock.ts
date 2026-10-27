@@ -170,6 +170,10 @@ export async function mockEntwuerfe(page: Page): Promise<EntwurfSpeicher> {
     },
   };
   const nachId = (url: string) => url.split("/").pop()?.split("?")[0] ?? "";
+  // "Angefangen" fragt seit #131 auch die Auftrittsentwürfe; hier gibt es keine.
+  await page.route("**/api/auftritt-entwuerfe", (route) =>
+    route.fulfill(json({ entwuerfe: [] })),
+  );
   await page.route("**/api/lied-entwuerfe", (route) =>
     route.fulfill(
       json({
