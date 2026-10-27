@@ -1,4 +1,5 @@
 import { patchAuth, postAuth } from "@/lib/auth";
+import { type LiedFeld, liedFelder } from "@/lib/lied-entwurf/reducer";
 
 // Das flache Lied (ADR-0001): ein Lied mit seinen Dateien.
 
@@ -77,17 +78,54 @@ export type LiedFilter = {
 };
 
 /** Eingabe des Formulars; leere Zeichenketten löschen beim Ändern den Wert. */
-export type LiedEingabe = {
-  title: string;
-  composer: string;
-  arranger: string;
-  lyricist: string;
-  voiceConfiguration: string;
-  musicalKey: string;
-  language: string;
-  lyrics: string;
-  occasion: string;
+export type LiedEingabe = Record<LiedFeld, string> & { occasion: string };
+
+/** Die Feldnamen der Eingabe: die Feldliste des Entwurfs samt dem Anlass. */
+export type LiedEingabeFeld = LiedFeld | "occasion";
+
+/**
+ * Die Feldnamen der Eingabe, in der Reihenfolge des Liedes (#192): die
+ * Feldliste des Aufrufs (`liedFelder`) samt dem Anlass, der nur auf der
+ * Liedseite steht. Sie ist die einzige Feldliste im Browser; der Feldkatalog
+ * im Backend führt dieselben camelCase Namen als Vertrag.
+ */
+export const liedEingabeFelder: LiedEingabeFeld[] = [...liedFelder, "occasion"];
+
+/**
+ * Anker und Beschriftung jedes Lied-Feldes außer dem Titel (#192): Name und
+ * Text stehen hier nebeneinander, damit ein neues Feld mit der Feldliste
+ * ankommt, ohne eine zweite Beschriftung zu schreiben. Komponenten leiten
+ * ihre Zeilen hieraus ab und ergänzen "(optional)", wo das Feld freiwillig
+ * ist. Der Anker ist die Kennung der Zeile im Anlegen-Formular; der Anlass
+ * trägt sein Feld nur auf der Liedseite.
+ */
+export const liedFeldBeschriftung: Record<
+  Exclude<LiedEingabeFeld, "title">,
+  [string, string]
+> = {
+  composer: ["komponist", "Komponist"],
+  arranger: ["bearbeiter", "Bearbeiter"],
+  lyricist: ["texter", "Texter"],
+  voiceConfiguration: ["besetzung", "Besetzung"],
+  musicalKey: ["tonart", "Tonart"],
+  language: ["sprache", "Sprache"],
+  occasion: ["anlass", "Anlass"],
+  lyrics: ["liedtext", "Liedtext"],
 };
+
+/** Die Eingabe eines leeren Formulars. */
+export function leerEingabe(): LiedEingabe {
+  return Object.fromEntries(
+    liedEingabeFelder.map((feld) => [feld, ""]),
+  ) as LiedEingabe;
+}
+
+/** Die Eingabe aus einem geladenen Lied; null wird zur leeren Zeichenkette. */
+export function eingabeAusLied(lied: LiedMitDateien): LiedEingabe {
+  return Object.fromEntries(
+    liedEingabeFelder.map((feld) => [feld, lied[feld] ?? ""]),
+  ) as LiedEingabe;
+}
 
 export function liedListenPfad(
   query: string | null,

@@ -8,7 +8,7 @@ import {
   verwirfEntwurf,
 } from "@/lib/lied-entwuerfe";
 import { istPdf, LesenFehler, leseEntwurfPdf } from "@/lib/lied-lesen";
-import { fetchLiedSuche, type LiedEingabe, legeLiedAn } from "@/lib/lieder";
+import { fetchLiedSuche, leerEingabe, legeLiedAn } from "@/lib/lieder";
 import {
   AbbruchFehler,
   MaterialFehler,
@@ -55,17 +55,7 @@ const SUCHEN_NACH_MS = 300;
 /** Das Lied, zu dem die Lied-Seite Dateien hinzufügt. */
 export type FestesLied = { liedId: string; titel: string };
 
-const LEER: LiedEingabe = {
-  title: "",
-  composer: "",
-  arranger: "",
-  lyricist: "",
-  voiceConfiguration: "",
-  musicalKey: "",
-  language: "",
-  lyrics: "",
-  occasion: "",
-};
+const LEER = leerEingabe();
 
 function neueId(): string {
   return crypto.randomUUID();

@@ -11,12 +11,14 @@ import {
   fehlgeschlagene,
   kannSpeichern,
   type LiedFeld,
+  liedFormularFelder,
   type Zustand,
 } from "@/lib/lied-entwurf/reducer";
 import {
   type FestesLied,
   useLiedEntwurf,
 } from "@/lib/lied-entwurf/use-lied-entwurf";
+import { liedFeldBeschriftung } from "@/lib/lieder";
 import { groesseText } from "@/lib/uebertragung";
 
 const dateiTypen: [string, string][] = [
@@ -25,16 +27,6 @@ const dateiTypen: [string, string][] = [
   ["uebe", "Übe-Datei"],
   ["aufnahme", "Aufnahme"],
   ["sonstiges", "Sonstiges"],
-];
-
-const liedFelder: [LiedFeld, string, "kurz" | "lang"][] = [
-  ["composer", "Komponist", "kurz"],
-  ["arranger", "Bearbeiter", "kurz"],
-  ["lyricist", "Texter", "kurz"],
-  ["voiceConfiguration", "Besetzung", "kurz"],
-  ["musicalKey", "Tonart", "kurz"],
-  ["language", "Sprache", "kurz"],
-  ["lyrics", "Liedtext", "lang"],
 ];
 
 function lesenText(datei: DateiEntwurf): string | null {
@@ -383,10 +375,12 @@ export function DateienAblegen({
             </>
           )}
           {liedFelderSichtbar &&
-            liedFelder.map(([feld, beschriftung, art]) => (
+            liedFormularFelder.map((feld) => (
               <div key={feld}>
-                <label htmlFor={`${idPraefix}-${feld}`}>{beschriftung}</label>
-                {art === "lang" ? (
+                <label htmlFor={`${idPraefix}-${feld}`}>
+                  {liedFeldBeschriftung[feld][1]}
+                </label>
+                {feld === "lyrics" ? (
                   <textarea
                     id={`${idPraefix}-${feld}`}
                     rows={4}

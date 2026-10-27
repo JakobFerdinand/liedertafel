@@ -1,4 +1,5 @@
 using Archive.Backend.Extraction;
+using Archive.Backend.Catalogue;
 using Microsoft.Extensions.Options;
 
 namespace Archive.Backend.Reading;
@@ -29,16 +30,15 @@ public sealed class DraftReader(
 	/// <summary>Pages of a scan that are transcribed for a draft: title and credits stand at the front.</summary>
 	private const int ScanPages = 3;
 
+	/// <summary>
+	/// The draft's fields, straight off the catalog (#192): the title is the
+	/// form's own field, then the catalog's draft fields — stored names for
+	/// the agent, camelCase names for the form's field values.
+	/// </summary>
 	private static readonly (string Model, string Form)[] Fields =
 	[
 		("title", "title"),
-		("composer", "composer"),
-		("arranger", "arranger"),
-		("lyricist", "lyricist"),
-		("voice_configuration", "voiceConfiguration"),
-		("musical_key", "musicalKey"),
-		("language", "language"),
-		("lyrics", "lyrics"),
+		.. FieldCatalog.LiedDraftFields.Select(f => (f.Name, f.Form)),
 	];
 
 	public async Task<IReadOnlyList<DraftSuggestion>> ReadAsync(byte[] pdf, Guid? accountId, CancellationToken token)

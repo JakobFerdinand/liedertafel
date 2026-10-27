@@ -3,47 +3,24 @@
 import { useState } from "react";
 import {
   aendereLied,
+  eingabeAusLied,
   type LiedEingabe,
   type LiedMitDateien,
+  leerEingabe,
   legeLiedAn,
+  liedEingabeFelder,
+  liedFeldBeschriftung,
 } from "@/lib/lieder";
 import { problemTitel } from "@/lib/uebertragung";
 
-const LEER: LiedEingabe = {
-  title: "",
-  composer: "",
-  arranger: "",
-  lyricist: "",
-  voiceConfiguration: "",
-  musicalKey: "",
-  language: "",
-  lyrics: "",
-  occasion: "",
-};
-
-function ausLied(lied: LiedMitDateien): LiedEingabe {
-  return {
-    title: lied.title,
-    composer: lied.composer ?? "",
-    arranger: lied.arranger ?? "",
-    lyricist: lied.lyricist ?? "",
-    voiceConfiguration: lied.voiceConfiguration ?? "",
-    musicalKey: lied.musicalKey ?? "",
-    language: lied.language ?? "",
-    lyrics: lied.lyrics ?? "",
-    occasion: lied.occasion ?? "",
-  };
-}
-
-const kurzeFelder: [keyof LiedEingabe, string, string][] = [
-  ["composer", "komponist", "Komponist (optional)"],
-  ["arranger", "bearbeiter", "Bearbeiter (optional)"],
-  ["lyricist", "texter", "Texter (optional)"],
-  ["voiceConfiguration", "besetzung", "Besetzung (optional)"],
-  ["musicalKey", "tonart", "Tonart (optional)"],
-  ["language", "sprache", "Sprache (optional)"],
-  ["occasion", "anlass", "Anlass (optional)"],
-];
+/**
+ * Die Zeilen der Kurzfelder aus der Feldliste und den Beschriftungen der
+ * Eingabe (#192): ohne den Titel (oben) und den Liedtext (unten die Fläche).
+ * Hier steht allein, dass die Felder von Hand freiwillig sind.
+ */
+const kurzeFelder: [keyof LiedEingabe, string, string][] = liedEingabeFelder
+  .filter((feld) => feld !== "title" && feld !== "lyrics")
+  .map((feld) => [feld, ...liedFeldBeschriftung[feld]]);
 
 /**
  * Formular für ein Lied von Hand (#166): Titel, Komponist, Bearbeiter, Texter,
@@ -60,7 +37,9 @@ export function LiedFormular({
   onSuccess: (lied: LiedMitDateien, meldung: string) => void;
 }) {
   const idPraefix = lied ? `lied-${lied.id}` : "lied";
-  const [werte, setWerte] = useState<LiedEingabe>(lied ? ausLied(lied) : LEER);
+  const [werte, setWerte] = useState<LiedEingabe>(
+    lied ? eingabeAusLied(lied) : leerEingabe(),
+  );
   const [titelFehler, setTitelFehler] = useState("");
   const [textFehler, setTextFehler] = useState("");
   const [hinweis, setHinweis] = useState("");
@@ -93,7 +72,7 @@ export function LiedFormular({
         gespeichert,
         lied ? "Änderungen gespeichert." : "Lied angelegt.",
       );
-      if (!lied) setWerte(LEER);
+      if (!lied) setWerte(leerEingabe());
     } catch (ursache) {
       setHinweis(
         await problemTitel(
@@ -130,7 +109,9 @@ export function LiedFormular({
       )}
       {kurzeFelder.map(([feld, name, beschriftung]) => (
         <div key={feld}>
-          <label htmlFor={`${idPraefix}-${name}`}>{beschriftung}</label>
+          <label htmlFor={`${idPraefix}-${name}`}>
+            {beschriftung} (optional)
+          </label>
           <input
             id={`${idPraefix}-${name}`}
             type="text"

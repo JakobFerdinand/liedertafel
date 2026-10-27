@@ -168,7 +168,7 @@ public sealed class CatalogueWriteService(ArchiveDbContext db)
 	}
 
 	private static IReadOnlyList<(LiedField Field, string? Value)> Changes(LiedFieldValues values)
-		=> [.. FieldCatalog.LiedFields.Select(f => (f, f.From(values)))];
+		=> [.. FieldCatalog.LiedFields.Select(f => (f, values.Value(f)))];
 
 	/// <summary>Validates every given field first, then applies them; null leaves a value, empty clears it.</summary>
 	private static WriteOutcome? ApplyLiedFields(Lieder.Lied lied, IReadOnlyList<(LiedField Field, string? Value)> changes)

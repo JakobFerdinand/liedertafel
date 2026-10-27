@@ -203,6 +203,24 @@ public sealed class LiedEntwurfApiTests
 	}
 
 	[Fact]
+	public async Task AFieldTheBrowserSendsButTheFormDoesNotKnowIsRefused()
+	{
+		await using var host = new LiedTestHost();
+		var session = await host.EditorAsync();
+		// #192: the Anlass is not a field of the Anlegen form — the server
+		// rejects it instead of silently dropping what was sent.
+		using var response = await host.PutAsync(Path(), new
+		{
+			entwurfId = EntwurfId,
+			lied = new { title = "Ave Maria", occasion = "Konzert" },
+			bearbeitet = Array.Empty<string>(),
+			vorschlaege = new Dictionary<string, string>(),
+			dateien = new[] { Datei(DateiId) },
+		}, session);
+		Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+	}
+
+	[Fact]
 	public async Task TooLongFieldsUnknownMarksAndDuplicateDateienAreRefused()
 	{
 		await using var host = new LiedTestHost();

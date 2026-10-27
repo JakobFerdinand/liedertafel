@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Archive.Backend.Events;
 using Archive.Backend.Auth;
 using Archive.Backend.Catalogue;
@@ -8,30 +9,12 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Archive.Backend.Lieder;
 
-/// <summary>The free-text fields of a Lied as a request carries them: null leaves a value, empty clears it.</summary>
-public sealed record LiedFieldValues(
-	string? Composer, string? Arranger, string? Lyricist, string? VoiceConfiguration,
-	string? MusicalKey, string? Language, string? Lyrics, string? Occasion);
-
-public sealed record CreateLiedRequest(
-	string? Title, string? Composer, string? Arranger, string? Lyricist, string? VoiceConfiguration,
-	string? MusicalKey, string? Language, string? Lyrics, string? Occasion)
-{
-	public LiedFieldValues Fields => new(Composer, Arranger, Lyricist, VoiceConfiguration, MusicalKey, Language, Lyrics, Occasion);
-}
-
-/// <summary>PATCH semantics: a missing field stays, an empty string clears it.</summary>
-public sealed record PatchLiedRequest(
-	string? Title, string? Composer, string? Arranger, string? Lyricist, string? VoiceConfiguration,
-	string? MusicalKey, string? Language, string? Lyrics, string? Occasion, uint? RowVersion)
-{
-	public LiedFieldValues Fields => new(Composer, Arranger, Lyricist, VoiceConfiguration, MusicalKey, Language, Lyrics, Occasion);
-}
-
 /// <summary>
 /// The flat Lied API (#166). Every active member reads every Lied: there is no
 /// published state (ADR-0001). Mutations need the Editor or Administrator role,
-/// CSRF validation and are attributed from the access decision.
+/// CSRF validation and are attributed from the access decision. The request
+/// bodies and their field vocabulary are the field catalog's (#192), so an
+/// unknown field is rejected, never silently dropped.
 /// </summary>
 public static class LiedEndpoints
 {
@@ -49,16 +32,10 @@ public static class LiedEndpoints
 
 	public const string ConcurrencyMessage = "Der Eintrag wurde zwischenzeitlich geändert.";
 
-	public const int FieldMaxLength = 200;
+	/// <summary>Maximum lengths live in the field catalog.</summary>
+	public const int FieldMaxLength = FieldCatalog.FieldMaxLength;
 
-	public const int LyricsMaxLength = 5000;
-
-	/// <summary>
-	/// The folded extracted text of every Lied's live Noten, joined per Lied —
-	/// the shared loader of member search and chat's catalogue search (#142).
-	/// </summary>
-	private static Task<Dictionary<Guid, string>> LoadNotenTextsAsync(ArchiveDbContext db, CancellationToken token)
-		=> CatalogueSearch.LoadNotenTextsAsync(db, token);
+	public const int LyricsMaxLength = FieldCatalog.LyricsMaxLength;
 
 	public static void MapLiedEndpoints(this IEndpointRouteBuilder app)
 	{
@@ -71,22 +48,23 @@ public static class LiedEndpoints
 			if (error is not null)
 				return error;
 			var query = (q ?? string.Empty).Trim();
-			if (query.Length > FieldMaxLength)
+			if (query.Length > FieldCatalog.FieldMaxLength)
 				return Results.Problem(statusCode: 400, title: SearchTooLongMessage);
 			var wantedKinds = (dateiTyp ?? []).Select(k => k.Trim().ToLowerInvariant()).Distinct().ToList();
 			if (wantedKinds.Any(k => !DateiKinds.IsKnown(k)))
 				return Results.Problem(statusCode: 400, title: UnknownDateiTypMessage);
+			// The filter fields are named in the request as besetzung/anlass
+			// or voiceConfiguration/occasion and act as plain equality filters.
+			var voiceField = FieldCatalog.LiedField("voice_configuration");
+			var occasionField = FieldCatalog.LiedField("occasion");
 			var voiceFilter = CatalogueText.Fold((besetzung ?? voiceConfiguration)?.Trim());
 			var occasionFilter = CatalogueText.Fold((anlass ?? occasion)?.Trim());
-			var tokens = query.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-				.Select(CatalogueText.Fold).Where(t => t.Length > 0).ToList();
+			var tokens = LiedSearch.TokensOf(query);
 
-			// About 500 Lieder: project once, match in C# so InMemory tests and
-			// PostgreSQL agree on the German folding.
-			var rows = await LiedQueries.Visible(db).AsNoTracking()
-				.Select(l => new ListRow(l.Id, l.Title, l.Composer, l.Arranger, l.Lyricist, l.Lyrics, l.VoiceConfiguration,
-					l.MusicalKey, l.Language, l.Occasion))
-				.ToListAsync(token);
+			// About 500 Lieder: materialize once, then filter, match and rank
+			// in memory so InMemory tests and PostgreSQL agree on the German
+			// folding.
+			var rows = await LiedQueries.Visible(db).AsNoTracking().ToListAsync(token);
 			var kindRows = await DateiQueries.Visible(db).AsNoTracking()
 				.Where(d => d.LiedId != null)
 				.Select(d => new { LiedId = d.LiedId!.Value, d.Kind })
@@ -96,31 +74,23 @@ public static class LiedEndpoints
 				.ToDictionary(g => g.Key, g => g.Select(k => k.Kind).ToHashSet());
 
 			// Plain search reads the text of each Lied's live Noten (#169) and,
-			// since #142, matches the Liedtext and the creators too: every word
-			// must stand in at least one of those fields, the Treffer names them.
-			var noteTexts = tokens.Count == 0
-				? []
-				: await LoadNotenTextsAsync(db, token);
+			// since #142, matches the Liedtext and the creators too.
+			var noteTexts = await LiedSearch.LoadNotenTextsAsync(db, tokens, token);
 
-			var matched = rows
-				.Select(r => (Row: r, Fields: CatalogueSearch.FieldsOf(r.Title, r.Composer, r.Arranger,
-					r.Lyricist, r.Lyrics, noteTexts.GetValueOrDefault(r.Id) ?? string.Empty)))
-				.Where(r => voiceFilter.Length == 0 || CatalogueText.Fold(r.Row.VoiceConfiguration) == voiceFilter)
-				.Where(r => occasionFilter.Length == 0 || CatalogueText.Fold(r.Row.Occasion) == occasionFilter)
+			var filtered = rows
+				.Where(r => voiceFilter.Length == 0 || CatalogueText.Fold(voiceField.Get(r)) == voiceFilter)
+				.Where(r => occasionFilter.Length == 0 || CatalogueText.Fold(occasionField.Get(r)) == occasionFilter)
 				.Where(r => wantedKinds.Count == 0
-					|| (kindsByLied.TryGetValue(r.Row.Id, out var kinds) && wantedKinds.All(kinds.Contains)))
-				.Where(r => CatalogueSearch.Matches(tokens, r.Fields))
-				.OrderBy(r => CatalogueText.Fold(r.Row.Title), StringComparer.Ordinal)
-				.ThenBy(r => r.Row.Id)
-				.ToList();
-			var requestedPage = page is null or < 1 ? 1 : page.Value;
-			var pageRows = matched.Skip((requestedPage - 1) * PageSize).Take(PageSize).ToList();
+					|| (kindsByLied.TryGetValue(r.Id, out var kinds) && wantedKinds.All(kinds.Contains)));
+			var matches = LiedSearch.Match(tokens, filtered, noteTexts, query);
+			var requestedPage = LiedSearch.RequestedPage(page);
+			var pageRows = LiedSearch.Page(matches, requestedPage, PageSize);
 			return Results.Ok(new
 			{
 				query = query.Length == 0 ? null : query,
 				page = requestedPage,
 				pageSize = PageSize,
-				total = matched.Count,
+				total = matches.Count,
 				filters = new
 				{
 					voiceConfiguration = Clean(besetzung ?? voiceConfiguration),
@@ -129,25 +99,10 @@ public static class LiedEndpoints
 				},
 				options = new
 				{
-					voiceConfigurations = Distinct(rows.Select(r => r.VoiceConfiguration)),
-					occasions = Distinct(rows.Select(r => r.Occasion)),
+					voiceConfigurations = Distinct(rows.Select(r => voiceField.Get(r))),
+					occasions = Distinct(rows.Select(r => occasionField.Get(r))),
 				},
-				lieder = pageRows.Select(r => new
-				{
-					id = r.Row.Id,
-					title = r.Row.Title,
-					composer = r.Row.Composer,
-					arranger = r.Row.Arranger,
-					lyricist = r.Row.Lyricist,
-					voiceConfiguration = r.Row.VoiceConfiguration,
-					musicalKey = r.Row.MusicalKey,
-					language = r.Row.Language,
-					occasion = r.Row.Occasion,
-					// Where the Treffer stands, in the labels the members read
-					// ("im Liedtext", "in den Noten", …); empty without a query.
-					matchIn = tokens.Count == 0 ? [] : CatalogueSearch.MatchLabels(tokens, r.Fields),
-					dateiTypen = DateiKinds.All.Where(k => kindsByLied.TryGetValue(r.Row.Id, out var kinds) && kinds.Contains(k)),
-				}),
+				lieder = pageRows.Select(m => Row(m, tokens, kindsByLied)),
 			});
 		});
 
@@ -171,8 +126,12 @@ public static class LiedEndpoints
 			var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
 				return error;
+			// A field the browser sent that the catalog does not know is
+			// rejected, never silently dropped (#192).
+			if (body is { Unknown.Count: > 0 })
+				return Results.Problem(statusCode: 400, title: CatalogueWriteService.UnknownFieldMessage);
 			var (outcome, lied) = await writes.CreateLiedAsync(
-				body?.Title, body?.Fields ?? new LiedFieldValues(null, null, null, null, null, null, null, null),
+				body?.Title, body ?? LiedFieldValues.Empty,
 				new WriteActor(decision!.AccountId, time.GetUtcNow()), token);
 			if (!outcome.IsSaved)
 				return Results.Problem(statusCode: outcome.HttpCode, title: outcome.Title);
@@ -189,13 +148,77 @@ public static class LiedEndpoints
 			var lied = await LiedQueries.Visible(db).FirstOrDefaultAsync(l => l.Id == id, token);
 			if (lied is null)
 				return Results.Problem(statusCode: 404, title: NotFoundMessage);
+			if (body is { Unknown.Count: > 0 })
+				return Results.Problem(statusCode: 400, title: CatalogueWriteService.UnknownFieldMessage);
 			var outcome = await writes.PatchLiedAsync(
-				lied, body?.Title, body?.Fields ?? new LiedFieldValues(null, null, null, null, null, null, null, null),
+				lied, body?.Title, body ?? LiedFieldValues.Empty,
 				body?.RowVersion, new WriteActor(decision!.AccountId, time.GetUtcNow()), automated: false, token);
 			if (!outcome.IsSaved)
 				return Results.Problem(statusCode: outcome.HttpCode, title: outcome.Title);
 			return Results.Ok(new { lied = await DetailAsync(db, lied, true, token) });
 		}).DisableAntiforgery();
+	}
+
+	/// <summary>
+	/// One list row: the plain fields the catalog marks for the list, beside
+	/// the title, in the order the members read them, without the Liedtext
+	/// (that is the detail's); where the Treffer stands, in the field labels
+	/// of the search ("im Liedtext", "in den Noten", …), empty without a
+	/// query.
+	/// </summary>
+	private static object Row(SearchMatch match, IReadOnlyList<string> tokens,
+		IReadOnlyDictionary<Guid, HashSet<string>> kindsByLied)
+	{
+		var lied = match.Lied;
+		var row = new Dictionary<string, object?>
+		{
+			["id"] = lied.Id,
+			["title"] = lied.Title,
+		};
+		foreach (var field in FieldCatalog.LiedListFields)
+			row[field.Form] = field.Get(lied);
+		row["matchIn"] = tokens.Count == 0
+			? Array.Empty<string>()
+			: LiedSearch.Labels(tokens, match.Fields);
+		row["dateiTypen"] = DateiKinds.All
+			.Where(k => kindsByLied.TryGetValue(lied.Id, out var kinds) && kinds.Contains(k));
+		return row;
+	}
+
+	/// <summary>One detail: the title, every catalogued field, the bookkeeping and the visible Dateien.</summary>
+	private static async Task<object> DetailAsync(ArchiveDbContext db, Lied lied, bool isEditor, CancellationToken token)
+	{
+		var dateien = await DateiQueries.Visible(db).AsNoTracking()
+			.Where(d => d.LiedId == lied.Id)
+			.ToListAsync(token);
+		// #161: automatic playback copies never show as entries of their own.
+		dateien = await VideoPlayback.WithoutCopiesAsync(db, dateien, token);
+		// An Aufnahme names its Auftritt; the link goes to the Auftritt page.
+		var eventIds = dateien.Where(d => d.RecordedAtEventId != null).Select(d => d.RecordedAtEventId!.Value).Distinct().ToList();
+		var events = eventIds.Count == 0
+			? []
+			: (await EventQueries.Visible(db).AsNoTracking().Where(e => eventIds.Contains(e.Id)).ToListAsync(token))
+				.ToDictionary(e => e.Id);
+		var detail = new Dictionary<string, object?>
+		{
+			["id"] = lied.Id,
+			["title"] = lied.Title,
+		};
+		foreach (var field in FieldCatalog.LiedFields)
+			detail[field.Form] = field.Get(lied);
+		detail["createdAt"] = lied.CreatedAt;
+		detail["updatedAt"] = lied.UpdatedAt;
+		detail["rowVersion"] = lied.RowVersion;
+		detail["dateien"] = dateien
+			.OrderBy(d => DateiKinds.All.ToList().IndexOf(d.Kind))
+			.ThenByDescending(d => d.IsPartitur)
+			.ThenBy(d => d.Stimme, StringComparer.OrdinalIgnoreCase)
+			.ThenBy(d => d.CreatedAt)
+			.ThenBy(d => d.Id)
+			.Select(d => DateiPayloads.Summary(d, d.RecordedAtEventId is { } id && events.TryGetValue(id, out var e)
+				? new { id = e.Id, title = e.Title, dateDisplay = EventDate.Display(e.DateYear, e.DateMonth, e.DateDay, e.DateApproximate) }
+				: null));
+		return detail;
 	}
 
 	private static string? Clean(string? value)
@@ -210,49 +233,6 @@ public static class LiedEndpoints
 			.Select(g => g.OrderBy(v => v, StringComparer.Ordinal).First()!)
 			.OrderBy(v => CatalogueText.Fold(v), StringComparer.Ordinal)
 			.ToArray();
-
-	private static async Task<object> DetailAsync(ArchiveDbContext db, Lied lied, bool isEditor, CancellationToken token)
-	{
-		var dateien = await DateiQueries.Visible(db).AsNoTracking()
-			.Where(d => d.LiedId == lied.Id)
-			.ToListAsync(token);
-		// #161: automatic playback copies never show as entries of their own.
-		dateien = await VideoPlayback.WithoutCopiesAsync(db, dateien, token);
-		// An Aufnahme names its Auftritt; the link goes to the Auftritt page.
-		var eventIds = dateien.Where(d => d.RecordedAtEventId != null).Select(d => d.RecordedAtEventId!.Value).Distinct().ToList();
-		var events = eventIds.Count == 0
-			? []
-			: (await EventQueries.Visible(db).AsNoTracking().Where(e => eventIds.Contains(e.Id)).ToListAsync(token))
-				.ToDictionary(e => e.Id);
-		return new
-		{
-			id = lied.Id,
-			title = lied.Title,
-			composer = lied.Composer,
-			arranger = lied.Arranger,
-			lyricist = lied.Lyricist,
-			voiceConfiguration = lied.VoiceConfiguration,
-			musicalKey = lied.MusicalKey,
-			language = lied.Language,
-			lyrics = lied.Lyrics,
-			occasion = lied.Occasion,
-			createdAt = lied.CreatedAt,
-			updatedAt = lied.UpdatedAt,
-			rowVersion = lied.RowVersion,
-			dateien = dateien
-				.OrderBy(d => DateiKinds.All.ToList().IndexOf(d.Kind))
-				.ThenByDescending(d => d.IsPartitur)
-				.ThenBy(d => d.Stimme, StringComparer.OrdinalIgnoreCase)
-				.ThenBy(d => d.CreatedAt)
-				.ThenBy(d => d.Id)
-				.Select(d => DateiPayloads.Summary(d, d.RecordedAtEventId is { } id && events.TryGetValue(id, out var e)
-					? new { id = e.Id, title = e.Title, dateDisplay = EventDate.Display(e.DateYear, e.DateMonth, e.DateDay, e.DateApproximate) }
-					: null)),
-		};
-	}
-
-	private sealed record ListRow(Guid Id, string Title, string? Composer, string? Arranger, string? Lyricist, string? Lyrics,
-		string? VoiceConfiguration, string? MusicalKey, string? Language, string? Occasion);
 }
 
 /// <summary>Wire shape of a Datei, shared by every endpoint that returns one.</summary>

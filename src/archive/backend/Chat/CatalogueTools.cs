@@ -72,61 +72,42 @@ public static class CatalogueTools
 
 	private static async Task<string> SearchAsync(ArchiveDbContext db, string query, int page, CancellationToken token)
 	{
-		// Same folding and tokenized AND semantics as the member Lied search;
-		// bounds are enforced inside the tool so the model cannot push past them.
+		// Same selection, order and no-DB variety as the member Lied search —
+		// this tool is just its adapter for the chat (#192); the bounds are
+		// enforced inside the tool so the model cannot push past them.
 		var queryText = (query ?? string.Empty).Trim();
 		if (queryText.Length > MaxQueryChars)
 			queryText = queryText[..MaxQueryChars];
-		var requestedPage = Math.Max(1, page);
+		var requestedPage = LiedSearch.RequestedPage(page);
 		if (requestedPage > MaxPage)
 			return JsonSerializer.Serialize(new { lieder = Array.Empty<object>(), error = "Höchstens 5 Seiten abrufbar. Bitte die Suche eingrenzen.", limitReached = true });
-		var tokens = queryText
-			.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-			.Select(CatalogueText.Fold)
-			.Where(t => t.Length > 0)
-			.ToList();
-		if (tokens.Count == 0)
-		{
-			// Browsing is a bounded database page, not an empty search result.
-			var total = await LiedQueries.Visible(db).AsNoTracking().CountAsync(token);
-			var lieder = await LiedQueries.Visible(db).AsNoTracking().OrderBy(l => l.Title).ThenBy(l => l.Id)
-				.Skip((requestedPage - 1) * PageSize).Take(PageSize)
-				.Select(l => new SearchRow(l.Id, l.Title, l.Composer, l.Arranger, l.Lyricist, l.Lyrics))
-				.ToListAsync(token);
-			return SerializeSearch(lieder, requestedPage, total);
-		}
+		var tokens = LiedSearch.TokensOf(queryText);
+		var all = await LiedQueries.Visible(db).AsNoTracking().ToListAsync(token);
+		// Same Noten text as the member search (#142, #169): words that only
+		// stand in the extracted text of a Lied's live Noten find it here too.
+		var noteTexts = await LiedSearch.LoadNotenTextsAsync(db, tokens, token);
+		var matches = LiedSearch.Match(tokens, all, noteTexts, queryText);
+		var paged = LiedSearch.Page(matches, requestedPage, PageSize);
+		return SerializeSearch(paged, tokens, requestedPage, matches.Count);
+	}
 
-		var all = await LiedQueries.Visible(db).AsNoTracking()
-			.OrderBy(l => l.Id)
-			.Select(l => new SearchRow(l.Id, l.Title, l.Composer, l.Arranger, l.Lyricist, l.Lyrics))
-			.ToListAsync(token);
-		// Same Noten text as the member search (#142): words that only stand in
-		// the extracted text of a Lied's live Noten find it here too.
-		var noteTexts = await CatalogueSearch.LoadNotenTextsAsync(db, token);
-		var queryFold = CatalogueText.Fold(queryText);
-		var matches = new List<(SearchRow Lied, int Rank, IReadOnlyList<SearchField> Fields)>();
-		foreach (var lied in all)
+	private static string SerializeSearch(IReadOnlyList<SearchMatch> paged, IReadOnlyList<string> tokens,
+		int page, int totalCount)
+	{
+		// Wo der Treffer steht ("im Liedtext", "in den Noten", …), für jedes
+		// Lied der Seite; beim Durchblättern ohne Suchbegriff bleibt es leer.
+		var trefferIn = paged.ToDictionary(
+			m => m.Lied.Id, m => LiedSearch.Labels(tokens, m.Fields).ToArray());
+		return JsonSerializer.Serialize(new
 		{
-			var notes = noteTexts.GetValueOrDefault(lied.Id) ?? string.Empty;
-			var fields = CatalogueSearch.FieldsOf(lied.Title, lied.Composer, lied.Arranger, lied.Lyricist, lied.Lyrics, notes);
-			var titleFold = CatalogueText.Fold(lied.Title);
-			if (!CatalogueSearch.Matches(tokens, fields))
-				continue;
-			var rank = titleFold == queryFold ? 0
-				: tokens.All(t => titleFold.Contains(t)) ? 1
-				: 2;
-			matches.Add((lied, rank, fields));
-		}
-		var trefferIn = matches
-			.Where(m => m.Rank < 3)
-			.ToDictionary(m => m.Lied.Id, m => CatalogueSearch.MatchLabels(tokens, m.Fields).ToArray());
-		var ordered = matches
-			.OrderBy(m => m.Rank)
-			.ThenBy(m => m.Lied.Id)
-			.Skip((requestedPage - 1) * PageSize)
-			.Take(PageSize)
-			.ToList();
-		return SerializeSearch(ordered.Select(m => m.Lied), requestedPage, matches.Count, trefferIn);
+			lieder = LiedPayload(paged.Select(m => m.Lied), trefferIn),
+			page,
+			pageSize = PageSize,
+			totalCount,
+			hasMore = page * PageSize < totalCount,
+			nextPage = page < MaxPage && page * PageSize < totalCount ? (int?)(page + 1) : null,
+			limitReached = page == MaxPage && page * PageSize < totalCount,
+		});
 	}
 
 	/// <summary>Noten text sent per Datei and per Lied (characters).</summary>
@@ -174,7 +155,7 @@ public static class CatalogueTools
 		var (gesungen, geplant) = await HistoryAsync(db, id, token);
 		return JsonSerializer.Serialize(new
 		{
-			lieder = LiedPayload([new SearchRow(lied.Id, lied.Title, lied.Composer, lied.Arranger, lied.Lyricist, lied.Lyrics)]),
+			lieder = LiedPayload([lied]),
 			besetzung = lied.VoiceConfiguration,
 			tonart = lied.MusicalKey,
 			sprache = lied.Language,
@@ -247,19 +228,8 @@ public static class CatalogueTools
 			listed.Where(e => LiedAppearances.IsPlanned(e, today)).Select(Entry).ToList());
 	}
 
-	private static string SerializeSearch(IEnumerable<SearchRow> lieder, int page, int totalCount,
-		IReadOnlyDictionary<Guid, string[]>? trefferIn = null) => JsonSerializer.Serialize(new
-	{
-		lieder = LiedPayload(lieder, trefferIn),
-		page,
-		pageSize = PageSize,
-		totalCount,
-		hasMore = page * PageSize < totalCount,
-		nextPage = page < MaxPage && page * PageSize < totalCount ? (int?)(page + 1) : null,
-		limitReached = page == MaxPage && page * PageSize < totalCount,
-	});
 
-	private static IEnumerable<object> LiedPayload(IEnumerable<SearchRow> lieder, IReadOnlyDictionary<Guid, string[]>? trefferIn = null) => lieder.Select(l => new
+	private static IEnumerable<object> LiedPayload(IEnumerable<Lied> lieder, IReadOnlyDictionary<Guid, string[]>? trefferIn = null) => lieder.Select(l => new
 		{
 			id = l.Id,
 			title = l.Title,
@@ -275,6 +245,4 @@ public static class CatalogueTools
 				? labels
 				: Array.Empty<string>(),
 		});
-
-	private sealed record SearchRow(Guid Id, string Title, string? Composer, string? Arranger, string? Lyricist, string? Lyrics);
 }

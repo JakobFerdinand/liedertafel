@@ -46,6 +46,20 @@ public sealed class LiedApiTests
 	}
 
 	[Fact]
+	public async Task AFieldTheBrowserSendsButTheCatalogDoesNotKnowIsRefused()
+	{
+		await using var host = new LiedTestHost();
+		var editor = await host.EditorAsync();
+		// #192: an unknown field is rejected, never silently dropped — the
+		// editor believes what the server refused, not what it dropped.
+		using var created = await host.PostAsync("/api/lieder", new { title = "Fremdes Feld", instrumentation = "Trommeln" }, editor);
+		Assert.Equal(HttpStatusCode.BadRequest, created.StatusCode);
+		var id = await host.CreateLiedIdAsync(editor, "Fremdes Feld gepatcht");
+		using var patched = await host.PatchAsync($"/api/lieder/{id}", new { instrumentation = "Trommeln" }, editor);
+		Assert.Equal(HttpStatusCode.BadRequest, patched.StatusCode);
+	}
+
+	[Fact]
 	public async Task CreateRequiresTitleAndEditorRole()
 	{
 		await using var host = new LiedTestHost();

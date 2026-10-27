@@ -122,7 +122,8 @@ public sealed class ReadingWorkerTests
 		await host.RunAsync(score.Datei.Id);
 
 		var call = Assert.Single(host.Model.FieldCalls);
-		Assert.Contains("Gesuchte Felder: lyricist, arranger, musical_key, lyrics", call.Text);
+		// The automated fields derive from the catalog order (#192).
+		Assert.Contains("Gesuchte Felder: arranger, lyricist, musical_key, lyrics", call.Text);
 		Assert.DoesNotContain("composer", call.Text.Split('\n')[1]);
 	}
 

@@ -1,3 +1,4 @@
+using Archive.Backend.Catalogue;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -110,8 +111,8 @@ public sealed class LiedEntwurfLesung
 
 public static class LiedEntwurfRules
 {
-	public static readonly IReadOnlyList<string> Felder =
-		["title", "composer", "arranger", "lyricist", "voiceConfiguration", "musicalKey", "language", "lyrics"];
+	/// <summary>The form's field names, derived from the field catalog (#192): the title plus the draft fields.</summary>
+	public static readonly IReadOnlyList<string> Felder = FieldCatalog.DraftFormNames;
 
 	/// <summary>The Art choices of the drop form: Partitur is Noten with the Partitur flag.</summary>
 	public static readonly IReadOnlyList<string> Arten = ["partitur", "noten", "uebe", "aufnahme", "sonstiges"];
@@ -133,13 +134,10 @@ public sealed class LiedEntwurfModelConfiguration :
 		builder.HasKey(x => x.Id);
 		builder.Property(x => x.Id).ValueGeneratedNever();
 		builder.Property(x => x.Title).HasMaxLength(LiedEndpoints.FieldMaxLength).IsRequired();
-		builder.Property(x => x.Composer).HasMaxLength(LiedEndpoints.FieldMaxLength).IsRequired();
-		builder.Property(x => x.Arranger).HasMaxLength(LiedEndpoints.FieldMaxLength).IsRequired();
-		builder.Property(x => x.Lyricist).HasMaxLength(LiedEndpoints.FieldMaxLength).IsRequired();
-		builder.Property(x => x.VoiceConfiguration).HasMaxLength(LiedEndpoints.FieldMaxLength).IsRequired();
-		builder.Property(x => x.MusicalKey).HasMaxLength(LiedEndpoints.FieldMaxLength).IsRequired();
-		builder.Property(x => x.Language).HasMaxLength(LiedEndpoints.FieldMaxLength).IsRequired();
-		builder.Property(x => x.Lyrics).HasMaxLength(LiedEndpoints.LyricsMaxLength).IsRequired();
+		// The draft clears every catalogued field it stores; the lengths are
+		// the catalog's (#192), so a new field arrives bounded here too.
+		foreach (var field in FieldCatalog.LiedDraftFields)
+			builder.Property(field.EntityProperty).HasMaxLength(field.MaxLength).IsRequired();
 		builder.Property(x => x.EditedFields).HasMaxLength(200).IsRequired();
 		builder.Property(x => x.Suggestions).HasMaxLength(300).IsRequired();
 		builder.HasIndex(x => new { x.OwnerAccountId, x.UpdatedAt });

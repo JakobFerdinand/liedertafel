@@ -279,10 +279,13 @@ Lied's live Noten — embedded text and text transcribed by a reading job alike
 Datei stops matching through `DateiQueries.Visible`. Each returned Lied carries
 `matchIn`, the German labels of the fields that contributed ("im Titel",
 "beim Komponisten", "beim Bearbeiter", "beim Texter", "im Liedtext",
-"in den Noten"). Matching stays in C# over fold tokens
-(`Catalogue/CatalogueSearch.cs`, shared by the chat tool `catalogue_search`,
-which reports `trefferIn` the same way) so EF InMemory tests and PostgreSQL
-agree; lexical SQL search and embeddings remain cut (ADR-0001).
+"in den Noten"). Matching stays in C# over fold tokens in one search module
+(`Catalogue/LiedSearch.cs`, #192) that owns folding, matching, ranking and
+paging for every adapter: the member list search and the chat tool
+`catalogue_search` return the same matches in the same order (rank, then
+title, then id) for the same query — only the chat's page size keeps ten — so
+EF InMemory tests and PostgreSQL agree; lexical SQL search and embeddings
+remain cut (ADR-0001).
 
 **Video playback copies** (#161). Every video Aufnahme — the concert Aufnahmen
 of an Auftritt AND Lied-Aufnahmen — automatically gains a playable MP4 copy:
