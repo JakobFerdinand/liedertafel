@@ -328,6 +328,37 @@ for the pin to apply. Locally `archive-storage-init` creates the container and a
 permissive emulator CORS rule for the direct browser transfers; production uses
 user-delegation SAS through the runtime identity and CORS from infrastructure.
 
+**Cold storage for originals (#148).** A preservation original moves to Cold
+storage only once members get their playback from a separate, verified copy —
+the automatic MP4 Abspielkopie for video material or an Auftritt recording's
+validated Abspielfassung. `POST /api/dateien/{id}/storage-tier`
+(`{ tier: "hot" | "cold", rowVersion? }`, editor-only through the archive
+access module) moves the blob tier synchronously via
+`IAssetStorageAdapter.SetAccessTierAsync` and records the editor state on the
+Datei row (`StorageTier` `hot`/`cold` with check constraint, `TierChangedAt`,
+migration `ColdStorage`); the lists carry `storageTier` in the Datei summary.
+Refusals are explicit: without that separate playable copy the endpoint
+answers 422 (`ColdNeedsPlaybackMessage`) and the object stays online — an
+original that itself plays (the video `notNeeded` case included) is one object
+for both roles and is never duplicated for tier separation. A failed provider
+call answers 502 with the shared German storage-failure message and leaves the
+row honestly `hot`; retrying repeats the idempotent provider call and heals a
+save that failed after a successful move. Members keep playing the Hot copy,
+downloads of a Cold original still work through the same read tickets (higher
+retrieval charge) and uploads are untouched. Cold costs EUR 0.0039 per GiB and
+month against Hot's 0.0168, but **every read of a Cold object is charged** and
+each object bills a **90-day minimum retention**: deleting or replacing a Cold
+original earlier may incur a remaining-retention charge. That does not block
+the seven-day Papierkorb cleanup — a Cold blob deletes like any other, and its
+tier state leaves with the row. A Datei whose copy was trashed should be
+pulled back with `tier: "hot"` before it alone must serve playback. No new
+job, queue or identity exists: the editor initiates every transition, the
+runtime identity's account-scoped `Storage Blob Data Contributor` already
+covers `SetAccessTier`, there are no automatic tier changes, no backup objects
+and no automatic transcoding. Real-Azure verification (tier actually moves,
+retrieval behaviour and charges) is a maintainer step; the offline Archive
+tier is deliberately not offered.
+
 **Reading a Datei.** `GET /api/dateien/{id}/access` returns blob-scoped
 15-minute view/download tickets. Every active member reads every Datei of a
 Lied. Dateien of an Auftritt are visible to every member (a saved Auftritt has no

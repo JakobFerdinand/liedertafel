@@ -263,9 +263,14 @@ runtime managed identity (`AZURE_CLIENT_ID`); no storage key or connection
 string exists in the hosted app, and shared-key access stays disabled. The
 Azurite connection-string path is unchanged for local runs. Ticket and copy
 failures surface as German 502 ProblemDetails (`Speicherdienst nicht
-erreichbar.`), never as raw provider errors. Hosted verification still open:
-one real upload/finalize/read through the custom domain after the next
-release (ARC-049 acceptance).
+erreichbar.`), never as raw provider errors. The runtime identity's
+account-scoped `Storage Blob Data Contributor` role also covers the editor's
+Cold-storage tier moves (#148, `SetAccessTier`): no separate tier job
+identity, role or scheduled task exists — every transition is an editor
+action against the single `archive-assets` container. Hosted verification
+still open: one real upload/finalize/read through the custom domain after the
+next release (ARC-049 acceptance), plus one real tier move with a Cold
+retrieval read and an early-deletion charge check (maintainer step).
 
 ## Archive chat path (ARC-021, Azure OpenAI / Microsoft Foundry)
 
