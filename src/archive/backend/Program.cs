@@ -121,10 +121,13 @@ if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" o
         sp.GetRequiredService<ILogger<ExtractionPump>>()));
     using var host = jobs.Build();
     await host.StartAsync();
-    Environment.ExitCode = await host.RunArchiveJobAsync(command[2..], async token =>
+    // #189: every finite command shares one runner shape. FiniteJobs.RunAsync
+    // owns the per-run DI scope, the maintenance gate with its pause log
+    // line, the queue ensure, the job activity with its W3C trace context,
+    // the telemetry flush and the exit code; the dispatch below keeps only
+    // each command's pause line and body.
+    Environment.ExitCode = await FiniteJobs.RunAsync(host, command, MaintenancePause(command), async (provider, token) =>
     {
-        using var scope = host.Services.CreateScope();
-        var provider = scope.ServiceProvider;
         if (command == "--migrate")
         {
             var migrationDb = provider.GetRequiredService<ArchiveDbContext>();
@@ -160,37 +163,17 @@ if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" o
         else if (command == "--cleanup-papierkorb")
         {
             // #146 seven-day policy: expired trashed rows go for good, their
-            // blobs are released afterwards. --dry-run only counts. Like the
-            // reading sweep, a paused run exits before touching the database.
+            // blobs are released afterwards. --dry-run only counts.
             var cleanupLogger = provider.GetRequiredService<ILoggerFactory>().CreateLogger("Archive.Papierkorb");
-            if (MaintenanceConfiguration.IsEnabled(host.Services.GetRequiredService<IConfiguration>()))
-            {
-                cleanupLogger.LogInformation("Papierkorb cleanup paused: maintenance mode is enabled");
-                return;
-            }
             var cleaned = await provider.GetRequiredService<PapierkorbCleaner>()
                 .CleanAsync(args.Contains("--dry-run"), token);
             cleanupLogger.LogInformation("Papierkorb cleanup finished: {Result}", cleaned);
         }
         else if (command == "--extract-queue")
         {
-            // ARC-034: read the maintenance flag first — a paused run receives
-            // nothing, touches no database and exits 0; the queue scale rule
-            // re-triggers the run later.
-            var extractionLogger = provider.GetRequiredService<ILoggerFactory>().CreateLogger("Archive.Extraction");
-            if (MaintenanceConfiguration.IsEnabled(host.Services.GetRequiredService<IConfiguration>()))
-            {
-                extractionLogger.LogInformation("Extraction worker paused: maintenance mode is enabled");
-                return;
-            }
             // Piggyback recovery first: hand un-enqueued and stale rows to the
             // queue (bounded, its own scope), then drain the queue itself.
-            // ARC-034 S5: ensure the queue exists before either step — the
-            // first queue-triggered run on a fresh production account
-            // self-provisions it instead of failing dispatch and drain.
-            await ExtractionQueueClient.EnsureQueueAsync(
-                host.Services.GetRequiredService<IConfiguration>(),
-                host.Services.GetRequiredService<IOptions<ExtractionOptions>>().Value, token);
+            var extractionLogger = provider.GetRequiredService<ILoggerFactory>().CreateLogger("Archive.Extraction");
             int dispatched;
             using (var dispatchScope = host.Services.CreateScope())
             {
@@ -208,20 +191,7 @@ if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" o
         }
         else if (command == "--dispatch-extraction")
         {
-            // ARC-034: maintenance gates the sweep before DB resolution/query.
             var dispatchLogger = provider.GetRequiredService<ILoggerFactory>().CreateLogger("Archive.Extraction");
-            if (MaintenanceConfiguration.IsEnabled(host.Services.GetRequiredService<IConfiguration>()))
-            {
-                dispatchLogger.LogInformation("Extraction dispatch paused: maintenance mode is enabled");
-                return;
-            }
-            // ARC-034 S5: the sweep may send to a queue that does not exist
-            // yet on a fresh production account; the run self-provisions it
-            // (the job identity holds Storage Queue Data Contributor) instead
-            // of failing on every send.
-            await ExtractionQueueClient.EnsureQueueAsync(
-                provider.GetRequiredService<IConfiguration>(),
-                provider.GetRequiredService<IOptions<ExtractionOptions>>().Value, token);
             var dispatched = await ExtractionDispatcher.DispatchPendingAsync(
                 provider.GetRequiredService<ArchiveDbContext>(),
                 provider.GetRequiredService<IExtractionQueue>(),
@@ -232,17 +202,9 @@ if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" o
         }
         else if (command == "--read-queue")
         {
-            // ARC-034-1: like --extract-queue, a paused run touches nothing
-            // and exits 0; the queue scale rule re-triggers it later.
-            var readingLogger = provider.GetRequiredService<ILoggerFactory>().CreateLogger("Archive.Reading");
-            if (MaintenanceConfiguration.IsEnabled(host.Services.GetRequiredService<IConfiguration>()))
-            {
-                readingLogger.LogInformation("Reading worker paused: maintenance mode is enabled");
-                return;
-            }
-            await ReadingQueue.EnsureQueueAsync(host.Services.GetRequiredService<IConfiguration>(), token);
             // Piggyback sweep first: parked work wakes when the budget admits
             // it again, un-enqueued rows reach the queue; then drain.
+            var readingLogger = provider.GetRequiredService<ILoggerFactory>().CreateLogger("Archive.Reading");
             int resumed;
             using (var sweepScope = host.Services.CreateScope())
             {
@@ -266,12 +228,6 @@ if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" o
             // run of this command is what resumes parked work, since parked
             // rows have no queue message to start the job.
             var sweepLogger = provider.GetRequiredService<ILoggerFactory>().CreateLogger("Archive.Reading");
-            if (MaintenanceConfiguration.IsEnabled(host.Services.GetRequiredService<IConfiguration>()))
-            {
-                sweepLogger.LogInformation("Reading dispatch paused: maintenance mode is enabled");
-                return;
-            }
-            await ReadingQueue.EnsureQueueAsync(provider.GetRequiredService<IConfiguration>(), token);
             var handed = await ReadingDispatcher.DispatchPendingAsync(
                 provider.GetRequiredService<ArchiveDbContext>(),
                 provider.GetRequiredService<IReadingQueue>(),
@@ -288,16 +244,9 @@ if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" o
         }
         else if (command == "--transcode-queue")
         {
-            // #161: like --extract-queue, a paused run touches nothing and
-            // exits 0; the queue scale rule re-triggers it later. The run
-            // first hands un-enqueued rows over, then drains the video queue.
+            // #161: the run first hands un-enqueued rows over, then drains
+            // the video queue.
             var videoLogger = provider.GetRequiredService<ILoggerFactory>().CreateLogger("Archive.Videos");
-            if (MaintenanceConfiguration.IsEnabled(host.Services.GetRequiredService<IConfiguration>()))
-            {
-                videoLogger.LogInformation("Video worker paused: maintenance mode is enabled");
-                return;
-            }
-            await VideoQueue.EnsureQueueAsync(host.Services.GetRequiredService<IConfiguration>(), token);
             int dispatched;
             using (var dispatchScope = host.Services.CreateScope())
             {
@@ -318,12 +267,6 @@ if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" o
             // No scheduled run refers to it; a maintainer triggers it like the
             // extraction sweep.
             var videoDispatchLogger = provider.GetRequiredService<ILoggerFactory>().CreateLogger("Archive.Videos");
-            if (MaintenanceConfiguration.IsEnabled(host.Services.GetRequiredService<IConfiguration>()))
-            {
-                videoDispatchLogger.LogInformation("Video dispatch paused: maintenance mode is enabled");
-                return;
-            }
-            await VideoQueue.EnsureQueueAsync(provider.GetRequiredService<IConfiguration>(), token);
             var dispatched = await VideoDispatcher.DispatchPendingAsync(
                 provider.GetRequiredService<ArchiveDbContext>(),
                 provider.GetRequiredService<IVideoQueue>(),
@@ -340,7 +283,7 @@ if (command is "--migrate" or "--initialize-local-storage" or "--worker-smoke" o
             await SendTestMailAsync(provider, args.Skip(1).ToArray(), token);
         else
             await OperatorConfiguration.RepairAdminAsync(provider, host.Services.GetRequiredService<IConfiguration>(), args.Skip(1).ToArray(), token);
-    }, host.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping);
+    });
     return;
 }
 var builder = WebApplication.CreateBuilder(args);
@@ -527,6 +470,26 @@ app.MapFallback(async context =>
     }
 });
 await app.RunAsync();
+
+/// <summary>
+/// The maintenance pause line per finite command (#189): while
+/// <c>Archive:MaintenanceMode</c> is set, a gated command logs its line and
+/// stops before touching the database or queue, exiting 0 so the queue
+/// scale rule re-triggers the run later. Commands without an entry — the
+/// migrate/admin pair, the local services and the one-off cleanups — run
+/// through maintenance as before.
+/// </summary>
+static (string Category, string Message)? MaintenancePause(string? command) => command switch
+{
+    "--cleanup-papierkorb" => ("Archive.Papierkorb", "Papierkorb cleanup paused: maintenance mode is enabled"),
+    "--extract-queue" => ("Archive.Extraction", "Extraction worker paused: maintenance mode is enabled"),
+    "--dispatch-extraction" => ("Archive.Extraction", "Extraction dispatch paused: maintenance mode is enabled"),
+    "--read-queue" => ("Archive.Reading", "Reading worker paused: maintenance mode is enabled"),
+    "--dispatch-reading" => ("Archive.Reading", "Reading dispatch paused: maintenance mode is enabled"),
+    "--transcode-queue" => ("Archive.Videos", "Video worker paused: maintenance mode is enabled"),
+    "--dispatch-videos" => ("Archive.Videos", "Video dispatch paused: maintenance mode is enabled"),
+    _ => null,
+};
 
 /// <summary>
 /// Explicit ARC-010 integration run: sends the marked German test message
