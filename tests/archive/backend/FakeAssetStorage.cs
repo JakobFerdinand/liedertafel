@@ -129,7 +129,7 @@ internal sealed class FakeAssetStorage : IAssetStorageAdapter
 		{
 			AssetStorageTiers.Hot => AssetStorageTiers.Hot,
 			AssetStorageTiers.Cold => AssetStorageTiers.Cold,
-			_ => throw new InvalidOperationException("Der Speicher-Tier ist unbekannt."),
+			_ => throw new InvalidOperationException("Die Speicher-Stufe ist unbekannt."),
 		};
 		return Task.CompletedTask;
 	}

@@ -14,7 +14,7 @@ public sealed record DeleteDateiRequest(uint? RowVersion);
 /// Sends the replaced Datei to the trash in the same save that creates its
 /// successor (#168). The blob stays: restore and the seven-day cleanup are #146.
 /// </summary>
-public sealed class DateiReplacementHook : IDateiFinalizedHook
+public sealed class DateiReplacementHook(IAssetStorageAdapter storage) : IDateiFinalizedHook
 {
 	public async Task BeforeSaveAsync(Datei datei, PendingUploadContext upload, ArchiveDbContext db, CancellationToken token)
 	{
@@ -27,6 +27,11 @@ public sealed class DateiReplacementHook : IDateiFinalizedHook
 		old.ReplacedByDateiId = datei.Id;
 		// #161: the playback copy of a replaced video leaves with it.
 		await VideoTrash.TrashCopyOfAsync(db, old, upload.ActorAccountId, upload.Now, token);
+		// #148: if the replaced Datei was a Cold original's live playback copy,
+		// the original returns to Hot in this save; a refused provider move
+		// fails the replacement unchanged, so it can simply be retried.
+		if (!await DateiTierRestore.ReturnServedOriginalsToHotAsync(db, storage, old.Id, upload.Now, token))
+			throw new InvalidOperationException(UploadEndpoints.StorageFailureMessage);
 	}
 }
 
@@ -47,7 +52,8 @@ public static class DateiTrashEndpoints
 	{
 		app.MapPost("/api/dateien/{id}/delete", async (
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
-			ArchiveDbContext db, TimeProvider time, Guid id, CancellationToken token, DeleteDateiRequest? body) =>
+			ArchiveDbContext db, TimeProvider time, IAssetStorageAdapter storage, Guid id, CancellationToken token,
+			DeleteDateiRequest? body) =>
 		{
 			var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
@@ -61,6 +67,11 @@ public static class DateiTrashEndpoints
 			// #161: the playback copy of a deleted video leaves with it.
 			await Archive.Backend.Videos.VideoTrash.TrashCopyOfAsync(db, datei, decision.AccountId,
 				time.GetUtcNow(), token);
+			// #148: a Cold original whose live playback copy leaves here returns
+			// to Hot in the same save; a refused provider move aborts the trash
+			// unchanged, so the state never drifts.
+			if (!await DateiTierRestore.ReturnServedOriginalsToHotAsync(db, storage, datei.Id, time.GetUtcNow(), token))
+				return Results.Problem(statusCode: 502, title: UploadEndpoints.StorageFailureMessage);
 			try
 			{
 				await db.SaveChangesAsync(token);

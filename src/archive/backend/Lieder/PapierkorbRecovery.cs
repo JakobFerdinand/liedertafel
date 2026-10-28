@@ -125,7 +125,8 @@ public static class PapierkorbEndpoints
 
 		app.MapPost("/api/dateien/{id}/restore", async (
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor, ArchiveAccessService access,
-			ArchiveDbContext db, TimeProvider time, IConfiguration configuration, Guid id, CancellationToken token) =>
+			ArchiveDbContext db, TimeProvider time, IAssetStorageAdapter storage, IConfiguration configuration,
+			Guid id, CancellationToken token) =>
 		{
 			var (_, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
@@ -144,6 +145,12 @@ public static class PapierkorbEndpoints
 				return PapierkorbRestore.ParentInTrashProblem;
 			if (datei.DeletedAt is not null)
 			{
+				// #148: the restored Datei would serve playback again — a Cold
+				// original whose separate playback copy is still gone returns
+				// to Hot in this save; a refused provider move aborts the
+				// restore unchanged.
+				if (!await DateiTierRestore.ReturnRestoredToHotAsync(db, storage, datei, time.GetUtcNow(), token))
+					return Results.Problem(statusCode: 502, title: UploadEndpoints.StorageFailureMessage);
 				// Restoring a replaced Datei gives it back as the current one;
 				// its successor stays in the Lied beside it.
 				datei.DeletedAt = null;
@@ -252,7 +259,7 @@ internal static class AuftrittTrash
 /// so the Restrict contracts of the retained references (extraction rows,
 /// recordings, Programm entries) are honored explicitly, never by a cascade.
 /// </summary>
-public sealed class PapierkorbRemoval(ArchiveDbContext db, IAssetStorageAdapter storage, ILogger<PapierkorbRemoval> logger)
+public sealed class PapierkorbRemoval(ArchiveDbContext db, IAssetStorageAdapter storage, TimeProvider time, ILogger<PapierkorbRemoval> logger)
 {
 	public sealed record Result(int Dateien, int Programmitems, int Aufnahmen, int Zeitmarken);
 
@@ -334,6 +341,10 @@ public sealed class PapierkorbRemoval(ArchiveDbContext db, IAssetStorageAdapter 
 		// the trash should not be read anyway.
 		db.ReadingJobs.RemoveRange(
 			await db.ReadingJobs.Where(j => j.DateiId == dateiId).ToListAsync(token));
+		// #148: read before the slots are cleared — this Datei may be a Cold
+		// original's live playback copy, whose original must not stay Cold
+		// once the copy is gone.
+		var servedOriginals = await RecordingFiles.PlaybackOriginalsAsync(db, dateiId, token);
 		// Recording slots keep their row: a removed Datei leaves its slot
 		// empty, and a Zeitmarke taken against it reads as in need of review.
 		foreach (var recording in await db.Recordings
@@ -347,10 +358,40 @@ public sealed class PapierkorbRemoval(ArchiveDbContext db, IAssetStorageAdapter 
 		foreach (var passage in await db.RecordingPassages
 				.Where(p => p.PlaybackDateiId == dateiId).ToListAsync(token))
 			passage.PlaybackDateiId = null;
+		await ReturnServedOriginalsToHotAsync(servedOriginals, token);
 		db.Dateien.Remove(datei);
 		await db.SaveChangesAsync(token);
 		await ReleaseBlobAsync(datei.BlobName, token);
 		return true;
+	}
+
+	/// <summary>
+	/// #148: a Cold original whose live playback copy is removed here returns
+	/// to Hot in the same save. Like the blob release it is best-effort — the
+	/// removal never blocks on the storage service — and a refusal leaves the
+	/// row honestly Cold, with the warning making the remaining state visible.
+	/// </summary>
+	private async Task ReturnServedOriginalsToHotAsync(List<Datei> originals, CancellationToken token)
+	{
+		foreach (var original in originals)
+		{
+			if (original.StorageTier != AssetStorageTiers.Cold)
+				continue;
+			try
+			{
+				await storage.SetAccessTierAsync(original.BlobName, AssetStorageTiers.Hot, token);
+			}
+			catch (Exception exception)
+			{
+				logger.LogWarning(
+					"Papierkorb: the Cold original {BlobName} could not return to Hot ({ExceptionType}).",
+					original.BlobName, exception.GetType().Name);
+				continue;
+			}
+			original.StorageTier = AssetStorageTiers.Hot;
+			original.TierChangedAt = time.GetUtcNow();
+			original.RowVersion++;
+		}
 	}
 
 	private async Task ReleaseBlobAsync(string blobName, CancellationToken token)

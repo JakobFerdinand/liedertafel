@@ -2,7 +2,6 @@ using Archive.Backend.Assets;
 using Archive.Backend.Auth;
 using Archive.Backend.Data;
 using Archive.Backend.Recordings;
-using Archive.Backend.Videos;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.EntityFrameworkCore;
 
@@ -24,7 +23,7 @@ public sealed record DateiStorageTierRequest(string? Tier, uint? RowVersion);
 public static class DateiStorageEndpoints
 {
 	/// <summary>The request named a tier outside the accepted online set.</summary>
-	public const string UnknownTierMessage = "Der Speicher-Tier ist unbekannt; erlaubt sind hot und cold.";
+	public const string UnknownTierMessage = "Die Speicher-Stufe ist unbekannt; erlaubt sind Hot und Cold.";
 
 	/// <summary>
 	/// The guard refused Cold: without a separate, live playback Datei the
@@ -56,7 +55,7 @@ public static class DateiStorageEndpoints
 			if (tier == datei.StorageTier)
 				return Results.Ok(new { datei = DateiPayloads.Summary(datei) });
 			if (tier == AssetStorageTiers.Cold
-				&& !await HasSeparatePlaybackAsync(db, datei.Id, datei.Kind, datei.ContentType, token))
+				&& !await RecordingFiles.HasSeparatePlaybackAsync(db, datei.Id, datei.Kind, datei.ContentType, token))
 				return Results.Problem(statusCode: 422, title: ColdNeedsPlaybackMessage);
 			try
 			{
@@ -83,29 +82,78 @@ public static class DateiStorageEndpoints
 			return Results.Ok(new { datei = DateiPayloads.Summary(datei) });
 		}).DisableAntiforgery();
 	}
+}
+
+/// <summary>
+/// #148 coordination between the Papierkorb and Cold storage: a Cold
+/// original is only honest while a separate, live playback Datei serves the
+/// members. The moment that copy leaves — trashed, replaced, re-attached or
+/// removed — the original returns to Hot in the caller's save, as editor
+/// state and as the blob's real tier, so playback never silently streams a
+/// Cold object. Only Cold → Hot is automatic; the editor alone moves an
+/// original to Cold. The provider move runs first: a refusal changes
+/// nothing, so a caller can answer the shared storage failure and the state
+/// stays exactly as it was.
+/// </summary>
+internal static class DateiTierRestore
+{
+	/// <summary>
+	/// Returns every Cold original for which the given Datei serves as the
+	/// playback copy to Hot, in the caller's save. False when a provider
+	/// move was refused — nothing is written then and the caller answers
+	/// <see cref="UploadEndpoints.StorageFailureMessage"/>; true covers
+	/// "nothing to do" as well.
+	/// </summary>
+	public static async Task<bool> ReturnServedOriginalsToHotAsync(
+		ArchiveDbContext db, IAssetStorageAdapter storage, Guid copyId, DateTimeOffset now, CancellationToken token)
+	{
+		foreach (var original in await RecordingFiles.PlaybackOriginalsAsync(db, copyId, token))
+		{
+			if (original.StorageTier != AssetStorageTiers.Cold)
+				continue;
+			try
+			{
+				await storage.SetAccessTierAsync(original.BlobName, AssetStorageTiers.Hot, token);
+			}
+			catch (InvalidOperationException)
+			{
+				return false;
+			}
+			RestoreRow(original, now);
+		}
+		return true;
+	}
 
 	/// <summary>
-	/// #148 guard: a Datei may go Cold only when members' playback is served
-	/// by a different, live Datei — the automatic MP4 playback copy for video
-	/// material (<see cref="VideoPlayback.LiveCopyAsync"/>), or a recording's
-	/// validated playback slot (<see cref="RecordingFiles.Resolve"/>, whose
-	/// Ready + playbackCopy verdict says the playable file is the copy).
-	/// Nothing is manufactured for tier separation: an original that itself
-	/// plays (NotNeeded case included) fails the guard and stays online.
+	/// The restore path's self-heal: a Cold Datei whose separate playback
+	/// copy is still gone returns to Hot with the restore — it would
+	/// otherwise stream at retrieval charge while the editor state claims a
+	/// live copy. False when a provider move was refused; true covers
+	/// "nothing to do" as well.
 	/// </summary>
-	private static async Task<bool> HasSeparatePlaybackAsync(
-		ArchiveDbContext db, Guid dateiId, string kind, string contentType, CancellationToken token)
+	public static async Task<bool> ReturnRestoredToHotAsync(
+		ArchiveDbContext db, IAssetStorageAdapter storage, Datei datei, DateTimeOffset now, CancellationToken token)
 	{
-		if (VideoService.IsVideoMaterial(kind, contentType)
-			&& await VideoPlayback.LiveCopyAsync(db, dateiId, token) is not null)
+		if (datei.StorageTier != AssetStorageTiers.Cold
+			|| await RecordingFiles.HasSeparatePlaybackAsync(db, datei.Id, datei.Kind, datei.ContentType, token))
 			return true;
-		var recordings = await db.Recordings.AsNoTracking()
-			.Include(r => r.OriginalDatei)
-			.Include(r => r.PlaybackDatei)
-			.Where(r => r.OriginalDateiId == dateiId)
-			.ToListAsync(token);
-		return recordings.Count > 0 && recordings.All(recording =>
-			RecordingFiles.Resolve(recording)
-				is { State: RecordingFiles.Ready, Source: RecordingFiles.PlaybackCopySource });
+		try
+		{
+			await storage.SetAccessTierAsync(datei.BlobName, AssetStorageTiers.Hot, token);
+		}
+		catch (InvalidOperationException)
+		{
+			return false;
+		}
+		RestoreRow(datei, now);
+		return true;
+	}
+
+	/// <summary>The editor state of the move; the caller's save persists it.</summary>
+	private static void RestoreRow(Datei original, DateTimeOffset now)
+	{
+		original.StorageTier = AssetStorageTiers.Hot;
+		original.TierChangedAt = now;
+		original.RowVersion++;
 	}
 }

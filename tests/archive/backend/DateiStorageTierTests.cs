@@ -203,6 +203,154 @@ public sealed class DateiStorageTierTests
 		Assert.False(storage.Has("dateien/kalt/x"));
 	}
 
+	// #148 coordination with the Papierkorb: the moment the live playback copy
+	// of a Cold original leaves — trashed, replaced, re-attached or removed —
+	// the original returns to Hot, as editor state and as the blob's real tier,
+	// so playback never silently streams a Cold object. Restoring a Cold
+	// original whose copy is still gone heals it the same way.
+
+	[Fact]
+	public async Task TrashingThePlaybackCopyReturnsTheColdOriginalToHotStorage()
+	{
+		await using var host = new LiedTestHost();
+		var editor = await host.EditorAsync();
+		var (eventId, recordingId, originalId, version, originalBlob) = await SeedReadyRecordingAsync(host, editor);
+		await MoveToColdAsync(host, editor, originalId, version, originalBlob);
+		var copyId = await PlaybackCopyIdAsync(host, recordingId);
+		var copyVersion = await CurrentVersionAsync(host, copyId);
+
+		using var del = await host.PostAsync($"/api/dateien/{copyId}/delete",
+			new { rowVersion = copyVersion }, editor);
+		Assert.Equal(HttpStatusCode.NoContent, del.StatusCode);
+
+		var original = await StoredAsync(host, originalId);
+		Assert.Equal("hot", original.StorageTier);
+		Assert.Equal("hot", host.Factory.Storage.TierOf(originalBlob));
+		Assert.NotNull(original.TierChangedAt);
+		Assert.True(original.RowVersion > version);
+	}
+
+	[Fact]
+	public async Task ReplacingThePlaybackCopyReturnsTheColdOriginalToHotStorage()
+	{
+		await using var host = new LiedTestHost();
+		var editor = await host.EditorAsync();
+		var (liedId, originalId, version, originalBlob, copyId) = await SeedLiedVideoWithCopyAsync(host, editor);
+		await MoveToColdAsync(host, editor, originalId, version, originalBlob);
+
+		// The editor replaces the Abspielkopie: the old copy is trashed in the
+		// same save, so the original must not stay Cold meanwhile.
+		var (sessionId, uploadUrl, _) = await host.OpenUploadAsync(editor, liedId,
+			new { kind = "aufnahme", contentType = "video/mp4", fileName = "kopie-neu.mp4",
+				sizeBytes = 128L, replacesDateiId = Guid.Parse(copyId) });
+		host.Factory.Storage.Store(host.Factory.Storage.Find(uploadUrl)!.BlobName, LiedTestHost.Mp4(128));
+		using var finalize = await host.PostAsync($"/api/upload-sessions/{sessionId}/finalize", new { }, editor);
+		Assert.Equal(HttpStatusCode.OK, finalize.StatusCode);
+
+		var original = await StoredAsync(host, originalId);
+		Assert.Equal("hot", original.StorageTier);
+		Assert.Equal("hot", host.Factory.Storage.TierOf(originalBlob));
+		using (var scope = host.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			Assert.NotNull((await db.Dateien.AsNoTracking().SingleAsync(d => d.Id == Guid.Parse(copyId))).DeletedAt);
+		}
+	}
+
+	[Fact]
+	public async Task ReattachingThePlaybackSlotReturnsTheColdOriginalToHotStorage()
+	{
+		await using var host = new LiedTestHost();
+		var editor = await host.EditorAsync();
+		var (eventId, recordingId, originalId, version, originalBlob) = await SeedReadyRecordingAsync(host, editor);
+		await MoveToColdAsync(host, editor, originalId, version, originalBlob);
+
+		var replacement = await host.UploadEventDateiAsync(editor, eventId, "aufnahme",
+			LiedTestHost.Mp4(384), "fassung-2.mp4", "video/mp4");
+		using var put = await host.PutAsync($"/api/recordings/{recordingId}/dateien/playback",
+			new { dateiId = replacement.GetProperty("id").GetString() }, editor);
+		Assert.True(put.IsSuccessStatusCode);
+
+		Assert.Equal("hot", (await StoredAsync(host, originalId)).StorageTier);
+		Assert.Equal("hot", host.Factory.Storage.TierOf(originalBlob));
+	}
+
+	[Fact]
+	public async Task RestoringAColdOriginalWithoutLiveCopyReturnsItToHotStorage()
+	{
+		await using var host = new LiedTestHost();
+		var editor = await host.EditorAsync();
+		var (_, originalId, version, originalBlob, _) = await SeedLiedVideoWithCopyAsync(host, editor);
+		await MoveToColdAsync(host, editor, originalId, version, originalBlob);
+
+		// In the trash the original serves nobody, so it stays Cold there; the
+		// copy left with it (VideoTrash) and stays trashed.
+		var trashVersion = await CurrentVersionAsync(host, originalId);
+		using (var del = await host.PostAsync($"/api/dateien/{originalId}/delete",
+				new { rowVersion = trashVersion }, editor))
+			Assert.Equal(HttpStatusCode.NoContent, del.StatusCode);
+		Assert.Equal("cold", (await StoredAsync(host, originalId)).StorageTier);
+		Assert.Equal("cold", host.Factory.Storage.TierOf(originalBlob));
+
+		// The restore is the moment playback could fall back to the Cold
+		// original: the restore itself returns it to Hot first.
+		using var restore = await host.PostAsync($"/api/dateien/{originalId}/restore", new { }, editor);
+		Assert.Equal(HttpStatusCode.NoContent, restore.StatusCode);
+		var restored = await StoredAsync(host, originalId);
+		Assert.Equal("hot", restored.StorageTier);
+		Assert.Equal("hot", host.Factory.Storage.TierOf(originalBlob));
+		Assert.NotNull(restored.TierChangedAt);
+	}
+
+	[Fact]
+	public async Task RemovingThePlaybackCopyReturnsTheColdOriginalToHotStorage()
+	{
+		await using var host = new LiedTestHost();
+		var editor = await host.EditorAsync();
+		var admin = await host.SignInAsync("verwaltung@liedertafel.test",
+			Archive.Backend.Auth.ArchiveRoles.Administrator);
+		var (_, recordingId, originalId, version, originalBlob) = await SeedReadyRecordingAsync(host, editor);
+		await MoveToColdAsync(host, editor, originalId, version, originalBlob);
+		var copyId = await PlaybackCopyIdAsync(host, recordingId);
+
+		using var remove = await host.PostAsync($"/api/papierkorb/dateien/{copyId}/remove", new { }, admin);
+		Assert.Equal(HttpStatusCode.NoContent, remove.StatusCode);
+
+		using (var scope = host.Services.CreateScope())
+		{
+			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+			Assert.False(await db.Dateien.AnyAsync(d => d.Id == copyId));
+		}
+		var original = await StoredAsync(host, originalId);
+		Assert.Equal("hot", original.StorageTier);
+		Assert.Equal("hot", host.Factory.Storage.TierOf(originalBlob));
+	}
+
+	/// <summary>Moves the Datei to Cold and pins the precondition.</summary>
+	private static async Task MoveToColdAsync(LiedTestHost host, string editor, Guid originalId, uint version, string blob)
+	{
+		using var cold = await host.PostAsync($"/api/dateien/{originalId}/storage-tier",
+			new { tier = "cold", rowVersion = version }, editor);
+		Assert.Equal(HttpStatusCode.OK, cold.StatusCode);
+		Assert.Equal("cold", host.Factory.Storage.TierOf(blob));
+	}
+
+	/// <summary>The recording's playback slot Datei (the live playback copy).</summary>
+	private static async Task<Guid> PlaybackCopyIdAsync(LiedTestHost host, Guid recordingId)
+	{
+		using var scope = host.Services.CreateScope();
+		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+		return (await db.Recordings.AsNoTracking().Where(r => r.Id == recordingId)
+			.Select(r => r.PlaybackDateiId).SingleAsync())!.Value;
+	}
+
+	private static async Task<Datei> StoredAsync(LiedTestHost host, Guid dateiId)
+	{
+		using var scope = host.Services.CreateScope();
+		var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
+		return await db.Dateien.AsNoTracking().SingleAsync(d => d.Id == dateiId);
+	}
+
 	/// <summary>Editor + Auftritt recording with a non-playable original and a live MP4 playback copy.</summary>
 	private static async Task<(Guid EventId, Guid RecordingId, Guid OriginalId, uint Version, string Blob)>
 		SeedReadyRecordingAsync(LiedTestHost host, string editor)
@@ -316,7 +464,8 @@ public sealed class DateiStorageTierTests
 		var storage = new FakeAssetStorage();
 		storage.Store("dateien/kalt/x", [1, 2, 3]);
 		return (db, storage,
-			new Backend.Lieder.PapierkorbRemoval(db, storage, NullLogger<Backend.Lieder.PapierkorbRemoval>.Instance));
+			new Backend.Lieder.PapierkorbRemoval(db, storage, TimeProvider.System,
+				NullLogger<Backend.Lieder.PapierkorbRemoval>.Instance));
 	}
 
 	private static Guid DateiId(ArchiveDbContext db) =>

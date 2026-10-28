@@ -213,8 +213,8 @@ public static class RecordingEndpoints
 		/// </summary>
 		app.MapPut("/api/recordings/{id}/dateien/{slot}", async (
 			HttpContext context, IAntiforgery antiforgery, CurrentUserAccessor accessor,
-			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time, Guid id, string slot,
-			CancellationToken token, AttachDateiRequest? body) =>
+			ArchiveAccessService access, ArchiveDbContext db, TimeProvider time, IAssetStorageAdapter storage,
+			Guid id, string slot, CancellationToken token, AttachDateiRequest? body) =>
 		{
 			var (decision, error) = await ArchiveAccess.RequireEditorAsync(context, antiforgery, accessor, access);
 			if (error is not null)
@@ -264,6 +264,11 @@ public static class RecordingEndpoints
 				replaced.ReplacedByDateiId = datei.Id;
 				// #161: the playback copy of a replaced original leaves with it.
 				await VideoTrash.TrashCopyOfAsync(db, replaced, decision.AccountId, now, token);
+				// #148: a Cold original whose live playback copy leaves here
+				// returns to Hot in the same save; a refused provider move
+				// aborts the re-attachment unchanged.
+				if (!await DateiTierRestore.ReturnServedOriginalsToHotAsync(db, storage, replaced.Id, now, token))
+					return Results.Problem(statusCode: 502, title: UploadEndpoints.StorageFailureMessage);
 			}
 			if (isOriginal)
 			{
@@ -423,6 +428,8 @@ public static class RecordingEndpoints
 				playable = RecordingFormats.IsPlayable(datei.ContentType, kind),
 				// #148: the editor-visible storage tier of the object.
 				storageTier = datei.StorageTier,
+				// The mutating flows send it back so a stale edit answers 409.
+				rowVersion = datei.RowVersion,
 			},
 	};
 
@@ -476,5 +483,52 @@ public sealed record RecordingFiles(string State, string? Source, Datei? Playabl
 		return preserved is null
 			? new RecordingFiles(Missing, null, null, null)
 			: new RecordingFiles(NeedsPlaybackCopy, null, null, preserved);
+	}
+
+	/// <summary>
+	/// #148 guard: a Datei may go Cold only when members' playback is served
+	/// by a different, live Datei — the automatic MP4 playback copy for video
+	/// material (<see cref="VideoPlayback.LiveCopyAsync"/>), or a recording's
+	/// validated playback slot (whose Ready + playbackCopy verdict says the
+	/// playable file is the copy). Nothing is manufactured for tier
+	/// separation: an original that itself plays (NotNeeded case included)
+	/// fails the guard and stays online.
+	/// </summary>
+	public static async Task<bool> HasSeparatePlaybackAsync(
+		ArchiveDbContext db, Guid dateiId, string kind, string contentType, CancellationToken token)
+	{
+		if (VideoService.IsVideoMaterial(kind, contentType)
+			&& await VideoPlayback.LiveCopyAsync(db, dateiId, token) is not null)
+			return true;
+		var recordings = await db.Recordings.AsNoTracking()
+			.Include(r => r.OriginalDatei)
+			.Include(r => r.PlaybackDatei)
+			.Where(r => r.OriginalDateiId == dateiId)
+			.ToListAsync(token);
+		return recordings.Count > 0 && recordings.All(recording =>
+			Resolve(recording) is { State: Ready, Source: PlaybackCopySource });
+	}
+
+	/// <summary>
+	/// #148 coordination: the Dateien for which the given Datei currently
+	/// serves as the playback copy — the originals of completed video jobs
+	/// and of recording playback slots. The referencing side decides, so the
+	/// copy may already be leaving (trashed, re-attached or removed) when
+	/// this runs; the entities are tracked so a caller can change their tier
+	/// in its own save.
+	/// </summary>
+	public static async Task<List<Datei>> PlaybackOriginalsAsync(
+		ArchiveDbContext db, Guid copyId, CancellationToken token)
+	{
+		var videoIds = await db.VideoJobs.AsNoTracking()
+			.Where(j => j.Status == VideoStatus.Completed && j.PlaybackDateiId == copyId)
+			.Select(j => j.DateiId).ToListAsync(token);
+		var slotIds = await db.Recordings.AsNoTracking()
+			.Where(r => r.PlaybackDateiId == copyId && r.OriginalDateiId != null)
+			.Select(r => r.OriginalDateiId!.Value).ToListAsync(token);
+		var ids = videoIds.Concat(slotIds).Distinct().ToList();
+		return ids.Count == 0
+			? []
+			: await db.Dateien.Where(d => ids.Contains(d.Id)).ToListAsync(token);
 	}
 }

@@ -225,7 +225,7 @@ public sealed class PapierkorbRecoveryTests
 		{
 			var db = scope.ServiceProvider.GetRequiredService<ArchiveDbContext>();
 			var cleaner = new PapierkorbCleaner(db,
-				new PapierkorbRemoval(db, host.Factory.Storage,
+				new PapierkorbRemoval(db, host.Factory.Storage, TimeProvider.System,
 					NullLogger<PapierkorbRemoval>.Instance),
 				TimeProvider.System, new ConfigurationBuilder().Build(),
 				NullLogger<PapierkorbCleaner>.Instance);

@@ -1,11 +1,13 @@
 "use client";
 
-// #148: Die Cold-Storage-Zeile des Eintrags. Die Redaktion sieht, wo das
-// Original liegt, und verschiebt es ins Cold Storage, sobald Mitglieder es
-// über eine eigene Abspielkopie erreichen — und zurück, falls es wieder
-// online das Material selbst stellen muss. Ein Fehlschlag bleibt als
-// deutscher Fehler sichtbar; die Zeile behauptet nie einen Erfolg, der nicht
-// eingetreten ist (der Server meldet das Tier erst nach der Verschiebung).
+// #148: Die Cold-Storage-Zeile des Eintrags. Die Redaktion sieht, auf welcher
+// Stufe das Original liegt, und verschiebt es ins Cold Storage, sobald
+// Mitglieder es über eine eigene Abspielkopie erreichen — und zurück, falls es
+// wieder online das Material selbst stellen muss. Die Verschiebung bietet die
+// Zeile nur an, wenn eine separate Abspielkopie existiert (derselbe Vertrag,
+// den der Server mit 422 durchsetzt); ein Fehlschlag bleibt als deutscher
+// Fehler sichtbar, und die Zeile behauptet nie einen Erfolg, der nicht
+// eingetreten ist (der Server meldet die Stufe erst nach der Verschiebung).
 
 import { useEffect, useRef, useState } from "react";
 import {
@@ -21,12 +23,21 @@ const verschiebeErsatz =
 export function SpeicherTier({
   dateiId,
   storageTier,
+  hatAbspielkopie,
+  rowVersion,
+  tierChangedAt,
   bezeichnung,
   onGeaendert,
 }: {
   dateiId: string;
-  /** "hot" oder "cold" (Vertrag DateiPayloads.Summary). */
+  /** "hot" oder "cold" (Vertrag DateiPayloads.Summary bzw. SlotPayload). */
   storageTier: string;
+  /** Eine separate, live Abspielkopie steht bereit (Vertrag des Server-Guards). */
+  hatAbspielkopie: boolean;
+  /** Stand der Datei; mitgeschickt, damit ein veralteter Eintrag 409 antwortet. */
+  rowVersion?: number;
+  /** Wann die Stufe zuletzt gewechselt hat (Vertrag DateiPayloads.Summary). */
+  tierChangedAt?: string | null;
   /** Benennt die Datei im Knopf, damit gleiche Knöpfe unterscheidbar sind. */
   bezeichnung: string;
   /** Nach gelungener Verschiebung: die Liste lädt neu, damit der Stand stimmt. */
@@ -51,7 +62,7 @@ export function SpeicherTier({
     setSchickt(true);
     setTitel("");
     try {
-      await verschiebeSpeicherTier(dateiId, tier, abbruch.signal);
+      await verschiebeSpeicherTier(dateiId, tier, rowVersion, abbruch.signal);
       if (abbruch.signal.aborted) return;
       onGeaendert?.();
     } catch (ursache) {
@@ -74,13 +85,12 @@ export function SpeicherTier({
   }
 
   const kalt = storageTier === "cold";
+  if (!kalt && !hatAbspielkopie) return null;
   return (
     <div className="extraktion-status">
-      {kalt && (
-        <output className="extraktion-stand">
-          {speicherTierText(storageTier)}
-        </output>
-      )}
+      <output className="extraktion-stand">
+        {speicherTierText(kalt ? "cold" : "hot", tierChangedAt)}
+      </output>
       <button
         type="button"
         className="knopf-leise"

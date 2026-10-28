@@ -8,6 +8,7 @@ import { ExtraktionUebersichtProvider } from "@/components/extraktion-uebersicht
 import { NotenAnsicht } from "@/components/noten-ansicht";
 import { SpeicherTier } from "@/components/speicher-tier";
 import {
+  useVideoStand,
   VideoKonvertierung,
   VideoUebersichtProvider,
 } from "@/components/video-uebersicht";
@@ -15,6 +16,36 @@ import { fetchDateiZugriff } from "@/lib/dateien";
 import { dateiArten, dateiTitel, type LiedDatei } from "@/lib/lieder";
 import { groesseText } from "@/lib/uebertragung";
 import { istVideoMaterial } from "@/lib/videos";
+
+/**
+ * Die Cold-Storage-Zeile eines Video-Eintrags (#148): der Stand der
+ * Konvertierung sagt, ob eine separate, live Abspielkopie bereitsteht —
+ * derselbe Vertrag, den der Server mit 422 durchsetzt. Ohne sie (und ohne
+ * Cold) bleibt die Zeile weg; das Original erfüllt dann beide Rollen und
+ * ist von selbst online.
+ */
+function VideoSpeicherZeile({
+  datei,
+  onGeaendert,
+}: {
+  datei: LiedDatei;
+  onGeaendert?: () => void;
+}) {
+  const stand = useVideoStand(datei.id, true);
+  const hatAbspielkopie =
+    stand.info?.status === "completed" && stand.info.playbackDateiId != null;
+  return (
+    <SpeicherTier
+      dateiId={datei.id}
+      storageTier={datei.storageTier}
+      hatAbspielkopie={hatAbspielkopie}
+      rowVersion={datei.rowVersion}
+      tierChangedAt={datei.tierChangedAt}
+      bezeichnung={dateiTitel(datei)}
+      onGeaendert={onGeaendert}
+    />
+  );
+}
 
 /**
  * Sonstige Dateien (#166): Name, Größe und Herunterladen. Übe-Dateien und
@@ -121,10 +152,8 @@ export function DateiListe({
                                 onAbgeschlossen={onGeaendert}
                               />
                               {/* #148: das Cold Storage des Erhaltungsoriginals */}
-                              <SpeicherTier
-                                dateiId={datei.id}
-                                storageTier={datei.storageTier}
-                                bezeichnung={dateiTitel(datei)}
+                              <VideoSpeicherZeile
+                                datei={datei}
                                 onGeaendert={onGeaendert}
                               />
                             </>

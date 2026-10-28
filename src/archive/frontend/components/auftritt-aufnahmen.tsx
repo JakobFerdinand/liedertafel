@@ -1265,16 +1265,21 @@ function AufnahmeRedaktion({
             onAbgeschlossen={onVeraltet}
           />
         )}
-        {/* #148: das Cold Storage des Erhaltungsoriginals, sobald Mitglieder
-            die separate Abspielfassung hören. */}
-        {original && aufnahme.playback.source === "playbackCopy" && (
-          <SpeicherTier
-            dateiId={original.dateiId}
-            storageTier={original.storageTier}
-            bezeichnung={`${aufnahme.label} (Original)`}
-            onGeaendert={onVeraltet}
-          />
-        )}
+        {/* #148: das Cold Storage des Erhaltungsoriginals. Die Verschiebung
+            bietet die Zeile an, sobald Mitglieder die separate Abspielfassung
+            hören; ein Cold Original bleibt auch ohne sie bedienbar (Zurückholen). */}
+        {original &&
+          (aufnahme.playback.source === "playbackCopy" ||
+            original.storageTier === "cold") && (
+            <SpeicherTier
+              dateiId={original.dateiId}
+              storageTier={original.storageTier}
+              hatAbspielkopie={aufnahme.playback.source === "playbackCopy"}
+              rowVersion={original.rowVersion}
+              bezeichnung={`${aufnahme.label} (Original)`}
+              onGeaendert={onVeraltet}
+            />
+          )}
         <div role="alert">
           {ladeFehler && <p className="feld-fehler">{ladeFehler}</p>}
         </div>

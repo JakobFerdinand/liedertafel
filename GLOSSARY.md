@@ -39,6 +39,28 @@ Lied alone, optionally naming the Auftritt it came from) or to an Auftritt (the
 whole appearance, usually a video).
 _Avoid_: Mitschnitt, concert recording (as the general term)
 
+**Erhaltungsoriginal** (preservation original):
+The retained Datei of an Aufnahme in its original form — the master that stays
+in the archive even when members play a separate Abspielkopie. It is the only
+object the editor moves to Cold Storage; one object serving both roles (an
+original that itself plays) always stays online.
+_Avoid_: Master copy, Originalfassung (as an entity)
+
+**Abspielkopie** (playback copy):
+The Datei members actually play while the Erhaltungsoriginal rests: for video
+material the automatic MP4 copy (#161), for an Auftritt recording the
+validated Abspielfassung in its playback slot. It stays Hot; when it leaves
+(trash, replacement, removal), its Erhaltungsoriginal returns to Hot too.
+_Avoid_: Streaming-Kopie, Derivat
+
+**Cold Storage** (kühles Online-Speichern):
+The storage tier an Erhaltungsoriginal rests in once a separate Abspielkopie
+serves the members. Cold is immediately readable (unlike Azure's offline
+Archive tier), so downloads keep working at a higher retrieval charge; only
+the editor moves an original in, and the trash paths move it back out
+automatically.
+_Avoid_: Archiv-Tier, Speicher-Tier (say Speicher-Stufe)
+
 **Zeitmarke** (time marker):
 The point in an Auftritt's Aufnahme where one Lied of its Programm begins.
 _Avoid_: Marker, passage, Sprungmarke

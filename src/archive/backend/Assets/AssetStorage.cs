@@ -307,7 +307,7 @@ public sealed class BlobAssetStorageAdapter(
 			{
 				AssetStorageTiers.Hot => AccessTier.Hot,
 				AssetStorageTiers.Cold => AccessTier.Cold,
-				_ => throw new InvalidOperationException("Der Speicher-Tier ist unbekannt."),
+				_ => throw new InvalidOperationException("Die Speicher-Stufe ist unbekannt."),
 			};
 			await Blob(blobName).SetAccessTierAsync(accessTier, cancellationToken: cancellationToken);
 			return null;
