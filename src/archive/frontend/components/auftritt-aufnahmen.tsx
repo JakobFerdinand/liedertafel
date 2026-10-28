@@ -17,6 +17,7 @@ import {
   MedienSpieler,
   type SpielerAbschnitt,
 } from "@/components/medien-spieler";
+import { SpeicherTier } from "@/components/speicher-tier";
 import {
   VideoKonvertierung,
   VideoUebersichtProvider,
@@ -1262,6 +1263,16 @@ function AufnahmeRedaktion({
             isEditor
             bezeichnung={`${aufnahme.label} (Original)`}
             onAbgeschlossen={onVeraltet}
+          />
+        )}
+        {/* #148: das Cold Storage des Erhaltungsoriginals, sobald Mitglieder
+            die separate Abspielfassung hören. */}
+        {original && aufnahme.playback.source === "playbackCopy" && (
+          <SpeicherTier
+            dateiId={original.dateiId}
+            storageTier={original.storageTier}
+            bezeichnung={`${aufnahme.label} (Original)`}
+            onGeaendert={onVeraltet}
           />
         )}
         <div role="alert">

@@ -6,6 +6,7 @@ import { DateiSpieler } from "@/components/datei-spieler";
 import { ExtraktionStatus } from "@/components/extraktion-status";
 import { ExtraktionUebersichtProvider } from "@/components/extraktion-uebersicht";
 import { NotenAnsicht } from "@/components/noten-ansicht";
+import { SpeicherTier } from "@/components/speicher-tier";
 import {
   VideoKonvertierung,
   VideoUebersichtProvider,
@@ -112,12 +113,21 @@ export function DateiListe({
                         {/* #161: der Stand der automatischen Abspielkopie */}
                         {istVideoMaterial(datei.kind, datei.contentType) &&
                           istRedaktion && (
-                            <VideoKonvertierung
-                              dateiId={datei.id}
-                              isEditor
-                              bezeichnung={dateiTitel(datei)}
-                              onAbgeschlossen={onGeaendert}
-                            />
+                            <>
+                              <VideoKonvertierung
+                                dateiId={datei.id}
+                                isEditor
+                                bezeichnung={dateiTitel(datei)}
+                                onAbgeschlossen={onGeaendert}
+                              />
+                              {/* #148: das Cold Storage des Erhaltungsoriginals */}
+                              <SpeicherTier
+                                dateiId={datei.id}
+                                storageTier={datei.storageTier}
+                                bezeichnung={dateiTitel(datei)}
+                                onGeaendert={onGeaendert}
+                              />
+                            </>
                           )}
                       </>
                     ) : (

@@ -17,6 +17,8 @@ export type AufnahmeDatei = {
   createdAt: string;
   /** Vom Server als im Browser abspielbarer Container erkannt. */
   playable: boolean;
+  /** #148: Speicher-Tier des Objekts; "hot" oder "cold". */
+  storageTier: string;
 };
 
 export type AufnahmePlatz = {
