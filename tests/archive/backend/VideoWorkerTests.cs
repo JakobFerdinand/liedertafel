@@ -455,6 +455,9 @@ public sealed class VideoWorkerTests
 		public IAsyncEnumerable<string> ListAsync(string prefix, CancellationToken cancellationToken) =>
 			inner.ListAsync(prefix, cancellationToken);
 
+		public Task SetAccessTierAsync(string blobName, string tier, CancellationToken cancellationToken) =>
+			inner.SetAccessTierAsync(blobName, tier, cancellationToken);
+
 		public Task UploadAsync(string blobName, Stream content, string? contentType, CancellationToken cancellationToken) =>
 			inner.UploadAsync(blobName, content, contentType, cancellationToken);
 

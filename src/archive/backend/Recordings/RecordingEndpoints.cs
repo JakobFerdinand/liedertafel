@@ -421,6 +421,8 @@ public static class RecordingEndpoints
 				fileName = datei.OriginalFileName,
 				createdAt = datei.CreatedAt,
 				playable = RecordingFormats.IsPlayable(datei.ContentType, kind),
+				// #148: the editor-visible storage tier of the object.
+				storageTier = datei.StorageTier,
 			},
 	};
 

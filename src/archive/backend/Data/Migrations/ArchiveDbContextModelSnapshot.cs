@@ -866,6 +866,14 @@ namespace Archive.Backend.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<string>("StorageTier")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<DateTimeOffset?>("TierChangedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.HasKey("Id");
 
                     b.HasIndex("BlobName")
@@ -884,6 +892,8 @@ namespace Archive.Backend.Data.Migrations
                             t.HasCheckConstraint("CK_dateien_owner", "((\"LiedId\" IS NOT NULL)::int + (\"EventId\" IS NOT NULL)::int) = 1");
 
                             t.HasCheckConstraint("CK_dateien_partitur", "NOT \"IsPartitur\" OR \"Kind\" = 'noten'");
+
+                            t.HasCheckConstraint("CK_dateien_storage_tier", "\"StorageTier\" IN ('hot', 'cold')");
                         });
                 });
 

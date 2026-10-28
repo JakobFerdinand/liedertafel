@@ -28,6 +28,9 @@ public sealed class LiedModelConfiguration : IEntityTypeConfiguration<Lied>, IEn
 			t.HasCheckConstraint("CK_dateien_kind",
 				"\"Kind\" IN ('noten', 'uebe', 'aufnahme', 'sonstiges')");
 			t.HasCheckConstraint("CK_dateien_partitur", "NOT \"IsPartitur\" OR \"Kind\" = 'noten'");
+			// #148: only the two online tiers; the offline Archive tier is deliberately not offered.
+			t.HasCheckConstraint("CK_dateien_storage_tier",
+				"\"StorageTier\" IN ('hot', 'cold')");
 		});
 		builder.HasKey(x => x.Id);
 		builder.Property(x => x.Kind).HasMaxLength(20).IsRequired();
@@ -36,6 +39,7 @@ public sealed class LiedModelConfiguration : IEntityTypeConfiguration<Lied>, IEn
 		builder.Property(x => x.BlobName).HasMaxLength(300).IsRequired();
 		builder.Property(x => x.ContentType).HasMaxLength(100).IsRequired();
 		builder.Property(x => x.OriginalFileName).HasMaxLength(300);
+		builder.Property(x => x.StorageTier).HasMaxLength(10).IsRequired();
 		builder.Property(x => x.RowVersion).IsConcurrencyToken();
 		// Dateien outlive nothing they do not belong to, but a Lied is only
 		// removed by the data reset, so deletion never cascades silently.

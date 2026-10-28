@@ -11,6 +11,22 @@ namespace Archive.Backend.Assets;
 public sealed record AssetObjectInfo(long SizeBytes, string? ContentType);
 
 /// <summary>
+/// #148 stored/accepted tier names: the values the adapter accepts for
+/// <see cref="IAssetStorageAdapter.SetAccessTierAsync"/>, the values persisted
+/// on the Datei's <c>StorageTier</c> column and the database check
+/// constraint's set. Both tiers are online (immediately readable); only
+/// preservation originals move to <see cref="Cold"/>, while member-facing
+/// files always stay <see cref="Hot"/>. The offline Archive tier is
+/// deliberately not offered (architecture §Live storage policy).
+/// </summary>
+public static class AssetStorageTiers
+{
+	public const string Hot = "hot";
+
+	public const string Cold = "cold";
+}
+
+/// <summary>
 /// Provider-backed storage/ticket adapter (architecture.md §Media transfer):
 /// blob-scoped, time-bounded SAS tickets are the only file-access path.
 /// Implementers must never expose storage credentials and must never log
@@ -57,6 +73,14 @@ public interface IAssetStorageAdapter
 
 	/// <summary>#172: the names of all objects whose name starts with <paramref name="prefix"/>, in name order.</summary>
 	IAsyncEnumerable<string> ListAsync(string prefix, CancellationToken cancellationToken);
+
+	/// <summary>
+	/// #148: moves one object to the named online tier (<see cref="AssetStorageTiers"/>).
+	/// A tier change is a metadata operation; the object stays immediately
+	/// readable, and deletion works on every tier. Unknown tier names are an
+	/// error, as is a missing object.
+	/// </summary>
+	Task SetAccessTierAsync(string blobName, string tier, CancellationToken cancellationToken);
 }
 
 public sealed class AssetStorageOptions
@@ -269,6 +293,25 @@ public sealed class BlobAssetStorageAdapter(
 			yield return names.Current.Name;
 		}
 	}
+
+	/// <summary>
+	/// #148: moves one object to the named online tier. For block blobs both
+	/// tiers are metadata-only and complete with the call; the failure
+	/// translation matches every other operation (generic German message, no
+	/// provider details).
+	/// </summary>
+	public Task SetAccessTierAsync(string blobName, string tier, CancellationToken cancellationToken) =>
+		ExecuteAsync<object?>("set_access_tier", async () =>
+		{
+			var accessTier = tier switch
+			{
+				AssetStorageTiers.Hot => AccessTier.Hot,
+				AssetStorageTiers.Cold => AccessTier.Cold,
+				_ => throw new InvalidOperationException("Der Speicher-Tier ist unbekannt."),
+			};
+			await Blob(blobName).SetAccessTierAsync(accessTier, cancellationToken: cancellationToken);
+			return null;
+		});
 
 	/// <summary>
 	/// ARC-049: signs the ticket through user delegation in Entra mode and

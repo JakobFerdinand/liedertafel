@@ -171,6 +171,9 @@ public sealed class AssetStorageFailureTests
 
 		public IAsyncEnumerable<string> ListAsync(string prefix, CancellationToken cancellationToken) =>
 			throw new InvalidOperationException("Speicherdienst nicht erreichbar.");
+
+		public Task SetAccessTierAsync(string blobName, string tier, CancellationToken cancellationToken) =>
+			throw new InvalidOperationException("Speicherdienst nicht erreichbar.");
 	}
 
 	private static async Task<Guid> SeedAsync(AuthApiFactory factory, string email)

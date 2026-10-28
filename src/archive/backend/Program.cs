@@ -449,6 +449,7 @@ app.MapAuftrittEntwurfEndpoints();
 app.MapLiedEntwurfEndpoints();
 app.MapLiedEndpoints();
 app.MapDateiEndpoints();
+app.MapDateiStorageEndpoints();
 app.MapDateiTrashEndpoints();
 app.MapPapierkorbRecoveryEndpoints();
 app.MapLiedHistoryEndpoints();

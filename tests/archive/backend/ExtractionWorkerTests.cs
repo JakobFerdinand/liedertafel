@@ -1264,6 +1264,9 @@ public sealed class ExtractionWorkerTests
 
 		public IAsyncEnumerable<string> ListAsync(string prefix, CancellationToken cancellationToken) =>
 			inner.ListAsync(prefix, cancellationToken);
+
+		public Task SetAccessTierAsync(string blobName, string tier, CancellationToken cancellationToken) =>
+			inner.SetAccessTierAsync(blobName, tier, cancellationToken);
 	}
 
 	/// <summary>Dispatch fake that fails exactly one revision, like a row-specific outage.</summary>

@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Archive.Backend.Assets;
 using Archive.Backend.Auth;
 using Archive.Backend.Lieder;
 using Microsoft.AspNetCore.Identity;
@@ -33,9 +34,11 @@ internal sealed class LiedTestHost : IAsyncDisposable
 
 	public LiedTestHost(Dictionary<string, string?>? settings = null, IDateiFinalizedHook? hook = null,
 		Microsoft.EntityFrameworkCore.Diagnostics.ISaveChangesInterceptor? saveChangesInterceptor = null,
-		Microsoft.Extensions.AI.IChatClient? chatClient = null)
+		Microsoft.Extensions.AI.IChatClient? chatClient = null,
+		IAssetStorageAdapter? storage = null)
 	{
-		Factory = new AuthApiFactory(settings: settings, saveChangesInterceptor: saveChangesInterceptor, chatClient: chatClient);
+		Factory = new AuthApiFactory(settings: settings, saveChangesInterceptor: saveChangesInterceptor,
+			chatClient: chatClient, storage: storage);
 		app = hook is null
 			? Factory
 			: Factory.WithWebHostBuilder(b => b.ConfigureServices(s => s.AddSingleton(hook)));
@@ -135,6 +138,18 @@ internal sealed class LiedTestHost : IAsyncDisposable
 		var (sessionId, uploadUrl, _) = await OpenUploadAsync(session, liedId,
 			new { kind = "noten", isPartitur, stimme, fileName, sizeBytes = size });
 		Factory.Storage.Store(Factory.Storage.Find(uploadUrl)!.BlobName, ValidPdf(size));
+		using var finalize = await PostAsync($"/api/upload-sessions/{sessionId}/finalize", new { }, session);
+		Assert.Equal(HttpStatusCode.OK, finalize.StatusCode);
+		return (await finalize.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("datei");
+	}
+
+	/// <summary>Uploads any Lied Datei kind (e.g. an audio/video Aufnahme) and finalizes; returns the Datei JSON.</summary>
+	public async Task<JsonElement> UploadLiedDateiAsync(
+		string session, Guid liedId, string kind, byte[] bytes, string fileName, string contentType)
+	{
+		var (sessionId, uploadUrl, _) = await OpenUploadAsync(session, liedId,
+			new { kind, contentType, fileName, sizeBytes = bytes.LongLength });
+		Factory.Storage.Store(Factory.Storage.Find(uploadUrl)!.BlobName, bytes);
 		using var finalize = await PostAsync($"/api/upload-sessions/{sessionId}/finalize", new { }, session);
 		Assert.Equal(HttpStatusCode.OK, finalize.StatusCode);
 		return (await finalize.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("datei");

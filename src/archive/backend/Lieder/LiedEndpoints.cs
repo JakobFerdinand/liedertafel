@@ -251,5 +251,8 @@ public static class DateiPayloads
 		createdAt = d.CreatedAt,
 		rowVersion = d.RowVersion,
 		recordedAtEvent,
+		// #148: the editor-visible storage tier of the object.
+		storageTier = d.StorageTier,
+		tierChangedAt = d.TierChangedAt,
 	};
 }
