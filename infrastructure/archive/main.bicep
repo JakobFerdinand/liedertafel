@@ -200,7 +200,11 @@ resource workspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
 // the scheduledQueryRules types reject `actions.actionGroupId`/`actionType`
 // and want `operator`/`values` on dimensions — the runtime schema for
 // 2023-12-01 does accept the deployed shape, so these are BCP037/BCP035/BCP089
-// warnings only. Deployed shape is verified by the group what-if below.
+// warnings only. Two pre-flight checks behave differently: `what-if` (PR
+// previews) passes the rules with `location: 'global'`, but the real
+// create/validate pre-flight rejects it — ARM has no `global` region for
+// `scheduledQueryRules` (LocationNotAvailableForResourceType, 2026-10-28), so
+// the rules pin the group region like the workspace they query.
 var alertsEnabled = length(maintainerAlertEmails) > 0
 var alertRunbook = 'https://github.com/JakobFerdinand/liedertafel/blob/main/infrastructure/archive/README.md#failure-alerts-arc-042'
 var costRunbook = 'https://github.com/JakobFerdinand/liedertafel/blob/main/infrastructure/archive/README.md#cost-overview-arc-043'
@@ -224,7 +228,7 @@ resource maintainerActionGroup 'Microsoft.Insights/actionGroups@2023-03-01' = if
 // names the run to inspect.
 resource jobFailureAlert 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = {
   name: 'al-archive-job-failed'
-  location: 'global'
+  location: location
   properties: {
     displayName: 'Archiv: fehlgeschlagene Jobausführung'
     description: 'A finite archive job run ended in terminal failure. Operator path: infrastructure/archive/README.md, "Failure alerts (ARC-042)".'
@@ -274,7 +278,7 @@ ContainerAppConsoleLogs_CL
 // transient warnings are never matched.
 resource itemFailureAlert 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = {
   name: 'al-archive-item-failed'
-  location: 'global'
+  location: location
   properties: {
     displayName: 'Archiv: Dokument verarbeitung endgültig fehlgeschlagen'
     description: 'A Datei exhausted its bounded attempts (extraction or reading) and is terminal-Failed. Operator path: infrastructure/archive/README.md, "Failure alerts (ARC-042)".'
@@ -322,7 +326,7 @@ ContainerAppConsoleLogs_CL
 // revision or a real bug shows up here even though /alive stays green.
 resource appFailureAlert 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = {
   name: 'al-archive-app-failed'
-  location: 'global'
+  location: location
   properties: {
     displayName: 'Archiv: unbehandelte Fehler auf dem App-Container'
     description: 'The public archive app logged unhandled request failures. Operator path: infrastructure/archive/README.md, "Failure alerts (ARC-042)".'
@@ -367,7 +371,7 @@ ContainerAppConsoleLogs_CL
 // shows up repeatedly instead of silently persisting.
 resource maintenanceWindowAlert 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = {
   name: 'al-archive-maintenance-open'
-  location: 'global'
+  location: location
   properties: {
     displayName: 'Archiv: Wartungsfenster offen (mögliche fehlgeschlagene Veröffentlichung)'
     description: 'The maintenance window is open outside a release (a release failure keeps members locked out). Operator path: infrastructure/archive/README.md, "Failure alerts (ARC-042)".'
@@ -418,7 +422,7 @@ ContainerAppConsoleLogs_CL
 // — see "Cost overview (ARC-043)" in the README).
 resource aiThresholdAlert 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = {
   name: 'al-archive-ai-threshold'
-  location: 'global'
+  location: location
   properties: {
     displayName: 'Archiv: KI-Kosten Schwellwert erreicht'
     description: 'The archive AI spend reached an agreed threshold of the EUR 15 hard cap before it. Operator path: infrastructure/archive/README.md, "Cost overview (ARC-043)".'
@@ -457,7 +461,7 @@ ContainerAppConsoleLogs_CL
 
 resource aiCapAlert 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = {
   name: 'al-archive-ai-cap'
-  location: 'global'
+  location: location
   properties: {
     displayName: 'Archiv: KI-Monatsbudget erreicht'
     description: 'The archive AI spend reached the EUR 15 hard monthly cap; chat and scan reading answer refusals until the month rolls over. This is an application budget, not an Azure spending cap. Operator path: infrastructure/archive/README.md, "Cost overview (ARC-043)".'
