@@ -77,5 +77,17 @@ public sealed class Datei
 	/// <summary>Trash (#168): the Datei that replaced this one, when it left through "Ersetzen".</summary>
 	public Guid? ReplacedByDateiId { get; set; }
 
+	/// <summary>
+	/// #148: storage tier of the blob — Hot by default; Cold only for a
+	/// preservation original whose members' playback comes from a separate,
+	/// live playback Datei. An object serving both roles stays online. The
+	/// column is the editor state's source of truth; the provider tier is
+	/// moved by the editor's storage-tier action.
+	/// </summary>
+	public string StorageTier { get; set; } = Assets.AssetStorageTiers.Hot;
+
+	/// <summary>#148: when the tier last changed; null while never moved.</summary>
+	public DateTimeOffset? TierChangedAt { get; set; }
+
 	public uint RowVersion { get; set; }
 }

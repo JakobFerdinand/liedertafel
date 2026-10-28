@@ -30,6 +30,10 @@ export type LiedDatei = {
   rowVersion?: number;
   /** Auftritt, bei dem eine Aufnahme entstand (nur wenn sichtbar). */
   recordedAtEvent?: { id: string; title: string; dateDisplay: string } | null;
+  /** #148: Speicher-Stufe des Objekts; "hot" oder "cold". */
+  storageTier: string;
+  /** #148: wann die Stufe zuletzt gewechselt wurde. */
+  tierChangedAt?: string | null;
 };
 
 /** Zeile der Liedliste. */

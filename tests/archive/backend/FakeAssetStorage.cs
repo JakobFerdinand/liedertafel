@@ -14,6 +14,7 @@ internal sealed class FakeAssetStorage : IAssetStorageAdapter
 	public sealed record IssuedTicket(string Url, string BlobName, TimeSpan Lifetime, bool Download, string? ContentType = null);
 
 	private readonly ConcurrentDictionary<string, (byte[] Bytes, string? ContentType)> objects = new(StringComparer.Ordinal);
+	private readonly ConcurrentDictionary<string, string> tiers = new(StringComparer.Ordinal);
 	private readonly List<IssuedTicket> tickets = [];
 	private readonly object gate = new();
 	private int sequence;
@@ -42,6 +43,13 @@ internal sealed class FakeAssetStorage : IAssetStorageAdapter
 		objects[blobName] = (content, contentType);
 
 	public bool Has(string blobName) => objects.ContainsKey(blobName);
+
+	/// <summary>#148: the tier of an object; "hot" unless a tier change moved it.</summary>
+	public string TierOf(string blobName) =>
+		tiers.GetValueOrDefault(blobName, AssetStorageTiers.Hot);
+
+	/// <summary>#148 outage seam: when set, tier changes fail with the generic storage message.</summary>
+	public bool ThrowOnSetAccessTier { get; set; }
 
 	public Task<string> CreateUploadTicketAsync(string blobName, TimeSpan lifetime, CancellationToken cancellationToken)
 	{
@@ -105,6 +113,25 @@ internal sealed class FakeAssetStorage : IAssetStorageAdapter
 		if (!objects.TryAdd(blobName, (reader.ToArray(), contentType)))
 			throw new InvalidOperationException("Speicherdienst nicht erreichbar.");
 		await Task.CompletedTask;
+	}
+
+	/// <summary>
+	/// #148: records the tier like Azure would; a missing object is an error,
+	/// mirroring the adapter's 404 translation.
+	/// </summary>
+	public Task SetAccessTierAsync(string blobName, string tier, CancellationToken cancellationToken)
+	{
+		if (ThrowOnSetAccessTier)
+			throw new InvalidOperationException("Speicherdienst nicht erreichbar.");
+		if (!objects.ContainsKey(blobName))
+			throw new InvalidOperationException("Speicherdienst nicht erreichbar.");
+		tiers[blobName] = tier switch
+		{
+			AssetStorageTiers.Hot => AssetStorageTiers.Hot,
+			AssetStorageTiers.Cold => AssetStorageTiers.Cold,
+			_ => throw new InvalidOperationException("Die Speicher-Stufe ist unbekannt."),
+		};
+		return Task.CompletedTask;
 	}
 
 	private string NextUrl(string blobName, string kind)

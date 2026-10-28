@@ -62,7 +62,7 @@ public sealed class PapierkorbCleanerTests
 	}
 
 	private static PapierkorbRemoval Removal(ArchiveDbContext db, FakeAssetStorage storage) =>
-		new(db, storage, NullLogger<PapierkorbRemoval>.Instance);
+		new(db, storage, TimeProvider.System, NullLogger<PapierkorbRemoval>.Instance);
 
 	private static async Task<(ArchiveDbContext Db, FakeAssetStorage Storage, DateTimeOffset Now)> SeedAsync()
 	{

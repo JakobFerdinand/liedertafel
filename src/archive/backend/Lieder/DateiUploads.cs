@@ -378,8 +378,20 @@ public static class DateiUploads
 		session.FinalizedDateiId = datei.Id;
 		var context = new PendingUploadContext(session.ReplacesDateiId, accountId, now);
 		var hookList = hooks.ToList();
-		foreach (var hook in hookList)
-			await hook.BeforeSaveAsync(datei, context, db, token);
+		try
+		{
+			foreach (var hook in hookList)
+				await hook.BeforeSaveAsync(datei, context, db, token);
+		}
+		catch (Exception exception) when (exception is InvalidOperationException or TimeoutException)
+		{
+			// #148: the replacement hook's refused tier move — nothing is
+			// written, the session stays pending with its staged object, so
+			// the finalize can simply be retried. This attempt's promoted
+			// copy is dropped like on a lost race.
+			await DeleteBestEffortAsync(storage, datei.BlobName, CancellationToken.None);
+			return Results.Problem(statusCode: 502, title: UploadEndpoints.StorageFailureMessage);
+		}
 		try
 		{
 			await db.SaveChangesAsync(token);

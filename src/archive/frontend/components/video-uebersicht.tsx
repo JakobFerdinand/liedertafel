@@ -151,8 +151,12 @@ export function VideoUebersichtProvider({ children }: { children: ReactNode }) {
   );
 }
 
-/** Stand der Konvertierung einer Datei; verlangt die Übersicht über der Liste. */
-function useVideoStand(dateiId: string, isEditor: boolean) {
+/**
+ * Stand der Konvertierung einer Datei; verlangt die Übersicht über der Liste.
+ * Die Cold-Storage-Zeile (#148) liest denselben Stand, um die Verschiebung
+ * erst anzubieten, wenn die fertige Abspielkopie live ist.
+ */
+export function useVideoStand(dateiId: string, isEditor: boolean) {
   const kontext = useContext(VideoKontext);
   if (!kontext) throw new Error("Videoübersicht fehlt.");
   const { registriere } = kontext;
