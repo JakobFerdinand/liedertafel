@@ -198,13 +198,15 @@ resource workspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
 // rules deploy as enabled=false and no receiver is invented.
 // Known Bicep type inaccuracies (like the jobs' triggerType placement above):
 // the scheduledQueryRules types reject `actions.actionGroupId`/`actionType`
-// and want `operator`/`values` on dimensions — the runtime schema for
-// 2023-12-01 does accept the deployed shape, so these are BCP037/BCP035/BCP089
-// warnings only. Two pre-flight checks behave differently: `what-if` (PR
-// previews) passes the rules with `location: 'global'`, but the real
-// create/validate pre-flight rejects it — ARM has no `global` region for
-// `scheduledQueryRules` (LocationNotAvailableForResourceType, 2026-10-28), so
-// the rules pin the group region like the workspace they query.
+// and want `operator`/`values` on dimensions. The runtime split (proven by
+// the 2026-10-28 deploys): the legacy actions shape is accepted, the
+// dimensions shape is not — the create path answers "The Operator field is
+// required", so the dimension rules carry `operator`/`values`. Two pre-flight
+// checks behave differently: `what-if` (PR previews) passes the rules with
+// `location: 'global'`, but the real create/validate pre-flight rejects it —
+// ARM has no `global` region for `scheduledQueryRules`
+// (LocationNotAvailableForResourceType), so the rules pin the group region
+// like the workspace they query.
 var alertsEnabled = length(maintainerAlertEmails) > 0
 var alertRunbook = 'https://github.com/JakobFerdinand/liedertafel/blob/main/infrastructure/archive/README.md#failure-alerts-arc-042'
 var costRunbook = 'https://github.com/JakobFerdinand/liedertafel/blob/main/infrastructure/archive/README.md#cost-overview-arc-043'
@@ -264,7 +266,8 @@ ContainerAppConsoleLogs_CL
           dimensions: [
             {
               name: 'Job_s'
-              column: 'Job_s'
+              operator: 'Include'
+              values: ['*']
             }
           ]
         }
@@ -313,7 +316,8 @@ ContainerAppConsoleLogs_CL
           dimensions: [
             {
               name: 'DateiId_s'
-              column: 'DateiId_s'
+              operator: 'Include'
+              values: ['*']
             }
           ]
         }
@@ -974,7 +978,9 @@ resource videoBlobContributor 'Microsoft.Authorization/roleAssignments@2022-04-0
   properties: {
     roleDefinitionId: subscriptionResourceId(
       'Microsoft.Authorization/roleDefinitions',
-      'ba92f5b4-2d11-4538-92e3-a1f6a6d1c8bc'
+      // The current built-in id; the retired ba92f5b4-2d11-4538-92e3-a1f6a6d1c8bc
+      // no longer exists and the create path answered RoleDefinitionDoesNotExist.
+      'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
     )
     principalId: videoIdentity.properties.principalId
     principalType: 'ServicePrincipal'
@@ -1902,8 +1908,11 @@ resource videoJob 'Microsoft.App/jobs@2025-01-01' = {
             '--transcode-queue'
           ]
           resources: {
+            // Consumption Container Apps only accept fixed CPU/memory pairs:
+            // 2 CPU pairs with 4 Gi (the 2/3 combination was rejected by the
+            // create path as ContainerAppInvalidResourceTotal).
             cpu: json('2')
-            memory: '3Gi'
+            memory: '4Gi'
           }
           env: [
             {
