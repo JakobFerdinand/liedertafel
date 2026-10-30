@@ -211,7 +211,13 @@ var alertsEnabled = length(maintainerAlertEmails) > 0
 var alertRunbook = 'https://github.com/JakobFerdinand/liedertafel/blob/main/infrastructure/archive/README.md#failure-alerts-arc-042'
 var costRunbook = 'https://github.com/JakobFerdinand/liedertafel/blob/main/infrastructure/archive/README.md#cost-overview-arc-043'
 
-resource maintainerActionGroup 'Microsoft.Insights/actionGroups@2023-03-01' = if (alertsEnabled) {
+// Latest stable actionGroups API version — the @2023-03-01 the rules were
+// written against never existed (the provider jumps from @2023-01-01 to
+// @2023-08-01-preview), which only surfaced once the email list activated
+// the `if (alertsEnabled)` group: the create path answered
+// NoRegisteredProviderFound. With a real version Bicep also ships types,
+// so the action group's shape is validated at compile time.
+resource maintainerActionGroup 'Microsoft.Insights/actionGroups@2023-01-01' = if (alertsEnabled) {
   name: 'ag-archive-maintainers'
   location: 'global'
   properties: {
