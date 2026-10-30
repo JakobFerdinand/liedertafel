@@ -197,12 +197,14 @@ resource workspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
 // (maintainerAlertEmails in main.bicepparam); while the list is empty the
 // rules deploy as enabled=false and no receiver is invented.
 // Known Bicep type inaccuracies (like the jobs' triggerType placement above):
-// the scheduledQueryRules types reject `actions.actionGroupId`/`actionType`
-// and want `operator`/`values` on dimensions. The runtime split (proven by
-// the 2026-10-28 deploys): the legacy actions shape is accepted, the
-// dimensions shape is not — the create path answers "The Operator field is
-// required", so the dimension rules carry `operator`/`values`. Two pre-flight
-// checks behave differently: `what-if` (PR previews) passes the rules with
+// none, as it turns out — the scheduledQueryRules types were the true signal
+// all along. Proven by the 2026-10-28..30 deploys: the runtime wants the
+// modern shapes everywhere — dimensions as { name, operator, values }
+// (the legacy { name, column } shape answers "The Operator field is
+// required") and actions as the { actionGroups, actionProperties } object
+// (the legacy { actionGroupId, actionType } shape is accepted but silently
+// dropped: the rules landed with actions null). Two pre-flight checks behave
+// differently: `what-if` (PR previews) passes the rules with
 // `location: 'global'`, but the real create/validate pre-flight rejects it —
 // ARM has no `global` region for `scheduledQueryRules`
 // (LocationNotAvailableForResourceType), so the rules pin the group region
@@ -246,10 +248,12 @@ resource jobFailureAlert 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = {
     windowSize: 'PT1H'
     scopes: [workspace.id]
     autoMitigate: true
+    // The 2023-12-01 runtime only persists the modern actions object — the
+    // legacy actionGroupId/actionType shape was accepted but dropped (rules
+    // landed with actions null), which Bicep's type errors predicted.
     actions: {
-      actionGroupId: alertsEnabled ? maintainerActionGroup.id : ''
-      actionType: 'LogAlert'
-      customProperties: {
+      actionGroups: alertsEnabled ? [maintainerActionGroup.id] : []
+      actionProperties: {
         runbook: alertRunbook
       }
     }
@@ -297,10 +301,12 @@ resource itemFailureAlert 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = 
     windowSize: 'PT1H'
     scopes: [workspace.id]
     autoMitigate: true
+    // The 2023-12-01 runtime only persists the modern actions object — the
+    // legacy actionGroupId/actionType shape was accepted but dropped (rules
+    // landed with actions null), which Bicep's type errors predicted.
     actions: {
-      actionGroupId: alertsEnabled ? maintainerActionGroup.id : ''
-      actionType: 'LogAlert'
-      customProperties: {
+      actionGroups: alertsEnabled ? [maintainerActionGroup.id] : []
+      actionProperties: {
         runbook: alertRunbook
       }
     }
@@ -346,10 +352,12 @@ resource appFailureAlert 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = {
     windowSize: 'PT1H'
     scopes: [workspace.id]
     autoMitigate: true
+    // The 2023-12-01 runtime only persists the modern actions object — the
+    // legacy actionGroupId/actionType shape was accepted but dropped (rules
+    // landed with actions null), which Bicep's type errors predicted.
     actions: {
-      actionGroupId: alertsEnabled ? maintainerActionGroup.id : ''
-      actionType: 'LogAlert'
-      customProperties: {
+      actionGroups: alertsEnabled ? [maintainerActionGroup.id] : []
+      actionProperties: {
         runbook: alertRunbook
       }
     }
@@ -391,10 +399,12 @@ resource maintenanceWindowAlert 'Microsoft.Insights/scheduledQueryRules@2023-12-
     windowSize: 'PT1H'
     scopes: [workspace.id]
     autoMitigate: true
+    // The 2023-12-01 runtime only persists the modern actions object — the
+    // legacy actionGroupId/actionType shape was accepted but dropped (rules
+    // landed with actions null), which Bicep's type errors predicted.
     actions: {
-      actionGroupId: alertsEnabled ? maintainerActionGroup.id : ''
-      actionType: 'LogAlert'
-      customProperties: {
+      actionGroups: alertsEnabled ? [maintainerActionGroup.id] : []
+      actionProperties: {
         runbook: alertRunbook
       }
     }
@@ -442,10 +452,12 @@ resource aiThresholdAlert 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = 
     windowSize: 'PT1H'
     scopes: [workspace.id]
     autoMitigate: true
+    // The 2023-12-01 runtime only persists the modern actions object — the
+    // legacy actionGroupId/actionType shape was accepted but dropped (rules
+    // landed with actions null), which Bicep's type errors predicted.
     actions: {
-      actionGroupId: alertsEnabled ? maintainerActionGroup.id : ''
-      actionType: 'LogAlert'
-      customProperties: {
+      actionGroups: alertsEnabled ? [maintainerActionGroup.id] : []
+      actionProperties: {
         runbook: costRunbook
       }
     }
@@ -481,10 +493,12 @@ resource aiCapAlert 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = {
     windowSize: 'PT1H'
     scopes: [workspace.id]
     autoMitigate: true
+    // The 2023-12-01 runtime only persists the modern actions object — the
+    // legacy actionGroupId/actionType shape was accepted but dropped (rules
+    // landed with actions null), which Bicep's type errors predicted.
     actions: {
-      actionGroupId: alertsEnabled ? maintainerActionGroup.id : ''
-      actionType: 'LogAlert'
-      customProperties: {
+      actionGroups: alertsEnabled ? [maintainerActionGroup.id] : []
+      actionProperties: {
         runbook: costRunbook
       }
     }
