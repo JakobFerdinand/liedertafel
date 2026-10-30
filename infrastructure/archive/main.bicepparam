@@ -23,7 +23,7 @@ param logAnalyticsDailyCapGb = 1
 // ARC-042: maintainer destination addresses (primary first, then the second
 // maintainer). Not secrets, but they appear in deployment diffs/portal — set
 // them here only. While this list is empty, every alert deploys disabled.
-// param maintainerAlertEmails = ["...@liedertafel-mining.at", "...@example.org"]
+param maintainerAlertEmails = ['j.wegenschimmel+liedertafel-archiv@gmail.com']
 param deployRoleAssignments = true
 // ARC-043 (#150): comma-separated EUR thresholds for the AI spend notices
 // before the EUR 15 hard cap (app + reading sweep). Deliberately empty in
