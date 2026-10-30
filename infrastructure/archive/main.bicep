@@ -210,8 +210,6 @@ resource workspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
 // (LocationNotAvailableForResourceType), so the rules pin the group region
 // like the workspace they query.
 var alertsEnabled = length(maintainerAlertEmails) > 0
-var alertRunbook = 'https://github.com/JakobFerdinand/liedertafel/blob/main/infrastructure/archive/README.md#failure-alerts-arc-042'
-var costRunbook = 'https://github.com/JakobFerdinand/liedertafel/blob/main/infrastructure/archive/README.md#cost-overview-arc-043'
 
 // Latest stable actionGroups API version — the @2023-03-01 the rules were
 // written against never existed (the provider jumps from @2023-01-01 to
@@ -248,14 +246,12 @@ resource jobFailureAlert 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = {
     windowSize: 'PT1H'
     scopes: [workspace.id]
     autoMitigate: true
-    // The 2023-12-01 runtime only persists the modern actions object — the
-    // legacy actionGroupId/actionType shape was accepted but dropped (rules
-    // landed with actions null), which Bicep's type errors predicted.
+    // The 2023-12-01 runtime persists only the modern actions object — the
+    // legacy actionGroupId/actionType shape was accepted but dropped, and
+    // actionProperties keys must start with Icm. or Email. — so the runbook
+    // pointer lives in each rule's description below.
     actions: {
       actionGroups: alertsEnabled ? [maintainerActionGroup.id] : []
-      actionProperties: {
-        runbook: alertRunbook
-      }
     }
     criteria: {
       allOf: [
@@ -301,14 +297,12 @@ resource itemFailureAlert 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = 
     windowSize: 'PT1H'
     scopes: [workspace.id]
     autoMitigate: true
-    // The 2023-12-01 runtime only persists the modern actions object — the
-    // legacy actionGroupId/actionType shape was accepted but dropped (rules
-    // landed with actions null), which Bicep's type errors predicted.
+    // The 2023-12-01 runtime persists only the modern actions object — the
+    // legacy actionGroupId/actionType shape was accepted but dropped, and
+    // actionProperties keys must start with Icm. or Email. — so the runbook
+    // pointer lives in each rule's description below.
     actions: {
       actionGroups: alertsEnabled ? [maintainerActionGroup.id] : []
-      actionProperties: {
-        runbook: alertRunbook
-      }
     }
     criteria: {
       allOf: [
@@ -352,14 +346,12 @@ resource appFailureAlert 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = {
     windowSize: 'PT1H'
     scopes: [workspace.id]
     autoMitigate: true
-    // The 2023-12-01 runtime only persists the modern actions object — the
-    // legacy actionGroupId/actionType shape was accepted but dropped (rules
-    // landed with actions null), which Bicep's type errors predicted.
+    // The 2023-12-01 runtime persists only the modern actions object — the
+    // legacy actionGroupId/actionType shape was accepted but dropped, and
+    // actionProperties keys must start with Icm. or Email. — so the runbook
+    // pointer lives in each rule's description below.
     actions: {
       actionGroups: alertsEnabled ? [maintainerActionGroup.id] : []
-      actionProperties: {
-        runbook: alertRunbook
-      }
     }
     criteria: {
       allOf: [
@@ -399,14 +391,12 @@ resource maintenanceWindowAlert 'Microsoft.Insights/scheduledQueryRules@2023-12-
     windowSize: 'PT1H'
     scopes: [workspace.id]
     autoMitigate: true
-    // The 2023-12-01 runtime only persists the modern actions object — the
-    // legacy actionGroupId/actionType shape was accepted but dropped (rules
-    // landed with actions null), which Bicep's type errors predicted.
+    // The 2023-12-01 runtime persists only the modern actions object — the
+    // legacy actionGroupId/actionType shape was accepted but dropped, and
+    // actionProperties keys must start with Icm. or Email. — so the runbook
+    // pointer lives in each rule's description below.
     actions: {
       actionGroups: alertsEnabled ? [maintainerActionGroup.id] : []
-      actionProperties: {
-        runbook: alertRunbook
-      }
     }
     criteria: {
       allOf: [
@@ -452,14 +442,12 @@ resource aiThresholdAlert 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = 
     windowSize: 'PT1H'
     scopes: [workspace.id]
     autoMitigate: true
-    // The 2023-12-01 runtime only persists the modern actions object — the
-    // legacy actionGroupId/actionType shape was accepted but dropped (rules
-    // landed with actions null), which Bicep's type errors predicted.
+    // The 2023-12-01 runtime persists only the modern actions object — the
+    // legacy actionGroupId/actionType shape was accepted but dropped, and
+    // actionProperties keys must start with Icm. or Email. — so the runbook
+    // pointer lives in each rule's description below.
     actions: {
       actionGroups: alertsEnabled ? [maintainerActionGroup.id] : []
-      actionProperties: {
-        runbook: costRunbook
-      }
     }
     criteria: {
       allOf: [
@@ -493,14 +481,12 @@ resource aiCapAlert 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = {
     windowSize: 'PT1H'
     scopes: [workspace.id]
     autoMitigate: true
-    // The 2023-12-01 runtime only persists the modern actions object — the
-    // legacy actionGroupId/actionType shape was accepted but dropped (rules
-    // landed with actions null), which Bicep's type errors predicted.
+    // The 2023-12-01 runtime persists only the modern actions object — the
+    // legacy actionGroupId/actionType shape was accepted but dropped, and
+    // actionProperties keys must start with Icm. or Email. — so the runbook
+    // pointer lives in each rule's description below.
     actions: {
       actionGroups: alertsEnabled ? [maintainerActionGroup.id] : []
-      actionProperties: {
-        runbook: costRunbook
-      }
     }
     criteria: {
       allOf: [
