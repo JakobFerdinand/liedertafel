@@ -1,6 +1,6 @@
 ---
 date: "2026-11-29"
-name: "Cäcilia Messe"
+name: "Cäcilia Messe (Bieger-Messe)"
 location: "Mining"
 ---
 
