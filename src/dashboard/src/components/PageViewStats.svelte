@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { get, isStats, type StatsResponse } from "../lib/api-client";
-	import { defaultRange, rangeError, rangeParams, readRange, sessionLink, statsParams, writeUrl, type RangeState } from "../lib/date-range";
+	import { rangeParams, sessionLink, statsParams } from "../lib/date-range";
+	import { createLoader } from "../lib/loader";
 	import { date, number, percent, timestamp } from "../lib/format";
 	import DateRangePicker from "./filters/DateRangePicker.svelte";
 	import CompareToggle from "./filters/CompareToggle.svelte";
@@ -10,41 +11,29 @@
 	import BreakdownTable from "./breakdowns/BreakdownTable.svelte";
 	import DeviceBars from "./breakdowns/DeviceBars.svelte";
 	import VisitorSeriesChart from "./breakdowns/VisitorSeriesChart.svelte";
-	let range = $state(defaultRange());
-	let data = $state<StatsResponse | null>(null);
-	let loading = $state(false);
-	let error = $state("");
-	let active: AbortController | undefined;
+	const loader = createLoader<StatsResponse>({
+		fetch: ({ range, signal }) => get(`/api/pageviews/stats?${statsParams(range)}`, isStats, signal),
+		rewrite: (_params, range) => rangeParams(range)
+	});
+	let view = $state(loader.read());
+	const range = $derived(view.range);
+	const data = $derived(view.data);
+	const loading = $derived(view.loading);
+	const error = $derived(view.error);
 	const shownRange = $derived(data ? { start: data.range.start, end: data.range.end, granularity: data.granularity, compare: data.previous !== null } : range);
-	async function load(value: RangeState = range) {
-		active?.abort();
-		const controller = new AbortController(); active = controller;
-		range = value; writeUrl(rangeParams(range));
-		error = rangeError(range) ?? "";
-		loading = false;
-		if (error) return;
-		loading = true;
-		try {
-			const result = await get(`/api/pageviews/stats?${statsParams(range)}`, isStats, controller.signal);
-			if (!controller.signal.aborted) data = result;
-		}
-		catch (failure) { if (!controller.signal.aborted) error = failure instanceof Error ? failure.message : "Daten konnten nicht geladen werden."; }
-		finally { if (!controller.signal.aborted) loading = false; }
-	}
 	onMount(() => {
-		void load(readRange(new URLSearchParams(window.location.search)));
-		const restore = () => void load(readRange(new URLSearchParams(window.location.search)));
-		window.addEventListener("popstate", restore);
-		return () => { active?.abort(); window.removeEventListener("popstate", restore); };
+		const stop = loader.subscribe((next) => { view = next; });
+		const begin = loader.connect();
+		return () => { stop(); begin(); };
 	});
 </script>
 
 <section class="section card" aria-label="Zeitraum und Vergleich">
-	<DateRangePicker value={range} onchange={(value) => void load(value)} />
-	<CompareToggle checked={range.compare} onchange={(compare) => void load({ ...range, compare })} />
+	<DateRangePicker value={range} onchange={(value) => void loader.load(rangeParams(value))} />
+	<CompareToggle checked={range.compare} onchange={(compare) => void loader.load(rangeParams({ ...range, compare }))} />
 </section>
 {#if loading}<p role="status" aria-live="polite">Auswertung wird geladen …</p>{/if}
-{#if error}<div class="error" role="alert"><p>{error}</p><button type="button" onclick={() => void load()}>Erneut versuchen</button></div>{/if}
+{#if error}<div class="error" role="alert"><p>{error}</p><button type="button" onclick={() => void loader.load()}>Erneut versuchen</button></div>{/if}
 {#if data}
 	<div class:stale={loading || !!error} aria-busy={loading}>
 		<p class="chart-caption">Angezeigte Daten: {date(data.range.start)} – {date(data.range.end)}. Stand: {timestamp(data.generatedAt)}.</p>
