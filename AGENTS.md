@@ -31,6 +31,7 @@ source-folder inventory (Drive, #98) runbook lives at
 - Dev server: `cd src/website && pnpm run dev`
 - Build: `cd src/website && pnpm run build`
 - Preview build: `cd src/website && pnpm run preview`
+- Website unit tests (Node's built-in runner with type stripping): `cd src/website && pnpm run test:unit`; single file: `node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test src/lib/pageview-beacon.test.ts`
 - Website API (local): `cd src/website-api && dotnet run`
 - Dashboard deps: `cd src/dashboard && pnpm install`
 - Dashboard dev server: `cd src/dashboard && pnpm run dev`
@@ -64,7 +65,7 @@ source-folder inventory (Drive, #98) runbook lives at
 - Do not invent lint commands; add one only if explicitly requested.
 
 ### Tests
-- Website/dashboard have no JavaScript test runner; archive uses Playwright and xUnit as listed above.
+- Website has its own `test:unit` runner (Node's built-in test runner with type stripping; single file: `node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test src/lib/pageview-beacon.test.ts` from `src/website`), the dashboard has no JavaScript test runner; archive uses Playwright and xUnit as listed above.
 - API endpoint/date/pagination checks live in `tests/dashboard-api`; run `dotnet run --project tests/dashboard-api`.
 - Dashboard single-test command: not applicable; the focused console harness runs all API checks.
 - If tests are added later, update this file with a single-test example.
