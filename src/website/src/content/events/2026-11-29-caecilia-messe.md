@@ -1,7 +1,7 @@
 ---
 date: "2026-11-29"
 name: "Cäcilia Messe (Bieger-Messe)"
-location: "Mining"
+location: "Kirche Mining"
 ---
 
 Wie jedes Jahr, machen wir die musikalische Gestaltung der Cäcilia Messe in Mining.
