@@ -37,6 +37,7 @@ source-folder inventory (Drive, #98) runbook lives at
 - Dashboard dev server: `cd src/dashboard && pnpm run dev`
 - Dashboard check (Astro and Svelte): `cd src/dashboard && pnpm run check`
 - Dashboard build: `cd src/dashboard && pnpm run build`
+- Dashboard frontend loader tests (pure, no browser; Node's built-in runner with type stripping, Node 24): from `src/dashboard`, `pnpm run test:unit`. Single test: `node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test src/lib/loader.test.ts`.
 - Dashboard API regression checks (dependency-free console harness): `dotnet run --project tests/dashboard-api`
 - Add `-- --azurite` to also verify real Table Storage queries against local Azurite.
 - API fixture export for browser smoke checks: append `-- --fixtures /tmp/liedertafel-insights-validation` (see `tests/dashboard-api/README.md`).
@@ -65,7 +66,7 @@ source-folder inventory (Drive, #98) runbook lives at
 - Do not invent lint commands; add one only if explicitly requested.
 
 ### Tests
-- Website has its own `test:unit` runner (Node's built-in test runner with type stripping; single file: `node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test src/lib/pageview-beacon.test.ts` from `src/website`), the dashboard has no JavaScript test runner; archive uses Playwright and xUnit as listed above.
+- Website/dashboard unit tests run with Node's built-in runner (type stripping, Node 24): from `src/website` or `src/dashboard`, `pnpm run test:unit`. Single files: `node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test src/lib/pageview-beacon.test.ts` (website), `node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test src/lib/loader.test.ts` (dashboard); archive uses Playwright and xUnit as listed above.
 - API endpoint/date/pagination checks live in `tests/dashboard-api`; run `dotnet run --project tests/dashboard-api`.
 - Dashboard single-test command: not applicable; the focused console harness runs all API checks.
 - If tests are added later, update this file with a single-test example.

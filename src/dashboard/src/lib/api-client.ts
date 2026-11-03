@@ -17,7 +17,8 @@ export type SessionEvent = { path: string; referrerHost: string | null; navigati
 export type SessionDetail = { range: Range; generatedAt: string; sessionRef: string; sessionId: string; visitorId: string; truncated: boolean; possiblyTruncatedStart: boolean; possiblyTruncatedEnd: boolean; events: SessionEvent[] };
 export type ErrorKind = "network" | "unauthorized" | "invalid-range" | "server" | "expired";
 export class ApiError extends Error {
-	constructor(public kind: ErrorKind, message: string) { super(message); }
+	kind: ErrorKind;
+	constructor(kind: ErrorKind, message: string) { super(message); this.kind = kind; }
 }
 
 type Guard = (value: unknown) => boolean;
