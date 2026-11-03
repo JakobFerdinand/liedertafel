@@ -13,10 +13,10 @@ importers:
         version: 3.7.4
       astro:
         specifier: ^7.4.4
-        version: 7.4.4(@types/node@26.4.1)(esbuild@0.28.2)(yaml@2.9.0)
+        version: 7.4.4(@types/node@24.13.3)(esbuild@0.28.2)(yaml@2.9.0)
       sharp:
         specifier: ^0.35.5
-        version: 0.35.5(@types/node@26.4.1)
+        version: 0.35.5(@types/node@24.13.3)
     devDependencies:
       '@astrojs/check':
         specifier: ^0.9.12
@@ -24,6 +24,9 @@ importers:
       '@astrojs/ts-plugin':
         specifier: ^1.10.12
         version: 1.10.12(typescript@6.0.3)
+      '@types/node':
+        specifier: ^24.13.3
+        version: 24.13.3
       typescript:
         specifier: 6.0.3
         version: 6.0.3
@@ -2447,7 +2450,7 @@ snapshots:
 
   aria-query@5.3.2: {}
 
-  astro@7.4.4(@types/node@26.4.1)(esbuild@0.28.2)(yaml@2.9.0):
+  astro@7.4.4(@types/node@24.13.3)(esbuild@0.28.2)(yaml@2.9.0):
     dependencies:
       '@astrojs/compiler-rs': 0.5.1
       '@astrojs/internal-helpers': 0.13.0
@@ -2496,13 +2499,13 @@ snapshots:
       unifont: 1.0.3
       unstorage: 1.17.5
       verkit: 0.5.0
-      vite: 8.3.5(@types/node@26.4.1)(esbuild@0.28.2)(yaml@2.9.0)
-      vitefu: 1.1.3(vite@8.3.5(@types/node@26.4.1)(esbuild@0.28.2)(yaml@2.9.0))
+      vite: 8.3.5(@types/node@24.13.3)(esbuild@0.28.2)(yaml@2.9.0)
+      vitefu: 1.1.3(vite@8.3.5(@types/node@24.13.3)(esbuild@0.28.2)(yaml@2.9.0))
       xxhash-wasm: 1.1.0
       yargs-parser: 22.0.0
       zod: 4.6.7
     optionalDependencies:
-      sharp: 0.35.5(@types/node@26.4.1)
+      sharp: 0.35.5(@types/node@24.13.3)
     transitivePeerDependencies:
       - '@azure/app-configuration'
       - '@azure/cosmos'
@@ -3015,7 +3018,7 @@ snapshots:
 
   semver@7.8.5: {}
 
-  sharp@0.35.5(@types/node@26.4.1):
+  sharp@0.35.5(@types/node@24.13.3):
     dependencies:
       '@img/colour': 1.1.0
       detect-libc: 2.1.2
@@ -3046,7 +3049,7 @@ snapshots:
       '@img/sharp-win32-arm64': 0.35.5
       '@img/sharp-win32-ia32': 0.35.5
       '@img/sharp-win32-x64': 0.35.5
-      '@types/node': 26.4.1
+      '@types/node': 24.13.3
 
   shiki@4.5.0:
     dependencies:
@@ -3208,7 +3211,7 @@ snapshots:
       '@types/unist': 3.0.3
       vfile-message: 4.0.3
 
-  vite@8.3.5(@types/node@26.4.1)(esbuild@0.28.2)(yaml@2.9.0):
+  vite@8.3.5(@types/node@24.13.3)(esbuild@0.28.2)(yaml@2.9.0):
     dependencies:
       lightningcss: 1.33.0
       picomatch: 4.0.7
@@ -3216,14 +3219,14 @@ snapshots:
       rolldown: 1.2.16
       tinyglobby: 0.2.17
     optionalDependencies:
-      '@types/node': 26.4.1
+      '@types/node': 24.13.3
       esbuild: 0.28.2
       fsevents: 2.3.3
       yaml: 2.9.0
 
-  vitefu@1.1.3(vite@8.3.5(@types/node@26.4.1)(esbuild@0.28.2)(yaml@2.9.0)):
+  vitefu@1.1.3(vite@8.3.5(@types/node@24.13.3)(esbuild@0.28.2)(yaml@2.9.0)):
     optionalDependencies:
-      vite: 8.3.5(@types/node@26.4.1)(esbuild@0.28.2)(yaml@2.9.0)
+      vite: 8.3.5(@types/node@24.13.3)(esbuild@0.28.2)(yaml@2.9.0)
 
   volar-service-css@0.0.71(@volar/language-service@2.4.28(typescript@6.0.3)):
     dependencies:

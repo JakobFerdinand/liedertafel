@@ -23,63 +23,10 @@ import HomeNavbar from "../components/HomeNavbar.astro";
 	</head>
 	<body>
 		<HomeNavbar />
-		<script is:inline>
-			window.addEventListener('load', () => {
-				const productionHosts = ['liedertafel-mining.at', 'www.liedertafel-mining.at'];
-				if (!productionHosts.includes(location.hostname)) {
-					return;
-				}
-				if (!('sendBeacon' in navigator)) {
-					return;
-				}
-				let path = location.pathname;
-				if (path.length > 1 && path.endsWith('/')) {
-					path = path.slice(0, -1);
-				}
-				let referrerHost = '';
-				try {
-					referrerHost = new URL(document.referrer).host;
-				} catch {
-					referrerHost = '';
-				}
-				let sessionId = '';
-				try {
-					sessionId = sessionStorage.getItem('lt-session');
-					if (!sessionId) {
-						sessionId = crypto.randomUUID();
-						sessionStorage.setItem('lt-session', sessionId);
-					}
-				} catch {
-					sessionId = '';
-				}
-				let visitorId = '';
-				try {
-					visitorId = localStorage.getItem('lt-visitor');
-					if (!visitorId) {
-						visitorId = crypto.randomUUID();
-						localStorage.setItem('lt-visitor', visitorId);
-					}
-				} catch {
-					visitorId = '';
-				}
-				let navigationType = 'navigate';
-				const navigationEntries = performance.getEntriesByType('navigation');
-				if (navigationEntries.length > 0 && navigationEntries[0].type) {
-					navigationType = navigationEntries[0].type;
-				}
-				const payload = {
-					path,
-					referrerHost,
-					viewportWidth: screen.width,
-					sessionId,
-					visitorId,
-					navigationType,
-				};
-				navigator.sendBeacon(
-					'/api/pageview',
-					new Blob([JSON.stringify(payload)], { type: 'application/json' })
-				);
-			});
+		<script>
+			import { startPageviewBeacon } from "../lib/pageview-beacon";
+
+			startPageviewBeacon();
 		</script>
 		<main>
 			<slot />
