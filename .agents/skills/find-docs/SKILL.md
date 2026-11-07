@@ -4,7 +4,10 @@ description: >-
   Retrieves up-to-date documentation, API references, and code examples for any
   developer technology. Use this skill whenever the user asks about a specific
   library, framework, SDK, CLI tool, or cloud service — even for well-known ones
-  like React, Next.js, Prisma, Express, Tailwind, Django, or Spring Boot. Your
+  like React, Next.js, Prisma, Express, Tailwind, Django, or Spring Boot, and
+  for the Rust crates in the backend-rs port (tokio, axum, tower-http, sqlx,
+  azure_*, pdfium-render, lettre, webauthn-rs, tracing, opentelemetry, reqwest,
+  clap) — even when you are sure you know the API. Your
   training data may not reflect recent API changes or version updates.
 
   Always use for: API syntax questions, configuration options, version migration

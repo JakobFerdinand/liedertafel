@@ -9,7 +9,7 @@ Use this guide when editing or extending the codebase.
 - src/dashboard: internal, auth-gated Astro dashboard (Svelte islands + Layerchart) for the `liedertafel-dashboard` Static Web App; overview at `/`, session inspector at `/sessions`. Shared API/date helpers in `src/lib`, UI grouped under `src/components/{filters,overview,breakdowns,sessions}`, styling in `src/styles/global.css`.
 - src/dashboard-api: Azure Functions managed API (C# .NET isolated); serves read-only `/api/pageviews/stats`, `/api/pageviews/sessions`, and `/api/pageviews/sessions/{sessionRef}` endpoints. All require bounded Vienna date ranges; session references are opaque, range-bound handles.
 - src/pageview-storage: shared C# library (net10.0) referenced by both APIs; owns the stored pageview shape (`PageViewEntity`), table name and `Pv|yyyy-MM-dd` UTC partition scheme (`PageViewTable`) and navigation vocabulary (`NavigationTypes`). Change stored-data rules here, never in an API. Its path is in both API workflows' path filters.
-- src/archive: .NET 10 / Aspire choir archive. `apphost/` orchestrates local services, `service-defaults/` owns OTLP and finite-worker defaults, `backend/` serves the API/static export and explicit EF migrations, `frontend/` is Next.js App Router + TypeScript + Tailwind + Biome. Read `src/archive/README.md` for contracts and startup.
+- src/archive: .NET 10 / Aspire choir archive. `apphost/` orchestrates local services, `service-defaults/` owns OTLP and finite-worker defaults, `backend/` serves the API/static export and explicit EF migrations, `frontend/` is Next.js App Router + TypeScript + Tailwind + Biome. Read `src/archive/README.md` for contracts and startup. `src/archive/backend-rs/` hosts the Rust rewrite of the backend (#218; wave 1 in #219) — its nested `AGENTS.md` governs that workspace, and the agent-setup research notes live in `src/archive/docs/rust-port-agent-setup.md`.
 - tests/archive: xUnit backend/OTLP checks under `backend/` and clean-stack Aspire integration checks under `apphost/`. Browser checks live in `src/archive/frontend/tests`.
 - infrastructure: Azure Bicep templates for the RG-Liedertafel estate.
 - infrastructure/neon: archive Neon CLI/API setup runbook and SQL role/grant
@@ -255,6 +255,7 @@ uses its generated Next.js/Biome conventions and local `AGENTS.md`.
 
 ## Notes for Agentic Tools
 - Follow existing style and structure; do not introduce a new system.
+- Nested `AGENTS.md` files (e.g. `src/archive/backend-rs/AGENTS.md`) are additive in OpenCode V2: they load once per session when the agent first touches a file in their subtree. Keep nested files self-consistent with this root file and list a subdirectory's unique rules there, not here.
 - Centralize shared CSS in `Layout.astro` and use `:global()` where needed.
 - Avoid adding dependencies unless requested.
 - If you must add a new script or tool, update this file.
