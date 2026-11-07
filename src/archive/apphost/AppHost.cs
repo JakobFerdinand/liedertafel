@@ -46,11 +46,45 @@ builder.AddProject<Projects.Archive_Backend>("archive-migrate", launchProfileNam
     .WaitFor(database)
     .WithExplicitStart();
 
-var api = builder.AddProject<Projects.Archive_Backend>("archive-api", launchProfileName: "http")
-    .WithArchiveDependencies(dependencies, mailSource)
-    .WithEnvironment("Development__KeysPath", Path.GetFullPath(Path.Combine(builder.AppHostDirectory, "../.local/keys")))
-    .WaitForCompletion(initialize)
-    .WithHttpHealthCheck("/alive");
+// #219 wave 1: `Archive:RustOrigin=true` starts the Cargo-built backend-rs
+// binary as the archive origin — the statically exported frontend, /api/build,
+// readiness and the stable 404/501 miss for every unported /api/* route.
+// The frozen C# backend stays the default until the cutover (spec #218).
+if (builder.Configuration.GetValue("Archive:RustOrigin", false))
+{
+    var rs = builder.AddExecutable(
+            "archive-api-rs",
+            builder.Configuration.GetValue("Archive:RustOriginBinary", "./target/debug/archive-server") ?? "./target/debug/archive-server",
+            Path.Combine(builder.AppHostDirectory, "..", "backend-rs"))
+        .WithHttpEndpoint(env: "PORT")
+        // The DCP-injected environment: OTLP endpoint, dev sampler and small
+        // batch delays — the executable counterpart of WithArchiveTelemetry().
+        .WithEnvironment("ARCHIVE_ENVIRONMENT", "Development")
+        .WithEnvironment("OTEL_METRIC_EXPORT_INTERVAL", "5000")
+        .WithOtlpExporter()
+        .WithHttpHealthCheck("/alive");
+
+    builder.AddJavaScriptApp("archive-frontend", "../frontend")
+        .WithPnpm()
+        .WithHttpEndpoint(env: "PORT")
+        .WithEnvironment("ARCHIVE_API_URL", rs.GetEndpoint("http"))
+        .WaitFor(rs);
+}
+else
+{
+    var api = builder.AddProject<Projects.Archive_Backend>("archive-api", launchProfileName: "http")
+        .WithArchiveDependencies(dependencies, mailSource)
+        .WithEnvironment("Development__KeysPath", Path.GetFullPath(Path.Combine(builder.AppHostDirectory, "../.local/keys")))
+        .WaitForCompletion(initialize)
+        .WithHttpHealthCheck("/alive");
+
+    builder.AddJavaScriptApp("archive-frontend", "../frontend")
+        .WithPnpm()
+        .WithHttpEndpoint(env: "PORT")
+        .WithEnvironment("ARCHIVE_API_URL", api.GetEndpoint("http"))
+        .WithReference(api)
+        .WaitFor(api);
+}
 
 // This finite diagnostic demonstrates the registration/flush contract for later jobs.
 builder.AddProject<Projects.Archive_Backend>("archive-worker-smoke", launchProfileName: null)
@@ -108,12 +142,5 @@ builder.AddProject<Projects.Archive_Backend>("archive-papierkorb-cleanup", launc
     .WithArchiveDependencies(dependencies, mailSource)
     .WaitForCompletion(initialize)
     .WithExplicitStart();
-
-builder.AddJavaScriptApp("archive-frontend", "../frontend")
-    .WithPnpm()
-    .WithHttpEndpoint(env: "PORT")
-    .WithEnvironment("ARCHIVE_API_URL", api.GetEndpoint("http"))
-    .WithReference(api)
-    .WaitFor(api);
 
 builder.Build().Run();

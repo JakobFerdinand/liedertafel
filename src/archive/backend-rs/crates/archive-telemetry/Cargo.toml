@@ -1,0 +1,20 @@
+[package]
+name = "archive-telemetry"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Service-defaults equivalent of the archive: OTLP traces, metrics and logs for every backend-rs host (spec #218, wave 1)."
+
+[dependencies]
+opentelemetry = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+opentelemetry-otlp = { workspace = true }
+opentelemetry-appender-tracing = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-opentelemetry = { workspace = true }
+
+[lints]
+workspace = true
