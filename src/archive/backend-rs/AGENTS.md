@@ -38,7 +38,8 @@ Wave 1 (#219) created the workspace.
   the dev sampler, checked finite-operator flush/shutdown and the
   `Liedertafel.Archive` schema parity.
 - `crates/archive-server`: the archive origin — static Next.js export,
-  auth/passkeys and shared access gate, `/api/build`, `/alive` (+ `/health` in Development) and the single
+  auth/passkeys, shared access/maintenance gates, catalogue/Datei reads and tier
+  actions, `/api/build`, `/alive` (+ `/health` in Development) and the single
   implemented-routes list with the stable JSON 404/501 miss for unported
   `/api/*` routes.
 - `crates/archive-db`: explicit `--migrate`, frozen EF/Neon baseline adoption,
@@ -116,7 +117,13 @@ update this section in the same PR whenever the member list changes.
   repair-vs-email-change credential behavior, native CLI/browser/OTLP commands,
   frozen-suite mapping and the honestly failed frozen browser controls. Focused
   PG example: `cargo test -p archive-server --locked --test member_revocation
-  last_active_administrator -- --ignored`.
+   last_active_administrator -- --ignored`.
+
+- Catalogue/Blob reads/tiers (#223): before changing visibility, shared search,
+  tickets, provider configuration or tier policy, read `docs/catalogue-parity.md`
+  for the oracle map, bounded range reader, official SDK/local signing seam,
+  explicit PostgreSQL/Azurite/browser gates and later-wave ownership. Focused:
+  `cargo test -p archive-server --locked --test lied_api member_reads -- --ignored`.
 
 - Any `/api/*` route without a Rust implementation answers the single stable
   JSON 404/501 error shape, driven by one list of implemented routes.

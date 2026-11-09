@@ -8,9 +8,11 @@
 
 pub mod api;
 pub mod auth;
+pub mod catalogue;
 pub mod frontend;
 pub mod origin;
 pub mod settings;
+pub mod storage;
 
 pub use origin::{Origin, build_router};
 pub use settings::Settings;

@@ -25,6 +25,7 @@ pub const API_UNPORTED_TITLE: &str = "Der Endpunkt ist noch nicht umgestellt.";
 
 /// `application` payload of `/api/build`, verbatim from the C# backend.
 pub const APPLICATION: &str = "Liedertafel Archiv";
+const MAINTENANCE_MESSAGE: &str = "Wartungsarbeiten: Das Archiv ist vorübergehend nicht verfügbar. Bitte versuchen Sie es später erneut.";
 
 /// Which stable miss a `/api/*` path outside the implemented list answers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,7 +58,12 @@ impl ApiMiss {
 /// the `Origin` that `with_state` applies at router assembly.
 fn implemented_api_routes(_origin: Arc<Origin>) -> Vec<(&'static str, MethodRouter<Arc<Origin>>)> {
 	let mut routes = vec![("/api/build", get(build).fallback(api_miss))];
+	routes.push((
+		"/api/maintenance",
+		get(maintenance_status).fallback(api_miss),
+	));
 	routes.extend(crate::auth::routes());
+	routes.extend(crate::catalogue::routes());
 	routes
 }
 
@@ -71,7 +77,37 @@ pub fn api_router(origin: Arc<Origin>) -> Router<()> {
 	for (path, method_router) in implemented_api_routes(origin.clone()) {
 		router = router.route(path, method_router);
 	}
-	router.with_state(origin)
+	router
+		.with_state(origin.clone())
+		.layer(axum::middleware::from_fn_with_state(
+			origin,
+			maintenance_guard,
+		))
+}
+
+async fn maintenance_status(State(origin): State<Arc<Origin>>) -> Response {
+	([(header::CACHE_CONTROL,"no-store")],Json(json!({"maintenance":origin.settings.maintenance,"message":if origin.settings.maintenance {MAINTENANCE_MESSAGE}else{"Das Archiv ist verfügbar."}}))).into_response()
+}
+async fn maintenance_guard(
+	State(origin): State<Arc<Origin>>,
+	request: axum::extract::Request,
+	next: axum::middleware::Next,
+) -> Response {
+	let path = request.uri().path();
+	let exempt = ["/api/build", "/api/maintenance"].iter().any(|p| {
+		path == *p
+			|| path
+				.strip_prefix(p)
+				.is_some_and(|tail| tail.starts_with('/'))
+	});
+	if origin.settings.maintenance && !exempt {
+		let mut response = problem(StatusCode::SERVICE_UNAVAILABLE, MAINTENANCE_MESSAGE);
+		response
+			.headers_mut()
+			.insert(header::RETRY_AFTER, HeaderValue::from_static("600"));
+		return response;
+	}
+	next.run(request).await
 }
 
 /// GET `/api/build`: build-probe payload plus the probe cache policy
@@ -150,6 +186,8 @@ fn rfc9110_section(status: StatusCode) -> Option<&'static str> {
 		StatusCode::CONFLICT => Some("15.5.10"),
 		StatusCode::INTERNAL_SERVER_ERROR => Some("15.6.1"),
 		StatusCode::BAD_GATEWAY => Some("15.6.3"),
+		StatusCode::SERVICE_UNAVAILABLE => Some("15.6.4"),
+		StatusCode::UNPROCESSABLE_ENTITY => Some("15.5.21"),
 		StatusCode::NOT_FOUND => Some("15.5.5"),
 		StatusCode::NOT_IMPLEMENTED => Some("15.6.2"),
 		_ => None,

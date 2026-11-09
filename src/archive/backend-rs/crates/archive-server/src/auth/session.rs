@@ -20,6 +20,11 @@ pub struct CurrentSession {
 	pub token_digest: Vec<u8>,
 }
 impl CurrentSession {
+	/// Auftritt recordings have their own publication/download ticket (#227).
+	/// A generic Datei ticket must never bypass it, even when published.
+	pub fn can_read_auftritt_datei(&self, has_event: bool, kind: &str) -> bool {
+		!has_event || self.is_editor() || kind != "aufnahme"
+	}
 	pub fn is_editor(&self) -> bool {
 		self.roles
 			.iter()
