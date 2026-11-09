@@ -194,6 +194,11 @@ an existing Chromium. No frontend package/source/test is edited.
 The frozen `frontend/tests/passkey.spec.ts` was also executed unchanged using
 `tests/browser/playwright.config.cjs`. It **fails** at its stale “Willkommen im
 Archiv.” locator: current `components/archiv-bereich.tsx` renders “Dein Konto”.
+This is now **also reproduced against the native frozen .NET host**, with the
+same byte-identical static export: one test executed, zero skipped, failure at
+the original line 102 after successful email login and `/archiv/` navigation.
+See [`auth-browser-baseline.md`](auth-browser-baseline.md) for hashes, command,
+actual output and the independent positive .NET browser control.
 It also uses a substring success locator matching “Noch kein Passkey registriert.”.
 It is not counted as passing or modified to hide that drift. The Rust-owned
 browser harness asserts the actual current account UI and the exact enrollment
