@@ -1,0 +1,17 @@
+{
+  "repository": "https://github.com/open-telemetry/opentelemetry-proto",
+  "tag": "v1.9.0",
+  "commit": "a8951735f7801e8adfaec5c0ace9262771cfec6e",
+  "protobufjs": "8.8.1",
+  "files": {
+    "opentelemetry/proto/common/v1/common.proto": "354d818af9cb0ed67f7447b9cf8408f1ac8911cedea0db73c5309484ec2bcc04",
+    "opentelemetry/proto/resource/v1/resource.proto": "e0a7cdc0ffcfeffaa2606e8611839735ebffaa2d6acdf33e9356f2c48ae692d3",
+    "opentelemetry/proto/trace/v1/trace.proto": "c3fb1385c90b8bc08a2a462e28b5d0c422c7b524a839f75f75e3cd9f64f36956",
+    "opentelemetry/proto/metrics/v1/metrics.proto": "d0a53dda45ad100edbf25675f5b339ce8bf689bdc51816f8cf19b0d51464e1a4",
+    "opentelemetry/proto/logs/v1/logs.proto": "37abe88f091239abf77b80be380166a526fa7dbcc0d4061f16802636c71714cb",
+    "opentelemetry/proto/collector/trace/v1/trace_service.proto": "03c8cc4e3e101087d884392d6eda32152ad5cd696e6344f50deaa59804a75c7a",
+    "opentelemetry/proto/collector/metrics/v1/metrics_service.proto": "2bb3c6adee5f7609c8a32c5e4b1ec57057320015e298e9cf136699a42abc24d7",
+    "opentelemetry/proto/collector/logs/v1/logs_service.proto": "0252687fc8f59d139ced709d383e83678e9bd4957bdbe76077242f1c32363fa5",
+    "LICENSE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+  }
+}

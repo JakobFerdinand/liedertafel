@@ -5,6 +5,10 @@ C# tests, frontend, baseline, migration checksums, runtime grants, infrastructur
 workflows and production image remain unchanged. This is not #224 upload/trash,
 #227 recordings, #233 video writes or a cutover.
 
+**#223 remains unaccepted.** Independent security/source review is pinned to
+`dc3357e`. The detector follow-up below changes only Rust-owned tests/tooling and
+documentation; it does not supersede that review or authorize #224.
+
 ## Shared contracts
 
 - Four catalogue routes join the existing single registry: GET `/api/lieder`,
@@ -168,7 +172,8 @@ cargo deny --locked check
 `ARCHIVE_TEST_AZURITE`, `ARCHIVE_STATIC_ROOT` (unchanged exported frontend), and
 optionally `ARCHIVE_BINARY` / `ARCHIVE_CHROMIUM`. Use external test-only Node
 dependencies (`NODE_PATH`): the existing Playwright/pg harness dependencies plus
-official `@azure/storage-blob@12.34.0`. Its official pre-sign pipeline extension
+official `@azure/storage-blob@12.34.0` and test decoder `protobufjs@8.8.1`.
+Its official pre-sign pipeline extension
 pins Azurite's API version; it does not skip version checking. The SDK only creates
 private fixtures/CORS. The harness starts native migration/seed/origin/restart,
 synthetic SMTP and a real local gRPC OTLP receiver; UI and authenticated API
@@ -223,14 +228,10 @@ endpoint evidence.
 
 One earlier inherited `members-native.cjs` run failed its generic
 `telemetry leaked member marker` assertion. Its original harness did not report
-the matched needle, so the failed run cannot retrospectively be classified.
-The assertion was **not weakened**: ten subsequent runs passed (nine diagnostic
-runs changing only failure diagnostics/capture, then the final unmodified run).
-A successful diagnostic wire capture contained 1,965 unrelated six-digit
-timestamp/metadata substrings, demonstrating the predicate's possible numeric
-collisions, **not proving the initial failure's cause**. Keep this intermittent
-inherited harness warning visible for review rather than relabeling the failure
-as a pass. No production credential/data appeared in these synthetic local runs.
+the matched marker or retain the failed wire. The available subsequent successful
+capture is lossy concatenated UTF-8, not the failed run. Its numeric substrings
+demonstrate collision potential only. Ten subsequent passes were **not a
+resolution**; the deterministic detector fix and remaining ambiguity are below.
 
 Logs: `/tmp/opencode/223-{fmt,clippy,workspace,pg,migration,build,native-auth,
 members-native,catalogue-native,storage,dotnet-oracles,deny}-final.log`,
@@ -240,3 +241,97 @@ Red evidence includes read/filter/Noten/tier/provider/delegation/timeout, droppe
 multipart work, fractional-key-cache refresh, nonempty Shared Key body length,
 trailing endpoint slash, and .NET ordering/overflow cases (`223-*-red.log`).
 The executed small .NET language oracle is `223-search-language-oracle.log`.
+
+## Native redaction detector follow-up (2026-11-09)
+
+Ranked falsifiable hypotheses, declared before testing: unrelated numeric
+metadata collision; genuine payload disclosure; artificial cross-boundary match.
+The original failure remains **unclassified**, because its wire/console and
+matched marker were not retained. No new native legacy-predicate failure occurred
+in this follow-up's captured runs. Do not claim a retrospective product leak,
+a proved original timestamp collision, or acceptance from passing reruns.
+
+The tight loop is `node --test tests/browser/telemetry-redaction.test.cjs` with
+the pinned external `protobufjs@8.8.1` dependency. It first went red on a
+minimal **exact old substring-predicate** collision: a synthetic OTP equalled
+unrelated formatter microseconds, while the real console-code leak control was
+detected. Subsequent red loops caught accepting malformed protocol captures,
+the actual native ANSI formatter's timestamp wrapper (found in the fresh private
+capture), a Base64/Base64url credential-string spelling mismatch, and leading-zero
+OTPs disclosed as numeric values. Red logs:
+`/tmp/opencode/223-redaction-{metadata,protocol,ansi,encoding,numeric}-red.log`
+(respectively 1/2, 1/81, 1/82, 1/85 and 1/91 failing tests before each fix).
+
+The **91 deterministic controls** now cover genuine email/code/cookie/credential
+disclosures across trace/log/metric resource, scope and record attributes; trace
+events/links/status/name; log bodies; nested AnyValue arrays/key-values/bytes;
+integer/double measurements and packed numeric buckets; raw public keys and
+canonical credential encodings; ordinary clock/ID collisions; actual fixed64
+wire bytes containing a six-digit substring; plain/ANSI console clocks versus
+message context; process/channel/chunk/frame boundaries; invalid UTF-8;
+unknown/malformed/truncated/compressed captures; private-file permissions,
+value-free reporting and replay. The actual native no-secret assertion is
+exercised with injected forbidden protocol payloads on **all three services**
+and console output and is required to fail. No fixed product login code or
+production codegen/logging/auth bypass was introduced.
+
+All three native harnesses now retain separate raw gRPC requests/frames and
+process stdout/stderr. The shared scanner validates against the pinned official
+OpenTelemetry v1.9.0 schema, inspects every payload field, and classifies only
+individually named official fixed64 clocks and the native formatter's leading
+clock as metadata. Numeric attributes/measurements and bytes/IDs are not blanket
+whitelisted. Required safe span/metric/log presence assertions remain. Member
+coverage additionally asserts actual session/CSRF cookies/request tokens and the
+actually registered credential/public key before repair revokes them. Auth also
+tracks cookies/tokens from the anonymous-allocation loop. See
+[`tests/telemetry/README.md`](../tests/telemetry/README.md) for the exact detector,
+source/license provenance and private replay contract.
+
+### Fresh follow-up evidence (not the earlier #223 heavy-gate results)
+
+All Cargo commands used `--locked` where applicable, `-j 2` for compilation,
+isolated `OPENSSL_DIR=/tmp/opencode/221-openssl-359/install OPENSSL_STATIC=1`,
+`CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0`. Format, clippy and workspace
+tests ran sequentially; the normal build supplied the native controls.
+
+| Fresh gate | Result |
+| --- | --- |
+| Deterministic detector tests | **91 passed, 0 failed/skipped** |
+| fmt; workspace/all-target clippy `-D warnings` | Pass |
+| Ordinary workspace | **54 passed, 0 failed, 76 explicitly ignored** |
+| Default-feature workspace build | Pass |
+| Native auth/replica/restart/legacy-signature/SMTP/OTLP | Pass; **62 requests, 74 markers**, zero findings/protocol errors |
+| Native member UI/CLI/passkey/restart/SMTP/OTLP | Pass; **97 requests, 29 markers**, zero findings/protocol errors |
+| Native catalogue/Noten/private Azurite/tier/restart/OTLP | Pass; **53 requests, 19 markers**, zero findings/protocol errors |
+| Private replay of all three final captures | Pass; findings/metadata/errors reproduce the saved reports |
+| Active `cargo-deny --locked check` (0.20.2) | Exit **0**, advisories/bans/licenses/sources pass; policy unchanged |
+| External Node fixture dependency `npm audit` | Exit **0**, no vulnerabilities |
+| Official schema/license/provenance regeneration | Byte-identical to committed fixtures |
+| Native linkage | Embedded **OpenSSL 3.5.9**, no host 3.6.5 or dynamic libssl/libcrypto |
+
+Fresh logs: `/tmp/opencode/223-followup-{detector,fmt,clippy,workspace,build,
+native-auth-final,members-native-final,catalogue-native-final,deny,node-audit,
+linkage,schema}.log`. Final private replay/report directories:
+
+- Auth: `/tmp/opencode/223-native-auth-telemetry-rFEjp5/`
+- Members: `/tmp/opencode/223-members-native-telemetry-OFCVDT/`
+- Catalogue: `/tmp/opencode/223-catalogue-native-telemetry-Z84j24/`
+
+Those final runs also have zero metadata or raw-comparator matches. This is
+**not evidence of the original cause**. The deterministic fixtures, not that
+absence or the number of passing native runs, establish the detector correction.
+The raw replays contain actual local synthetic secrets: 0700 directories/0600
+files, never commit or publish them. Reports identify marker type/static label/
+ordinal, service/process channel, frame/line and indexed schema field without
+values, snippets or credential hashes. They persist on failures too.
+
+**Not rerun in this test/tooling/docs-only follow-up:** the standalone 72 explicit
+real-PG tests, separate native migration/schema/grants gate, three standalone
+storage-provider tests, frozen .NET suites and frozen Playwright suites. Their
+earlier `dc3357e` evidence and known browser failures above are unchanged, not
+fresh passes. The three freshly rerun native controls do use their own real local
+PG databases and the catalogue control uses private Azurite; that does not count
+as rerunning those standalone suites. No production Rust/Cargo dependency/policy,
+frozen source/test, infrastructure, workflow or image file changed. No hosted
+identity/storage, production data, AI, real mail, push, merge, issue/PR write,
+deployment or #224 work occurred.

@@ -59,6 +59,10 @@ update this section in the same PR whenever the member list changes.
   happen on purpose.
 - Frontend deps (`pnpm`) are untouched by this workspace; the frontend `out/`
   export is served by the backend binary.
+- Native telemetry detector: `node --test tests/browser/telemetry-redaction.test.cjs`
+  (or add `--test-name-pattern="formatter"` before the file for a focused run).
+  Before changing native capture, redaction or schema fixtures, read
+  `tests/telemetry/README.md` for external decoder setup and private replay rules.
 - The three live-spend AI evaluations keep their skip-when-unconfigured
   environment gates from the C# suites; without explicit configuration they
   must pass by skipping, never by calling a model.
