@@ -8,6 +8,7 @@
 
 pub mod api;
 pub mod auth;
+mod binding;
 pub mod catalogue;
 pub mod frontend;
 pub mod origin;

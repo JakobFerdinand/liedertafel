@@ -240,3 +240,9 @@ active deny exited **0**. Logs: `224-binding-{fmt,clippy,workspace,pg,deny}.log`
 Schema/Azurite/native/browser/crypto/OTLP final revalidation follows the separately
 authorized auth-binding commit and must not be inferred from these focused gates.
 Acceptance remains **HOLD pending independent rereview**; #225 stays blocked.
+
+The subsequent shared-binder extraction and separately authorized auth/member
+follow-up are recorded in [request-binding-parity.md](request-binding-parity.md),
+including final **57 passed/122 ignored**, all **122 explicitly run**, actual
+frozen HTTP/13-DTO evidence and fresh native/schema/Azurite/crypto/OTLP results.
+Earlier snapshots above are chronological, not final acceptance overrides.

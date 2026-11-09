@@ -1,11 +1,12 @@
-//! Only the catalogue's frozen request records. Validate each wire occurrence
+//! Only the implemented frozen request records. Validate each wire occurrence
 //! before retaining its last value; a Value/preserve_order map would already
 //! have discarded exact duplicates and their earlier type errors.
 use serde::de::{DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde_json::Value;
 
 #[derive(Clone, Copy)]
-pub(super) enum Shape {
+pub(crate) enum Shape {
+	NullableStrings(&'static [&'static str]),
 	Create,
 	Patch,
 	Upload,
@@ -34,12 +35,24 @@ impl Shape {
 	fn property(self, name: &str) -> Property {
 		use Property::*;
 		match self {
+			Self::NullableStrings(fields) => {
+				if fields.iter().any(|f| name.eq_ignore_ascii_case(f)) {
+					String
+				} else {
+					Unknown
+				}
+			}
 			Self::Create | Self::Patch | Self::DraftLied => {
 				if name == "title"
-					|| super::writes::FIELDS.iter().any(|(form, _)| {
-						(!matches!(self, Self::DraftLied) || *form != "occasion")
-							&& name.eq_ignore_ascii_case(form)
-					}) {
+					|| matches!(
+						name,
+						"composer"
+							| "arranger" | "lyricist"
+							| "voiceconfiguration"
+							| "musicalkey" | "language"
+							| "lyrics"
+					) || (name == "occasion" && !matches!(self, Self::DraftLied))
+				{
 					String
 				} else if matches!(self, Self::Patch) && name == "rowversion" {
 					U32
@@ -102,7 +115,7 @@ impl<'de> DeserializeSeed<'de> for Record {
 impl<'de> Visitor<'de> for Record {
 	type Value = Value;
 	fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		f.write_str("a catalogue request object or null")
+		f.write_str("a request object or null")
 	}
 	fn visit_unit<E: serde::de::Error>(self) -> Result<Value, E> {
 		Ok(Value::Null)
@@ -112,6 +125,11 @@ impl<'de> Visitor<'de> for Record {
 		while let Some(key) = map.next_key::<String>()? {
 			let normalized = key.to_ascii_lowercase();
 			let property = self.0.property(&normalized);
+			if matches!(self.0, Shape::NullableStrings(_)) && matches!(property, Property::Unknown)
+			{
+				map.next_value::<serde::de::IgnoredAny>()?;
+				continue;
+			}
 			// These are the nullable CLR property types, not domain validation:
 			// e.g. an earlier long string may be replaced by a shorter string,
 			// but an earlier number can never become a valid String binding.
@@ -135,12 +153,17 @@ impl<'de> Visitor<'de> for Record {
 			};
 			// Dictionary keys and unknown Lied fields remain case-sensitive data.
 			// Every recognized record property has exactly one canonical key.
-			let key =
-				if matches!(self.0, Shape::Suggestions) || matches!(property, Property::Unknown) {
-					key
-				} else {
-					normalized
-				};
+			let key = if let Shape::NullableStrings(fields) = self.0 {
+				fields
+					.iter()
+					.find(|f| f.eq_ignore_ascii_case(&key))
+					.map_or(key.clone(), |f| (*f).to_owned())
+			} else if matches!(self.0, Shape::Suggestions) || matches!(property, Property::Unknown)
+			{
+				key
+			} else {
+				normalized
+			};
 			values.insert(key, value);
 		}
 		Ok(Value::Object(values))
@@ -187,7 +210,7 @@ impl<'de> Visitor<'de> for Files {
 		Ok(Value::Array(files))
 	}
 }
-pub(super) fn parse(bytes: &[u8], shape: Shape) -> Result<Value, serde_json::Error> {
+pub(crate) fn parse(bytes: &[u8], shape: Shape) -> Result<Value, serde_json::Error> {
 	let mut deserializer = serde_json::Deserializer::from_slice(bytes);
 	let value = Record(shape).deserialize(&mut deserializer)?;
 	deserializer.end()?;

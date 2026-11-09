@@ -4,7 +4,6 @@ use super::{AccessPolicy, Auth, AuthError, CurrentSession, identity, session::ro
 use crate::Origin;
 use axum::{
 	Json,
-	body::to_bytes,
 	extract::{Request, State},
 	http::StatusCode,
 	response::{IntoResponse, Response},
@@ -139,14 +138,16 @@ async fn handle(origin: &Origin, request: Request, op: Operation) -> Result<Resp
 	let response = if op == Operation::List {
 		Json(auth.members().await?).into_response()
 	} else {
-		let bytes = to_bytes(request.into_body(), 65_536)
-			.await
-			.map_err(|_| bad("Die Anfrage ist ungültig."))?;
-		let body: Value = if bytes.is_empty() {
-			json!({})
-		} else {
-			serde_json::from_slice(&bytes).map_err(|_| bad("Die Anfrage ist ungültig."))?
+		let fields: &'static [&'static str] = match op {
+			Operation::Invite => &["email", "displayName", "role"],
+			Operation::Resend => &["email"],
+			Operation::Deactivate | Operation::Reactivate => &["accountId"],
+			Operation::Role => &["accountId", "role"],
+			Operation::EmailRequest => &["accountId", "newEmail"],
+			Operation::EmailConfirm => &["accountId", "newEmail", "code"],
+			Operation::List => &[],
 		};
+		let body = super::bind_body(request, fields).await?;
 		let result = match op {
 			Operation::Invite | Operation::Resend => {
 				auth.invite(&access.current, &body, op == Operation::Resend)

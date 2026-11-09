@@ -1,6 +1,6 @@
 //! Flat Lied reads. The frozen catalogue fields and visibility predicates are
 //! shared by the browser adapter and later search consumers, not copied per route.
-mod binding;
+use crate::binding;
 mod dateien;
 pub mod drafts;
 mod kinds;
