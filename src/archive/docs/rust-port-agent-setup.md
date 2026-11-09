@@ -105,7 +105,7 @@ the root AGENTS.md. Suggested section order:
 ## Workspace layout             # member crates + one-line purpose each (keep fresh!)
 ## Build, check, test           # ---
                                 #   cargo build --workspace --locked -p <member>  (one job at a time;
-                                #     this host is a 4 GB Pi, see root AGENTS.md)
+                                #     parallelism rules live in the global instructions)
                                 #   cargo test <member> ; focused: cargo test <path>
                                 #   pnpm-deps free; frontend/ untouched
 ## Lint and format before you commit
@@ -181,7 +181,7 @@ warn to review skill instructions before use
 | Clippy | Project-level lints via the repeating `[lints]` table in `Cargo.toml` (applies workspace-wide) plus a `clippy.toml` for option lints; footgun: `channel = "stable"` floats across six-week cycles and silently changes lints ([Clippy configuration](https://doc.rust-lang.org/clippy/configuration.html), [pinning write-up](https://safeguard.sh/resources/blog/pin-the-rust-toolchain-with-rust-toolchain-toml)) | — |
 | rustfmt | `cargo fmt --all --check` as the first, cheapest premium check ([rustfmt](https://rust-lang.github.io/rustfmt/)) | — |
 | rust-analyzer | Editors/agents navigate via rust-analyzer; its manual is the reference for settings ([manual](https://rust-analyzer.github.io/manual.html)) | — |
-| cargo-nextest | Faster, leaner test runner — attractive on the 4 GB Pi because it scales process count down cleanly ([nexte.st](https://nexte.st)) | — |
+| cargo-nextest | Faster, leaner test runner — scales process count down cleanly on small hosts ([nexte.st](https://nexte.st)) | — |
 | `cargo-deny` / `cargo-audit` | Advisory + license + duplicate-crate checks; `cargo-deny` covers all three in one `deny.toml`; pure `cargo-audit` is the lighter alternative ([cargo-deny](https://embarkstudios.github.io/cargo-deny/), [RustSec](https://github.com/rustsec/rustsec)) | — |
 | `cargo doc` (rustdoc) | Documentation is the API of record; doctests are compiled and run by `cargo test`, so examples stay honest ([rustdoc documentation tests](https://doc.rust-lang.org/rustdoc/write-documentation/documentation-tests.html)) | — |
 | `sqlx` offline data | `cargo sqlx prepare` commits `.sqlx/` so compile-time-checked queries build without a DB in CI ([sqlx repo](https://github.com/launchbadge/sqlx)) | — |

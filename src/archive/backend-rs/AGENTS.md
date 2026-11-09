@@ -46,9 +46,9 @@ update this section in the same PR whenever the member list changes.
 
 ## Build, check, test
 
-- One cargo job at a time: this host is a 4 GB Pi (see root AGENTS.md). Never
-  build while tests run, never build two worktrees at once; check `free -m`
-  before starting.
+- One cargo job at a time (host budget and parallelism rules live in the
+  global instructions, not in this repo): never build while tests run, never
+  build two worktrees at once.
 - Build: `cargo build --workspace --locked`. Tests: `cargo test -p <member>`;
   focused: `cargo test <member> --test <file> <filter-substring>`.
 - `Cargo.lock` is committed; every command passes `--locked` so upgrades only

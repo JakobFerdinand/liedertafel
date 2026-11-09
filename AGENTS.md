@@ -60,7 +60,7 @@ source-folder inventory (Drive, #98) runbook lives at
 - Archive frontend reducer tests (pure, no browser; Node's built-in runner with type stripping, Node 24): from `src/archive/frontend`, `pnpm run test:unit`. Single file: `node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test lib/lied-entwurf/reducer.test.ts`. Tests sit beside the module as `*.test.ts` under `lib/`; modules under test import siblings with `.ts` extensions and must not use the `@/` alias.
 - Archive browsers: from `src/archive/frontend`, `pnpm exec playwright install chromium`, then `ARCHIVE_BASE_URL=http://localhost:<frontend-port> pnpm run test:browser`. Single test: `pnpm run test:browser -- --grep "German deep link"`.
 - Archive image: `docker build -f src/archive/Dockerfile -t liedertafel-archive:local .` (Podman additionally needs `--ignorefile src/archive/Dockerfile.dockerignore`). Full smoke instructions in the archive README.
-- Rust backend workspace (wave 1, #219): build/check/test in `src/archive/backend-rs` per its nested AGENTS.md — `cargo build --workspace --locked`, one cargo job at a time on this host. Run the apphost against it with `Archive__RustOrigin=true`.
+- Rust backend workspace (wave 1, #219): build/check/test in `src/archive/backend-rs` per its nested AGENTS.md — `cargo build --workspace --locked`, one cargo job at a time. Run the apphost against it with `Archive__RustOrigin=true`.
 
 ### Linting
 - Website/dashboard have no lint script. Archive frontend has generated Biome `lint` / `format` scripts and `check` (Biome + Next route types + TypeScript).
