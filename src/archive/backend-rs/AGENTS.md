@@ -46,9 +46,6 @@ update this section in the same PR whenever the member list changes.
 
 ## Build, check, test
 
-- One cargo job at a time (host budget and parallelism rules live in the
-  global instructions, not in this repo): never build while tests run, never
-  build two worktrees at once.
 - Build: `cargo build --workspace --locked`. Tests: `cargo test -p <member>`;
   focused: `cargo test <member> --test <file> <filter-substring>`.
 - `Cargo.lock` is committed; every command passes `--locked` so upgrades only
@@ -109,7 +106,7 @@ update this section in the same PR whenever the member list changes.
 
 ## Done means
 
-- fmt + clippy + tests green (run one at a time), parity cases translated
+- fmt + clippy + tests green, parity cases translated
   where the wave demands them, C# backend untouched, telemetry visible in the
   local Aspire stack, and this file updated in the same PR whenever the
   workspace layout, commands or checks change.

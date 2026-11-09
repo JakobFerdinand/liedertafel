@@ -104,8 +104,7 @@ the root AGENTS.md. Suggested section order:
                                 # backend-rs; no cross-edits without an explicit ticket
 ## Workspace layout             # member crates + one-line purpose each (keep fresh!)
 ## Build, check, test           # ---
-                                #   cargo build --workspace --locked -p <member>  (one job at a time;
-                                #     parallelism rules live in the global instructions)
+                                #   cargo build --workspace --locked -p <member>
                                 #   cargo test <member> ; focused: cargo test <path>
                                 #   pnpm-deps free; frontend/ untouched
 ## Lint and format before you commit
@@ -327,8 +326,7 @@ release cycle) rather than floating
 4.4 **Workspace `[lints]` + `clippy.toml`** instead of scattered attributes;
 start conservative (deny `unwrap_used` in i/o paths, warn pedantic-narrow) and
 grow from real findings. `cargo fmt --all --check` runs first in any check
-sequence; on the Pi, sequence fmt → clippy → nextest/tests **one at a time**
-per root AGENTS.md memory rules.
+sequence.
 
 4.5 **`deny.toml` + cargo-deny check** (advisories + license ids + duplicate
 bans for the azure plural/singular crates — with cargo-deny you can literally
