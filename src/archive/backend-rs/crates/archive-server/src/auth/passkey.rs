@@ -110,7 +110,7 @@ impl Auth {
 				.user_verification_policy(UserVerificationPolicy::Required)
 				.require_resident_key(true)
 				.credential_algorithms(vec![COSEAlgorithm::ES256])
-				.exclude_credentials(Some(existing));
+				.exclude_credentials(Some(existing.into_iter().map(Into::into).collect()));
 			let (options, state) = core
 				.generate_challenge_register(builder)
 				.map_err(|_| invalid(operation))?;
@@ -248,7 +248,7 @@ impl Auth {
 				));
 			}
 			let data = identity_data(&credential, &reg, name, self.clock.now())?;
-			let written=sqlx::query("INSERT INTO \"AspNetUserPasskeys\"(\"CredentialId\",\"UserId\",\"Data\") VALUES($1,$2,$3) ON CONFLICT DO NOTHING").bind(&credential.cred_id).bind(current.account_id).bind(data).execute(&mut *tx).await?;
+			let written=sqlx::query("INSERT INTO \"AspNetUserPasskeys\"(\"CredentialId\",\"UserId\",\"Data\") VALUES($1,$2,$3) ON CONFLICT DO NOTHING").bind(credential.cred_id.as_slice()).bind(current.account_id).bind(data).execute(&mut *tx).await?;
 			if written.rows_affected() != 1 {
 				return Err(invalid(operation));
 			}
@@ -256,7 +256,7 @@ impl Auth {
 			tx.commit().await?;
 			Ok(Json(json!({"registered":true})).into_response())
 		} else {
-			let state: AuthenticationState = self.consume(headers, current, operation).await?;
+			let mut state: AuthenticationState = self.consume(headers, current, operation).await?;
 			let rsp: PublicKeyCredential =
 				serde_json::from_str(raw).map_err(|_| invalid(operation))?;
 			if rsp.raw_id.is_empty()
@@ -272,7 +272,7 @@ impl Auth {
 			let id: Option<Uuid> = sqlx::query_scalar(
 				"SELECT \"UserId\" FROM \"AspNetUserPasskeys\" WHERE \"CredentialId\"=$1",
 			)
-			.bind(&rsp.raw_id)
+			.bind(rsp.raw_id.as_slice())
 			.fetch_optional(&mut *tx)
 			.await?;
 			let id = id.ok_or_else(|| invalid(operation))?;
@@ -283,11 +283,15 @@ impl Auth {
 			if rsp.get_user_unique_id() != Some(id.to_string().as_bytes()) {
 				return Err(invalid(operation));
 			}
-			let mut data:Value=sqlx::query_scalar("SELECT \"Data\" FROM \"AspNetUserPasskeys\" WHERE \"CredentialId\"=$1 AND \"UserId\"=$2 FOR UPDATE").bind(&rsp.raw_id).bind(id).fetch_optional(&mut *tx).await?.ok_or_else(||invalid(operation))?;
+			let mut data:Value=sqlx::query_scalar("SELECT \"Data\" FROM \"AspNetUserPasskeys\" WHERE \"CredentialId\"=$1 AND \"UserId\"=$2 FOR UPDATE").bind(rsp.raw_id.as_slice()).bind(id).fetch_optional(&mut *tx).await?.ok_or_else(||invalid(operation))?;
 			let credential = import_identity(&rsp.raw_id, &data)?;
+			// Upstream's supported resident-login hook: only the credential resolved
+			// from Identity and bound to its Guid-text owner above enters the state.
+			// The server-generated challenge/UV/strict-BE policy remains untouched.
+			state.set_allowed_credentials(vec![credential]);
 			let result = self
 				.core(Some(&rsp.response.client_data_json), operation)?
-				.authenticate_single_credential(&rsp, &state, &credential)
+				.authenticate_credential(&rsp, &state)
 				.map_err(|_| invalid(operation))?;
 			// Required UV, strict counter and unchanged BE are enforced upstream;
 			// persist only verified counter/backup changes, leaving all old JSON intact.
@@ -295,7 +299,7 @@ impl Auth {
 			data["IsBackedUp"] = json!(result.backup_state());
 			data["IsBackupEligible"] = json!(result.backup_eligible());
 			sqlx::query("UPDATE \"AspNetUserPasskeys\" SET \"Data\"=$2 WHERE \"CredentialId\"=$1")
-				.bind(&rsp.raw_id)
+				.bind(rsp.raw_id.as_slice())
 				.bind(data)
 				.execute(&mut *tx)
 				.await?;
@@ -465,7 +469,7 @@ fn import_identity(id: &[u8], data: &Value) -> Result<Credential, AuthError> {
 	}
 	let boolean = |key: &str| data[key].as_bool().ok_or_else(codec_error);
 	Ok(Credential {
-		cred_id: id.to_vec(),
+		cred_id: id.to_vec().into(),
 		cred,
 		counter: data["SignCount"]
 			.as_u64()
@@ -501,8 +505,8 @@ fn identity_data(
 			(C::Integer(1), C::Integer(2)),
 			(C::Integer(3), C::Integer(-7)),
 			(C::Integer(-1), C::Integer(1)),
-			(C::Integer(-2), C::Bytes(key.x.clone())),
-			(C::Integer(-3), C::Bytes(key.y.clone())),
+			(C::Integer(-2), C::Bytes(key.x.to_vec())),
+			(C::Integer(-3), C::Bytes(key.y.to_vec())),
 		]
 		.into_iter()
 		.collect(),

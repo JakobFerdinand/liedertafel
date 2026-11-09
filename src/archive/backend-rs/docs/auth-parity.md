@@ -11,7 +11,8 @@ still denies both migration histories and runtime DDL.
 ## Security boundary
 
 `passkey.rs` is the single **expert-core adapter** to the pinned, mature
-`webauthn-rs-core 0.6.2` family. The upstream warning on
+`webauthn-rs-core 0.5.5` OpenSSL maintenance family (see the source/support
+qualifications and audit loop in [`auth-dependency-audit.md`](auth-dependency-audit.md)). The upstream warning on
 `new_unsafe_experts_only` matters: review this adapter when changing policy or
 upgrading that crate. Its use is deliberate, not a claim of independent audit.
 The high-level passkey builder does not request required resident credentials,
@@ -204,7 +205,7 @@ Live ACS/managed identity and production aggregate rechecks are **not run**;
 provider protocol tests use the actual transport boundary. Full Aspire/image
 retargeting and resource/AI routes remain their later waves, not #221 evidence.
 
-## Verification snapshot and unresolved dependency gate (2026-11-09)
+## Initial verification snapshot (9450e95, 2026-11-09)
 
 After merging the current integration tip (`0ff95e6`, already up to date), the
 sequential format → clippy → workspace-test gates passed. Workspace tests:
@@ -217,7 +218,7 @@ passkey, access and Data Protection oracle run passed **46/46**, no skips;
 its existing NuGet vulnerability warnings are unchanged, not fixed by this port.
 The frozen Playwright test failure above remains a failure, not a passing gate.
 
-**The candidate is not dependency-audit clean / release-ready.** An additional
+**That initial candidate was not dependency-audit clean / release-ready.** An additional
 `cargo deny --locked check` with upstream cargo-deny 0.20.2 found:
 
 - **RUSTSEC-2023-0071** in `rsa 0.10.0-rc.19`, pulled by `crypto-glue 0.2.2`
@@ -242,3 +243,37 @@ its archive matched GitHub's SHA256
 `9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f`.
 No dependency vulnerability, license, production, or cutover approval is implied
 by the functional test evidence above.
+
+## OpenSSL maintenance-line follow-up
+
+The pinned verifier is now upstream **0.5.5**, not a patched or forked 0.6.2.
+The dependency change removes `rsa` and `crypto-glue` completely and makes the
+advisory/bans/sources checks green without suppression. Default `cargo deny`
+still fails **licenses**: actual `deny.toml` is unchanged. The exact package/SPDX
+list, narrow **unapproved** policy proposal, support caveats and supported native
+OpenSSL build instructions are in [`auth-dependency-audit.md`](auth-dependency-audit.md).
+No license/cutover acceptance or #222 start is implied.
+
+Full revalidation after the verifier/native-backend change used the isolated,
+statically linked **OpenSSL 3.5.9** build described there, not the host's 3.6.5:
+
+| Gate | Result |
+| --- | --- |
+| Sequential `cargo fmt --all -- --check` → `cargo clippy --workspace --all-targets --locked -- -D warnings` → `cargo test --workspace --locked` | Pass; **31 passed, 21 explicitly ignored** |
+| Explicit local PG `auth_api`, `archive_access`, `passkey_api` | **12 + 1 + 7 passed**, no ignored cases in these gated runs |
+| Explicit native PG migration/schema/runtime-role gate | **1 passed** |
+| `cargo build --workspace --locked` | Pass |
+| Native restart/replica/SMTP/gRPC-OTLP/redaction harness | Pass, including repeated old-row/new-challenge signatures after process restart |
+| Real Chromium `enroll` and synthetic .NET-row `legacy` | Both pass against the unchanged, freshly rebuilt static frontend |
+| Frozen selected .NET auth/passkey/access/Data Protection oracle suites | **46 passed, 0 skipped**; existing NuGet warnings unchanged |
+| Default `cargo deny --locked check` | **Exit 4**, licenses only; advisories/bans/sources pass |
+| Explicitly selected unapproved license proposal | **Exit 0**, not an active-policy pass or acceptance |
+
+The HTTP/browser/native tests and synthetic .NET fixture were **not modified**
+to accommodate the 0.5.5 change. `ldd` on the final native server lists no dynamic
+libssl/libcrypto; binary inspection finds `OpenSSL 3.5.9` and not `OpenSSL 3.6.5`.
+For resource-bounded local builds the Cargo runs additionally set
+`CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0` and `-j 2`; these are build-resource
+settings, not policy changes. Static frontend `pnpm run build` was rerun outside
+the checkout from the same frozen source. Live ACS, real credentials, further
+production inventory and later Aspire/image gates remain unrun and unclaimed.
