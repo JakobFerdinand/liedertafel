@@ -8,6 +8,22 @@ use std::time::Duration;
 /// Byte-identical manual fallback, including its psql wrapper.
 pub const RUNTIME_GRANTS: &str = include_str!("../runtime-grants.sql");
 
+/// Runtime uses only its own credentials, never the migration connection.
+/// Lazy pool: probes/startup do not wake Neon; no periodic keep-alive.
+pub fn runtime_pool(value: &str) -> Result<sqlx::PgPool, MigrationError> {
+	let options = configuration::parse(value)?
+		.application_name("archive-server")
+		.options([("statement_timeout", "10000"), ("lock_timeout", "10000")])
+		.disable_statement_logging();
+	Ok(sqlx::postgres::PgPoolOptions::new()
+		.min_connections(0)
+		.max_connections(5)
+		.acquire_timeout(Duration::from_secs(5))
+		.idle_timeout(Some(Duration::from_secs(60)))
+		.test_before_acquire(false)
+		.connect_lazy_with(options))
+}
+
 /// Operator-safe errors: never print a connection string or database error detail.
 #[derive(Debug, thiserror::Error)]
 pub enum MigrationError {

@@ -138,18 +138,20 @@ async fn postgres_migration_contract() {
 		.fetch_one(&mut db)
 		.await
 		.unwrap();
-	assert_eq!(history, 1);
-	let before: String =
-		sqlx::query_scalar("SELECT row_to_json(m)::text FROM public._sqlx_migrations m")
-			.fetch_one(&mut db)
-			.await
-			.unwrap();
+	assert_eq!(history, 2);
+	let before: String = sqlx::query_scalar(
+		"SELECT jsonb_agg(to_jsonb(m) ORDER BY version)::text FROM public._sqlx_migrations m",
+	)
+	.fetch_one(&mut db)
+	.await
+	.unwrap();
 	assert_success(&run_migrate(&archive_url).await);
-	let after: String =
-		sqlx::query_scalar("SELECT row_to_json(m)::text FROM public._sqlx_migrations m")
-			.fetch_one(&mut db)
-			.await
-			.unwrap();
+	let after: String = sqlx::query_scalar(
+		"SELECT jsonb_agg(to_jsonb(m) ORDER BY version)::text FROM public._sqlx_migrations m",
+	)
+	.fetch_one(&mut db)
+	.await
+	.unwrap();
 	assert_eq!(before, after, "reruns must not rewrite Rust history");
 	assert_success(
 		&command()
@@ -177,7 +179,7 @@ async fn postgres_migration_contract() {
 	assert_eq!(
 		dump(&options, "archive").await,
 		dump(&options, "archive_oracle").await,
-		"full public schema parity, excluding only Rust bookkeeping"
+		"full frozen public schema parity, excluding Rust bookkeeping and the three additive #221 auth tables"
 	);
 	db.close().await.unwrap();
 	oracle.close().await.unwrap();
@@ -423,7 +425,14 @@ async fn role_and_grant_contract(
 	)
 	.await
 	.unwrap();
-	for table in ["reading_jobs", "dateien", "lieder"] {
+	for table in [
+		"reading_jobs",
+		"dateien",
+		"lieder",
+		"archive_sessions",
+		"archive_csrf",
+		"archive_ceremonies",
+	] {
 		let allowed: bool = sqlx::query_scalar(
 			"SELECT has_table_privilege('archive_runtime', $1, 'SELECT, INSERT, UPDATE, DELETE')",
 		)
@@ -441,6 +450,8 @@ async fn role_and_grant_contract(
 		.unwrap();
 		assert!(!can_delegate, "runtime has no grant options");
 	}
+	// The additive tables use ordinary runtime DML; no runtime DDL or grants.
+	sqlx::raw_sql("INSERT INTO \"AspNetUsers\"(\"Id\",\"EmailConfirmed\",\"PhoneNumberConfirmed\",\"TwoFactorEnabled\",\"LockoutEnabled\",\"AccessFailedCount\") VALUES('00000000-0000-0000-0000-000000000221',true,false,false,true,0); INSERT INTO archive_sessions(token_digest,user_id,verified_at,auth_method,renewed_at,expires_at) VALUES(decode(repeat('ab',32),'hex'),'00000000-0000-0000-0000-000000000221',now(),'passkey',now(),now()+interval '30 days'); INSERT INTO archive_csrf(browser_digest,request_token,session_digest,expires_at) VALUES(decode(repeat('cd',32),'hex'),repeat('x',43),decode(repeat('ab',32),'hex'),now()+interval '2 hours'); INSERT INTO archive_ceremonies(browser_digest,operation,state,expires_at) VALUES(decode(repeat('ef',32),'hex'),'login','{}',now()+interval '5 minutes'); UPDATE archive_sessions SET expires_at=now()+interval '30 days'; DELETE FROM archive_sessions; DELETE FROM archive_ceremonies; DELETE FROM \"AspNetUsers\" WHERE \"Id\"='00000000-0000-0000-0000-000000000221'").execute(&mut runtime).await.unwrap();
 	let wrong_owner: bool = sqlx::query_scalar("SELECT EXISTS (SELECT FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_roles r ON r.oid=c.relowner WHERE n.nspname='public' AND r.rolname <> 'archive_migrator')")
 		.fetch_one(&mut db).await.unwrap();
 	assert!(
@@ -528,7 +539,8 @@ async fn role_and_grant_contract(
 	assert!(!run_migrate(&runtime_connection).await.status.success());
 	// Default grants already exist on an EF estate at adoption time. Even a
 	// failed baseline check must not expose freshly-created Rust bookkeeping.
-	sqlx::raw_sql("DROP TABLE public.later_feature; DROP FUNCTION public.future_function(); DROP TABLE public._sqlx_migrations; DELETE FROM public.\"__EFMigrationsHistory\" WHERE \"MigrationId\"='20261028084325_ColdStorage'").execute(&mut migrator).await.unwrap();
+	// Restore an EF-only fixture before testing failed *baseline* adoption again.
+	sqlx::raw_sql("DROP TABLE public.archive_ceremonies, public.archive_csrf, public.archive_sessions; DROP TABLE public.later_feature; DROP FUNCTION public.future_function(); DROP TABLE public._sqlx_migrations; DELETE FROM public.\"__EFMigrationsHistory\" WHERE \"MigrationId\"='20261028084325_ColdStorage'").execute(&mut migrator).await.unwrap();
 	assert!(!run_migrate(&connection).await.status.success());
 	assert!(
 		sqlx::raw_sql("SELECT * FROM public._sqlx_migrations")
@@ -567,6 +579,9 @@ async fn dump(options: &sqlx::postgres::PgConnectOptions, database: &str) -> Str
 		"--no-owner",
 		"--no-privileges",
 		"--exclude-table=public._sqlx_migrations",
+		"--exclude-table=public.archive_sessions",
+		"--exclude-table=public.archive_csrf",
+		"--exclude-table=public.archive_ceremonies",
 	])
 	.env("PGHOST", options.get_host())
 	.env("PGPORT", options.get_port().to_string())

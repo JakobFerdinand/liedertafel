@@ -56,7 +56,9 @@ impl ApiMiss {
 /// entries are state-aware handlers, so `implemented_api_routes` receives
 /// the `Origin` that `with_state` applies at router assembly.
 fn implemented_api_routes(_origin: Arc<Origin>) -> Vec<(&'static str, MethodRouter<Arc<Origin>>)> {
-	vec![("/api/build", get(build).fallback(api_miss))]
+	let mut routes = vec![("/api/build", get(build).fallback(api_miss))];
+	routes.extend(crate::auth::routes());
+	routes
 }
 
 /// The `/api` scope: implemented routes win, then the single miss shape
@@ -115,7 +117,7 @@ pub async fn api_miss() -> Response {
 /// ASP.NET-shape ProblemDetails JSON: `type` link, `title`, `status`. The
 /// frontend reads only the title, but the stable shape stays whole on both
 /// backends.
-fn problem(status: StatusCode, title: &'static str) -> Response {
+pub(crate) fn problem(status: StatusCode, title: &'static str) -> Response {
 	let mut body = json!({
 		"title": title,
 		"status": status.as_u16(),
@@ -142,6 +144,11 @@ fn problem(status: StatusCode, title: &'static str) -> Response {
 /// handlers for them.
 fn rfc9110_section(status: StatusCode) -> Option<&'static str> {
 	match status {
+		StatusCode::BAD_REQUEST => Some("15.5.1"),
+		StatusCode::UNAUTHORIZED => Some("15.5.2"),
+		StatusCode::FORBIDDEN => Some("15.5.4"),
+		StatusCode::CONFLICT => Some("15.5.10"),
+		StatusCode::INTERNAL_SERVER_ERROR => Some("15.6.1"),
 		StatusCode::NOT_FOUND => Some("15.5.5"),
 		StatusCode::NOT_IMPLEMENTED => Some("15.6.2"),
 		_ => None,

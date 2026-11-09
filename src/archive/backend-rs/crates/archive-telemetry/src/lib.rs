@@ -11,9 +11,9 @@
 //! Deferred from the C# service defaults on purpose:
 //! - `AiExceptionRedactionProcessor` belongs to the AI wave (no AI spans exist
 //!   yet in Rust).
-//! - `UrlRedactionProcessor` arrives together with the first wave whose Rust
-//!   spans can actually carry URLs with credentials (the `Archive:` Azure/queue
-//!   spans are still C#-side; wave 1 only serves static files and `/api/build`).
+//! - #221 request spans omit queries/headers and globally suppress credential-
+//!   dumping WebAuthn/mail SDK events. Later storage/AI waves must retain safe
+//!   URL/error instrumentation at their own boundaries.
 //! - OTLP header auth for a dashboard API key: `opentelemetry-otlp` currently
 //!   carries headers on HTTP transports only, and local gRPC export needs none.
 
@@ -168,7 +168,22 @@ fn install_tracing_subscriber(defaults: &ServiceDefaults) -> Result<(), InitErro
 	let subscriber = tracing_subscriber::registry()
 		.with(console_layer)
 		.with(otel_trace_layer)
-		.with(otel_log_layer);
+		.with(otel_log_layer)
+		// WebAuthn core intentionally traces full credentials and ceremony state.
+		// Mandatory global filter applies to console, traces AND logs, even when
+		// RUST_LOG=trace. Application emits safe, fixed auth outcome events instead.
+		.with(tracing_subscriber::filter::filter_fn(|metadata| {
+			!metadata.target().starts_with("webauthn")
+				&& !metadata.target().starts_with("lettre")
+				&& !metadata.target().starts_with("azure_")
+				&& !metadata.target().starts_with("typespec")
+				&& !metadata.target().starts_with("reqwest")
+				&& !metadata.target().starts_with("crypto_glue")
+				&& !metadata.target().starts_with("hyper")
+				&& !metadata.target().starts_with("h2")
+				&& !metadata.target().starts_with("tonic")
+				&& !metadata.target().starts_with("sqlx")
+		}));
 
 	tracing::subscriber::set_global_default(subscriber)
 		.map_err(|_| InitError::TracingSubscriberTaken)
@@ -180,6 +195,8 @@ fn quiet_internals() -> tracing_subscriber::EnvFilter {
 	// trace level.
 	tracing_subscriber::EnvFilter::new(concat!(
 		"error,",
+		"archive_server=info,",
+		"archive_db=info,",
 		"hyper=off,",
 		"tonic=off,",
 		"h2=off,",

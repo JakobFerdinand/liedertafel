@@ -10,6 +10,9 @@ const SHUTDOWN_BUDGET: Duration = Duration::from_secs(30);
 
 #[tokio::main]
 async fn main() {
+	// SQLx and Azure/reqwest enable different Rustls 0.23 providers. Select a
+	// process default explicitly so feature unification cannot panic on TLS.
+	let _ = rustls::crypto::ring::default_provider().install_default();
 	if let Err(error) = run().await {
 		eprintln!("archive-server: {error}");
 		std::process::exit(1);
@@ -39,7 +42,20 @@ async fn run() -> Result<(), StartupError> {
 	let settings = Settings::from_env()?;
 	let defaults =
 		archive_telemetry::ServiceDefaults::init(settings.development, "archive-server")?;
-	let origin = Arc::new(Origin::new(settings));
+	let development = settings.development;
+	let mut origin = Origin::new(settings);
+	let config = archive_server::auth::AuthConfig::from_env(development)?;
+	let mail = archive_server::auth::mail::from_env(development)?;
+	if let Ok(connection) = std::env::var("ConnectionStrings__archive-db") {
+		let pool = archive_db::runtime_pool(&connection)?;
+		origin = origin.with_auth(archive_server::auth::Auth::new(
+			pool,
+			config,
+			mail,
+			Arc::new(archive_server::auth::SystemClock),
+		)?);
+	}
+	let origin = Arc::new(origin);
 	let router = build_router(origin.clone());
 
 	let address = std::net::SocketAddr::from(([0, 0, 0, 0], origin.settings.port));
@@ -82,12 +98,15 @@ async fn run() -> Result<(), StartupError> {
 	};
 
 	let mut graceful = signals.subscribe();
-	let serve_result = axum::serve(listener, router)
-		.with_graceful_shutdown(async move {
-			let _ = graceful.recv().await;
-		})
-		.await
-		.map_err(StartupError::Serve);
+	let serve_result = axum::serve(
+		listener,
+		router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+	)
+	.with_graceful_shutdown(async move {
+		let _ = graceful.recv().await;
+	})
+	.await
+	.map_err(StartupError::Serve);
 
 	// The budget watchdog must not outlive a successful drain.
 	drain_watcher.abort();
@@ -105,6 +124,8 @@ async fn run() -> Result<(), StartupError> {
 /// apphost resource fails visibly.
 #[derive(Debug, thiserror::Error)]
 enum StartupError {
+	#[error("{0}")]
+	Auth(#[from] archive_server::auth::AuthError),
 	#[error("{0}")]
 	Migration(#[from] archive_db::MigrationError),
 	#[error("{0}")]

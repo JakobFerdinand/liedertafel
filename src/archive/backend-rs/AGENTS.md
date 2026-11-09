@@ -37,7 +37,7 @@ Wave 1 (#219) created the workspace.
   metrics and logs for every host, the Development-mandatory endpoint check,
   the dev sampler and the `Liedertafel.Archive` schema parity.
 - `crates/archive-server`: the archive origin — static Next.js export,
-  `/api/build`, `/alive` (+ `/health` in Development) and the single
+  auth/passkeys and shared access gate, `/api/build`, `/alive` (+ `/health` in Development) and the single
   implemented-routes list with the stable JSON 404/501 miss for unported
   `/api/*` routes.
 - `crates/archive-db`: explicit `--migrate`, frozen EF/Neon baseline adoption,
@@ -102,6 +102,12 @@ update this section in the same PR whenever the member list changes.
   database-free.
 
 ## Routes and contracts
+
+- Auth/passkeys (#221): before changing auth policy, session storage, mail or
+  translated auth tests, read `docs/auth-parity.md` for the expert-core boundary,
+  legacy synthetic fixtures, oracle/exception mapping and real PG/browser/native
+  commands and the unresolved dependency-audit/license gate. Later member routes reuse `Auth::authorize`/`RequestAccess::respond`;
+  account-changing transactions reuse `Auth::revoke_sessions`.
 
 - Any `/api/*` route without a Rust implementation answers the single stable
   JSON 404/501 error shape, driven by one list of implemented routes.
