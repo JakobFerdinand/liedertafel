@@ -20,6 +20,47 @@ async fn main() {
 }
 
 async fn run() -> Result<(), StartupError> {
+	let args: Vec<String> = std::env::args().skip(1).collect();
+	if let Some(command) = args.first().filter(|s| {
+		matches!(
+			s.as_str(),
+			"--bootstrap-admin" | "--repair-admin" | "--seed-dev-auth" | "--send-test-mail"
+		)
+	}) {
+		use tracing::Instrument;
+		let development = std::env::var("ARCHIVE_ENVIRONMENT").as_deref() == Ok("Development");
+		let defaults = archive_telemetry::ServiceDefaults::init(development, "archive-operator")?;
+		let span = match command.as_str() {
+			"--bootstrap-admin" => {
+				tracing::info_span!("bootstrap-admin", otel.status_code = tracing::field::Empty)
+			}
+			"--repair-admin" => {
+				tracing::info_span!("repair-admin", otel.status_code = tracing::field::Empty)
+			}
+			"--seed-dev-auth" => {
+				tracing::info_span!("seed-dev-auth", otel.status_code = tracing::field::Empty)
+			}
+			_ => tracing::info_span!("send-test-mail", otel.status_code = tracing::field::Empty),
+		};
+		let result = async {
+			let result =
+				archive_server::auth::operator::run(command, &args[1..], development).await;
+			let job_name = &command[2..];
+			if result.is_ok() {
+				tracing::info!("Archive job {job_name} completed");
+			} else {
+				tracing::Span::current().record("otel.status_code", "ERROR");
+				tracing::error!("Archive job {job_name} failed");
+			}
+			result
+		}
+		.instrument(span)
+		.await;
+		if !defaults.finish_finite_job() {
+			return Err(StartupError::FiniteTelemetry);
+		}
+		return result.map_err(StartupError::Operator);
+	}
 	if std::env::args().nth(1).as_deref() == Some("--migrate") {
 		let development = std::env::var("ARCHIVE_ENVIRONMENT").as_deref() == Ok("Development");
 		let defaults = archive_telemetry::ServiceDefaults::init(development, "archive-migrate")?;
@@ -124,6 +165,10 @@ async fn run() -> Result<(), StartupError> {
 /// apphost resource fails visibly.
 #[derive(Debug, thiserror::Error)]
 enum StartupError {
+	#[error("Archive job telemetry flush failed")]
+	FiniteTelemetry,
+	#[error("{0}")]
+	Operator(#[from] archive_server::auth::operator::OperatorError),
 	#[error("{0}")]
 	Auth(#[from] archive_server::auth::AuthError),
 	#[error("{0}")]

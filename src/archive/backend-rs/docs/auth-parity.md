@@ -1,5 +1,10 @@
 # Auth/passkey parity (#221)
 
+Status: #221 was accepted after independent security remediation/re-review and
+merged as `7f71f8a`. Chronological snapshots below retain their original pending
+status. Complete #222 member/operator/mail behavior, follow-up ACS transport fix
+and current gate commands are in [member-parity.md](member-parity.md).
+
 The frozen C# backend/tests and the frontend remain unchanged. Authentication is
 implemented in `crates/archive-server/src/auth`; migration 2 adds only
 `archive_sessions`, `archive_csrf`, and `archive_ceremonies`; migration 3 adds the

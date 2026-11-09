@@ -35,7 +35,8 @@ Wave 1 (#219) created the workspace.
 
 - `crates/archive-telemetry`: service-defaults equivalent — OTLP traces,
   metrics and logs for every host, the Development-mandatory endpoint check,
-  the dev sampler and the `Liedertafel.Archive` schema parity.
+  the dev sampler, checked finite-operator flush/shutdown and the
+  `Liedertafel.Archive` schema parity.
 - `crates/archive-server`: the archive origin — static Next.js export,
   auth/passkeys and shared access gate, `/api/build`, `/alive` (+ `/health` in Development) and the single
   implemented-routes list with the stable JSON 404/501 miss for unported
@@ -109,6 +110,13 @@ update this section in the same PR whenever the member list changes.
   commands, approved exact-version license exceptions and native OpenSSL/support
   requirements. Later member routes reuse `Auth::authorize`/`RequestAccess::respond`;
   account-changing transactions reuse `Auth::revoke_sessions`.
+
+- Member administration/operator/mail (#222): before editing these boundaries
+  or their tests, read `docs/member-parity.md` for transaction lock order,
+  repair-vs-email-change credential behavior, native CLI/browser/OTLP commands,
+  frozen-suite mapping and the honestly failed frozen browser controls. Focused
+  PG example: `cargo test -p archive-server --locked --test member_revocation
+  last_active_administrator -- --ignored`.
 
 - Any `/api/*` route without a Rust implementation answers the single stable
   JSON 404/501 error shape, driven by one list of implemented routes.

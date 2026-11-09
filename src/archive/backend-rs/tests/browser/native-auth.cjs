@@ -10,7 +10,7 @@ const fixture=require("../fixtures/dotnet-es256.json");
 const {Client}=require("pg");
 const path=require("node:path");
 
-const binary=path.resolve(__dirname,"../../target/debug/archive-server");
+const binary=process.env.ARCHIVE_BINARY||path.resolve(__dirname,"../../target/debug/archive-server");
 const server=process.env.ARCHIVE_TEST_POSTGRES;
 assert(server,"dedicated local ARCHIVE_TEST_POSTGRES required");
 const databaseUrl=new URL(server);

@@ -135,6 +135,31 @@ impl ServiceDefaults {
 		tracing::debug!("Telemetry flushed before shutdown");
 	}
 
+	/// Finite operator equivalent of RunArchiveJobAsync: all three flush results
+	/// matter, and each provider gets the oracle's five-second shutdown budget.
+	/// Provider error payloads are intentionally never formatted into diagnostics.
+	pub fn finish_finite_job(&self) -> bool {
+		let traces = self.tracer_provider.force_flush().is_ok();
+		let metrics = self.meter_provider.force_flush().is_ok();
+		let logs = self.logger_provider.force_flush().is_ok();
+		if !traces || !metrics || !logs {
+			tracing::error!("Archive job telemetry flush failed");
+		}
+		let traces_stopped = self
+			.tracer_provider
+			.shutdown_with_timeout(Duration::from_secs(5))
+			.is_ok();
+		let metrics_stopped = self
+			.meter_provider
+			.shutdown_with_timeout(Duration::from_secs(5))
+			.is_ok();
+		let logs_stopped = self
+			.logger_provider
+			.shutdown_with_timeout(Duration::from_secs(5))
+			.is_ok();
+		traces && metrics && logs && traces_stopped && metrics_stopped && logs_stopped
+	}
+
 	/// Shuts the three providers down; the log batch processor drains its
 	/// queued records as part of this.
 	pub fn shutdown(&self) {

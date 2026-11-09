@@ -181,6 +181,41 @@ impl App {
 		client.csrf().await;
 		client
 	}
+	pub async fn sign_in(&self, email: &str) -> Client {
+		let mut client = self.client();
+		client.csrf().await;
+		assert_eq!(
+			client
+				.post("/api/auth/code/request", serde_json::json!({"email":email}))
+				.await
+				.0,
+			202
+		);
+		assert_eq!(
+			client
+				.post(
+					"/api/auth/code/verify",
+					serde_json::json!({"email":email,"code":self.mail.code()})
+				)
+				.await
+				.0,
+			200
+		);
+		client.csrf().await;
+		client
+	}
+	pub async fn admin(&self) -> Client {
+		let mut client = self.client();
+		client.csrf().await;
+		assert_eq!(
+			client
+				.post("/api/dev/auth/seed", serde_json::json!({}))
+				.await
+				.0,
+			200
+		);
+		self.sign_in("verwaltung@liedertafel.test").await
+	}
 	pub async fn close(self) {
 		self.pool.close().await;
 		let mut admin = PgConnection::connect(&self.url).await.unwrap();

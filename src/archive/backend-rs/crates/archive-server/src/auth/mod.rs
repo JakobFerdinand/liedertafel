@@ -3,7 +3,10 @@ mod allocation;
 mod code;
 mod config;
 mod csrf;
+mod identity;
 pub mod mail;
+mod members;
+pub mod operator;
 mod passkey;
 mod security;
 mod seed;
@@ -45,6 +48,7 @@ pub struct Auth {
 	verified: Counter<u64>,
 	failures: Counter<u64>,
 	allocations_limited: Counter<u64>,
+	members_metrics: members::Metrics,
 }
 impl std::fmt::Debug for Auth {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -65,6 +69,7 @@ impl Auth {
 			config,
 			mail,
 			clock,
+			members_metrics: members::Metrics::new(),
 			requests: meter.u64_counter("archive.auth.requests").build(),
 			verified: meter.u64_counter("archive.auth.verified").build(),
 			failures: meter.u64_counter("archive.auth.failures").build(),
@@ -161,6 +166,10 @@ impl IntoResponse for AuthError {
 	fn into_response(self) -> Response {
 		let response = match self {
 			Self::Problem(status, title) => problem(status, title),
+			Self::Mail => problem(
+				StatusCode::INTERNAL_SERVER_ERROR,
+				"Die Anfrage konnte nicht verarbeitet werden.",
+			),
 			_ => {
 				tracing::error!("Authentication operation failed");
 				problem(
@@ -229,6 +238,7 @@ pub(crate) fn routes() -> Vec<(&'static str, MethodRouter<Arc<Origin>>)> {
 			if read { get(handler) } else { post(handler) }.fallback(crate::api::api_miss),
 		)
 	})
+	.chain(members::routes())
 	.collect()
 }
 

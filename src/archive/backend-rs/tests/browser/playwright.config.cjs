@@ -3,7 +3,7 @@
 const path = require("node:path");
 module.exports = {
   testDir: path.resolve(__dirname, "../../../frontend/tests"),
-  testMatch: "passkey.spec.ts",
+  testMatch: process.env.ARCHIVE_FROZEN_TEST || "passkey.spec.ts",
   workers: 1,
   timeout: 60000,
   use: { baseURL: process.env.ARCHIVE_BASE_URL, browserName: "chromium", launchOptions: { executablePath: process.env.ARCHIVE_CHROMIUM } },
