@@ -40,6 +40,11 @@ Wave 1 (#219) created the workspace.
   `/api/build`, `/alive` (+ `/health` in Development) and the single
   implemented-routes list with the stable JSON 404/501 miss for unported
   `/api/*` routes.
+- `crates/archive-db`: explicit `--migrate`, frozen EF/Neon baseline adoption,
+  SQLx history and runtime grant repair; its Cargo build script tracks newly
+  added migration files. Before editing migrations or their
+  parity checks, read `crates/archive-db/baseline/README.md` for provenance and
+  the disposable PostgreSQL/pg_dump gate.
 
 Add one line per member crate under the workspace root as they land, and
 update this section in the same PR whenever the member list changes.
@@ -55,6 +60,12 @@ update this section in the same PR whenever the member list changes.
 - The three live-spend AI evaluations keep their skip-when-unconfigured
   environment gates from the C# suites; without explicit configuration they
   must pass by skipping, never by calling a model.
+- Migration process checks: `cargo test -p archive-server --locked --test
+  migrate_process`. The real schema/grant gate is explicitly ignored by default;
+  with a dedicated throwaway server and pg_dump 17 configured per the baseline
+  README, run `cargo test -p archive-server --locked --test migrate_process
+  postgres_migration_contract -- --ignored --nocapture`. Report an unrun gate
+  as unavailable, not passed.
 
 ## Lint and format before you commit
 

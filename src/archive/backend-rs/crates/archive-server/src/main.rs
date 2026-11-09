@@ -17,6 +17,25 @@ async fn main() {
 }
 
 async fn run() -> Result<(), StartupError> {
+	if std::env::args().nth(1).as_deref() == Some("--migrate") {
+		let development = std::env::var("ARCHIVE_ENVIRONMENT").as_deref() == Ok("Development");
+		let defaults = archive_telemetry::ServiceDefaults::init(development, "archive-migrate")?;
+		use tracing::Instrument;
+		let result = async {
+			let result = archive_db::migrate_from_env().await;
+			if result.is_ok() {
+				tracing::info!("Archive job migrate completed");
+			} else {
+				tracing::error!("Archive job migrate failed");
+			}
+			result
+		}
+		.instrument(tracing::info_span!("migrate"))
+		.await;
+		defaults.flush();
+		defaults.shutdown();
+		return result.map_err(StartupError::Migration);
+	}
 	let settings = Settings::from_env()?;
 	let defaults =
 		archive_telemetry::ServiceDefaults::init(settings.development, "archive-server")?;
@@ -86,6 +105,8 @@ async fn run() -> Result<(), StartupError> {
 /// apphost resource fails visibly.
 #[derive(Debug, thiserror::Error)]
 enum StartupError {
+	#[error("{0}")]
+	Migration(#[from] archive_db::MigrationError),
 	#[error("{0}")]
 	Settings(#[from] archive_server::settings::SettingsError),
 	#[error("{0}")]
