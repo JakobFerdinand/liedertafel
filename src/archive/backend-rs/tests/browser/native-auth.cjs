@@ -114,16 +114,25 @@ async function main(){
     assert.equal((await call(secondPort,"/api/auth/me")).body.authenticated,false);
     cookies.delete("archive.auth");token=(await call(firstPort,"/api/antiforgery")).body.token;
     assert.equal((await call(firstPort,"/api/auth/code/verify",{email:"unknown@liedertafel.test",code:"654321"})).status,400);
+    // Discard cookies, alternate replicas, vary the untrusted leftmost hop.
+    // Both allocation routes share one effective-address quota before inserts.
+    const allocationAddress="198.51.100.221";
+    for(let i=0;i<=30;i++){
+      const port=i%2?firstPort:secondPort;
+      const route=i%2?"/api/antiforgery":"/api/auth/passkeys/login/options";
+      const response=await fetch(`http://127.0.0.1:${port}${route}`,{method:i%2?"GET":"POST",headers:{"x-forwarded-for":`198.18.0.${i}, ${allocationAddress}`}});
+      assert.equal(response.status,i<30?200:429);
+    }
     await stop(first);await stop(second);
     const traces=Object.entries(signals).filter(([k])=>k.includes("TraceService")).map(([,v])=>v.toString()).join("");
     const metrics=Object.entries(signals).filter(([k])=>k.includes("MetricsService")).map(([,v])=>v.toString()).join("");
     const logs=Object.entries(signals).filter(([k])=>k.includes("LogsService")).map(([,v])=>v.toString()).join("");
     for(const span of ["archive.auth.request","archive.auth.challenge","archive.auth.verify","archive.mail.send"])assert(traces.includes(span),`missing ${span}`);
-    for(const metric of ["archive.auth.requests","archive.auth.verified","archive.auth.failures"])assert(metrics.includes(metric),`missing ${metric}`);
+    for(const metric of ["archive.auth.requests","archive.auth.verified","archive.auth.failures","archive.auth.allocations_limited"])assert(metrics.includes(metric),`missing ${metric}`);
     assert(logs.includes("Sign-in code verified"),"safe auth log exported");
     const all=traces+metrics+logs+output;
-    for(const secret of [code,bearer,"mitglied@liedertafel.test","unknown@liedertafel.test","redacted-query-marker",fixture.credential.credentialId,fixture.data.PublicKey])assert(!all.includes(secret),"auth telemetry leaked secret marker");
-    console.log("PASS: native email login, .NET ES256 old-row fresh-challenge login repeated after native restart, atomic counter/JSON persistence, cross-replica CSRF/session, server-side logout, real SMTP handoff, gRPC OTLP traces/metrics/logs and redaction under RUST_LOG=trace");
+    for(const secret of [code,bearer,"mitglied@liedertafel.test","unknown@liedertafel.test","redacted-query-marker",fixture.credential.credentialId,fixture.data.PublicKey,allocationAddress,createHash("sha256").update(allocationAddress).digest("hex")])assert(!all.includes(secret),"auth telemetry leaked secret marker");
+    console.log("PASS: native email login, .NET ES256 old-row fresh-challenge login repeated after native restart, atomic counter/JSON persistence, cross-replica CSRF/session, bounded anonymous allocation, server-side logout, real SMTP handoff, gRPC OTLP traces/metrics/logs and redaction under RUST_LOG=trace");
   }finally{
     if(db)await db.end();
     for(const child of children)await stop(child);

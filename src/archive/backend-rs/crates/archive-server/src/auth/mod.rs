@@ -1,4 +1,5 @@
 //! Shared authentication/access boundary. Identity rows remain canonical.
+mod allocation;
 mod code;
 mod config;
 mod csrf;
@@ -33,6 +34,7 @@ pub const INVALID_CSRF: &str = "Ungültiger Sicherheitstoken.";
 pub const UNAUTHORIZED: &str = "Anmeldung erforderlich.";
 pub const FORBIDDEN: &str = "Keine Berechtigung für das Liedverzeichnis.";
 pub const NOT_FRESH: &str = "Die Anmeldung ist zu alt. Bitte erneut anmelden.";
+pub(super) const LIMITED: &str = "Zu viele Anfragen. Bitte später erneut versuchen.";
 
 pub struct Auth {
 	pub pool: PgPool,
@@ -42,6 +44,7 @@ pub struct Auth {
 	requests: Counter<u64>,
 	verified: Counter<u64>,
 	failures: Counter<u64>,
+	allocations_limited: Counter<u64>,
 }
 impl std::fmt::Debug for Auth {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -65,6 +68,9 @@ impl Auth {
 			requests: meter.u64_counter("archive.auth.requests").build(),
 			verified: meter.u64_counter("archive.auth.verified").build(),
 			failures: meter.u64_counter("archive.auth.failures").build(),
+			allocations_limited: meter
+				.u64_counter("archive.auth.allocations_limited")
+				.build(),
 		})
 	}
 
@@ -258,6 +264,7 @@ async fn dispatch_inner(
 				.map(|peer| peer.0.ip())
 		})
 		.map(|ip| ip.to_string());
+	let address_digest = security::digest(ip.as_deref().unwrap_or("unknown"));
 	let auth = origin.auth.as_deref();
 	// Missing/forged mutations fail before any dependency or domain effect.
 	let mutation = !get && route != Route::LoginOptions;
@@ -285,7 +292,10 @@ async fn dispatch_inner(
 	}
 	let mut response = if get {
 		match route {
-			Route::Csrf => auth.csrf(&headers, current.as_ref()).await?,
+			Route::Csrf => {
+				auth.csrf(&headers, current.as_ref(), &address_digest)
+					.await?
+			}
 			Route::Me => {
 				let body = match current.as_ref() {
 					Some(current) => {
@@ -313,7 +323,7 @@ async fn dispatch_inner(
 			})?
 		};
 		// Only a SHA256 digest of the effective client IP enters the abuse log.
-		let ip_hash = security::digest(ip.as_deref().unwrap_or("unknown"))
+		let ip_hash = address_digest
 			.iter()
 			.map(|b| format!("{b:02X}"))
 			.collect::<String>();
@@ -362,11 +372,11 @@ async fn dispatch_inner(
 			}
 			Route::Seed => Json(auth.seed().await?).into_response(),
 			Route::LoginOptions => {
-				auth.passkey_options(&headers, current.as_ref(), "login")
+				auth.passkey_options(&headers, current.as_ref(), "login", &address_digest)
 					.await?
 			}
 			Route::RegisterOptions => {
-				auth.passkey_options(&headers, current.as_ref(), "register")
+				auth.passkey_options(&headers, current.as_ref(), "register", &address_digest)
 					.await?
 			}
 			Route::LoginVerify | Route::RegisterVerify => {

@@ -41,8 +41,11 @@ MSRV 1.88, not yanked. Core archive SHA256:
 - [0.5.5 `core.rs`](https://docs.rs/crate/webauthn-rs-core/0.5.5/source/src/core.rs)
   supports the existing byte-handle registration builder, required resident key
   and required UV, `none` attestation, exact origin policy, strict counters and
-  `allow_backup_eligible_upgrade(false)`. Defaults keep cross-origin/subdomain/
-  port relaxation disabled. Counter zero/zero remains valid; nonzero
+  `allow_backup_eligible_upgrade(false)`. Exact origin/subdomain/port policy
+  remains enforced. **CrossOrigin is checked for registration only** in 0.5.5,
+  not assertions; the frozen custom C# origin callback also ignores that field
+  on assertion. Existing `crossOrigin:false` fixtures do not prove its rejection,
+  and no new assertion-side policy was introduced. Counter zero/zero remains valid; nonzero
   non-increase is rejected upstream. Both BE transitions remain rejected.
 - The only behavioral API adaptation is the documented resident-login hook
   `AuthenticationState::set_allowed_credentials`: after credential-ID lookup
@@ -190,5 +193,8 @@ selector stays a proven failure on both .NET and Rust, not a passing test.
 Local full outputs are `/tmp/opencode/221-deny-active-approved.log`,
 `/tmp/opencode/221-clippy-license-approved.log`, and
 `/tmp/opencode/221-workspace-license-approved.log`. The license/audit blocker is
-resolved and the ticket is **ready for the merger**, not merged, deployed or
-marked accepted. No later-wave work or production access was performed.
+resolved; at the license-only checkpoint the ticket was ready for the merger,
+not merged, deployed or marked accepted. The subsequent Medium allocation-review
+fix and fresh functional evidence are in `auth-parity.md`; #221 is unaccepted
+pending review of that fix and #222 remains blocked. No later-wave work or
+production access was performed.

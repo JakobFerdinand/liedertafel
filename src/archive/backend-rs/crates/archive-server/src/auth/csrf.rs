@@ -26,6 +26,7 @@ impl Auth {
 		&self,
 		headers: &HeaderMap,
 		current: Option<&CurrentSession>,
+		address_digest: &[u8],
 	) -> Result<Response, AuthError> {
 		let browser = cookie(headers, "archive.csrf")
 			.filter(|v| token_digest(v).is_some())
@@ -35,7 +36,16 @@ impl Auth {
 		let session = current.map(|s| s.token_digest.as_slice());
 		let now = self.clock.now();
 		let mut tx = self.pool.begin().await?;
-		self.cleanup(&mut tx).await?;
+		self.lock_state_allocations(&mut tx).await?;
+		let reuse: Option<bool> = sqlx::query_scalar("SELECT session_digest IS NOT DISTINCT FROM $2 AND expires_at>$3 FROM archive_csrf WHERE browser_digest=$1")
+			.bind(&browser_digest).bind(session).bind(now).fetch_optional(&mut *tx).await?;
+		self.reserve_state_allocation(
+			&mut tx,
+			address_digest,
+			reuse.is_none(),
+			current.is_none() && reuse != Some(true),
+		)
+		.await?;
 		let token:String=sqlx::query_scalar("INSERT INTO archive_csrf(browser_digest,request_token,session_digest,expires_at) VALUES($1,$2,$3,$4) ON CONFLICT(browser_digest) DO UPDATE SET request_token=CASE WHEN archive_csrf.session_digest IS NOT DISTINCT FROM excluded.session_digest AND archive_csrf.expires_at>$5 THEN archive_csrf.request_token ELSE excluded.request_token END, session_digest=excluded.session_digest, expires_at=excluded.expires_at RETURNING request_token")
 			.bind(&browser_digest).bind(opaque()).bind(session).bind(now+Duration::hours(2)).bind(now).fetch_one(&mut *tx).await?;
 		tx.commit().await?;

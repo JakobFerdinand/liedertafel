@@ -135,10 +135,17 @@ impl App {
 		))
 	}
 	pub fn client(&self) -> Client {
+		// Each virtual browser models a separate peer; a single Client keeps its
+		// address for abuse-limit/race tests. Signature-vector suites create many
+		// browsers and must reach the verifier, not an unrelated shared "unknown"
+		// address quota. Anonymous allocation tests supply their own exact peers.
+		static NEXT_PEER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+		let peer = NEXT_PEER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 		Client {
 			router: self.router.clone(),
 			cookies: BTreeMap::new(),
 			token: String::new(),
+			peer: (std::net::Ipv4Addr::from(0xc6120000 + peer % 131072), 54321).into(),
 		}
 	}
 	pub async fn member(&self) -> Client {
@@ -191,13 +198,13 @@ pub struct Client {
 	pub router: Router,
 	pub cookies: BTreeMap<String, String>,
 	pub token: String,
+	peer: std::net::SocketAddr,
 }
 impl Client {
 	pub async fn csrf(&mut self) {
-		self.token = self.get("/api/antiforgery").await.1["token"]
-			.as_str()
-			.unwrap()
-			.to_owned();
+		let (status, body) = self.get("/api/antiforgery").await;
+		assert_eq!(status, 200, "{body}");
+		self.token = body["token"].as_str().unwrap().to_owned();
 	}
 	pub async fn get(&mut self, path: &str) -> (StatusCode, Value) {
 		self.request("GET", path, Value::Null).await
@@ -206,28 +213,25 @@ impl Client {
 		self.request("POST", path, body).await
 	}
 	pub async fn request(&mut self, method: &str, path: &str, body: Value) -> (StatusCode, Value) {
-		let response = self
-			.router
-			.clone()
-			.oneshot(
-				Request::builder()
-					.method(method)
-					.uri(path)
-					.header(
-						"cookie",
-						self.cookies
-							.iter()
-							.map(|(k, v)| format!("{k}={v}"))
-							.collect::<Vec<_>>()
-							.join("; "),
-					)
-					.header("X-CSRF-TOKEN", &self.token)
-					.header("content-type", "application/json")
-					.body(Body::from(body.to_string()))
-					.unwrap(),
+		let mut request = Request::builder()
+			.method(method)
+			.uri(path)
+			.header(
+				"cookie",
+				self.cookies
+					.iter()
+					.map(|(k, v)| format!("{k}={v}"))
+					.collect::<Vec<_>>()
+					.join("; "),
 			)
-			.await
+			.header("X-CSRF-TOKEN", &self.token)
+			.header("content-type", "application/json")
+			.body(Body::from(body.to_string()))
 			.unwrap();
+		request
+			.extensions_mut()
+			.insert(axum::extract::ConnectInfo(self.peer));
+		let response = self.router.clone().oneshot(request).await.unwrap();
 		let status = response.status();
 		for header in response.headers().get_all("set-cookie") {
 			let pair = header.to_str().unwrap().split(';').next().unwrap();

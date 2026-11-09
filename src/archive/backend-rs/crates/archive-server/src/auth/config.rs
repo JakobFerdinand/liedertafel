@@ -25,6 +25,8 @@ pub struct AuthConfig {
 	pub max_verify_failures: i64,
 	pub max_passkeys: i64,
 	pub max_passkey_name: usize,
+	/// Lowerable operational cap, never above the hard 4096-state ceiling.
+	pub max_outstanding_auth_state: i64,
 }
 impl AuthConfig {
 	pub fn development() -> Self {
@@ -41,6 +43,7 @@ impl AuthConfig {
 			max_verify_failures: 10,
 			max_passkeys: 10,
 			max_passkey_name: 100,
+			max_outstanding_auth_state: 4096,
 		}
 	}
 	pub fn from_env(development: bool) -> Result<Self, super::AuthError> {
@@ -80,6 +83,10 @@ impl AuthConfig {
 				&mut config.max_verify_failures,
 			),
 			("PasskeyMaxPerAccount", &mut config.max_passkeys),
+			(
+				"MaxOutstandingAuthState",
+				&mut config.max_outstanding_auth_state,
+			),
 		] {
 			if let Ok(value) = std::env::var(format!("Authentication__{name}")) {
 				*target = value.parse().map_err(|_| super::AuthError::Configuration)?;
@@ -114,6 +121,7 @@ impl AuthConfig {
 			|| self.max_passkey_name == 0
 			|| self.max_passkey_name > 100
 			|| self.max_code_attempts < 1
+			|| !(1..=4096).contains(&self.max_outstanding_auth_state)
 			|| self.max_email_requests < 1
 			|| self.max_ip_requests < 1
 			|| self.max_verify_failures < 1

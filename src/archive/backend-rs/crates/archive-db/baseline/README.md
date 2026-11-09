@@ -116,8 +116,9 @@ same transaction commits**.
 The native process suite translates `tests/archive/backend/RuntimeGrantsTests.cs`
 and adds #220's schema/CLI cases. It restores `neon-schema.sql` into a separate
 oracle database and compares complete `pg_dump --schema-only` output from both
-databases, excluding the new Rust history table and the three additive #221
-auth tables (`archive_sessions`, `archive_csrf`, `archive_ceremonies`). Their DML,
+databases, excluding the new Rust history table and the four additive #221
+auth tables (`archive_sessions`, `archive_csrf`, `archive_ceremonies`,
+`archive_auth_allocation_budgets`). Their DML,
 constraints and behavior are exercised by the auth/real-role suites described in
 `../../../docs/auth-parity.md`; the frozen oracle itself is unchanged. Both dumps use the
 same pg_dump 17 binary; only transient restrict tokens are normalized. Ownership

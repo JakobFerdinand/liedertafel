@@ -1,5 +1,5 @@
 use super::{
-	Auth, AuthError,
+	Auth, AuthError, LIMITED,
 	mail::code_message,
 	security::{code_hash, normalize_email, opaque},
 	session::roles,
@@ -18,7 +18,6 @@ use tracing::Instrument;
 use uuid::Uuid;
 
 const INVALID: &str = "Der Code ist ungültig oder abgelaufen.";
-const LIMITED: &str = "Zu viele Anfragen. Bitte später erneut versuchen.";
 
 impl Auth {
 	pub(super) async fn request_code(

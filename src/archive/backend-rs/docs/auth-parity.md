@@ -2,10 +2,11 @@
 
 The frozen C# backend/tests and the frontend remain unchanged. Authentication is
 implemented in `crates/archive-server/src/auth`; migration 2 adds only
-`archive_sessions`, `archive_csrf`, and `archive_ceremonies`. Identity users,
+`archive_sessions`, `archive_csrf`, and `archive_ceremonies`; migration 3 adds the
+fixed-size `archive_auth_allocation_budgets` ledger for the security-review fix. Identity users,
 roles, passkey COSE JSON, salted email-code hashes, invitations, and audit enum
 numbers remain canonical. The canonical Neon grant script is unchanged; the
-native migration gate exercises runtime DML on all three additive tables and
+native migration gate exercises runtime DML on all four additive tables and
 still denies both migration histories and runtime DDL.
 
 ## Security boundary
@@ -18,11 +19,17 @@ upgrading that crate. Its use is deliberate, not a claim of independent audit.
 The high-level passkey builder does not request required resident credentials,
 and its discoverable UUID helper rejects Identity's existing 36-byte handles.
 
-- Upstream generates challenges and verifies complete ceremonies: client-data
-  type/challenge/origin/cross-origin, RP hash, UP/UV, algorithms, signatures,
+- Upstream generates challenges and verifies client-data type/challenge/exact
+  origin, RP hash, UP/UV, algorithms, signatures,
   counters, and signed backup flags. No server-side ceremony/signature crypto is
   reimplemented, no verifier failure is bypassed, and public options are not
   patched independently of their matching server state.
+- **CrossOrigin qualification (independent review correction):** 0.5.5 checks
+  that field during registration, **not assertion verification**. The frozen
+  C# custom origin callback likewise ignores it on assertion. Existing signed
+  fixtures use `crossOrigin:false` and do **not** prove assertion-side rejection.
+  Exact origin allowlists remain enforced. No assertion-side hardening or new
+  rejection policy was silently added as part of the allocation fix.
 - Required UV/resident policy is set on the upstream builder; attestation is
   `none` without a CA/device-trust requirement, as in the frozen application.
   Strict counters and unchanged backup eligibility remain enabled. Zero/zero
@@ -160,7 +167,7 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 # Explicit SQL gates, otherwise reported as ignored:
 cargo test -p archive-server --locked --test auth_api --test passkey_api \
-  --test archive_access -- --ignored
+  --test archive_access --test anonymous_state -- --ignored
 cargo test -p archive-server --locked --test migrate_process \
   postgres_migration_contract -- --ignored --nocapture
 ```
@@ -305,8 +312,107 @@ functional code or dependency-version changes since. See
 [`auth-dependency-audit.md`](auth-dependency-audit.md) for the exact active audit,
 policy-scope check and logs.
 
-The ticket is **ready for the merger**, not accepted/merged/deployed. Supported
+At that license-only checkpoint the ticket was **ready for the merger**, not
+accepted/merged/deployed; the subsequent allocation-review fix below is awaiting
+review. Supported
 native **OpenSSL 3.5.9** and the upstream v5 security-support qualification remain
 unchanged. The frozen Playwright test remains honestly failed on both origins;
 pre-cutover production compatibility recheck and later Aspire/image gates are
 still required. #222 has not been started.
+
+## Independent security review: bounded anonymous state allocation
+
+The independent review found a Medium availability/storage-growth issue: cookie-less
+CSRF/options requests could allocate PostgreSQL state without the email-code abuse
+limits. It is addressed at the existing HTTP/state-store seam, not with a general
+throttling framework or infrastructure change:
+
+- Both routes use **one shared PostgreSQL transaction advisory lock** for state
+  allocation. Before an anonymous CSRF token creation/rotation or login challenge
+  write, they spend from the **same 30-allocation/10-minute effective-address
+  budget**, shared by all replicas. Replacing an existing login challenge spends
+  budget too; discarding cookies or changing the untrusted forwarding hops does
+  not bypass it. The managed one-trusted-ingress-hop assumption is unchanged.
+- Migration **3** preallocates **1024 reusable address slots**, with a primary key
+  constrained to `0..1023`, SHA256 address digests and a checked `0..30` counter.
+  Request handling only **UPDATEs** slots; it cannot create an unbounded address
+  table. An expired slot is reused in place; a full ledger fails closed.
+  No raw address, digest, cookie or credential is emitted as a log/metric label.
+- A combined **4096-row ceiling** covers CSRF and ceremony state, including
+  authenticated allocation, checked under that same lock after bounded expiry
+  cleanup. `Authentication__MaxOutstandingAuthState` may lower it (`1..4096`),
+  not remove it or raise the hard maximum. Reuse does not allocate another row.
+  Saturation is explicit 429, not eviction of another live browser's state.
+- Existing valid CSRF reuse stays free, reusable in parallel and across replicas
+  even at capacity. Pre-auth/session binding, the two-hour CSRF lifetime, anonymous
+  **no-cookie/no-header** login options and five-minute single-use server-bound
+  ceremonies are preserved. Rejected allocation rolls back budget/cleanup/state
+  writes, sets no cookie and retains the last valid ceremony/token. Rate and
+  outstanding-state capacities recover on their respective expiries.
+- The response remains no-store JSON **429** with the existing title
+  `Zu viele Anfragen. Bitte später erneut versuchen.`. The special **400**
+  `Ungültiger Sicherheitstoken.` retry contract is unchanged. Fixed, unlabeled
+  `archive.auth.allocations_limited` and existing failure counters record denial;
+  the native gRPC OTLP gate checks both the denial metric and address/digest
+  redaction under `RUST_LOG=trace`.
+
+### Regression loop and scope
+
+`anonymous_state` exercises real HTTP handlers and migrated PostgreSQL with only
+the existing time/mail boundaries replaced. CSRF and login-options tests each
+went **red** at request 31 (**200 instead of 429**) before their gate was added,
+then green. Disabling only the global cap made the concurrent-address test go red
+(40 accepted instead of 2 remaining slots); that temporary mutation was restored.
+Six tests cover cookie-less repetition/no state change on rejection (including
+rollback of expired cleanup), route/replica sharing, varying untrusted hops,
+parallel valid CSRF reuse, challenge replacement, concurrent new-address global
+saturation, fixed ledger cardinality/schema checks and expiry-based recovery.
+
+The shared HTTP test client now has an explicit stable synthetic peer per virtual
+browser instead of all independent clients falling into `unknown`: otherwise the
+large signed-negative corpus hit the allocation quota before the verifier. A
+single client still retains its address for abuse/race tests. Cryptographic vectors
+and their expected rejections were not weakened; the allocation suite deliberately
+shares exact addresses across routes and independent Auth instances.
+
+The review also narrowed the **CrossOrigin** evidence claim above. Only the docs
+and a matching source comment were corrected; assertion policy was not hardened
+or changed and no nonexistent rejection test is claimed. Frozen sources/tests,
+the Identity row fixture, canonical grants and the approved active dependency
+policy remain unchanged. #221 is **unaccepted pending review of this fix**;
+#222 remains blocked.
+
+### Fresh verification after the production allocation change (2026-11-09)
+
+Merged the latest local integration tip (`0ff95e6`, already up to date), then ran
+fmt → clippy → workspace tests **sequentially**, with `--locked` where applicable.
+All Rust build/test commands used supported, statically linked **OpenSSL 3.5.9**
+(`OPENSSL_DIR=/tmp/opencode/221-openssl-359/install OPENSSL_STATIC=1`) and the same
+resource-only `CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0`, `-j 2` settings.
+
+| Fresh gate | Observed result |
+| --- | --- |
+| Format check, clippy with `-D warnings`, workspace tests | Pass; **31 passed, 0 failed, 27 explicitly ignored** |
+| Explicit real-PG `anonymous_state` / `archive_access` / `auth_api` / `passkey_api` | **6 + 1 + 12 + 7 = 26 passed**, no ignored cases in these gated runs |
+| Explicit native migration/schema/canonical-runtime-role gate | **1 passed**; migration history now 3; ledger DML and slot/counter constraints verified |
+| `cargo build --workspace --locked` | Pass; static 3.5.9 linkage rechecked |
+| Native process/replica/restart/SMTP/gRPC-OTLP harness under trace logging | Pass, including new allocation quota/metric and address/digest redaction checks |
+| Real Chromium `enroll` and synthetic .NET-row `legacy` | Both pass against the freshly rebuilt, unchanged frontend export |
+| Frozen selected .NET auth/passkey/access/Data Protection oracle suites | **46 passed, 0 skipped**; existing package warnings unchanged |
+| Active `cargo deny --locked check` without config override | **Exit 0**; advisories/bans/licenses/sources all pass, approved policy unchanged |
+
+The **frozen Playwright test is separate**: rerun against the latest Rust origin,
+**1 executed, 0 skipped, 1 failed**, still at original line 102 after successful
+email login/navigation (`Willkommen im Archiv.` absent). The same failure on
+the native .NET baseline was established by `23b6c20`; that .NET browser-baseline
+run was **not repeated** in this round. It is not counted among either passing
+real-Chromium flow or the 46 passing C# tests. See `auth-browser-baseline.md`.
+
+Full local logs are `/tmp/opencode/221-allocation-{clippy,workspace,pg-final,
+migration,native,browser-enroll,browser-legacy,dotnet-oracles,deny,frozen-browser}.log`.
+Red-loop logs are `221-allocation-csrf-red.log`, `221-allocation-options-red.log`
+and `221-allocation-global-mutation-red.log` in the same temporary directory.
+No production/Neon/ACS/AI access, infrastructure/canonical-grant change, frozen
+source/test edit, issue write, push, integration/main merge or deployment was
+performed. Acceptance of the fix remains with the reviewer; later broad
+AppHost/image and separately authorized pre-cutover gates are still unclaimed.

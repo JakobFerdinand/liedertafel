@@ -67,8 +67,10 @@ impl Auth {
 				);
 			}
 		}
-		// Defaults retain strict counter validation, no cross-origin/subdomain/port
-		// relaxation, no backup-eligibility upgrade, and no invented CA trust.
+		// Defaults retain strict counters and exact origins/subdomains/ports.
+		// Upstream 0.5.5 checks CrossOrigin only for registration, NOT assertion;
+		// the frozen C# custom origin callback also ignores it on assertion.
+		// No backup-eligibility upgrade or invented CA trust is introduced here.
 		Ok(WebauthnCore::new_unsafe_experts_only(
 			"Liedertafel Archiv",
 			&self.config.rp_id,
@@ -84,6 +86,7 @@ impl Auth {
 		headers: &HeaderMap,
 		current: Option<&CurrentSession>,
 		operation: &str,
+		address_digest: &[u8],
 	) -> Result<Response, AuthError> {
 		let core = self.core(None, operation)?;
 		let (options, state) = if operation == "register" {
@@ -136,11 +139,20 @@ impl Auth {
 			.map(str::to_owned)
 			.unwrap_or_else(opaque);
 		let mut tx = self.pool.begin().await?;
-		// Cleanup is bounded by expiry indexes; no in-memory replica-local state.
-		self.cleanup(&mut tx).await?;
+		self.lock_state_allocations(&mut tx).await?;
+		let browser_digest = digest(&browser);
+		let exists: bool = sqlx::query_scalar(
+			"SELECT EXISTS(SELECT FROM archive_ceremonies WHERE browser_digest=$1 AND operation=$2)",
+		)
+		.bind(&browser_digest)
+		.bind(operation)
+		.fetch_one(&mut *tx)
+		.await?;
+		self.reserve_state_allocation(&mut tx, address_digest, !exists, current.is_none())
+			.await?;
 		let registration = current.filter(|_| operation == "register");
 		sqlx::query("INSERT INTO archive_ceremonies(browser_digest,operation,session_digest,user_id,state,expires_at) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(browser_digest,operation) DO UPDATE SET session_digest=excluded.session_digest,user_id=excluded.user_id,state=excluded.state,expires_at=excluded.expires_at")
-			.bind(digest(&browser)).bind(operation).bind(registration.map(|s|s.token_digest.as_slice())).bind(registration.map(|s|s.account_id)).bind(state).bind(self.clock.now()+Duration::minutes(5)).execute(&mut *tx).await?;
+			.bind(browser_digest).bind(operation).bind(registration.map(|s|s.token_digest.as_slice())).bind(registration.map(|s|s.account_id)).bind(state).bind(self.clock.now()+Duration::minutes(5)).execute(&mut *tx).await?;
 		tx.commit().await?;
 		let mut response = Json(options).into_response();
 		set_cookie(
