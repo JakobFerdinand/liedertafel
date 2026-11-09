@@ -31,20 +31,23 @@ pub(super) fn invalid() -> AuthError {
 pub(super) fn fail(status: StatusCode, title: &'static str) -> AuthError {
 	AuthError::Problem(status, title)
 }
-pub(super) async fn body(request: Request) -> Result<Value, AuthError> {
+pub(super) async fn body(
+	request: Request,
+	shape: super::binding::Shape,
+) -> Result<Value, AuthError> {
 	let bytes = axum::body::to_bytes(request.into_body(), 2 * 1024 * 1024)
 		.await
 		.map_err(|_| invalid())?;
 	if bytes.is_empty() {
 		Ok(Value::Null)
 	} else {
-		serde_json::from_slice(&bytes).map_err(|_| invalid())
+		super::binding::parse(&bytes, shape).map_err(|_| invalid())
 	}
 }
 pub(super) fn field<'a>(body: &'a Value, name: &str) -> &'a Value {
 	body.as_object()
-		.and_then(|o| o.iter().rev().find(|(k, _)| k.eq_ignore_ascii_case(name)))
-		.map_or(&Value::Null, |(_, v)| v)
+		.and_then(|o| o.get(&name.to_ascii_lowercase()))
+		.unwrap_or(&Value::Null)
 }
 pub(super) fn string(value: &Value) -> Result<Option<&str>, AuthError> {
 	if value.is_null() {
@@ -128,7 +131,15 @@ async fn write(
 	} else {
 		None
 	};
-	let body = body(request).await?;
+	let body = body(
+		request,
+		if id.is_some() {
+			super::binding::Shape::Patch
+		} else {
+			super::binding::Shape::Create
+		},
+	)
+	.await?;
 	validate_fields(&body, id.is_some(), false)?;
 	let now = auth.clock.now();
 	let mut lied = existing.clone().unwrap_or_else(|| Lied {

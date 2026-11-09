@@ -212,7 +212,7 @@ async fn initiate(
 			},
 		));
 	}
-	let body = body(request).await?;
+	let body = body(request, super::binding::Shape::Upload).await?;
 	// The frozen typed request binds every supplied property before domain
 	// decisions, including fields a replacement or Partitur will later ignore.
 	if !body.is_null() && !body.is_object() {
@@ -498,6 +498,9 @@ async fn finalize(
 	let access = auth
 		.authorize(request.headers(), AccessPolicy::Editor, true)
 		.await?;
+	// Frozen FinalizeUploadRequest? binds before handler state decisions, even
+	// for finalized/cancelled sessions. Invalid JSON must never be idempotent success.
+	let body = body(request, super::binding::Shape::Finalize).await?;
 	let s = session(&origin, id, access.current.account_id).await?;
 	if s.state == 1 {
 		let d = sqlx::query_as::<_, queries::Datei>(r#"SELECT * FROM dateien WHERE "Id"=$1"#)
@@ -527,7 +530,6 @@ async fn finalize(
 			"Der Uploadzeitraum ist abgelaufen.",
 		));
 	}
-	let body = body(request).await?;
 	let declared_size = number(&body, "sizeBytes")?;
 	let declared_file = string(field(&body, "fileName"))?.map(str::trim);
 	if declared_size

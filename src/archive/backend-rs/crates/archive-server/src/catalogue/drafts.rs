@@ -154,7 +154,7 @@ async fn save(
 	let access = auth
 		.authorize(request.headers(), AccessPolicy::Editor, true)
 		.await?;
-	let body = body(request).await?;
+	let body = body(request, super::binding::Shape::Draft).await?;
 	if string(field(&body, "entwurfId"))?.and_then(|s| Uuid::parse_str(s).ok()) != Some(id)
 		|| !field(&body, "lied").is_object()
 	{

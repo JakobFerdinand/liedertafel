@@ -278,6 +278,9 @@ impl Client {
 		self.request("POST", path, body).await
 	}
 	pub async fn request(&mut self, method: &str, path: &str, body: Value) -> (StatusCode, Value) {
+		self.raw(method, path, &body.to_string()).await
+	}
+	pub async fn raw(&mut self, method: &str, path: &str, body: &str) -> (StatusCode, Value) {
 		let mut request = Request::builder()
 			.method(method)
 			.uri(path)
@@ -291,7 +294,7 @@ impl Client {
 			)
 			.header("X-CSRF-TOKEN", &self.token)
 			.header("content-type", "application/json")
-			.body(Body::from(body.to_string()))
+			.body(Body::from(body.to_owned()))
 			.unwrap();
 		request
 			.extensions_mut()

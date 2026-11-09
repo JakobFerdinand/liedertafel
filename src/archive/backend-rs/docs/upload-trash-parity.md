@@ -197,3 +197,46 @@ No live AI/mail/Neon/hosted storage, push, issue/PR write, integration/main/cuto
 merge, deploy or worktree cleanup occurred. #225/#226/#227/#230/#233/#234/#235
 integration ownership above, hosted keyless access and approval-gated cutover
 remain distinct gates; no later feature is claimed from an injected hook or seeded row.
+
+## Request-binding review remediation (2026-11-09)
+
+The two Low findings in `/tmp/opencode/liedertafel-218-upload-review.md` are
+addressed at a scoped streaming request-record boundary. Recognized properties
+bind case-insensitively in **wire arrival order**, checking each typed occurrence
+before retaining the last value. Exact duplicate invalid→valid occurrences cannot
+disappear into a `Value` map. Nested draft records use the same boundary;
+dictionary keys/unknown field names retain their data semantics. Domain validation
+still follows binding (an earlier semantically invalid string can be replaced).
+Finalize binds before session lookup/terminal replay/provider/state work, while
+empty bytes, null and objects retain their optional-body behavior. No state machine,
+provider, migration, frozen source/test/frontend or video-FK policy changed.
+
+Actual frozen assembly observations are committed in
+`tests/fixtures/upload-binding-oracle.json`: **111 controls** (84 create/patch/upload/
+draft and 27 finalize). `upload_binding` runs 84 raw HTTP/real-PG controls plus
+27 finalize bodies in both pending/finalized states (**54**), and three optional
+body controls. Rejections assert unchanged provider calls/session state. Ordinary
+integer fields accept quoted integers as the actual HTTP JSON defaults do;
+the custom Lied rowVersion converter still refuses strings. The final fixture
+includes sign/leading-zero/whitespace/fraction/exponent/overflow controls.
+
+The external reflection program `/tmp/opencode/224-remediation-binding/` invokes
+the actual frozen backend DLL, not a re-created DTO. The HTTP reflection probe
+`/tmp/opencode/224-http-binding/` invokes unchanged `LiedTestHost` and its actual
+routes: **93 HTTP observations** across all 13 auth/member DTOs, all four bodyless
+routes and finalize. Slim results are in `tests/fixtures/http-binding-oracle.json`.
+For finalize, empty/null/object reach the missing-blob 409; malformed/nonobject
+bodies fail before that path. **Development returns 500** for typed binding errors
+through its exception handler; Rust's controlled 400 is not claimed as a universal
+frozen HTTP 400. Optional auth bodies also reach their ordinary domain 400.
+
+TDD logs under `/tmp/opencode/`: `224-binding-red.log` (wire-order/discarded-invalid
+failures), `224-finalize-binding-red.log` (terminal bypass), and
+`224-numeric-binding-red.log` (quoted integers); corresponding green logs retain
+the passing runs. New HTTP seams were explicitly requested by the maintainer.
+Before this catalogue-only commit, sequential fmt → clippy → workspace passed:
+**57 passed, 117 ignored**; explicit real-PG suites **112 passed, 0 ignored**;
+active deny exited **0**. Logs: `224-binding-{fmt,clippy,workspace,pg,deny}.log`.
+Schema/Azurite/native/browser/crypto/OTLP final revalidation follows the separately
+authorized auth-binding commit and must not be inferred from these focused gates.
+Acceptance remains **HOLD pending independent rereview**; #225 stays blocked.

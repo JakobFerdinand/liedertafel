@@ -123,7 +123,7 @@ async fn action(
 				}
 			}
 		} else {
-			let body = body(request).await?;
+			let body = body(request, super::binding::Shape::Version).await?;
 			if version(&body)? != Some(d.row_version) {
 				return Err(fail(StatusCode::CONFLICT, CONFLICT));
 			}
@@ -171,7 +171,7 @@ async fn action(
 				}
 			}
 		} else {
-			let body = body(request).await?;
+			let body = body(request, super::binding::Shape::Version).await?;
 			if version(&body)? != Some(current) {
 				return Err(fail(StatusCode::CONFLICT, CONFLICT));
 			}
