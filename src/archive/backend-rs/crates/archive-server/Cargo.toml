@@ -7,6 +7,7 @@ publish.workspace = true
 description = "First Rust archive origin: static Next.js export, /api/build, readiness and the stable 404/501 miss for unported /api/* routes (spec #218, wave 1 #219)."
 
 [dependencies]
+archive-db = { path = "../archive-db" }
 archive-telemetry = { path = "../archive-telemetry" }
 axum = { version = "0.8.9", features = ["macros"] }
 tokio = { workspace = true }
@@ -18,6 +19,7 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+sqlx.workspace = true
 tower = { version = "0.5.3", features = ["util"] }
 http-body-util = "0.1.5"
 
