@@ -6,6 +6,11 @@ rereview, not accepted/merged**. #225 remains blocked. The catalogue fix is
 on integration `8ab47bb`. Frozen C#, tests, frontend, schema and dependency policy
 are unchanged.
 
+The independent rereview of `9507fea` resolved **all six original findings** and
+raised two additional Low typed-property differences (R1/R2). Their remediation
+and current verification are in the [R1/R2 section](#additional-rereview-r1r2)
+below; earlier counts are chronological snapshots.
+
 ## Scope and oracle
 
 Source audits: `/tmp/opencode/liedertafel-218-upload-review.md` (two Low findings)
@@ -107,7 +112,7 @@ Final green is the complete explicit suite below, not a count of matrix cases as
 separate test passes. Focused intermediate test-setup corrections (including a
 canonical domain 404 on missing passkey removal) are not production fixes.
 
-## Final verification (2026-11-09)
+## Prior verification (9507fea, before R1/R2)
 
 Sequential fmt check → all-target/workspace clippy → workspace → active deny,
 then explicit gates; every Cargo build/test uses `--locked`, static OpenSSL
@@ -151,4 +156,111 @@ Focused reproduction (same local-only PG/OpenSSL environment as the parity docs)
 ```bash
 cargo test -p archive-server --locked --test upload_binding --test auth_binding \
   --test passkey_api -- --ignored
+```
+
+## Additional rereview R1/R2
+
+Source: final section of `/tmp/opencode/liedertafel-218-upload-review.md`.
+Only the existing property's type distinction changes:
+
+- **R1:** `Shape::Version` (ordinary `DeleteDateiRequest` and
+  `DeletePapierkorbRequest`) now selects `WebU32`. It accepts quoted ASCII digits
+  with leading zeros, bounded by `0..4294967295`, and null. Executed .NET controls
+  reject either sign (**including `+1`, `-0`, `+0`**), whitespace, empty/Unicode
+  digits, fractions, exponents and overflow; long zero padding is accepted when
+  the value fits. JSON negative/fraction/exponent numbers also reject. This is
+  deliberately narrower than Rust's generic `u32::from_str`, which permits '+'.
+  The custom **PatchLied** converter still selects strict numeric-only `U32`:
+  even a quoted-valid-before-numeric-valid duplicate rejects.
+- **R2:** typed `Guid?` JSON properties accept only a 36-character **D** UUID,
+  case-insensitive hex, or null. The width guard plus the existing UUID parser
+  rejects compact, braced, URN, parentheses, whitespace, invalid hex and malformed
+  separators before insertion/side effects. Applies only to upload
+  `replacesDateiId` / `recordedAtEventId`, draft `entwurfId`, nested Datei `id`.
+  Auth AccountId remains a string, and CLI/path/domain parsers and draft
+  dictionary strings remain unchanged. No new framework, dependency or schema.
+
+### Independent frozen observations and HTTP/PG controls
+
+New committed `tests/fixtures/typed-binding-oracle.json`: **572 actual frozen
+assembly observations**, **146 accepted / 426 rejected**. Generation source and
+full output: `/tmp/opencode/224-typed-binding-oracle/`. It invokes the actual Web
+`JsonOptions` and frozen DTO types (same SHA256/MVID as above), not re-created
+records. Of these, **357** are ordinary/custom uint observations (119 each for
+the two delete records and patch); **215** cover all four Guid fields, formats,
+nulls, both duplicate orders, exact duplicates and overwritten nested arrays.
+Earlier 111/830/93 fixtures and their six resolved contracts stay intact.
+
+New committed `tests/fixtures/typed-http-binding-oracle.json`: **44 actual frozen
+HTTP observations** via unchanged `LiedTestHost`, generated externally at
+`/tmp/opencode/224-typed-http-oracle/` (InMemory/fake storage, not PostgreSQL).
+All three delete routes return **204** for current quoted/zero-padded versions;
+null reaches normal **409**. Strict patch rejects quoted versions, even before
+later valid duplicate. All four Guid fields accept canonical D; upload nulls
+remain optional, draft null IDs reach ordinary domain **400**. Non-D and
+invalid-before-valid Guid occurrences yield Development **500**, without a new
+ticket. Counts: **27 binding 500, 6 delete 204, 3 domain 409, 4 upload 201,
+2 draft 200, 2 draft-domain 400**. Dynamic local synthetic IDs are retained in
+raw JSON; no cookies/tickets/secrets are stored in the fixture.
+
+`typed_binding` adds **two explicit real-PG HTTP tests**:
+
+- **476 uint route controls**: all 119 delete-file observations, 119 owner-delete
+  observations on **each** Lied/Auftritt route and 119 strict patch observations.
+  Matching versions delete/update; bound null/stale values reach the unchanged
+  domain policy. Typed rejections preserve row snapshots and provider calls.
+- **215 Guid controls** use existing matching replacement/event/draft/file IDs,
+  not missing-target errors. Rejection preserves all catalogue/session/draft SQL
+  rows and provider calls; canonical/case/null/duplicate success checks retained
+  IDs. Two extra compact/braced **auth AccountId string** mutations still succeed.
+  One extra Guid-looking suggestion string reaches normal draft-domain rejection,
+  not the typed-Guid converter.
+
+TDD: `/tmp/opencode/224-r1-red.log` and `224-r2-red.log` each **0 passed / 1
+failed / 0 ignored** (R2 one filtered); R1 initially used the 111-per-DTO corpus,
+then gained eight additional executed quoted-edge observations per DTO. Final
+`224-r1-r2-green.log`: **2 passed / 0 failed / 0 ignored**. Initial invalid seeded
+Datei-kind setup failure (`224-r1-setup-failure.log`) and external HTTP-probe
+compile correction are setup failures, not behavioral red/pass evidence.
+
+### Current full revalidation (2026-11-09)
+
+Latest integration merged/check-confirmed first (**already up to date**, still
+`8ab47bb`); no acceptance/integration/main merge. Sequential fmt → clippy →
+workspace → active deny used the same static OpenSSL **3.5.9**, persistent own
+target and locked/resource settings above, followed by all explicit gates:
+
+| Gate | Actual result |
+| --- | --- |
+| fmt / clippy `-D warnings` / default workspace build | Pass |
+| Ordinary workspace | **57 passed, 0 failed, 124 ignored** |
+| Explicit full real-PG suite (including original six fixes) | **119 passed, 0 ignored** |
+| Separate schema/canonical runtime grants | **1 passed** |
+| Private Azurite 3.35.0 | **4 passed, 0 ignored** |
+| Every ordinary ignored subsequently executed | **124/124** (119 + 1 + 4) |
+| Active deny / native linkage | Exit **0**; embedded **3.5.9**, no dynamic ssl/crypto |
+| Detector/lifecycle | **110 passed, 0 skipped** |
+| Native auth/member/catalogue/upload + private replays | **4 pass + 4 clean replays** |
+| Same unchanged frozen .NET 22-class selection | **234 passed, 0 skipped** |
+| Same unchanged frozen static/mock UI selection | **59 scheduled: 58 passed, 1 skipped** |
+
+Logs: `/tmp/opencode/224-typed-{fmt,clippy,workspace,deny,pg,schema-grants,azurite,
+build,linkage,detector,native-auth,members-native,catalogue-native,upload-native,
+dotnet-oracles,frozen-browser}.log`, four `*-replay.log` and the retained
+`224-typed-dotnet-command.txt`. Private 0700/0600 captures:
+`223-native-auth-telemetry-llPnHa`, `223-members-native-telemetry-m0iQt9`,
+`223-catalogue-native-telemetry-RJV87A`, `223-upload-native-telemetry-qM2FDo`.
+
+**Still pending independent rereview**, not accepted/merged; #225 stays blocked.
+Previous frozen real-member/passkey failures are not rerun or counted as passes;
+the static/mock real-member flow still skips. Original uncaptured redaction
+failure stays unclassified. Frozen video FK23503/500 refusal remains exercised,
+not successful cleanup. All hosted/production/later-wave caveats above remain.
+Frozen sources/frontend/infra/deps/schema/video behavior are unchanged; no push,
+issue/PR write, deployment, production access, cleanup or #225 work.
+
+Focused new gate:
+
+```bash
+cargo test -p archive-server --locked --test typed_binding -- --ignored
 ```

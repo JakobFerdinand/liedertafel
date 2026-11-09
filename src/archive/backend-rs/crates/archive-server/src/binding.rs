@@ -22,6 +22,7 @@ pub(crate) enum Shape {
 enum Property {
 	String,
 	U32,
+	WebU32,
 	I32,
 	I64,
 	Bool,
@@ -74,7 +75,7 @@ impl Shape {
 			},
 			Self::Version => {
 				if name == "rowversion" {
-					U32
+					WebU32
 				} else {
 					Unknown
 				}
@@ -142,10 +143,11 @@ impl<'de> Visitor<'de> for Record {
 			let value = match property {
 				Property::String => typed!(String),
 				Property::U32 => typed!(u32),
+				Property::WebU32 => web_u32::<A::Error>(map.next_value()?)?,
 				Property::I32 => integer::<i32, A::Error>(map.next_value()?)?,
 				Property::I64 => integer::<i64, A::Error>(map.next_value()?)?,
 				Property::Bool => typed!(bool),
-				Property::Guid => typed!(uuid::Uuid),
+				Property::Guid => guid::<A::Error>(map.next_value()?)?,
 				Property::Strings => typed!(Vec<Option<String>>),
 				Property::Record(shape) => map.next_value_seed(Record(shape))?,
 				Property::Files => map.next_value_seed(Files)?,
@@ -168,6 +170,28 @@ impl<'de> Visitor<'de> for Record {
 		}
 		Ok(Value::Object(values))
 	}
+}
+// Only typed Guid? DTO properties use System.Text.Json's 36-character D format.
+// Keep string AccountId/domain/CLI/path parsing outside this converter.
+fn guid<E: serde::de::Error>(value: Option<String>) -> Result<Value, E> {
+	let Some(text) = value else {
+		return Ok(Value::Null);
+	};
+	if text.len() != 36 {
+		return Err(E::custom("expected a D-format Guid"));
+	}
+	let id = uuid::Uuid::parse_str(&text).map_err(E::custom)?;
+	serde_json::to_value(id).map_err(E::custom)
+}
+// The executed ordinary uint oracle accepts quoted ASCII digits/leading zeros,
+// but unlike signed integers it rejects both '+' and '-' (even '-0').
+fn web_u32<E: serde::de::Error>(value: Value) -> Result<Value, E> {
+	if let Some(text) = value.as_str()
+		&& (text.is_empty() || !text.bytes().all(|b| b.is_ascii_digit()))
+	{
+		return Err(E::custom("invalid quoted unsigned integer"));
+	}
+	integer::<u32, E>(value)
 }
 // HTTP's ordinary integer converters accept quoted integers; the custom Lied
 // rowVersion converter (U32 above) deliberately does not. Parse each occurrence.

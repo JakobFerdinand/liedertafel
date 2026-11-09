@@ -246,3 +246,9 @@ follow-up are recorded in [request-binding-parity.md](request-binding-parity.md)
 including final **57 passed/122 ignored**, all **122 explicitly run**, actual
 frozen HTTP/13-DTO evidence and fresh native/schema/Azurite/crypto/OTLP results.
 Earlier snapshots above are chronological, not final acceptance overrides.
+
+The subsequent independent R1/R2 typed-uint/Guid findings and remediation are in
+that document's additional-rereview section: current **57 passed / 124 ignored**,
+all **124 explicitly executed**, with fresh full native/schema/Azurite/UI/OTLP
+gates. All six original findings were independently resolved; R1/R2 remediation
+still awaits rereview. #224 remains unaccepted/unmerged and #225 blocked.
