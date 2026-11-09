@@ -20,10 +20,10 @@ param bindCustomDomain = true
 param bindManagedCertificate = true
 param logAnalyticsDailyCapGb = 1
 
-// ARC-042: maintainer destination addresses (primary first, then the second
-// maintainer). Not secrets, but they appear in deployment diffs/portal — set
-// them here only. While this list is empty, every alert deploys disabled.
-param maintainerAlertEmails = ['j.wegenschimmel+liedertafel-archiv@gmail.com']
+// ARC-042: the maintainer alert rules were removed on 2026-11-08 (~EUR 0.10
+// per rule per 8 days); with them the `maintainerAlertEmails` param went.
+// The AI notice thresholds stay (the app still logs its notices; see the
+// "Failure monitoring (ARC-042 removal)" section of the README).
 param deployRoleAssignments = true
 // ARC-043 (#150): comma-separated EUR thresholds for the AI spend notices
 // before the EUR 15 hard cap (app + reading sweep). Deliberately empty in
