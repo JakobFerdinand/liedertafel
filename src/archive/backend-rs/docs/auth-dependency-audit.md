@@ -1,7 +1,10 @@
 # #221 dependency audit follow-up (2026-11-09)
 
-This is evidence and a **policy proposal, not acceptance or license approval**.
-`deny.toml` remains unchanged. No advisory ignores, fork/patch, custom ceremony
+The maintainer explicitly approved the narrow license policy on **2026-11-09**;
+it is now applied to the **active `deny.toml`**, retaining upstream notices and
+license/source-availability obligations. General MPL/copyleft remains unallowed.
+This license approval is **not a security waiver, merge or cutover approval**.
+No advisory ignores, fork/patch, custom ceremony
 or signature verifier, credential deletion, counter reset or re-enrollment was
 introduced. Compatibility is for the actually inventoried **ES256** key, not all
 algorithms .NET could theoretically enroll. The separately authorized
@@ -95,8 +98,9 @@ cargo deny --locked check
 | Configuration | Result |
 | --- | --- |
 | Candidate `9450e95`, core 0.6.2, real policy | Exit **5**: RUSTSEC-2023-0071 in `rsa 0.10.0-rc.19` through crypto-glue; licenses also fail |
-| Core 0.5.5, real **unchanged** policy | Exit **4**: **advisories/bans/sources pass**, licenses fail |
-| Core 0.5.5, explicitly selected **review-only proposal** below | Exit **0**, all four checks pass; duplicate-version warnings remain |
+| Core 0.5.5 before license approval (`e603f92`), previous active policy | Exit **4**: **advisories/bans/sources pass**, licenses fail |
+| Core 0.5.5, then-review-only proposal | Historical exit **0**; not counted as active-policy approval |
+| Core 0.5.5, maintainer-approved **active `deny.toml`** | Exit **0**: **advisories/bans/licenses/sources pass**; no advisory waiver |
 
 `cargo metadata --locked` confirms **rsa and crypto-glue are absent**, not merely
 unused or hidden by an ignore. The 0.6.2 → 0.5.5 version-only check first failed
@@ -104,9 +108,9 @@ compilation at the changed upstream byte-wrapper/single-credential APIs; those
 adapter calls were then changed using the versioned source above. Existing HTTP,
 native/replica/OTLP and real-browser assertions are retained, not weakened.
 
-## Exact license failures and smallest proposed policy change
+## Exact license inventory and authorized active policy
 
-The active Linux x86_64/aarch64 audit rejects these **11 package versions**.
+Before approval, the Linux x86_64/aarch64 audit rejected these **11 package versions**.
 Declared SPDX expressions are preserved in
 [`auth-dependency-licenses.json`](auth-dependency-licenses.json), derived from
 the actual locked Cargo metadata and matched to the cargo-deny failures:
@@ -117,27 +121,74 @@ the actual locked Cargo metadata and matched to the cargo-deny failures:
 | `ring 0.17.14`, `rustls-webpki 0.103.16`, `untrusted 0.9.0` | ISC |
 | `foldhash 0.2.0` (existing SQLx graph) | Zlib |
 | `quoted_printable 0.5.2` (lettre) | 0BSD |
-| `base64urlsafedata 0.5.5` | **MPL-2.0, approval required** |
-| `webauthn-attestation-ca 0.5.5` | **MPL-2.0, approval required** |
-| `webauthn-rs-core 0.5.5` | **MPL-2.0, approval required** |
-| `webauthn-rs-proto 0.5.5` | **MPL-2.0, approval required** |
+| `base64urlsafedata 0.5.5` | **MPL-2.0, approved exact-version exception** |
+| `webauthn-attestation-ca 0.5.5` | **MPL-2.0, approved exact-version exception** |
+| `webauthn-rs-core 0.5.5` | **MPL-2.0, approved exact-version exception** |
+| `webauthn-rs-proto 0.5.5` | **MPL-2.0, approved exact-version exception** |
 
-Recommendation: add just the **three permissive entries** `0BSD`, `ISC`, `Zlib`
-with named-crate comments, then (only after explicit maintainer approval) add
-**four exact name+version MPL exceptions**, never a global MPL/copyleft allow.
+The authorized change adds just the **three permissive entries** `0BSD`, `ISC`,
+`Zlib` with named-crate comments and the **four exact name+version MPL exceptions**
+above. There is no global MPL/copyleft allow and no exception for another version.
 `MIT-0` is not necessary: AWS-LC's alternative clauses can use already-allowed
 licenses once ISC is allowed. Platform-only crates outside the configured Linux
-graph are not silently added to the proposal. No modified MPL dependency source
-is vendored; upstream license/notice/source-availability obligations still need
-the maintainer's review, not an agent's legal assurance.
+graph are not added to the policy. No modified MPL dependency source is vendored;
+upstream license, copyright and notice text is not removed or changed. Retain
+those notices and the source-availability obligations in any later distribution;
+the dependency inventory remains recorded rather than replaced by an agent's
+legal assurance.
 
-[`auth-license-policy.proposed.toml`](auth-license-policy.proposed.toml) is a full,
-valid **non-active review artifact** so the orchestrator can evaluate that exact
-small change without accidentally changing the real policy:
+The agent-authored whole-config proposal was removed once applied: **`deny.toml`
+is the only active policy**, avoiding a second drifting copy. Its earlier form
+and conditional audit are retained in commit `e603f92` as historical evidence.
+The actual default audit command is:
 
 ```bash
-cargo deny --locked --config docs/auth-license-policy.proposed.toml check
+cargo deny --locked check
 ```
 
-That conditional green run is **not** an approved-policy pass. The default audit
-and #221 acceptance remain blocked on license review; #222 has not been started.
+The current active audit and config/docs-only verification results are recorded
+below. #222 has not been started; readiness for the merger does not itself merge
+the ticket or approve deployment. Native OpenSSL 3.5.9 and the honest upstream
+v5 support qualification above remain requirements, not waived by license approval.
+
+## Active-policy verification after explicit approval (2026-11-09)
+
+Merged the current integration tip first (`0ff95e6`, already up to date). Ran
+upstream cargo-deny **0.20.2** from `src/archive/backend-rs` with **no `--config`
+override**, using the actual active `deny.toml`:
+
+```text
+$ cargo deny --locked check
+advisories ok, bans ok, licenses ok, sources ok
+exit: 0
+```
+
+Seventeen duplicate-version warnings remain under the unchanged
+`multiple-versions = "warn"` policy. No errors, advisory ignores or security
+waivers were added. A TOML scope check also confirmed exactly the three
+permissive additions and four `@0.5.5` MPL exceptions, MPL absent from global
+`allow`, and graph/advisory/bans policy unchanged.
+
+For this **config/docs-only** change, sequential format → clippy → workspace
+tests were rerun and passed:
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --locked -j 2 -- -D warnings
+cargo test --workspace --locked -j 2
+```
+
+Workspace result: **31 passed, 0 failed, 21 explicitly ignored**. Clippy/tests
+used the same supported native build with
+`OPENSSL_DIR=/tmp/opencode/221-openssl-359/install OPENSSL_STATIC=1`, plus
+`CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0` for build resources.
+The heavy explicit PostgreSQL/browser/native/.NET functional gates were **not
+rerun** for this policy-only change; their passing evidence remains the
+`e603f92` verifier/backend revalidation in `auth-parity.md`. The frozen Playwright
+selector stays a proven failure on both .NET and Rust, not a passing test.
+
+Local full outputs are `/tmp/opencode/221-deny-active-approved.log`,
+`/tmp/opencode/221-clippy-license-approved.log`, and
+`/tmp/opencode/221-workspace-license-approved.log`. The license/audit blocker is
+resolved and the ticket is **ready for the merger**, not merged, deployed or
+marked accepted. No later-wave work or production access was performed.

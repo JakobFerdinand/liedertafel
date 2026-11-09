@@ -234,13 +234,13 @@ The frozen Playwright test failure above remains a failure, not a passing gate.
   `cargo update -p rsa --precise 0.10.0` fails resolution: crypto-glue still
   requests the removed `sha2` feature. No newer compatible crypto-glue/WebAuthn
   release was available when checked. Resolving the upstream dependency or
-  selecting/revalidating another maintained verifier is a handoff blocker;
+  selecting/revalidating another maintained verifier was then a handoff blocker;
   do not patch cryptographic validation or suppress the check to hide it.
 - License policy rejects the MPL-2.0 WebAuthn/crypto-glue family and newly used
   0BSD/ISC components; it also reports Zlib through the existing SQLx graph.
-  `deny.toml` is unchanged: no blanket copyleft acceptance or license exception
-  was silently introduced. Maintainer review of those dependencies' licenses
-  and an explicit policy decision remain outstanding.
+  `deny.toml` was unchanged at that snapshot: no blanket copyleft acceptance or
+  license exception was silently introduced. License review was then outstanding;
+  the explicitly approved active policy is recorded below.
 - Bans and sources checks pass. Duplicate-version warnings remain warnings.
 
 The audit tool was downloaded outside the checkout from the official release;
@@ -249,18 +249,20 @@ its archive matched GitHub's SHA256
 No dependency vulnerability, license, production, or cutover approval is implied
 by the functional test evidence above.
 
-## OpenSSL maintenance-line follow-up
+## OpenSSL maintenance-line follow-up (e603f92)
 
 The pinned verifier is now upstream **0.5.5**, not a patched or forked 0.6.2.
 The dependency change removes `rsa` and `crypto-glue` completely and makes the
-advisory/bans/sources checks green without suppression. Default `cargo deny`
-still fails **licenses**: actual `deny.toml` is unchanged. The exact package/SPDX
-list, narrow **unapproved** policy proposal, support caveats and supported native
+advisory/bans/sources checks green without suppression. At `e603f92`, default
+`cargo deny` still failed **licenses** pending maintainer approval. That approval
+has now been explicitly granted and applied to the active policy (see below).
+The exact package/SPDX list, authorized narrow policy, support caveats and native
 OpenSSL build instructions are in [`auth-dependency-audit.md`](auth-dependency-audit.md).
-No license/cutover acceptance or #222 start is implied.
+No cutover approval or #222 start is implied.
 
-Full revalidation after the verifier/native-backend change used the isolated,
-statically linked **OpenSSL 3.5.9** build described there, not the host's 3.6.5:
+Full revalidation at `e603f92`, before the config/docs-only approval change, used
+the isolated, statically linked **OpenSSL 3.5.9** build described there, not the
+host's 3.6.5:
 
 | Gate | Result |
 | --- | --- |
@@ -282,3 +284,29 @@ For resource-bounded local builds the Cargo runs additionally set
 settings, not policy changes. Static frontend `pnpm run build` was rerun outside
 the checkout from the same frozen source. Live ACS, real credentials, further
 production inventory and later Aspire/image gates remain unrun and unclaimed.
+
+## Authorized active license policy (2026-11-09)
+
+The maintainer explicitly approved three permissive entries (`0BSD`, `ISC`,
+`Zlib`) with named-crate comments and exact **0.5.5** MPL-2.0 exceptions only for
+`base64urlsafedata`, `webauthn-attestation-ca`, `webauthn-rs-core` and
+`webauthn-rs-proto`, retaining upstream notices and license obligations.
+These are now in the **active `deny.toml`**; general MPL/copyleft remains
+unallowed. The agent-authored duplicate proposal was removed safely; its history
+remains at `e603f92`. No advisory waiver was approved or added.
+
+Actual **`cargo deny --locked check`**, without a config override, now exits **0**:
+`advisories ok, bans ok, licenses ok, sources ok` (duplicate-version warnings
+only). Sequential fmt → clippy → workspace tests were rerun for this
+**config/docs-only** change: **31 passed, 0 failed, 21 explicitly ignored**.
+The heavy explicit PG, native/OTLP, Chromium and .NET gates above were **not
+rerun** here; their evidence remains the full `e603f92` revalidation, with no
+functional code or dependency-version changes since. See
+[`auth-dependency-audit.md`](auth-dependency-audit.md) for the exact active audit,
+policy-scope check and logs.
+
+The ticket is **ready for the merger**, not accepted/merged/deployed. Supported
+native **OpenSSL 3.5.9** and the upstream v5 security-support qualification remain
+unchanged. The frozen Playwright test remains honestly failed on both origins;
+pre-cutover production compatibility recheck and later Aspire/image gates are
+still required. #222 has not been started.

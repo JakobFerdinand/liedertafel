@@ -106,7 +106,8 @@ update this section in the same PR whenever the member list changes.
 - Auth/passkeys (#221): before changing auth policy, session storage, mail or
   translated auth tests, read `docs/auth-parity.md` for the expert-core boundary,
   legacy synthetic fixtures, oracle/exception mapping and real PG/browser/native
-  commands and the unresolved dependency-audit/license gate. Later member routes reuse `Auth::authorize`/`RequestAccess::respond`;
+  commands, approved exact-version license exceptions and native OpenSSL/support
+  requirements. Later member routes reuse `Auth::authorize`/`RequestAccess::respond`;
   account-changing transactions reuse `Auth::revoke_sessions`.
 
 - Any `/api/*` route without a Rust implementation answers the single stable
