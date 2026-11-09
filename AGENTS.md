@@ -62,6 +62,7 @@ source-folder inventory (Drive, #98) runbook lives at
 - Archive image: `docker build -f src/archive/Dockerfile -t liedertafel-archive:local .` (Podman additionally needs `--ignorefile src/archive/Dockerfile.dockerignore`). Full smoke instructions in the archive README.
 - Rust backend workspace (wave 1, #219): build/check/test in `src/archive/backend-rs` per its nested AGENTS.md — `cargo build --workspace --locked`. Run the apphost against it with `Archive__RustOrigin=true`.
 - Rust auth/passkeys (#221): real PG HTTP gates, native restart/replica/OTLP and unchanged-static-frontend browser harnesses are documented in `src/archive/backend-rs/docs/auth-parity.md`; ignored SQL/browser gates are not ordinary unit-test passes.
+- Rust member administration/operators/mail (#222): see `src/archive/backend-rs/docs/member-parity.md` for native CLI, real PG races, delivery-only fake mail, unchanged-UI controls and frozen-browser failures. From `src/archive/backend-rs`, a focused gate is `cargo test -p archive-server --locked --test member_revocation last_active_administrator -- --ignored` (requires disposable local PostgreSQL).
 - Rust explicit migrations (#220): `archive-server --migrate`; the `archive-db` Cargo build script tracks migration additions. Native process/schema/grant checks and the frozen Neon baseline provenance are documented in `src/archive/backend-rs/crates/archive-db/baseline/README.md`.
 
 ### Linting

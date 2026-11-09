@@ -149,6 +149,7 @@ fn rfc9110_section(status: StatusCode) -> Option<&'static str> {
 		StatusCode::FORBIDDEN => Some("15.5.4"),
 		StatusCode::CONFLICT => Some("15.5.10"),
 		StatusCode::INTERNAL_SERVER_ERROR => Some("15.6.1"),
+		StatusCode::BAD_GATEWAY => Some("15.6.3"),
 		StatusCode::NOT_FOUND => Some("15.5.5"),
 		StatusCode::NOT_IMPLEMENTED => Some("15.6.2"),
 		_ => None,

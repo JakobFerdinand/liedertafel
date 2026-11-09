@@ -331,7 +331,7 @@ impl Auth {
 			Ok(response)
 		}
 	}
-	async fn check_session(
+	pub(super) async fn check_session(
 		&self,
 		tx: &mut PgConnection,
 		current: &CurrentSession,
@@ -345,7 +345,7 @@ impl Auth {
 		}
 		Ok(())
 	}
-	async fn lock_active(
+	pub(super) async fn lock_active(
 		&self,
 		tx: &mut PgConnection,
 		id: Uuid,
