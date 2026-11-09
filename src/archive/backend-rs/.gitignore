@@ -1,0 +1,2 @@
+# Build artifacts (tests/fixtures under crates/ stay tracked)
+target/

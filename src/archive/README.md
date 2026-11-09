@@ -44,6 +44,7 @@ certificates. Production cookies are Secure; local cookies use SameAsRequest.
 | `archive-mail` | Mailpit 1.27.8, HTTP inbox and SMTP; injects `Mail__Host` / `Mail__Port` |
 | `archive-storage-init` | Automatic finite local command; creates private `archive-assets` container and the configured extraction and reading queues (`archive-extraction`, `archive-reading`) |
 | `archive-api` | HTTP `/api/*`, process-only `/alive`; waits for dependencies and successful storage setup |
+| `archive-api-rs` | **Opt-in wave 1 (#219)**: `Archive:RustOrigin=true` replaces `archive-api` with the Cargo-built `backend-rs` binary (default `backend-rs/target/debug/archive-server`, `Archive:RustOriginBinary` overrides). Serves the static export (`ARCHIVE_STATIC_ROOT`, default `wwwroot`), `/api/build`, `/alive` and answers every unported `/api/*` route with the stable 404/501 ProblemDetails miss; the frontend resource keeps its `ARCHIVE_API_URL` wiring unchanged |
 | `archive-frontend` | Next.js/Turbopack; waits for API; receives `PORT` and server-only `ARCHIVE_API_URL` |
 | `archive-migrate` | **Explicit Start**; only resource receiving `ConnectionStrings__archive-migrations` |
 | `archive-worker-smoke` | **Explicit Start**; finite Blob/queue/mail verification with correlated producer/consumer tracing |

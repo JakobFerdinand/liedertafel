@@ -1,0 +1,7 @@
+# Clippy configuration for workspace option lints. Enforcement lives in the
+# workspace [lints] table; never inline #[allow]/#[expect] without a comment.
+# Test targets read fixture constants and assert loudly — unwrap/expect/panic
+# stay test-only allowances while production paths deny all three.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true

@@ -1,0 +1,29 @@
+[package]
+name = "archive-server"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "First Rust archive origin: static Next.js export, /api/build, readiness and the stable 404/501 miss for unported /api/* routes (spec #218, wave 1 #219)."
+
+[dependencies]
+archive-telemetry = { path = "../archive-telemetry" }
+axum = { version = "0.8.9", features = ["macros"] }
+tokio = { workspace = true }
+tower = "0.5.3"
+tower-http = { version = "0.7.1", features = ["fs", "trace", "util"] }
+tracing = { workspace = true }
+opentelemetry = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tower = { version = "0.5.3", features = ["util"] }
+http-body-util = "0.1.5"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "archive-server"
+path = "src/main.rs"

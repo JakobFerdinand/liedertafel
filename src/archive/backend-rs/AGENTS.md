@@ -31,9 +31,18 @@ find-docs skill (`npx ctx7@latest library <crate> "<specific query>"`, then
 
 ## Workspace layout
 
-Wave 1 (#219) creates the workspace. Add one line per member crate under the
-workspace root as they land, and update this section in the same PR whenever
-the member list changes.
+Wave 1 (#219) created the workspace.
+
+- `crates/archive-telemetry`: service-defaults equivalent — OTLP traces,
+  metrics and logs for every host, the Development-mandatory endpoint check,
+  the dev sampler and the `Liedertafel.Archive` schema parity.
+- `crates/archive-server`: the archive origin — static Next.js export,
+  `/api/build`, `/alive` (+ `/health` in Development) and the single
+  implemented-routes list with the stable JSON 404/501 miss for unported
+  `/api/*` routes.
+
+Add one line per member crate under the workspace root as they land, and
+update this section in the same PR whenever the member list changes.
 
 ## Build, check, test
 

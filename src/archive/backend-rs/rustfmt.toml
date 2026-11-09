@@ -1,0 +1,3 @@
+# The repo's indentation style is tabs (root AGENTS.md); line length stays at
+# the rustfmt default.
+hard_tabs = true
