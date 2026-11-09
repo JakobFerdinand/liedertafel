@@ -9,6 +9,12 @@ const {randomUUID,createHash,createPrivateKey,sign}=require("node:crypto");
 const fixture=require("../fixtures/dotnet-es256.json");
 const {Client}=require("pg");
 const path=require("node:path");
+const telemetry=require('./telemetry-capture.cjs').createCapture('native-auth');
+for(const [label,value] of Object.entries({member:'mitglied@liedertafel.test',unknown:'unknown@liedertafel.test',legacy:fixture.user.Email}))telemetry.marker('email',label,value);
+telemetry.marker('query','private-query','redacted-query-marker');
+telemetry.marker('credential','legacy-passkey-id',fixture.credential.credentialId);
+telemetry.marker('public-key','legacy-public-key',fixture.data.PublicKey);
+telemetry.marker('credential','legacy-passkey-name',fixture.data.Name);
 
 const binary=process.env.ARCHIVE_BINARY||path.resolve(__dirname,"../../target/debug/archive-server");
 const server=process.env.ARCHIVE_TEST_POSTGRES;
@@ -19,7 +25,6 @@ const database=`auth_native_${randomUUID().replaceAll("-","")}`;
 databaseUrl.pathname=database;
 const messages=[];
 const signals={};
-let output="";
 const children=[];
 async function listen(listener){listener.listen(0,"127.0.0.1");await once(listener,"listening");return listener.address().port;}
 const smtp=net.createServer(socket=>{
@@ -34,11 +39,12 @@ const smtp=net.createServer(socket=>{
     }
   });
 });
-const collector=http2.createServer();
+const collector=telemetry.collector(http2.createServer());
 collector.on("stream",(stream,headers)=>{
   const chunks=[];stream.on("data",c=>chunks.push(c));
   stream.on("end",()=>{
     const route=headers[":path"];
+    telemetry.signal(route,Buffer.concat(chunks));
     signals[route]=Buffer.concat([signals[route]||Buffer.alloc(0),...chunks]);
     stream.respond({":status":200,"content-type":"application/grpc"},{waitForTrailers:true});
     stream.on("wantTrailers",()=>stream.sendTrailers({"grpc-status":"0"}));
@@ -48,7 +54,7 @@ collector.on("stream",(stream,headers)=>{
 async function port(){const listener=net.createServer();const port=await listen(listener);await new Promise(r=>listener.close(r));return port;}
 async function start(port,mailPort,otlpPort){
   const child=spawn(binary,[],{env:{...process.env,ARCHIVE_ENVIRONMENT:"Development",PORT:String(port),RUST_LOG:"trace",OTEL_EXPORTER_OTLP_ENDPOINT:`http://127.0.0.1:${otlpPort}`,OTEL_EXPORTER_OTLP_TIMEOUT:"5000",OTEL_BSP_SCHEDULE_DELAY:"100",OTEL_BLRP_SCHEDULE_DELAY:"100",OTEL_METRIC_EXPORT_INTERVAL:"100",Mail__Provider:"Smtp",Mail__Host:"127.0.0.1",Mail__Port:String(mailPort),Authentication__PasskeyRelyingPartyId:"localhost",Authentication__PasskeyOrigins__0:"http://localhost","ConnectionStrings__archive-db":databaseUrl.href},stdio:["ignore","pipe","pipe"]});
-  children.push(child);child.stdout.on("data",c=>output+=c);child.stderr.on("data",c=>output+=c);
+  children.push(child);telemetry.watch(child,`origin-${children.length}`);
   for(let i=0;i<100;i++){
     if(child.exitCode!==null)throw new Error("native server exited during startup");
     try{if((await fetch(`http://127.0.0.1:${port}/alive`)).ok)return child;}catch{}
@@ -56,7 +62,7 @@ async function start(port,mailPort,otlpPort){
   }
   throw new Error("native server readiness timeout");
 }
-async function stop(child){if(child.exitCode===null){child.kill("SIGTERM");const [code]=await once(child,"exit");assert.equal(code,0);}}
+async function stop(child){if(child.exitCode===null)child.kill("SIGTERM");const [code]=await telemetry.closed(child);assert.equal(code,0);}
 async function main(){
   const admin=new Client({connectionString:server});await admin.connect();await admin.query(`CREATE DATABASE ${database}`);
   const mailPort=await listen(smtp);const otlpPort=await listen(collector);
@@ -72,13 +78,16 @@ async function main(){
     const cookies=new Map();let token="";
     async function call(port,route,body){
       const response=await fetch(`http://127.0.0.1:${port}${route}`,{method:body===undefined?"GET":"POST",headers:{cookie:[...cookies].map(([k,v])=>`${k}=${v}`).join("; "),"content-type":"application/json","X-CSRF-TOKEN":token},body:body===undefined?undefined:JSON.stringify(body)});
-      for(const cookie of response.headers.getSetCookie()){const pair=cookie.split(";")[0];const index=pair.indexOf("=");cookies.set(pair.slice(0,index),pair.slice(index+1));}
-      return {status:response.status,body:await response.json()};
+      for(const cookie of response.headers.getSetCookie()){const pair=cookie.split(";")[0];const index=pair.indexOf("=");cookies.set(pair.slice(0,index),pair.slice(index+1));telemetry.marker('cookie',pair.startsWith('archive.auth=')?'session-cookie':'csrf-cookie',pair.slice(index+1));}
+      const result={status:response.status,body:await response.json()};
+      if(route==='/api/antiforgery'&&result.status===200)telemetry.marker('cookie','csrf-request-token',result.body.token);
+      return result;
     }
     token=(await call(firstPort,"/api/antiforgery")).body.token;
     assert.equal((await call(firstPort,"/api/dev/auth/seed",{})).status,200);
     assert.equal((await call(firstPort,"/api/auth/code/request",{email:"mitglied@liedertafel.test"})).status,202);
     assert.equal(messages.length,1);const code=/Ihr Anmeldecode lautet: (\d{6})/.exec(messages[0])?.[1];assert(code);
+    telemetry.marker('otp','login-code',code);telemetry.marker('otp','invalid-code','654321');
     assert.equal((await call(secondPort,"/api/auth/code/verify",{email:"mitglied@liedertafel.test",code})).status,200);
     const bearer=cookies.get("archive.auth");assert.equal(bearer.length,43);
     const before=(await call(firstPort,"/api/auth/me?private=redacted-query-marker")).body;assert.equal(before.authenticated,true);
@@ -96,6 +105,8 @@ async function main(){
       const key=createPrivateKey({key:Buffer.from(fixture.credential.privateKey,"base64"),type:"pkcs8",format:"der"});
       const id=Buffer.from(fixture.credential.credentialId,"base64").toString("base64url");
       const credential={id,rawId:id,type:"public-key",response:{authenticatorData:authData.toString("base64url"),clientDataJSON:clientData.toString("base64url"),signature:sign("sha256",signed,key).toString("base64url"),userHandle:Buffer.from(fixture.user.Id).toString("base64url")},clientExtensionResults:{}};
+      telemetry.marker('credential','legacy-passkey-url-id',id);
+      for(const [field,value] of Object.entries(credential.response))telemetry.marker('credential',`assertion-${field.toLowerCase()}`,value);
       assert.equal((await call(secondPort,"/api/auth/passkeys/login/verify",{credential:JSON.stringify(credential)})).status,200);
       const passkeyMe=(await call(firstPort,"/api/auth/me")).body;assert.equal(passkeyMe.authMethod,"passkey");assert.equal(passkeyMe.accountId,fixture.user.Id);
       await stop(first);first=await start(firstPort,mailPort,otlpPort);
@@ -117,26 +128,29 @@ async function main(){
     // Discard cookies, alternate replicas, vary the untrusted leftmost hop.
     // Both allocation routes share one effective-address quota before inserts.
     const allocationAddress="198.51.100.221";
+    telemetry.marker('address','allocation-address',allocationAddress);telemetry.marker('address','allocation-address-digest',createHash('sha256').update(allocationAddress).digest('hex'));
     for(let i=0;i<=30;i++){
       const port=i%2?firstPort:secondPort;
       const route=i%2?"/api/antiforgery":"/api/auth/passkeys/login/options";
       const response=await fetch(`http://127.0.0.1:${port}${route}`,{method:i%2?"GET":"POST",headers:{"x-forwarded-for":`198.18.0.${i}, ${allocationAddress}`}});
       assert.equal(response.status,i<30?200:429);
+      for(const cookie of response.headers.getSetCookie())telemetry.marker('cookie','anonymous-allocation-cookie',cookie.split(';')[0].split('=').slice(1).join('='));
+      const allocation=await response.json();if(allocation.token)telemetry.marker('cookie','anonymous-allocation-csrf',allocation.token);
     }
     await stop(first);await stop(second);
+    await telemetry.drain();
     const traces=Object.entries(signals).filter(([k])=>k.includes("TraceService")).map(([,v])=>v.toString()).join("");
     const metrics=Object.entries(signals).filter(([k])=>k.includes("MetricsService")).map(([,v])=>v.toString()).join("");
     const logs=Object.entries(signals).filter(([k])=>k.includes("LogsService")).map(([,v])=>v.toString()).join("");
     for(const span of ["archive.auth.request","archive.auth.challenge","archive.auth.verify","archive.mail.send"])assert(traces.includes(span),`missing ${span}`);
     for(const metric of ["archive.auth.requests","archive.auth.verified","archive.auth.failures","archive.auth.allocations_limited"])assert(metrics.includes(metric),`missing ${metric}`);
     assert(logs.includes("Sign-in code verified"),"safe auth log exported");
-    const all=traces+metrics+logs+output;
-    for(const secret of [code,bearer,"mitglied@liedertafel.test","unknown@liedertafel.test","redacted-query-marker",fixture.credential.credentialId,fixture.data.PublicKey,allocationAddress,createHash("sha256").update(allocationAddress).digest("hex")])assert(!all.includes(secret),"auth telemetry leaked secret marker");
+    telemetry.assertClean();
     console.log("PASS: native email login, .NET ES256 old-row fresh-challenge login repeated after native restart, atomic counter/JSON persistence, cross-replica CSRF/session, bounded anonymous allocation, server-side logout, real SMTP handoff, gRPC OTLP traces/metrics/logs and redaction under RUST_LOG=trace");
   }finally{
     if(db)await db.end();
     for(const child of children)await stop(child);
-    smtp.close();collector.close();
+    smtp.close();await telemetry.drain();
     await admin.query(`DROP DATABASE ${database} WITH (FORCE)`);await admin.end();
   }
 }

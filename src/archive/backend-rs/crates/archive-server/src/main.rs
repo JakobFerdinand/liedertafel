@@ -96,6 +96,15 @@ async fn run() -> Result<(), StartupError> {
 			Arc::new(archive_server::auth::SystemClock),
 		)?);
 	}
+	let storage_config = archive_server::storage::StorageConfig::from_env(development)?;
+	let read_lifetime = storage_config.read_lifetime;
+	origin = origin.with_storage(
+		Arc::new(archive_server::storage::BlobStorage::new(
+			storage_config,
+			Arc::new(archive_server::auth::SystemClock),
+		)?),
+		read_lifetime,
+	);
 	let origin = Arc::new(origin);
 	let router = build_router(origin.clone());
 
@@ -165,6 +174,8 @@ async fn run() -> Result<(), StartupError> {
 /// apphost resource fails visibly.
 #[derive(Debug, thiserror::Error)]
 enum StartupError {
+	#[error("{0}")]
+	Storage(#[from] archive_server::storage::StorageError),
 	#[error("Archive job telemetry flush failed")]
 	FiniteTelemetry,
 	#[error("{0}")]

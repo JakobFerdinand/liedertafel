@@ -18,17 +18,27 @@ const METER_NAME: &str = archive_telemetry::ACTIVITY_SOURCE;
 
 /// Shared origin state: immutable settings plus the build-request counter,
 /// whose instrument carries the C# backend's own meter for schema parity.
-#[derive(Debug)]
 pub struct Origin {
 	pub settings: Settings,
 	pub build_requests: Counter<u64>,
 	pub auth: Option<Arc<crate::auth::Auth>>,
+	pub storage: Option<Arc<dyn crate::storage::Storage>>,
+	pub read_ticket_lifetime: chrono::Duration,
+}
+impl std::fmt::Debug for Origin {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("Origin")
+			.field("settings", &self.settings)
+			.finish_non_exhaustive()
+	}
 }
 
 impl Origin {
 	pub fn new(settings: Settings) -> Self {
 		Self {
 			auth: None,
+			storage: None,
+			read_ticket_lifetime: chrono::Duration::minutes(15),
 			build_requests: global::meter(METER_NAME)
 				.u64_counter("archive.build.requests")
 				.with_description("Build-probe requests to /api/build")
@@ -39,6 +49,15 @@ impl Origin {
 
 	pub fn with_auth(mut self, auth: crate::auth::Auth) -> Self {
 		self.auth = Some(Arc::new(auth));
+		self
+	}
+	pub fn with_storage(
+		mut self,
+		storage: Arc<dyn crate::storage::Storage>,
+		read_ticket_lifetime: chrono::Duration,
+	) -> Self {
+		self.storage = Some(storage);
+		self.read_ticket_lifetime = read_ticket_lifetime;
 		self
 	}
 }

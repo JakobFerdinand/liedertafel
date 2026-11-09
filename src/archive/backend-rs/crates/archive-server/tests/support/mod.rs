@@ -25,6 +25,8 @@ use std::{
 };
 use tower::ServiceExt;
 use uuid::Uuid;
+pub mod catalogue;
+pub mod storage;
 
 #[derive(Default)]
 pub struct CaptureMail(
@@ -147,6 +149,20 @@ impl App {
 			token: String::new(),
 			peer: (std::net::Ipv4Addr::from(0xc6120000 + peer % 131072), 54321).into(),
 		}
+	}
+	pub fn with_storage(&mut self, storage: Arc<dyn archive_server::storage::Storage>) {
+		let auth = Auth::new(
+			self.pool.clone(),
+			AuthConfig::development(),
+			self.mail.clone(),
+			self.time.clone(),
+		)
+		.unwrap();
+		self.router = build_router(Arc::new(
+			Origin::new(Settings::new(true, PathBuf::new(), 0))
+				.with_auth(auth)
+				.with_storage(storage, chrono::Duration::minutes(15)),
+		));
 	}
 	pub async fn member(&self) -> Client {
 		let mut client = self.client();

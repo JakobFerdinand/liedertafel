@@ -1,0 +1,702 @@
+{
+  "source": "frozen .NET native /api/lieder + real PG + real email/CSRF",
+  "environment": "Testing",
+  "sourceTree": "895c9885aec1db0b8d2bc8150037b1c8d0e37ea9",
+  "rows": [
+    {
+      "title": "Mond",
+      "voiceConfiguration": "TTBB",
+      "occasion": "Abend",
+      "kinds": [
+        "noten",
+        "uebe"
+      ]
+    },
+    {
+      "title": "Sonne",
+      "voiceConfiguration": "SATB",
+      "occasion": "Morgen",
+      "kinds": [
+        "noten"
+      ]
+    },
+    {
+      "title": "Mond,Sonne",
+      "voiceConfiguration": "TTBB,SATB",
+      "occasion": "Abend,Morgen",
+      "kinds": [
+        "uebe"
+      ]
+    },
+    {
+      "title": "Zahl 00",
+      "kinds": []
+    },
+    {
+      "title": "Zahl 01",
+      "kinds": []
+    },
+    {
+      "title": "Zahl 02",
+      "kinds": []
+    },
+    {
+      "title": "Zahl 03",
+      "kinds": []
+    },
+    {
+      "title": "Zahl 04",
+      "kinds": []
+    },
+    {
+      "title": "Zahl 05",
+      "kinds": []
+    },
+    {
+      "title": "Zahl 06",
+      "kinds": []
+    },
+    {
+      "title": "Zahl 07",
+      "kinds": []
+    },
+    {
+      "title": "Zahl 08",
+      "kinds": []
+    },
+    {
+      "title": "Zahl 09",
+      "kinds": []
+    },
+    {
+      "title": "Zahl 10",
+      "kinds": []
+    },
+    {
+      "title": "Zahl 11",
+      "kinds": []
+    },
+    {
+      "title": "Zahl 12",
+      "kinds": []
+    },
+    {
+      "title": "Zahl 13",
+      "kinds": []
+    },
+    {
+      "title": "Zahl 14",
+      "kinds": []
+    },
+    {
+      "title": "Zahl 15",
+      "kinds": []
+    },
+    {
+      "title": "Zahl 16",
+      "kinds": []
+    },
+    {
+      "title": "Zahl 17",
+      "kinds": []
+    },
+    {
+      "title": "Zahl 18",
+      "kinds": []
+    },
+    {
+      "title": "Zahl 19",
+      "kinds": []
+    },
+    {
+      "title": "Zahl 20",
+      "kinds": []
+    }
+  ],
+  "cases": [
+    {
+      "request": "",
+      "status": 200,
+      "query": null,
+      "page": 1,
+      "total": 24,
+      "filters": {
+        "voiceConfiguration": null,
+        "occasion": null,
+        "dateiTypen": []
+      },
+      "titles": [
+        "Mond",
+        "Mond,Sonne",
+        "Sonne",
+        "Zahl 00",
+        "Zahl 01",
+        "Zahl 02",
+        "Zahl 03",
+        "Zahl 04",
+        "Zahl 05",
+        "Zahl 06",
+        "Zahl 07",
+        "Zahl 08",
+        "Zahl 09",
+        "Zahl 10",
+        "Zahl 11",
+        "Zahl 12",
+        "Zahl 13",
+        "Zahl 14",
+        "Zahl 15",
+        "Zahl 16"
+      ]
+    },
+    {
+      "request": "?Q=mond",
+      "status": 200,
+      "query": "mond",
+      "page": 1,
+      "total": 2,
+      "filters": {
+        "voiceConfiguration": null,
+        "occasion": null,
+        "dateiTypen": []
+      },
+      "titles": [
+        "Mond",
+        "Mond,Sonne"
+      ]
+    },
+    {
+      "request": "?%51=sonne",
+      "status": 200,
+      "query": "sonne",
+      "page": 1,
+      "total": 2,
+      "filters": {
+        "voiceConfiguration": null,
+        "occasion": null,
+        "dateiTypen": []
+      },
+      "titles": [
+        "Sonne",
+        "Mond,Sonne"
+      ]
+    },
+    {
+      "request": "?BESETZUNG=TTBB",
+      "status": 200,
+      "query": null,
+      "page": 1,
+      "total": 1,
+      "filters": {
+        "voiceConfiguration": "TTBB",
+        "occasion": null,
+        "dateiTypen": []
+      },
+      "titles": [
+        "Mond"
+      ]
+    },
+    {
+      "request": "?ANLASS=Abend",
+      "status": 200,
+      "query": null,
+      "page": 1,
+      "total": 1,
+      "filters": {
+        "voiceConfiguration": null,
+        "occasion": "Abend",
+        "dateiTypen": []
+      },
+      "titles": [
+        "Mond"
+      ]
+    },
+    {
+      "request": "?VOICECONFIGURATION=TTBB",
+      "status": 200,
+      "query": null,
+      "page": 1,
+      "total": 1,
+      "filters": {
+        "voiceConfiguration": "TTBB",
+        "occasion": null,
+        "dateiTypen": []
+      },
+      "titles": [
+        "Mond"
+      ]
+    },
+    {
+      "request": "?OCCASION=Abend",
+      "status": 200,
+      "query": null,
+      "page": 1,
+      "total": 1,
+      "filters": {
+        "voiceConfiguration": null,
+        "occasion": "Abend",
+        "dateiTypen": []
+      },
+      "titles": [
+        "Mond"
+      ]
+    },
+    {
+      "request": "?DATEITYP=noten",
+      "status": 200,
+      "query": null,
+      "page": 1,
+      "total": 2,
+      "filters": {
+        "voiceConfiguration": null,
+        "occasion": null,
+        "dateiTypen": [
+          "noten"
+        ]
+      },
+      "titles": [
+        "Mond",
+        "Sonne"
+      ]
+    },
+    {
+      "request": "?PAGE=2",
+      "status": 200,
+      "query": null,
+      "page": 2,
+      "total": 24,
+      "filters": {
+        "voiceConfiguration": null,
+        "occasion": null,
+        "dateiTypen": []
+      },
+      "titles": [
+        "Zahl 17",
+        "Zahl 18",
+        "Zahl 19",
+        "Zahl 20"
+      ]
+    },
+    {
+      "request": "?q=Mond&Q=Sonne",
+      "status": 200,
+      "query": "Mond,Sonne",
+      "page": 1,
+      "total": 1,
+      "filters": {
+        "voiceConfiguration": null,
+        "occasion": null,
+        "dateiTypen": []
+      },
+      "titles": [
+        "Mond,Sonne"
+      ]
+    },
+    {
+      "request": "?Q=Mond&q=Mond",
+      "status": 200,
+      "query": "Mond,Mond",
+      "page": 1,
+      "total": 0,
+      "filters": {
+        "voiceConfiguration": null,
+        "occasion": null,
+        "dateiTypen": []
+      },
+      "titles": []
+    },
+    {
+      "request": "?q=&Q=Mond",
+      "status": 200,
+      "query": "Mond",
+      "page": 1,
+      "total": 2,
+      "filters": {
+        "voiceConfiguration": null,
+        "occasion": null,
+        "dateiTypen": []
+      },
+      "titles": [
+        "Mond",
+        "Mond,Sonne"
+      ]
+    },
+    {
+      "request": "?Q=Mond&q=",
+      "status": 200,
+      "query": "Mond",
+      "page": 1,
+      "total": 2,
+      "filters": {
+        "voiceConfiguration": null,
+        "occasion": null,
+        "dateiTypen": []
+      },
+      "titles": [
+        "Mond",
+        "Mond,Sonne"
+      ]
+    },
+    {
+      "request": "?q=&Q=",
+      "status": 200,
+      "query": null,
+      "page": 1,
+      "total": 24,
+      "filters": {
+        "voiceConfiguration": null,
+        "occasion": null,
+        "dateiTypen": []
+      },
+      "titles": [
+        "Mond",
+        "Mond,Sonne",
+        "Sonne",
+        "Zahl 00",
+        "Zahl 01",
+        "Zahl 02",
+        "Zahl 03",
+        "Zahl 04",
+        "Zahl 05",
+        "Zahl 06",
+        "Zahl 07",
+        "Zahl 08",
+        "Zahl 09",
+        "Zahl 10",
+        "Zahl 11",
+        "Zahl 12",
+        "Zahl 13",
+        "Zahl 14",
+        "Zahl 15",
+        "Zahl 16"
+      ]
+    },
+    {
+      "request": "?besetzung=TTBB&BESETZUNG=SATB",
+      "status": 200,
+      "query": null,
+      "page": 1,
+      "total": 1,
+      "filters": {
+        "voiceConfiguration": "TTBB,SATB",
+        "occasion": null,
+        "dateiTypen": []
+      },
+      "titles": [
+        "Mond,Sonne"
+      ]
+    },
+    {
+      "request": "?VOICECONFIGURATION=TTBB&voiceconfiguration=SATB",
+      "status": 200,
+      "query": null,
+      "page": 1,
+      "total": 1,
+      "filters": {
+        "voiceConfiguration": "TTBB,SATB",
+        "occasion": null,
+        "dateiTypen": []
+      },
+      "titles": [
+        "Mond,Sonne"
+      ]
+    },
+    {
+      "request": "?BESETZUNG=&voiceConfiguration=TTBB",
+      "status": 200,
+      "query": null,
+      "page": 1,
+      "total": 24,
+      "filters": {
+        "voiceConfiguration": null,
+        "occasion": null,
+        "dateiTypen": []
+      },
+      "titles": [
+        "Mond",
+        "Mond,Sonne",
+        "Sonne",
+        "Zahl 00",
+        "Zahl 01",
+        "Zahl 02",
+        "Zahl 03",
+        "Zahl 04",
+        "Zahl 05",
+        "Zahl 06",
+        "Zahl 07",
+        "Zahl 08",
+        "Zahl 09",
+        "Zahl 10",
+        "Zahl 11",
+        "Zahl 12",
+        "Zahl 13",
+        "Zahl 14",
+        "Zahl 15",
+        "Zahl 16"
+      ]
+    },
+    {
+      "request": "?voiceConfiguration=SATB&BESETZUNG=TTBB",
+      "status": 200,
+      "query": null,
+      "page": 1,
+      "total": 1,
+      "filters": {
+        "voiceConfiguration": "TTBB",
+        "occasion": null,
+        "dateiTypen": []
+      },
+      "titles": [
+        "Mond"
+      ]
+    },
+    {
+      "request": "?anlass=Abend&ANLASS=Morgen",
+      "status": 200,
+      "query": null,
+      "page": 1,
+      "total": 1,
+      "filters": {
+        "voiceConfiguration": null,
+        "occasion": "Abend,Morgen",
+        "dateiTypen": []
+      },
+      "titles": [
+        "Mond,Sonne"
+      ]
+    },
+    {
+      "request": "?OCCASION=Abend&occasion=Morgen",
+      "status": 200,
+      "query": null,
+      "page": 1,
+      "total": 1,
+      "filters": {
+        "voiceConfiguration": null,
+        "occasion": "Abend,Morgen",
+        "dateiTypen": []
+      },
+      "titles": [
+        "Mond,Sonne"
+      ]
+    },
+    {
+      "request": "?ANLASS=&occasion=Abend",
+      "status": 200,
+      "query": null,
+      "page": 1,
+      "total": 24,
+      "filters": {
+        "voiceConfiguration": null,
+        "occasion": null,
+        "dateiTypen": []
+      },
+      "titles": [
+        "Mond",
+        "Mond,Sonne",
+        "Sonne",
+        "Zahl 00",
+        "Zahl 01",
+        "Zahl 02",
+        "Zahl 03",
+        "Zahl 04",
+        "Zahl 05",
+        "Zahl 06",
+        "Zahl 07",
+        "Zahl 08",
+        "Zahl 09",
+        "Zahl 10",
+        "Zahl 11",
+        "Zahl 12",
+        "Zahl 13",
+        "Zahl 14",
+        "Zahl 15",
+        "Zahl 16"
+      ]
+    },
+    {
+      "request": "?occasion=Morgen&ANLASS=Abend",
+      "status": 200,
+      "query": null,
+      "page": 1,
+      "total": 1,
+      "filters": {
+        "voiceConfiguration": null,
+        "occasion": "Abend",
+        "dateiTypen": []
+      },
+      "titles": [
+        "Mond"
+      ]
+    },
+    {
+      "request": "?dateiTyp=noten&DATEITYP=uebe",
+      "status": 200,
+      "query": null,
+      "page": 1,
+      "total": 1,
+      "filters": {
+        "voiceConfiguration": null,
+        "occasion": null,
+        "dateiTypen": [
+          "noten",
+          "uebe"
+        ]
+      },
+      "titles": [
+        "Mond"
+      ]
+    },
+    {
+      "request": "?DATEITYP=uebe&DaTeItYp=noten",
+      "status": 200,
+      "query": null,
+      "page": 1,
+      "total": 1,
+      "filters": {
+        "voiceConfiguration": null,
+        "occasion": null,
+        "dateiTypen": [
+          "uebe",
+          "noten"
+        ]
+      },
+      "titles": [
+        "Mond"
+      ]
+    },
+    {
+      "request": "?dateiTyp=noten&DATEITYP=NOTEN",
+      "status": 200,
+      "query": null,
+      "page": 1,
+      "total": 2,
+      "filters": {
+        "voiceConfiguration": null,
+        "occasion": null,
+        "dateiTypen": [
+          "noten"
+        ]
+      },
+      "titles": [
+        "Mond",
+        "Sonne"
+      ]
+    },
+    {
+      "request": "?DATEITYP=noten%2Cuebe",
+      "status": 400
+    },
+    {
+      "request": "?DATEITYP=&dateiTyp=noten",
+      "status": 400
+    },
+    {
+      "request": "?page=1&PAGE=2",
+      "status": 400
+    },
+    {
+      "request": "?PAGE=2&page=2",
+      "status": 400
+    },
+    {
+      "request": "?page=&PAGE=2",
+      "status": 200,
+      "query": null,
+      "page": 2,
+      "total": 24,
+      "filters": {
+        "voiceConfiguration": null,
+        "occasion": null,
+        "dateiTypen": []
+      },
+      "titles": [
+        "Zahl 17",
+        "Zahl 18",
+        "Zahl 19",
+        "Zahl 20"
+      ]
+    },
+    {
+      "request": "?PAGE=",
+      "status": 400
+    },
+    {
+      "request": "?page=&PAGE=",
+      "status": 400
+    },
+    {
+      "request": "?PAGE=%20%2B2%20",
+      "status": 200,
+      "query": null,
+      "page": 2,
+      "total": 24,
+      "filters": {
+        "voiceConfiguration": null,
+        "occasion": null,
+        "dateiTypen": []
+      },
+      "titles": [
+        "Zahl 17",
+        "Zahl 18",
+        "Zahl 19",
+        "Zahl 20"
+      ]
+    },
+    {
+      "request": "?PAGE=0",
+      "status": 200,
+      "query": null,
+      "page": 1,
+      "total": 24,
+      "filters": {
+        "voiceConfiguration": null,
+        "occasion": null,
+        "dateiTypen": []
+      },
+      "titles": [
+        "Mond",
+        "Mond,Sonne",
+        "Sonne",
+        "Zahl 00",
+        "Zahl 01",
+        "Zahl 02",
+        "Zahl 03",
+        "Zahl 04",
+        "Zahl 05",
+        "Zahl 06",
+        "Zahl 07",
+        "Zahl 08",
+        "Zahl 09",
+        "Zahl 10",
+        "Zahl 11",
+        "Zahl 12",
+        "Zahl 13",
+        "Zahl 14",
+        "Zahl 15",
+        "Zahl 16"
+      ]
+    },
+    {
+      "request": "?Q=mond&BESETZUNG=TTBB&ANLASS=Abend&DATEITYP=noten&dateiTyp=uebe",
+      "status": 200,
+      "query": "mond",
+      "page": 1,
+      "total": 1,
+      "filters": {
+        "voiceConfiguration": "TTBB",
+        "occasion": "Abend",
+        "dateiTypen": [
+          "noten",
+          "uebe"
+        ]
+      },
+      "titles": [
+        "Mond"
+      ]
+    },
+    {
+      "request": "?q=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&Q=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "status": 400
+    }
+  ]
+}

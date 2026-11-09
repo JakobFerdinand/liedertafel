@@ -38,7 +38,8 @@ Wave 1 (#219) created the workspace.
   the dev sampler, checked finite-operator flush/shutdown and the
   `Liedertafel.Archive` schema parity.
 - `crates/archive-server`: the archive origin — static Next.js export,
-  auth/passkeys and shared access gate, `/api/build`, `/alive` (+ `/health` in Development) and the single
+  auth/passkeys, shared access/maintenance gates, catalogue/Datei reads and tier
+  actions, `/api/build`, `/alive` (+ `/health` in Development) and the single
   implemented-routes list with the stable JSON 404/501 miss for unported
   `/api/*` routes.
 - `crates/archive-db`: explicit `--migrate`, frozen EF/Neon baseline adoption,
@@ -58,6 +59,13 @@ update this section in the same PR whenever the member list changes.
   happen on purpose.
 - Frontend deps (`pnpm`) are untouched by this workspace; the frontend `out/`
   export is served by the backend binary.
+- Native telemetry detector/lifecycle: `node --test tests/browser/telemetry-*.test.cjs`
+  (or add `--test-name-pattern="formatter"` before the file for a focused run).
+  Before changing native capture, redaction or schema fixtures, read
+  `tests/telemetry/README.md` for external decoder setup and private replay rules.
+- Catalogue query binding: before changing scalar/repeated keys, read
+  `docs/catalogue-review-followup.md` for the actual frozen .NET differential,
+  empty/duplicate binding semantics and the authenticated PG regression command.
 - The three live-spend AI evaluations keep their skip-when-unconfigured
   environment gates from the C# suites; without explicit configuration they
   must pass by skipping, never by calling a model.
@@ -116,7 +124,13 @@ update this section in the same PR whenever the member list changes.
   repair-vs-email-change credential behavior, native CLI/browser/OTLP commands,
   frozen-suite mapping and the honestly failed frozen browser controls. Focused
   PG example: `cargo test -p archive-server --locked --test member_revocation
-  last_active_administrator -- --ignored`.
+   last_active_administrator -- --ignored`.
+
+- Catalogue/Blob reads/tiers (#223): before changing visibility, shared search,
+  tickets, provider configuration or tier policy, read `docs/catalogue-parity.md`
+  for the oracle map, bounded range reader, official SDK/local signing seam,
+  explicit PostgreSQL/Azurite/browser gates and later-wave ownership. Focused:
+  `cargo test -p archive-server --locked --test lied_api member_reads -- --ignored`.
 
 - Any `/api/*` route without a Rust implementation answers the single stable
   JSON 404/501 error shape, driven by one list of implemented routes.

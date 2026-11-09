@@ -171,6 +171,9 @@ gRPC OTLP receiver; checks actual UI invite/resend/role/deactivate/reactivate/em
 repair, native bootstrap/seed/repair, success **and failure** finite flush,
 member/mail metrics/spans, real passkey behavior and trace-level PII redaction.
 `native-auth.cjs` accepts the same optional binary override.
+Both now use the schema-aware detector and private failure replay described in
+[`tests/telemetry/README.md`](../tests/telemetry/README.md), including the external
+`protobufjs@8.8.1` decoder dependency and standalone deterministic controls.
 
 ## Frozen Playwright results are separate
 

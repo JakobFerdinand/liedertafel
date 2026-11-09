@@ -178,9 +178,11 @@ cargo test -p archive-server --locked --test migrate_process \
 ```
 
 Install test-only Node dependencies outside the checkout (Node 24):
-`npm install --prefix /tmp/opencode/221-browser @playwright/test@1.63.0 pg@8.23.1`.
+`npm install --prefix /tmp/opencode/221-browser @playwright/test@1.63.0 pg@8.23.1 protobufjs@8.8.1`.
 Set `NODE_PATH` to that directory's `node_modules`; `ARCHIVE_CHROMIUM` may point at
 an existing Chromium. No frontend package/source/test is edited.
+Native detector controls and private replay rules are in
+[`tests/telemetry/README.md`](../tests/telemetry/README.md).
 
 - `node tests/browser/native-auth.cjs` with `ARCHIVE_TEST_POSTGRES` starts the
   actual Rust binary, synthetic SMTP receiver, OTLP collector, two replicas and
