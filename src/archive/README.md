@@ -418,9 +418,9 @@ The chat runs on a Microsoft Agent Framework agent (`Microsoft.Agents.AI` 1.23.0
 The ledger already holds everything; nothing is added to it:
 
 - **View:** `GET /api/maintenance/ai-budget` (editor-only, `no-store`, reads only, available even while maintenance mode is on, like the other diagnostics) reports the current month per feature and model (calls, tokens, EUR = settled cost plus open reservations), the EUR 15 cap and the configured thresholds with each level's notified state. The Verwaltung shows it at `/verwaltung/ki-budget/` (`components/ki-kosten.tsx`, pure read; nothing in the page pays money).
-- **Notices:** the daily reading dispatch sweep (`--dispatch-reading`) runs the deterministic monthly review (`Ai/AiCostNotice.cs`): for each newly reached level — the configured thresholds plus the cap — one warning is logged, exactly once per level per month (the month's row in `ai_budget_months` remembers its level in `NotifiedMicroEur`, migration `20261023215101_AiCostNotices`; a raised cap re-enables). Two Azure alert rules (`al-archive-ai-threshold` severity 2, `al-archive-ai-cap` severity 1, `infrastructure/archive/main.bicep`) forward those lines to the maintainers through the shared action group, so the review warns before the cap and the refused calls' existing warning pages at it.
-- **Thresholds:** `Archive:Ai:NoticeThresholdsEur` (comma separated) is explicit configuration and ships **empty — a disabled state, not a default**; relayed from the Bicep parameter `aiNoticeThresholdsEur` (main.bicepparam) to the web app and the sweep job. Values are maintainer-owned (suggestion pending decision: 5 and 12). A read-only summary with the monthly path lives in `infrastructure/archive/README.md`, "Cost overview (ARC-043)". Threshold evaluation keys on the fixed line prefixes only (`has "KI-Budget: Schwellwert"` / `has "Monatsbudget erreicht"`); amounts and feature names never enter an alert rule or a test.
-- **Checks:** `dotnet test tests/archive/backend --filter "FullyQualifiedName~AiCostNotice|FullyQualifiedName~AlertQueryContract"` (per-feature sums, threshold/cap once-per-month evaluation, breakdown formatting, raised-cap re-enable; the Bicep contract test keeps the notice lines and the pass-through thresholds in step). The ledger's SQL remains the `AiBudgetLedgerTests` PostgreSQL cases; renaming a review line breaks the build in `AlertQueryContractTests`, before an alert can silently die.
+- **Notices:** the daily reading dispatch sweep (`--dispatch-reading`) runs the deterministic monthly review (`Ai/AiCostNotice.cs`): for each newly reached level — the configured thresholds plus the cap — one warning is logged, exactly once per level per month (the month's row in `ai_budget_months` remembers its level in `NotifiedMicroEur`, migration `20261023215101_AiCostNotices`; a raised cap re-enables). The lines land in the Log Analytics workspace (`log-liedertafel-archive`) for manual inspection; the alert rules that used to forward them were removed on 2026-11-08 (~EUR 0.10 per rule per 8 days, see "Failure monitoring (after ARC-042 removal)" in `infrastructure/archive/README.md`).
+- **Thresholds:** `Archive:Ai:NoticeThresholdsEur` (comma separated) is explicit configuration and ships **empty — a disabled state, not a default**; relayed from the Bicep parameter `aiNoticeThresholdsEur` (main.bicepparam) to the web app and the sweep job. Values are maintainer-owned (suggestion pending decision: 5 and 12). A read-only summary with the monthly path lives in `infrastructure/archive/README.md`, "Cost overview (ARC-043)".
+- **Checks:** `dotnet test tests/archive/backend --filter "FullyQualifiedName~AiCostNotice"` (per-feature sums, threshold/cap once-per-month evaluation, breakdown formatting, raised-cap re-enable). The ledger's SQL remains the `AiBudgetLedgerTests` PostgreSQL cases.
 
 - **Cap:** EUR 15 per calendar month in Europe/Vienna, for all AI features together. Before each model call the middleware reserves the call's worst case (estimated input plus the output bound at the model's price). A reservation that would pass the cap is refused and the provider is not called. Guarantee: settled cost + open reservations + the worst case of a newly admitted call never exceeds the cap. After the call the reservation is replaced by the usage the provider reported; a call that ends without a usage report (failure, timeout, client disconnect, abandoned stream) costs its full reservation.
 - **Ledger:** `ai_usage_entries` (renamed from `chat_usage_entries` by migration `20261006111010_AiUsageLedger`): one row per operation and model with feature, model, summed tokens of all its calls, settled cost and open reservation in micro-EUR. The month's spend is the sum over its rows; nothing is cached in memory. `ai_budget_months` holds one row per month as a lock: a reservation runs in one transaction that takes `SELECT … FOR UPDATE` on it, so reservations of a month queue on every replica (5 s lock timeout, then refused). A settlement is one relative `UPDATE` of its own row, retried three times, then logged at error and counted. `Ai/PostgresAiLedgerStore` is SQL; tests on the EF in-memory provider use `tests/archive/backend/InMemoryAiLedgerStore.cs` behind `IAiLedgerStore`.
@@ -773,20 +773,23 @@ is selected again. Once the Auftritt is created the draft remembers its id, so a
 creates it twice, and it keeps only the Dateien that are not uploaded yet; it ends with the
 last upload.
 
-## Failure alerts (ARC-042, #149)
+## Failure monitoring after ARC-042 (2026-11-08)
 
-The Azure side lives in `infrastructure/archive/main.bicep` (action group,
-four scheduled-query rules over `ContainerAppConsoleLogs_CL` in the
-Log Analytics workspace, rule names `al-archive-*`) and its operator path /
-runbook in `infrastructure/archive/README.md`, section "Failure alerts
-(ARC-042)". Alerts key on the shipped console-log failure lines only —
-deterministic (architecture §14), no model involvement, no metric alerts on
-application meters (production has no OTLP endpoint; development keeps the
-Aspire path untouched). The queries' marker strings are pinned by
-`tests/archive/backend/AlertQueryContractTests.cs`, which runs in the normal
-backend suite: renaming one of the failure line templates in
-`service-defaults/Extensions.cs`, the workers or `Program.cs` breaks the
-build exactly when the deployed queries would stop matching.
+The Azure alert rules of ARC-042 (`ag-archive-maintainers`, six scheduled-query
+rules over `ContainerAppConsoleLogs_CL`, names `al-archive-*`) were removed:
+each rule billed ~EUR 0.10 per 8 days (~EUR 2.30/month together), an order of
+magnitude above the rest of the group's bill. The shipped failure log lines are
+unchanged (job failures in `service-defaults/Extensions.cs`, item ladders in
+the workers, request failures in `Program.cs`); they are no longer matched by
+any deployed rule. Release and migration failures mail through GitHub's own
+Actions notifications — keep both maintainers watching the repo. For manual
+inspection the lines stay queryable in `log-liedertafel-archive`
+(`ContainerAppConsoleLogs_CL`), and the operator paths of the former runbook
+(jobs at `az containerapp job execution list`, Dateien in the Wartung tools,
+stuck windows via `curl https://archiv.liedertafel-mining.at/api/maintenance`
+and [Controlled database releases](#controlled-database-releases-arc-012))
+still apply. The removal story and the re-enable path live in
+`infrastructure/archive/README.md`, "Failure monitoring (after ARC-042 removal)".
 
 ## Runtime grants during `--migrate`
 The release's `--migrate` step applies the runtime role's privileges itself:

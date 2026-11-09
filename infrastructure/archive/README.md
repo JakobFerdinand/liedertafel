@@ -539,121 +539,64 @@ aoai-liedertafel-archive -g RG-Liedertafel-Archive --query id -o tsv)` shows
 journey check (upload a scan, watch the reading) is in
 [ARC-034-1 (#141)](https://github.com/JakobFerdinand/liedertafel/issues/141).
 
-## Failure alerts (ARC-042)
-`main.bicep` declares the maintainer alert wiring (nothing else alerts
-today). Every rule is a scheduled query over the environment console logs
-that already flow into `log-liedertafel-archive` (`ContainerAppConsoleLogs_CL`)
-and keys on the exact shipped failure lines; the line markers are pinned by
-`tests/archive/backend/AlertQueryContractTests.cs` in the backend test run
-(renaming a log line breaks the build before an alert can silently die).
-Deterministic by design (architecture §14): no model involvement, and
-budget-cap parks (`WaitingForBudget`) plus controlled transient retries are
-normal states that no rule matches.
+## Failure monitoring (after ARC-042 removal)
 
-There are no metric alerts on application meters: the OTLP pipeline targets
-Aspire in development only, and in production no OTLP endpoint is configured
-(development keeps the Aspire path untouched; local runs never send to
-production monitoring). Log volume/age stay bounded by the workspace's
-31-day retention and the 1 GB/day ingestion cap.
+`main.bicep` and `main.bicepparam` declared the maintainer alert wiring — six
+scheduled-query rules (`al-archive-job-failed`, `al-archive-item-failed`,
+`al-archive-app-failed`, `al-archive-maintenance-open`,
+`al-archive-ai-threshold`, `al-archive-ai-cap`) and the shared action group
+`ag-archive-maintainers` behind `param maintainerAlertEmails`. All of it was
+removed on 2026-11-08: each scheduled query rule billed ~EUR 0.10 per 8 days
+subscription-wide (~EUR 0.60 of the group's EUR 0.63 8-day bill of
+2026-11-08, ~EUR 2.30/month for the six rules together), an order of
+magnitude above every other line in the group's bill. The rules and the
+action group were deleted live with
+`az monitor scheduled-query alert delete` / `az monitor action-group delete`
+while the template change landed — removal from the template alone would have
+left the resources orphaned and still billed.
 
-### Destination and enablement
+### What covers failures now
 
-`param maintainerAlertEmails` (main.bicepparam, maintainer-managed, not a
-secret): primary maintainer first, then the second maintainer. While the
-list is empty every rule deploys with `enabled: false` — an infra re-run
-cannot invent a receiver. Set the addresses, commit the params file, and
-merge; the infra workflow deploys them (the addresses appear in the PR
-what-if diff).
+- **Release and migration failures** (`archive.yml`) mail through GitHub's own
+  Actions workflow-failure notifications — keep both maintainers watching the
+  repo. This stays the primary release-failure signal.
+- **Reading the log pressure manually**: the environment console logs still
+  flow into `log-liedertafel-archive` (`ContainerAppConsoleLogs_CL`, 31-day
+  retention, 1 GB/day cap) and the marker lines still ship:
 
-| Alert (name `al-archive-…`) | Severity | Marker | Means |
-| --- | --- | --- | --- |
-| `job-failed` | 1 | `Archive job … failed (…)` from a finite job run | A queue job or dispatch sweep execution ended in terminal failure |
-| `item-failed` | 2 | `… exhausted its attempts` / `… failed deterministically`, dimension `DateiId_s` | A Datei is terminal-Failed and needs an editor retry or repair |
-| `app-failed` | 2 | `Archive request failed (…)` on the app revision | Unhandled request 500s (DB outage, bad revision, bug) |
-| `maintenance-open` | 1 | `… paused: maintenance mode is enabled` outside a release | A stuck maintenance window — a failed release keeps members locked out |
+  ```bash
+  # failed job runs and stuck windows
+  az monitor log-analytics query --workspace 1be7abbb-ed4d-4938-9cc2-08fd723637ac \
+    --analytics-query 'ContainerAppConsoleLogs_CL | where TimeGenerated > ago(1h)
+    and (Log_s has "Archive job " and Log_s has " failed ("
+    or Log_s has "exhausted its attempts" or Log_s has "failed deterministically"
+    or Log_s has "Archive request failed ("
+    or Log_s has "paused: maintenance mode is enabled")
+    | project TimeGenerated, ContainerJobName_s, Log_s'
+  ```
 
-Release failures (`archive.yml`) most directly mail through GitHub's own
-workflow-failure notifications — keep both maintainers watching the repo.
-Azure-side, a failed release deterministically leaves maintenance open, which
-the `maintenance-open` alert picks up from the next finite job run (the
-daily dispatch sweep logs the pause line every day at 03:17 UTC, so a
-stuck window re-alerts daily). Migration failures run inside the release
-workflow's docker step and are covered by the GitHub notification as well,
-never by the `job-failed` rule.
+- **Operator paths unchanged**: job executions via
+  `az containerapp job execution list -n <job> -g RG-Liedertafel-Archive`,
+  Dateien in the archive UI's Wartung tools, member lockout via
+  `curl https://archiv.liedertafel-mining.at/api/maintenance` — all in the
+  sections above.
+- There were never metric alerts on application meters (production has no
+  OTLP endpoint; development keeps the Aspire path untouched), and nothing
+  else in the group alerted.
 
-### Operator path (second maintainer, no memory required)
+### Re-enabling (if the cost argument changes)
 
-1. Open the alert mail; it links to this section and carries the query and
-   the extracted `Job_s`/`DateiId_s` dimension. In the alert instance, jump
-   to "View query" / Log Analytics for the full context (timestamps,
-   `ContainerJobName_s`, `RevisionName_s`).
-2. Identify the run:
-   `az containerapp job execution list -n <job> -g RG-Liedertafel-Archive -o table`
-   and `az containerapp job execution show` for the failed execution (the
-   identity under `Web app > Azure`, or ask the primary maintainer for
-   deploy rights; read access plus this runbook is enough).
-3. One-time job failure or stuck window during a release: follow
-   [Controlled database releases](#controlled-database-releases-arc-012)
-   (maintenance stays active by design; fix forward, re-release). Check
-   members are not locked out: `curl https://archiv.liedertafel-mining.at/api/maintenance`.
-4. Recurring/undrained queue job failure: jobs restart automatically on the
-   next queue message (or the daily sweep); if executions keep failing,
-   stop churn with maintenance mode and follow the AI reading/extraction
-   sections above (max attempts, stale leases, budget state). Escalate to
-   the primary maintainer before any fixes beyond retry.
-5. Item failure (`item-failed`): open the Datei in the archive UI
-   (Wartung/"paper bin" tools show extraction/reading status); the editor's
-   retry action restarts the work fresh. Only repair via maintenance commands
-   (`--cleanup-uploads`, selection repair per its own section) with the
-   primary maintainer.
-6. App failure (`app-failed`): check the current revision health
-   (`az containerapp show -g RG-Liedertafel-Archive -n ca-liedertafel-archive`)
-   and the last release run; if Neon is unavailable the bounded monthly log
-   cap and low traffic mean a few failed requests — verify the database
-   rather than the app first.
-7. Resolve the alert instance (auto-mitigates when the marker stops repeating;
-   verify resolution in the portal alert rules view "Alerts").
+The rule definitions (queries, severities, dimensions) and the contract test
+live in git history: `git log --follow -- infrastructure/archive/main.bicep`
+and `tests/archive/backend/AlertQueryContractTests.cs` as of the 2026-11-08
+removal (before this change). Restore the resource blocks, put the emails
+back into `main.bicepparam` (`maintainerAlertEmails`), and re-check the
+current rule shape against the log-alert pricing before merging — the
+scheduled-query rules are what charged, not the action group.
 
-Ownership: alert destinations and thresholds are owned by the primary
-maintainer (Bicep params), actionable in this file; changes go through the
-ordinary infra PR path with what-if review. Never add model-based
-classification to an alert (stay deterministic, architecture §14).
-
-### Verify receipt and inject safe failures (one-off after first enablement)
-
-1. Receipt, without touching the app: in the Azure portal open
-   `ag-archive-maintainers` → "Test notifications" (or
-   `az monitor action-group show -g RG-Liedertafel-Archive -n ag-archive-maintainers`
-   to confirm both receivers, then trigger a test mail from the portal
-   "Test" pane). Both maintainers confirm receipt of the test and an alert
-   mail with the common alert schema.
-2. Safe job-failure injection — simulate a failed release window (also
-   exercises `maintenance-open`). This is reversible within minutes and
-   never touches member data:
-   ```bash
-   az containerapp job update -n ja-archive-read-dispatch -g RG-Liedertafel-Archive \
-     --set-env-vars Archive__MaintenanceMode=true
-   az containerapp job start -n ja-archive-read-dispatch -g RG-Liedertafel-Archive
-   # job run receives no env override mistake; it logs its pause line and exits 0 —
-   # correctness of the run is irrelevant, only the log line is.
-   az monitor log-analytics query --workspace 1be7abbb-ed4d-4938-9cc2-08fd723637ac \
-     --analytics-query 'ContainerAppConsoleLogs_CL | where TimeGenerated > ago(1h)
-     and Log_s has "paused: maintenance mode is enabled"'
-   # after the mail arrives (≤ ~15 min + eval):
-   az containerapp job update -n ja-archive-read-dispatch -g RG-Liedertafel-Archive \
-     --set-env-vars Archive__MaintenanceMode=false
-   ```
-   Then resolve the alert instance (or let auto-mitigate close it).
-3. Verify alert→run trace: from the alert instance, use "See in Azure
-   Monitor/Log query" and confirm `ContainerJobName_s` points at the
-   execution listed in step 2. For a local end check, repeat any finite-job
-   failure through AppHost (`src/archive`, see root AGENTS.md) and confirm
-   the correlated trace/logs/metrics arrive in the Aspire dashboard after
-   the job shuts down — development instrumentation is unchanged.
-
-Never deploy alerts with a `what-if` receiver you can't justify; the deploy
-guard rejects Delete/Replace changes, so all alert resources must remain
-additions/modifications.
+The AI budget itself is unaffected: the cap, the ledger and the logged
+notices (see "Cost overview (ARC-043)" below) run in the application; only
+the monthly-mail relay was lost with the rules.
 
 ## Video playback copies (#161)
 
@@ -837,12 +780,11 @@ One-off and after any amount change:
    monthly reset; the amount comes from the cost worksheet below (baseline
    EUR 10 for the group).
 3. Alert conditions: **Actual 80 %**, **Actual 100 %** and **Forecast 100 %**.
-4. Recipients: both alert addresses of `maintainerAlertEmails`
-   (main.bicepparam) and the Owner contact role.
-5. Confirm the first alert mail reaches both maintainers (test the action
-   group from "Cost Management → Budgets → the budget → Alerts" or the
-   action group's Test pane; see the ARC-042 verification steps above for
-   how receipt is checked).
+4. Recipients: type both maintainer addresses directly into the portal
+   (the email list is no longer a Bicep param — `maintainerAlertEmails`
+   left with the alert rules on 2026-11-08) plus the Owner contact role.
+5. Confirm the first alert mail reaches both maintainers (the budget's
+   "Alerts" view shows sent notifications against the recipients above).
 
 **The budget alert is an alert, never a cap.** Azure keeps billing past the
 alert; the only hard cap in the whole estate is the application-level AI cap
@@ -862,11 +804,14 @@ budget) is the only source of AI spending truth; nothing of it is replicated.
 - **Notices:** the daily reading dispatch sweep (`ja-archive-read-dispatch`,
   03:17 UTC) compares the month against the configured thresholds and logs a
   warning once per newly reached level, the cap included:
-  - threshold: `al-archive-ai-threshold` (severity 2), line
-    `KI-Budget: Schwellwert … EUR im Monat … erreicht (… von … EUR): <per-feature breakdown>`;
-  - cap: `al-archive-ai-cap` (severity 1), line `KI-Budget: Monatsbudget erreicht …`,
-    the same marker the refused chat/reading calls log. Both mail the
-    maintainers through the same action group as every other archive alert.
+  - threshold: line `KI-Budget: Schwellwert … EUR im Monat … erreicht
+    (… von … EUR): <per-feature breakdown>`;
+  - cap: line `KI-Budget: Monatsbudget erreicht …`, the same marker the
+    refused chat/reading calls log. The lines land in
+    `log-liedertafel-archive` for manual inspection; the alert rules that
+    mailed them were removed on 2026-11-08 ("Failure monitoring (after
+    ARC-042 removal)" above), so the monthly check reads them from the
+    workspace query or from the ledger view above.
   - Once per level per month (the month's row remembers the level); raising
     the cap mid-month re-enables the notices above the old level.
 - **Thresholds are explicit configuration:** `aiNoticeThresholdsEur`
@@ -943,7 +888,8 @@ recovery path).
    month per service; compare against the worksheet assumptions; open the
    budget's monthly view if one exists.
 2. **AI:** the `/verwaltung/ki-budget/` page (needs editor sign-in) or the
-   Log Analytics query behind `al-archive-ai-threshold`/`al-archive-ai-cap`;
+   `KI-Budget:` notice query over `ContainerAppConsoleLogs_CL` (see
+   "Failure monitoring (after ARC-042 removal)");
    note the month's total and the biggest feature.
 3. **Neon:** Console → Usage; branch storage/transfer/compute hours vs the
    allowances.
