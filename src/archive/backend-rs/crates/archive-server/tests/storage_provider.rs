@@ -19,6 +19,134 @@ use support::Time;
 
 #[derive(Debug, Default)]
 struct Credential(Mutex<Vec<Vec<String>>>);
+
+#[derive(Debug, Default)]
+struct CopyHttp {
+	delegation: Http,
+	requests: Mutex<Vec<Request>>,
+	statuses: Mutex<std::collections::VecDeque<&'static str>>,
+	delete_status: AtomicU16,
+}
+#[async_trait::async_trait] // Official SDK's dyn HTTP transport trait requires its macro.
+impl HttpClient for CopyHttp {
+	async fn execute_request(&self, request: &Request) -> azure_core::Result<AsyncRawResponse> {
+		if request
+			.url()
+			.query()
+			.is_some_and(|q| q.contains("userdelegationkey"))
+		{
+			return self.delegation.execute_request(request).await;
+		}
+		self.requests.lock().unwrap().push(request.clone());
+		let mut headers = Headers::new();
+		if request.method() == azure_core::http::Method::Delete {
+			let status = self.delete_status.load(Ordering::SeqCst);
+			return Ok(AsyncRawResponse::from_bytes(
+				if status == 0 { 202 } else { status }.into(),
+				headers,
+				"",
+			));
+		}
+		if request.method() == azure_core::http::Method::Put {
+			headers.insert("x-ms-copy-id", "synthetic-copy");
+			headers.insert("x-ms-copy-status", "pending");
+			return Ok(AsyncRawResponse::from_bytes(202.into(), headers, ""));
+		}
+		let status = self
+			.statuses
+			.lock()
+			.unwrap()
+			.pop_front()
+			.unwrap_or("pending");
+		if status == "404" {
+			return Ok(AsyncRawResponse::from_bytes(404.into(), headers, ""));
+		}
+		headers.insert("x-ms-copy-status", status);
+		Ok(AsyncRawResponse::from_bytes(200.into(), headers, ""))
+	}
+}
+fn copying(http: Arc<CopyHttp>) -> BlobStorage {
+	BlobStorage::with_credential(
+		StorageConfig::service_uri("https://private.blob.core.windows.net/", "archive-assets")
+			.unwrap(),
+		Arc::new(archive_server::auth::SystemClock),
+		Arc::new(Credential::default()),
+		Some(Transport::new(http)),
+	)
+	.unwrap()
+}
+#[tokio::test(start_paused = true)]
+async fn promotion_polls_pending_and_temporary_404_until_success_without_deleting_source() {
+	let http = Arc::new(CopyHttp::default());
+	http.statuses
+		.lock()
+		.unwrap()
+		.extend(["pending", "404", "success"]);
+	let storage = copying(http.clone());
+	storage
+		.promote("pending/source", "dateien/target")
+		.await
+		.unwrap();
+	let requests = http.requests.lock().unwrap();
+	assert_eq!(requests.len(), 4);
+	assert!(
+		requests
+			.iter()
+			.all(|r| r.method() != azure_core::http::Method::Delete)
+	);
+	let source = url::Url::parse(
+		requests[0]
+			.headers()
+			.get_str(&"x-ms-copy-source".into())
+			.unwrap(),
+	)
+	.unwrap();
+	let p: std::collections::HashMap<_, _> = source.query_pairs().into_owned().collect();
+	assert_eq!(p["sp"], "r");
+	assert!(!p.contains_key("rscd"));
+	let expires = chrono::DateTime::parse_from_rfc3339(&p["se"]).unwrap();
+	assert!((expires.with_timezone(&Utc) - Utc::now()).num_seconds() <= 60);
+}
+#[tokio::test(start_paused = true)]
+async fn failed_aborted_and_deadline_copies_fail_closed_and_cancellation_stops_polls() {
+	for status in ["failed", "aborted", "pending"] {
+		let http = Arc::new(CopyHttp::default());
+		http.statuses.lock().unwrap().push_back(status);
+		let storage = copying(http);
+		assert_eq!(
+			storage
+				.promote("pending/source", "dateien/attempt")
+				.await
+				.unwrap_err(),
+			StorageError::Unavailable
+		);
+	}
+	let http = Arc::new(CopyHttp::default());
+	let storage = copying(http.clone());
+	assert!(
+		tokio::time::timeout(
+			std::time::Duration::from_millis(100),
+			storage.promote("pending/source", "dateien/attempt")
+		)
+		.await
+		.is_err()
+	);
+	let count = http.requests.lock().unwrap().len();
+	tokio::time::advance(std::time::Duration::from_secs(60)).await;
+	assert_eq!(http.requests.lock().unwrap().len(), count);
+}
+#[tokio::test]
+async fn delete_is_idempotent_for_missing_only_not_forbidden() {
+	let http = Arc::new(CopyHttp::default());
+	let storage = copying(http.clone());
+	http.delete_status.store(404, Ordering::SeqCst);
+	storage.delete("dateien/missing").await.unwrap();
+	http.delete_status.store(403, Ordering::SeqCst);
+	assert_eq!(
+		storage.delete("dateien/forbidden").await.unwrap_err(),
+		StorageError::Unavailable
+	);
+}
 #[async_trait::async_trait] // Official SDK's dyn credential trait requires its macro.
 impl TokenCredential for Credential {
 	async fn get_token(

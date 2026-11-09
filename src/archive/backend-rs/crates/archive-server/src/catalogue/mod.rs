@@ -1,8 +1,13 @@
 //! Flat Lied reads. The frozen catalogue fields and visibility predicates are
 //! shared by the browser adapter and later search consumers, not copied per route.
 mod dateien;
+pub mod drafts;
+mod kinds;
 pub mod queries;
 pub mod search;
+pub mod trash;
+pub mod uploads;
+mod writes;
 
 use crate::{
 	Origin,
@@ -22,7 +27,7 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 use uuid::Uuid;
 
-#[derive(Clone, Debug, Default, Serialize, sqlx::FromRow)]
+#[derive(Clone, Debug, Default, Serialize, serde::Deserialize, sqlx::FromRow)]
 #[serde(rename_all = "camelCase")]
 #[sqlx(rename_all = "PascalCase")]
 pub struct Lied {
@@ -46,11 +51,18 @@ impl Lied {
 	}
 }
 pub(crate) fn routes() -> Vec<(&'static str, MethodRouter<Arc<Origin>>)> {
-	vec![
-		("/api/lieder", get(list).fallback(crate::api::api_miss)),
+	let mut routes = vec![
+		(
+			"/api/lieder",
+			get(list)
+				.post(writes::create)
+				.fallback(crate::api::api_miss),
+		),
 		(
 			"/api/lieder/{id}",
-			get(detail).fallback(crate::api::api_miss),
+			get(detail)
+				.patch(writes::patch)
+				.fallback(crate::api::api_miss),
 		),
 		(
 			"/api/dateien/{id}/access",
@@ -60,7 +72,11 @@ pub(crate) fn routes() -> Vec<(&'static str, MethodRouter<Arc<Origin>>)> {
 			"/api/dateien/{id}/storage-tier",
 			post(dateien::tier).fallback(crate::api::api_miss),
 		),
-	]
+	];
+	routes.extend(uploads::routes());
+	routes.extend(trash::routes());
+	routes.extend(drafts::routes());
+	routes
 }
 async fn list(State(origin): State<Arc<Origin>>, request: Request) -> Result<Response, AuthError> {
 	let auth = origin.auth.as_deref().ok_or(AuthError::Problem(
@@ -186,41 +202,39 @@ async fn detail(
 	let id = Uuid::parse_str(&id)
 		.map_err(|_| AuthError::Problem(StatusCode::BAD_REQUEST, "Die Anfrage ist ungültig."))?;
 	let response = match queries::lied(&auth.pool, id).await? {
-		Some(lied) => {
-			let mut files = queries::dateien(&auth.pool, Some(id), None).await?;
-			let copies = queries::copy_ids(&auth.pool, &files).await?;
-			files.retain(|d| !copies.contains(&d.id));
-			let events = queries::recorded_events(&auth.pool, &files).await?;
-			files.sort_by(|a, b| {
-				queries::DATEI_KINDS
-					.iter()
-					.position(|k| *k == a.kind)
-					.cmp(&queries::DATEI_KINDS.iter().position(|k| *k == b.kind))
-					.then(b.is_partitur.cmp(&a.is_partitur))
-					.then_with(|| {
-						search::optional_ordinal_ignore_case(
-							a.stimme.as_deref(),
-							b.stimme.as_deref(),
-						)
-					})
-					.then(a.created_at.cmp(&b.created_at))
-					.then(a.id.cmp(&b.id))
-			});
-			let mut detail = serde_json::to_value(lied).map_err(|_| AuthError::Database)?;
-			detail["dateien"] = json!(
-				files
-					.iter()
-					.map(|d| d.summary(
-						d.recorded_at_event_id
-							.and_then(|id| events.get(&id))
-							.cloned()
-							.unwrap_or(Value::Null)
-					))
-					.collect::<Vec<_>>()
-			);
-			Json(json!({"lied":detail})).into_response()
-		}
+		Some(lied) => Json(json!({"lied":detail_value(&auth.pool,lied).await?})).into_response(),
 		None => problem(StatusCode::NOT_FOUND, "Das Lied wurde nicht gefunden."),
 	};
 	Ok(access.respond(response))
+}
+async fn detail_value(pool: &sqlx::PgPool, lied: Lied) -> Result<Value, AuthError> {
+	let mut files = queries::dateien(pool, Some(lied.id), None).await?;
+	let copies = queries::copy_ids(pool, &files).await?;
+	files.retain(|d| !copies.contains(&d.id));
+	let events = queries::recorded_events(pool, &files).await?;
+	files.sort_by(|a, b| {
+		queries::DATEI_KINDS
+			.iter()
+			.position(|k| *k == a.kind)
+			.cmp(&queries::DATEI_KINDS.iter().position(|k| *k == b.kind))
+			.then(b.is_partitur.cmp(&a.is_partitur))
+			.then_with(|| {
+				search::optional_ordinal_ignore_case(a.stimme.as_deref(), b.stimme.as_deref())
+			})
+			.then(a.created_at.cmp(&b.created_at))
+			.then(a.id.cmp(&b.id))
+	});
+	let mut detail = serde_json::to_value(lied).map_err(|_| AuthError::Database)?;
+	detail["dateien"] = json!(
+		files
+			.iter()
+			.map(|d| d.summary(
+				d.recorded_at_event_id
+					.and_then(|id| events.get(&id))
+					.cloned()
+					.unwrap_or(Value::Null)
+			))
+			.collect::<Vec<_>>()
+	);
+	Ok(detail)
 }

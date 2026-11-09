@@ -23,6 +23,11 @@ pub struct ObjectInfo {
 	pub content_type: Option<String>,
 	etag: azure_core::http::Etag,
 }
+#[derive(Clone)]
+pub struct ObjectMetadata {
+	pub size_bytes: u64,
+	pub content_type: Option<String>,
+}
 /// Forward-only, bounded SDK partitions. No claim of .NET's seekable OpenRead:
 /// later random-access consumers must use ETag-pinned ranges, not collect a file.
 pub type BlobRead = BoxStream<'static, Result<azure_core::Bytes, StorageError>>;
@@ -41,6 +46,36 @@ impl From<azure_core::Error> for StorageError {
 }
 
 pub trait Storage: Send + Sync {
+	fn probe<'a>(
+		&'a self,
+		_blob: &'a str,
+	) -> BoxFuture<'a, Result<Option<ObjectMetadata>, StorageError>> {
+		Box::pin(async { Err(StorageError::Unavailable) })
+	}
+	fn read_header<'a>(
+		&'a self,
+		_blob: &'a str,
+		_length: usize,
+	) -> BoxFuture<'a, Result<Option<Vec<u8>>, StorageError>> {
+		Box::pin(async { Err(StorageError::Unavailable) })
+	}
+	fn promote<'a>(
+		&'a self,
+		_source: &'a str,
+		_target: &'a str,
+	) -> BoxFuture<'a, Result<(), StorageError>> {
+		Box::pin(async { Err(StorageError::Unavailable) })
+	}
+	fn upload_ticket<'a>(
+		&'a self,
+		_blob: &'a str,
+		_lifetime: Duration,
+	) -> BoxFuture<'a, Result<String, StorageError>> {
+		Box::pin(async { Err(StorageError::Unavailable) })
+	}
+	fn delete<'a>(&'a self, _blob: &'a str) -> BoxFuture<'a, Result<(), StorageError>> {
+		Box::pin(async { Err(StorageError::Unavailable) })
+	}
 	fn read_ticket<'a>(
 		&'a self,
 		blob: &'a str,
@@ -446,7 +481,7 @@ fn timestamp(value: chrono::DateTime<chrono::Utc>) -> Result<time::OffsetDateTim
 	time::OffsetDateTime::from_unix_timestamp(value.timestamp())
 		.map_err(|_| StorageError::Unavailable)
 }
-fn parse_lifetime(value: &str) -> Option<Duration> {
+pub(crate) fn parse_lifetime(value: &str) -> Option<Duration> {
 	let value = value.trim();
 	let negative = value.starts_with('-');
 	let value = value.trim_start_matches('-');
@@ -555,6 +590,43 @@ impl azure_core::http::policies::Policy for NetworkDeadline {
 	}
 }
 impl Storage for BlobStorage {
+	fn upload_ticket<'a>(
+		&'a self,
+		blob: &'a str,
+		lifetime: Duration,
+	) -> BoxFuture<'a, Result<String, StorageError>> {
+		Box::pin(BlobStorage::upload_ticket(self, blob, lifetime))
+	}
+	fn probe<'a>(
+		&'a self,
+		blob: &'a str,
+	) -> BoxFuture<'a, Result<Option<ObjectMetadata>, StorageError>> {
+		Box::pin(async move {
+			Ok(BlobStorage::probe(self, blob)
+				.await?
+				.map(|p| ObjectMetadata {
+					size_bytes: p.size_bytes,
+					content_type: p.content_type,
+				}))
+		})
+	}
+	fn read_header<'a>(
+		&'a self,
+		blob: &'a str,
+		length: usize,
+	) -> BoxFuture<'a, Result<Option<Vec<u8>>, StorageError>> {
+		Box::pin(BlobStorage::read_header(self, blob, length))
+	}
+	fn promote<'a>(
+		&'a self,
+		source: &'a str,
+		target: &'a str,
+	) -> BoxFuture<'a, Result<(), StorageError>> {
+		Box::pin(self.promote_inner(source, target))
+	}
+	fn delete<'a>(&'a self, blob: &'a str) -> BoxFuture<'a, Result<(), StorageError>> {
+		Box::pin(self.delete_inner(blob))
+	}
 	fn read_ticket<'a>(
 		&'a self,
 		blob: &'a str,
@@ -573,6 +645,46 @@ impl Storage for BlobStorage {
 	}
 }
 impl BlobStorage {
+	#[tracing::instrument(name="archive.assets.promote",skip_all,err,fields(otel.kind="client"))]
+	async fn promote_inner(&self, source: &str, target: &str) -> Result<(), StorageError> {
+		use azure_storage_blob::models::CopyStatus;
+		let source = self
+			.read_ticket_inner(source, Duration::seconds(60), false, None)
+			.await?;
+		let target = self
+			.service_client()?
+			.blob_client(&self.config.container, target);
+		target.start_copy_from_url(source, None).await?;
+		let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+		while tokio::time::Instant::now() < deadline {
+			match target.get_properties(None).await {
+				Ok(props) => match props.copy_status()? {
+					Some(CopyStatus::Success) => return Ok(()),
+					Some(CopyStatus::Aborted | CopyStatus::Failed) => {
+						return Err(StorageError::Unavailable);
+					}
+					_ => {}
+				},
+				Err(e) if missing(&e) => {}
+				Err(_) => return Err(StorageError::Unavailable),
+			}
+			tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+		}
+		Err(StorageError::Unavailable)
+	}
+	#[tracing::instrument(name="archive.assets.delete",skip_all,err,fields(otel.kind="client"))]
+	async fn delete_inner(&self, blob: &str) -> Result<(), StorageError> {
+		match self
+			.service_client()?
+			.blob_client(&self.config.container, blob)
+			.delete(None)
+			.await
+		{
+			Ok(_) => Ok(()),
+			Err(e) if missing(&e) => Ok(()),
+			Err(_) => Err(StorageError::Unavailable),
+		}
+	}
 	#[tracing::instrument(name="archive.assets.set_access_tier",skip_all,err,fields(otel.kind="client"))]
 	async fn set_access_tier(&self, blob: &str, tier: &str) -> Result<(), StorageError> {
 		let tier = match tier {

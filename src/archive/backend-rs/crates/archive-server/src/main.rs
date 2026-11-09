@@ -85,6 +85,7 @@ async fn run() -> Result<(), StartupError> {
 		archive_telemetry::ServiceDefaults::init(settings.development, "archive-server")?;
 	let development = settings.development;
 	let mut origin = Origin::new(settings);
+	origin.uploads = archive_server::catalogue::uploads::UploadOptions::from_env()?;
 	let config = archive_server::auth::AuthConfig::from_env(development)?;
 	let mail = archive_server::auth::mail::from_env(development)?;
 	if let Ok(connection) = std::env::var("ConnectionStrings__archive-db") {

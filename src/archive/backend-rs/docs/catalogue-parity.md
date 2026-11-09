@@ -5,11 +5,14 @@ C# tests, frontend, baseline, migration checksums, runtime grants, infrastructur
 workflows and production image remain unchanged. This is not #224 upload/trash,
 #227 recordings, #233 video writes or a cutover.
 
-**#223 remains unaccepted, pending rereview.** Independent review examined
+**#223 accepted and merged as `8ab47bb`.** Independent review examined
 `dc3357e` (production) and `d3d556c` (tooling), finding a terminal lifecycle gate
 hole and case-sensitive query keys. Both remediations and fresh heavy-gate
 evidence are in [catalogue-review-followup.md](catalogue-review-followup.md).
-Historical snapshots below retain their original scopes. #224 remains blocked.
+Historical snapshots below retain their original scopes. #224's added write,
+trash, lifecycle and persistence coverage is mapped in
+[upload-trash-parity.md](upload-trash-parity.md); the #223-only results below
+are not retroactively upload/worker evidence.
 
 ## Shared contracts
 
@@ -125,20 +128,20 @@ not an assertion that the write path producing it already exists.
 
 | Frozen oracle | #223 evidence / remaining owner |
 | --- | --- |
-| `LiedApiTests.EditorCreatesLiedAndMemberSeesItImmediately` | `lied_api::member_reads_full_lied_immediately_and_list_omits_lyrics` ports its read/list/shape assertions from seeded rows; create is #224 |
+| `LiedApiTests.EditorCreatesLiedAndMemberSeesItImmediately` | `lied_api::member_reads_full_lied_immediately_and_list_omits_lyrics` ports reads; #224 `lied_writes` now covers real create/member visibility |
 | `ListSearchesTitlesAndFiltersByBesetzungAnlassAndDateiTyp`, `ListPagesByTwenty`; anonymous read in `CreateRequiresTitleAndEditorRole` | `lied_api` filter/paging/member gates, including aliases, all-types AND, global options, UTF-16 length and German errors; review follow-up adds a real-PG 36-case frozen-.NET query-binding matrix and live native differential |
-| `AFieldTheBrowserSendsButTheCatalogDoesNotKnowIsRefused`, create/title/editor and patch/stale/missing mutations | **#224**, not claimed |
+| `AFieldTheBrowserSendsButTheCatalogDoesNotKnowIsRefused`, create/title/editor and patch/stale/missing mutations | #224 `lied_writes`; see upload/trash map |
 | All eight `LiedSearchModuleTests` | `lied_search_module`, unchanged selection/rank/label/order/page properties, plus literal-space, German spelling and overflow oracle |
 | All five `LiedSucheQuellenTests` | `lied_suche_quellen`, including completed scan text, all creators/lyrics/labels, German variants and 499-Lieder cold latency <10s; replacement read state seeded, lifecycle #224 |
 | Three `NotenTextSearchTests` | `noten_text_search` combines member/editor matching and excludes trash/other kinds/incomplete jobs/trashed parent; actual replacement finalize #224 |
 | Both `SearchAgreementTests` | `search_agreement` compares member HTTP with the public shared selection/page component. Actual `catalogue_search` tool adapter comparison remains **#232**, explicitly not a full chat pass |
 | `AssetStorageFailureTests.AdapterWithoutAnyConfigurationFailsWithConfigError`, `ConnectionStringModeSignsSharedKeyTicketWithoutNetwork`, `ReadTicketOverridesServeTypeInlineAndDownloadAttachment` | `asset_storage_failure` plus independent REST/ring vectors, official SDK fake-credential/HTTP contracts and real private Azurite |
-| `UploadSessionReportsStorageFailureInsteadOfServerError`, `RenewReportsStorageFailureInsteadOfServerError` | **#224**; #223 separately verifies authorized read failures return exact 502 |
+| `UploadSessionReportsStorageFailureInsteadOfServerError`, `RenewReportsStorageFailureInsteadOfServerError` | #224 `upload_session_resume`; #223 authorized read failure remains a separate gate |
 | Tier original Cold/Hot, separate-copy refusal, Lied video listing/view, unknown tier/missing/trash, failed provider and stale version | `datei_storage_tier`, `datei_access`, real-PG two-Origin CAS race, SQL save-failure/retry, private Azurite and native unchanged-UI harness. Recording `/access` assertion remains #227; fixture video generation remains #233 |
-| `ColdTrashedOriginalIsStillRemovedByThePapierkorbRelease` | **#224/#234** permanent removal/cleanup, not a read-tier pass |
-| `TrashingThePlaybackCopyReturnsTheColdOriginalToHotStorage`, `ReplacingThePlaybackCopyReturnsTheColdOriginalToHotStorage`, `RestoringAColdOriginalWithoutLiveCopyReturnsItToHotStorage` | **#224**, coordinated with #227 recording slots and #233 video trash/hooks |
+| `ColdTrashedOriginalIsStillRemovedByThePapierkorbRelease` | #224 `datei_lifecycle_tiers` permanent release; #234 still owns finite cleanup CLI |
+| `TrashingThePlaybackCopyReturnsTheColdOriginalToHotStorage`, `ReplacingThePlaybackCopyReturnsTheColdOriginalToHotStorage`, `RestoringAColdOriginalWithoutLiveCopyReturnsItToHotStorage` | #224 `datei_lifecycle_tiers` with seeded recording/video rows; future endpoint/worker integration remains #227/#233 |
 | `ReattachingThePlaybackSlotReturnsTheColdOriginalToHotStorage` | **#227**, provider-before-DB restoration on slot mutation |
-| `RemovingThePlaybackCopyReturnsTheColdOriginalToHotStorage` | **#224/#227/#234**, permanent removal/reference coordination |
+| `RemovingThePlaybackCopyReturnsTheColdOriginalToHotStorage` | #224 `datei_lifecycle_tiers` recording slot/reference coordination; frozen video-job FK limitation is explicit in upload/trash doc; #234 cleaner CLI remains |
 | `ArchiveAccessTests.IsAuftrittsAufnahmeMemberVisible…`, live Lied reads | Real authenticated `datei_access` member/editor/published-recording/document/trashed-parent gates; other event/recording/passage access assertions stay #225/#227 |
 | AppHost direct-download/range assertions | Provider/native components exercised here; full retargeted Rust image, all workers and unchanged AppHost assertions remain **#235** |
 

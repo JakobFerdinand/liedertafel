@@ -38,8 +38,9 @@ Wave 1 (#219) created the workspace.
   the dev sampler, checked finite-operator flush/shutdown and the
   `Liedertafel.Archive` schema parity.
 - `crates/archive-server`: the archive origin — static Next.js export,
-  auth/passkeys, shared access/maintenance gates, catalogue/Datei reads and tier
-  actions, `/api/build`, `/alive` (+ `/health` in Development) and the single
+  auth/passkeys, shared access/maintenance gates, catalogue/Datei reads and writes,
+  uploads, trash/tier lifecycle and owned Angefangen persistence, `/api/build`,
+  `/alive` (+ `/health` in Development) and the single
   implemented-routes list with the stable JSON 404/501 miss for unported
   `/api/*` routes.
 - `crates/archive-db`: explicit `--migrate`, frozen EF/Neon baseline adoption,
@@ -131,6 +132,14 @@ update this section in the same PR whenever the member list changes.
   for the oracle map, bounded range reader, official SDK/local signing seam,
   explicit PostgreSQL/Azurite/browser gates and later-wave ownership. Focused:
   `cargo test -p archive-server --locked --test lied_api member_reads -- --ignored`.
+
+- Upload/trash/draft persistence (#224): before changing sessions, replacement,
+  owner visibility, permanent removal, Cold→Hot or Angefangen, read
+  `docs/upload-trash-parity.md` for ordering, oracle ownership and the frozen
+  video-job Restrict limitation. Focused PG gate: `cargo test -p archive-server
+  --locked --test upload_races -- --ignored`. Native UI gate:
+  `node tests/browser/upload-native.cjs` (private Azurite endpoint must be
+  reachable by its own server-side copy fetch).
 
 - Any `/api/*` route without a Rust implementation answers the single stable
   JSON 404/501 error shape, driven by one list of implemented routes.

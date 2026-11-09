@@ -39,6 +39,187 @@ async fn storage() -> (Arc<BlobStorage>, String) {
 	(storage, container)
 }
 #[tokio::test]
+#[ignore = "explicit private Azurite 3.35.0 + disposable PostgreSQL upload lifecycle"]
+async fn authenticated_large_block_interrupt_renew_discover_commit_promote_restore_remove() {
+	use base64::{Engine, engine::general_purpose::STANDARD};
+	let (storage, container) = storage().await;
+	let http = reqwest::Client::new();
+	let mut app = App::new().await;
+	app.with_storage(storage.clone());
+	let mut editor = app.admin().await;
+	let mut member = app.member().await;
+	let lied = support::upload::create(&mut editor, "Große Partitur").await;
+	let open = support::upload::open(
+		&mut editor,
+		lied,
+		false,
+		json!({"isPartitur":true,"fileName":"groß.pdf","sizeBytes":20*1024*1024+31}),
+	)
+	.await;
+	let mut bytes = support::upload::pdf(20 * 1024 * 1024 + 31);
+	bytes[64..].fill(b'x');
+	let ids = (0..3)
+		.map(|i| STANDARD.encode(format!("{i:06}")))
+		.collect::<Vec<_>>();
+	let original = url::Url::parse(open["uploadUrl"].as_str().unwrap()).unwrap();
+	let mut put = original.clone();
+	put.query_pairs_mut()
+		.append_pair("comp", "block")
+		.append_pair("blockid", &ids[0]);
+	assert_eq!(
+		http.put(put)
+			.header("content-type", "application/pdf")
+			.body(bytes[..8 * 1024 * 1024].to_vec())
+			.send()
+			.await
+			.unwrap()
+			.status(),
+		201
+	);
+	let renew = editor
+		.post(
+			&format!(
+				"/api/upload-sessions/{}/renew",
+				open["uploadSessionId"].as_str().unwrap()
+			),
+			json!({}),
+		)
+		.await;
+	assert_eq!(renew.0, 200, "{}", renew.1);
+	let ticket = url::Url::parse(renew.1["uploadUrl"].as_str().unwrap()).unwrap();
+	let mut discover = ticket.clone();
+	discover
+		.query_pairs_mut()
+		.append_pair("comp", "blocklist")
+		.append_pair("blocklisttype", "all");
+	let response = http.get(discover).send().await.unwrap();
+	assert_eq!(response.status(), 200);
+	let xml = response.text().await.unwrap();
+	assert!(xml.contains(&format!("<Name>{}</Name>", ids[0])));
+	assert!(!xml.contains(&ids[1]));
+	for i in 1..3 {
+		let mut url = ticket.clone();
+		url.query_pairs_mut()
+			.append_pair("comp", "block")
+			.append_pair("blockid", &ids[i]);
+		assert_eq!(
+			http.put(url)
+				.header("content-type", "application/pdf")
+				.body(
+					bytes[i * 8 * 1024 * 1024..((i + 1) * 8 * 1024 * 1024).min(bytes.len())]
+						.to_vec()
+				)
+				.send()
+				.await
+				.unwrap()
+				.status(),
+			201
+		);
+	}
+	let mut commit = ticket.clone();
+	commit.query_pairs_mut().append_pair("comp", "blocklist");
+	let xml = format!(
+		"<?xml version=\"1.0\" encoding=\"utf-8\"?><BlockList>{}</BlockList>",
+		ids.iter()
+			.map(|id| format!("<Latest>{id}</Latest>"))
+			.collect::<String>()
+	);
+	assert_eq!(
+		http.put(commit)
+			.header("content-type", "application/xml")
+			.body(xml)
+			.send()
+			.await
+			.unwrap()
+			.status(),
+		201
+	);
+	assert!(
+		Storage::probe(storage.as_ref(), renew.1["blobName"].as_str().unwrap())
+			.await
+			.unwrap()
+			.is_some()
+	);
+	assert_eq!(
+		Storage::read_header(storage.as_ref(), renew.1["blobName"].as_str().unwrap(), 5)
+			.await
+			.unwrap()
+			.unwrap(),
+		b"%PDF-"
+	);
+	let (status, finished) = support::upload::finish(&mut editor, &open).await;
+	assert_eq!(status, 200, "{finished}");
+	let file = finished["datei"]["id"].as_str().unwrap();
+	let final_blob = support::upload::blob(&app, Uuid::parse_str(file).unwrap()).await;
+	assert!(
+		storage
+			.probe(renew.1["blobName"].as_str().unwrap())
+			.await
+			.unwrap()
+			.is_none()
+	);
+	assert_eq!(
+		storage
+			.probe(&final_blob)
+			.await
+			.unwrap()
+			.unwrap()
+			.size_bytes,
+		bytes.len() as u64
+	);
+	let access = member.get(&format!("/api/dateien/{file}/access")).await.1;
+	let response = http
+		.get(access["viewUrl"].as_str().unwrap())
+		.header("range", "bytes=0-3")
+		.send()
+		.await
+		.unwrap();
+	assert_eq!(response.status(), 206);
+	assert_eq!(response.headers()["content-type"], "application/pdf");
+	assert_eq!(response.bytes().await.unwrap().as_ref(), b"%PDF");
+	assert_eq!(
+		editor
+			.post(
+				&format!("/api/dateien/{file}/delete"),
+				json!({"rowVersion":1})
+			)
+			.await
+			.0,
+		204
+	);
+	assert_eq!(
+		member.get(&format!("/api/dateien/{file}/access")).await.0,
+		404
+	);
+	assert!(storage.probe(&final_blob).await.unwrap().is_some());
+	assert_eq!(
+		editor
+			.post(&format!("/api/dateien/{file}/restore"), json!({}))
+			.await
+			.0,
+		204
+	);
+	assert_eq!(
+		editor
+			.post(&format!("/api/papierkorb/dateien/{file}/remove"), json!({}))
+			.await
+			.0,
+		204
+	);
+	assert!(storage.probe(&final_blob).await.unwrap().is_none());
+	Storage::delete(storage.as_ref(), &final_blob)
+		.await
+		.unwrap();
+	app.close().await;
+	storage
+		.service_client()
+		.unwrap()
+		.blob_container_client(&container)
+		.delete(None)
+		.await
+		.unwrap();
+}
+#[tokio::test]
 #[ignore = "explicit private Azurite 3.35.0 + disposable PostgreSQL"]
 async fn signed_api_read_get_head_range_overrides_cold_hot_and_invalid_signatures() {
 	let (storage, container) = storage().await;
