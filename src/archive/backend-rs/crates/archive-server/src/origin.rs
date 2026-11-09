@@ -22,17 +22,24 @@ const METER_NAME: &str = archive_telemetry::ACTIVITY_SOURCE;
 pub struct Origin {
 	pub settings: Settings,
 	pub build_requests: Counter<u64>,
+	pub auth: Option<Arc<crate::auth::Auth>>,
 }
 
 impl Origin {
 	pub fn new(settings: Settings) -> Self {
 		Self {
+			auth: None,
 			build_requests: global::meter(METER_NAME)
 				.u64_counter("archive.build.requests")
 				.with_description("Build-probe requests to /api/build")
 				.build(),
 			settings,
 		}
+	}
+
+	pub fn with_auth(mut self, auth: crate::auth::Auth) -> Self {
+		self.auth = Some(Arc::new(auth));
+		self
 	}
 }
 

@@ -61,6 +61,7 @@ source-folder inventory (Drive, #98) runbook lives at
 - Archive browsers: from `src/archive/frontend`, `pnpm exec playwright install chromium`, then `ARCHIVE_BASE_URL=http://localhost:<frontend-port> pnpm run test:browser`. Single test: `pnpm run test:browser -- --grep "German deep link"`.
 - Archive image: `docker build -f src/archive/Dockerfile -t liedertafel-archive:local .` (Podman additionally needs `--ignorefile src/archive/Dockerfile.dockerignore`). Full smoke instructions in the archive README.
 - Rust backend workspace (wave 1, #219): build/check/test in `src/archive/backend-rs` per its nested AGENTS.md — `cargo build --workspace --locked`. Run the apphost against it with `Archive__RustOrigin=true`.
+- Rust auth/passkeys (#221): real PG HTTP gates, native restart/replica/OTLP and unchanged-static-frontend browser harnesses are documented in `src/archive/backend-rs/docs/auth-parity.md`; ignored SQL/browser gates are not ordinary unit-test passes.
 - Rust explicit migrations (#220): `archive-server --migrate`; the `archive-db` Cargo build script tracks migration additions. Native process/schema/grant checks and the frozen Neon baseline provenance are documented in `src/archive/backend-rs/crates/archive-db/baseline/README.md`.
 
 ### Linting

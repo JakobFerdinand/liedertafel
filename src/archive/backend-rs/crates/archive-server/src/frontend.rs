@@ -13,7 +13,7 @@ use axum::http::{HeaderValue, Method, Request, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use tower::Service;
 use tower_http::services::ServeDir;
-use tower_http::trace::{DefaultMakeSpan, MakeSpan};
+use tower_http::trace::MakeSpan;
 
 /// The static export as the C# `UseDefaultFiles` + `UseStaticFiles` pair
 /// serves it: file requests come from the disk, misses only through
@@ -144,8 +144,8 @@ impl<B> MakeSpan<B> for ProbeSkipper {
 		if ProbeSkipper::is_probe(request.uri().path()) {
 			return tracing::Span::none();
 		}
-		DefaultMakeSpan::new()
-			.include_headers(false)
-			.make_span(request)
+		// Never export query strings, cookies or headers. Auth and signed URL
+		// callers may carry secrets there even on rejected requests.
+		tracing::debug_span!("request", method=%request.method(), uri=%request.uri().path(), version=?request.version())
 	}
 }
