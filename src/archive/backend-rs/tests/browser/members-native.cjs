@@ -19,8 +19,8 @@ const databaseUrl=new URL(server);databaseUrl.pathname=database;
 const messages=[],signals={},children=[];
 async function listen(listener){listener.listen(0,'127.0.0.1');await once(listener,'listening');return listener.address().port;}
 const smtp=net.createServer(socket=>{socket.setEncoding('utf8');socket.write('220 synthetic SMTP\r\n');let buffer='',data=false,mail='';socket.on('data',chunk=>{buffer+=chunk;let end;while((end=buffer.indexOf('\r\n'))>=0){const line=buffer.slice(0,end);buffer=buffer.slice(end+2);if(data){if(line==='.'){messages.push(mail);data=false;socket.write('250 accepted\r\n');}else mail+=line+'\n';continue;}if(/^(EHLO|HELO)/.test(line))socket.write('250 synthetic\r\n');else if(line==='DATA'){data=true;mail='';socket.write('354 send\r\n');}else if(line==='QUIT')socket.end('221 bye\r\n');else socket.write('250 ok\r\n');}});});
-const collector=http2.createServer();collector.on('stream',(stream,headers)=>{const chunks=[];stream.on('data',c=>chunks.push(c));stream.on('end',()=>{const route=headers[':path'];telemetry.signal(route,Buffer.concat(chunks));signals[route]=Buffer.concat([signals[route]||Buffer.alloc(0),...chunks]);stream.respond({':status':200,'content-type':'application/grpc'},{waitForTrailers:true});stream.on('wantTrailers',()=>stream.sendTrailers({'grpc-status':'0'}));stream.end(Buffer.from([0,0,0,0,0]));});});
-async function stop(child){if(child.exitCode===null){child.kill('SIGTERM');const [code]=await once(child,'exit');assert.equal(code,0);}}
+const collector=telemetry.collector(http2.createServer());collector.on('stream',(stream,headers)=>{const chunks=[];stream.on('data',c=>chunks.push(c));stream.on('end',()=>{const route=headers[':path'];telemetry.signal(route,Buffer.concat(chunks));signals[route]=Buffer.concat([signals[route]||Buffer.alloc(0),...chunks]);stream.respond({':status':200,'content-type':'application/grpc'},{waitForTrailers:true});stream.on('wantTrailers',()=>stream.sendTrailers({'grpc-status':'0'}));stream.end(Buffer.from([0,0,0,0,0]));});});
+async function stop(child){if(child.exitCode===null)child.kill('SIGTERM');const [code]=await telemetry.closed(child);assert.equal(code,0);}
 async function main(){
  const adminDb=new Client({connectionString:server});await adminDb.connect();await adminDb.query(`CREATE DATABASE ${database}`);
  let db,browser;
@@ -30,7 +30,7 @@ async function main(){
   const base=`http://localhost:${port}`;
   const env={...process.env,ARCHIVE_ENVIRONMENT:'Development',PORT:String(port),RUST_LOG:'trace',OTEL_EXPORTER_OTLP_ENDPOINT:`http://127.0.0.1:${otlpPort}`,OTEL_BSP_SCHEDULE_DELAY:'100',OTEL_BLRP_SCHEDULE_DELAY:'100',OTEL_METRIC_EXPORT_INTERVAL:'100',Mail__Provider:'Smtp',Mail__Host:'127.0.0.1',Mail__Port:String(mailPort),'ConnectionStrings__archive-db':databaseUrl.href,'ConnectionStrings__archive-migrations':databaseUrl.href};
   let processNumber=0;
-  async function command(args,expected=0){const child=spawn(binary,args,{env,stdio:['ignore','pipe','pipe'],signal:AbortSignal.timeout(30000)});telemetry.watch(child,`process-${processNumber++}`);const [code]=await once(child,'exit');assert.equal(code,expected,'native command failed; inspect private replay');}
+  async function command(args,expected=0){const child=spawn(binary,args,{env,stdio:['ignore','pipe','pipe'],signal:AbortSignal.timeout(30000)});telemetry.watch(child,`process-${processNumber++}`,expected);const [code]=await telemetry.closed(child);assert.equal(code,expected,'native command failed; inspect private replay');}
   await command(['--migrate']);await command(['--bootstrap-admin','--email','operator@liedertafel.test','--operator','Synthetic operator']);await command(['--seed-dev-auth']);await command(['--bootstrap-admin','--email','must-not-exist@liedertafel.test'],1);
   db=new Client({connectionString:databaseUrl.href});await db.connect();
   async function start(){const child=spawn(binary,[],{env,stdio:['ignore','pipe','pipe']});children.push(child);telemetry.watch(child,`process-${processNumber++}`);for(let i=0;i<200;i++){if(child.exitCode!==null)throw Error('native startup failed; inspect private replay');try{if((await fetch(base+'/alive')).ok)return child;}catch{}await new Promise(r=>setTimeout(r,25));}throw Error('startup timeout');}
@@ -58,6 +58,7 @@ async function main(){
   await command(['--repair-admin','--accountId',id,'--email','browser-repaired@liedertafel.test','--operator','Synthetic operator']);assert.equal((await me(singer)).authenticated,false);assert.equal((await db.query('SELECT count(*)::int AS n FROM "AspNetUserPasskeys" WHERE "UserId"=$1',[id])).rows[0].n,0);
   const audit=(await db.query('SELECT * FROM member_admin_actions WHERE "TargetUserId"=$1 ORDER BY "OccurredAt"',[id])).rows;assert.deepEqual(audit.map(a=>a.Action),[5,2,0,1,3,4]);assert.equal(audit.at(-1).ActorAccountId,'00000000-0000-0000-0000-000000000000');
   await flushAdmin();await flushMember();assert.deepEqual(errors,[]);await browser.close();browser=undefined;await stop(origin);
+  await telemetry.drain();
   const traces=Object.entries(signals).filter(([k])=>k.includes('TraceService')).map(([,v])=>v.toString()).join('');const metrics=Object.entries(signals).filter(([k])=>k.includes('MetricsService')).map(([,v])=>v.toString()).join('');const logs=Object.entries(signals).filter(([k])=>k.includes('LogsService')).map(([,v])=>v.toString()).join('');
   for(const span of ['bootstrap-admin','seed-dev-auth','repair-admin','archive.members.invite','archive.members.resend','archive.members.role_change','archive.members.deactivate','archive.members.reactivate','archive.members.email_change.request','archive.members.email_change.confirm','archive.mail.invite.send','archive.mail.email_change.send'])assert(traces.includes(span),`missing ${span}`);
   for(const metric of ['archive.members.invited','archive.members.resent','archive.members.role_changed','archive.members.deactivated','archive.members.reactivated','archive.members.email_change_requested','archive.members.email_changed'])assert(metrics.includes(metric),`missing ${metric}`);
@@ -65,6 +66,6 @@ async function main(){
   for(const mail of messages.map(decode))for(const match of mail.matchAll(/(?:Anmeldecode|Bestätigungscode) lautet:\s*(\d{6})/g))telemetry.marker('otp','delivered-code',match[1]);
   telemetry.assertClean();
   console.log('PASS: native bootstrap/seed/repair, unchanged UI invite/resend/role/deactivate/reactivate/verified email repair, retained real passkey after email move and restart, revoked repair credentials/session, real SMTP and finite/operator/member/mail OTLP with redaction');
- }finally{if(browser)await browser.close();for(const child of children)await stop(child);if(db)await db.end();smtp.close();collector.close();await adminDb.query(`DROP DATABASE ${database} WITH (FORCE)`);await adminDb.end();}
+ }finally{if(browser)await browser.close();for(const child of children)await stop(child);if(db)await db.end();smtp.close();await telemetry.drain();await adminDb.query(`DROP DATABASE ${database} WITH (FORCE)`);await adminDb.end();}
 }
 main().catch(e=>{console.error(e);process.exitCode=1;});

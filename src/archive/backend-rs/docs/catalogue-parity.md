@@ -5,9 +5,11 @@ C# tests, frontend, baseline, migration checksums, runtime grants, infrastructur
 workflows and production image remain unchanged. This is not #224 upload/trash,
 #227 recordings, #233 video writes or a cutover.
 
-**#223 remains unaccepted.** Independent security/source review is pinned to
-`dc3357e`. The detector follow-up below changes only Rust-owned tests/tooling and
-documentation; it does not supersede that review or authorize #224.
+**#223 remains unaccepted, pending rereview.** Independent review examined
+`dc3357e` (production) and `d3d556c` (tooling), finding a terminal lifecycle gate
+hole and case-sensitive query keys. Both remediations and fresh heavy-gate
+evidence are in [catalogue-review-followup.md](catalogue-review-followup.md).
+Historical snapshots below retain their original scopes. #224 remains blocked.
 
 ## Shared contracts
 
@@ -124,7 +126,7 @@ not an assertion that the write path producing it already exists.
 | Frozen oracle | #223 evidence / remaining owner |
 | --- | --- |
 | `LiedApiTests.EditorCreatesLiedAndMemberSeesItImmediately` | `lied_api::member_reads_full_lied_immediately_and_list_omits_lyrics` ports its read/list/shape assertions from seeded rows; create is #224 |
-| `ListSearchesTitlesAndFiltersByBesetzungAnlassAndDateiTyp`, `ListPagesByTwenty`; anonymous read in `CreateRequiresTitleAndEditorRole` | `lied_api` filter/paging/member gates, including aliases, all-types AND, global options, UTF-16 length and German errors |
+| `ListSearchesTitlesAndFiltersByBesetzungAnlassAndDateiTyp`, `ListPagesByTwenty`; anonymous read in `CreateRequiresTitleAndEditorRole` | `lied_api` filter/paging/member gates, including aliases, all-types AND, global options, UTF-16 length and German errors; review follow-up adds a real-PG 36-case frozen-.NET query-binding matrix and live native differential |
 | `AFieldTheBrowserSendsButTheCatalogDoesNotKnowIsRefused`, create/title/editor and patch/stale/missing mutations | **#224**, not claimed |
 | All eight `LiedSearchModuleTests` | `lied_search_module`, unchanged selection/rank/label/order/page properties, plus literal-space, German spelling and overflow oracle |
 | All five `LiedSucheQuellenTests` | `lied_suche_quellen`, including completed scan text, all creators/lyrics/labels, German variants and 499-Lieder cold latency <10s; replacement read state seeded, lifecycle #224 |

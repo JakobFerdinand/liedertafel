@@ -14,7 +14,7 @@ Playwright/pg/Azure fixture dependencies), then set `NODE_PATH`:
 ```bash
 npm install --prefix /tmp/opencode/liedertafel-221-browser protobufjs@8.8.1
 export NODE_PATH=/tmp/opencode/liedertafel-221-browser/node_modules
-node --test tests/browser/telemetry-redaction.test.cjs
+node --test tests/browser/telemetry-*.test.cjs
 # Maintenance only: fetch official sources and regenerate committed fixtures.
 node tests/telemetry/generate-schema.cjs --refresh
 ```
@@ -38,6 +38,38 @@ Chunks within one console stream are reassembled. Unknown fields/routes,
 compression, bad wire types, invalid UTF-8 and truncated/empty captures fail
 closed. This is deliberately stricter than a tolerant production collector.
 Presence checks for required safe spans/metrics/logs remain in each native gate.
+
+## Final lifecycle gate
+
+Register a child with `watch` immediately after spawning. Finite commands declare
+their expected exit code (including a deliberately refused operator command).
+Wait for `closed(child)`, not just the child's `exit`: inherited stdout/stderr
+pipes can remain live after the immediate process has exited. Register HTTP2
+servers with `collector(server)` before listening. After all origins stop and
+browser markers finish, `await drain()` stops new connections, gracefully closes
+sessions and waits for every in-flight request, stream **and session close
+event**. A server close callback alone is not that boundary. A bounded drain
+timeout, aborted request, transport error or unexpected child failure fails closed.
+
+Only then call `assertClean()` and print PASS. The terminal `exit` handler does
+**synchronous inspection/persistence only**, never asynchronous draining. It
+rescans the final capture and forces a nonzero process exit for findings, protocol
+or lifecycle errors, or any event newer than the checked generation. A prior
+clean assertion or a caught failed assertion cannot leave the process green.
+Existing nonzero exits are preserved. The effective failed status and checked
+generation flag are persisted in both the terminal replay event and final report.
+If a later synchronous exit listener adds capture data, the recorder replaces
+only its own prior terminal record, reinspects synchronously and persists the
+effective failure. The OS closes that private descriptor after all exit listeners.
+`secrecyChecked` means that generation was inspected, not that its findings passed.
+
+The suite has 89 field-level controls and 21 subprocess/lifecycle controls. The
+formerly in-process dirty-capture assertions now run in actual subprocesses so
+the terminal failure enforcement itself is tested, not swallowed by the test
+runner. Controls use real inherited pipes and loopback HTTP2 frames, including
+late stdout/stderr, late forbidden/malformed OTLP, unchecked safe events, in-flight
+shutdown, explicit exit(0), nonzero exits, expected operator failures and clean
+completion. Raw evidence remains private under the rules below.
 
 ## Private replay and public-safe diagnostics
 

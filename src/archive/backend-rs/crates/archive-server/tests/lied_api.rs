@@ -9,6 +9,50 @@ async fn seed(app: &App, title: &str, fields: Value) -> Uuid {
 }
 
 #[tokio::test]
+#[ignore = "explicit disposable PostgreSQL authenticated query-binding differential"]
+async fn mixed_case_scalar_duplicates_aliases_and_repeated_kinds_match_frozen_dotnet() {
+	// Captured from the actual frozen .NET executable, real PostgreSQL and normal
+	// SMTP/CSRF sign-in, not generated from the Rust parser. See query-binding-native.cjs.
+	let oracle: Value = serde_json::from_str(include_str!(
+		"../../../tests/fixtures/catalogue-query-binding.json"
+	))
+	.unwrap();
+	let app = App::new().await;
+	let mut member = app.member().await;
+	for row in oracle["rows"].as_array().unwrap() {
+		let id = seed(&app, row["title"].as_str().unwrap(), row.clone()).await;
+		for kind in row["kinds"].as_array().unwrap() {
+			datei(&app, id, false, kind.as_str().unwrap(), "application/pdf").await;
+		}
+	}
+	let mut mismatches = Vec::new();
+	for case in oracle["cases"].as_array().unwrap() {
+		let request = case["request"].as_str().unwrap();
+		let (status, body) = member.get(&format!("/api/lieder{request}")).await;
+		let actual = if status == 200 {
+			json!({"request":request,"status":200,"query":body["query"],"page":body["page"],"total":body["total"],"filters":body["filters"],"titles":titles(&body)})
+		} else {
+			json!({"request":request,"status":status.as_u16()})
+		};
+		if actual != *case {
+			mismatches.push(json!({"request":request,"expected":case,"actual":actual}));
+		}
+	}
+	assert_eq!(
+		app.client()
+			.get("/api/lieder?Q=mond&DATEITYP=noten")
+			.await
+			.0,
+		401
+	);
+	app.close().await;
+	assert!(
+		mismatches.is_empty(),
+		"frozen binding mismatches: {mismatches:?}"
+	);
+}
+
+#[tokio::test]
 #[ignore = "explicit disposable PostgreSQL HTTP gate"]
 async fn list_searches_and_filters_by_besetzung_anlass_and_all_dateitypen() {
 	let app = App::new().await;

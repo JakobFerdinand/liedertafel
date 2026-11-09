@@ -59,10 +59,13 @@ update this section in the same PR whenever the member list changes.
   happen on purpose.
 - Frontend deps (`pnpm`) are untouched by this workspace; the frontend `out/`
   export is served by the backend binary.
-- Native telemetry detector: `node --test tests/browser/telemetry-redaction.test.cjs`
+- Native telemetry detector/lifecycle: `node --test tests/browser/telemetry-*.test.cjs`
   (or add `--test-name-pattern="formatter"` before the file for a focused run).
   Before changing native capture, redaction or schema fixtures, read
   `tests/telemetry/README.md` for external decoder setup and private replay rules.
+- Catalogue query binding: before changing scalar/repeated keys, read
+  `docs/catalogue-review-followup.md` for the actual frozen .NET differential,
+  empty/duplicate binding semantics and the authenticated PG regression command.
 - The three live-spend AI evaluations keep their skip-when-unconfigured
   environment gates from the C# suites; without explicit configuration they
   must pass by skipping, never by calling a model.

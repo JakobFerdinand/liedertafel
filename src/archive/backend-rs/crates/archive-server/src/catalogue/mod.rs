@@ -74,18 +74,33 @@ async fn list(State(origin): State<Arc<Origin>>, request: Request) -> Result<Res
 		url::form_urlencoded::parse(request.uri().query().unwrap_or_default().as_bytes())
 			.into_owned()
 			.collect();
-	let first = |key: &str| {
-		params
+	// Frozen ASP.NET query keys are case-insensitive. Its scalar StringValues
+	// conversion joins nonempty duplicates in arrival order; a present empty key
+	// still overrides its alias. The native .NET query oracle pins these details.
+	let scalar = |key: &str| {
+		let values = params
 			.iter()
-			.find(|(k, _)| k == key)
+			.filter(|(k, _)| k.eq_ignore_ascii_case(key))
 			.map(|(_, v)| v.as_str())
+			.collect::<Vec<_>>();
+		(!values.is_empty()).then(|| {
+			values
+				.into_iter()
+				.filter(|v| !v.is_empty())
+				.collect::<Vec<_>>()
+				.join(",")
+		})
 	};
-	let query = first("q").unwrap_or_default().trim();
+	let query_value = scalar("q").unwrap_or_default();
+	let query = query_value.trim();
 	if query.encode_utf16().count() > 200 {
 		return Ok(access.respond(problem(StatusCode::BAD_REQUEST, "Die Suche ist zu lang.")));
 	}
 	let mut kinds = Vec::new();
-	for (_, value) in params.iter().filter(|(k, _)| k == "dateiTyp") {
+	for (_, value) in params
+		.iter()
+		.filter(|(k, _)| k.eq_ignore_ascii_case("dateiTyp"))
+	{
 		let kind = value.trim().to_ascii_lowercase();
 		if !queries::DATEI_KINDS.contains(&kind.as_str()) {
 			return Ok(access.respond(problem(StatusCode::BAD_REQUEST, "Unbekannter Dateityp.")));
@@ -94,10 +109,12 @@ async fn list(State(origin): State<Arc<Origin>>, request: Request) -> Result<Res
 			kinds.push(kind);
 		}
 	}
-	let voice = clean(first("besetzung").or_else(|| first("voiceConfiguration")));
-	let occasion = clean(first("anlass").or_else(|| first("occasion")));
-	let number = first("page")
-		.map(|p| p.parse::<i32>())
+	let voice_value = scalar("besetzung").or_else(|| scalar("voiceConfiguration"));
+	let occasion_value = scalar("anlass").or_else(|| scalar("occasion"));
+	let voice = clean(voice_value.as_deref());
+	let occasion = clean(occasion_value.as_deref());
+	let number = scalar("page")
+		.map(|p| p.trim_ascii().parse::<i32>())
 		.transpose()
 		.map_err(|_| AuthError::Problem(StatusCode::BAD_REQUEST, "Die Anfrage ist ungültig."))?;
 	let number = search::requested_page(number);

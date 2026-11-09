@@ -39,7 +39,7 @@ const smtp=net.createServer(socket=>{
     }
   });
 });
-const collector=http2.createServer();
+const collector=telemetry.collector(http2.createServer());
 collector.on("stream",(stream,headers)=>{
   const chunks=[];stream.on("data",c=>chunks.push(c));
   stream.on("end",()=>{
@@ -62,7 +62,7 @@ async function start(port,mailPort,otlpPort){
   }
   throw new Error("native server readiness timeout");
 }
-async function stop(child){if(child.exitCode===null){child.kill("SIGTERM");const [code]=await once(child,"exit");assert.equal(code,0);}}
+async function stop(child){if(child.exitCode===null)child.kill("SIGTERM");const [code]=await telemetry.closed(child);assert.equal(code,0);}
 async function main(){
   const admin=new Client({connectionString:server});await admin.connect();await admin.query(`CREATE DATABASE ${database}`);
   const mailPort=await listen(smtp);const otlpPort=await listen(collector);
@@ -138,6 +138,7 @@ async function main(){
       const allocation=await response.json();if(allocation.token)telemetry.marker('cookie','anonymous-allocation-csrf',allocation.token);
     }
     await stop(first);await stop(second);
+    await telemetry.drain();
     const traces=Object.entries(signals).filter(([k])=>k.includes("TraceService")).map(([,v])=>v.toString()).join("");
     const metrics=Object.entries(signals).filter(([k])=>k.includes("MetricsService")).map(([,v])=>v.toString()).join("");
     const logs=Object.entries(signals).filter(([k])=>k.includes("LogsService")).map(([,v])=>v.toString()).join("");
@@ -149,7 +150,7 @@ async function main(){
   }finally{
     if(db)await db.end();
     for(const child of children)await stop(child);
-    smtp.close();collector.close();
+    smtp.close();await telemetry.drain();
     await admin.query(`DROP DATABASE ${database} WITH (FORCE)`);await admin.end();
   }
 }
