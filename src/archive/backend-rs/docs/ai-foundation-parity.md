@@ -1,5 +1,100 @@
 # AI foundation (#228)
 
+## Current review remediation — both rereviews REQUIRED
+
+The original `74ef3d0` is **HOLD**, with three demonstrated ledger/configuration
+regressions and four demonstrated transport regressions. These are new defects,
+not the conditional-reservation/unknown-commit/source-notice qualifications.
+All seven now have executed failing controls followed by focused green runs:
+
+| Finding | Fix / direct evidence |
+| --- | --- |
+| Ledger R1 Medium | `7d37e66` + `5699e59`: AI-only case-insensitive section/setting/price-field ENV binding, including standard `__`→`:` normalization.21 actual .NET ConfigurationBuilder process observations and21 fresh real-gateway/SQL child cases cover zero/lower cap, token limits, prices, mixed deployment identity, unknown/unusable models. Actual invalid underscore cap/price lexemes are also rejected rather than accepted by Rust Decimal's extended syntax. Rust retains its existing stricter invalid-price configuration error; frozen dictionary binding instead drops the unusable model. Both refuse before provider/rows; neither restores a shipped price. |
+| Ledger R2 Low | `1c141f1`: one invariant notice formatter explicitly rounds midpoint away from zero; warnings and breakdown both use it.13 actual BCL positive/negative/tie/zero observations plus captured warning checks. HTTP four-place/micro-EUR totals remain separately asserted and unchanged. |
+| Ledger R3 Low | `6a0d868`: actual invariant NumberStyles.Number threshold-entry grammar after comma split/Unicode trim, including trailing signs, numeric whitespace/NUL handling and ties-to-even decimal precision reduction.208 actual BCL spelling/tokenization/precision observations check levels and invalid-entry logging. Cap inclusion/positive filtering stay unchanged. |
+| Transport T1 Medium | `22cf552`: queued complete SSE events drain before a stored terminal error, independent of coalesced/split/partial-UTF8 delivery. Actual frozen valid-prefix→JsonReaderException fixture; tools, no-report full cost and consumer-break-before-later-usage controls. Gateway consumer acknowledgements are unchanged. |
+| Transport T2 Low | `a6e468c`: supported `Value` helper reproduces frozen BMP/non-BMP escaping, German letters still literal; raw `Payload::json` unchanged. Actual serializer/argument/result/schema+UTF16 fixtures and bound23 refusal of the frozen27-token value. Encoder BMP range facts are derived from an exhaustive frozen BCL scalar probe, not an invented escape-all-nonASCII rule. |
+| Transport T3 Low | `444bd8d`: present total_tokens must also be Int32, even though pricing uses only input/output. Actual SDK nonstream/SSE valid/missing/empty/null/malformed/overflow/prefix fixtures; top-level usage:null stays unreported. |
+| Transport T4 Low | `dd46b16`: one AI ENV snapshot is trimmed and passed into the approved credential factory. Local refusing App Service query tests cover whitespace/canonical/unset/blank/lazy construction; PATH contains only refusing fake az/azd, so no real credential/token can be obtained. Shared Blob/Queue selection and normalization policy is unchanged. |
+
+Fresh combined validation completed against runtime/test source
+`96c09fce29cb3abbc3d76edcfa7bfb3e15b0dbc3`; the final commit records documentation
+only. Both independent rereviews and parent acceptance remain required.
+#229/#230/#231 remain blocked. No tracker/PR/push/merge/deployment or live-provider
+operation is authorized by these fixes. The original reviewer reports remain
+HOLD; implementation regressions and oracle runs are not independent rereviews.
+
+### Final remediation validation (2026-11-10)
+
+The fresh sequential pipeline was fmt → all-target clippy → workspace tests →
+workspace/examples build → pinned cargo-deny → ALL explicit gates → nine native
+journeys and nine drained replays. Dependencies stayed locked, with dedicated
+`target/ticket-228`, local PostgreSQL55428 and private Azurite51029/52029/53029.
+
+| Gate | Final result |
+| --- | --- |
+| fmt, all-target clippy `-D warnings`, workspace/examples build | **PASS** |
+| Ordinary Rust workspace | **102 passed / 0 failed / 204 ignored**; ignored tests are counted only in the next row |
+| ALL combined explicit gates | **204 passed / 0 failed / 0 ignored**: 196 SQL, 1 schema/adoption/grants, 5 private Blob, 1 private Queue, 1 native PDF |
+| Pinned cargo-deny0.20.2 | **PASS**: advisories, bans, licenses and sources; existing duplicate-version warnings retained |
+| Native auth/member/catalogue/upload/events/query/extraction/recordings/AI | **9/9 PASS**, including extended AI prefix-error/SQL settlement control |
+| Drained private telemetry replays | **9/9 PASS**; findings/errors/legacyMatches empty; completion and secrecy checked; captures0700/replays0600 |
+| Official-schema detector/lifecycle | **110 passed / 0 failed / 0 skipped** |
+| Unchanged frozen AI/ledger/provider/notices/infra .NET suites | **42 passed**, including actual execution of all three PostgreSQL concurrency cases |
+| Unchanged frontend unit tests | **115 passed / 0 failed / 0 skipped** |
+| Unchanged mocked UI, desktop/mobile | **184 passed**; static/mock regressions, not native chat or hosted AI acceptance |
+| Native linkage | Embedded **OpenSSL3.5.9**, no dynamic libssl/libcrypto |
+
+Fresh evidence: `/tmp/opencode/228-remediation-{fmt,clippy,workspace,build,deny,
+explicit,detector,frozen-dotnet-sql,frontend-unit,frozen-browser,linkage,
+native-summary}.log`, per-native `228-remediation-<name>.log`/`-replay.log`, and
+`228-remediation-{native-results,evidence}.json`. All seven focused behavioral
+red→green logs use `228-{r1,r2,r3,t1,t2,t3,t4}-{red,green}.log`; the additive R1
+lexeme control uses `228-r1-invalid-lexeme-{red,green}.log`. The extended native
+fixture has its own `228-review-native-{red,green}.log`. Original reviewer probes
+are evidence from their original reviews, not claimed as new independent work.
+
+Both `74ef3d0` and accepted `c7d9fd8` are verified ancestors. Frozen C#/tests,
+frontend, infrastructure, workflows and Dockerfile have no diff from the accepted
+base. Existing browser failures, historical UNCLASSIFIED redaction failure,
+video FK refusal, PDF/native limits and hosted/image/AppHost/cutover gates remain
+as recorded below and in their owning parity docs; these passes do not reclassify
+them. Private captures and owned local services remain intact; no cleanup ran.
+
+### Oracle and encoder maintenance
+
+`AiConfigurationOracle.cs` links unchanged `AiOptions.cs` and invokes real
+ConfigurationBuilder/AddEnvironmentVariables in isolated processes. It produces
+`228-ai-config.jsonl`. `AiNumberOracle.cs` executes the actual BCL format and
+unchanged ParseThresholds into `228-ai-numbers.jsonl` (13 formats+208 thresholds).
+`AiTransportReviewOracle.cs` links the unchanged provider/frozen backend and uses
+fake credentials/HttpMessageHandler only, producing `228-ai-transport-review.jsonl`.
+Its25 observations include10 Value payload matrices, one actual function schema,
+13 wire responses and one exhaustive BMP encoder-blocklist observation. These
+are additive to the original23 captured SDK observations, not live acceptance.
+
+The encoder-blocklist observation was produced on .NET10.0.14. Its sorted346
+BMP ranges (surrogate code units excluded) regenerate
+`crates/archive-server/src/ai/encoder-bmp-ranges.json` exactly. Preserve that provenance on a deliberate
+update; do not substitute the Rust Unicode version/categories or infer generic
+JsonSerializer support. The helper's tested domain is serde_json Value formatting
+with the recorded encoder; pre-serialized JSON/schema retains its raw spelling.
+The native test extension in `96c09fc` adds coalesced valid usage followed by
+malformed SSE over actual reqwest/real PostgreSQL and asserts5/2 tokens,15micro-EUR
+at fixture prices and zero reservation after the safely exposed terminal error.
+Existing consumer-cancel/cap/failing-settlement/nonzero/checked-flush controls stay.
+
+### Mandatory later HTTP integration gate (#229–#232)
+
+The current host awaits Axum in-flight handlers **before** gateway drain. There
+is no current model-consuming HTTP endpoint and neither reviewer alleges a
+demonstrated current-route shutdown failure. Before adding those handlers, their
+owners MUST connect shutdown cancellation and prove that an active model request
+cannot wait circularly for the post-Axum drain or merely hit the30s watchdog.
+Request/host cancellation, producer join, durable accounting and finite OTLP
+flush must be tested at their actual HTTP/process seam. The finite foundation
+example is not proof of this future endpoint integration gate.
+
 Base: accepted `c7d9fd8` (both #226/#227). This is foundation only: no chat
 endpoint, tool executor/loop, catalogue agent, scan reader or draft reader.
 Frozen C#, xUnit, frontend, infrastructure, workflows and Dockerfile are unchanged.
@@ -226,7 +321,7 @@ pending gates are not passes. Existing frozen browser failures, unclassified
 historical redaction failure, video-job FK refusal, cooperative PDF/native limits,
 hosted acceptance and image/AppHost/cutover gates remain unchanged.
 
-## Executed final validation (2026-11-10)
+## Historical original-candidate validation (74ef3d0, 2026-11-10)
 
 Dedicated target `target/ticket-228`, PostgreSQL55428, private Azurite Blob51029 /
 Queue52029 (matching internal/external copy ports), static OpenSSL3.5.9, two Cargo
