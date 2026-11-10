@@ -83,47 +83,55 @@ impl Options {
 	pub fn from_env(development: bool) -> Result<Self, Error> {
 		let mut result = Self::shipped(development);
 		for (key, value) in std::env::vars() {
-			match key.as_str() {
-				"Archive__Ai__MonthlyCapEur" => {
+			// .NET's ENV provider normalizes '__' to ':' and binds section /
+			// property names case-insensitively. Only AI option names are folded;
+			// the configured deployment/model identity is never lowercased.
+			let normalized = key.replace("__", ":");
+			let parts = normalized.split(':').collect::<Vec<_>>();
+			if parts.len() < 3
+				|| !parts[0].eq_ignore_ascii_case("Archive")
+				|| !parts[1].eq_ignore_ascii_case("Ai")
+			{
+				continue;
+			}
+			match &parts[2..] {
+				[setting] if setting.eq_ignore_ascii_case("MonthlyCapEur") => {
 					result.monthly_cap_eur =
 						value.trim().parse().map_err(|_| Error::Configuration)?
 				}
-				"Archive__Ai__MaxOutputTokensPerCall" => {
+				[setting] if setting.eq_ignore_ascii_case("MaxOutputTokensPerCall") => {
 					result.max_output_tokens =
 						value.trim().parse().map_err(|_| Error::Configuration)?
 				}
-				"Archive__Ai__MaxInputTokensPerCall" => {
+				[setting] if setting.eq_ignore_ascii_case("MaxInputTokensPerCall") => {
 					result.max_input_tokens =
 						value.trim().parse().map_err(|_| Error::Configuration)?
 				}
-				"Archive__Ai__NoticeThresholdsEur" => result.notice_thresholds_eur = value,
-				_ => {
-					if let Some(tail) = key.strip_prefix("Archive__Ai__Models__")
-						&& let Some((model, field)) = tail.rsplit_once("__")
-					{
-						let model = result
-							.models
-							.keys()
-							.find(|key| key.eq_ignore_ascii_case(model))
-							.cloned()
-							.unwrap_or_else(|| model.to_owned());
-						let price = result.models.entry(model).or_insert(Price {
-							input: Decimal::ZERO,
-							output: Decimal::ZERO,
-						});
-						match field {
-							"InputPricePerMillionEur" => {
-								price.input =
-									value.trim().parse().map_err(|_| Error::Configuration)?
-							}
-							"OutputPricePerMillionEur" => {
-								price.output =
-									value.trim().parse().map_err(|_| Error::Configuration)?
-							}
-							_ => {}
+				[setting] if setting.eq_ignore_ascii_case("NoticeThresholdsEur") => {
+					result.notice_thresholds_eur = value
+				}
+				[section, model, field] if section.eq_ignore_ascii_case("Models") => {
+					let model = result
+						.models
+						.keys()
+						.find(|key| key.eq_ignore_ascii_case(model))
+						.cloned()
+						.unwrap_or_else(|| (*model).to_owned());
+					let price = result.models.entry(model).or_insert(Price {
+						input: Decimal::ZERO,
+						output: Decimal::ZERO,
+					});
+					match *field {
+						field if field.eq_ignore_ascii_case("InputPricePerMillionEur") => {
+							price.input = value.trim().parse().map_err(|_| Error::Configuration)?
 						}
+						field if field.eq_ignore_ascii_case("OutputPricePerMillionEur") => {
+							price.output = value.trim().parse().map_err(|_| Error::Configuration)?
+						}
+						_ => {}
 					}
 				}
+				_ => {}
 			}
 		}
 		result.cap_micro_eur()?;
