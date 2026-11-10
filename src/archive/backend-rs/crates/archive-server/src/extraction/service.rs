@@ -82,20 +82,30 @@ impl FinalizedHook for Hook {
 	) -> BoxFuture<'a, Result<(), AuthError>> {
 		Box::pin(async move {
 			if extractable(datei) {
-				enqueue(pool, self.queue.as_ref(), datei.id, self.clock.as_ref()).await;
+				// before_save inserted the caller's canonical job at version zero.
+				enqueue(pool, self.queue.as_ref(), datei.id, 0, self.clock.as_ref()).await;
 			}
 			Ok(())
 		})
 	}
 }
-pub async fn enqueue(pool: &sqlx::PgPool, queue: &dyn Queue, id: Uuid, clock: &dyn Clock) -> bool {
+pub async fn enqueue(
+	pool: &sqlx::PgPool,
+	queue: &dyn Queue,
+	id: Uuid,
+	version: i64,
+	clock: &dyn Clock,
+) -> bool {
 	if crate::queue::quiet_send(queue, &crate::queue::envelope("extraction", id)).await {
-		if sqlx::query(r#"UPDATE extraction_jobs SET "LastEnqueuedAt"=$2 WHERE "DateiId"=$1"#)
-			.bind(id)
-			.bind(clock.now())
-			.execute(pool)
-			.await
-			.is_err()
+		if !sqlx::query(
+			r#"UPDATE extraction_jobs SET "LastEnqueuedAt"=$2 WHERE "DateiId"=$1 AND "RowVersion"=$3"#,
+		)
+		.bind(id)
+		.bind(clock.now())
+		.bind(version)
+		.execute(pool)
+		.await
+		.is_ok_and(|r| r.rows_affected() == 1)
 		{
 			tracing::warn!("Extraction enqueue stamp failed");
 		}
@@ -110,19 +120,20 @@ pub async fn dispatch(
 	clock: &dyn Clock,
 ) -> Result<usize, sqlx::Error> {
 	let now = clock.now();
-	let ids:Vec<Uuid>=sqlx::query_scalar(r#"SELECT "DateiId" FROM extraction_jobs WHERE "Status"=0 AND ("LastEnqueuedAt" IS NULL OR "LastEnqueuedAt"<$1) ORDER BY "CreatedAt" LIMIT $2"#).bind(now-options.redisplay_after).bind(options.max_dispatch_per_run).fetch_all(pool).await?;
+	let jobs:Vec<(Uuid,i64)>=sqlx::query_as(r#"SELECT "DateiId","RowVersion" FROM extraction_jobs WHERE "Status"=0 AND ("LastEnqueuedAt" IS NULL OR "LastEnqueuedAt"<$1) ORDER BY "CreatedAt" LIMIT $2"#).bind(now-options.redisplay_after).bind(options.max_dispatch_per_run).fetch_all(pool).await?;
 	let mut count = 0;
-	for id in ids {
+	for (id, version) in jobs {
 		match queue.send(&crate::queue::envelope("extraction", id)).await {
 			Ok(true) => {
 				if sqlx::query(
-					r#"UPDATE extraction_jobs SET "LastEnqueuedAt"=$2 WHERE "DateiId"=$1"#,
+					r#"UPDATE extraction_jobs SET "LastEnqueuedAt"=$2 WHERE "DateiId"=$1 AND "RowVersion"=$3"#,
 				)
 				.bind(id)
 				.bind(now)
+				.bind(version)
 				.execute(pool)
 				.await
-				.is_ok()
+				.is_ok_and(|r| r.rows_affected() == 1)
 				{
 					count += 1;
 				} else {

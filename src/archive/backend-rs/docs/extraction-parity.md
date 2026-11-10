@@ -34,8 +34,22 @@ remain required before any wave6 advance.
   (row/dequeue exhaustion, each transient/deadline), then passed all six counted
   cases and the already-spent precheck control. All six worker tests pass;
   `/tmp/opencode/226-r3-{red,green,fmt,clippy}.log` retains exact evidence.
-- R4 outbox CAS remains open at this checkpoint.
-  The reviewer's R4 finding was source-derived, not a successful race reproduction.
+- R4: `extraction_outbox` executed four new failing real-SQL/provider-send-barrier
+  tests (dispatcher, authenticated finalize/retry, generated native-PDF reading
+  handoff). Each late stamp overwrote the newer row's reset enqueue state. The
+  reviewer's original finding remains source-derived; these are NEW reproductions.
+  Selected dispatcher versions, finalize's inserted version zero, retry's exact
+  selected/reset/inserted version and reading's inserted version zero now guard
+  stamps. Zero affected rows warn and do not resend; dispatch counts successful
+  stamps only. All 15 extraction API/worker/outbox tests pass, including normal
+  stamps, queued/reset/insert retry callers, terminal duplicates, finalize reentry
+  and later dispatcher recovery. `/tmp/opencode/226-r4-{red,green,fmt,clippy}.log`.
+  Source audit: frozen `ExtractionService.cs:57–74` uses EF identity resolution of
+  the caller-tracked row; dispatcher `:161–197` retains its selected tracked row;
+  extraction/reading model configurations mark RowVersion as concurrency token.
+  Worker/retry explicitly bump it; stamp-only saves do NOT bump RowVersion or
+  UpdatedAt. Rust preserves that rule; normal controls compare every row field.
+  No transaction crosses external I/O and no atomic outbox guarantee is invented.
 - Final combined validation and independent rereview have **not** run after all
   fixes. Earlier pre-union/initial-union passes below are not final acceptance.
 

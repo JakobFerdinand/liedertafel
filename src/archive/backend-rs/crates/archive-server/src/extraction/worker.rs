@@ -336,20 +336,24 @@ impl Worker {
 			false
 		};
 		tx.commit().await?;
+		// The newly inserted/tracked handoff row has version zero. An
+		// accepted send never grants permission to stamp a newer lease.
 		if inserted
 			&& let Some(queue) = &self.reading_queue
 			&& crate::queue::quiet_send(
 				queue.as_ref(),
 				&crate::queue::envelope("reading", job.datei_id),
 			)
-			.await
+			.await && !sqlx::query(
+			r#"UPDATE reading_jobs SET "LastEnqueuedAt"=$2 WHERE "DateiId"=$1 AND "RowVersion"=0"#,
+		)
+		.bind(job.datei_id)
+		.bind(self.clock.now())
+		.execute(&self.pool)
+		.await
+		.is_ok_and(|r| r.rows_affected() == 1)
 		{
-			let _ =
-				sqlx::query(r#"UPDATE reading_jobs SET "LastEnqueuedAt"=$2 WHERE "DateiId"=$1"#)
-					.bind(job.datei_id)
-					.bind(self.clock.now())
-					.execute(&self.pool)
-					.await;
+			tracing::warn!("Reading enqueue stamp failed");
 		}
 		Ok(disposition)
 	}

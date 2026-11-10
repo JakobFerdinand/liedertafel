@@ -101,7 +101,7 @@ async fn retry(
 	let now = auth.clock.now();
 	for pass in 0..2 {
 		let existing = Job::load(&auth.pool, id).await?;
-		let mut enqueue = false;
+		let mut enqueue_version = None;
 		if let Some(job) = existing {
 			if job.status == 1 && !job.stale(now, &origin.extraction) {
 				return Err(fail(StatusCode::CONFLICT, "Die Auswertung läuft bereits."));
@@ -115,9 +115,9 @@ async fn retry(
 				if n == 0 {
 					return Err(fail(StatusCode::CONFLICT, CONFLICT));
 				}
-				enqueue = true;
+				enqueue_version = Some(job.row_version + 1);
 			} else if job.status == 0 && job.last_enqueued_at.is_none() {
-				enqueue = true;
+				enqueue_version = Some(job.row_version);
 			}
 		} else {
 			let mut connection = auth.pool.acquire().await?;
@@ -130,13 +130,14 @@ async fn retry(
 				}
 				return Err(fail(StatusCode::CONFLICT, CONFLICT));
 			}
-			enqueue = true;
+			enqueue_version = Some(0);
 		}
-		if enqueue {
+		if let Some(version) = enqueue_version {
 			service::enqueue(
 				&auth.pool,
 				origin.extraction_queue.as_ref(),
 				id,
+				version,
 				auth.clock.as_ref(),
 			)
 			.await;
