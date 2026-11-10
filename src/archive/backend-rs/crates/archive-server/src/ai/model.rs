@@ -1,6 +1,14 @@
 use super::{Error, Usage};
 use serde_json::{Value, value::RawValue};
+use std::sync::LazyLock;
 use uuid::Uuid;
+
+// Derived scalar facts from the actual frozen AIJsonUtilities encoder on
+// .NET10.0.14, NOT a claim about arbitrary JsonSerializer settings/types.
+// AiTransportReviewOracle.cs exhaustively probes BMP scalars (except surrogate
+// code units); its encoder-blocklist observation regenerates this sorted table.
+static ENCODER_BMP_RANGES: LazyLock<Result<Vec<[u32; 2]>, serde_json::Error>> =
+	LazyLock::new(|| serde_json::from_str(include_str!("encoder-bmp-ranges.json")));
 
 /// Internal operation/account attribution is deliberately not Serialize.
 #[derive(Clone, Debug)]
@@ -36,12 +44,48 @@ impl Payload {
 		))
 	}
 	pub fn from_value(value: &Value) -> Result<Self, Error> {
-		// AIJsonUtilities.DefaultOptions indents dictionaries/results and escapes
-		// supplemental UTF-16 pairs, but allows German BMP letters.
+		// Match the frozen encoder's blocked BMP scalars and non-BMP UTF-16
+		// pairs, while preserving German/other allowed letters. Raw JSON uses
+		// Payload::json and is never re-encoded by this supported-Value helper.
 		let pretty = serde_json::to_string_pretty(value).map_err(|_| Error::Configuration)?;
+		let ranges = ENCODER_BMP_RANGES
+			.as_ref()
+			.map_err(|_| Error::Configuration)?;
 		let mut out = String::new();
-		for c in pretty.chars() {
-			if c as u32 > 0xffff {
+		let mut chars = pretty.chars();
+		while let Some(c) = chars.next() {
+			// Serde already emitted JSON escapes for controls / quote / slash.
+			// Uppercase generated \uXXXX hex without mistaking a user's escaped
+			// literal backslash-u sequence for an encoder-generated escape.
+			if c == '\\' {
+				out.push(c);
+				let escaped = chars.next().ok_or(Error::Configuration)?;
+				out.push(escaped);
+				if escaped == 'u' {
+					for _ in 0..4 {
+						out.push(
+							chars
+								.next()
+								.ok_or(Error::Configuration)?
+								.to_ascii_uppercase(),
+						);
+					}
+				}
+				continue;
+			}
+			let scalar = c as u32;
+			let blocked = ranges
+				.binary_search_by(|&[start, end]| {
+					if scalar < start {
+						std::cmp::Ordering::Greater
+					} else if scalar > end {
+						std::cmp::Ordering::Less
+					} else {
+						std::cmp::Ordering::Equal
+					}
+				})
+				.is_ok();
+			if scalar > 0xffff || blocked {
 				use std::fmt::Write;
 				for unit in c.encode_utf16(&mut [0; 2]) {
 					write!(&mut out, "\\u{unit:04X}").map_err(|_| Error::Configuration)?;

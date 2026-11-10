@@ -24,6 +24,16 @@ foreach (var (name,text) in new[] {
 	Console.WriteLine(JsonSerializer.Serialize(new { kind="payload",name,text,serialized,argumentsEstimate=AiTokenEstimate.TextInput([argsMessage],new C()),resultEstimate=AiTokenEstimate.TextInput([resultMessage],new C()) }));
 }
 
+var ranges=new List<int[]>();
+for(var scalar=0;scalar<=0xffff;scalar++) {
+	if(char.IsSurrogate((char)scalar)) continue;
+	if(!JsonSerializer.Serialize(((char)scalar).ToString(),AIJsonUtilities.DefaultOptions).Contains("\\u",StringComparison.Ordinal)) continue;
+	if(ranges.Count>0&&ranges[^1][1]==scalar-1)ranges[^1][1]=scalar;else ranges.Add([scalar,scalar]);
+}
+Console.WriteLine(JsonSerializer.Serialize(new{kind="encoder-blocklist",runtime=Environment.Version.ToString(),ranges}));
+var function=AIFunctionFactory.Create(OracleFunction.Echo,"f","Beschreibung");
+Console.WriteLine(JsonSerializer.Serialize(new{kind="schema",name=function.Name,description=function.Description,raw=function.JsonSchema.GetRawText(),estimate=AiTokenEstimate.TextInput([new M(ChatRole.User,"abc")],new C{Tools=[function]})}));
+
 const string prefix="data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-6-luna\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Grüß😀\"},\"finish_reason\":null}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":2,\"total_tokens\":7}}\n\n";
 foreach(var scenario in new[]{"prefix-malformed","bad-total","null-total","overflow-total","missing-total","empty-usage","null-usage","stream-bad-total","stream-null-total","stream-overflow-total","prefix-bad-total"})
 {
@@ -46,4 +56,7 @@ sealed class Fake:TokenCredential {
 }
 sealed class Handler(string body,bool streaming):HttpMessageHandler {
 	protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage r,CancellationToken t)=>Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK){Content=new StringContent(body,Encoding.UTF8,streaming?"text/event-stream":"application/json")});
+}
+static class OracleFunction {
+	public static string Echo([System.ComponentModel.Description("Grüß😀\u2028\u2029\u0085\uE000")] string text)=>text;
 }
