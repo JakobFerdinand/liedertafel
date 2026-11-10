@@ -73,6 +73,7 @@ source-folder inventory (Drive, #98) runbook lives at
 
 - Rust extraction/Queue/PDF (#226): contracts and native setup are in `src/archive/backend-rs/docs/extraction-parity.md`. Focused real-PG gate from that workspace: `cargo test -p archive-server --locked --test extraction_worker -- --ignored`; native unchanged-UI/real Queue gate: `node tests/browser/extraction-native.cjs`.
 - Rust AI foundation (#228): read `src/archive/backend-rs/docs/ai-foundation-parity.md` before gateway/ledger/provider/notices work. Offline: from that workspace, `cargo test -p archive-server --locked --test ai_guards --test ai_wire`; PostgreSQL: `cargo test -p archive-server --locked --test ai_ledger -- --ignored`. The `ai-foundation-native` Cargo example and Node harness are offline provider/finite-drain/OTLP test tools only.
+- Rust stored reading (#229): state/worker/shared scan/quote/writer ownership and later draft/programme handoff are in `src/archive/backend-rs/docs/reading-parity.md`. From that workspace: `cargo test -p archive-server --locked --test reading_worker -- --ignored` (disposable PG + pinned native PDFium); native unchanged UI/private Queue/Blob: `node tests/browser/reading-native.cjs`. The `reading-cancel-native` example is an offline-only lifecycle fixture, not a product command or live-model authorization.
 
 ### Linting
 - Website/dashboard have no lint script. Archive frontend has generated Biome `lint` / `format` scripts and `check` (Biome + Next route types + TypeScript).

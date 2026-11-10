@@ -74,9 +74,16 @@ async fn programme_and_old_model_head_adoption_preserves_all_current_rows_and_re
 	INSERT INTO recording_passages ("Id","RecordingId","ProgrammeItemId","EventId","StartSeconds","EndSeconds","CreatedAt","CreatedByAccountId","UpdatedAt","UpdatedByAccountId","RowVersion","PlaybackDateiId") VALUES ('40000000-0000-0000-0000-000000000001','30000000-0000-0000-0000-00000000000a','cc000000-0000-0000-0000-000000000001','30000000-0000-0000-0000-000000000001',1,5,now(),'00000000-0000-0000-0000-00000000000a',now(),'00000000-0000-0000-0000-00000000000a',6,'30000000-0000-0000-0000-000000000008');
 	INSERT INTO upload_sessions ("Id","LiedId","DateiKind","BlobName","ContentType","MaxSizeBytes","UploadTicketExpiresAt","State","CreatedByAccountId","CreatedAt") VALUES ('50000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','noten','pending/neu','application/pdf',10,now(),0,'00000000-0000-0000-0000-00000000000a',now());
 	"#).execute(&mut db).await.unwrap();
+	// #229 approved equivalent: already-Datei-keyed extraction/source and paid
+	// reading progress survive frozen-head adoption. Obsolete revision->Datei
+	// deletion/rekeying is deliberately NOT executed or claimed.
+	sqlx::raw_sql(r#"INSERT INTO extraction_jobs ("DateiId","Status","Text","AttemptCount","TriggeredByAccountId","CreatedAt","UpdatedAt","RowVersion","TextSource") VALUES ('20000000-0000-0000-0000-000000000008',2,'Schon bezahlter Notentext',2,'00000000-0000-0000-0000-00000000000a',now(),now(),7,1);
+	INSERT INTO reading_jobs ("DateiId","Status","PagesTotal","PagesRead","PageLimit","FieldsDone","FieldsApplied","FailureReason","AttemptCount","TriggeredByAccountId","CreatedAt","UpdatedAt","RowVersion") VALUES ('20000000-0000-0000-0000-000000000008',2,35,10,20,false,3,NULL,0,'00000000-0000-0000-0000-00000000000a',now(),now(),8);"#).execute(&mut db).await.unwrap();
+	let reading_before:serde_json::Value=sqlx::query_scalar(r#"SELECT jsonb_build_object('extraction',(SELECT jsonb_agg(to_jsonb(t)) FROM extraction_jobs t),'reading',(SELECT jsonb_agg(to_jsonb(t)) FROM reading_jobs t))"#).fetch_one(&mut db).await.unwrap();
 	let before = snapshot(&mut db).await;
 	// Both older-history frontiers must refuse before adoption; no transforms.
 	for frontier in [
+		"20261016170055_AddLiederAndDateien",
 		"20261017185113_AuftrittDateien",
 		"20261019102646_LiedEntwuerfe",
 	] {
@@ -90,6 +97,8 @@ async fn programme_and_old_model_head_adoption_preserves_all_current_rows_and_re
 			snapshot(&mut db).await,
 			"failed adoption never touches data/history"
 		);
+		let rows:serde_json::Value=sqlx::query_scalar(r#"SELECT jsonb_build_object('extraction',(SELECT jsonb_agg(to_jsonb(t)) FROM extraction_jobs t),'reading',(SELECT jsonb_agg(to_jsonb(t)) FROM reading_jobs t))"#).fetch_one(&mut db).await.unwrap();
+		assert_eq!(rows, reading_before);
 		for (id, version) in later {
 			sqlx::query(r#"INSERT INTO "__EFMigrationsHistory" VALUES ($1,$2)"#)
 				.bind(id)
@@ -135,6 +144,8 @@ async fn programme_and_old_model_head_adoption_preserves_all_current_rows_and_re
 		);
 		assert_eq!(before, snapshot(&mut db).await);
 	}
+	let reading_after:serde_json::Value=sqlx::query_scalar(r#"SELECT jsonb_build_object('extraction',(SELECT jsonb_agg(to_jsonb(t)) FROM extraction_jobs t),'reading',(SELECT jsonb_agg(to_jsonb(t)) FROM reading_jobs t))"#).fetch_one(&mut db).await.unwrap();
+	assert_eq!(reading_before, reading_after);
 	for table in [
 		"songs",
 		"song_titles",
@@ -152,6 +163,10 @@ async fn programme_and_old_model_head_adoption_preserves_all_current_rows_and_re
 		assert!(!exists, "{table}");
 	}
 	for (table, column) in [
+		("extraction_jobs", "RevisionId"),
+		("extraction_jobs", "AssetId"),
+		("reading_jobs", "RevisionId"),
+		("reading_jobs", "AssetId"),
 		("events", "PublishedAt"),
 		("events", "PublishedByAccountId"),
 		("programme_items", "RevisionId"),

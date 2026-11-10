@@ -27,6 +27,15 @@ impl Services {
 		clock: std::sync::Arc<dyn crate::auth::Clock>,
 		development: bool,
 	) -> Result<Self, Error> {
+		Self::from_env_with_script(pool, clock, development, Script::new(Vec::new()))
+	}
+	/// Domain-specific delivery stays below this exact gateway/SQL registration.
+	pub fn from_env_with_script(
+		pool: sqlx::PgPool,
+		clock: std::sync::Arc<dyn crate::auth::Clock>,
+		development: bool,
+		script: Script,
+	) -> Result<Self, Error> {
 		let (_, options) = tokio::sync::watch::channel(Options::from_env(development)?);
 		let ledger = Ledger::new(
 			std::sync::Arc::new(PostgresStore::new(pool)),
@@ -36,7 +45,7 @@ impl Services {
 		let gateway = if let Some(config) = AzureConfig::selected_from_env() {
 			Gateway::azure(ledger.clone(), config)?
 		} else {
-			Gateway::scripted(ledger.clone(), Script::new(Vec::new()))
+			Gateway::scripted(ledger.clone(), script)
 		};
 		Ok(Self { ledger, gateway })
 	}

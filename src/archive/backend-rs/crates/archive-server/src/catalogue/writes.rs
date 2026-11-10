@@ -25,7 +25,45 @@ pub(super) const FIELDS: [(&str, &str); 8] = [
 	("lyrics", "Lyrics"),
 	("occasion", "Occasion"),
 ];
+/// Code-owned FieldCatalog prompts (form-wire names remain in FIELDS).
+pub const FIELD_PROMPTS: [(&str, &str); 7] = [
+	("composer", "Komponist (Musik von), nur der Name."),
+	("arranger", "Arrangeur (Satz von), nur der Name."),
+	("lyricist", "Textdichter (Worte von), nur der Name."),
+	(
+		"voice_configuration",
+		"Besetzung, zum Beispiel \"Männerchor a cappella\" oder \"TTBB\".",
+	),
+	(
+		"musical_key",
+		"Tonart, zum Beispiel \"G-Dur\" oder \"d-Moll\".",
+	),
+	(
+		"language",
+		"Sprache des Liedtexts, zum Beispiel \"Deutsch\" oder \"Latein\".",
+	),
+	(
+		"lyrics",
+		"der gesungene Liedtext mit allen Strophen, Zeilen durch Zeilenumbrüche getrennt, ohne Titel,\n  Namen, Tempo- oder Stimmangaben.",
+	),
+];
 pub(super) const CONFLICT: &str = "Der Eintrag wurde zwischenzeitlich geändert.";
+/// Catalogue names differ from form-wire camelCase for the key. Keep the
+/// automation allowlist here beside manual validation, never model-selected SQL.
+pub(crate) fn automated_column(field: &str) -> Option<&'static str> {
+	let form = if field == "musical_key" {
+		"musicalKey"
+	} else {
+		field
+	};
+	if !["composer", "arranger", "lyricist", "musicalKey", "lyrics"].contains(&form) {
+		return None;
+	}
+	FIELDS
+		.iter()
+		.find(|(name, _)| *name == form)
+		.map(|(_, column)| *column)
+}
 pub(super) fn invalid() -> AuthError {
 	AuthError::Problem(StatusCode::BAD_REQUEST, "Die Anfrage ist ungültig.")
 }

@@ -10,7 +10,6 @@ use crate::{
 	storage::Storage,
 };
 use chrono::{DateTime, Duration, Utc};
-use futures::StreamExt;
 use std::{path::PathBuf, sync::Arc};
 use tokio_util::sync::CancellationToken;
 use tracing::{Instrument, info_span};
@@ -232,34 +231,18 @@ impl Worker {
 		budget: &CancellationToken,
 		deadline: DateTime<Utc>,
 	) -> Result<Outcome, pdf::Error> {
-		let mut stream = self
-			.storage
-			.open_read_bounded(blob, self.options.max_pdf_bytes)
-			.await
-			.map_err(|_| pdf::Error::Io)?
-			.ok_or(pdf::Error::Io)?;
-		let spool = Spool::new(&self.spool_directory).map_err(|_| pdf::Error::Io)?;
-		let mut file = tokio::fs::OpenOptions::new()
-			.write(true)
-			.open(&spool.0)
-			.await
-			.map_err(|_| pdf::Error::Io)?;
-		let mut stored = 0u64;
-		while let Some(bytes) = stream.next().await {
-			if budget.is_cancelled() || self.clock.now() >= deadline {
-				return Err(pdf::Error::Cancelled);
-			}
-			let bytes = bytes.map_err(|_| pdf::Error::Io)?;
-			let allowed = self.options.max_pdf_bytes.saturating_sub(stored);
-			if bytes.len() as u64 > allowed {
-				return Ok(Outcome::Failure(pdf::TOO_LARGE));
-			}
-			use tokio::io::AsyncWriteExt;
-			file.write_all(&bytes).await.map_err(|_| pdf::Error::Io)?;
-			stored += bytes.len() as u64;
-		}
-		drop(stream);
-		drop(file);
+		let spool = match pdf::Spool::load(
+			self.storage.as_ref(),
+			blob,
+			self.options.max_pdf_bytes,
+			&self.spool_directory,
+			|| budget.is_cancelled() || self.clock.now() >= deadline,
+		)
+		.await
+		{
+			Err(pdf::Error::TooLarge) => return Ok(Outcome::Failure(pdf::TOO_LARGE)),
+			result => result?,
+		};
 		let engine = PdfEngine::from_env()?;
 		let options = self.options.clone();
 		let budget = budget.clone();
@@ -356,23 +339,5 @@ impl Worker {
 			tracing::warn!("Reading enqueue stamp failed");
 		}
 		Ok(disposition)
-	}
-}
-struct Spool(PathBuf);
-impl Spool {
-	fn new(directory: &std::path::Path) -> std::io::Result<Self> {
-		use std::os::unix::fs::OpenOptionsExt;
-		let path = directory.join(format!("226-pdf-{}.spool", uuid::Uuid::new_v4()));
-		std::fs::OpenOptions::new()
-			.create_new(true)
-			.write(true)
-			.mode(0o600)
-			.open(&path)?;
-		Ok(Self(path))
-	}
-}
-impl Drop for Spool {
-	fn drop(&mut self) {
-		let _ = std::fs::remove_file(&self.0);
 	}
 }

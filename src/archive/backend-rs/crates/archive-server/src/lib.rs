@@ -16,6 +16,7 @@ pub mod events;
 pub mod extraction;
 pub mod frontend;
 pub mod origin;
+pub mod reading;
 pub mod recordings;
 pub mod settings;
 pub mod storage;

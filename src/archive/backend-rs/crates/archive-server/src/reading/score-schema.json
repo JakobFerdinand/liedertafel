@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","properties":{"felder":{"type":"array","items":{"type":"object","properties":{"feld":{"type":"string"},"wert":{"type":["string","null"]},"sicherheit":{"type":"string"},"zitat":{"type":["string","null"]}},"required":["feld","wert","sicherheit","zitat"]}}},"required":["felder"]}
