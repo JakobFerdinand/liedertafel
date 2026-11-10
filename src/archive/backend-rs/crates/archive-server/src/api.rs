@@ -64,6 +64,7 @@ fn implemented_api_routes(_origin: Arc<Origin>) -> Vec<(&'static str, MethodRout
 	));
 	routes.extend(crate::auth::routes());
 	routes.extend(crate::catalogue::routes());
+	routes.extend(crate::events::routes());
 	routes
 }
 
@@ -153,7 +154,7 @@ pub async fn api_miss() -> Response {
 /// ASP.NET-shape ProblemDetails JSON: `type` link, `title`, `status`. The
 /// frontend reads only the title, but the stable shape stays whole on both
 /// backends.
-pub(crate) fn problem(status: StatusCode, title: &'static str) -> Response {
+pub(crate) fn problem(status: StatusCode, title: &str) -> Response {
 	let mut body = json!({
 		"title": title,
 		"status": status.as_u16(),

@@ -143,6 +143,15 @@ update this section in the same PR whenever the member list changes.
 
 - Any `/api/*` route without a Rust implementation answers the single stable
   JSON 404/501 error shape, driven by one list of implemented routes.
+
+- Auftritte/Programme/initial Entwurf (#225): before changing partial dates,
+  programme IDs/order, Zeitmarke guards, history, event documents or opaque form
+  persistence, read `docs/events-parity.md` for binding/order/concurrency and
+  per-file oracle ownership. Historical EF cases use the explicit approved
+  equivalents in `docs/historical-migration-disposition.md`, not old-schema
+  upgrades. Focused PG: `cargo test -p archive-server --locked --test
+  auftritt_programm -- --ignored`. Native unchanged UI:
+  `node tests/browser/events-native.cjs`; scan/model semantics stay #231.
 - `/api/build` and the readiness endpoint have the same shapes as today from
   wave 1 onward.
 - OTLP traces/metrics/logs keep the dashboard-compatible schema; every host
