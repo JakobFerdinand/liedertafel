@@ -1,5 +1,38 @@
 # Stored-Datei extraction (#226)
 
+## Accepted recording union (validation in progress)
+
+Integration `e851f42` (#227 tree `bd28dd9`) is merged into this branch as
+`e4ca191`. Additive conflicts preserve both route registries and both sets of
+raw binding shapes/rules. Recording visibility/lifecycle/lib/guides and extraction
+main/hooks/dependencies are retained. Fresh combined checks use226-owned providers;
+the earlier counts below are pre-union evidence until replaced by explicit union
+results. Independent review of original `99d92b8` is **COMPLETE/HOLD** with four
+findings. This union is not accepted; fresh full gates and independent rereview
+remain required before any wave6 advance.
+
+## Review remediation checkpoint
+
+- R1: `935e660` ensures both finite command queues after maintenance and through
+  cancellation. Actual absent private-Azurite dispatch test failed first
+  (`dispatch must provision its initially absent queue`); full extraction native
+  harness then passed, including absent/existing/paused/unconfigured/provider
+  failure and SIGTERM controls. Logs: `/tmp/opencode/226-r1-{native-red,native-green}.log`.
+- R2: `score_text_boundaries` first failed on 21 of 54 frozen observations,
+  including all six reviewer cases. Explicit UTF-16 Letter/Nd lookaround predicates,
+  non-consuming voice boundaries/optional-suffix fallback, bounded signature pair
+  and 600-UTF-16-unit metronome prefix now agree on all 54. Empty-noise input retains
+  the frozen empty-facts early return. Canonical clean-text SHA256 is checked too.
+  `tests/oracles/ExtractionScoreOracle.cs` is run in external
+  `/tmp/opencode/226-score-oracle/Probe.csproj` against the unchanged frozen DLL;
+  compact output exactly matches committed `fixtures/226-score-bcl.jsonl`.
+  `/tmp/opencode/226-r2-{red,green,fmt,clippy}.log`: red then four analyzer tests
+  green; fmt and workspace/all-target clippy green. No new dependency/write path.
+- R3 timestamp and R4 outbox CAS findings are still open at this checkpoint.
+  The reviewer's R4 finding was source-derived, not a successful race reproduction.
+- Final combined validation and independent rereview have **not** run after all
+  fixes. Earlier pre-union/initial-union passes below are not final acceptance.
+
 Base: accepted integration `5c5611a`. Frozen C#, xUnit, frontend, infrastructure,
 workflow and Dockerfile remain unchanged. No model is called. Image/AppHost
 retargeting is #235; hosted identity/storage and cutover are separate gates.

@@ -1,6 +1,7 @@
 //! Deterministic ScoreTextAnalyzer sibling. Never writes catalogue fields.
 use regex::Regex;
 use serde::Serialize;
+use std::sync::OnceLock;
 #[derive(Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Facts {
@@ -53,6 +54,62 @@ fn hyphen(c: char) -> bool {
 fn plain(c: char) -> bool {
 	c.is_ascii_alphabetic() || "ÄÖÜäöüß".contains(c)
 }
+// Frozen Regex predicates inspect UTF-16 code units, not Unicode word chars.
+// A supplementary scalar's adjacent surrogate is neither Letter nor Nd.
+fn category(c: char, digit: bool) -> bool {
+	static LETTER: OnceLock<Option<Regex>> = OnceLock::new();
+	static DIGIT: OnceLock<Option<Regex>> = OnceLock::new();
+	let re = if digit {
+		DIGIT.get_or_init(|| regex(r"^\p{Nd}$"))
+	} else {
+		LETTER.get_or_init(|| regex(r"^\p{L}$"))
+	};
+	c.len_utf16() == 1
+		&& re
+			.as_ref()
+			.is_some_and(|r| r.is_match(c.encode_utf8(&mut [0; 4])))
+}
+fn letter(c: char) -> bool {
+	category(c, false)
+}
+fn letter_or_digit(c: char) -> bool {
+	letter(c) || category(c, true)
+}
+fn before(s: &str, at: usize, predicate: fn(char) -> bool) -> bool {
+	s[..at].chars().next_back().is_some_and(predicate)
+}
+fn after(s: &str, at: usize, predicate: fn(char) -> bool) -> bool {
+	s[at..].chars().next().is_some_and(predicate)
+}
+fn voice_matches<'a>(re: &Regex, text: &'a str) -> Vec<(usize, usize, &'a str, Option<&'a str>)> {
+	let mut found = Vec::new();
+	let mut at = 0;
+	while let Some(m) = re.captures_at(text, at) {
+		let (Some(whole), Some(name)) = (m.get(0), m.name("name")) else {
+			break;
+		};
+		let post = m
+			.name("post")
+			.filter(|p| !after(text, p.end(), letter_or_digit));
+		let end = post.map_or(name.end(), |p| p.end());
+		if !before(text, whole.start(), letter_or_digit) && !after(text, end, letter) {
+			found.push((
+				whole.start(),
+				end,
+				name.as_str(),
+				post.or_else(|| m.name("pre")).map(|n| n.as_str()),
+			));
+			at = end;
+		} else {
+			at = whole.start()
+				+ text[whole.start()..]
+					.chars()
+					.next()
+					.map_or(1, char::len_utf8);
+		}
+	}
+	found
+}
 const SIGNATURES: [&str; 12] = [
 	"2/2", "3/2", "4/2", "2/4", "3/4", "4/4", "5/4", "6/4", "3/8", "6/8", "9/8", "12/8",
 ];
@@ -79,6 +136,12 @@ pub fn analyze(text: Option<&str>) -> Analysis {
 		})
 		.filter(|l: &Vec<String>| !l.is_empty())
 		.collect();
+	if lines.is_empty() {
+		return Analysis {
+			clean_text: String::new(),
+			facts,
+		};
+	}
 	let tokens: Vec<&str> = lines.iter().flatten().map(String::as_str).collect();
 	let head = tokens
 		.iter()
@@ -113,10 +176,10 @@ pub fn analyze(text: Option<&str>) -> Analysis {
 		join = token.ends_with(hyphen);
 	}
 	if let Some(re) = regex(
-		r"(?:^|[^\p{L}\d])(?:(?<pre>[12]|II?)\.?\s*)?(?<name>Mezzosopran|MEZZOSOPRAN|Soprano?|SOPRAN|Alto?|ALT|Tenore?|TENOR|Bariton|BARITON|Bass|BASS|Baß)(?:\s*(?<post>[12]|II?))?\b",
+		r"(?:(?<pre>[12]|II?)\.?\s*)?(?<name>Mezzosopran|MEZZOSOPRAN|Soprano?|SOPRAN|Alto?|ALT|Tenore?|TENOR|Bariton|BARITON|Bass|BASS|Baß)(?:\s*(?<post>[12]|II?))?",
 	) {
-		let voice = |m: regex::Captures<'_>| {
-			let name = match m.name("name").map(|m| m.as_str().to_lowercase()).as_deref() {
+		let voice = |(_, _, name, number): (usize, usize, &str, Option<&str>)| {
+			let name = match Some(name.to_lowercase()).as_deref() {
 				Some("mezzosopran") => "Mezzosopran",
 				Some("sopran" | "soprano") => "Sopran",
 				Some("alt" | "alto") => "Alt",
@@ -124,8 +187,8 @@ pub fn analyze(text: Option<&str>) -> Analysis {
 				Some("bariton") => "Bariton",
 				_ => "Bass",
 			};
-			let number = m.name("post").or_else(|| m.name("pre")).map(|m| {
-				match m.as_str() {
+			let number = number.map(|n| {
+				match n {
 					"I" => "1",
 					"II" => "2",
 					n => n,
@@ -134,13 +197,12 @@ pub fn analyze(text: Option<&str>) -> Analysis {
 			});
 			(name.to_owned(), number)
 		};
-		let mut found: Vec<_> = re.captures_iter(&head).map(&voice).collect();
+		let mut found: Vec<_> = voice_matches(&re, &head).into_iter().map(&voice).collect();
 		for line in lines.iter().filter(|l| l.len() <= 3) {
 			let value = line.join(" ");
-			if let Some(m) = re.captures(&value)
-				&& m.get(0).is_some_and(|m| {
-					m.start() == 0 && m.as_str().len() == value.trim_end_matches(['.', ':']).len()
-				}) {
+			if let Some(m) = voice_matches(&re, &value).first().copied()
+				&& m.0 == 0 && m.1 == value.trim_end_matches(['.', ':']).len()
+			{
 				let v = voice(m);
 				if v.0 != "Alt" || v.1.is_some() {
 					found.push(v);
@@ -172,10 +234,13 @@ pub fn analyze(text: Option<&str>) -> Analysis {
 			)),
 		};
 	}
-	if let Some(re) = regex(
-		r"(?:^|[^\p{L}])([A-Ha-h](?:is|es|s)?|[A-Ga-g][♭♯b#])[- ]?(Dur|dur|Moll|moll|[Mm]ajor|[Mm]inor)\b",
-	) && let Some(m) = re.captures(&head)
-	{
+	if let Some(re) =
+		regex(r"([A-Ha-h](?:is|es|s)?|[A-Ga-g][♭♯b#])[- ]?(Dur|dur|Moll|moll|[Mm]ajor|[Mm]inor)")
+		&& let Some(m) = re.captures_iter(&head).find(|m| {
+			m.get(0).is_some_and(|m| {
+				!before(&head, m.start(), letter) && !after(&head, m.end(), letter)
+			})
+		}) {
 		let minor = matches!(&m[2], "Moll" | "moll" | "Minor" | "minor");
 		let mut note = m[1].to_owned();
 		if note.len() == 2 {
@@ -223,7 +288,8 @@ pub fn analyze(text: Option<&str>) -> Analysis {
 					None
 				};
 				let pair = tokens
-					.get(i + 1)
+					.get(..tokens.len().min(12))
+					.and_then(|t| t.get(i + 1))
 					.filter(|n| n.bytes().all(|b| b.is_ascii_digit()))
 					.map(|n| format!("{t}/{n}"));
 				facts.time_signature = stacked
@@ -258,9 +324,16 @@ pub fn analyze(text: Option<&str>) -> Analysis {
 		.take(40)
 		.map(|s| s.trim_matches([',', '.', ';', ':', '(', ')']))
 		.find(|s| tempos.contains(s));
-	let prefix: String = text.chars().take(600).collect();
-	let beats = regex(r"=\s*(?:ca\.?\s*)?(\d{2,3})\b")
-		.and_then(|r| r.captures(&prefix).map(|m| m[1].to_owned()))
+	let prefix = bound(text, 600);
+	let beats = regex(r"=\s*(?:ca\.?\s*)?(\d{2,3})")
+		.and_then(|r| {
+			r.captures_iter(&prefix)
+				.find(|m| {
+					m.get(0)
+						.is_some_and(|m| !after(&prefix, m.end(), |c| category(c, true)))
+				})
+				.map(|m| m[1].to_owned())
+		})
 		.filter(|s| s.parse::<u32>().is_ok_and(|n| (30..=240).contains(&n)))
 		.map(|s| format!("{s} Schläge/min"));
 	facts.tempo = match (word, beats) {
@@ -269,7 +342,7 @@ pub fn analyze(text: Option<&str>) -> Analysis {
 		(None, b) => b,
 	};
 	if let Some(re) = regex(
-		r"(?i)(?:\b)(Musik und Text|Text und Musik|Worte und Weise|Text und Melodie|Musik|Melodie|Weise|Komposition|Komponist|Music|Text|Worte|Words|Lyrics|Dichtung|Satz|Chorsatz|Arrangement|Arr\.|Bearbeitung|Bearb\.|Einrichtung)\s*:\s*",
+		r"(?i)(Musik und Text|Text und Musik|Worte und Weise|Text und Melodie|Musik|Melodie|Weise|Komposition|Komponist|Music|Text|Worte|Words|Lyrics|Dichtung|Satz|Chorsatz|Arrangement|Arr\.|Bearbeitung|Bearb\.|Einrichtung)\s*:\s*",
 	) {
 		for (index, line) in lines.iter().enumerate() {
 			let line = line.join(" ");
@@ -278,7 +351,10 @@ pub fn analyze(text: Option<&str>) -> Analysis {
 			{
 				facts.copyright = Some(bound(&line, 160));
 			}
-			let matches: Vec<_> = re.captures_iter(&line).collect();
+			let matches: Vec<_> = re
+				.captures_iter(&line)
+				.filter(|m| m.get(0).is_some_and(|m| !before(&line, m.start(), letter)))
+				.collect();
 			for (i, m) in matches.iter().enumerate() {
 				let Some(whole) = m.get(0) else {
 					continue;
@@ -297,7 +373,11 @@ pub fn analyze(text: Option<&str>) -> Analysis {
 						.map(|l| l.join(" "))
 						.unwrap_or_default();
 				}
-				if value.is_empty() || re.is_match(&value) {
+				if value.is_empty()
+					|| re
+						.find_iter(&value)
+						.any(|m| !before(&value, m.start(), letter))
+				{
 					continue;
 				}
 				let value = bound(&value, 120);
