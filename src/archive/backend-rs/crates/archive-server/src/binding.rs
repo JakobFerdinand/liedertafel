@@ -24,12 +24,21 @@ pub(crate) enum Shape {
 	ProgrammeItem,
 	EventDraft,
 	DateiPatch,
+	RecordingCreate,
+	RecordingPatch,
+	RecordingAttach,
+	PassageCreate,
+	PassagePatch,
+	PassageDelete,
+	PassageReview,
+	PassageReviewItem,
 }
 #[derive(Clone, Copy)]
 enum Property {
 	String,
 	U32,
 	WebU32,
+	Double,
 	I32,
 	I64,
 	Bool,
@@ -38,6 +47,7 @@ enum Property {
 	Record(Shape),
 	Files,
 	Items,
+	Reviews,
 	Opaque,
 	Strings,
 	Unknown,
@@ -46,6 +56,38 @@ impl Shape {
 	fn property(self, name: &str) -> Property {
 		use Property::*;
 		match self {
+			Self::PassageCreate | Self::PassagePatch => match name {
+				"programmeitemid" if matches!(self, Self::PassageCreate) => Guid,
+				"expectedplaybackdateiid" => Guid,
+				"startseconds" | "endseconds" => Double,
+				"expectedversion" if matches!(self, Self::PassagePatch) => WebU32,
+				_ => Unknown,
+			},
+			Self::PassageDelete | Self::PassageReviewItem => match name {
+				"expectedversion" => WebU32,
+				"id" if matches!(self, Self::PassageReviewItem) => Guid,
+				_ => Unknown,
+			},
+			Self::PassageReview => match name {
+				"expectedplaybackdateiid" => Guid,
+				"passages" => Reviews,
+				_ => Unknown,
+			},
+			Self::RecordingCreate => match name {
+				"label" | "kind" => String,
+				_ => Unknown,
+			},
+			Self::RecordingPatch => match name {
+				"label" => String,
+				"ispublished" | "downloadenabled" => Bool,
+				"durationseconds" => Double,
+				"expectedversion" => WebU32,
+				_ => Unknown,
+			},
+			Self::RecordingAttach => match name {
+				"dateiid" => Guid,
+				_ => Unknown,
+			},
 			Self::DateiPatch => match name {
 				"description" => String,
 				"rowversion" => WebU32,
@@ -181,6 +223,14 @@ impl<'de> Visitor<'de> for Record {
 					| Shape::ProgrammeItem
 					| Shape::EventDraft
 					| Shape::DateiPatch
+					| Shape::RecordingCreate
+					| Shape::RecordingPatch
+					| Shape::RecordingAttach
+					| Shape::PassageCreate
+					| Shape::PassagePatch
+					| Shape::PassageDelete
+					| Shape::PassageReview
+					| Shape::PassageReviewItem
 			) && matches!(property, Property::Unknown)
 			{
 				map.next_value::<serde::de::IgnoredAny>()?;
@@ -199,6 +249,9 @@ impl<'de> Visitor<'de> for Record {
 				Property::String => typed!(String),
 				Property::U32 => typed!(u32),
 				Property::WebU32 => web_u32::<A::Error>(map.next_value()?)?,
+				Property::Double => {
+					double::<A::Error>(map.next_value::<Box<serde_json::value::RawValue>>()?.get())?
+				}
 				Property::I32 => integer::<i32, A::Error>(map.next_value()?)?,
 				Property::I64 => integer::<i64, A::Error>(map.next_value()?)?,
 				Property::Bool => typed!(bool),
@@ -208,6 +261,7 @@ impl<'de> Visitor<'de> for Record {
 				Property::Record(shape) => map.next_value_seed(Record(shape))?,
 				Property::Files => map.next_value_seed(Files)?,
 				Property::Items => map.next_value_seed(Items)?,
+				Property::Reviews => map.next_value_seed(Reviews)?,
 				// JsonElement is opaque data. Retain duplicates, whitespace and
 				// number lexemes rather than eagerly rebuilding a JSON map.
 				Property::Opaque => Value::String(
@@ -234,6 +288,40 @@ impl<'de> Visitor<'de> for Record {
 		}
 		Ok(Value::Object(values))
 	}
+}
+// Ordinary web Double accepts quoted signs/exponents/named nonfinite values,
+// but not surrounding whitespace. Retain nonfinite values as named strings so
+// endpoint domain validation (not the JSON binder) supplies its specific error.
+fn double<E: serde::de::Error>(raw: &str) -> Result<Value, E> {
+	if raw == "null" {
+		return Ok(Value::Null);
+	}
+	let text = if raw.starts_with('"') {
+		serde_json::from_str::<String>(raw).map_err(E::custom)?
+	} else {
+		raw.to_owned()
+	};
+	if text.is_empty() || text.trim() != text {
+		return Err(E::custom("invalid double"));
+	}
+	let number = text.parse::<f64>().map_err(E::custom)?;
+	if !number.is_finite() {
+		// CLR names are case-sensitive; Rust also accepts inf/nan spellings.
+		if raw.starts_with('"') && !matches!(text.as_str(), "NaN" | "Infinity" | "-Infinity") {
+			return Err(E::custom("invalid named double"));
+		}
+		return Ok(Value::String(
+			if number.is_nan() {
+				"NaN"
+			} else if number.is_sign_negative() {
+				"-Infinity"
+			} else {
+				"Infinity"
+			}
+			.into(),
+		));
+	}
+	serde_json::to_value(number).map_err(E::custom)
 }
 // Only typed Guid? DTO properties use System.Text.Json's 36-character D format.
 // Keep string AccountId/domain/CLI/path parsing outside this converter.
@@ -305,6 +393,29 @@ pub(crate) fn parse(bytes: &[u8], shape: Shape) -> Result<Value, serde_json::Err
 	Ok(value)
 }
 struct Items;
+struct Reviews;
+impl<'de> DeserializeSeed<'de> for Reviews {
+	type Value = Value;
+	fn deserialize<D: serde::Deserializer<'de>>(self, d: D) -> Result<Value, D::Error> {
+		d.deserialize_any(self)
+	}
+}
+impl<'de> Visitor<'de> for Reviews {
+	type Value = Value;
+	fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.write_str("review items or null")
+	}
+	fn visit_unit<E: serde::de::Error>(self) -> Result<Value, E> {
+		Ok(Value::Null)
+	}
+	fn visit_seq<A: SeqAccess<'de>>(self, mut array: A) -> Result<Value, A::Error> {
+		let mut values = Vec::new();
+		while let Some(v) = array.next_element_seed(Record(Shape::PassageReviewItem))? {
+			values.push(v);
+		}
+		Ok(Value::Array(values))
+	}
+}
 impl<'de> DeserializeSeed<'de> for Items {
 	type Value = Value;
 	fn deserialize<D: serde::Deserializer<'de>>(self, d: D) -> Result<Value, D::Error> {

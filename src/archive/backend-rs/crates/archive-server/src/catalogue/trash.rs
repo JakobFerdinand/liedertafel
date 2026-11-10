@@ -212,7 +212,7 @@ async fn list(State(origin): State<Arc<Origin>>, request: Request) -> Result<Res
 			.into_response(),
 	))
 }
-pub(super) async fn trash_datei(
+pub(crate) async fn trash_datei(
 	conn: &mut PgConnection,
 	pool: &PgPool,
 	storage: &dyn Storage,

@@ -36,7 +36,7 @@ pub(super) fn auth(origin: &Origin) -> Result<&Auth, AuthError> {
 		.as_deref()
 		.ok_or_else(|| fail(StatusCode::UNAUTHORIZED, crate::auth::UNAUTHORIZED))
 }
-pub(super) async fn body(request: Request, shape: Shape) -> Result<Value, AuthError> {
+pub(crate) async fn body(request: Request, shape: Shape) -> Result<Value, AuthError> {
 	let bytes = axum::body::to_bytes(request.into_body(), 2 * 1024 * 1024)
 		.await
 		.map_err(|_| invalid())?;
@@ -96,7 +96,7 @@ pub(crate) fn routes() -> Vec<(&'static str, MethodRouter<Arc<Origin>>)> {
 }
 // Frozen Accepts metadata selects the stable API fallback for non-JSON write
 // requests, even before authorization. Bodyless DELETE has no such metadata.
-async fn json_media_type(request: Request, next: axum::middleware::Next) -> Response {
+pub(crate) async fn json_media_type(request: Request, next: axum::middleware::Next) -> Response {
 	if matches!(
 		*request.method(),
 		axum::http::Method::POST | axum::http::Method::PUT | axum::http::Method::PATCH
