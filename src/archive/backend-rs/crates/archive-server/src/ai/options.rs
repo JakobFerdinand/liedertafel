@@ -39,6 +39,14 @@ pub fn micro_eur(eur: Decimal) -> Result<i64, Error> {
 pub fn eur(micro: i64) -> Decimal {
 	Decimal::new(micro, 6)
 }
+fn config_decimal(value: &str) -> Result<Decimal, Error> {
+	// Rust Decimal additionally accepts underscores; .NET's actual option
+	// binder rejects them. Invalid cap/price lexemes must stay fail-closed.
+	if value.contains('_') {
+		return Err(Error::Configuration);
+	}
+	value.trim().parse().map_err(|_| Error::Configuration)
+}
 
 #[derive(Clone, Debug)]
 pub struct Options {
@@ -96,8 +104,7 @@ impl Options {
 			}
 			match &parts[2..] {
 				[setting] if setting.eq_ignore_ascii_case("MonthlyCapEur") => {
-					result.monthly_cap_eur =
-						value.trim().parse().map_err(|_| Error::Configuration)?
+					result.monthly_cap_eur = config_decimal(&value)?
 				}
 				[setting] if setting.eq_ignore_ascii_case("MaxOutputTokensPerCall") => {
 					result.max_output_tokens =
@@ -123,10 +130,10 @@ impl Options {
 					});
 					match *field {
 						field if field.eq_ignore_ascii_case("InputPricePerMillionEur") => {
-							price.input = value.trim().parse().map_err(|_| Error::Configuration)?
+							price.input = config_decimal(&value)?
 						}
 						field if field.eq_ignore_ascii_case("OutputPricePerMillionEur") => {
-							price.output = value.trim().parse().map_err(|_| Error::Configuration)?
+							price.output = config_decimal(&value)?
 						}
 						_ => {}
 					}

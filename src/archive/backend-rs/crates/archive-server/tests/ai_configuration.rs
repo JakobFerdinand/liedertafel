@@ -28,7 +28,9 @@ fn snapshot(options: Result<Options, Error>) -> Value {
 }
 fn assert_binding(case: &Value) {
 	let actual = snapshot(Options::from_env(false));
-	if case["name"] == "invalid-price" {
+	if case["name"].as_str().unwrap().starts_with("invalid-")
+		&& case["name"].as_str().unwrap().contains("price")
+	{
 		// Frozen dictionary binding drops an invalid model; Rust keeps its
 		// existing stricter configuration error. Both fail before any call;
 		// invalid overrides must NEVER restore the shipped positive price.

@@ -9,6 +9,9 @@
 {"name":"zero-price","env":{"archive__ai__models__GPT-6-LUNA__inputpricepermillioneur":"0"},"model":"gpt-6-luna","expected":{"error":false,"cap":"15","input":200000,"output":6000,"luna":null,"mixed":null,"unknown":null}}
 {"name":"negative-price","env":{"ARCHIVE__AI__MODELS__gpt-6-luna__OUTPUTPRICEPERMILLIONEUR":"-1"},"model":"gpt-6-luna","expected":{"error":false,"cap":"15","input":200000,"output":6000,"luna":null,"mixed":null,"unknown":null}}
 {"name":"invalid-price","env":{"ARCHIVE__AI__MODELS__GPT-6-LUNA__INPUTPRICEPERMILLIONEUR":"invalid"},"model":"gpt-6-luna","expected":{"error":false,"cap":"15","input":200000,"output":6000,"luna":null,"mixed":null,"unknown":null}}
+{"name":"invalid-input-price-underscore","env":{"ARCHIVE__AI__MODELS__GPT-6-LUNA__INPUTPRICEPERMILLIONEUR":"1_0"},"model":"gpt-6-luna","expected":{"error":false,"cap":"15","input":200000,"output":6000,"luna":null,"mixed":null,"unknown":null}}
+{"name":"invalid-output-price-underscore","env":{"archive__ai__models__gpt-6-luna__outputpricepermillioneur":"1_0"},"model":"gpt-6-luna","expected":{"error":false,"cap":"15","input":200000,"output":6000,"luna":null,"mixed":null,"unknown":null}}
+{"name":"invalid-cap-underscore","env":{"archive__ai__monthlycapeur":"1_5"},"model":"gpt-6-luna","expected":{"error":true}}
 {"name":"invalid-cap","env":{"archive__ai__monthlycapeur":"invalid"},"model":"gpt-6-luna","expected":{"error":true}}
 {"name":"unknown-price-field-ignored","env":{"aRcHiVe__aI__MoDeLs__GPT-6-LUNA__NotAPrice":"invalid"},"model":"gpt-6-luna","expected":{"error":false,"cap":"15","input":200000,"output":6000,"luna":{"input":"0.1056","output":"0.528","costOneEachMicro":1},"mixed":null,"unknown":null}}
 {"name":"unknown-model-unpriced","env":{},"model":"unknown-deployment","expected":{"error":false,"cap":"15","input":200000,"output":6000,"luna":{"input":"0.1056","output":"0.528","costOneEachMicro":1},"mixed":null,"unknown":null}}
