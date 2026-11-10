@@ -12,6 +12,155 @@ use std::sync::Arc;
 mod pure;
 use archive_server::ai::{Content, Payload, ResponseFormat, Tool, ToolCalls};
 
+async fn segmented_gateway(
+	chunks: Vec<Vec<u8>>,
+) -> (Gateway, pure::Harness, tokio::task::JoinHandle<()>) {
+	let h = pure::Harness::new();
+	h.options.send_modify(|o| {
+		o.models.insert(
+			"gpt-6-luna".into(),
+			archive_server::ai::Price::new("1", "4").unwrap(),
+		);
+	});
+	let router = Router::new().route(
+		"/openai/deployments/gpt-6-luna/chat/completions",
+		post(move || {
+			let chunks = chunks.clone();
+			async move {
+				let stream = futures::stream::unfold(
+					std::collections::VecDeque::from(chunks),
+					|mut chunks| async move {
+						let chunk = chunks.pop_front()?;
+						tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+						Some((
+							Ok::<_, std::io::Error>(axum::body::Bytes::from(chunk)),
+							chunks,
+						))
+					},
+				);
+				axum::response::Response::builder()
+					.header("content-type", "text/event-stream")
+					.body(axum::body::Body::from_stream(stream))
+					.unwrap()
+			}
+		}),
+	);
+	let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+	let endpoint = format!("http://{}/", listener.local_addr().unwrap());
+	let server = tokio::spawn(async move {
+		axum::serve(listener, router).await.unwrap();
+	});
+	let gateway = Gateway::azure_with_credential(
+		h.ledger.clone(),
+		AzureConfig {
+			endpoint,
+			deployment: "gpt-6-luna".into(),
+		},
+		Arc::new(Credential),
+	)
+	.unwrap();
+	(gateway, h, server)
+}
+fn delivery_patterns(bytes: &[u8]) -> Vec<Vec<Vec<u8>>> {
+	let boundary = bytes.windows(2).position(|v| v == b"\n\n").unwrap() + 2;
+	vec![
+		vec![bytes.to_vec()],
+		vec![bytes[..boundary].to_vec(), bytes[boundary..].to_vec()],
+		bytes.chunks(3).map(<[u8]>::to_vec).collect(),
+	]
+}
+#[tokio::test]
+async fn actual_frozen_sdk_valid_prefix_then_json_exception_is_preserved() {
+	let fixture = include_str!("../../../tests/fixtures/228-ai-transport-review.jsonl")
+		.lines()
+		.map(|l| serde_json::from_str::<Value>(l).unwrap())
+		.find(|v| v["scenario"] == "prefix-malformed")
+		.unwrap();
+	assert_eq!(fixture["error"], "JsonReaderException");
+	for chunks in delivery_patterns(fixture["response"].as_str().unwrap().as_bytes()) {
+		let (gateway, h, server) = segmented_gateway(chunks).await;
+		let mut call = gateway.start(h.request(), true).unwrap();
+		let first = call.next().await.unwrap().unwrap();
+		assert_eq!(first.text, fixture["updates"][0]["text"].as_str().unwrap());
+		assert_eq!((first.usage.input, first.usage.output), (5, 2));
+		assert!(matches!(
+			call.next().await,
+			Err(archive_server::ai::Error::Protocol)
+		));
+		assert!(gateway.drain().await);
+		assert_eq!(h.row().await.cost_micro_eur, 13);
+		server.abort();
+		let _ = server.await;
+	}
+}
+#[tokio::test]
+async fn complete_sse_prefix_survives_later_errors_independent_of_http_chunking() {
+	for usage in [false, true] {
+		for suffix in [
+			"data: {bad\n\n",
+			"data: {\"error\":{\"message\":\"private-error\"}}\n\n",
+		] {
+			let mut first = json!({"choices":[{"index":0,"delta":{"content":"Grüß😀","tool_calls":[{"index":0,"id":"call","function":{"name":"f","arguments":"{}"}}]},"finish_reason":null}]});
+			if usage {
+				first["usage"] = json!({"prompt_tokens":5,"completion_tokens":2,"total_tokens":7});
+			}
+			let body = format!(
+				"data: {first}\n\ndata: {{\"choices\":[{{\"index\":0,\"delta\":{{\"content\":\"zweiter Text\"}},\"finish_reason\":null}}]}}\n\n{suffix}"
+			);
+			for chunks in delivery_patterns(body.as_bytes()) {
+				let (gateway, h, server) = segmented_gateway(chunks).await;
+				let mut call = gateway.start(h.request(), true).unwrap();
+				let mut seen = Vec::new();
+				let error = loop {
+					match call.next().await {
+						Ok(Some(update)) => seen.push(update),
+						Err(e) => break e,
+						Ok(None) => panic!("terminal error swallowed"),
+					}
+				};
+				assert_eq!(seen.len(), 2);
+				assert_eq!(seen[0].text, "Grüß😀");
+				assert_eq!(seen[0].tools.len(), 1);
+				assert_eq!(seen[1].text, "zweiter Text");
+				assert_eq!(seen[0].usage.reported, usage);
+				assert!(matches!(
+					error,
+					archive_server::ai::Error::Protocol | archive_server::ai::Error::Provider
+				));
+				assert!(gateway.drain().await);
+				assert_eq!(h.row().await.cost_micro_eur, if usage { 13 } else { 24010 });
+				server.abort();
+				let _ = server.await;
+			}
+		}
+	}
+}
+#[tokio::test]
+async fn breaking_before_queued_usage_never_observes_that_usage_even_when_terminal_error_is_buffered()
+ {
+	for consumed_usage in [false, true] {
+		let mut first =
+			json!({"choices":[{"index":0,"delta":{"content":"Grüß😀"},"finish_reason":null}]});
+		if consumed_usage {
+			first["usage"] = json!({"prompt_tokens":5,"completion_tokens":2});
+		}
+		let body = format!(
+			"data: {first}\n\ndata: {{\"choices\":[],\"usage\":{{\"prompt_tokens\":100,\"completion_tokens\":20}}}}\n\ndata: {{bad\n\n"
+		);
+		let (gateway, h, server) = segmented_gateway(vec![body.into_bytes()]).await;
+		let mut call = gateway.start(h.request(), true).unwrap();
+		assert_eq!(call.next().await.unwrap().unwrap().text, "Grüß😀");
+		drop(call);
+		assert!(gateway.drain().await);
+		assert_eq!(
+			h.row().await.cost_micro_eur,
+			if consumed_usage { 13 } else { 24010 }
+		);
+		server.abort();
+		let _ = server.await;
+	}
+}
+
 async fn offline_gateway(
 	body: String,
 	content_type: &'static str,

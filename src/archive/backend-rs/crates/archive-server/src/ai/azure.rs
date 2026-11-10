@@ -187,6 +187,7 @@ impl Provider for Azure {
 				response: None,
 				parser: Sse::default(),
 				queue: VecDeque::new(),
+				terminal: None,
 				total: 0,
 			}),
 			|state| async move {
@@ -232,6 +233,9 @@ impl Provider for Azure {
 						if let Some(update) = state.queue.pop_front() {
 							return Ok(Some(update));
 						}
+						if let Some(error) = state.terminal.take() {
+							return Err(error);
+						}
 						if state.parser.done {
 							return Ok(None);
 						}
@@ -243,14 +247,18 @@ impl Provider for Azure {
 							.await
 							.map_err(|_| Error::Provider)?
 							.ok_or(Error::Protocol)?;
-						state.total = state
-							.total
-							.checked_add(chunk.len())
-							.ok_or(Error::Protocol)?;
-						if state.total > MAX_BODY {
-							return Err(Error::Protocol);
+						let accepted = chunk.len().min(MAX_BODY.saturating_sub(state.total));
+						state.total += accepted;
+						// A malformed later event must not erase completed events in
+						// this HTTP chunk. Drain them in order before the terminal
+						// error, without teaching the gateway about unconsumed usage.
+						state.terminal = state
+							.parser
+							.feed(&chunk[..accepted], &mut state.queue)
+							.err();
+						if accepted < chunk.len() && state.terminal.is_none() {
+							state.terminal = Some(Error::Protocol);
 						}
-						state.parser.feed(&chunk, &mut state.queue)?;
 					}
 				}
 				.await;
@@ -273,6 +281,7 @@ struct State {
 	response: Option<reqwest::Response>,
 	parser: Sse,
 	queue: VecDeque<Update>,
+	terminal: Option<Error>,
 	total: usize,
 }
 #[derive(Default)]
