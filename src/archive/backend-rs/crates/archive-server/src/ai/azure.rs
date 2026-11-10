@@ -348,6 +348,9 @@ fn parse_update(value: &Value, streaming: bool) -> Result<Update, Error> {
 		if !usage.is_object() {
 			return Err(Error::Protocol);
 		}
+		// The frozen SDK types this unused-for-pricing field as Int32 too.
+		// A present malformed total cannot turn into successful paid usage.
+		let _ = usage_count(usage, "total_tokens")?;
 		update.usage = Usage::reported(
 			usage_count(usage, "prompt_tokens")?,
 			usage_count(usage, "completion_tokens")?,

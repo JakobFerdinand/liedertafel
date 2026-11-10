@@ -448,6 +448,71 @@ async fn content_filter_finish_preserves_reported_usage_like_actual_frozen_sdk()
 struct Credential;
 
 #[tokio::test]
+async fn total_tokens_and_usage_presence_match_actual_sdk_for_streaming_and_nonstreaming() {
+	let fixtures = include_str!("../../../tests/fixtures/228-ai-transport-review.jsonl")
+		.lines()
+		.map(|l| serde_json::from_str::<Value>(l).unwrap())
+		.filter(|v| v["kind"] == "wire" && v["scenario"] != "prefix-malformed")
+		.collect::<Vec<_>>();
+	for case in fixtures {
+		let streaming = case["streaming"].as_bool().unwrap();
+		let failed = !case["error"].is_null();
+		let prior = case["scenario"] == "prefix-bad-total";
+		let count = if failed { usize::from(prior) } else { 1 };
+		let reported = case["scenario"] != "null-usage";
+		let expected_cost = if (failed && !prior) || !reported {
+			24010
+		} else if case["scenario"] == "empty-usage" {
+			0
+		} else {
+			13
+		};
+		let body = case["response"].as_str().unwrap();
+		if streaming {
+			for chunks in delivery_patterns(body.as_bytes()) {
+				let (gateway, h, server) = segmented_gateway(chunks).await;
+				let mut call = gateway.start(h.request(), true).unwrap();
+				let mut observed = Vec::new();
+				let terminal = loop {
+					match call.next().await {
+						Ok(Some(u)) => observed.push(u),
+						result => break result,
+					}
+				};
+				assert_eq!(terminal.is_err(), failed, "{}", case["scenario"]);
+				assert_eq!(observed.len(), count, "{}", case["scenario"]);
+				assert!(gateway.drain().await);
+				assert_eq!(
+					h.row().await.cost_micro_eur,
+					expected_cost,
+					"{}",
+					case["scenario"]
+				);
+				server.abort();
+				let _ = server.await;
+			}
+		} else {
+			let (gateway, h, _, server) =
+				offline_gateway(body.into(), "application/json", 200).await;
+			let result = gateway.start(h.request(), false).unwrap().response().await;
+			assert_eq!(result.is_err(), failed, "{}", case["scenario"]);
+			if let Ok(updates) = result {
+				assert_eq!(updates[0].usage.reported, reported);
+			}
+			assert!(gateway.drain().await);
+			assert_eq!(
+				h.row().await.cost_micro_eur,
+				expected_cost,
+				"{}",
+				case["scenario"]
+			);
+			server.abort();
+			let _ = server.await;
+		}
+	}
+}
+
+#[tokio::test]
 async fn malformed_usage_is_not_a_free_reported_zero_call() {
 	for usage in [
 		json!({"prompt_tokens":"bad"}),

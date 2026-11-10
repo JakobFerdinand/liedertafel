@@ -35,10 +35,10 @@ var function=AIFunctionFactory.Create(OracleFunction.Echo,"f","Beschreibung");
 Console.WriteLine(JsonSerializer.Serialize(new{kind="schema",name=function.Name,description=function.Description,raw=function.JsonSchema.GetRawText(),estimate=AiTokenEstimate.TextInput([new M(ChatRole.User,"abc")],new C{Tools=[function]})}));
 
 const string prefix="data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-6-luna\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Grüß😀\"},\"finish_reason\":null}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":2,\"total_tokens\":7}}\n\n";
-foreach(var scenario in new[]{"prefix-malformed","bad-total","null-total","overflow-total","missing-total","empty-usage","null-usage","stream-bad-total","stream-null-total","stream-overflow-total","prefix-bad-total"})
+foreach(var scenario in new[]{"prefix-malformed","valid-total","bad-total","null-total","overflow-total","missing-total","empty-usage","null-usage","stream-valid-total","stream-bad-total","stream-null-total","stream-overflow-total","prefix-bad-total"})
 {
 	var streaming=scenario.StartsWith("stream-")||scenario.StartsWith("prefix-");
-	var total=scenario.Contains("null-total")?"null":scenario.Contains("overflow-total")?"2147483648":"\"bad\"";
+	var total=scenario.Contains("valid-total")?"7":scenario.Contains("null-total")?"null":scenario.Contains("overflow-total")?"2147483648":"\"bad\"";
 	var usage=scenario=="empty-usage"?"{}":scenario=="null-usage"?"null":scenario=="missing-total"?"{\"prompt_tokens\":5,\"completion_tokens\":2}":"{\"prompt_tokens\":5,\"completion_tokens\":2,\"total_tokens\":"+total+"}";
 	var response=streaming?"data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-6-luna\",\"choices\":[],\"usage\":"+usage+"}\n\ndata: [DONE]\n\n":"{\"id\":\"c1\",\"object\":\"chat.completion\",\"created\":1,\"model\":\"gpt-6-luna\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"Antwort\"},\"finish_reason\":\"stop\"}],\"usage\":"+usage+"}";
 	if(scenario=="prefix-malformed")response=prefix+"data: {bad\n\n";else if(scenario=="prefix-bad-total")response=prefix+response;
