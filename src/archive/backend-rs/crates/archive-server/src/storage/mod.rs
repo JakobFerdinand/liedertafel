@@ -550,6 +550,17 @@ pub(crate) fn credential(
 	keyless: bool,
 	development: bool,
 ) -> Result<Option<Arc<dyn TokenCredential>>, StorageError> {
+	let client_id = std::env::var("AZURE_CLIENT_ID").ok();
+	credential_for_client_id(keyless, development, client_id.as_deref())
+}
+/// Same approved credential policy, with an explicitly supplied identity. The
+/// Blob/Queue wrapper retains its existing ENV semantics; AI supplies its one
+/// trimmed nonblank snapshot instead of checking then rereading the raw ENV.
+pub(crate) fn credential_for_client_id(
+	keyless: bool,
+	development: bool,
+	client_id: Option<&str>,
+) -> Result<Option<Arc<dyn TokenCredential>>, StorageError> {
 	if !keyless {
 		return Ok(None);
 	}
@@ -557,10 +568,8 @@ pub(crate) fn credential(
 		azure_identity::DeveloperToolsCredential::new(None)
 			.map_err(|_| StorageError::Configuration)?
 	} else {
-		azure_identity::ManagedIdentityCredential::new(Some(managed_identity_options(
-			std::env::var("AZURE_CLIENT_ID").ok().as_deref(),
-		)))
-		.map_err(|_| StorageError::Configuration)?
+		azure_identity::ManagedIdentityCredential::new(Some(managed_identity_options(client_id)))
+			.map_err(|_| StorageError::Configuration)?
 	}))
 }
 fn client_options(transport: Option<Transport>) -> Result<ClientOptions, StorageError> {

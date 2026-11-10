@@ -101,9 +101,12 @@ impl Azure {
 		let credential = self
 			.credential
 			.get_or_try_init(|| async {
-				let has_client_id =
-					std::env::var("AZURE_CLIENT_ID").is_ok_and(|s| !s.trim().is_empty());
-				crate::storage::credential(true, !has_client_id)
+				let configured_id = std::env::var("AZURE_CLIENT_ID").ok();
+				let client_id = configured_id
+					.as_deref()
+					.map(str::trim)
+					.filter(|v| !v.is_empty());
+				crate::storage::credential_for_client_id(true, client_id.is_none(), client_id)
 					.map_err(|_| Error::Configuration)?
 					.ok_or(Error::Configuration)
 			})
