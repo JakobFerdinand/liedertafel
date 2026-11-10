@@ -90,5 +90,14 @@ async fn budget_http_is_editor_only_read_only_and_available_in_maintenance() {
 		.await
 		.unwrap();
 	assert_eq!((rows, months), (0, 0));
+	// The two-place notice fix must not change the HTTP four-place midpoint
+	// or the feature's micro-EUR precision. Fifty micro-EUR is EUR0.00005.
+	let month = archive_server::ai::month_key(archive_server::auth::Clock::now(&*app.time));
+	sqlx::query(r#"INSERT INTO ai_usage_entries ("Id","YearMonth","Feature","Model","OperationId","Calls","InputTokens","OutputTokens","ReservedMicroEur","CostMicroEur","CreatedAt","UpdatedAt") VALUES ($1,$2,'chat','test',$3,1,0,0,0,50,now(),now())"#).bind(uuid::Uuid::now_v7()).bind(month).bind(uuid::Uuid::now_v7()).execute(&app.pool).await.unwrap();
+	let (status, state) = editor.get("/api/maintenance/ai-budget").await;
+	assert_eq!(status, 200);
+	assert_eq!(state["spentEur"].as_f64(), Some(0.0001));
+	assert_eq!(state["features"][0]["spentEur"].as_f64(), Some(0.00005));
+	assert_eq!(state["notifiedEur"].as_f64(), Some(0.0));
 	app.close().await;
 }

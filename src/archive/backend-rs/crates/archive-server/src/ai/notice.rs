@@ -13,6 +13,17 @@ use rust_decimal::{Decimal, RoundingStrategy};
 use serde::Serialize;
 use std::sync::Arc;
 
+/// Frozen decimal.ToString("0.00", InvariantCulture), including midpoint-away
+/// rounding and unsigned formatted zero. This affects notices, not ledger money.
+fn format_eur(amount: Decimal) -> String {
+	let rounded = amount.round_dp_with_strategy(2, RoundingStrategy::MidpointAwayFromZero);
+	if rounded.is_zero() {
+		"0.00".into()
+	} else {
+		format!("{rounded:.2}")
+	}
+}
+
 pub struct CostState {
 	pub month: String,
 	pub cap_eur: Decimal,
@@ -63,18 +74,18 @@ impl Notices {
 		if let Some((level, micro)) = target {
 			if level == state.cap_eur {
 				tracing::warn!(
-					"KI-Budget: Monatsbudget erreicht ({}: {:.2} von {:.2} EUR)",
+					"KI-Budget: Monatsbudget erreicht ({}: {} von {} EUR)",
 					state.month,
-					eur(state.spent_micro_eur),
-					state.cap_eur
+					format_eur(eur(state.spent_micro_eur)),
+					format_eur(state.cap_eur)
 				);
 			} else {
 				tracing::warn!(
-					"KI-Budget: Schwellwert {:.2} EUR im Monat {} erreicht ({:.2} von {:.2} EUR): {}",
-					level,
+					"KI-Budget: Schwellwert {} EUR im Monat {} erreicht ({} von {} EUR): {}",
+					format_eur(level),
 					state.month,
-					eur(state.spent_micro_eur),
-					state.cap_eur,
+					format_eur(eur(state.spent_micro_eur)),
+					format_eur(state.cap_eur),
 					Self::breakdown(&state.entries)
 				);
 			}
@@ -88,9 +99,9 @@ impl Notices {
 			.iter()
 			.map(|e| {
 				format!(
-					"{} {:.2} EUR",
+					"{} {} EUR",
 					e.feature,
-					eur(e.cost_micro_eur) + eur(e.reserved_micro_eur)
+					format_eur(eur(e.cost_micro_eur) + eur(e.reserved_micro_eur))
 				)
 			})
 			.collect::<Vec<_>>()
