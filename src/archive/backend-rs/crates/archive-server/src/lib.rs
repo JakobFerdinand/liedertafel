@@ -6,6 +6,7 @@
 //! whole port — behavior here mirrors it at the seams the browser and the
 //! apphost can observe.
 
+pub mod ai;
 pub mod api;
 pub mod auth;
 mod binding;

@@ -144,6 +144,15 @@ update this section in the same PR whenever the member list changes.
 - Any `/api/*` route without a Rust implementation answers the single stable
   JSON 404/501 error shape, driven by one list of implemented routes.
 
+- AI foundation (#228): before using the gateway, modifying ledger SQL/prices,
+  provider wire types, cancellation or notices, read `docs/ai-foundation-parity.md`.
+  Features take `ai::Gateway`, never a provider. Finite hosts await `drain()`
+  before checked telemetry flush. Focused offline gate: `cargo test -p
+  archive-server --locked --test ai_guards --test ai_wire`; real PostgreSQL:
+  `cargo test -p archive-server --locked --test ai_ledger -- --ignored`.
+  `examples/ai-foundation-native.rs` and `node tests/browser/ai-foundation-native.cjs`
+  are offline test tools, not production commands or live-evaluation authorization.
+
 - Auftritte/Programme/initial Entwurf (#225): before changing partial dates,
   programme IDs/order, Zeitmarke guards, history, event documents or opaque form
   persistence, read `docs/events-parity.md` for binding/order/concurrency and

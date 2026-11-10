@@ -79,6 +79,14 @@ pub struct App {
 }
 impl App {
 	pub async fn new() -> Self {
+		Self::new_scoped("auth").await
+	}
+	pub async fn new_scoped(prefix: &str) -> Self {
+		assert!(
+			prefix
+				.chars()
+				.all(|c| c.is_ascii_alphanumeric() || c == '_')
+		);
 		let url = std::env::var("ARCHIVE_TEST_POSTGRES").expect("explicit throwaway PG gate");
 		let mut db_url = url::Url::parse(&url).unwrap();
 		assert!(
@@ -88,7 +96,7 @@ impl App {
 			),
 			"auth fixtures refuse nonlocal servers"
 		);
-		let database = format!("auth_{}", Uuid::new_v4().simple());
+		let database = format!("{prefix}_{}", Uuid::new_v4().simple());
 		let mut admin = PgConnection::connect(&url).await.unwrap();
 		sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE DATABASE {database}")))
 			.execute(&mut admin)

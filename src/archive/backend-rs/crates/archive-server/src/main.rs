@@ -165,6 +165,13 @@ async fn run() -> Result<(), StartupError> {
 		)?);
 	}
 	let storage_config = archive_server::storage::StorageConfig::from_env(development)?;
+	if let Some(auth) = &origin.auth {
+		origin.ai = Some(archive_server::ai::Services::from_env(
+			auth.pool.clone(),
+			auth.clock.clone(),
+			development,
+		)?);
+	}
 	let read_lifetime = storage_config.read_lifetime;
 	origin = origin.with_storage(
 		Arc::new(archive_server::storage::BlobStorage::new(
@@ -226,6 +233,13 @@ async fn run() -> Result<(), StartupError> {
 	.await
 	.map_err(StartupError::Serve);
 
+	// The watchdog includes model producers and their non-request-cancellable
+	// accounting retries. Never flush/shutdown OTLP while producers still exist.
+	let accounting_ok = if let Some(ai) = &origin.ai {
+		ai.gateway.drain().await
+	} else {
+		true
+	};
 	// The budget watchdog must not outlive a successful drain.
 	drain_watcher.abort();
 	let _ = signal_task.await;
@@ -233,6 +247,9 @@ async fn run() -> Result<(), StartupError> {
 
 	defaults.flush();
 	defaults.shutdown();
+	if !accounting_ok {
+		return Err(StartupError::AiAccounting);
+	}
 	tracing::info!("Archive origin was shut down cleanly");
 	serve_result
 }
@@ -242,6 +259,12 @@ async fn run() -> Result<(), StartupError> {
 /// apphost resource fails visibly.
 #[derive(Debug, thiserror::Error)]
 enum StartupError {
+	#[error("{0}")]
+	Ai(#[from] archive_server::ai::Error),
+	#[error(
+		"KI-Abrechnung konnte nicht vollständig abgeschlossen werden; Reservierungen bleiben bestehen."
+	)]
+	AiAccounting,
 	#[error("{0}")]
 	Extraction(archive_server::extraction::command::CommandError),
 	#[error("{0}")]
