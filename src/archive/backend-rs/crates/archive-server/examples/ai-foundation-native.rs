@@ -41,6 +41,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let pool = sqlx::PgPool::connect(&url).await?;
 	let fail_settlement =
 		std::env::var("ARCHIVE_TEST_AI_SETTLEMENT_FAILURE").as_deref() == Ok("offline-228");
+	let prefix_error =
+		std::env::var("ARCHIVE_TEST_AI_PREFIX_ERROR").as_deref() == Ok("offline-228");
 	if fail_settlement {
 		sqlx::raw_sql("CREATE FUNCTION ai228_refuse_settlement() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'private-settlement-error-228'; END $$; CREATE TRIGGER ai228_refuse_settlement BEFORE UPDATE ON ai_usage_entries FOR EACH ROW EXECUTE FUNCTION ai228_refuse_settlement();").execute(&pool).await?;
 	}
@@ -61,6 +63,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let router=Router::new().route("/openai/deployments/gpt-6-luna/chat/completions",post(move |headers:axum::http::HeaderMap,Json(body):Json<Value>| {let count=count.clone();let provider_forbidden_account=provider_forbidden_account.clone();async move {
 		assert_eq!(headers["authorization"],"Bearer synthetic-ai-token-228");let wire=body.to_string();assert!(!wire.contains(&provider_forbidden_account));assert!(!wire.contains("archive-chat"));count.fetch_add(1,Ordering::SeqCst);
 		if body["stream"]==true {
+			if prefix_error {
+				let data="data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"private-answer-228\"},\"finish_reason\":null}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":2,\"total_tokens\":7}}\n\ndata: {bad\n\n";
+				return Response::builder().header("content-type","text/event-stream").body(axum::body::Body::from(data)).unwrap_or_else(|_|Response::new(axum::body::Body::empty()));
+			}
 			let data="data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"private-answer-228\"},\"finish_reason\":null}]}\n\n";
 			let stream=stream::once(async move { Ok::<_,std::io::Error>(data) }).chain(stream::pending());
 			Response::builder().header("content-type","text/event-stream").body(axum::body::Body::from_stream(stream)).unwrap_or_else(|_|Response::new(axum::body::Body::empty()))
@@ -91,6 +97,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 		description: "private-tool-payload-228".into(),
 		schema: serde_json::from_str("{\"type\":\"object\",\"properties\":{}}")?,
 	});
+	if prefix_error {
+		let mut call = gateway.start(request, true)?;
+		assert!(call.next().await?.is_some());
+		assert!(matches!(call.next().await, Err(Error::Protocol)));
+		assert!(gateway.drain().await);
+		let rows = ledger.month_entries(&ledger.status().await?.month).await?;
+		assert_eq!(rows[0].calls, 1);
+		assert_eq!(
+			(
+				rows[0].input_tokens,
+				rows[0].output_tokens,
+				rows[0].cost_micro_eur,
+				rows[0].reserved_micro_eur
+			),
+			(5, 2, 15, 0)
+		);
+		tracing::info!("Offline AI ordered prefix/error accounting completed");
+		server.abort();
+		let _ = server.await;
+		pool.close().await;
+		if !defaults.finish_finite_job() {
+			return Err("finite OTLP flush failed".into());
+		}
+		return Ok(());
+	}
 	gateway.start(request.clone(), false)?.response().await?;
 	if fail_settlement {
 		assert!(!gateway.drain().await);
