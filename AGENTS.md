@@ -70,6 +70,8 @@ source-folder inventory (Drive, #98) runbook lives at
 - Rust Auftritte/Programme/initial Entwurf (#225): see `src/archive/backend-rs/docs/events-parity.md` for per-file oracle/binding/lifecycle ownership and `docs/historical-migration-disposition.md` there for the approved frozen-head migration equivalents. Focused real-PG test: from that workspace, `cargo test -p archive-server --locked --test auftritt_programm -- --ignored`; native unchanged-UI/private-Blob gate: `node tests/browser/events-native.cjs`.
 - Rust culture/CLR Guid review controls (#225): `src/archive/backend-rs/docs/events-review-remediation.md` governs additive collation migration 0004, shared string/path Guid parsing versus typed JSON, and external regeneration of `tests/oracles/ReviewOracle.cs` fixtures. Focused real-PG gate from that workspace: `cargo test -p archive-server --locked --test clr_guid_api --test event_culture -- --ignored`.
 
+- Rust extraction/Queue/PDF (#226): contracts and native setup are in `src/archive/backend-rs/docs/extraction-parity.md`. Focused real-PG gate from that workspace: `cargo test -p archive-server --locked --test extraction_worker -- --ignored`; native unchanged-UI/real Queue gate: `node tests/browser/extraction-native.cjs`.
+
 ### Linting
 - Website/dashboard have no lint script. Archive frontend has generated Biome `lint` / `format` scripts and `check` (Biome + Next route types + TypeScript).
 - Do not invent lint commands; add one only if explicitly requested.

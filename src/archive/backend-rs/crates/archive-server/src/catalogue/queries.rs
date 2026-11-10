@@ -25,6 +25,7 @@ pub struct Datei {
 	pub size_bytes: i64,
 	pub original_file_name: Option<String>,
 	pub created_at: DateTime<Utc>,
+	pub created_by_account_id: Uuid,
 	pub row_version: i64,
 	pub storage_tier: String,
 	pub tier_changed_at: Option<DateTime<Utc>>,

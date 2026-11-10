@@ -24,6 +24,7 @@ pub(crate) enum Shape {
 	ProgrammeItem,
 	EventDraft,
 	DateiPatch,
+	QueueEnvelope,
 }
 #[derive(Clone, Copy)]
 enum Property {
@@ -35,6 +36,7 @@ enum Property {
 	Bool,
 	RequiredBool,
 	Guid,
+	RequiredGuid,
 	Record(Shape),
 	Files,
 	Items,
@@ -46,6 +48,11 @@ impl Shape {
 	fn property(self, name: &str) -> Property {
 		use Property::*;
 		match self {
+			Self::QueueEnvelope => match name {
+				"type" | "traceParent" | "traceState" => String,
+				"dateiId" => RequiredGuid,
+				_ => Unknown,
+			},
 			Self::DateiPatch => match name {
 				"description" => String,
 				"rowversion" => WebU32,
@@ -170,7 +177,11 @@ impl<'de> Visitor<'de> for Record {
 		let mut values = serde_json::Map::new();
 		while let Some(key) = map.next_key::<String>()? {
 			let normalized = key.to_ascii_lowercase();
-			let property = self.0.property(&normalized);
+			let property = self.0.property(if matches!(self.0, Shape::QueueEnvelope) {
+				&key
+			} else {
+				&normalized
+			});
 			if matches!(
 				self.0,
 				Shape::NullableStrings(_)
@@ -181,6 +192,7 @@ impl<'de> Visitor<'de> for Record {
 					| Shape::ProgrammeItem
 					| Shape::EventDraft
 					| Shape::DateiPatch
+					| Shape::QueueEnvelope
 			) && matches!(property, Property::Unknown)
 			{
 				map.next_value::<serde::de::IgnoredAny>()?;
@@ -204,6 +216,7 @@ impl<'de> Visitor<'de> for Record {
 				Property::Bool => typed!(bool),
 				Property::RequiredBool => Value::Bool(map.next_value::<bool>()?),
 				Property::Guid => guid::<A::Error>(map.next_value()?)?,
+				Property::RequiredGuid => guid::<A::Error>(Some(map.next_value::<String>()?))?,
 				Property::Strings => typed!(Vec<Option<String>>),
 				Property::Record(shape) => map.next_value_seed(Record(shape))?,
 				Property::Files => map.next_value_seed(Files)?,

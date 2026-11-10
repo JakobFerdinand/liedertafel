@@ -65,6 +65,7 @@ fn implemented_api_routes(_origin: Arc<Origin>) -> Vec<(&'static str, MethodRout
 	routes.extend(crate::auth::routes());
 	routes.extend(crate::catalogue::routes());
 	routes.extend(crate::events::routes());
+	routes.extend(crate::extraction::routes());
 	routes
 }
 
