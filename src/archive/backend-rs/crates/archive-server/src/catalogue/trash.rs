@@ -5,6 +5,7 @@ use super::{
 	uploads::STORAGE_FAILURE,
 	writes::{CONFLICT, body, fail, version},
 };
+use crate::clr_guid::GuidPath;
 use crate::{
 	Origin,
 	auth::{AccessPolicy, AuthError},
@@ -12,7 +13,7 @@ use crate::{
 };
 use axum::{
 	Json,
-	extract::{Path, Request, State},
+	extract::{Request, State},
 	http::StatusCode,
 	response::{IntoResponse, Response},
 	routing::{MethodRouter, get, post},
@@ -40,7 +41,7 @@ pub(crate) fn routes() -> Vec<(&'static str, MethodRouter<Arc<Origin>>)> {
 }
 async fn action(
 	State(origin): State<Arc<Origin>>,
-	Path(id): Path<Uuid>,
+	GuidPath(id): GuidPath,
 	request: Request,
 ) -> Result<Response, AuthError> {
 	let path = request.uri().path().to_owned();

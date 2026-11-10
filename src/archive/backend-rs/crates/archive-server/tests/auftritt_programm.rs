@@ -4,6 +4,44 @@ mod support;
 use serde_json::{Value, json};
 use support::{App, Client};
 use uuid::Uuid;
+
+#[tokio::test]
+#[ignore = "explicit disposable PostgreSQL R2 seeded unknown-year HTTP order"]
+async fn upcoming_both_unknown_years_compare_event_id_before_seeded_month_day() {
+	let app = App::new().await;
+	let mut e = app.admin().await;
+	let a = lied(&mut e, "Unknown-year song").await;
+	let low = Uuid::parse_str("40000000-0000-0000-0000-000000000001").unwrap();
+	let high = Uuid::parse_str("40000000-0000-0000-0000-000000000002").unwrap();
+	for (id, month, day) in [(low, Some(5_i32), Some(12_i32)), (high, None, None)] {
+		sqlx::query(r#"INSERT INTO events ("Id","Title","Kind","DateMonth","DateDay","DateApproximate","CreatedAt","UpdatedAt","CreatedByAccountId","UpdatedByAccountId","RowVersion") VALUES ($1,'Unknown','other',$2,$3,false,now(),now(),$4,$4,0)"#).bind(id).bind(month).bind(day).bind(Uuid::nil()).execute(&app.pool).await.unwrap();
+		assert_eq!(
+			e.request(
+				"PUT",
+				&format!("/api/events/{id}/programme/items"),
+				json!({"items":[{"liedId":a}]})
+			)
+			.await
+			.0,
+			200
+		);
+	}
+	let (s, b) = e.get("/api/programmes").await;
+	assert_eq!(s, 200);
+	assert_eq!(
+		b["programmes"]
+			.as_array()
+			.unwrap()
+			.iter()
+			.map(|v| v["eventId"].as_str().unwrap())
+			.collect::<Vec<_>>(),
+		[low.to_string(), high.to_string()]
+	);
+	for p in b["programmes"].as_array().unwrap() {
+		assert_eq!(p["dateDisplay"], "Datum unbekannt");
+	}
+	app.close().await;
+}
 async fn event(c: &mut Client, year: i32) -> Uuid {
 	let (s, b) = c
 		.post(

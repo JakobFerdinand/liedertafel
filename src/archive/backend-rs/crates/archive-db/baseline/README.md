@@ -113,6 +113,15 @@ same transaction commits**.
 
 ## Independent local acceptance gate
 
+Additive #225 migration 0004 creates only the explicit nondeterministic root ICU
+collation `public.archive_culture`. The schema test adds independently written
+expected collation DDL to its restored oracle database before full comparison;
+this fixture and the baseline adoption fingerprint remain unchanged. The exact
+collation shape/ownership/runtime use and denied runtime DDL are checked, and
+`event_culture` proves native prior-Rust-head upgrade/rerun data preservation.
+See `../../../docs/events-review-remediation.md` for equality/secondary-key and
+independent frozen culture controls. This is not historical EF upgrade support.
+
 The native process suite translates `tests/archive/backend/RuntimeGrantsTests.cs`
 and adds #220's schema/CLI cases. It restores `neon-schema.sql` into a separate
 oracle database and compares complete `pg_dump --schema-only` output from both

@@ -138,7 +138,8 @@ async fn postgres_migration_contract() {
 		.fetch_one(&mut db)
 		.await
 		.unwrap();
-	assert_eq!(history, 3);
+	assert_eq!(history, 4);
+	assert_culture_collation(&mut db).await;
 	let before: String = sqlx::query_scalar(
 		"SELECT jsonb_agg(to_jsonb(m) ORDER BY version)::text FROM public._sqlx_migrations m",
 	)
@@ -176,10 +177,17 @@ async fn postgres_migration_contract() {
 		.await
 		.unwrap();
 	sqlx::raw_sql(BASELINE).execute(&mut oracle).await.unwrap();
+	// Independent expected additive DDL: frozen fixture itself stays byte-identical.
+	sqlx::raw_sql(
+		"CREATE COLLATION public.archive_culture (provider = icu, locale = 'und', deterministic = false)",
+	)
+	.execute(&mut oracle)
+	.await
+	.unwrap();
 	assert_eq!(
 		dump(&options, "archive").await,
 		dump(&options, "archive_oracle").await,
-		"full frozen public schema parity, excluding Rust bookkeeping and the four additive #221 auth tables"
+		"full frozen schema plus independently specified #225 collation; only Rust history/four additive auth tables excluded"
 	);
 	db.close().await.unwrap();
 	oracle.close().await.unwrap();
@@ -224,7 +232,14 @@ async fn postgres_migration_contract() {
 	sqlx::raw_sql("INSERT INTO public.\"AspNetUsers\" (\"Id\", \"Email\", \"EmailConfirmed\", \"PhoneNumberConfirmed\", \"TwoFactorEnabled\", \"LockoutEnabled\", \"AccessFailedCount\") VALUES ('00000000-0000-0000-0000-000000000001', 'mitglied@example.test', true, false, false, false, 0); INSERT INTO public.\"AspNetUserPasskeys\" VALUES ('\\x010203', '00000000-0000-0000-0000-000000000001', '{\"Name\":\"Testschlüssel\"}')").execute(&mut db).await.unwrap();
 	let before = dump(&options, "archive").await;
 	assert_success(&run_migrate(&archive_url).await);
-	assert_eq!(before, dump(&options, "archive").await);
+	let after = dump(&options, "archive").await;
+	assert_culture_collation(&mut db).await;
+	assert_eq!(
+		after.matches(CULTURE_DUMP).count(),
+		1,
+		"only the exact independently pinned new collation DDL is removed for pre/post adoption comparison"
+	);
+	assert_eq!(before, after.replacen(CULTURE_DUMP, "", 1));
 	let account: String = sqlx::query_scalar("SELECT \"Email\" FROM public.\"AspNetUsers\"")
 		.fetch_one(&mut db)
 		.await
@@ -425,6 +440,16 @@ async fn role_and_grant_contract(
 	)
 	.await
 	.unwrap();
+	assert_culture_collation(&mut migrator).await;
+	let owner:String=sqlx::query_scalar("SELECT pg_get_userbyid(collowner) FROM pg_collation WHERE oid='public.archive_culture'::regcollation").fetch_one(&mut migrator).await.unwrap();
+	assert_eq!(owner, "archive_migrator");
+	let equal: bool = sqlx::query_scalar(
+		"SELECT ('ä' COLLATE public.archive_culture)=('ä' COLLATE public.archive_culture)",
+	)
+	.fetch_one(&mut runtime)
+	.await
+	.unwrap();
+	assert!(equal, "runtime uses comparison without new DDL/grants");
 	for table in [
 		"reading_jobs",
 		"dateien",
@@ -505,6 +530,9 @@ async fn role_and_grant_contract(
 	sqlx::raw_sql("CREATE TABLE public.later_feature (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, value text NOT NULL); CREATE FUNCTION public.future_function() RETURNS integer LANGUAGE sql AS 'SELECT 1'").execute(&mut migrator).await.unwrap();
 	sqlx::raw_sql("INSERT INTO public.later_feature(value) VALUES ('Test'); UPDATE public.later_feature SET value='Geändert'; SELECT * FROM public.later_feature; DELETE FROM public.later_feature").execute(&mut runtime).await.unwrap();
 	for forbidden in [
+		"CREATE COLLATION public.forbidden (provider=icu,locale='und',deterministic=false)",
+		"ALTER COLLATION public.archive_culture RENAME TO forbidden",
+		"DROP COLLATION public.archive_culture",
 		"CREATE TABLE public.forbidden(id integer)",
 		"ALTER TABLE public.later_feature ADD COLUMN forbidden integer",
 		"DROP TABLE public.later_feature",
@@ -560,7 +588,7 @@ async fn role_and_grant_contract(
 	// Default grants already exist on an EF estate at adoption time. Even a
 	// failed baseline check must not expose freshly-created Rust bookkeeping.
 	// Restore an EF-only fixture before testing failed *baseline* adoption again.
-	sqlx::raw_sql("DROP TABLE public.archive_auth_allocation_budgets, public.archive_ceremonies, public.archive_csrf, public.archive_sessions; DROP TABLE public.later_feature; DROP FUNCTION public.future_function(); DROP TABLE public._sqlx_migrations; DELETE FROM public.\"__EFMigrationsHistory\" WHERE \"MigrationId\"='20261028084325_ColdStorage'").execute(&mut migrator).await.unwrap();
+	sqlx::raw_sql("DROP COLLATION public.archive_culture; DROP TABLE public.archive_auth_allocation_budgets, public.archive_ceremonies, public.archive_csrf, public.archive_sessions; DROP TABLE public.later_feature; DROP FUNCTION public.future_function(); DROP TABLE public._sqlx_migrations; DELETE FROM public.\"__EFMigrationsHistory\" WHERE \"MigrationId\"='20261028084325_ColdStorage'").execute(&mut migrator).await.unwrap();
 	assert!(!run_migrate(&connection).await.status.success());
 	assert!(
 		sqlx::raw_sql("SELECT * FROM public._sqlx_migrations")
@@ -619,4 +647,10 @@ async fn dump(options: &sqlx::postgres::PgConnectOptions, database: &str) -> Str
 		.filter(|line| !line.starts_with("\\restrict ") && !line.starts_with("\\unrestrict "))
 		.collect::<Vec<_>>()
 		.join("\n")
+}
+
+const CULTURE_DUMP: &str = "--\n-- Name: archive_culture; Type: COLLATION; Schema: public; Owner: -\n--\n\nCREATE COLLATION public.archive_culture (provider = icu, deterministic = false, locale = 'und');\n\n\n";
+async fn assert_culture_collation(db: &mut PgConnection) {
+	let shape:(String,bool,i32,String,bool)=sqlx::query_as("SELECT collprovider::text,collisdeterministic,collencoding,colllocale,collversion IS NOT NULL FROM pg_collation WHERE oid='public.archive_culture'::regcollation").fetch_one(db).await.unwrap();
+	assert_eq!(shape, ("i".into(), false, -1, "und".into(), true));
 }

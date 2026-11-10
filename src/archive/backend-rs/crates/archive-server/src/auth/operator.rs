@@ -128,8 +128,7 @@ async fn repair(pool: &PgPool, args: &[String]) -> Result<(), OperatorError> {
 		.filter(|s| !s.trim().is_empty());
 	let target = account
 		.map(|s| {
-			s.parse::<Uuid>()
-				.ok()
+			crate::clr_guid::try_parse(s)
 				.filter(|id| !id.is_nil())
 				.ok_or(OperatorError::Usage(
 					"Repair requires --accountId <guid> when moving an address.",

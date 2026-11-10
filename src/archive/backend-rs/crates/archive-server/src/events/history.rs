@@ -4,7 +4,7 @@ use super::*;
 use sqlx::Row;
 use std::collections::HashMap;
 pub(super) async fn aufnahmen(pool: &sqlx::PgPool, event: Uuid) -> Result<Vec<Value>, AuthError> {
-	let rows=sqlx::query(r#"SELECT d.*,l."Title" AS "LiedTitle" FROM dateien d JOIN lieder l ON l."Id"=d."LiedId" WHERE d."Kind"='aufnahme' AND d."RecordedAtEventId"=$1 AND d."DeletedAt" IS NULL AND l."DeletedAt" IS NULL ORDER BY l."Title" COLLATE "und-x-icu",d."CreatedAt",d."Id""#).bind(event).fetch_all(pool).await?;
+	let rows=sqlx::query(r#"SELECT d.*,l."Title" AS "LiedTitle" FROM dateien d JOIN lieder l ON l."Id"=d."LiedId" WHERE d."Kind"='aufnahme' AND d."RecordedAtEventId"=$1 AND d."DeletedAt" IS NULL AND l."DeletedAt" IS NULL ORDER BY l."Title" COLLATE public.archive_culture,d."CreatedAt",d."Id""#).bind(event).fetch_all(pool).await?;
 	let mut files = Vec::new();
 	for r in rows {
 		files.push(json!({"id":r.try_get::<Uuid,_>("Id")?,"liedId":r.try_get::<Uuid,_>("LiedId")?,"liedTitle":r.try_get::<String,_>("LiedTitle")?,"fileName":r.try_get::<Option<String>,_>("OriginalFileName")?,"description":r.try_get::<Option<String>,_>("Description")?,"contentType":r.try_get::<String,_>("ContentType")?,"sizeBytes":r.try_get::<i64,_>("SizeBytes")?,"createdAt":r.try_get::<DateTime<Utc>,_>("CreatedAt")?}));
@@ -13,7 +13,7 @@ pub(super) async fn aufnahmen(pool: &sqlx::PgPool, event: Uuid) -> Result<Vec<Va
 }
 pub(super) async fn list(
 	State(origin): State<Arc<Origin>>,
-	Path(lied): Path<Uuid>,
+	GuidPath(lied): GuidPath,
 	request: Request,
 ) -> Result<Response, AuthError> {
 	let auth = auth(&origin)?;
@@ -54,7 +54,7 @@ async fn links(
 	events: &[Uuid],
 	editor: bool,
 ) -> Result<HashMap<Uuid, Vec<Value>>, AuthError> {
-	let rows=sqlx::query(r#"SELECT m.*,r."Label",r."Kind",(r."PublishedAt" IS NOT NULL) published,o."Id" original_id,o."ContentType" original_type,c."Id" copy_id,c."ContentType" copy_type FROM recording_passages m JOIN recordings r ON r."Id"=m."RecordingId" JOIN programme_items i ON i."Id"=m."ProgrammeItemId" JOIN events e ON e."Id"=m."EventId" JOIN lieder l ON l."Id"=i."LiedId" LEFT JOIN dateien o ON o."Id"=r."OriginalDateiId" AND o."DeletedAt" IS NULL LEFT JOIN dateien c ON c."Id"=r."PlaybackDateiId" AND c."DeletedAt" IS NULL WHERE i."LiedId"=$1 AND m."EventId"=ANY($2) AND e."DeletedAt" IS NULL AND l."DeletedAt" IS NULL AND ($3 OR r."PublishedAt" IS NOT NULL) ORDER BY r."Label" COLLATE "und-x-icu",m."Id""#).bind(lied).bind(events).bind(editor).fetch_all(pool).await?;
+	let rows=sqlx::query(r#"SELECT m.*,r."Label",r."Kind",(r."PublishedAt" IS NOT NULL) published,o."Id" original_id,o."ContentType" original_type,c."Id" copy_id,c."ContentType" copy_type FROM recording_passages m JOIN recordings r ON r."Id"=m."RecordingId" JOIN programme_items i ON i."Id"=m."ProgrammeItemId" JOIN events e ON e."Id"=m."EventId" JOIN lieder l ON l."Id"=i."LiedId" LEFT JOIN dateien o ON o."Id"=r."OriginalDateiId" AND o."DeletedAt" IS NULL LEFT JOIN dateien c ON c."Id"=r."PlaybackDateiId" AND c."DeletedAt" IS NULL WHERE i."LiedId"=$1 AND m."EventId"=ANY($2) AND e."DeletedAt" IS NULL AND l."DeletedAt" IS NULL AND ($3 OR r."PublishedAt" IS NOT NULL) ORDER BY r."Label" COLLATE public.archive_culture,m."Id""#).bind(lied).bind(events).bind(editor).fetch_all(pool).await?;
 	let mut by_event = HashMap::<Uuid, Vec<Value>>::new();
 	for r in rows {
 		let kind: String = r.try_get("Kind")?;

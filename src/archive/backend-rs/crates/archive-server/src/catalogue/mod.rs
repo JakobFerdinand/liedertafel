@@ -1,6 +1,7 @@
 //! Flat Lied reads. The frozen catalogue fields and visibility predicates are
 //! shared by the browser adapter and later search consumers, not copied per route.
 use crate::binding;
+use crate::clr_guid::GuidPath;
 mod dateien;
 pub mod drafts;
 mod kinds;
@@ -17,7 +18,7 @@ use crate::{
 };
 use axum::{
 	Json,
-	extract::{Path, Request, State},
+	extract::{Request, State},
 	http::StatusCode,
 	response::{IntoResponse, Response},
 	routing::{MethodRouter, get, post},
@@ -190,7 +191,7 @@ fn distinct<'a>(values: impl Iterator<Item = &'a str>) -> Vec<&'a str> {
 }
 async fn detail(
 	State(origin): State<Arc<Origin>>,
-	Path(id): Path<String>,
+	GuidPath(id): GuidPath,
 	request: Request,
 ) -> Result<Response, AuthError> {
 	let auth = origin.auth.as_deref().ok_or(AuthError::Problem(
@@ -200,8 +201,6 @@ async fn detail(
 	let access = auth
 		.authorize(request.headers(), AccessPolicy::Member, false)
 		.await?;
-	let id = Uuid::parse_str(&id)
-		.map_err(|_| AuthError::Problem(StatusCode::BAD_REQUEST, "Die Anfrage ist ungültig."))?;
 	let response = match queries::lied(&auth.pool, id).await? {
 		Some(lied) => Json(json!({"lied":detail_value(&auth.pool,lied).await?})).into_response(),
 		None => problem(StatusCode::NOT_FOUND, "Das Lied wurde nicht gefunden."),

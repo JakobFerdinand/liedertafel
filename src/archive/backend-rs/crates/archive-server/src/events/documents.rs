@@ -9,7 +9,7 @@ pub(super) async fn list(pool: &sqlx::PgPool, event: Uuid) -> Result<Vec<Value>,
 }
 pub(super) async fn patch(
 	State(origin): State<Arc<Origin>>,
-	Path(id): Path<Uuid>,
+	GuidPath(id): GuidPath,
 	request: Request,
 ) -> Result<Response, AuthError> {
 	let auth = auth(&origin)?;

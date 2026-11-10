@@ -152,6 +152,14 @@ update this section in the same PR whenever the member list changes.
   upgrades. Focused PG: `cargo test -p archive-server --locked --test
   auftritt_programm -- --ignored`. Native unchanged UI:
   `node tests/browser/events-native.cjs`; scan/model semantics stay #231.
+
+- Before changing culture ordering or CLR string/path Guid binding, read
+  `docs/events-review-remediation.md`: migration 0004 preserves ICU equality
+  before secondary keys; `clr_guid` is separate from strict typed JSON Guid.
+  The independent fixture generator is `tests/oracles/ReviewOracle.cs`; its
+  external-project setup/provenance are in that document. Focused real-PG gate:
+  `cargo test -p archive-server --locked --test clr_guid_api --test event_culture
+  -- --ignored`. Keep constrained draft API fallback before auth.
 - `/api/build` and the readiness endpoint have the same shapes as today from
   wave 1 onward.
 - OTLP traces/metrics/logs keep the dashboard-compatible schema; every host

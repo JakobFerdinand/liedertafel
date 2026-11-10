@@ -46,63 +46,11 @@ struct Detail {
 	formular: Box<RawValue>,
 	aktualisiert_am: DateTime<Utc>,
 }
-// Guid route constraints use TryParse's N/D/B/P/X forms and whitespace,
-// unlike the JSON Guid converter. URN is a uuid crate extension, not CLR Guid.
-pub(super) fn path_id(text: &str) -> Option<Uuid> {
-	let text = text.trim();
-	if text
-		.get(..9)
-		.is_some_and(|p| p.eq_ignore_ascii_case("urn:uuid:"))
-	{
-		return None;
-	}
-	let unwrapped = text
-		.strip_prefix('(')
-		.and_then(|s| s.strip_suffix(')'))
-		.unwrap_or(text);
-	if let Ok(id) = Uuid::parse_str(unwrapped) {
-		return Some(id);
-	}
-	let text = text.strip_prefix('{')?.strip_suffix('}')?;
-	let mut fields = text.splitn(4, ',');
-	let hex = |s: &str| {
-		u32::from_str_radix(
-			s.trim()
-				.strip_prefix("0x")
-				.or_else(|| s.trim().strip_prefix("0X"))?,
-			16,
-		)
-		.ok()
-	};
-	let a = hex(fields.next()?)?;
-	let b = u16::try_from(hex(fields.next()?)?).ok()?;
-	let c = u16::try_from(hex(fields.next()?)?).ok()?;
-	let bytes = fields
-		.next()?
-		.trim()
-		.strip_prefix('{')?
-		.strip_suffix('}')?
-		.split(',')
-		.map(|v| u8::try_from(hex(v)?).ok())
-		.collect::<Option<Vec<_>>>()?;
-	let bytes: [u8; 8] = bytes.try_into().ok()?;
-	let tail = bytes[2..]
-		.iter()
-		.map(|b| format!("{b:02x}"))
-		.collect::<String>();
-	Uuid::parse_str(&format!(
-		"{a:08x}-{b:04x}-{c:04x}-{:02x}{:02x}-{tail}",
-		bytes[0], bytes[1]
-	))
-	.ok()
-}
 pub(super) async fn detail(
 	State(origin): State<Arc<Origin>>,
-	Path(id): Path<String>,
+	GuidPath(id): GuidPath,
 	request: Request,
 ) -> Result<Response, AuthError> {
-	let id =
-		path_id(&id).ok_or_else(|| fail(StatusCode::NOT_FOUND, crate::api::API_UNKNOWN_TITLE))?;
 	let auth = auth(&origin)?;
 	let access = auth
 		.authorize(request.headers(), AccessPolicy::Editor, false)
@@ -130,11 +78,9 @@ pub(super) async fn detail(
 }
 pub(super) async fn save(
 	State(origin): State<Arc<Origin>>,
-	Path(id): Path<String>,
+	GuidPath(id): GuidPath,
 	request: Request,
 ) -> Result<Response, AuthError> {
-	let id =
-		path_id(&id).ok_or_else(|| fail(StatusCode::NOT_FOUND, crate::api::API_UNKNOWN_TITLE))?;
 	let auth = auth(&origin)?;
 	let access = auth
 		.authorize(request.headers(), AccessPolicy::Editor, true)
@@ -193,11 +139,9 @@ pub(super) async fn save(
 }
 pub(super) async fn discard(
 	State(origin): State<Arc<Origin>>,
-	Path(id): Path<String>,
+	GuidPath(id): GuidPath,
 	request: Request,
 ) -> Result<Response, AuthError> {
-	let id =
-		path_id(&id).ok_or_else(|| fail(StatusCode::NOT_FOUND, crate::api::API_UNKNOWN_TITLE))?;
 	let auth = auth(&origin)?;
 	let access = auth
 		.authorize(request.headers(), AccessPolicy::Editor, true)

@@ -1,4 +1,5 @@
 use super::queries;
+use crate::clr_guid::GuidPath;
 use crate::{
 	Origin,
 	api::problem,
@@ -6,18 +7,17 @@ use crate::{
 };
 use axum::{
 	Json,
-	extract::{Path, Request, State},
+	extract::{Request, State},
 	http::StatusCode,
 	response::{IntoResponse, Response},
 };
 use serde_json::json;
 use std::sync::Arc;
-use uuid::Uuid;
 pub(super) const NOT_FOUND: &str = "Die Datei wurde nicht gefunden.";
 pub(super) const STORAGE_FAILURE: &str = "Speicherdienst nicht erreichbar.";
 pub(super) async fn access(
 	State(origin): State<Arc<Origin>>,
-	Path(id): Path<String>,
+	GuidPath(id): GuidPath,
 	request: Request,
 ) -> Result<Response, AuthError> {
 	let auth = origin.auth.as_deref().ok_or(AuthError::Problem(
@@ -27,8 +27,6 @@ pub(super) async fn access(
 	let access = auth
 		.authorize(request.headers(), AccessPolicy::Member, false)
 		.await?;
-	let id = Uuid::parse_str(&id)
-		.map_err(|_| AuthError::Problem(StatusCode::BAD_REQUEST, "Die Anfrage ist ungültig."))?;
 	let Some(datei) = queries::dateien(&auth.pool, None, Some(id)).await?.pop() else {
 		return Ok(access.respond(problem(StatusCode::NOT_FOUND, NOT_FOUND)));
 	};
@@ -68,7 +66,7 @@ struct TierRequest {
 }
 pub(super) async fn tier(
 	State(origin): State<Arc<Origin>>,
-	Path(id): Path<String>,
+	GuidPath(id): GuidPath,
 	request: Request,
 ) -> Result<Response, AuthError> {
 	let auth = origin.auth.as_deref().ok_or(AuthError::Problem(
@@ -78,8 +76,6 @@ pub(super) async fn tier(
 	let access = auth
 		.authorize(request.headers(), AccessPolicy::Editor, true)
 		.await?;
-	let id = Uuid::parse_str(&id)
-		.map_err(|_| AuthError::Problem(StatusCode::BAD_REQUEST, "Die Anfrage ist ungültig."))?;
 	let bytes = axum::body::to_bytes(request.into_body(), 65_536)
 		.await
 		.map_err(|_| AuthError::Problem(StatusCode::BAD_REQUEST, "Die Anfrage ist ungültig."))?;

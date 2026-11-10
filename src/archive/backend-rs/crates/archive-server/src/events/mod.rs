@@ -9,10 +9,11 @@ use crate::{
 	Origin,
 	auth::{AccessPolicy, Auth, AuthError},
 	binding::{self, Shape},
+	clr_guid::GuidPath,
 };
 use axum::{
 	Json,
-	extract::{Path, Request, State},
+	extract::{Request, State},
 	http::{StatusCode, header},
 	response::{IntoResponse, Response},
 	routing::{MethodRouter, get},
@@ -72,7 +73,8 @@ pub(crate) fn routes() -> Vec<(&'static str, MethodRouter<Arc<Origin>>)> {
 			get(drafts::detail)
 				.put(drafts::save)
 				.delete(drafts::discard)
-				.fallback(crate::api::api_miss),
+				.fallback(crate::api::api_miss)
+				.layer(axum::middleware::from_fn(crate::clr_guid::constrained)),
 		),
 		(
 			"/api/lieder/{id}/historie",
@@ -95,20 +97,6 @@ pub(crate) fn routes() -> Vec<(&'static str, MethodRouter<Arc<Origin>>)> {
 // Frozen Accepts metadata selects the stable API fallback for non-JSON write
 // requests, even before authorization. Bodyless DELETE has no such metadata.
 async fn json_media_type(request: Request, next: axum::middleware::Next) -> Response {
-	if let Some(segment) = request
-		.uri()
-		.path()
-		.strip_prefix("/api/auftritt-entwuerfe/")
-	{
-		let encoded = format!("id={segment}");
-		let decoded = url::form_urlencoded::parse(encoded.as_bytes())
-			.next()
-			.map(|(_, v)| v.into_owned())
-			.unwrap_or_default();
-		if drafts::path_id(&decoded).is_none() {
-			return crate::api::api_miss().await;
-		}
-	}
 	if matches!(
 		*request.method(),
 		axum::http::Method::POST | axum::http::Method::PUT | axum::http::Method::PATCH
@@ -227,7 +215,7 @@ async fn list(State(origin): State<Arc<Origin>>, request: Request) -> Result<Res
 }
 async fn detail(
 	State(origin): State<Arc<Origin>>,
-	Path(id): Path<Uuid>,
+	GuidPath(id): GuidPath,
 	request: Request,
 ) -> Result<Response, AuthError> {
 	let auth = auth(&origin)?;
@@ -253,7 +241,7 @@ async fn create(
 }
 async fn patch(
 	State(origin): State<Arc<Origin>>,
-	Path(id): Path<Uuid>,
+	GuidPath(id): GuidPath,
 	request: Request,
 ) -> Result<Response, AuthError> {
 	write(origin, Some(id), request).await

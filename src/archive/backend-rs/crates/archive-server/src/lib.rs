@@ -10,6 +10,7 @@ pub mod api;
 pub mod auth;
 mod binding;
 pub mod catalogue;
+mod clr_guid;
 pub mod events;
 pub mod frontend;
 pub mod origin;

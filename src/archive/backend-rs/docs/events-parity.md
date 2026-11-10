@@ -1,7 +1,9 @@
 # Auftritte, Programme and initial Entwurf persistence (#225)
 
 Base: accepted integration `4aab55c` (#224). Frozen C#, tests, frontend,
-infrastructure, workflows, image, migrations, EF baseline and grants stay unchanged.
+infrastructure, workflows, image, EF baseline and canonical grants stay unchanged.
+Review remediation adds only explicit Rust migration 0004 for culture comparison;
+see [events-review-remediation.md](events-review-remediation.md) for current evidence.
 The existing upload/trash/tier lifecycle is reused. No AI, worker or recording
 mutation endpoint is registered here.
 
@@ -30,9 +32,11 @@ mutation endpoint is registered here.
 - Any seeded Zeitmarke, including an unpublished recording, blocks removing its
   entry. Restrict FK remains intact; reordering preserves marks. Keeping a known
   entry while changing its Lied is legal. Conflict names are distinct, culture
-  ordered, bounded to three plus remainder. ICU root collation (`und-x-icu`) on
-  local PG17 supplies the frozen Linux/invariant-culture label order; no general
-  portability claim across arbitrary host CurrentCulture settings is made.
+  ordered, bounded to three plus remainder. Explicit nondeterministic ICU root
+  `public.archive_culture` preserves culture-equality ties before secondary keys;
+  ordinal distinctness and stored spelling stay separate. This replaces the
+  initial candidate's incorrect deterministic `und-x-icu` tie behavior; no
+  arbitrary-host/ICU-version portability claim is made.
 - Lied history is derived from programme entries plus live Lied-owned Aufnahmen
   naming a live Auftritt, grouped per event and paged at 20 with clamping and
   full-set aggregates. Seeded recording links honor publication/editor visibility,
@@ -130,7 +134,7 @@ uncaptured redaction ambiguity remain documented in predecessor runbooks; a fres
 native pass does not erase them. Hosted storage, actual Rust image/AppHost,
 production, live AI/mail and cutover remain later/approval-gated.
 
-## Verification (2026-11-10)
+## Initial candidate verification (227dc5f, superseded by review remediation)
 
 Sequential fmt check → workspace/all-target clippy `-D warnings` → workspace tests
 passed on the final source. All Cargo build/test/audit commands used `--locked`,

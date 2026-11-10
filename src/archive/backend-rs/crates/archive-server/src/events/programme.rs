@@ -21,7 +21,7 @@ pub(super) async fn embed(pool: &sqlx::PgPool, event: Uuid) -> Result<Value, Aut
 }
 pub(super) async fn save(
 	State(origin): State<Arc<Origin>>,
-	Path(event): Path<Uuid>,
+	GuidPath(event): GuidPath,
 	request: Request,
 ) -> Result<Response, AuthError> {
 	let auth = auth(&origin)?;
@@ -97,14 +97,16 @@ pub(super) async fn save(
 		.collect();
 	let blocked:Vec<(String,String)>=sqlx::query_as(r#"SELECT COALESCE(l."Title",'Ohne Titel'),r."Label" FROM recording_passages m JOIN programme_items i ON i."Id"=m."ProgrammeItemId" JOIN recordings r ON r."Id"=m."RecordingId" LEFT JOIN lieder l ON l."Id"=i."LiedId" AND l."DeletedAt" IS NULL WHERE m."ProgrammeItemId"=ANY($1)"#).bind(&orphans).fetch_all(&auth.pool).await?;
 	if !blocked.is_empty() {
-		let names: HashSet<_> = blocked
+		let mut seen = HashSet::new();
+		let names: Vec<_> = blocked
 			.into_iter()
 			.map(|(title, label)| format!("„{title}“ in „{label}“"))
+			.filter(|name| seen.insert(name.clone()))
 			.collect();
 		let names: Vec<String> = sqlx::query_scalar(
-			r#"SELECT name FROM unnest($1::text[]) AS name ORDER BY name COLLATE "und-x-icu""#,
+			r#"SELECT name FROM unnest($1::text[]) WITH ORDINALITY AS names(name,ordinal) ORDER BY name COLLATE public.archive_culture,ordinal"#,
 		)
-		.bind(names.into_iter().collect::<Vec<_>>())
+		.bind(names)
 		.fetch_all(&auth.pool)
 		.await?;
 		let message = format!(
@@ -180,6 +182,9 @@ pub(super) async fn upcoming(
 	let mut events = visible(&auth.pool).await?;
 	events.retain(|e| super::date::upcoming(e, today));
 	events.sort_by(|a, b| {
+		if a.date_year.is_none() && b.date_year.is_none() {
+			return a.id.cmp(&b.id);
+		}
 		a.date_year
 			.is_none()
 			.cmp(&b.date_year.is_none())
