@@ -612,7 +612,7 @@ fn locked(user: &sqlx::postgres::PgRow, now: DateTime<Utc>) -> Result<bool, Auth
 fn account_id(body: &Value) -> Result<Uuid, AuthError> {
 	body["accountId"]
 		.as_str()
-		.and_then(|s| s.parse::<Uuid>().ok())
+		.and_then(crate::clr_guid::try_parse)
 		.filter(|id| !id.is_nil())
 		.ok_or_else(|| bad("Die Kennung ist ungültig."))
 }

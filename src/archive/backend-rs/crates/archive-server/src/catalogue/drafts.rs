@@ -2,13 +2,14 @@
 //! #230 owns model calls and server-written reading outcomes. Retained outcomes
 //! survive a form save; removing a file cascades them before lifecycle notification.
 use super::writes::{FIELDS, body, fail, field, invalid, string, validate_fields};
+use crate::clr_guid::GuidPath;
 use crate::{
 	Origin,
 	auth::{AccessPolicy, AuthError},
 };
 use axum::{
 	Json,
-	extract::{Path, Request, State},
+	extract::{Request, State},
 	http::StatusCode,
 	response::{IntoResponse, Response},
 	routing::{MethodRouter, get},
@@ -45,7 +46,8 @@ pub(crate) fn routes() -> Vec<(&'static str, MethodRouter<Arc<Origin>>)> {
 			get(load)
 				.put(save)
 				.delete(discard)
-				.fallback(crate::api::api_miss),
+				.fallback(crate::api::api_miss)
+				.layer(axum::middleware::from_fn(crate::clr_guid::constrained)),
 		),
 	]
 }
@@ -62,7 +64,7 @@ async fn list(State(origin): State<Arc<Origin>>, request: Request) -> Result<Res
 }
 async fn load(
 	State(origin): State<Arc<Origin>>,
-	Path(id): Path<Uuid>,
+	GuidPath(id): GuidPath,
 	request: Request,
 ) -> Result<Response, AuthError> {
 	let auth = origin
@@ -144,7 +146,7 @@ fn array<'a>(body: &'a Value, key: &str) -> Result<&'a [Value], AuthError> {
 }
 async fn save(
 	State(origin): State<Arc<Origin>>,
-	Path(id): Path<Uuid>,
+	GuidPath(id): GuidPath,
 	request: Request,
 ) -> Result<Response, AuthError> {
 	let auth = origin
@@ -323,7 +325,7 @@ async fn save(
 }
 async fn discard(
 	State(origin): State<Arc<Origin>>,
-	Path(id): Path<Uuid>,
+	GuidPath(id): GuidPath,
 	request: Request,
 ) -> Result<Response, AuthError> {
 	let auth = origin

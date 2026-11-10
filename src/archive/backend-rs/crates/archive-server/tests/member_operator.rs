@@ -4,6 +4,84 @@ use serde_json::json;
 use sqlx::{ConnectOptions, Row};
 use std::process::Output;
 
+// R3: independent BCL matrix through the actual finite --repair-admin process.
+#[tokio::test]
+#[ignore = "explicit disposable PostgreSQL native CLR Guid repair matrix"]
+#[allow(clippy::unwrap_used)] // Synthetic fixture/process assertions.
+async fn repair_account_id_uses_clr_string_grammar_and_preserves_invalid_target_state() {
+	let app = support::App::new().await;
+	let _admin = app.admin().await;
+	let cases: Vec<(String, Option<String>)> =
+		serde_json::from_str(include_str!("../../../tests/fixtures/guid-bcl.json")).unwrap();
+	let ids: std::collections::HashSet<_> = cases
+		.iter()
+		.filter_map(|(_, id)| id.as_deref())
+		.filter(|id| *id != "00000000-0000-0000-0000-000000000000")
+		.collect();
+	for text in ids {
+		let id = uuid::Uuid::parse_str(text).unwrap();
+		let email = format!("guid-{id}@liedertafel.test");
+		sqlx::query(r#"INSERT INTO "AspNetUsers" ("Id","Email","NormalizedEmail","UserName","NormalizedUserName","EmailConfirmed","PhoneNumberConfirmed","TwoFactorEnabled","LockoutEnabled","AccessFailedCount") VALUES ($1,$2,upper($2),$2,upper($2),true,false,false,true,0)"#).bind(id).bind(email).execute(&app.pool).await.unwrap();
+	}
+	for (raw, expected) in cases {
+		let omitted = raw.trim().is_empty();
+		let valid = omitted
+			|| expected
+				.as_deref()
+				.is_some_and(|id| id != "00000000-0000-0000-0000-000000000000");
+		let email = format!(
+			"guid-{}@liedertafel.test",
+			expected
+				.as_deref()
+				.filter(|id| *id != "00000000-0000-0000-0000-000000000000")
+				.unwrap_or("12345678-abcd-4321-89ab-cdef01234567")
+		);
+		let before:serde_json::Value=sqlx::query_scalar(r#"SELECT jsonb_build_object('users',(SELECT jsonb_agg(to_jsonb(t) ORDER BY "Id") FROM "AspNetUsers" t),'roles',(SELECT jsonb_agg(to_jsonb(t) ORDER BY "UserId","RoleId") FROM "AspNetUserRoles" t),'passkeys',(SELECT jsonb_agg(to_jsonb(t)) FROM "AspNetUserPasskeys" t))"#).fetch_one(&app.pool).await.unwrap();
+		let output = command(
+			&app,
+			true,
+			&[
+				"--repair-admin",
+				"--email",
+				&email,
+				"--accountId",
+				&raw,
+				"--operator",
+				"Guid fixture",
+			],
+		)
+		.await;
+		assert_eq!(
+			output.status.success(),
+			valid,
+			"BCL CLI input {raw:?}: {}",
+			String::from_utf8_lossy(&output.stderr)
+		);
+		if !valid {
+			let after:serde_json::Value=sqlx::query_scalar(r#"SELECT jsonb_build_object('users',(SELECT jsonb_agg(to_jsonb(t) ORDER BY "Id") FROM "AspNetUsers" t),'roles',(SELECT jsonb_agg(to_jsonb(t) ORDER BY "UserId","RoleId") FROM "AspNetUserRoles" t),'passkeys',(SELECT jsonb_agg(to_jsonb(t)) FROM "AspNetUserPasskeys" t))"#).fetch_one(&app.pool).await.unwrap();
+			assert_eq!(before, after);
+		} else {
+			let id: uuid::Uuid =
+				sqlx::query_scalar(r#"SELECT "Id" FROM "AspNetUsers" WHERE "Email"=$1"#)
+					.bind(&email)
+					.fetch_one(&app.pool)
+					.await
+					.unwrap();
+			assert_eq!(
+				id.to_string(),
+				if omitted {
+					"12345678-abcd-4321-89ab-cdef01234567"
+				} else {
+					expected.as_deref().unwrap()
+				}
+			);
+		}
+		assert!(!String::from_utf8_lossy(&output.stdout).contains(&email));
+		assert!(!String::from_utf8_lossy(&output.stderr).contains(&email));
+	}
+	app.close().await;
+}
+
 // Failure to start/finish a bounded fixture process is an assertion failure.
 #[allow(clippy::unwrap_used)]
 async fn command(app: &support::App, development: bool, args: &[&str]) -> Output {

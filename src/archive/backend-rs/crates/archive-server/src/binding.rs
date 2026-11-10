@@ -17,6 +17,13 @@ pub(crate) enum Shape {
 	DraftReading,
 	Suggestions,
 	Version,
+	EventCreate,
+	EventPatch,
+	EventDate,
+	Programme,
+	ProgrammeItem,
+	EventDraft,
+	DateiPatch,
 }
 #[derive(Clone, Copy)]
 enum Property {
@@ -26,9 +33,12 @@ enum Property {
 	I32,
 	I64,
 	Bool,
+	RequiredBool,
 	Guid,
 	Record(Shape),
 	Files,
+	Items,
+	Opaque,
 	Strings,
 	Unknown,
 }
@@ -36,6 +46,41 @@ impl Shape {
 	fn property(self, name: &str) -> Property {
 		use Property::*;
 		match self {
+			Self::DateiPatch => match name {
+				"description" => String,
+				"rowversion" => WebU32,
+				_ => Unknown,
+			},
+			Self::EventDraft => match name {
+				"entwurfid" => Guid,
+				"titel" => String,
+				"dateien" => I32,
+				"formular" => Opaque,
+				_ => Unknown,
+			},
+			Self::Programme => match name {
+				"items" => Items,
+				"rowversion" => WebU32,
+				_ => Unknown,
+			},
+			Self::ProgrammeItem => match name {
+				"id" | "liedid" => Guid,
+				"note" => String,
+				_ => Unknown,
+			},
+			Self::EventCreate | Self::EventPatch => match name {
+				"kind" | "title" | "venue" | "starttime" | "notes" | "sourcenote" => String,
+				"dateyear" | "datemonth" | "dateday" if matches!(self, Self::EventCreate) => I32,
+				"dateapproximate" if matches!(self, Self::EventCreate) => RequiredBool,
+				"date" if matches!(self, Self::EventPatch) => Record(Self::EventDate),
+				"expectedrowversion" if matches!(self, Self::EventPatch) => WebU32,
+				_ => Unknown,
+			},
+			Self::EventDate => match name {
+				"year" | "month" | "day" => I32,
+				"approximate" => RequiredBool,
+				_ => Unknown,
+			},
 			Self::NullableStrings(fields) => {
 				if fields.iter().any(|f| name.eq_ignore_ascii_case(f)) {
 					String
@@ -126,7 +171,17 @@ impl<'de> Visitor<'de> for Record {
 		while let Some(key) = map.next_key::<String>()? {
 			let normalized = key.to_ascii_lowercase();
 			let property = self.0.property(&normalized);
-			if matches!(self.0, Shape::NullableStrings(_)) && matches!(property, Property::Unknown)
+			if matches!(
+				self.0,
+				Shape::NullableStrings(_)
+					| Shape::EventCreate
+					| Shape::EventPatch
+					| Shape::EventDate
+					| Shape::Programme
+					| Shape::ProgrammeItem
+					| Shape::EventDraft
+					| Shape::DateiPatch
+			) && matches!(property, Property::Unknown)
 			{
 				map.next_value::<serde::de::IgnoredAny>()?;
 				continue;
@@ -147,10 +202,19 @@ impl<'de> Visitor<'de> for Record {
 				Property::I32 => integer::<i32, A::Error>(map.next_value()?)?,
 				Property::I64 => integer::<i64, A::Error>(map.next_value()?)?,
 				Property::Bool => typed!(bool),
+				Property::RequiredBool => Value::Bool(map.next_value::<bool>()?),
 				Property::Guid => guid::<A::Error>(map.next_value()?)?,
 				Property::Strings => typed!(Vec<Option<String>>),
 				Property::Record(shape) => map.next_value_seed(Record(shape))?,
 				Property::Files => map.next_value_seed(Files)?,
+				Property::Items => map.next_value_seed(Items)?,
+				// JsonElement is opaque data. Retain duplicates, whitespace and
+				// number lexemes rather than eagerly rebuilding a JSON map.
+				Property::Opaque => Value::String(
+					map.next_value::<Box<serde_json::value::RawValue>>()?
+						.get()
+						.to_owned(),
+				),
 				Property::Unknown => map.next_value::<Value>()?,
 			};
 			// Dictionary keys and unknown Lied fields remain case-sensitive data.
@@ -239,4 +303,27 @@ pub(crate) fn parse(bytes: &[u8], shape: Shape) -> Result<Value, serde_json::Err
 	let value = Record(shape).deserialize(&mut deserializer)?;
 	deserializer.end()?;
 	Ok(value)
+}
+struct Items;
+impl<'de> DeserializeSeed<'de> for Items {
+	type Value = Value;
+	fn deserialize<D: serde::Deserializer<'de>>(self, d: D) -> Result<Value, D::Error> {
+		d.deserialize_any(self)
+	}
+}
+impl<'de> Visitor<'de> for Items {
+	type Value = Value;
+	fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.write_str("programme items or null")
+	}
+	fn visit_unit<E: serde::de::Error>(self) -> Result<Value, E> {
+		Ok(Value::Null)
+	}
+	fn visit_seq<A: SeqAccess<'de>>(self, mut array: A) -> Result<Value, A::Error> {
+		let mut items = Vec::new();
+		while let Some(item) = array.next_element_seed(Record(Shape::ProgrammeItem))? {
+			items.push(item);
+		}
+		Ok(Value::Array(items))
+	}
 }

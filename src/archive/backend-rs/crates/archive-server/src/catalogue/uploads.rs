@@ -3,6 +3,7 @@ use super::{
 	kinds, queries,
 	writes::{CONFLICT, body, fail, field, invalid, string},
 };
+use crate::clr_guid::GuidPath;
 use crate::{
 	Origin,
 	auth::{AccessPolicy, AuthError},
@@ -10,7 +11,7 @@ use crate::{
 };
 use axum::{
 	Json,
-	extract::{Path, Request, State},
+	extract::{Request, State},
 	http::{StatusCode, header},
 	response::{IntoResponse, Response},
 	routing::{MethodRouter, delete, post},
@@ -167,14 +168,14 @@ fn number(body: &Value, name: &str) -> Result<Option<i64>, AuthError> {
 }
 async fn initiate_lied(
 	State(origin): State<Arc<Origin>>,
-	Path(id): Path<Uuid>,
+	GuidPath(id): GuidPath,
 	request: Request,
 ) -> Result<Response, AuthError> {
 	initiate(origin, id, false, request).await
 }
 async fn initiate_event(
 	State(origin): State<Arc<Origin>>,
-	Path(id): Path<Uuid>,
+	GuidPath(id): GuidPath,
 	request: Request,
 ) -> Result<Response, AuthError> {
 	initiate(origin, id, true, request).await
@@ -399,7 +400,7 @@ async fn session(origin: &Origin, id: Uuid, actor: Uuid) -> Result<Pending, Auth
 }
 async fn renew(
 	State(origin): State<Arc<Origin>>,
-	Path(id): Path<Uuid>,
+	GuidPath(id): GuidPath,
 	request: Request,
 ) -> Result<Response, AuthError> {
 	let auth = origin
@@ -451,7 +452,7 @@ async fn renew(
 }
 async fn cancel(
 	State(origin): State<Arc<Origin>>,
-	Path(id): Path<Uuid>,
+	GuidPath(id): GuidPath,
 	request: Request,
 ) -> Result<Response, AuthError> {
 	let auth = origin
@@ -488,7 +489,7 @@ async fn cancel(
 }
 async fn finalize(
 	State(origin): State<Arc<Origin>>,
-	Path(id): Path<Uuid>,
+	GuidPath(id): GuidPath,
 	request: Request,
 ) -> Result<Response, AuthError> {
 	let auth = origin

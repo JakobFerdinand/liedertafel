@@ -281,6 +281,22 @@ impl Client {
 		self.raw(method, path, &body.to_string()).await
 	}
 	pub async fn raw(&mut self, method: &str, path: &str, body: &str) -> (StatusCode, Value) {
+		let (status, _, bytes) = self.wire(method, path, body).await;
+		(
+			status,
+			if bytes.is_empty() {
+				Value::Null
+			} else {
+				serde_json::from_slice(&bytes).unwrap()
+			},
+		)
+	}
+	pub async fn wire(
+		&mut self,
+		method: &str,
+		path: &str,
+		body: &str,
+	) -> (StatusCode, axum::http::HeaderMap, axum::body::Bytes) {
 		let mut request = Request::builder()
 			.method(method)
 			.uri(path)
@@ -306,14 +322,8 @@ impl Client {
 			let (key, value) = pair.split_once('=').unwrap();
 			self.cookies.insert(key.into(), value.into());
 		}
+		let headers = response.headers().clone();
 		let bytes = response.into_body().collect().await.unwrap().to_bytes();
-		(
-			status,
-			if bytes.is_empty() {
-				Value::Null
-			} else {
-				serde_json::from_slice(&bytes).unwrap()
-			},
-		)
+		(status, headers, bytes)
 	}
 }

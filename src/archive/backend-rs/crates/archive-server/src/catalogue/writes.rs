@@ -1,12 +1,13 @@
 //! The flat field contract shared by create, patch and persisted form state.
 use super::{Lied, queries};
+use crate::clr_guid::GuidPath;
 use crate::{
 	Origin,
 	auth::{AccessPolicy, AuthError},
 };
 use axum::{
 	Json,
-	extract::{Path, Request, State},
+	extract::{Request, State},
 	http::{StatusCode, header},
 	response::{IntoResponse, Response},
 };
@@ -105,7 +106,7 @@ pub(super) async fn create(
 }
 pub(super) async fn patch(
 	State(origin): State<Arc<Origin>>,
-	Path(id): Path<Uuid>,
+	GuidPath(id): GuidPath,
 	request: Request,
 ) -> Result<Response, AuthError> {
 	write(origin, Some(id), request).await
