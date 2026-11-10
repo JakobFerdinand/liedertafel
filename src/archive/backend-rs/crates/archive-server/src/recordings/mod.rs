@@ -321,13 +321,11 @@ async fn patch(
 		));
 	}
 	let old = r.clone();
+	let publishing = publish == Some(true) && r.published_at.is_none();
 	if let Some(l) = new_label {
 		r.label = l;
 	}
-	if publish == Some(true) && r.published_at.is_none() {
-		r.published_at = Some(auth.clock.now());
-		r.published_by_account_id = Some(a.current.account_id);
-	} else if publish == Some(false) {
+	if publish == Some(false) {
 		r.published_at = None;
 		r.published_by_account_id = None;
 	}
@@ -337,12 +335,20 @@ async fn patch(
 	if let Some(v) = duration {
 		r.duration_seconds = Some(v);
 	}
-	if old.label != r.label
+	if publishing
+		|| old.label != r.label
 		|| old.published_at != r.published_at
 		|| old.download_enabled != r.download_enabled
 		|| old.duration_seconds != r.duration_seconds
 	{
-		let n=sqlx::query(r#"UPDATE recordings SET "Label"=$2,"PublishedAt"=$3,"PublishedByAccountId"=$4,"DownloadEnabled"=$5,"DurationSeconds"=$6,"UpdatedAt"=$7,"UpdatedByAccountId"=$8,"RowVersion"="RowVersion"+1 WHERE "Id"=$1 AND "RowVersion"=$9"#).bind(id).bind(&r.label).bind(r.published_at).bind(r.published_by_account_id).bind(r.download_enabled).bind(r.duration_seconds).bind(auth.clock.now()).bind(a.current.account_id).bind(old.row_version).execute(&auth.pool).await?.rows_affected();
+		// Frozen PATCH captures once after validation/no-op detection, before
+		// its save await; publication and update attribution share this instant.
+		let now = auth.clock.now();
+		if publishing {
+			r.published_at = Some(now);
+			r.published_by_account_id = Some(a.current.account_id);
+		}
+		let n=sqlx::query(r#"UPDATE recordings SET "Label"=$2,"PublishedAt"=$3,"PublishedByAccountId"=$4,"DownloadEnabled"=$5,"DurationSeconds"=$6,"UpdatedAt"=$7,"UpdatedByAccountId"=$8,"RowVersion"="RowVersion"+1 WHERE "Id"=$1 AND "RowVersion"=$9"#).bind(id).bind(&r.label).bind(r.published_at).bind(r.published_by_account_id).bind(r.download_enabled).bind(r.duration_seconds).bind(now).bind(a.current.account_id).bind(old.row_version).execute(&auth.pool).await?.rows_affected();
 		if n == 0 {
 			return Err(fail(StatusCode::CONFLICT, CONFLICT));
 		}

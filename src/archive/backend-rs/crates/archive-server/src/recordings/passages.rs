@@ -328,8 +328,11 @@ pub(super) async fn review(
 			.ok_or(AuthError::Database)?;
 		version(v, p)?;
 	}
+	// Frozen review captures once after every selected id/token is checked,
+	// before any row-update await, and reuses it for all changed passages.
+	let now = auth.clock.now();
 	for p in rows.iter().filter(|p| p.playback_datei_id != Some(played)) {
-		let n=sqlx::query(r#"UPDATE recording_passages SET "PlaybackDateiId"=$2,"UpdatedAt"=$3,"UpdatedByAccountId"=$4,"RowVersion"="RowVersion"+1 WHERE "Id"=$1 AND "RowVersion"=$5"#).bind(p.id).bind(played).bind(auth.clock.now()).bind(a.current.account_id).bind(p.row_version).execute(&mut *tx).await?.rows_affected();
+		let n=sqlx::query(r#"UPDATE recording_passages SET "PlaybackDateiId"=$2,"UpdatedAt"=$3,"UpdatedByAccountId"=$4,"RowVersion"="RowVersion"+1 WHERE "Id"=$1 AND "RowVersion"=$5"#).bind(p.id).bind(played).bind(now).bind(a.current.account_id).bind(p.row_version).execute(&mut *tx).await?.rows_affected();
 		if n == 0 {
 			return Err(fail(StatusCode::CONFLICT, CONFLICT));
 		}

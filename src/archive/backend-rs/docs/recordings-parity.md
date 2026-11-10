@@ -4,6 +4,82 @@ Base: accepted integration **5c5611a** (#225). No frozen C#/test/frontend,
 infrastructure/workflow/Dockerfile, schema/baseline/grant, dependency or lockfile
 changes. No video worker, AI or future endpoint is registered.
 
+## R1 review remediation — ready for independent rereview
+
+Independent review of `b466aa4` found one Low attribution issue: separate clock
+reads made publication's `PublishedAt` differ from `UpdatedAt`, and changed
+Zeitmarken in one bulk confirmation receive different `editor.updatedAt` values.
+Both frozen handlers capture once. The existing fixed-clock fixtures masked this.
+
+The scoped fix captures one instant after recording validation/no-op detection
+and before the save await, reusing it for publication/update attribution. Bulk
+review captures once after all selected ids/tokens validate, before the first
+row-update await, reusing it for every changed row. No transaction, selected-list,
+CAS, binding, timestamp bounds, membership, ticket or lifecycle behavior changes.
+
+`recording_attribution.rs` uses raw HTTP, real PostgreSQL and a clock advancing
+one millisecond on **every** read (including normal auth). Publication and
+multiple-changed-row review each independently failed by one millisecond before
+their respective fix, then passed. Controls preserve already-published metadata,
+withdrawal/republish, normalized/current no-ops, stale publication/no-op, exact
+selected review, unchanged excluded rows and atomic stale-selection refusal.
+Assertions concern public payload/persisted attribution, not internal clock-call
+counts. Red/green logs: `/tmp/opencode/227-r1-{publication,review}-red.log` and
+`227-r1-{publication,attribution}-green.log`. The original candidate's verification
+below is historical; the following are **fresh R1 executions** against the fix.
+
+Latest integration remains `5c5611a`; merging it into this ticket was reconfirmed
+already up to date before/after verification. #226 had not merged, so no extraction
+union or extraction gates are claimed. Cargo uses the dedicated persistent227
+target, static OpenSSL3.5.9 and `--locked`; no dependency or lockfile change.
+
+| Fresh R1 gate | Actual result |
+| --- | --- |
+| Sequential fmt → workspace/all-target clippy → ordinary workspace | Pass; **57 passed /0 failed /175 explicitly ignored** |
+| All explicit real-PG suites | **169 passed /0 ignored** =167 prior +2 progressing-clock regressions |
+| Native exact schema/adoption/runtime grants | **1 passed** |
+| Private Azurite3.35.0 | **5 passed** |
+| Ordinary ignored gates explicitly exercised | **175/175 =169+1+5** |
+| Default-feature workspace build; active cargo-deny | Pass; advisories/bans/licenses/sources all OK |
+| Native linkage | Embedded **OpenSSL3.5.9**, no dynamic libssl/libcrypto |
+| Native auth/member/catalogue/upload/events/query-binding/recordings | Final **7 passed**, real crypto/auth/SQL/private Blob/SMTP-boundary/OTLP; unchanged UI where applicable |
+| Fully drained final private replays | **7 passed**, zero findings/protocol/lifecycle errors |
+| Structured detector/lifecycle | **110 passed /0 skipped** |
+| Unchanged scoped frozen .NET | **47 passed /0 skipped** |
+| Unchanged scoped frozen mocked Playwright | **100 passed /0 skipped**, desktop+mobile, client regression only |
+| Unchanged frontend persistence/reducer/storage units | **34 passed /0 skipped** |
+| Committed frozen recording oracle regeneration | **8 DTOs /106 serializer +6 rounding observations**, byte-identical; not independent tests |
+
+The first fresh recording-native run **failed** its immediate duration assertion;
+its sampled value was not retained. The frozen UI exposes ready playback before
+awaiting local measurement and its PATCH (`auftritt-aufnahmen.tsx:745–753`). The
+owned harness now awaits the existing “Original … gespeichert.” completed-operation
+message before the unchanged four-second duration assertion. No product/frontend
+behavior was changed. Its complete retry and replay passed; the initial failure
+remains `/tmp/opencode/227-r1-recordings-native.log`, private capture
+`223-recordings-native-telemetry-NQIgxq`. Its replay still exits1 with
+`incomplete-or-failed-native-run` (zero secrecy findings), **not a passing gate**.
+
+Fresh logs: `/tmp/opencode/227-r1-{fmt,clippy,workspace,pg,schema,azurite,build,deny,
+linkage,detector,dotnet,frozen-browser,frontend-unit,recording-oracle}.log`;
+six inherited `227-r1-<native-name>.log`, successful recording retry
+`227-r1-recordings-native-final.log`, seven `227-r1-<native-name>-replay.log`.
+Final private captures (0700 directories /0600 replay and reports):
+
+- `/tmp/opencode/223-native-auth-telemetry-ixIXgb`
+- `/tmp/opencode/223-members-native-telemetry-fAfmKD`
+- `/tmp/opencode/223-catalogue-native-telemetry-HbGCde`
+- `/tmp/opencode/223-upload-native-telemetry-MPBq5c`
+- `/tmp/opencode/223-events-native-telemetry-48irpQ`
+- `/tmp/opencode/223-query-binding-telemetry-Y1UgKG`
+- `/tmp/opencode/223-recordings-native-telemetry-51qRyB`
+
+Known frozen real-browser failures, original uncaptured member-redaction ambiguity,
+video-FK refusal, historical equivalents and hosted/image/live/cutover limits below
+remain unchanged. The reviewer's original SystemClock attribution probe is untouched;
+its independent rerun/acceptance is pending. No push, issue/PR write, integration/main
+merge, deployment, production/live access or worktree/container cleanup occurred.
+
 ## Contract
 
 Eight route patterns are added to the single API registry through `recordings::routes`:
@@ -116,6 +192,7 @@ as one test, not as multiple frozen test passes.
 | `WalkingSkeletonTests.cs` concert recording segment | `recording_storage` signed upload→finalize→attach→publication→GET/HEAD/206→policy/tamper; `tests/browser/recordings-native.cjs` actual unchanged UI WAV upload/measurement/marks/Programme reorder/history/playback/download/publication/replacement/review/restart/OTLP. Full actual Rust **image/AppHost retarget is #235**, not a native-binary substitute claim |
 | Frozen frontend recording/zeitmarken suites | Unchanged mocked Playwright regression plus native actual UI gate. Mocks prove client rendering only, not SQL/signatures. Synthetic WAV generated by the harness; no real media/private member fixtures |
 | Current schema/constraints/grants | `recording_races`, inherited explicit `migrate_process` schema/grants and `historical_baseline`. No new schema needed; no current SQL case waived |
+| Recording publication and selected-review attribution (`RecordingEndpoints.cs:176–194`, `RecordingPassageEndpoints.cs:307–313`), independent review R1 | `recording_attribution`: two raw HTTP/real-PG tests with a deterministically progressing clock; equal per-operation stamps, no-op/already-published/withdrawal/republish/stale and exact-selected atomic review controls. Original fixed-clock suites masked the finding; this adds boundary evidence, not a new clock-call-count contract |
 | Historical EF migrations | #227 has **no new historical transformation waiver**. Only individually mapped approved programme/old-model equivalents in `historical-migration-disposition.md` remain applicable. Historical transforms are **NOT executed by Rust**; reading/A2UI historical equivalents stay #229/#232 |
 
 ## Independent binding evidence
@@ -175,7 +252,7 @@ original uncaptured member-redaction ambiguity stays **unclassified**. Hosted
 Entra/RBAC/storage, actual Rust image/AppHost, live AI/mail/Neon/production/cutover
 remain unrun and outside this ticket's authorization.
 
-## Verified candidate (2026-11-10)
+## Original candidate verification (b466aa4, before R1)
 
 Latest integration `5c5611a` merged/reconfirmed **already up to date** before the
 final sequential fmt→clippy→workspace gates. All Cargo commands used `--locked`,
