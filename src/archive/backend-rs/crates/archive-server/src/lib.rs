@@ -14,6 +14,7 @@ mod clr_guid;
 pub mod events;
 pub mod frontend;
 pub mod origin;
+pub mod recordings;
 pub mod settings;
 pub mod storage;
 

@@ -110,7 +110,7 @@ pub async fn has_separate_playback(pool: &PgPool, datei: &Datei) -> Result<bool,
 			.iter()
 			.all(|(kind, content)| content.as_deref().is_some_and(|c| is_playable(c, kind))))
 }
-fn is_playable(content: &str, kind: &str) -> bool {
+pub(crate) fn is_playable(content: &str, kind: &str) -> bool {
 	let types: &[&str] = if kind == "video" {
 		&["video/mp4", "video/webm"]
 	} else {
