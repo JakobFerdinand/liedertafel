@@ -155,8 +155,8 @@ impl Options {
 			.map(str::trim)
 			.filter(|s| !s.is_empty())
 		{
-			match entry.parse::<Decimal>() {
-				Ok(v) if v > Decimal::ZERO => result.push(v),
+			match threshold_number(entry) {
+				Some(v) if v > Decimal::ZERO => result.push(v),
 				_ => tracing::error!(
 					entry,
 					"KI-Budget: Der Schwellwert-Eintrag ist nicht lesbar; er ist vorerst ausgeschaltet."
@@ -170,6 +170,80 @@ impl Options {
 		result.sort();
 		result
 	}
+}
+
+/// Invariant NumberStyles.Number for an already comma-split, Unicode-trimmed
+/// threshold entry. Commas are list separators here, NOT numeric grouping.
+/// BCL permits one leading OR trailing sign, ASCII numeric whitespace before a
+/// trailing sign, a decimal point and trailing NULs. It rejects exponents,
+/// currency, parentheses, underscores and interior Unicode whitespace. Decimal
+/// precision reduction is ties-to-even (unlike rust_decimal's FromStr rounding).
+/// The committed actual BCL matrix pins this deliberately narrow grammar.
+fn threshold_number(entry: &str) -> Option<Decimal> {
+	let numeric_white = |c: char| matches!(c, ' ' | '\t'..='\r');
+	let mut text = entry.trim_end_matches('\0').trim_end_matches(numeric_white);
+	let mut negative = false;
+	let leading = text.starts_with(['+', '-']);
+	if leading {
+		negative = text.starts_with('-');
+		text = &text[1..];
+	}
+	if text.ends_with(['+', '-']) {
+		if leading {
+			return None;
+		}
+		negative = text.ends_with('-');
+		text = text[..text.len() - 1].trim_end_matches(numeric_white);
+	}
+	let mut point = false;
+	let mut fraction = 0_usize;
+	let mut digits = String::new();
+	for byte in text.bytes() {
+		match byte {
+			b'0'..=b'9' => {
+				digits.push(char::from(byte));
+				if point {
+					fraction += 1;
+				}
+			}
+			b'.' if !point => point = true,
+			_ => return None,
+		}
+	}
+	if digits.is_empty() {
+		return None;
+	}
+	let significant = digits.trim_start_matches('0').len();
+	let initial_drop = fraction
+		.saturating_sub(28)
+		.max(significant.saturating_sub(29));
+	for drop in initial_drop..=fraction {
+		let split = digits.len().checked_sub(drop)?;
+		let retained = digits[..split].trim_start_matches('0');
+		let mut coefficient = if retained.is_empty() {
+			0
+		} else {
+			retained.parse::<i128>().ok()?
+		};
+		let removed = &digits.as_bytes()[split..];
+		if let Some(&first) = removed.first()
+			&& (first > b'5'
+				|| (first == b'5'
+					&& (removed[1..].iter().any(|&b| b != b'0') || coefficient % 2 != 0)))
+		{
+			coefficient = coefficient.checked_add(1)?;
+		}
+		if coefficient > Decimal::MAX.mantissa() {
+			continue;
+		}
+		let scale = u32::try_from(fraction - drop).ok()?;
+		return Decimal::try_from_i128_with_scale(
+			if negative { -coefficient } else { coefficient },
+			scale,
+		)
+		.ok();
+	}
+	None
 }
 
 pub fn month_key(instant: chrono::DateTime<chrono::Utc>) -> String {

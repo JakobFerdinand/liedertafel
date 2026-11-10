@@ -95,3 +95,40 @@ fn threshold_and_cap_warning_share_the_bcl_formatter() {
 		);
 	}
 }
+
+#[test]
+fn explicit_thresholds_match_bcl_number_styles_and_comma_tokenization() {
+	for case in observations().iter().filter(|v| v["kind"] == "threshold") {
+		let options = Options {
+			notice_thresholds_eur: case["value"].as_str().unwrap().into(),
+			..Default::default()
+		};
+		let (levels, log) = captured(|| options.levels());
+		let expected = case["levels"]
+			.as_array()
+			.unwrap()
+			.iter()
+			.map(|v| {
+				v.as_str()
+					.unwrap()
+					.parse::<rust_decimal::Decimal>()
+					.unwrap()
+			})
+			.collect::<Vec<_>>();
+		assert_eq!(levels, expected, "{}", case["value"]);
+		assert_eq!(
+			log.matches("nicht lesbar").count(),
+			case["errors"].as_array().unwrap().len(),
+			"{}: {log}",
+			case["value"]
+		);
+	}
+	for cap in ["0", "-1", "0.005"] {
+		let options = Options {
+			monthly_cap_eur: cap.parse().unwrap(),
+			notice_thresholds_eur: "".into(),
+			..Default::default()
+		};
+		assert_eq!(options.levels().len(), usize::from(cap == "0.005"));
+	}
+}
