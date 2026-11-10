@@ -28,7 +28,13 @@ remain required before any wave6 advance.
   compact output exactly matches committed `fixtures/226-score-bcl.jsonl`.
   `/tmp/opencode/226-r2-{red,green,fmt,clippy}.log`: red then four analyzer tests
   green; fmt and workspace/all-target clippy green. No new dependency/write path.
-- R3 timestamp and R4 outbox CAS findings are still open at this checkpoint.
+- R3: explicit pre-attempt versus counted-attempt save kind retains claim-time
+  `LastAttemptAt` while `UpdatedAt` records completion. Real-PG/authenticated HTTP
+  advancing-clock test first reproduced four seven-second timestamp shifts
+  (row/dequeue exhaustion, each transient/deadline), then passed all six counted
+  cases and the already-spent precheck control. All six worker tests pass;
+  `/tmp/opencode/226-r3-{red,green,fmt,clippy}.log` retains exact evidence.
+- R4 outbox CAS remains open at this checkpoint.
   The reviewer's R4 finding was source-derived, not a successful race reproduction.
 - Final combined validation and independent rereview have **not** run after all
   fixes. Earlier pre-union/initial-union passes below are not final acceptance.

@@ -159,6 +159,139 @@ async fn transient_terminal_stale_attempt_poison_and_oversize_matrix() {
 }
 use archive_server::auth::Clock;
 
+struct AdvancingMissing {
+	time: Arc<support::Time>,
+	deadline: bool,
+	opens: AtomicUsize,
+}
+impl Storage for AdvancingMissing {
+	fn open_read_bounded<'a>(
+		&'a self,
+		_: &'a str,
+		_: u64,
+	) -> BoxFuture<'a, Result<Option<BlobRead>, StorageError>> {
+		Box::pin(async move {
+			self.opens.fetch_add(1, Ordering::Relaxed);
+			*self.time.0.lock().unwrap() += Duration::seconds(7);
+			if self.deadline {
+				std::future::pending::<()>().await;
+			}
+			Ok(None)
+		})
+	}
+	fn read_ticket<'a>(
+		&'a self,
+		_: &'a str,
+		_: Duration,
+		_: bool,
+		_: Option<&'a str>,
+	) -> BoxFuture<'a, Result<String, StorageError>> {
+		Box::pin(async { Err(StorageError::Unavailable) })
+	}
+	fn set_tier<'a>(&'a self, _: &'a str, _: &'a str) -> BoxFuture<'a, Result<(), StorageError>> {
+		Box::pin(async { Err(StorageError::Unavailable) })
+	}
+}
+
+#[tokio::test]
+#[ignore = "explicit real PostgreSQL + authenticated advancing-clock gate"]
+async fn counted_attempt_timestamp_survives_transient_and_deadline_exhaustion() {
+	let app = App::new().await;
+	let mut editor = app.admin().await;
+	let owner = lied(&app, "Attempt attribution", json!({})).await;
+	let cancel = tokio_util::sync::CancellationToken::new();
+	let mut failures = Vec::new();
+	for deadline in [false, true] {
+		for (attempts, dequeues, status, count) in [(0, 1, 0, 1), (4, 1, 4, 5), (0, 5, 4, 1)] {
+			let claim =
+				chrono::DateTime::from_timestamp_micros(app.time.now().timestamp_micros()).unwrap();
+			*app.time.0.lock().unwrap() = claim;
+			let id = datei(&app, owner, false, "noten", "application/pdf").await;
+			text(&app, id, "", 0, 0).await;
+			sqlx::query(r#"UPDATE extraction_jobs SET "AttemptCount"=$2 WHERE "DateiId"=$1"#)
+				.bind(id)
+				.bind(attempts)
+				.execute(&app.pool)
+				.await
+				.unwrap();
+			let storage = Arc::new(AdvancingMissing {
+				time: app.time.clone(),
+				deadline,
+				opens: AtomicUsize::new(0),
+			});
+			let w = worker(&app, storage.clone());
+			let mut m = message(id);
+			m.dequeue_count = dequeues;
+			w.handle(
+				&m,
+				claim + Duration::seconds(if deadline { 1 } else { 60 }),
+				&cancel,
+			)
+			.await
+			.unwrap();
+			let job = Job::load(&app.pool, id).await.unwrap().unwrap();
+			assert_eq!((job.status, job.attempt_count), (status, count));
+			assert_eq!(storage.opens.load(Ordering::Relaxed), 1);
+			assert_eq!(job.updated_at, claim + Duration::seconds(7));
+			let (code, body) = editor
+				.get(&format!("/api/dateien/extraction?ids={id}"))
+				.await;
+			assert_eq!(code, 200, "{body}");
+			let api_attempt = chrono::DateTime::parse_from_rfc3339(
+				body["results"][0]["lastAttemptAt"].as_str().unwrap(),
+			)
+			.unwrap()
+			.with_timezone(&chrono::Utc);
+			if job.last_attempt_at != Some(claim) || api_attempt != claim {
+				failures.push((
+					deadline,
+					attempts,
+					dequeues,
+					job.last_attempt_at,
+					api_attempt,
+					claim,
+				));
+			}
+		}
+	}
+	// Already-spent precheck DOES stamp now, without claiming/opening a new attempt.
+	let id = datei(&app, owner, false, "noten", "application/pdf").await;
+	text(&app, id, "", 0, 0).await;
+	sqlx::query(
+		r#"UPDATE extraction_jobs SET "AttemptCount"=5,"LastAttemptAt"=$2 WHERE "DateiId"=$1"#,
+	)
+	.bind(id)
+	.bind(app.time.now() - Duration::days(1))
+	.execute(&app.pool)
+	.await
+	.unwrap();
+	let storage = Arc::new(AdvancingMissing {
+		time: app.time.clone(),
+		deadline: false,
+		opens: AtomicUsize::new(0),
+	});
+	worker(&app, storage.clone())
+		.handle(
+			&message(id),
+			app.time.now() + Duration::seconds(60),
+			&cancel,
+		)
+		.await
+		.unwrap();
+	let job = Job::load(&app.pool, id).await.unwrap().unwrap();
+	assert_eq!((job.status, job.attempt_count), (4, 5));
+	assert_eq!(
+		(job.last_attempt_at, job.updated_at),
+		(Some(app.time.now()), app.time.now())
+	);
+	assert_eq!(storage.opens.load(Ordering::Relaxed), 0);
+	app.close().await;
+	assert!(
+		failures.is_empty(),
+		"counted SQL/HTTP timestamps moved from claim: {failures:?}"
+	);
+}
+
 struct Bytes(Vec<u8>);
 impl Storage for Bytes {
 	fn open_read_bounded<'a>(

@@ -40,6 +40,11 @@ pub struct Worker {
 	pub reading_queue: Option<Arc<dyn Queue>>,
 	pub spool_directory: PathBuf,
 }
+enum SaveKind {
+	BeforeAttempt,
+	Attempt,
+	ReadingHandoff,
+}
 impl Worker {
 	pub async fn handle(
 		&self,
@@ -150,7 +155,7 @@ impl Worker {
 					4,
 					job.text.as_deref(),
 					Some(EXHAUSTED),
-					false,
+					SaveKind::BeforeAttempt,
 					Disposition::Delete,
 				)
 				.await;
@@ -163,7 +168,7 @@ impl Worker {
 					4,
 					job.text.as_deref(),
 					Some(pdf::TOO_LARGE),
-					false,
+					SaveKind::BeforeAttempt,
 					Disposition::Delete,
 				)
 				.await;
@@ -184,7 +189,7 @@ impl Worker {
 					4,
 					job.text.as_deref(),
 					Some(pdf::TOO_LARGE),
-					false,
+					SaveKind::Attempt,
 					Disposition::Delete,
 				)
 				.await;
@@ -209,7 +214,11 @@ impl Worker {
 					status,
 					text.as_deref(),
 					reason,
-					handoff,
+					if handoff {
+						SaveKind::ReadingHandoff
+					} else {
+						SaveKind::Attempt
+					},
 					Disposition::Delete,
 				)
 				.await
@@ -281,7 +290,7 @@ impl Worker {
 				4,
 				job.text.as_deref(),
 				Some(EXHAUSTED),
-				false,
+				SaveKind::Attempt,
 				Disposition::Delete,
 			)
 			.await
@@ -291,7 +300,7 @@ impl Worker {
 				0,
 				job.text.as_deref(),
 				job.failure_reason.as_deref(),
-				false,
+				SaveKind::Attempt,
 				self.backoff(message),
 			)
 			.await
@@ -303,13 +312,14 @@ impl Worker {
 		status: i32,
 		text: Option<&str>,
 		reason: Option<&str>,
-		handoff: bool,
+		kind: SaveKind,
 		disposition: Disposition,
 	) -> Result<Disposition, Error> {
 		let now = self.clock.now();
 		let mut tx = self.pool.begin().await?;
-		let stamp_attempt =
-			reason == Some(EXHAUSTED) || (job.status != 1 && reason == Some(pdf::TOO_LARGE));
+		// Precheck failures stamp now; counted attempts retain acquisition time,
+		// including retry exhaustion and deadline recovery after a later finish.
+		let stamp_attempt = matches!(kind, SaveKind::BeforeAttempt);
 		let won=sqlx::query(r#"UPDATE extraction_jobs SET "Status"=$3,"Text"=$4,"FailureReason"=$5,"CompletedAt"=$6,"UpdatedAt"=$7,"LastAttemptAt"=CASE WHEN $8 THEN $7 ELSE "LastAttemptAt" END,"RowVersion"="RowVersion"+1 WHERE "DateiId"=$1 AND "RowVersion"=$2"#).bind(job.datei_id).bind(job.row_version).bind(status).bind(text).bind(reason).bind(matches!(status,2|3).then_some(now)).bind(now).bind(stamp_attempt).execute(&mut *tx).await?.rows_affected();
 		if won == 0 {
 			tx.rollback().await?;
@@ -320,7 +330,7 @@ impl Worker {
 				Disposition::Abandon(self.options.visibility_backoff)
 			});
 		}
-		let inserted = if handoff {
+		let inserted = if matches!(kind, SaveKind::ReadingHandoff) {
 			sqlx::query(r#"INSERT INTO reading_jobs ("DateiId","Status","PagesRead","PageLimit","FieldsDone","FieldsApplied","AttemptCount","TriggeredByAccountId","CreatedAt","UpdatedAt","RowVersion") VALUES ($1,0,0,$4,false,0,0,$2,$3,$3,0) ON CONFLICT ("DateiId") DO NOTHING"#).bind(job.datei_id).bind(job.triggered_by_account_id).bind(now).bind(if self.reading_page_limit>0{self.reading_page_limit}else{20}).execute(&mut *tx).await?.rows_affected()>0
 		} else {
 			false
