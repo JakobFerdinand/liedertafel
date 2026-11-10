@@ -398,7 +398,7 @@ async fn attach(
 				&& Some(d.id) != r.original_datei_id
 				&& !automatic
 		})
-		.ok_or_else(|| fail(StatusCode::NOT_FOUND, "Die Datei wurde nicht gefunden."))?;
+		.ok_or_else(|| fail(StatusCode::NOT_FOUND, "Datei nicht gefunden."))?;
 	if (if original {
 		r.original_datei_id
 	} else {

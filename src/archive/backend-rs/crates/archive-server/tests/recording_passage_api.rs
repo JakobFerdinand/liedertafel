@@ -28,6 +28,26 @@ async fn editing_and_review_preserve_noops_refuse_stale_state_and_delete_only_th
 		.await;
 	assert_eq!(status, 409);
 	assert_eq!(b["title"], "Die Zeitmarke wurde zwischenzeitlich geändert.");
+	// Frozen EditingMovesTimes: a current token preserves bounds errors,
+	// unlike a stale token which is refused before looking at the times.
+	for (bounds, message) in [
+		(
+			json!({"startSeconds":500}),
+			"Das Ende muss nach dem Anfang liegen.",
+		),
+		(
+			json!({"endSeconds":2500}),
+			"Das Ende liegt hinter dem Ende der Aufnahme.",
+		),
+	] {
+		let mut body = bounds;
+		body["expectedPlaybackDateiId"] = s.revision.clone();
+		body["expectedVersion"] = json!(2);
+		let (status, b) = s.editor.request("PATCH", &path, body).await;
+		assert_eq!(status, 400, "{b}");
+		assert_eq!(b["title"], message);
+		assert_eq!(s.view(false).await["passages"][0], same);
+	}
 	let old = s.revision.clone();
 	s.replace().await;
 	assert_eq!(
@@ -456,6 +476,20 @@ async fn authorization_holds_on_every_path_and_rechecks_downgrade_revocation() {
 async fn unpublished_withdrawn_and_trashed_event_recordings_never_reach_members() {
 	let mut s = Scenario::new().await;
 	s.add(0, 10.0, 100.0).await;
+	let draft = create(&mut s.editor, s.event, "Entwurf", "video").await;
+	let (status, b) = attach(
+		&mut s.editor,
+		s.event,
+		draft,
+		"original",
+		&mp4(),
+		"video/mp4",
+		&s.storage,
+	)
+	.await;
+	assert_eq!(status, 200, "{b}");
+	let(status,b)=s.editor.post(&format!("/api/recordings/{draft}/passages"),json!({"programmeItemId":s.entries[0]["id"],"expectedPlaybackDateiId":b["recording"]["playback"]["dateiId"],"startSeconds":20,"endSeconds":120})).await;
+	assert_eq!(status, 201, "{b}");
 	assert_eq!(s.member.get(&s.path()).await.0, 404);
 	assert!(
 		s.history(0, true).await["auftritte"][0]["recordings"]
@@ -468,6 +502,29 @@ async fn unpublished_withdrawn_and_trashed_event_recordings_never_reach_members(
 		false
 	);
 	s.publish().await;
+	assert_eq!(
+		s.member
+			.get(&format!("/api/recordings/{draft}/passages"))
+			.await
+			.0,
+		404
+	);
+	let editor = s.history(0, false).await;
+	assert_eq!(
+		editor["auftritte"][0]["recordings"]
+			.as_array()
+			.unwrap()
+			.len(),
+		2
+	);
+	assert_eq!(
+		editor["auftritte"][0]["recordings"][0]["recordingLabel"],
+		"Entwurf"
+	);
+	assert_eq!(
+		editor["auftritte"][0]["recordings"][0]["isPublished"],
+		false
+	);
 	assert_eq!(
 		s.history(0, true).await["auftritte"][0]["recordings"]
 			.as_array()

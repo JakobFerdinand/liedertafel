@@ -39,6 +39,8 @@ string paths use the accepted shared CLR parser (N/D/B/P/X, not URN).
   exclusion means reattaching the current original returns 404; do not silently
   change it into the playback slot's idempotent response. In-use checks and the
   current schema's per-slot unique indexes are retained; no new cross-slot index.
+  Attachment's missing/foreign-file title is specifically `Datei nicht gefunden.`
+  (`DateiUploads`), distinct from the generic Datei-read route's title.
 - Refused empty/unplayable playback Datei goes to trash; existing copy stays.
   A successful replacement trashes its earlier Datei/automatic copy, preserves
   replacement link, restores served Cold originals Hot provider-first, then CAS
@@ -124,7 +126,9 @@ source edit. Executed external project: `/tmp/opencode/227-recording-oracle/`.
 Frozen assembly MVID `d2b58c7a-9545-454e-9618-e64deb4d08de`, SHA256
 `a31547b75ae0fdd0b93547d52e6817c0d90cb2e056e7a5e005164de517ba2b89`.
 **8 DTOs /106 serializer observations /6 rounding observations**, not 120 tests.
-Reproduce `dotnet run --project /tmp/opencode/227-recording-oracle/Probe.csproj`.
+Reproduce `dotnet run --project /tmp/opencode/227-recording-oracle/Committed.csproj`.
+This compiles the committed generator directly; its output was byte-compared
+against the original external probe's106 observations and matched exactly.
 
 The accepted occurrence-streaming binder is extended route-locally, not replaced.
 Every typed duplicate is validated before last-arrival case-insensitive replacement;
@@ -200,23 +204,27 @@ The final forced file-CAS race first failed with the generic Datei stale title,
 then passed after scoped recording-save mapping. Earlier unported-route reds,
 typed/bounds/policy matrices and current lifecycle/race greens are retained outside
 the checkout. Initial native selector/setup failures are not included as passes.
+The final per-assertion audit also pinned current-token PATCH bound failures,
+mixed published/unpublished recordings, and attachment's upload-specific 404
+title (focused red→green) rather than relying on generic file-read wording.
 
 Logs: `/tmp/opencode/227-{fmt,clippy,workspace,pg,schema,azurite,build,deny,linkage,
 detector,dotnet,frozen-browser,frontend-unit}-final.log`; seven
 `227-{native-auth,members-native,catalogue-native,upload-native,events-native,
 query-binding-native,recordings-native}{,-replay}-final.log`; actual frozen probe
 `227-recording-oracle/observed.log`; forced race `227-file-cas-{red,green}.log`.
+Attachment title: `227-attachment-title-{red,green}.log`.
 
 Final private capture directories (0700, replay/report0600; paths only, never
 publish actual marker values):
 
-- `/tmp/opencode/223-native-auth-telemetry-D6mJIT`
-- `/tmp/opencode/223-members-native-telemetry-qyhDiL`
-- `/tmp/opencode/223-catalogue-native-telemetry-7JauGb`
-- `/tmp/opencode/223-upload-native-telemetry-xCa2et`
-- `/tmp/opencode/223-events-native-telemetry-8bjR2J`
-- `/tmp/opencode/223-query-binding-telemetry-VrIyZ6`
-- `/tmp/opencode/223-recordings-native-telemetry-qSbQgu`
+- `/tmp/opencode/223-native-auth-telemetry-GLgXwv`
+- `/tmp/opencode/223-members-native-telemetry-RUn8O5`
+- `/tmp/opencode/223-catalogue-native-telemetry-KFR2rU`
+- `/tmp/opencode/223-upload-native-telemetry-v5e5yp`
+- `/tmp/opencode/223-events-native-telemetry-E099MN`
+- `/tmp/opencode/223-query-binding-telemetry-KcA4WI`
+- `/tmp/opencode/223-recordings-native-telemetry-8xZe7L`
 
 Known frozen real passkey/member failures were **not rerun** in the mocked browser
 selection and remain failures. Current Rust SQL video-FK refusal controls were

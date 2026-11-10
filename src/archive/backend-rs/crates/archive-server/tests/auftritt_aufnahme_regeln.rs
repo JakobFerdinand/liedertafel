@@ -120,17 +120,17 @@ async fn empty_still_images_foreign_files_and_unplayable_copies_are_refused_with
 	)
 	.await;
 	let (_, b) = finish(&mut s.editor, &session).await;
-	assert_eq!(
-		s.editor
-			.request(
-				"PUT",
-				&format!("/api/recordings/{}/dateien/original", s.recording),
-				json!({"dateiId":b["datei"]["id"]})
-			)
-			.await
-			.0,
-		404
-	);
+	let (status, b) = s
+		.editor
+		.request(
+			"PUT",
+			&format!("/api/recordings/{}/dateien/original", s.recording),
+			json!({"dateiId":b["datei"]["id"]}),
+		)
+		.await;
+	assert_eq!(status, 404, "{b}");
+	// Attachment uses DateiUploads' title, not the generic Datei-read title.
+	assert_eq!(b["title"], "Datei nicht gefunden.");
 	let session = stage(
 		&mut s.editor,
 		s.event,
