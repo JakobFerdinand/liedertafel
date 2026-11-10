@@ -230,6 +230,34 @@ async fn scripted_set_reports_correctness_taxonomy_and_positive_real_ledger_cost
 			.all(|f| f.outcome == "applied-unchecked")
 	);
 }
+fn evaluation_price(input: &str, output: &str) -> Result<ai::Price, ai::Error> {
+	let price = ai::Price::from_configuration(input, output)?;
+	if price.input <= rust_decimal::Decimal::ZERO || price.output <= rust_decimal::Decimal::ZERO {
+		return Err(ai::Error::Configuration);
+	}
+	Ok(price)
+}
+#[test]
+fn live_price_overrides_refuse_extended_lexemes_and_unusable_values_without_io() {
+	for value in [
+		"1_0",
+		"NaN",
+		"Infinity",
+		"1,000",
+		"1-",
+		"",
+		"0",
+		"-1",
+		"0.00000000000000000000000000005",
+	] {
+		assert!(evaluation_price(value, "1").is_err(), "input {value}");
+		assert!(evaluation_price("1", value).is_err(), "output {value}");
+	}
+	let price = evaluation_price("\u{a0}+1.25e-1\u{a0}", "2").unwrap();
+	assert_eq!(price.input, rust_decimal::Decimal::new(125, 3));
+	let tie = evaluation_price("0.50000000000000000000000000005", "0.5").unwrap();
+	assert_eq!(ai::cost_micro_eur(&tie, 1, 1).unwrap(), 1);
+}
 #[tokio::test]
 async fn scan_reading_evaluation_live() {
 	if !ai::LiveEvaluation::Scan.configured_from_env() {
@@ -252,7 +280,7 @@ async fn scan_reading_evaluation_live() {
 		// foreign deployment. A malformed/unusable configured price fails closed.
 		options.models.insert(
 			deployment.clone(),
-			ai::Price::new(input.trim(), output.trim()).expect("unusable evaluation prices"),
+			evaluation_price(&input, &output).expect("unusable evaluation prices"),
 		);
 	}
 	let price = options
