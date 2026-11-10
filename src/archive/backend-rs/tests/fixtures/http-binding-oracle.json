@@ -1,0 +1,560 @@
+[
+  {
+    "path": "/api/auth/code/request",
+    "raw": "",
+    "status": 400,
+    "title": "Die E-Mail-Adresse ist ung\u00fcltig."
+  },
+  {
+    "path": "/api/auth/code/request",
+    "raw": "null",
+    "status": 400,
+    "title": "Die E-Mail-Adresse ist ung\u00fcltig."
+  },
+  {
+    "path": "/api/auth/code/request",
+    "raw": "{}",
+    "status": 400,
+    "title": "Die E-Mail-Adresse ist ung\u00fcltig."
+  },
+  {
+    "path": "/api/auth/code/request",
+    "raw": "[]",
+    "status": 500,
+    "title": "Die Anfrage konnte nicht verarbeitet werden."
+  },
+  {
+    "path": "/api/auth/code/request",
+    "raw": "{\"email\":42,\"email\":\"last@example.invalid\"}",
+    "status": 500,
+    "title": "Die Anfrage konnte nicht verarbeitet werden."
+  },
+  {
+    "path": "/api/auth/code/verify",
+    "raw": "",
+    "status": 400,
+    "title": "Der Code ist ung\u00fcltig oder abgelaufen."
+  },
+  {
+    "path": "/api/auth/code/verify",
+    "raw": "null",
+    "status": 400,
+    "title": "Der Code ist ung\u00fcltig oder abgelaufen."
+  },
+  {
+    "path": "/api/auth/code/verify",
+    "raw": "{}",
+    "status": 400,
+    "title": "Der Code ist ung\u00fcltig oder abgelaufen."
+  },
+  {
+    "path": "/api/auth/code/verify",
+    "raw": "[]",
+    "status": 500,
+    "title": "Die Anfrage konnte nicht verarbeitet werden."
+  },
+  {
+    "path": "/api/auth/code/verify",
+    "raw": "{\"email\":42,\"email\":\"last@example.invalid\"}",
+    "status": 500,
+    "title": "Die Anfrage konnte nicht verarbeitet werden."
+  },
+  {
+    "path": "/api/admin/invitations",
+    "raw": "",
+    "status": 400,
+    "title": "Die E-Mail-Adresse ist ung\u00fcltig."
+  },
+  {
+    "path": "/api/admin/invitations",
+    "raw": "null",
+    "status": 400,
+    "title": "Die E-Mail-Adresse ist ung\u00fcltig."
+  },
+  {
+    "path": "/api/admin/invitations",
+    "raw": "{}",
+    "status": 400,
+    "title": "Die E-Mail-Adresse ist ung\u00fcltig."
+  },
+  {
+    "path": "/api/admin/invitations",
+    "raw": "[]",
+    "status": 500,
+    "title": "Die Anfrage konnte nicht verarbeitet werden."
+  },
+  {
+    "path": "/api/admin/invitations",
+    "raw": "{\"email\":42,\"email\":\"last@example.invalid\"}",
+    "status": 500,
+    "title": "Die Anfrage konnte nicht verarbeitet werden."
+  },
+  {
+    "path": "/api/admin/invitations/resend",
+    "raw": "",
+    "status": 400,
+    "title": "Die E-Mail-Adresse ist ung\u00fcltig."
+  },
+  {
+    "path": "/api/admin/invitations/resend",
+    "raw": "null",
+    "status": 400,
+    "title": "Die E-Mail-Adresse ist ung\u00fcltig."
+  },
+  {
+    "path": "/api/admin/invitations/resend",
+    "raw": "{}",
+    "status": 400,
+    "title": "Die E-Mail-Adresse ist ung\u00fcltig."
+  },
+  {
+    "path": "/api/admin/invitations/resend",
+    "raw": "[]",
+    "status": 500,
+    "title": "Die Anfrage konnte nicht verarbeitet werden."
+  },
+  {
+    "path": "/api/admin/invitations/resend",
+    "raw": "{\"email\":42,\"email\":\"last@example.invalid\"}",
+    "status": 500,
+    "title": "Die Anfrage konnte nicht verarbeitet werden."
+  },
+  {
+    "path": "/api/admin/members/deactivate",
+    "raw": "",
+    "status": 400,
+    "title": "Die Kennung ist ung\u00fcltig."
+  },
+  {
+    "path": "/api/admin/members/deactivate",
+    "raw": "null",
+    "status": 400,
+    "title": "Die Kennung ist ung\u00fcltig."
+  },
+  {
+    "path": "/api/admin/members/deactivate",
+    "raw": "{}",
+    "status": 400,
+    "title": "Die Kennung ist ung\u00fcltig."
+  },
+  {
+    "path": "/api/admin/members/deactivate",
+    "raw": "[]",
+    "status": 500,
+    "title": "Die Anfrage konnte nicht verarbeitet werden."
+  },
+  {
+    "path": "/api/admin/members/deactivate",
+    "raw": "{\"email\":42,\"email\":\"last@example.invalid\"}",
+    "status": 400,
+    "title": "Die Kennung ist ung\u00fcltig."
+  },
+  {
+    "path": "/api/admin/members/reactivate",
+    "raw": "",
+    "status": 400,
+    "title": "Die Kennung ist ung\u00fcltig."
+  },
+  {
+    "path": "/api/admin/members/reactivate",
+    "raw": "null",
+    "status": 400,
+    "title": "Die Kennung ist ung\u00fcltig."
+  },
+  {
+    "path": "/api/admin/members/reactivate",
+    "raw": "{}",
+    "status": 400,
+    "title": "Die Kennung ist ung\u00fcltig."
+  },
+  {
+    "path": "/api/admin/members/reactivate",
+    "raw": "[]",
+    "status": 500,
+    "title": "Die Anfrage konnte nicht verarbeitet werden."
+  },
+  {
+    "path": "/api/admin/members/reactivate",
+    "raw": "{\"email\":42,\"email\":\"last@example.invalid\"}",
+    "status": 400,
+    "title": "Die Kennung ist ung\u00fcltig."
+  },
+  {
+    "path": "/api/admin/members/role",
+    "raw": "",
+    "status": 400,
+    "title": "Die Kennung ist ung\u00fcltig."
+  },
+  {
+    "path": "/api/admin/members/role",
+    "raw": "null",
+    "status": 400,
+    "title": "Die Kennung ist ung\u00fcltig."
+  },
+  {
+    "path": "/api/admin/members/role",
+    "raw": "{}",
+    "status": 400,
+    "title": "Die Kennung ist ung\u00fcltig."
+  },
+  {
+    "path": "/api/admin/members/role",
+    "raw": "[]",
+    "status": 500,
+    "title": "Die Anfrage konnte nicht verarbeitet werden."
+  },
+  {
+    "path": "/api/admin/members/role",
+    "raw": "{\"email\":42,\"email\":\"last@example.invalid\"}",
+    "status": 400,
+    "title": "Die Kennung ist ung\u00fcltig."
+  },
+  {
+    "path": "/api/admin/members/email/request",
+    "raw": "",
+    "status": 400,
+    "title": "Die Kennung ist ung\u00fcltig."
+  },
+  {
+    "path": "/api/admin/members/email/request",
+    "raw": "null",
+    "status": 400,
+    "title": "Die Kennung ist ung\u00fcltig."
+  },
+  {
+    "path": "/api/admin/members/email/request",
+    "raw": "{}",
+    "status": 400,
+    "title": "Die Kennung ist ung\u00fcltig."
+  },
+  {
+    "path": "/api/admin/members/email/request",
+    "raw": "[]",
+    "status": 500,
+    "title": "Die Anfrage konnte nicht verarbeitet werden."
+  },
+  {
+    "path": "/api/admin/members/email/request",
+    "raw": "{\"email\":42,\"email\":\"last@example.invalid\"}",
+    "status": 400,
+    "title": "Die Kennung ist ung\u00fcltig."
+  },
+  {
+    "path": "/api/admin/members/email/confirm",
+    "raw": "",
+    "status": 400,
+    "title": "Die Kennung ist ung\u00fcltig."
+  },
+  {
+    "path": "/api/admin/members/email/confirm",
+    "raw": "null",
+    "status": 400,
+    "title": "Die Kennung ist ung\u00fcltig."
+  },
+  {
+    "path": "/api/admin/members/email/confirm",
+    "raw": "{}",
+    "status": 400,
+    "title": "Die Kennung ist ung\u00fcltig."
+  },
+  {
+    "path": "/api/admin/members/email/confirm",
+    "raw": "[]",
+    "status": 500,
+    "title": "Die Anfrage konnte nicht verarbeitet werden."
+  },
+  {
+    "path": "/api/admin/members/email/confirm",
+    "raw": "{\"email\":42,\"email\":\"last@example.invalid\"}",
+    "status": 400,
+    "title": "Die Kennung ist ung\u00fcltig."
+  },
+  {
+    "path": "/api/auth/passkeys/login/verify",
+    "raw": "",
+    "status": 400,
+    "title": "Die Passkey-Anmeldung ist ung\u00fcltig."
+  },
+  {
+    "path": "/api/auth/passkeys/login/verify",
+    "raw": "null",
+    "status": 400,
+    "title": "Die Passkey-Anmeldung ist ung\u00fcltig."
+  },
+  {
+    "path": "/api/auth/passkeys/login/verify",
+    "raw": "{}",
+    "status": 400,
+    "title": "Die Passkey-Anmeldung ist ung\u00fcltig."
+  },
+  {
+    "path": "/api/auth/passkeys/login/verify",
+    "raw": "[]",
+    "status": 500,
+    "title": "Die Anfrage konnte nicht verarbeitet werden."
+  },
+  {
+    "path": "/api/auth/passkeys/login/verify",
+    "raw": "{\"email\":42,\"email\":\"last@example.invalid\"}",
+    "status": 400,
+    "title": "Die Passkey-Anmeldung ist ung\u00fcltig."
+  },
+  {
+    "path": "/api/auth/passkeys/register/verify",
+    "raw": "",
+    "status": 400,
+    "title": "Die Passkey-Registrierung ist ung\u00fcltig."
+  },
+  {
+    "path": "/api/auth/passkeys/register/verify",
+    "raw": "null",
+    "status": 400,
+    "title": "Die Passkey-Registrierung ist ung\u00fcltig."
+  },
+  {
+    "path": "/api/auth/passkeys/register/verify",
+    "raw": "{}",
+    "status": 400,
+    "title": "Die Passkey-Registrierung ist ung\u00fcltig."
+  },
+  {
+    "path": "/api/auth/passkeys/register/verify",
+    "raw": "[]",
+    "status": 500,
+    "title": "Die Anfrage konnte nicht verarbeitet werden."
+  },
+  {
+    "path": "/api/auth/passkeys/register/verify",
+    "raw": "{\"email\":42,\"email\":\"last@example.invalid\"}",
+    "status": 400,
+    "title": "Die Passkey-Registrierung ist ung\u00fcltig."
+  },
+  {
+    "path": "/api/auth/passkeys/rename",
+    "raw": "",
+    "status": 400,
+    "title": "Der Passkey wurde nicht gefunden."
+  },
+  {
+    "path": "/api/auth/passkeys/rename",
+    "raw": "null",
+    "status": 400,
+    "title": "Der Passkey wurde nicht gefunden."
+  },
+  {
+    "path": "/api/auth/passkeys/rename",
+    "raw": "{}",
+    "status": 400,
+    "title": "Der Passkey wurde nicht gefunden."
+  },
+  {
+    "path": "/api/auth/passkeys/rename",
+    "raw": "[]",
+    "status": 500,
+    "title": "Die Anfrage konnte nicht verarbeitet werden."
+  },
+  {
+    "path": "/api/auth/passkeys/rename",
+    "raw": "{\"email\":42,\"email\":\"last@example.invalid\"}",
+    "status": 400,
+    "title": "Der Passkey wurde nicht gefunden."
+  },
+  {
+    "path": "/api/auth/passkeys/remove",
+    "raw": "",
+    "status": 400,
+    "title": "Der Passkey wurde nicht gefunden."
+  },
+  {
+    "path": "/api/auth/passkeys/remove",
+    "raw": "null",
+    "status": 400,
+    "title": "Der Passkey wurde nicht gefunden."
+  },
+  {
+    "path": "/api/auth/passkeys/remove",
+    "raw": "{}",
+    "status": 400,
+    "title": "Der Passkey wurde nicht gefunden."
+  },
+  {
+    "path": "/api/auth/passkeys/remove",
+    "raw": "[]",
+    "status": 500,
+    "title": "Die Anfrage konnte nicht verarbeitet werden."
+  },
+  {
+    "path": "/api/auth/passkeys/remove",
+    "raw": "{\"email\":42,\"email\":\"last@example.invalid\"}",
+    "status": 400,
+    "title": "Der Passkey wurde nicht gefunden."
+  },
+  {
+    "path": "/api/auth/passkeys/login/options",
+    "raw": "",
+    "status": 200,
+    "title": null
+  },
+  {
+    "path": "/api/auth/passkeys/login/options",
+    "raw": "null",
+    "status": 200,
+    "title": null
+  },
+  {
+    "path": "/api/auth/passkeys/login/options",
+    "raw": "{}",
+    "status": 200,
+    "title": null
+  },
+  {
+    "path": "/api/auth/passkeys/login/options",
+    "raw": "{",
+    "status": 200,
+    "title": null
+  },
+  {
+    "path": "/api/auth/passkeys/login/options",
+    "raw": "[]",
+    "status": 200,
+    "title": null
+  },
+  {
+    "path": "/api/auth/passkeys/register/options",
+    "raw": "",
+    "status": 200,
+    "title": null
+  },
+  {
+    "path": "/api/auth/passkeys/register/options",
+    "raw": "null",
+    "status": 200,
+    "title": null
+  },
+  {
+    "path": "/api/auth/passkeys/register/options",
+    "raw": "{}",
+    "status": 200,
+    "title": null
+  },
+  {
+    "path": "/api/auth/passkeys/register/options",
+    "raw": "{",
+    "status": 200,
+    "title": null
+  },
+  {
+    "path": "/api/auth/passkeys/register/options",
+    "raw": "[]",
+    "status": 200,
+    "title": null
+  },
+  {
+    "path": "/api/dev/auth/seed",
+    "raw": "",
+    "status": 200,
+    "title": null
+  },
+  {
+    "path": "/api/dev/auth/seed",
+    "raw": "null",
+    "status": 200,
+    "title": null
+  },
+  {
+    "path": "/api/dev/auth/seed",
+    "raw": "{}",
+    "status": 200,
+    "title": null
+  },
+  {
+    "path": "/api/dev/auth/seed",
+    "raw": "{",
+    "status": 200,
+    "title": null
+  },
+  {
+    "path": "/api/dev/auth/seed",
+    "raw": "[]",
+    "status": 200,
+    "title": null
+  },
+  {
+    "path": "/api/upload-sessions/{id}/finalize",
+    "raw": "",
+    "status": 409,
+    "title": "Die Datei wurde noch nicht \u00fcbertragen."
+  },
+  {
+    "path": "/api/upload-sessions/{id}/finalize",
+    "raw": "null",
+    "status": 409,
+    "title": "Die Datei wurde noch nicht \u00fcbertragen."
+  },
+  {
+    "path": "/api/upload-sessions/{id}/finalize",
+    "raw": "{}",
+    "status": 409,
+    "title": "Die Datei wurde noch nicht \u00fcbertragen."
+  },
+  {
+    "path": "/api/upload-sessions/{id}/finalize",
+    "raw": "[]",
+    "status": 500,
+    "title": "Die Anfrage konnte nicht verarbeitet werden."
+  },
+  {
+    "path": "/api/upload-sessions/{id}/finalize",
+    "raw": "123",
+    "status": 500,
+    "title": "Die Anfrage konnte nicht verarbeitet werden."
+  },
+  {
+    "path": "/api/upload-sessions/{id}/finalize",
+    "raw": "true",
+    "status": 500,
+    "title": "Die Anfrage konnte nicht verarbeitet werden."
+  },
+  {
+    "path": "/api/upload-sessions/{id}/finalize",
+    "raw": "\"text\"",
+    "status": 500,
+    "title": "Die Anfrage konnte nicht verarbeitet werden."
+  },
+  {
+    "path": "/api/upload-sessions/{id}/finalize",
+    "raw": "{",
+    "status": 500,
+    "title": "Die Anfrage konnte nicht verarbeitet werden."
+  },
+  {
+    "path": "/api/auth/logout",
+    "raw": "",
+    "status": 200,
+    "title": null
+  },
+  {
+    "path": "/api/auth/logout",
+    "raw": "null",
+    "status": 200,
+    "title": null
+  },
+  {
+    "path": "/api/auth/logout",
+    "raw": "{}",
+    "status": 200,
+    "title": null
+  },
+  {
+    "path": "/api/auth/logout",
+    "raw": "{",
+    "status": 200,
+    "title": null
+  },
+  {
+    "path": "/api/auth/logout",
+    "raw": "[]",
+    "status": 200,
+    "title": null
+  }
+]

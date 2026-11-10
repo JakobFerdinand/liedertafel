@@ -249,6 +249,19 @@ async fn dispatch(origin: &Origin, request: Request, route: Route) -> Response {
 		Err(error) => error.into_response(),
 	})
 }
+async fn bind_body(request: Request, fields: &'static [&'static str]) -> Result<Value, AuthError> {
+	let invalid = || AuthError::Problem(StatusCode::BAD_REQUEST, "Die Anfrage ist ungültig.");
+	let bytes = to_bytes(request.into_body(), 65_536)
+		.await
+		.map_err(|_| invalid())?;
+	if bytes.is_empty() {
+		Ok(Value::Null)
+	} else {
+		crate::binding::parse(&bytes, crate::binding::Shape::NullableStrings(fields))
+			.map_err(|_| invalid())
+	}
+}
+
 async fn dispatch_inner(
 	origin: &Origin,
 	request: Request,
@@ -322,15 +335,20 @@ async fn dispatch_inner(
 			_ => crate::api::ApiMiss::Unknown.response(),
 		}
 	} else {
-		let body = to_bytes(request.into_body(), 65_536).await.map_err(|_| {
-			AuthError::Problem(StatusCode::BAD_REQUEST, "Die Anfrage ist ungültig.")
-		})?;
-		let body: Value = if body.is_empty() {
-			json!({})
+		// No DTO on logout/options/seed: the frozen handlers ignore body bytes.
+		let fields: Option<&'static [&'static str]> = match route {
+			Route::RequestCode => Some(&["email"]),
+			Route::VerifyCode => Some(&["email", "code"]),
+			Route::LoginVerify => Some(&["credential"]),
+			Route::RegisterVerify => Some(&["credential", "name"]),
+			Route::Rename => Some(&["credentialId", "name"]),
+			Route::Remove => Some(&["credentialId"]),
+			_ => None,
+		};
+		let body = if let Some(fields) = fields {
+			bind_body(request, fields).await?
 		} else {
-			serde_json::from_slice(&body).map_err(|_| {
-				AuthError::Problem(StatusCode::BAD_REQUEST, "Die Anfrage ist ungültig.")
-			})?
+			Value::Null
 		};
 		// Only a SHA256 digest of the effective client IP enters the abuse log.
 		let ip_hash = address_digest

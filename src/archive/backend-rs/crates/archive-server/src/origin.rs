@@ -24,6 +24,9 @@ pub struct Origin {
 	pub auth: Option<Arc<crate::auth::Auth>>,
 	pub storage: Option<Arc<dyn crate::storage::Storage>>,
 	pub read_ticket_lifetime: chrono::Duration,
+	pub uploads: crate::catalogue::uploads::UploadOptions,
+	pub draft_lifecycle: Vec<Arc<dyn crate::catalogue::drafts::DraftLifecycle>>,
+	pub finalized_hooks: Vec<Arc<dyn crate::catalogue::uploads::FinalizedHook>>,
 }
 impl std::fmt::Debug for Origin {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -39,6 +42,9 @@ impl Origin {
 			auth: None,
 			storage: None,
 			read_ticket_lifetime: chrono::Duration::minutes(15),
+			uploads: crate::catalogue::uploads::UploadOptions::default(),
+			draft_lifecycle: Vec::new(),
+			finalized_hooks: Vec::new(),
 			build_requests: global::meter(METER_NAME)
 				.u64_counter("archive.build.requests")
 				.with_description("Build-probe requests to /api/build")

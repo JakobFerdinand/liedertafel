@@ -6,6 +6,14 @@ implementation of any catalogue/storage wave. No schema migration is needed:
 Identity, `member_invitations`, `member_email_changes`, and numeric audit actions
 remain canonical. Migration checksums, baseline and grant scripts are unchanged.
 
+Request-binding follow-up during #224: before changing member JSON field types,
+casing, duplicates, nulls or route-specific unknowns, read
+[request-binding-parity.md](request-binding-parity.md). It links the four Low
+source-audit findings, actual frozen 13-DTO/HTTP observations and new raw HTTP/PG
+no-mail/no-account/no-challenge/no-ceremony controls plus native/crypto/OTLP gates.
+String AccountId, default-role/domain/transaction policy and CLI parsing remain
+unchanged. The separate `fix(auth)` follow-up awaits independent rereview.
+
 ## Shared boundaries
 
 - `Auth::authorize` / `RequestAccess::respond` retain CSRF-first mutations,

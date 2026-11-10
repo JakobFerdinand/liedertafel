@@ -14,6 +14,14 @@ numbers remain canonical. The canonical Neon grant script is unchanged; the
 native migration gate exercises runtime DML on all four additive tables and
 still denies both migration histories and runtime DDL.
 
+Request-binding follow-up during #224: before changing DTO casing, duplicates,
+nullable names, unknown fields or bodyless auth routes, read
+[request-binding-parity.md](request-binding-parity.md). It records the four Low
+predecessor findings from `/tmp/opencode/liedertafel-218-request-binding-audit.md`,
+all 13 actual frozen string DTOs, HTTP empty-body/Development-500 evidence and
+fresh real-PG/crypto/native/OTLP verification. Domain/auth policy is unchanged;
+this follow-up awaits independent rereview, not a new wave or acceptance decision.
+
 ## Security boundary
 
 `passkey.rs` is the single **expert-core adapter** to the pinned, mature

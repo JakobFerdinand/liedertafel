@@ -96,6 +96,119 @@ async fn obtain_challenge(client: &mut support::Client) -> String {
 }
 
 #[tokio::test]
+#[ignore = "explicit PostgreSQL raw binding through real signatures and passkey mutations"]
+async fn raw_credential_casing_and_last_occurrence_keep_crypto_and_route_specific_management() {
+	let app = support::App::new().await;
+	let fixture = import(&app).await;
+	let handle = fixture["user"]["Id"].as_str().unwrap();
+	for (i, (first, last)) in [
+		("credential", "Credential"),
+		("CREDENTIAL", "credential"),
+		("credential", "credential"),
+	]
+	.into_iter()
+	.enumerate()
+	{
+		let mut client = app.client();
+		client.csrf().await;
+		let challenge = obtain_challenge(&mut client).await;
+		let credential = assertion(
+			&fixture,
+			&challenge,
+			"http://localhost:58121",
+			"localhost",
+			5,
+			i as u32 + 2,
+			Some(handle.as_bytes()),
+		)
+		.to_string();
+		let raw = format!(
+			"{{\"{first}\":\"invalid-domain-value\",\"{last}\":{},\"name\":42}}",
+			json!(credential)
+		);
+		let (s, b) = client
+			.raw("POST", "/api/auth/passkeys/login/verify", &raw)
+			.await;
+		assert_eq!(s, 200, "{b}");
+	}
+	let mut member = app
+		.sign_in(fixture["user"]["Email"].as_str().unwrap())
+		.await;
+	let id = fixture["credential"]["credentialId"].as_str().unwrap();
+	let raw = format!(
+		r#"{{"credentialId":"invalid-domain-value","CredentialId":"{id}","name":null,"NAME":"Visible Name","role":42}}"#
+	);
+	let (s, b) = member.raw("POST", "/api/auth/passkeys/rename", &raw).await;
+	assert_eq!(s, 200, "{b}");
+	let saved: Value = sqlx::query_scalar("SELECT \"Data\" FROM \"AspNetUserPasskeys\"")
+		.fetch_one(&app.pool)
+		.await
+		.unwrap();
+	assert_eq!(saved["Name"], "Visible Name");
+	assert_eq!(
+		member
+			.post("/api/auth/passkeys/register/options", json!({}))
+			.await
+			.0,
+		200
+	);
+	let before: i64 = sqlx::query_scalar("SELECT count(*) FROM archive_ceremonies")
+		.fetch_one(&app.pool)
+		.await
+		.unwrap();
+	let (s, b) = member
+		.raw(
+			"POST",
+			"/api/auth/passkeys/register/verify",
+			r#"{"Credential":"{}","Name":42}"#,
+		)
+		.await;
+	assert_eq!(s, 400);
+	assert_eq!(b["title"], "Die Anfrage ist ungültig.");
+	assert_eq!(
+		sqlx::query_scalar::<_, i64>("SELECT count(*) FROM archive_ceremonies")
+			.fetch_one(&app.pool)
+			.await
+			.unwrap(),
+		before
+	);
+	// Actual null is a valid string binding: the unchanged service claims its
+	// ceremony, then rejects the deliberately malformed WebAuthn credential.
+	let (s, b) = member
+		.raw(
+			"POST",
+			"/api/auth/passkeys/register/verify",
+			r#"{"Credential":"{}","Name":null}"#,
+		)
+		.await;
+	assert_eq!(s, 400);
+	assert_eq!(b["title"], "Die Passkey-Registrierung ist ungültig.");
+	assert_eq!(
+		sqlx::query_scalar::<_, i64>("SELECT count(*) FROM archive_ceremonies")
+			.fetch_one(&app.pool)
+			.await
+			.unwrap(),
+		before - 1
+	);
+	let (s, b) = member
+		.raw(
+			"POST",
+			"/api/auth/passkeys/remove",
+			&format!(r#"{{"CREDENTIALID":"{id}","name":42}}"#),
+		)
+		.await;
+	assert_eq!(s, 200, "{b}");
+	assert_eq!(
+		sqlx::query_scalar::<_, i64>("SELECT count(*) FROM \"AspNetUserPasskeys\"")
+			.fetch_one(&app.pool)
+			.await
+			.unwrap(),
+		0
+	);
+	app.close().await;
+}
+
+#[tokio::test]
 #[ignore = "requires dedicated throwaway ARCHIVE_TEST_POSTGRES"]
 async fn dotnet_old_row_new_rust_challenge_real_signature_replay_and_counter_persistence() {
 	let app = support::App::new().await;

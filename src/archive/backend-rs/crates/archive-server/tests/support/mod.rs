@@ -27,6 +27,7 @@ use tower::ServiceExt;
 use uuid::Uuid;
 pub mod catalogue;
 pub mod storage;
+pub mod upload;
 
 #[derive(Default)]
 pub struct CaptureMail(
@@ -151,6 +152,15 @@ impl App {
 		}
 	}
 	pub fn with_storage(&mut self, storage: Arc<dyn archive_server::storage::Storage>) {
+		self.configure_uploads(storage, Default::default(), Vec::new(), Vec::new());
+	}
+	pub fn configure_uploads(
+		&mut self,
+		storage: Arc<dyn archive_server::storage::Storage>,
+		options: archive_server::catalogue::uploads::UploadOptions,
+		hooks: Vec<Arc<dyn archive_server::catalogue::uploads::FinalizedHook>>,
+		observers: Vec<Arc<dyn archive_server::catalogue::drafts::DraftLifecycle>>,
+	) {
 		let auth = Auth::new(
 			self.pool.clone(),
 			AuthConfig::development(),
@@ -158,8 +168,12 @@ impl App {
 			self.time.clone(),
 		)
 		.unwrap();
+		let mut origin = Origin::new(Settings::new(true, PathBuf::new(), 0));
+		origin.uploads = options;
+		origin.finalized_hooks = hooks;
+		origin.draft_lifecycle = observers;
 		self.router = build_router(Arc::new(
-			Origin::new(Settings::new(true, PathBuf::new(), 0))
+			origin
 				.with_auth(auth)
 				.with_storage(storage, chrono::Duration::minutes(15)),
 		));
@@ -264,6 +278,9 @@ impl Client {
 		self.request("POST", path, body).await
 	}
 	pub async fn request(&mut self, method: &str, path: &str, body: Value) -> (StatusCode, Value) {
+		self.raw(method, path, &body.to_string()).await
+	}
+	pub async fn raw(&mut self, method: &str, path: &str, body: &str) -> (StatusCode, Value) {
 		let mut request = Request::builder()
 			.method(method)
 			.uri(path)
@@ -277,7 +294,7 @@ impl Client {
 			)
 			.header("X-CSRF-TOKEN", &self.token)
 			.header("content-type", "application/json")
-			.body(Body::from(body.to_string()))
+			.body(Body::from(body.to_owned()))
 			.unwrap();
 		request
 			.extensions_mut()
@@ -290,6 +307,13 @@ impl Client {
 			self.cookies.insert(key.into(), value.into());
 		}
 		let bytes = response.into_body().collect().await.unwrap().to_bytes();
-		(status, serde_json::from_slice(&bytes).unwrap())
+		(
+			status,
+			if bytes.is_empty() {
+				Value::Null
+			} else {
+				serde_json::from_slice(&bytes).unwrap()
+			},
+		)
 	}
 }

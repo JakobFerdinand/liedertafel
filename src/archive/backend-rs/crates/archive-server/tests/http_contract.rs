@@ -142,9 +142,9 @@ async fn every_other_api_call_answers_the_stable_404() {
 	for path in [
 		"/api/liebe",
 		"/api/dev/exercise",
-		// Detail is implemented in #223 (and now requires membership). The
-		// #224 upload route stays unported; keep the fallback assertion whole.
-		"/api/lieder/00000000-0000-0000-0000-00000000a001/dateien/upload-session",
+		// #224 implements uploads; #230 still owns draft reading. Keep the
+		// unported-route assertion whole rather than weakening it for auth.
+		"/api/lied-lesungen",
 		"/api",
 	] {
 		let (status, headers, body) = get_once(&router, path).await;
