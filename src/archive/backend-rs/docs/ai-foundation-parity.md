@@ -1,0 +1,266 @@
+# AI foundation (#228)
+
+Base: accepted `c7d9fd8` (both #226/#227). This is foundation only: no chat
+endpoint, tool executor/loop, catalogue agent, scan reader or draft reader.
+Frozen C#, xUnit, frontend, infrastructure, workflows and Dockerfile are unchanged.
+No hosted identity, model, Neon, private document, mail or deployment is used.
+Independent review/acceptance is still required; #229/#230/#231 remain blocked.
+
+## Boundary and ownership
+
+Application consumers receive `ai::Gateway`. Raw `Provider` is module-private;
+only the gateway owns it. `Script` supplies delivery below the real gateway,
+bounds, operation attribution and ledger; it cannot perform accounting or make
+HTTP requests. Static sequences and normalized-request handlers are reusable by
+the later reader/chat suites. `Script::requests` records provider-visible
+requests only: operation/account/agent markers are structurally absent.
+
+`Services::from_env` is the web/future finite-host registration. Provider choice
+uses the exact trimmed `Archive__Chat__Provider=AzureOpenAI`, nonblank Endpoint
+and DeploymentName; otherwise the model key is `scripted`. The foundation's
+unconfigured script is deliberately empty/fail-closed: domain-specific frozen
+`ScriptedChatClient`/`ScriptedScanReader` answers belong to #229–#232, not an early
+domain implementation here. Tests install scripts explicitly below the gateway.
+Base prices contain Luna only; Development also prices scripted calls. Unknown
+deployment names never borrow scripted prices.
+
+Every call requires `Operation`: feature, UUIDv7 operation, nullable triggering
+account, optional output bound and explicit non-text estimate. Account attribution
+is stored in PostgreSQL, never put in provider JSON. Model options are cloned,
+trimmed/case-insensitively deployment-checked, then cleared. Output precedence is
+operation override → requested override → configured ceiling, clamped to 1..ceiling.
+The UTF-16 estimator includes instructions, text, function names/serialized
+arguments/results and raw tool schemas plus eight tokens per message. Non-text
+without an estimate and oversized input refuse before reservation.
+
+`Payload::Json` preserves raw JsonElement-like spelling/whitespace. `from_value`
+provides the captured indented AIJsonUtilities dictionary/result spelling,
+including escaped non-BMP surrogate pairs. Features should retain raw schemas
+when already serialized instead of round-tripping them through a map.
+
+## Accounting contract and limits
+
+`Ledger` owns decimal prices and Vienna calendar months; `PostgresStore` owns
+atomicity. Money is checked `rust_decimal` arithmetic followed by integral i64
+micro-EUR conversion, never binary floating-point. EUR-per-million × token count
+already is micro-EUR. Each call rounds cost upward; the monthly cap rounds down.
+Floating-point conversions are confined to OTLP numeric instruments, not money.
+
+Reservation SQL is the frozen algorithm: independent transaction, literal
+`SET LOCAL lock_timeout = '5s'`, insert month key on conflict, lock month `FOR
+UPDATE`, sum ledger cost+reservations, admit equality with the cap, then upsert
+the `(OperationId, Model, YearMonth)` usage key. Calls/reservations increase;
+existing feature/account attribution stays unchanged. There is no cached balance.
+
+Settlement moves a reservation exactly once in normal Rust code and updates its
+original row ID relatively, without the month lock. Repeated cumulative reports
+inside one call take component-wise maxima; separate calls add tokens and
+individually rounded costs. A non-null empty usage report is reported zero;
+missing usage, a failed/abandoned/cancelled call without a report, or vanished
+prices settle at full reservation. Reported usage uses current prices, not a
+snapshot, and is not clipped to the reservation.
+
+**Admission is conditional on a conservative reservation, not a universal
+overshoot proof.** Higher actual input, prices raised during a call or unexpected
+billed output may exceed the reserve; the explicit price-change control retains
+that source behavior. No TTL refund, new balance, price snapshot or cost clipping
+is introduced. Process death/unknown admission commit can leave durable open
+reservations. Relative settlement retries are deliberately not an idempotency
+mechanism: committed-but-unacknowledged writes could apply twice. That fault has
+not been established safe; success/contention tests are not such a proof.
+
+## Cancellation and finite hosts
+
+`Gateway::start` synchronously gives work to an owned `TaskTracker`. A bounded
+one-slot delivery channel with consumption acknowledgements means unread queued
+usage is not accidentally treated as observed. Dropping/cancelling a `Call`
+stops provider delivery; the tracked producer still awaits settlement. Admission
+while waiting on a month lock is cancellable; dropping the SQLx transaction
+rolls it back, subject to the same unknown-commit qualification above.
+
+`Call::response` and `finish` await terminal accounting. On consumer break/drop,
+the host owns completion through `Gateway::drain`, which cancels remaining
+producers and waits for their destructors/accounting. Settlement ignores request
+cancellation, retries at 100/400/1600ms (four attempts), stops immediately on a
+missing row, logs safely, and retains failed reservations. A drain reports failed
+accounting to finite hosts; the web host includes drain in its existing shutdown
+watchdog before telemetry shutdown. Future finite hosts must call the same drain
+before `finish_finite_job`; they must not drop a gateway then claim a clean flush.
+Each store settlement attempt has a five-second timeout so four failed attempts
+and delays finish within the accepted 30s host budget (22.1s worst case). This is
+an explicit Rust finite-lifecycle bound, not a claim that the .NET command timeout
+was five seconds. A timed-out/unknown write receives the same conservative failure
+handling and the same non-idempotent retry qualification. A paused-clock stalled-
+store control checks all four attempts and the retained reservation.
+
+## Hand-written wire contract
+
+Locked reqwest 0.13.5, azure_identity 1.0.0/azure_core 1.1.0. API docs were checked
+with find-docs and versioned docs.rs, not a newer SDK API. No OpenAI or Agent SDK
+is added. Credential construction reuses the accepted storage identity helper:
+configured `AZURE_CLIENT_ID` selects the scoped managed identity, otherwise the
+existing developer-tools credential. Both construction and token acquisition are
+lazy; simply configuring a client does not request a secret/token.
+
+The real frozen Azure.AI.OpenAI 2.1.0 path was run **offline**, with a fake
+TokenCredential and HttpMessageHandler, including its production retry policy.
+`tests/oracles/AiWireOracle.cs` is linked with the unchanged frozen provider file
+in external `/tmp/opencode/228-oracle/Oracle.csproj`, referencing the frozen
+backend project. Its sanitized observations are `tests/fixtures/228-ai-wire.jsonl`.
+This project never opens a provider socket. NuGet vulnerability/compiler warnings
+from the frozen oracle remain warnings, not a clean dependency audit claim.
+
+Captured request facts:
+
+- `/openai/deployments/<configured>/chat/completions?api-version=2024-10-21`;
+  bearer scope `https://cognitiveservices.azure.com/.default`.
+- `model` is the configured deployment; `max_completion_tokens` is the normalized
+  bound. Default `reasoning_effort` is `none`, explicit efforts are preserved.
+- Instructions become a system message. Tools use function/name/description/
+  parameters and `tool_choice:auto`; assistant tool calls and matching tool
+  results retain their captured serialized argument/result strings. JSON-schema
+  output uses `response_format.json_schema`, without an invented `strict:true`.
+- Streaming requests include `stream_options.include_usage:true`. Final
+  usage-only chunks with empty choices precede `[DONE]`; a finish reason alone
+  never terminates reading. Fragmented UTF-8 and CR/LF SSE are decoded only at
+  complete event boundaries. Wire/tool assembly has bounded buffers; indexed
+  argument fragments stay data, not an executor or schema-validation bypass.
+- A `content_filter` finish still returns a response/usage in the actual frozen
+  SDK. Rust preserves that finish reason rather than turning it into a full-
+  reservation transport failure. Actual HTTP/provider errors remain redacted.
+- Missing usage fields in a non-null object are zero, but present null/string/
+  overflowing Int32 counts are malformed (as captured from the frozen SDK), not
+  free reported-zero calls. Those failures retain the full-reservation charge.
+- Frozen production status retries are initial+3 for 408/429/500/502/503/504;
+  409/400 and malformed successful JSON are not retried. These physical attempts
+  share one reservation, like the SDK, NOT an added unbudgeted feature retry.
+  Reqwest automatic protocol retries and redirects are disabled. There is no
+  retry after body/stream consumption. Retry-count observations do not establish
+  provider acceptance or safe billing after an ambiguous network failure.
+
+**Live acceptance is UNPROVEN.** The frozen dated API may reject
+`reasoning_effort` (documented as added in 2024-12-01-preview). No automatic
+Responses/v1/API/model upgrade or price-tier change is authorized here.
+
+## Inspection, notices and dormant embedding guard
+
+Editor-only `GET /api/maintenance/ai-budget` uses the shared real auth boundary,
+stays available during maintenance, and reads state without a reservation,
+provider call or notice watermark write. Decimal JSON numbers preserve the
+four-place top-level spent rounding and six-place feature totals.
+
+`Notices` reads current-month grouped ledger rows and sorted explicit positive
+thresholds plus the cap (even with an empty list). Invalid entries log an error;
+the highest reached unnotified level logs its invariant breakdown, then advances
+the monotonic SQL watermark. This is sequential-notice parity, **not** cross-
+replica exactly-once logging. #229 owns invoking it from dispatch-reading outside
+maintenance. There is no new mail/alert destination or paid notice generation.
+
+`dormant_embedding_call` retains the inert UTF-16/input-only guard and its offline
+missing-operation/cap/refusal/7-token-accounting sibling. No embedding provider,
+vector registration, endpoint or semantic search exists. This is preservation of
+the dormant test contract, not an embedding-feature waiver.
+
+## Frozen-suite ownership map
+
+Frozen production files map as follows: `AiGateway.cs` → `ai/mod.rs` and
+`gateway.rs`; `BudgetedChatClient.cs` → gateway normalization/owned delivery plus
+`model.rs` estimates/inert guard; `AiOperation.cs` → `model.rs`; `AiBudgetLedger.cs`
+and `IAiBudget.cs` → `ledger.rs`; `AiLedgerStore.cs` → its `PostgresStore`;
+`AiOptions.cs` → `options.rs`; `AiUsageEntities.cs`/`AiModelConfiguration.cs` → the
+existing canonical baseline tables/keys, unchanged, plus the typed ledger rows;
+`AiBudgetEndpoints.cs`/`AiCostNotice.cs` → `notice.rs`; `AzureOpenAIChatClient.cs` →
+`azure.rs`; provider-script delivery → `script.rs` with domain ownership below.
+No migration or canonical-table/grant change was necessary.
+
+| Frozen file | Rust sibling / disposition |
+| --- | --- |
+| `AiBudgetLedgerTests.cs` | `ai_budget_math`, `ai_guards`, `ai_ledger`: exact money/month/defaults, missing/zero prices, unavailable store, in-flight/cap/equality/hints, missing reports, original-month/current-price behavior; explicit PG 24 callers, 32×10 contention, replica first-month race, row-key attribution, 5s lock and cancellation. No current SQL case waived. |
+| `BudgetedChatClientTests.cs` | `ai_guards`, `ai_gateway`, `ai_wire`: required operation/deployment/input/output/options, non-text estimates, repeated-report max versus additive calls, nonstream and streaming, provider refusal, fail/drop/cancel/drain, retry/failure durability, inert embedding guard. Private provider type plus actual below-gateway captures retain the wiring guard without reflection. |
+| `AzureOpenAIChatClientTests.cs` | `ai_wire`, `ai_budget_math`, offline `AiWireOracle.cs`/fixture: request/API/scope/options/default effort/schema/tools/images, usage, fragmented SSE, errors, content-filter finish and physical retry counts. |
+| `AiCostNoticeTests.cs` | `ai_notices`, model-free `ai_guards`: grouped real SQL, levels/invalid entries, sequential highest/cap/raised-cap watermark, invariant breakdown; actual HTTP editor/member/anonymous/maintenance/read-only control. |
+| `InfrastructureDeploymentTests.cs` | `ai_budget_math` reads unchanged Bicep literal deployment parameter/resource association and requires its shipped price. No infra deployment. |
+| `InMemoryAiLedgerStore.cs` | `tests/support/ai.rs` is a pure-sibling stand-in only; explicit PG suites always use production raw SQL. |
+| `Chat/ScriptedChatClient.cs`, `ReadingTestHost.cs` provider scripts | Generic reusable delivery-only `Script` is here. Domain prompt recognition/answers and reader/tool behavior stay explicitly with #229/#230/#231/#232. |
+| Three live evaluations | Shared `LiveEvaluation` runtime guards retain exact required env names; missing/whitespace values are tested before provider construction. Actual document/chat evaluations remain their owning later tickets, not claimed executed here. |
+
+The three gate vocabularies are `ARCHIVE_CHAT_ENDPOINT` +
+`ARCHIVE_CHAT_DEPLOYMENT_NAME`, plus `ARCHIVE_SCAN_EVAL_DIR` or
+`ARCHIVE_PROGRAMM_EVAL_DIR` respectively. Existing optional model-version,
+price-override and report names remain reserved for the later suites. Configuration
+is never authorization to spend. No live gate is crossed by these tests.
+
+The frozen live-chat evaluation's raw foreign-model probe outside the gateway
+is **NOT implemented or executed in foundation**. #232 must retain an explicit
+test-only separately authorized disposition before release; it cannot create a
+production raw-provider seam or claim every paid evaluation call is budgeted.
+
+## Reproduction and evidence
+
+Use a dedicated disposable PostgreSQL and scoped static OpenSSL 3.5.9; no
+production credentials are needed. Ordinary offline tests:
+
+```sh
+cargo test -p archive-server --locked --test ai_guards --test ai_wire --test ai_budget_math
+cargo test -p archive-server --locked --test ai_ledger --test ai_gateway --test ai_notices -- --ignored
+cargo build -p archive-server --locked --example ai-foundation-native
+# Set ARCHIVE_AI_PROBE, ARCHIVE_BINARY and local ARCHIVE_TEST_POSTGRES.
+node tests/browser/ai-foundation-native.cjs
+```
+
+The Cargo example is an offline-only test process: it constructs its own loopback
+HTTP provider/fake credential and refuses a nonlocal or non-`ai228_native_*`
+database. It is not a product CLI switch. The Node harness uses the accepted
+official-schema telemetry scanner, real finite process drain, private capture and
+terminal fail-closed replay. Synthetic prompts/answers/tool payload/email/token/
+signature markers must not appear in actual OTLP or console output.
+The AI trace and meter scope is `Liedertafel.Archive.Ai`; static error statuses
+cannot retain provider exception messages/stacks, and the existing global raw
+SDK tracing suppression still applies even under `RUST_LOG=trace`. GenAI token
+usage/duration metrics have bounded dimensions, not per-operation UUID dimensions.
+The native fixture also forces actual PostgreSQL settlement writes to fail and
+checks conservative reservation retention, nonzero finite exit and OTLP flush.
+
+Final executed counts and retained failures are recorded in the handoff report;
+pending gates are not passes. Existing frozen browser failures, unclassified
+historical redaction failure, video-job FK refusal, cooperative PDF/native limits,
+hosted acceptance and image/AppHost/cutover gates remain unchanged.
+
+## Executed final validation (2026-11-10)
+
+Dedicated target `target/ticket-228`, PostgreSQL55428, private Azurite Blob51029 /
+Queue52029 (matching internal/external copy ports), static OpenSSL3.5.9, two Cargo
+jobs and `--locked`. Latest accepted integration re-merge returned `Already up
+to date` at `c7d9fd8`. Final source had no frozen-file diff.
+
+| Gate | Actual result |
+| --- | --- |
+| Sequential fmt → all-target workspace clippy `-D warnings` → workspace tests → build → active cargo-deny | Pass; existing duplicate-version warnings retained; license/advisory policy unchanged |
+| Ordinary workspace | **90 passed /0 failed /203 ignored** |
+| ALL explicit combined ignored gates | **203 passed /0 failed /0 ignored**:195 SQL,1 schema/adoption/grants,5 private Blob,1 private Queue,1 native PDF |
+| Native auth/member/catalogue/upload/events/query/extraction/recordings + AI foundation | **9/9 pass**; actual unchanged UI and finite processes; AI process uses loopback HTTP/fake credential + real SQL, consumer break/cap and deliberate settlement-failure/nonzero/flush control |
+| Drained private final telemetry replays | **9/9 pass**; findings/errors/legacyMatches empty,0700 directories/0600 replays |
+| Official-schema detector/lifecycle | **110 passed /0 failed /0 skipped** |
+| Unchanged frozen AI/ledger/provider/notices/infra suites | **42 passed**, including three actual frozen PG concurrency cases with local configuration (not absent-gate early returns) |
+| Unchanged mocked UI: prior seven specs + chat, desktop/mobile | **184 passed**; mock/static tests, not hosted AI or native chat proof |
+| Unchanged frontend unit tests | **115 passed /0 failed /0 skipped** |
+| Frozen SDK oracle | **23 offline observations**; requests, usage/malformed cases, metadata/content-filter SSE, physical retries |
+| Native linkage | Embedded **OpenSSL3.5.9**, no dynamic libssl/libcrypto |
+
+Logs: `/tmp/opencode/228-final-{fmt,clippy,workspace,build,deny,explicit,linkage,
+detector,frontend-unit,frozen-browser-configured,native-summary}.log`, per-native
+`228-final-<name>.log`/`-replay.log`, `228-final-{native-results,evidence}.json`,
+`228-frozen-dotnet-sql.log`, `228-wire-oracle-final.log`. The external handoff is
+`/tmp/opencode/liedertafel-218-228-report.md`; private replays must not be published.
+
+Retained setup failures: the first browser command discovered184 cases but
+could not launch missing Chromium1243, so **no assertion pass** came from that
+run (`228-final-frozen-browser.log`). The explicit external config selected the
+existing approved Chromium1248 without changing frozen tests/frontend; its
+separate configured run passed184. The first combined explicit attempt stopped
+on a test JSON-number-kind assertion (`0.0` versus `0`), not an accounting error;
+the corrected numeric wire assertion and full203 rerun passed. Initial
+`cargo deny` was unavailable on PATH; the final gate used the existing pinned
+cargo-deny0.20.2 executable and passed. Executed red→green regressions for
+content-filter billing, malformed usage, admission cancellation and stalled
+settlement remain in separate `228-*-{red,green}.log` files.

@@ -30,6 +30,7 @@ pub struct Origin {
 	pub extraction: crate::extraction::Options,
 	pub extraction_queue: Arc<dyn crate::queue::Queue>,
 	pub reading_enabled: bool,
+	pub ai: Option<crate::ai::Services>,
 }
 impl std::fmt::Debug for Origin {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -51,6 +52,7 @@ impl Origin {
 			extraction: Default::default(),
 			extraction_queue: Arc::new(crate::queue::AzureQueue::unconfigured()),
 			reading_enabled: false,
+			ai: None,
 			build_requests: global::meter(METER_NAME)
 				.u64_counter("archive.build.requests")
 				.with_description("Build-probe requests to /api/build")
@@ -60,6 +62,22 @@ impl Origin {
 	}
 
 	pub fn with_auth(mut self, auth: crate::auth::Auth) -> Self {
+		if self.ai.is_none() {
+			let (_, options) =
+				tokio::sync::watch::channel(crate::ai::Options::shipped(self.settings.development));
+			let ledger = crate::ai::Ledger::new(
+				Arc::new(crate::ai::PostgresStore::new(auth.pool.clone())),
+				options,
+				auth.clock.clone(),
+			);
+			self.ai = Some(crate::ai::Services {
+				gateway: crate::ai::Gateway::scripted(
+					ledger.clone(),
+					crate::ai::Script::new(Vec::new()),
+				),
+				ledger,
+			});
+		}
 		self.auth = Some(Arc::new(auth));
 		self
 	}

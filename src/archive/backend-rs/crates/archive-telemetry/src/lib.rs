@@ -8,9 +8,10 @@
 //! three signals whenever an OTLP endpoint exists and refuses to boot in
 //! Development without one.
 //!
+//! AI spans use the dedicated AI_SOURCE and static statuses without recording
+//! provider exceptions/content; unlike the frozen SDK there are no exception
+//! messages or stack traces to scrub after capture. Raw SDK events remain quiet.
 //! Deferred from the C# service defaults on purpose:
-//! - `AiExceptionRedactionProcessor` belongs to the AI wave (no AI spans exist
-//!   yet in Rust).
 //! - #221 request spans omit queries/headers and globally suppress credential-
 //!   dumping WebAuthn/mail SDK events. Later storage/AI waves must retain safe
 //!   URL/error instrumentation at their own boundaries.
@@ -27,6 +28,7 @@ use tracing_subscriber::prelude::*;
 /// ActivitySource/Meter name of the archive, kept for schema parity with the
 /// C# backend so the internal dashboard reads the same shapes.
 pub const ACTIVITY_SOURCE: &str = "Liedertafel.Archive";
+pub const AI_SOURCE: &str = "Liedertafel.Archive.Ai";
 
 const OTEL_SERVICE_NAME: &str = "OTEL_SERVICE_NAME";
 const OTEL_EXPORTER_OTLP_ENDPOINT: &str = "OTEL_EXPORTER_OTLP_ENDPOINT";

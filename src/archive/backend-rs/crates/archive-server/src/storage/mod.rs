@@ -546,7 +546,7 @@ pub fn managed_identity_options(
 		..Default::default()
 	}
 }
-fn credential(
+pub(crate) fn credential(
 	keyless: bool,
 	development: bool,
 ) -> Result<Option<Arc<dyn TokenCredential>>, StorageError> {
