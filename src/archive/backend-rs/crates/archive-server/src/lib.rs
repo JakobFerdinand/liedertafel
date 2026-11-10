@@ -15,6 +15,7 @@ pub mod events;
 pub mod extraction;
 pub mod frontend;
 pub mod origin;
+pub mod recordings;
 pub mod settings;
 pub mod storage;
 pub use storage::queue;

@@ -162,6 +162,13 @@ update this section in the same PR whenever the member list changes.
   -- --ignored`. Keep constrained draft API fallback before auth.
 - `/api/build` and the readiness endpoint have the same shapes as today from
   wave 1 onward.
+- Aufnahmen/Zeitmarken (#227): before changing recording slots/publication/tickets,
+  passage CRUD/review or their Programme/history projections, read
+  `docs/recordings-parity.md` for per-file ownership, direct-Blob policy and
+  independent playback-versus-passage stale gates. Focused PG:
+  `cargo test -p archive-server --locked --test recording_passage_api -- --ignored`.
+  Native unchanged UI/private Blob/OTLP: `node tests/browser/recordings-native.cjs`.
+  Seeded completed-copy integration is not the #233 video worker.
 - OTLP traces/metrics/logs keep the dashboard-compatible schema; every host
   registers the service-defaults equivalent (OTLP mandatory, console-only
   logging insufficient) and workers carry W3C trace context.
