@@ -154,16 +154,8 @@ async fn run() -> Result<(), StartupError> {
 	origin.reading = archive_server::reading::Options::from_env(development);
 	origin.reading_enabled = origin.reading.enabled;
 	origin.reading_queue = Arc::new(
-		archive_server::queue::AzureQueue::select(
-			std::env::var("ConnectionStrings__archive-queues")
-				.ok()
-				.as_deref(),
-			std::env::var("Archive__Reading__QueueServiceUri")
-				.ok()
-				.filter(|s| !s.trim().is_empty())
-				.or_else(|| std::env::var("Archive__Extraction__QueueServiceUri").ok())
-				.as_deref(),
-			&origin.reading.queue.queue_name,
+		archive_server::reading::select_queue(
+			&origin.reading,
 			development,
 			Arc::new(archive_server::auth::SystemClock),
 		)

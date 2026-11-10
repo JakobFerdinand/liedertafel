@@ -64,23 +64,12 @@ pub async fn run(
 		)
 		.map_err(|_| CommandError)?,
 	);
-	let reading_enabled = std::env::var("Archive__Reading__Enabled")
-		.map(|s| s.eq_ignore_ascii_case("true"))
-		.unwrap_or(development);
+	let reading = crate::reading::Options::from_env(development);
+	let reading_enabled = reading.enabled;
 	let reading_queue = if reading_enabled {
 		Some(Arc::new(
-			AzureQueue::select(
-				std::env::var("ConnectionStrings__archive-queues")
-					.ok()
-					.as_deref(),
-				std::env::var("Archive__Reading__QueueServiceUri")
-					.ok()
-					.as_deref(),
-				&std::env::var("Archive__Reading__QueueName").unwrap_or("archive-reading".into()),
-				development,
-				clock.clone(),
-			)
-			.map_err(|_| CommandError)?,
+			crate::reading::select_queue(&reading, development, clock.clone())
+				.map_err(|_| CommandError)?,
 		) as Arc<dyn crate::queue::Queue>)
 	} else {
 		None
@@ -92,11 +81,7 @@ pub async fn run(
 		options: options.clone(),
 		maintenance: Arc::new(paused),
 		reading_enabled,
-		reading_page_limit: std::env::var("Archive__Reading__MaxPagesPerRequest")
-			.ok()
-			.and_then(|v| v.parse().ok())
-			.filter(|v| *v > 0)
-			.unwrap_or(20),
+		reading_page_limit: reading.max_pages_per_request,
 		reading_queue,
 		spool_directory: std::env::var_os("Archive__Pdfium__SpoolDirectory")
 			.map(std::path::PathBuf::from)

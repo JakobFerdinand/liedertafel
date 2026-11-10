@@ -10,6 +10,45 @@ use std::sync::{
 	Arc,
 	atomic::{AtomicUsize, Ordering},
 };
+
+#[tokio::test]
+#[ignore = "explicit PostgreSQL; deadline before lease acquisition retains frozen abandon semantics"]
+async fn deadline_before_a_claim_abandons_even_when_the_durable_row_is_terminal() {
+	let app = support::App::new_scoped("reading229").await;
+	let h = support::reading::Harness::new(&app, vec![], Script::new(vec![]), Options::default());
+	let (_, id) = h.seed(&app, 20).await;
+	sqlx::query(r#"UPDATE reading_jobs SET "Status"=3 WHERE "DateiId"=$1"#)
+		.bind(id)
+		.execute(&app.pool)
+		.await
+		.unwrap();
+	let mut held = vec![];
+	for _ in 0..10 {
+		held.push(app.pool.acquire().await.unwrap());
+	}
+	let deadline = app.time.now() + chrono::Duration::milliseconds(50);
+	let task = tokio::spawn(async move {
+		h.worker
+			.handle(
+				&Message {
+					id: "m".into(),
+					receipt: "p".into(),
+					body: envelope("reading", id),
+					dequeue_count: 1,
+				},
+				deadline,
+				&Default::default(),
+			)
+			.await
+	});
+	tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+	drop(held);
+	assert!(matches!(
+		task.await.unwrap().unwrap(),
+		Disposition::Abandon(_)
+	));
+	app.close().await;
+}
 #[tokio::test]
 #[ignore = "explicit PostgreSQL/native PDF; own-progress/foreign/terminal lease recovery"]
 async fn deadline_recovers_only_its_latest_progress_lease_and_keeps_the_claim_timestamp() {

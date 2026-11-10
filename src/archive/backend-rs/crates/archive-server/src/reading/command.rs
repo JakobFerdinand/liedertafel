@@ -2,7 +2,7 @@
 use super::*;
 use crate::{
 	auth::{Clock, SystemClock},
-	queue::{AzureQueue, DrainSettings, QueueError},
+	queue::{DrainSettings, QueueError},
 	storage::{BlobStorage, StorageConfig},
 };
 use std::sync::Arc;
@@ -22,22 +22,8 @@ pub async fn run(
 	}
 	let options = Options::from_env(development);
 	let clock: Arc<dyn Clock> = Arc::new(SystemClock);
-	let queue = Arc::new(
-		AzureQueue::select(
-			std::env::var("ConnectionStrings__archive-queues")
-				.ok()
-				.as_deref(),
-			std::env::var("Archive__Reading__QueueServiceUri")
-				.ok()
-				.filter(|s| !s.trim().is_empty())
-				.or_else(|| std::env::var("Archive__Extraction__QueueServiceUri").ok())
-				.as_deref(),
-			&options.queue.queue_name,
-			development,
-			clock.clone(),
-		)
-		.map_err(|_| CommandError)?,
-	);
+	let queue =
+		Arc::new(select_queue(&options, development, clock.clone()).map_err(|_| CommandError)?);
 	tokio::select! {biased;_=cancel.cancelled()=>return Err(CommandError),result=queue.ensure()=>result.map_err(|_|CommandError)?}
 	let connection = std::env::var("ConnectionStrings__archive-db").map_err(|_| CommandError)?;
 	let pool = archive_db::runtime_pool(&connection).map_err(|_| CommandError)?;

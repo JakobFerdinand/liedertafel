@@ -53,6 +53,17 @@ pub async fn insert(
 	sqlx::query(r#"INSERT INTO reading_jobs ("DateiId","Status","PagesRead","PageLimit","FieldsDone","FieldsApplied","AttemptCount","TriggeredByAccountId","CreatedAt","UpdatedAt","RowVersion") VALUES ($1,0,0,$3,false,0,0,$2,$4,$4,0)"#).bind(id).bind(actor).bind(page_limit).bind(now).execute(pool).await?;
 	Ok(())
 }
+/// Extraction commits this row in its own completion transaction; the row, not
+/// its subsequent notification, owns work. Existing progress is never reset.
+pub(crate) async fn insert_handoff(
+	connection: &mut sqlx::PgConnection,
+	id: Uuid,
+	actor: Uuid,
+	page_limit: i32,
+	now: DateTime<Utc>,
+) -> Result<bool, sqlx::Error> {
+	Ok(sqlx::query(r#"INSERT INTO reading_jobs ("DateiId","Status","PagesRead","PageLimit","FieldsDone","FieldsApplied","AttemptCount","TriggeredByAccountId","CreatedAt","UpdatedAt","RowVersion") VALUES ($1,0,0,$4,false,0,0,$2,$3,$3,0) ON CONFLICT ("DateiId") DO NOTHING"#).bind(id).bind(actor).bind(now).bind(if page_limit>0{page_limit}else{20}).execute(connection).await?.rows_affected()>0)
+}
 pub async fn enqueue(
 	pool: &sqlx::PgPool,
 	queue: &dyn Queue,
@@ -107,11 +118,17 @@ pub async fn dispatch(
 	let pending:Vec<Job>=sqlx::query_as(r#"SELECT * FROM reading_jobs WHERE "Status"=0 AND ("LastEnqueuedAt" IS NULL OR "LastEnqueuedAt"<$1) ORDER BY "CreatedAt" LIMIT $2"#).bind(now-options.queue.redisplay_after).bind(options.queue.max_dispatch_per_run).fetch_all(pool).await?;
 	let mut count = 0;
 	for job in pending {
-		if !queue
+		let accepted = match queue
 			.send(&crate::queue::envelope("reading", job.datei_id))
 			.await
-			.unwrap_or(false)
 		{
+			Ok(accepted) => accepted,
+			Err(_) => {
+				tracing::warn!("Reading dispatch send failed");
+				continue;
+			}
+		};
+		if !accepted {
 			continue;
 		}
 		if sqlx::query(

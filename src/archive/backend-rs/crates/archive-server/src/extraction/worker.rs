@@ -314,29 +314,29 @@ impl Worker {
 			});
 		}
 		let inserted = if matches!(kind, SaveKind::ReadingHandoff) {
-			sqlx::query(r#"INSERT INTO reading_jobs ("DateiId","Status","PagesRead","PageLimit","FieldsDone","FieldsApplied","AttemptCount","TriggeredByAccountId","CreatedAt","UpdatedAt","RowVersion") VALUES ($1,0,0,$4,false,0,0,$2,$3,$3,0) ON CONFLICT ("DateiId") DO NOTHING"#).bind(job.datei_id).bind(job.triggered_by_account_id).bind(now).bind(if self.reading_page_limit>0{self.reading_page_limit}else{20}).execute(&mut *tx).await?.rows_affected()>0
+			crate::reading::insert_handoff(
+				&mut tx,
+				job.datei_id,
+				job.triggered_by_account_id,
+				self.reading_page_limit,
+				now,
+			)
+			.await?
 		} else {
 			false
 		};
 		tx.commit().await?;
 		// The newly inserted/tracked handoff row has version zero. An
 		// accepted send never grants permission to stamp a newer lease.
-		if inserted
-			&& let Some(queue) = &self.reading_queue
-			&& crate::queue::quiet_send(
+		if inserted && let Some(queue) = &self.reading_queue {
+			crate::reading::enqueue(
+				&self.pool,
 				queue.as_ref(),
-				&crate::queue::envelope("reading", job.datei_id),
+				job.datei_id,
+				0,
+				self.clock.as_ref(),
 			)
-			.await && !sqlx::query(
-			r#"UPDATE reading_jobs SET "LastEnqueuedAt"=$2 WHERE "DateiId"=$1 AND "RowVersion"=0"#,
-		)
-		.bind(job.datei_id)
-		.bind(self.clock.now())
-		.execute(&self.pool)
-		.await
-		.is_ok_and(|r| r.rows_affected() == 1)
-		{
-			tracing::warn!("Reading enqueue stamp failed");
+			.await;
 		}
 		Ok(disposition)
 	}

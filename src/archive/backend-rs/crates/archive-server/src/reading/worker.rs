@@ -104,6 +104,9 @@ impl Worker {
 		}
 		cancel.cancel();
 		tracing::warn!("Reading exceeded its time budget");
+		if lease.is_none() {
+			return Ok(self.backoff(message));
+		}
 		let Some(job) = Job::load(&self.pool, id).await? else {
 			return Ok(self.backoff(message));
 		};
