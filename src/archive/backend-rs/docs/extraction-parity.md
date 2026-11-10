@@ -1,15 +1,17 @@
 # Stored-Datei extraction (#226)
 
-## Accepted recording union (validation in progress)
+## Tested recording union — ready for independent rereview, not accepted
 
 Integration `e851f42` (#227 tree `bd28dd9`) is merged into this branch as
 `e4ca191`. Additive conflicts preserve both route registries and both sets of
 raw binding shapes/rules. Recording visibility/lifecycle/lib/guides and extraction
-main/hooks/dependencies are retained. Fresh combined checks use226-owned providers;
-the earlier counts below are pre-union evidence until replaced by explicit union
-results. Independent review of original `99d92b8` is **COMPLETE/HOLD** with four
+main/hooks/dependencies are retained. Final implementation pin is **`13de7b4`** after
+R1–R4 and the overlapping-credit follow-up. Fresh combined checks use226-owned providers.
+The historical table at the bottom remains pre-union evidence, not union totals.
+Independent review of original `99d92b8` is **COMPLETE/HOLD** with four
 findings. This union is not accepted; fresh full gates and independent rereview
-remain required before any wave6 advance.
+were required. Full gates below passed; independent rereview remains outstanding
+before any acceptance or wave6 advance.
 
 ## Review remediation checkpoint
 
@@ -55,12 +57,66 @@ remain required before any wave6 advance.
   Worker/retry explicitly bump it; stamp-only saves do NOT bump RowVersion or
   UpdatedAt. Rust preserves that rule; normal controls compare every row field.
   No transaction crosses external I/O and no atomic outbox guarantee is invented.
-- Final combined validation and independent rereview have **not** run after all
-  fixes. Earlier pre-union/initial-union passes below are not final acceptance.
+- Final combined validation below ran after all fixes; independent rereview has
+  **not** run. Earlier pre-union/initial-union passes are not final acceptance.
 
 Base: accepted integration `5c5611a`. Frozen C#, xUnit, frontend, infrastructure,
 workflow and Dockerfile remain unchanged. No model is called. Image/AppHost
 retargeting is #235; hosted identity/storage and cutover are separate gates.
+
+## Final combined evidence (2026-11-10)
+
+Executed on implementation **`13de7b47a970f1a1f2de4c04bdcdcb81d8656cf8`**, then
+documentation-only changes. Latest integration `e851f42` re-merge check returned
+`Already up to date.` Dedicated226 PG55426/Blob51026/Queue52026, isolated target,
+static OpenSSL3.5.9, `--locked`, two Cargo jobs, no peer227 resources.
+
+| Gate | Actual final result |
+| --- | --- |
+| Sequential fmt → all-target workspace clippy `-D warnings` → workspace tests → build → active cargo-deny → linkage | Pass; narrow dependency exceptions unchanged; embedded OpenSSL3.5.9, no dynamic libssl/libcrypto |
+| Ordinary workspace | **65 passed /0 failed /192 ignored** |
+| Every explicit combined ignored gate | **192 passed /0 failed /0 ignored**:184 SQL (including native-PDF spool/handoff),1 exact schema/adoption/grants,5 private Blob Azurite,1 private Queue Azurite,1 native PDF |
+| #227 progressing-clock attribution | Both real-SQL/raw-HTTP tests pass within192; accepted production/tests/harness unchanged |
+| Native auth/member/catalogue/upload/events/query/extraction/recordings | **8/8 pass**, production executable/unchanged UI/private226 providers; query differential36 observations |
+| Private drained final capture replays | **8/8 pass**, findings/errors/legacyMatches empty;0700 directories/0600 artifacts |
+| Structured telemetry detector/lifecycle | **110 passed /0 failed /0 skipped** |
+| Scoped unchanged frozen .NET | **168 passed /0 failed /0 skipped**; existing compiler/NuGet warnings retained, not an advisory pass |
+| Seven-spec unchanged mocked UI, desktop+mobile | **138 passed**; `extraktion`, `noten`, `lieder`, `auftritt-aufnahmen`, `auftritt-passagen`, `lied-historie`, `programm` |
+| All unchanged frontend unit tests | **115 passed /0 failed /0 skipped** |
+| External frozen analyzer oracle | **56 observations** and clean-text hashes byte-match committed fixture (one Rust boundary test, not56 tests) |
+| External frozen recording oracle | **8 DTOs /106 serializer /6 rounding observations** equal accepted output excluding separate-worktree build MVID |
+
+Final logs are `/tmp/opencode/226-union-final-{fmt,clippy,workspace,build,deny,
+linkage,explicit,explicit-counts,detector,dotnet,frozen-browser,frontend-unit,
+oracles,recording-oracle,integration-check}.log`, eight
+`226-union-final-<native-name>.log` / `-replay.log`, and
+`226-union-final-native-{results.json,evidence.log,summary.log}`. These are actual
+combined counts, not sums of inherited duplicate gates. Native extraction freshly
+re-executed absent/existing queue provision, maintenance non-provision,
+unconfigured sender/consumer, bad-key failure, SIGTERM ensure cancellation,
+native ABI/spool/attempt bounds, real reading notification and PDF-only UI search.
+
+Preserved setup qualifications: first intermediate explicit run hit the harness
+120s timeout and is incomplete; its unbounded-timeout repeat passed192, and the
+final13de7b4 full repeat also passed192. Initial mocked-UI invocation had a wrong
+external CLI path and ran no tests; corrected invocation and final repeat passed138.
+These setup failures remain recorded; they are not product failures or passes.
+
+### Retained qualifications
+
+The accepted #227 timestamp/slot/CAS controls and native harness wait for
+`Original für „Native Tonaufnahme“ gespeichert.` are unchanged from `e851f42`.
+Its original `/tmp/opencode/223-recordings-native-telemetry-NQIgxq` capture remains
+failed (`incomplete-or-failed-native-run`, zero secrecy findings), not a pass
+retroactively manufactured by later clean runs. Known frozen real-member/passkey
+browser failures remain failures and were not rerun by the scoped mocked selection;
+the original uncaptured member-redaction ambiguity stays **UNCLASSIFIED**. Video-FK
+refusal and historical migration-equivalent qualifications are unchanged.
+
+Unrun here: actual image/AppHost packaging/roundtrip (#235), hosted Entra/RBAC,
+production/Neon/deployment/cutover, real external mail, live AI and full reading
+gateway/writer/progress suites (#229), video workers (#233). Cooperative C-call
+cancellation and decoded-expansion limits below remain explicit limitations.
 
 ## Boundaries
 
@@ -159,7 +215,7 @@ Grouped assertions do not multiply reported test passes.
 | --- | --- |
 | `ExtractionApiTests.cs` | `extraction_api`, `extraction_outbox`: authenticated status/retry, bounds/order/nulls/facts, stale/running/terminal matrix, finalize outbox, quiet send/stamp failure/reentry, selected/caller CAS barriers and SQL dispatcher |
 | `ExtractionWorkerTests.cs` | `extraction_worker`, `pdf_text_extractor`, `queue_drain`, `queue_azurite`: SQL attempts/exact-lease deadlines, generated native PDF and actual receipts. `tests/browser/extraction-native.cjs`: real finite processes/upload/search/dispatch/noText/remote-context/OTLP |
-| `ScoreTextAnalyzerTests.cs` | `score_text_analyzer`, `score_text_boundaries`: glyph/syllable/heading/staff voice/key/signature/tempo/credit/copyright/noise/header bounds plus54 externally frozen boundary/UTF16 observations and clean-text hashes |
+| `ScoreTextAnalyzerTests.cs` | `score_text_analyzer`, `score_text_boundaries`: glyph/syllable/heading/staff voice/key/signature/tempo/credit/copyright/noise/header bounds plus56 externally frozen boundary/UTF16 observations and clean-text hashes |
 | `NotenTextSearchTests.cs` | inherited `noten_text_search`; native unchanged-UI upload→search finds PDF-only words |
 | `LiedSucheQuellenTests.cs` | inherited `lied_suche_quellen`; new completion enters shared canonical visible SQL/search |
 | `SearchAgreementTests.cs` | inherited `search_agreement`; actual chat adapter remains #232 |
@@ -183,7 +239,8 @@ inside/outside ports allow Azurite's server-side copy to reach itself.
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
-cargo test -p archive-server --locked --test extraction_api --test extraction_worker -- --ignored
+cargo test -p archive-server --locked --test extraction_api --test extraction_worker --test extraction_outbox -- --ignored
+cargo test -p archive-server --locked --test score_text_analyzer --test score_text_boundaries
 cargo test -p archive-server --locked --test pdf_text_extractor --test queue_azurite -- --ignored
 # Inherited explicit PG/schema/Azurite gates remain required.
 node --test tests/browser/telemetry-*.test.cjs
@@ -199,7 +256,7 @@ an ignored `serviceVersion` option does not pin its generated client's version.
 Existing terminal collector-drain/child-closed/fail-closed capture is reused.
 A stale export calling `/api/songs` is not the current frontend contract.
 
-## Verified 2026-11-10
+## Historical original-candidate verification (99d92b8)
 
 Latest integration was re-merged/check-confirmed at `5c5611a` before the final
 sequential format → clippy → workspace → active-audit run. Every Cargo command
