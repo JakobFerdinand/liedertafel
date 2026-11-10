@@ -24,6 +24,8 @@ Add("utf16-prefix-short-digits","😀",299,"=72");
 Add("utf16-prefix-complete-digits","😀",298," =72");
 Add("utf16-prefix-exact-ascii","a",597,"=72");
 Add("utf16-prefix-cut-ascii","a",598,"=72");
+Add("credit-rejected-outer-valid-inner","aText und Musik: Komponist");
+Add("credit-rejected-outer-valid-inner-2","éMusik und Text: Dichter");
 
 Console.Error.WriteLine($"Frozen analyzer MVID {typeof(ScoreTextAnalyzer).Assembly.ManifestModule.ModuleVersionId}");
 var rows=cases.Select(c=>{

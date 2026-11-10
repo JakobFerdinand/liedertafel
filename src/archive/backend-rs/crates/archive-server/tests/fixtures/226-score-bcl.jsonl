@@ -52,3 +52,5 @@
 ["utf16-prefix-complete-digits","😀",298," =72","05bf3b0e749c0ca5d7715dc4ea103174adb9344f6805e5eb82c4a8d4821802cf",{"tempo":"72 Schläge/min"}]
 ["utf16-prefix-exact-ascii","a",597,"=72","e6e0f5ef98b5784b2c42ba4f554259110ff0c23179f8d9dfdc518fe96dbac935",{"tempo":"72 Schläge/min"}]
 ["utf16-prefix-cut-ascii","a",598,"=72","f97ce593c42b94efdd8813de8ac40121663f512f27150e60bc399c2adf6ee649",{}]
+["credit-rejected-outer-valid-inner","aText und Musik: Komponist",1,"","4e3b418231475c3d15c098daaae4e21b2ef52ff4367b1d4cca9f5e13851f3263",{"composer":"Komponist"}]
+["credit-rejected-outer-valid-inner-2","éMusik und Text: Dichter",1,"","ede2fb8c4cd8d7110d7f66f3f8e967f00ff6de9ffe030262ae724cce981a9bfe",{"lyricist":"Dichter"}]

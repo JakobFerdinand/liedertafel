@@ -81,6 +81,27 @@ fn before(s: &str, at: usize, predicate: fn(char) -> bool) -> bool {
 fn after(s: &str, at: usize, predicate: fn(char) -> bool) -> bool {
 	s[at..].chars().next().is_some_and(predicate)
 }
+fn letter_captures<'a>(re: &Regex, text: &'a str, trailing: bool) -> Vec<regex::Captures<'a>> {
+	let mut found = Vec::new();
+	let mut at = 0;
+	while let Some(m) = re.captures_at(text, at) {
+		let Some(whole) = m.get(0) else { break };
+		if !before(text, whole.start(), letter) && (!trailing || !after(text, whole.end(), letter))
+		{
+			at = whole.end();
+			found.push(m);
+		} else {
+			// Failed lookaround must not consume a larger candidate: an inner
+			// label can still be valid (aText und Musik: -> Musik:).
+			at = whole.start()
+				+ text[whole.start()..]
+					.chars()
+					.next()
+					.map_or(1, char::len_utf8);
+		}
+	}
+	found
+}
 fn voice_matches<'a>(re: &Regex, text: &'a str) -> Vec<(usize, usize, &'a str, Option<&'a str>)> {
 	let mut found = Vec::new();
 	let mut at = 0;
@@ -236,11 +257,8 @@ pub fn analyze(text: Option<&str>) -> Analysis {
 	}
 	if let Some(re) =
 		regex(r"([A-Ha-h](?:is|es|s)?|[A-Ga-g][♭♯b#])[- ]?(Dur|dur|Moll|moll|[Mm]ajor|[Mm]inor)")
-		&& let Some(m) = re.captures_iter(&head).find(|m| {
-			m.get(0).is_some_and(|m| {
-				!before(&head, m.start(), letter) && !after(&head, m.end(), letter)
-			})
-		}) {
+		&& let Some(m) = letter_captures(&re, &head, true).into_iter().next()
+	{
 		let minor = matches!(&m[2], "Moll" | "moll" | "Minor" | "minor");
 		let mut note = m[1].to_owned();
 		if note.len() == 2 {
@@ -351,10 +369,7 @@ pub fn analyze(text: Option<&str>) -> Analysis {
 			{
 				facts.copyright = Some(bound(&line, 160));
 			}
-			let matches: Vec<_> = re
-				.captures_iter(&line)
-				.filter(|m| m.get(0).is_some_and(|m| !before(&line, m.start(), letter)))
-				.collect();
+			let matches = letter_captures(&re, &line, false);
 			for (i, m) in matches.iter().enumerate() {
 				let Some(whole) = m.get(0) else {
 					continue;
@@ -373,11 +388,7 @@ pub fn analyze(text: Option<&str>) -> Analysis {
 						.map(|l| l.join(" "))
 						.unwrap_or_default();
 				}
-				if value.is_empty()
-					|| re
-						.find_iter(&value)
-						.any(|m| !before(&value, m.start(), letter))
-				{
+				if value.is_empty() || !letter_captures(&re, &value, false).is_empty() {
 					continue;
 				}
 				let value = bound(&value, 120);

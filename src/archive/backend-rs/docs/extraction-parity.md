@@ -28,6 +28,11 @@ remain required before any wave6 advance.
   compact output exactly matches committed `fixtures/226-score-bcl.jsonl`.
   `/tmp/opencode/226-r2-{red,green,fmt,clippy}.log`: red then four analyzer tests
   green; fmt and workspace/all-target clippy green. No new dependency/write path.
+  Final boundary audit added two frozen overlapping-credit controls: rejecting
+  `aText und Musik:` must still find the inner `Musik:` (and the inverse role).
+  Both failed before the follow-up scanning fix, then all **56** observations and
+  three original analyzer tests passed. `/tmp/opencode/226-r2-overlap-{red,green,
+  fmt,clippy,fixture-comparison}.log`; generated56-row fixture byte-matches.
 - R3: explicit pre-attempt versus counted-attempt save kind retains claim-time
   `LastAttemptAt` while `UpdatedAt` records completion. Real-PG/authenticated HTTP
   advancing-clock test first reproduced four seven-second timestamp shifts
@@ -152,9 +157,9 @@ Grouped assertions do not multiply reported test passes.
 
 | Frozen file | Rust owner/evidence |
 | --- | --- |
-| `ExtractionApiTests.cs` | `extraction_api`: authenticated status/retry, bounds/order/nulls/facts, stale/running/terminal matrix, finalize outbox, quiet send/stamp failure/reentry and SQL dispatcher |
+| `ExtractionApiTests.cs` | `extraction_api`, `extraction_outbox`: authenticated status/retry, bounds/order/nulls/facts, stale/running/terminal matrix, finalize outbox, quiet send/stamp failure/reentry, selected/caller CAS barriers and SQL dispatcher |
 | `ExtractionWorkerTests.cs` | `extraction_worker`, `pdf_text_extractor`, `queue_drain`, `queue_azurite`: SQL attempts/exact-lease deadlines, generated native PDF and actual receipts. `tests/browser/extraction-native.cjs`: real finite processes/upload/search/dispatch/noText/remote-context/OTLP |
-| `ScoreTextAnalyzerTests.cs` | `score_text_analyzer`: glyph/syllable/heading/staff voice/key/signature/tempo/credit/copyright/noise/header bounds |
+| `ScoreTextAnalyzerTests.cs` | `score_text_analyzer`, `score_text_boundaries`: glyph/syllable/heading/staff voice/key/signature/tempo/credit/copyright/noise/header bounds plus54 externally frozen boundary/UTF16 observations and clean-text hashes |
 | `NotenTextSearchTests.cs` | inherited `noten_text_search`; native unchanged-UI upload→search finds PDF-only words |
 | `LiedSucheQuellenTests.cs` | inherited `lied_suche_quellen`; new completion enters shared canonical visible SQL/search |
 | `SearchAgreementTests.cs` | inherited `search_agreement`; actual chat adapter remains #232 |

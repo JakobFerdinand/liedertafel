@@ -30,7 +30,7 @@ fn frozen_analyzer_boundary_and_utf16_observations() {
 		}
 		count += 1;
 	}
-	assert_eq!(count, 54);
+	assert_eq!(count, 56);
 	assert!(
 		failures.is_empty(),
 		"frozen analyzer differences: {failures:?}"
