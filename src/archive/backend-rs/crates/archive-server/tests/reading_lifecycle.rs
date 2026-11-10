@@ -55,8 +55,10 @@ async fn deadline_recovers_only_its_latest_progress_lease_and_keeps_the_claim_ti
 	for replacement in [0, 1, 2] {
 		let app = support::App::new_scoped("reading229").await;
 		let calls = Arc::new(AtomicUsize::new(0));
+		let second_request = Arc::new(tokio::sync::Notify::new());
 		let script = Script::handler({
 			let calls = calls.clone();
+			let second_request = second_request.clone();
 			move |_| {
 				if calls.fetch_add(1, Ordering::SeqCst) == 0 {
 					vec![ScriptStep::Update(Update {
@@ -65,6 +67,7 @@ async fn deadline_recovers_only_its_latest_progress_lease_and_keeps_the_claim_ti
 						..Default::default()
 					})]
 				} else {
+					second_request.notify_one();
 					vec![ScriptStep::Hold]
 				}
 			}
@@ -81,7 +84,7 @@ async fn deadline_recovers_only_its_latest_progress_lease_and_keeps_the_claim_ti
 		);
 		let (_, id) = h.seed(&app, 4).await;
 		let worker = Arc::new(h.worker);
-		let deadline = app.time.now() + chrono::Duration::milliseconds(1500);
+		let deadline = app.time.now() + chrono::Duration::minutes(1);
 		let task = {
 			let worker = worker.clone();
 			tokio::spawn(async move {
@@ -99,13 +102,13 @@ async fn deadline_recovers_only_its_latest_progress_lease_and_keeps_the_claim_ti
 					.await
 			})
 		};
-		tokio::time::timeout(std::time::Duration::from_secs(5), async {
-			while h.script.requests().len() < 2 {
-				tokio::task::yield_now().await;
-			}
-		})
+		tokio::time::timeout(
+			std::time::Duration::from_secs(10),
+			second_request.notified(),
+		)
 		.await
 		.unwrap();
+		assert_eq!(h.script.requests().len(), 2);
 		let claimed = Job::load(&app.pool, id).await.unwrap().unwrap();
 		assert_eq!(claimed.pages_read, 2);
 		if replacement > 0 {
@@ -118,6 +121,13 @@ async fn deadline_recovers_only_its_latest_progress_lease_and_keeps_the_claim_ti
 			.await
 			.unwrap();
 		}
+		// Native parsing/SQL must reach the held provider BEFORE the deadline
+		// is triggered. Advance only once real progress/foreign state exists;
+		// rendering speed is not the lease-recovery behavior under test.
+		*app.time.0.lock().unwrap() = deadline + chrono::Duration::seconds(1);
+		tokio::time::pause();
+		tokio::time::advance(std::time::Duration::from_secs(61)).await;
+		tokio::time::resume();
 		let disposition = task.await.unwrap().unwrap();
 		let row = Job::load(&app.pool, id).await.unwrap().unwrap();
 		assert_eq!(row.last_attempt_at, claimed.last_attempt_at);

@@ -23,6 +23,12 @@ Reuse these seams in #230/#231:
   2048px hard maximum. Existing64MiB extraction and32MiB reading limits remain
   distinct. Native C calls are cooperative, **not preemptible**; decoded expansion
   and a stuck C call are not hard-contained. Image/AppHost packaging remains #235.
+  Shared spool handoff now awaits Tokio `File::flush()` before returning a path:
+  write_all alone can return with its actual file write still queued. The
+  deterministic `pdf_spool` one-blocking-thread gate reproduced a returned path
+  with zero visible bytes before the fix. This inherited extraction-spool race
+  surfaced as an unreadable PDF in the reading lifecycle gate; it is not hidden
+  by increasing a timer. Both extraction and reading use the corrected loader.
 - `ReadField`, `clean_value`, `quote_is_verified`, UTF-16 `bound_text` and
   `strip_page_markers`. Certain values still need real quotes; every lyric line
   must occur in the text. The whole requested field list is code-owned.
@@ -122,7 +128,7 @@ Rust tests below are under `crates/archive-server/tests`.
 | `ReadingApiTests.cs` | `reading_api`: authenticated raw HTTP, state/source/REST nulls/no-store, roles/CSRF/disabled, retry/continue/material/full text, missing/pre-existing/insert-race rows, malformed body ignored, removed proposal/provenance routes. `reading_dispatch` exercises real selected/caller CAS send barriers and stamp failure. |
 | `ReadingPostgresLiveTests.cs` CURRENT cases | `reading_postgres`, `reading_worker`, `reading_dispatch`, `reading_lifecycle`: real canonical constraints/FKs and production gateway/ledger SQL, budget sweep/progress. No current SQL waiver. |
 | Same file, historical rekey/drop case | Explicit approved frozen-head adoption/preservation + older-history rejection in `historical_baseline`; obsolete transformation **NOT executed by Rust**. See `historical-migration-disposition.md` for the exact case/frontier and separately executed constraints. |
-| `PdfPageRendererTests.cs` | `pdf_page_renderer`: actual native count, requested/clamped pages, JPEG1000px, dark drawn raster content, corrupt input/cancellation/spool cleanup. Accepted `pdf_text_extractor`/extraction spool tests still run after sharing the loader. |
+| `PdfPageRendererTests.cs` | `pdf_page_renderer`: actual native count, requested/clamped pages, JPEG1000px, dark drawn raster content, corrupt input/cancellation/spool cleanup. `pdf_spool` adds a deterministic real-filesystem queued-write handoff regression. Accepted `pdf_text_extractor`/extraction spool tests still run after sharing the loader. |
 | `ScanPromptTests.cs` | `scan_prompt`: exact actual frozen agent schema/prompt/output-bound capture, catalog bullets/version, UTF-16/value/quote rules. `tests/oracles/ScanReadingOracle.cs` executes the unchanged frozen agent/Gateway with fake delivery/budget ONLY for capturing requests, not as reading-domain or SQL acceptance. External project `/tmp/opencode/229-oracle/Oracle.csproj`; log `229-scan-oracle.log`. Committed schema/field-prompt fixtures byte/JSON-match that runtime output. No credential/socket exists in this oracle. Frozen NuGet/compiler warnings remain warnings, not an audit pass. |
 | `ScanReadingEvaluationTests.cs` scripted | `scan_reading_evaluation`: generated1/3/5-page corpus through full worker/native renderer/Gateway/real ledger/field writer; per-document correctness and cost, explicit applied-wrong/missing/unchecked negative controls. These are reported outcomes, not extra test-function counts. |
 | Same file, `ScanReadingEvaluationLive` | Runtime exact three-value absent/whitespace gate BEFORE provider/fixture access. Configured unpriced/unusable deployment or bad/missing/empty corpus fails, not skips. Optional report/price names preserved; this harness uses explicit decimal override strings rather than the frozen ambient-culture Double parser (stricter fail-closed grammar). No live path executed or private corpus read here. |

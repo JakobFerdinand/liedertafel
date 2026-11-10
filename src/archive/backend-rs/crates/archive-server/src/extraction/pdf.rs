@@ -223,6 +223,10 @@ impl Spool {
 			stored += bytes.len() as u64;
 		}
 		drop(stream);
+		// Tokio write_all can finish after buffering, before its blocking file
+		// write runs. Native readers open a separate descriptor immediately:
+		// flush must complete first (kernel visibility, not an fsync promise).
+		file.flush().await.map_err(|_| Error::Io)?;
 		drop(file);
 		check(&cancelled)?;
 		Ok(spool)
