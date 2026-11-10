@@ -36,6 +36,13 @@ pub async fn run(
 		)
 		.map_err(|_| CommandError)?,
 	);
+	// Frozen finite runner ensures after maintenance and before either body.
+	// An unconfigured sender is a no-op; provider failure/cancellation is not.
+	tokio::select! {
+		biased;
+		_ = cancel.cancelled()=>return Err(CommandError),
+		result = queue.ensure()=>result.map_err(|_|CommandError)?,
+	}
 	let connection = std::env::var("ConnectionStrings__archive-db").map_err(|_| CommandError)?;
 	let pool = archive_db::runtime_pool(&connection).map_err(|_| CommandError)?;
 	let dispatched = tokio::select! {_ = cancel.cancelled()=>return Err(CommandError),result=dispatch(&pool,queue.as_ref(),&options,clock.as_ref())=>result.map_err(|_|CommandError)?};
