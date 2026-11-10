@@ -21,6 +21,49 @@ async fn main() {
 
 async fn run() -> Result<(), StartupError> {
 	let args: Vec<String> = std::env::args().skip(1).collect();
+	if let Some(command) = args
+		.first()
+		.filter(|s| matches!(s.as_str(), "--extract-queue" | "--dispatch-extraction"))
+	{
+		use tracing::Instrument;
+		let development = std::env::var("ARCHIVE_ENVIRONMENT").as_deref() == Ok("Development");
+		let defaults = archive_telemetry::ServiceDefaults::init(development, "archive-extraction")?;
+		let cancel = tokio_util::sync::CancellationToken::new();
+		let signal = cancel.clone();
+		let task = tokio::spawn(async move {
+			let mut term =
+				tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).ok();
+			tokio::select! {_ = tokio::signal::ctrl_c()=>{},_ = async{if let Some(term)=&mut term{term.recv().await;}else{std::future::pending::<()>().await;}}=>{}}
+			signal.cancel();
+		});
+		let span = if command == "--extract-queue" {
+			tracing::info_span!("extract-queue", otel.status_code = tracing::field::Empty)
+		} else {
+			tracing::info_span!(
+				"dispatch-extraction",
+				otel.status_code = tracing::field::Empty
+			)
+		};
+		let result = async {
+			let result =
+				archive_server::extraction::command::run(command, development, &cancel).await;
+			if result.is_ok() {
+				tracing::info!("Archive job {} completed", &command[2..]);
+			} else {
+				tracing::Span::current().record("otel.status_code", "ERROR");
+				tracing::error!("Archive job {} failed", &command[2..]);
+			}
+			result
+		}
+		.instrument(span)
+		.await;
+		task.abort();
+		let _ = task.await;
+		if !defaults.finish_finite_job() {
+			return Err(StartupError::FiniteTelemetry);
+		}
+		return result.map_err(StartupError::Extraction);
+	}
 	if let Some(command) = args.first().filter(|s| {
 		matches!(
 			s.as_str(),
@@ -86,6 +129,30 @@ async fn run() -> Result<(), StartupError> {
 	let development = settings.development;
 	let mut origin = Origin::new(settings);
 	origin.uploads = archive_server::catalogue::uploads::UploadOptions::from_env()?;
+	origin.extraction = archive_server::extraction::Options::from_env();
+	origin.reading_enabled = std::env::var("Archive__Reading__Enabled")
+		.map(|s| s.eq_ignore_ascii_case("true"))
+		.unwrap_or(development);
+	origin.extraction_queue = Arc::new(
+		archive_server::queue::AzureQueue::select(
+			std::env::var("ConnectionStrings__archive-queues")
+				.ok()
+				.as_deref(),
+			std::env::var("Archive__Extraction__QueueServiceUri")
+				.ok()
+				.as_deref(),
+			&origin.extraction.queue_name,
+			development,
+			Arc::new(archive_server::auth::SystemClock),
+		)
+		.map_err(|_| StartupError::Extraction(archive_server::extraction::command::CommandError))?,
+	);
+	origin
+		.finalized_hooks
+		.push(Arc::new(archive_server::extraction::Hook {
+			queue: origin.extraction_queue.clone(),
+			clock: Arc::new(archive_server::auth::SystemClock),
+		}));
 	let config = archive_server::auth::AuthConfig::from_env(development)?;
 	let mail = archive_server::auth::mail::from_env(development)?;
 	if let Ok(connection) = std::env::var("ConnectionStrings__archive-db") {
@@ -175,6 +242,8 @@ async fn run() -> Result<(), StartupError> {
 /// apphost resource fails visibly.
 #[derive(Debug, thiserror::Error)]
 enum StartupError {
+	#[error("{0}")]
+	Extraction(archive_server::extraction::command::CommandError),
 	#[error("{0}")]
 	Storage(#[from] archive_server::storage::StorageError),
 	#[error("Archive job telemetry flush failed")]

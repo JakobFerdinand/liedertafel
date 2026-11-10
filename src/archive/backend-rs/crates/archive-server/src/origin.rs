@@ -27,6 +27,9 @@ pub struct Origin {
 	pub uploads: crate::catalogue::uploads::UploadOptions,
 	pub draft_lifecycle: Vec<Arc<dyn crate::catalogue::drafts::DraftLifecycle>>,
 	pub finalized_hooks: Vec<Arc<dyn crate::catalogue::uploads::FinalizedHook>>,
+	pub extraction: crate::extraction::Options,
+	pub extraction_queue: Arc<dyn crate::queue::Queue>,
+	pub reading_enabled: bool,
 }
 impl std::fmt::Debug for Origin {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -45,6 +48,9 @@ impl Origin {
 			uploads: crate::catalogue::uploads::UploadOptions::default(),
 			draft_lifecycle: Vec::new(),
 			finalized_hooks: Vec::new(),
+			extraction: Default::default(),
+			extraction_queue: Arc::new(crate::queue::AzureQueue::unconfigured()),
+			reading_enabled: false,
 			build_requests: global::meter(METER_NAME)
 				.u64_counter("archive.build.requests")
 				.with_description("Build-probe requests to /api/build")

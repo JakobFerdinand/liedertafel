@@ -12,11 +12,13 @@ mod binding;
 pub mod catalogue;
 mod clr_guid;
 pub mod events;
+pub mod extraction;
 pub mod frontend;
 pub mod origin;
 pub mod recordings;
 pub mod settings;
 pub mod storage;
+pub use storage::queue;
 
 pub use origin::{Origin, build_router};
 pub use settings::Settings;

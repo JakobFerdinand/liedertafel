@@ -208,6 +208,7 @@ fn install_tracing_subscriber(defaults: &ServiceDefaults) -> Result<(), InitErro
 				&& !metadata.target().starts_with("h2")
 				&& !metadata.target().starts_with("tonic")
 				&& !metadata.target().starts_with("sqlx")
+				&& !metadata.target().starts_with("pdfium_render")
 		}));
 
 	tracing::subscriber::set_global_default(subscriber)

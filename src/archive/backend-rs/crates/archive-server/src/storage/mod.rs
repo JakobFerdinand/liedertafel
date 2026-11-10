@@ -1,5 +1,6 @@
 //! Blob-scoped tickets, not an API file proxy. Azure clients remain the provider
 //! boundary; callers authorize visible database rows before asking for a ticket.
+pub mod queue;
 mod shared_key;
 use crate::auth::Clock;
 use azure_core::credentials::Secret;
@@ -46,6 +47,19 @@ impl From<azure_core::Error> for StorageError {
 }
 
 pub trait Storage: Send + Sync {
+	fn open_read_bounded<'a>(
+		&'a self,
+		blob: &'a str,
+		_max: u64,
+	) -> BoxFuture<'a, Result<Option<BlobRead>, StorageError>> {
+		self.open_read(blob)
+	}
+	fn open_read<'a>(
+		&'a self,
+		_blob: &'a str,
+	) -> BoxFuture<'a, Result<Option<BlobRead>, StorageError>> {
+		Box::pin(async { Err(StorageError::Unavailable) })
+	}
 	fn probe<'a>(
 		&'a self,
 		_blob: &'a str,
@@ -173,6 +187,13 @@ impl StorageConfig {
 		})
 	}
 	pub fn connection_string(value: &str, container: &str) -> Result<Self, StorageError> {
+		Self::connection_string_for(value, container, "Blob")
+	}
+	fn connection_string_for(
+		value: &str,
+		container: &str,
+		service: &str,
+	) -> Result<Self, StorageError> {
 		let fields: std::collections::HashMap<_, _> = value
 			.split(';')
 			.filter(|v| !v.is_empty())
@@ -194,11 +215,13 @@ impl StorageConfig {
 		{
 			return Err(StorageError::Configuration);
 		}
-		let mut endpoint = match fields.get("BlobEndpoint") {
+		let endpoint_field = format!("{service}Endpoint");
+		let mut endpoint = match fields.get(endpoint_field.as_str()) {
 			Some(v) => Url::parse(v),
 			None => Url::parse(&format!(
-				"{}://{account}.blob.{}",
+				"{}://{account}.{}.{}",
 				fields.get("DefaultEndpointsProtocol").unwrap_or(&"https"),
+				service.to_ascii_lowercase(),
 				fields.get("EndpointSuffix").unwrap_or(&"core.windows.net")
 			)),
 		}
@@ -241,20 +264,10 @@ impl std::fmt::Debug for BlobStorage {
 }
 impl BlobStorage {
 	pub fn new(config: StorageConfig, clock: Arc<dyn Clock>) -> Result<Self, StorageError> {
-		let credential: Option<Arc<dyn TokenCredential>> =
-			if config.endpoint.is_some() && config.key.is_none() {
-				Some(if config.development {
-					azure_identity::DeveloperToolsCredential::new(None)
-						.map_err(|_| StorageError::Configuration)?
-				} else {
-					azure_identity::ManagedIdentityCredential::new(Some(managed_identity_options(
-						std::env::var("AZURE_CLIENT_ID").ok().as_deref(),
-					)))
-					.map_err(|_| StorageError::Configuration)?
-				})
-			} else {
-				None
-			};
+		let credential = credential(
+			config.endpoint.is_some() && config.key.is_none(),
+			config.development,
+		)?;
 		Self::construct(config, clock, credential, None)
 	}
 	/// Provider seam: only credential acquisition and HTTP delivery may be replaced.
@@ -533,6 +546,23 @@ pub fn managed_identity_options(
 		..Default::default()
 	}
 }
+fn credential(
+	keyless: bool,
+	development: bool,
+) -> Result<Option<Arc<dyn TokenCredential>>, StorageError> {
+	if !keyless {
+		return Ok(None);
+	}
+	Ok(Some(if development {
+		azure_identity::DeveloperToolsCredential::new(None)
+			.map_err(|_| StorageError::Configuration)?
+	} else {
+		azure_identity::ManagedIdentityCredential::new(Some(managed_identity_options(
+			std::env::var("AZURE_CLIENT_ID").ok().as_deref(),
+		)))
+		.map_err(|_| StorageError::Configuration)?
+	}))
+}
 fn client_options(transport: Option<Transport>) -> Result<ClientOptions, StorageError> {
 	let transport = match transport {
 		Some(t) => t,
@@ -590,6 +620,28 @@ impl azure_core::http::policies::Policy for NetworkDeadline {
 	}
 }
 impl Storage for BlobStorage {
+	fn open_read_bounded<'a>(
+		&'a self,
+		blob: &'a str,
+		max: u64,
+	) -> BoxFuture<'a, Result<Option<BlobRead>, StorageError>> {
+		Box::pin(async move {
+			let Some(info) = self.probe(blob).await? else {
+				return Ok(None);
+			};
+			let length = info.size_bytes.min(max.saturating_add(1));
+			if length == 0 {
+				return Ok(Some(Box::pin(futures::stream::empty()) as BlobRead));
+			}
+			Ok(Some(self.stream_range(blob, length, info.etag)?))
+		})
+	}
+	fn open_read<'a>(
+		&'a self,
+		blob: &'a str,
+	) -> BoxFuture<'a, Result<Option<BlobRead>, StorageError>> {
+		Box::pin(BlobStorage::open_read(self, blob))
+	}
 	fn upload_ticket<'a>(
 		&'a self,
 		blob: &'a str,

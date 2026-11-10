@@ -179,6 +179,12 @@ update this section in the same PR whenever the member list changes.
 
 ## Done means
 
+For extraction, Queue, PDF or worker-search changes, read
+`docs/extraction-parity.md` for finite drain/lease/hook contracts, pinned native
+ABI/spool limits and per-file ownership. Focused real-PG gate: `cargo test -p
+archive-server --locked --test extraction_worker -- --ignored`; native unchanged
+UI/private Queue gate: `node tests/browser/extraction-native.cjs`.
+
 - fmt + clippy + tests green, parity cases translated
   where the wave demands them, C# backend untouched, telemetry visible in the
   local Aspire stack, and this file updated in the same PR whenever the
