@@ -15,6 +15,116 @@ fn cases() -> Vec<Value> {
 		.map(|l| serde_json::from_str(l).unwrap())
 		.collect()
 }
+fn decimal_cases() -> Vec<Value> {
+	include_str!("../../../tests/fixtures/228-ai-config-decimals.jsonl")
+		.lines()
+		.map(|l| serde_json::from_str(l).unwrap())
+		.collect()
+}
+
+#[test]
+fn configuration_float_decimals_match_actual_binder_precision_and_grammar() {
+	let cases = decimal_cases();
+	if let Ok(index) = std::env::var("ARCHIVE_228_DECIMAL_CASE") {
+		let case = &cases[index.parse::<usize>().unwrap()];
+		let expected = &case["expected"];
+		let result = Options::from_env(false);
+		if expected["error"] == true {
+			assert!(
+				matches!(result, Err(Error::Configuration)),
+				"{case}: {result:?}"
+			);
+			return;
+		}
+		if case["target"] == "cap" && expected["capMicro"].is_null() {
+			// Decimal conversion succeeds in BCL; the existing Rust checked
+			// i64 micro-EUR cap bound still refuses the unusable configuration.
+			assert!(
+				matches!(result, Err(Error::MoneyOverflow)),
+				"{case}: {result:?}"
+			);
+			return;
+		}
+		let options = result.unwrap();
+		let price = options.models.get("gpt-6-luna").unwrap();
+		let amount = match case["target"].as_str().unwrap() {
+			"cap" => options.monthly_cap_eur,
+			"input" => price.input,
+			"output" => price.output,
+			_ => unreachable!(),
+		};
+		// .NET formats signed zero without '-' but retains its sign/scale bits.
+		let text = if amount.is_zero() {
+			amount.abs().to_string()
+		} else {
+			amount.to_string()
+		};
+		assert_eq!(text, expected["amount"].as_str().unwrap(), "{case}");
+		assert_eq!(
+			u64::from(amount.scale()),
+			expected["scale"].as_u64().unwrap(),
+			"{case}"
+		);
+		assert_eq!(
+			amount.is_sign_negative(),
+			expected["negative"].as_bool().unwrap(),
+			"{case}"
+		);
+		assert_eq!(
+			options.find_price("gPt-6-LuNa").is_some(),
+			expected["usable"].as_bool().unwrap(),
+			"{case}"
+		);
+		assert_eq!(
+			options.cap_micro_eur().unwrap(),
+			expected["capMicro"].as_i64().unwrap(),
+			"{case}"
+		);
+		return;
+	}
+	for (index, case) in cases.iter().enumerate() {
+		let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+		child.args([
+			"--exact",
+			"configuration_float_decimals_match_actual_binder_precision_and_grammar",
+			"--nocapture",
+		]);
+		for (key, _) in std::env::vars() {
+			if key
+				.replace("__", ":")
+				.to_ascii_lowercase()
+				.starts_with("archive:ai:")
+			{
+				child.env_remove(key);
+			}
+		}
+		child
+			.env(
+				"Archive__Ai__Models__gpt-6-luna__InputPricePerMillionEur",
+				"0.5",
+			)
+			.env(
+				"Archive__Ai__Models__gpt-6-luna__OutputPricePerMillionEur",
+				"0.5",
+			);
+		let key = match case["target"].as_str().unwrap() {
+			"cap" => "Archive__Ai__MonthlyCapEur",
+			"input" => "Archive__Ai__Models__gpt-6-luna__InputPricePerMillionEur",
+			"output" => "Archive__Ai__Models__gpt-6-luna__OutputPricePerMillionEur",
+			_ => unreachable!(),
+		};
+		child
+			.env(key, case["value"].as_str().unwrap())
+			.env("ARCHIVE_228_DECIMAL_CASE", index.to_string());
+		let output = child.output().unwrap();
+		assert!(
+			output.status.success(),
+			"case {case}\n{}\n{}",
+			String::from_utf8_lossy(&output.stdout),
+			String::from_utf8_lossy(&output.stderr)
+		);
+	}
+}
 fn price(options: &Options, model: &str) -> Value {
 	options.find_price(model).map(|p|json!({"input":p.input.to_string(),"output":p.output.to_string(),"costOneEachMicro":cost_micro_eur(p,1,1).unwrap()})).unwrap_or(Value::Null)
 }
@@ -173,6 +283,21 @@ async fn configured_guards_and_prices_reach_real_gateway_and_sql() {
 	let result = gateway.start(request, false).unwrap().response().await;
 	assert_eq!(result.is_err(), will_refuse, "{}", case["name"]);
 	assert!(gateway.drain().await);
+	if case["name"] == "decimal-underflow-unpriced" {
+		assert!(matches!(result, Err(Error::Unavailable)), "{result:?}");
+		assert_eq!(count.load(Ordering::SeqCst), 0);
+		let (usage, months): (i64, i64) = sqlx::query_as(
+			"SELECT (SELECT COUNT(*) FROM ai_usage_entries),(SELECT COUNT(*) FROM ai_budget_months)",
+		)
+		.fetch_one(&app.pool)
+		.await
+		.unwrap();
+		assert_eq!(
+			(usage, months),
+			(0, 0),
+			"underflow must refuse before any ledger write"
+		);
+	}
 	let rows = ledger
 		.month_entries(&ledger.status().await.unwrap().month)
 		.await

@@ -40,12 +40,116 @@ pub fn eur(micro: i64) -> Decimal {
 	Decimal::new(micro, 6)
 }
 fn config_decimal(value: &str) -> Result<Decimal, Error> {
-	// Rust Decimal additionally accepts underscores; .NET's actual option
-	// binder rejects them. Invalid cap/price lexemes must stay fail-closed.
-	if value.contains('_') {
-		return Err(Error::Configuration);
+	config_float(value).ok_or(Error::Configuration)
+}
+
+/// Actual invariant DecimalConverter ENV grammar: Unicode Trim, then Float
+/// (leading sign/decimal point/exponent, NO trailing sign/grouping/underscores).
+/// Reduce precision directly from the original digits, ties-to-even, retaining
+/// scale and signed zero. Neither Rust FromStr's midpoint-up behavior nor the
+/// notice's distinct Number grammar is suitable. Actual binder observations in
+/// 228-ai-config-decimals.jsonl pin grammar, underflow and the 96-bit boundary.
+fn config_float(value: &str) -> Option<Decimal> {
+	let mut text = value.trim();
+	let negative = text.starts_with('-');
+	if text.starts_with(['+', '-']) {
+		text = &text[1..];
 	}
-	value.trim().parse().map_err(|_| Error::Configuration)
+	let mut exponent = 0_i64;
+	if let Some(index) = text.find(['e', 'E']) {
+		let mut tail = &text[index + 1..];
+		let exponent_negative = tail.starts_with('-');
+		if tail.starts_with(['+', '-']) {
+			tail = &tail[1..];
+		}
+		if tail.is_empty() || !tail.bytes().all(|b| b.is_ascii_digit()) {
+			return None;
+		}
+		// Saturation handles arbitrarily long exponents without allocating
+		// exponent-sized strings: nonzero huge positives overflow, negatives
+		// underflow, and zero retains its clamped scale, just like the BCL.
+		for byte in tail.bytes() {
+			exponent = exponent
+				.saturating_mul(10)
+				.saturating_add(i64::from(byte - b'0'));
+		}
+		if exponent_negative {
+			exponent = -exponent;
+		}
+		text = &text[..index];
+	}
+	let mut digits = String::new();
+	let mut point = false;
+	let mut fraction = 0_i64;
+	for byte in text.bytes() {
+		match byte {
+			b'0'..=b'9' => {
+				digits.push(char::from(byte));
+				if point {
+					fraction = fraction.saturating_add(1);
+				}
+			}
+			b'.' if !point => point = true,
+			_ => return None,
+		}
+	}
+	if digits.is_empty() {
+		return None;
+	}
+	let mut scale = fraction.saturating_sub(exponent);
+	let digits = digits.trim_start_matches('0');
+	if digits.is_empty() {
+		let mut zero =
+			Decimal::try_from_i128_with_scale(0, u32::try_from(scale.clamp(0, 28)).ok()?).ok()?;
+		zero.set_sign_negative(negative);
+		return Some(zero);
+	}
+	let expanded;
+	let digits = if scale < 0 {
+		let zeros = usize::try_from(-scale).ok()?;
+		if digits.len().checked_add(zeros)? > 29 {
+			return None;
+		}
+		expanded = format!("{digits}{}", "0".repeat(zeros));
+		scale = 0;
+		expanded.as_str()
+	} else {
+		digits
+	};
+	let length = i64::try_from(digits.len()).ok()?;
+	let mut drop = scale
+		.saturating_sub(28)
+		.max(length.saturating_sub(29))
+		.max(0);
+	// At most 29 candidate scales, even for an enormous negative exponent.
+	while drop <= scale {
+		let split = length - drop;
+		let mut coefficient = if split <= 0 {
+			0
+		} else {
+			digits[..usize::try_from(split).ok()?]
+				.parse::<i128>()
+				.ok()?
+		};
+		if split >= 0 && split < length {
+			let removed = &digits.as_bytes()[usize::try_from(split).ok()?..];
+			if removed[0] > b'5'
+				|| (removed[0] == b'5'
+					&& (coefficient % 2 != 0 || removed[1..].iter().any(|&b| b != b'0')))
+			{
+				coefficient += 1;
+			}
+		}
+		if coefficient <= Decimal::MAX.mantissa() {
+			let mut amount =
+				Decimal::try_from_i128_with_scale(coefficient, u32::try_from(scale - drop).ok()?)
+					.ok()?;
+			amount.set_sign_negative(negative);
+			return Some(amount);
+		}
+		drop += 1;
+	}
+	None
 }
 
 #[derive(Clone, Debug)]
