@@ -1,11 +1,92 @@
 # AI foundation (#228)
 
-## Current review remediation — both rereviews REQUIRED
+## Current review status — narrow R4 fix awaiting ledger clearance
 
-The original `74ef3d0` is **HOLD**, with three demonstrated ledger/configuration
-regressions and four demonstrated transport regressions. These are new defects,
-not the conditional-reservation/unknown-commit/source-notice qualifications.
-All seven now have executed failing controls followed by focused green runs:
+The independent transport rereview is **ACCEPTABLE at `3c7db5d`**, with T1–T4
+closed. The independent ledger rereview resolved R1–R3 and found one new **Low
+R4** in configuration decimal precision, also present in the original candidate.
+The earlier green tests remain valid for their covered inputs; this requires an
+unusual greater-than28-scale override, not a shipped-price/cap bypass.
+
+`6932b33` fixes only the options converter and adds actual configuration
+oracles/regressions. It implements the reached invariant DecimalConverter
+`NumberStyles.Float` grammar after Unicode Trim, including exponent/sign rules
+and direct ties-to-even precision reduction at the96-bit/28-scale boundary.
+It retains scale/signed zero, handles huge exponents without exponent-sized
+allocation, and rejects underscores/grouping/trailing signs. It does **not**
+reuse the notice's `NumberStyles.Number` grammar or Rust Decimal FromStr.
+
+The two original R4 repros are now committed actual ConfigurationBuilder
+observations: input`0.50000000000000000000000000005` + output`0.5` costs **1**, not
+2 micro-EUR for1/1 tokens; input`0.00000000000000000000000000005` rounds to zero
+and the model is unpriced. The real Options/gateway/PostgreSQL test asserts
+that underflow returns Unavailable with **zero provider calls, zero usage rows
+and zero month rows**. The ordinary actual-binder matrix has **288 observations
+(96 spellings × cap/input/output)**, comparing configured values, scale, sign
+(including signed zero), usable price and bounded cap conversion. It covers
+positive/negative exact/sticky ties, exponents/underflow/overflow, max96-bit,
+leading/trailing whitespace, plus/minus and invalid grammar. Maximum parsed
+cap values still fail the pre-existing checked i64 micro-EUR bound; conversion
+success is not a waiver of that separate configuration guard.
+
+Executed behavioral red→green logs: `/tmp/opencode/228-r4-{red,green}.log` and
+`228-r4-underflow-red.log`; focused fmt/clippy and35 ledger/configuration/notice
+tests passed in `228-r4-focused-{fmt,clippy,green}.log`. The original reviewer
+demonstrations remain independently owned at
+`228-ledger-rereview-decimal-probe.rs` and
+`228-ledger-rereview-decimal-{tie,zero}-{rust,dotnet}.log`, as documented in
+`/tmp/opencode/liedertafel-218-ai-ledger-review.md`. They are not claimed as new
+independent implementation evidence.
+
+The full fresh final pipeline completed after the last code fix, against
+runtime/test source `6932b33f119b39699cc928aee1a980e02c924650`. The last handoff
+commit records documentation only. The parent must obtain independent ledger R4
+clearance and verify the narrow diff
+from transport-reviewed `3c7db5d` to the final candidate; no duplicate independent
+transport review is claimed or required by this handoff. No merge authority is
+granted. #229/#230/#231 remain blocked until parent-serialized acceptance.
+
+### Final R4 validation (2026-11-10)
+
+Fresh sequential order: fmt → all-target clippy → workspace tests → workspace
+build and examples build → active pinned cargo-deny → static linkage → ALL
+explicit gates → nine native journeys with nine drained private replays.
+Dependencies remained locked; dedicated target/ticket-228, local PostgreSQL55428
+and private Azurite51029/52029/53029 were retained.
+
+| Gate | Final R4 result |
+| --- | --- |
+| fmt, all-target clippy `-D warnings`, workspace and examples builds | **PASS** |
+| Ordinary Rust workspace | **103 passed / 0 failed / 204 ignored**; the new matrix is one test with288 isolated cases |
+| ALL combined explicit gates | **204 passed / 0 failed / 0 ignored**: 196 SQL, 1 schema/adoption/grants, 5 private Blob, 1 private Queue, 1 native PDF; configuration suite now exercises23 real gateway/PG children |
+| Pinned cargo-deny0.20.2 | **PASS**: advisories/bans/licenses/sources; existing duplicate-version warnings retained |
+| Native auth/member/catalogue/upload/events/query/extraction/recordings/AI | **9/9 PASS**; unchanged strengthened AI prefix-error/cancel/cap/failed-settlement/checked-flush controls |
+| Drained private telemetry replays | **9/9 PASS**; completion/secrecy checked, findings/errors/legacyMatches empty, captures0700/replays0600 |
+| Detector/lifecycle | **110 passed / 0 failed / 0 skipped** |
+| Unchanged frozen .NET AI/ledger/provider/notices/infra | **42 passed**, including all three actually executed PostgreSQL concurrency cases |
+| Unchanged frontend unit tests | **115 passed / 0 failed / 0 skipped** |
+| Unchanged mocked desktop/mobile UI | **184 passed**; static/mock regression tests, not native chat/hosted acceptance |
+| Native linkage | Embedded **OpenSSL3.5.9**, no dynamic libssl/libcrypto |
+
+Final logs: `/tmp/opencode/228-r4-final-{fmt,clippy,workspace,build,deny,linkage,
+explicit,native-summary,detector,frozen-dotnet-sql,frontend-unit,frozen-browser}.log`
+and per-native `228-r4-final-<name>.log`/`-replay.log`.
+`228-r4-final-native-results.json` pins the nine private captures;
+`228-r4-final-evidence.json` records verified counts, source pin, binary hash and
+clean privacy completions. Private replays remain local. The final handoff report
+`/tmp/opencode/liedertafel-218-228-report.md` pins the documentation commit and
+exact `3c7db5d → final SHA` six-file diff: options converter, one configuration
+test, its oracle, two configuration fixtures and this parity guide only.
+No gateway/ledger SQL/ACK, transport/encoder, identity, notice/threshold, native
+helper, frozen source/test/frontend, infrastructure, workflow or Dockerfile change
+is included. Original candidate/accepted base/transport-reviewed ancestry and
+`git diff --check` passed. Existing source limitations/failures and pending hosted/
+image/AppHost/cutover gates remain unwaived; no cleanup or merge was performed.
+
+### Original seven findings — independently closed at `3c7db5d`
+
+All seven had behavioral red→green controls, actual frozen oracles and subsequent
+independent closures. Their mappings and source qualifications remain unchanged:
 
 | Finding | Fix / direct evidence |
 | --- | --- |
@@ -17,14 +98,12 @@ All seven now have executed failing controls followed by focused green runs:
 | Transport T3 Low | `444bd8d`: present total_tokens must also be Int32, even though pricing uses only input/output. Actual SDK nonstream/SSE valid/missing/empty/null/malformed/overflow/prefix fixtures; top-level usage:null stays unreported. |
 | Transport T4 Low | `dd46b16`: one AI ENV snapshot is trimmed and passed into the approved credential factory. Local refusing App Service query tests cover whitespace/canonical/unset/blank/lazy construction; PATH contains only refusing fake az/azd, so no real credential/token can be obtained. Shared Blob/Queue selection and normalization policy is unchanged. |
 
-Fresh combined validation completed against runtime/test source
-`96c09fce29cb3abbc3d76edcfa7bfb3e15b0dbc3`; the final commit records documentation
-only. Both independent rereviews and parent acceptance remain required.
-#229/#230/#231 remain blocked. No tracker/PR/push/merge/deployment or live-provider
-operation is authorized by these fixes. The original reviewer reports remain
-HOLD; implementation regressions and oracle runs are not independent rereviews.
+### Prior remediation validation at `3c7db5d` (historical)
 
-### Final remediation validation (2026-11-10)
+That combined validation completed against runtime/test source
+`96c09fce29cb3abbc3d76edcfa7bfb3e15b0dbc3`; the final commit records documentation
+only. Those seven fixes have since been independently closed as stated above;
+the new ledger R4 and narrow parent diff verification remain separate.
 
 The fresh sequential pipeline was fmt → all-target clippy → workspace tests →
 workspace/examples build → pinned cargo-deny → ALL explicit gates → nine native
@@ -65,7 +144,21 @@ them. Private captures and owned local services remain intact; no cleanup ran.
 
 `AiConfigurationOracle.cs` links unchanged `AiOptions.cs` and invokes real
 ConfigurationBuilder/AddEnvironmentVariables in isolated processes. It produces
-`228-ai-config.jsonl`. `AiNumberOracle.cs` executes the actual BCL format and
+`228-ai-config.jsonl` (now23 cases, including both R4 repros). Its
+`decimal-matrix <unchanged-appsettings.json>` mode executes actual configuration
+binding with in-memory string overrides over the unchanged JSON, producing
+`228-ai-config-decimals.jsonl` (288 observations); it is not a mathematical
+substitute for DecimalConverter. Rust runs every matrix case through actual
+Options in an isolated ENV child. The source uses
+`DecimalConverter.FromString` → `decimal.Parse(..., NumberStyles.Float, ...)`,
+with `BaseNumberConverter.ConvertFrom` trimming first (runtime v10.0.0 sources,
+executed BCL10.0.14):
+[DecimalConverter](https://github.com/dotnet/runtime/blob/v10.0.0/src/libraries/System.ComponentModel.TypeConverter/src/System/ComponentModel/DecimalConverter.cs),
+[BaseNumberConverter](https://github.com/dotnet/runtime/blob/v10.0.0/src/libraries/System.ComponentModel.TypeConverter/src/System/ComponentModel/BaseNumberConverter.cs).
+Invalid dictionary-model binding still differs in exception
+shape: frozen binding drops that unusable model; Rust fails configuration. Both
+refuse before provider/ledger work, without reverting to shipped prices.
+`AiNumberOracle.cs` executes the actual BCL format and
 unchanged ParseThresholds into `228-ai-numbers.jsonl` (13 formats+208 thresholds).
 `AiTransportReviewOracle.cs` links the unchanged provider/frozen backend and uses
 fake credentials/HttpMessageHandler only, producing `228-ai-transport-review.jsonl`.
