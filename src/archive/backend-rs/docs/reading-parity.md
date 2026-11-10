@@ -145,6 +145,7 @@ Blob51030/Queue52030/Table53030 (avoiding the retained #228 native ports).
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
+cargo build --workspace --locked
 cargo build --workspace --examples --locked
 cargo test -p archive-server --locked --test reading_worker --test reading_api --test reading_dispatch --test reading_lifecycle --test reading_postgres --test pdf_page_renderer -- --ignored
 cargo test -p archive-server --locked --test scan_reading_evaluation -- --ignored --nocapture
@@ -159,9 +160,66 @@ built `reading-cancel-native` example; its guard accepts only its local
 `test229_reading_*` fixture database and loopback fake credential/provider.
 It is not a product command or a route to a hosted model.
 
-Final sequential validation counts and exact source pin will be recorded here
-and in `/tmp/opencode/liedertafel-218-229-report.md` before handoff. Inherited known
-frozen passkey/member browser failures, original uncaptured UNCLASSIFIED redaction
-event, video FK refusal and conditional budget/current-price/unknown-ACK/notice
-qualifications are retained; no later clean run reclassifies them. Hosted identity,
-live model/API acceptance, actual image/AppHost, deployment/cutover remain unrun.
+## Candidate validation — 2026-11-10
+
+Runtime/test source: **`7bf628fe852f89b06b83514d879e5eef3c517fcb`**. Accepted
+integration tip **`fda8e319215dabd195d6bfd3da66193615b3553a`** is an ancestor;
+the requested merge into this ticket branch returned **Already up to date**.
+The handoff's final commit changes documentation only. Independent acceptance
+and integration-branch merge remain parent-owned; #230/#231 stay blocked.
+
+| Gate | Executed result |
+| --- | --- |
+| Sequential fmt, all-target clippy `-D warnings`, ordinary workspace, examples build, active pinned cargo-deny, ALL explicit ignored gates | **PASS** in that order; dependencies locked; existing duplicate-version audit warnings retained |
+| Ordinary Rust workspace | **109 passed / 0 failed / 224 ignored**; includes one absent-config live guard early return, **not** a paid/live evaluation pass |
+| ALL explicit combined gates | **224 passed / 0 failed / 0 ignored**: 215 SQL (including PG+native PDF/gateway/scripted evaluation), 1 schema/adoption/grants, 5 private Blob, 1 private Queue, 2 standalone native PDF |
+| Additional default workspace/product build | **PASS**, separately from `--examples`; all ten native journeys then freshly repeated against that default-feature product binary |
+| Native auth/member/catalogue/upload/events/query/extraction/recordings/AI/reading and individual drained replays | Final product-binary run **10/10 PASS + 10/10 replay PASS** |
+| Native completion/privacy | All ten final captures have empty findings/errors/legacyMatches, terminal completion + secrecy checks, capture0700/replay0600; checked independently after the replay runner |
+| Official-schema detector/lifecycle | **110 passed / 0 failed / 0 skipped** |
+| Unchanged frozen scoped .NET | **128 passed**, including current reading PG park/wake and all three real PG ledger contention/replica cases; includes one absent-config live guard early return; historical rekey method excluded only under the explicit equivalent above |
+| Unchanged frontend unit tests | **115 passed / 0 failed / 0 skipped** |
+| Unchanged mocked desktop/mobile UI | **184 passed**, eight-spec selection; not native model/backend acceptance |
+| Actual frozen offline scan agent | **3 observations**, schema + both prompts exactly match committed fixtures; no provider socket/credential |
+| Binary linkage | Embedded **OpenSSL3.5.9**, no dynamic libssl/libcrypto; final product SHA256 `7fe5af3d783bea71048643c4ef4710559e10a6d306bb2c022ef2b4f4b98c51ff` |
+
+Totals are test-function counts, not expanded assertions, corpus outcomes or
+isolated configuration-child processes. Scripted evaluation's generated1/3/5-page
+positive set reports **3/3 correct,1092 micro-EUR synthetic ledger cost**; explicit
+wrong/missing/unchecked controls are part of the same test, not extra passes or
+real OCR-quality claims. No model provider was paid.
+
+Primary logs under `/tmp/opencode/`: `229-final-{fmt,clippy,workspace,build,deny,
+explicit,pipeline}.log`, separate `229-final-workspace-build.log`, native summary,
+per-native `<name>.log`/`<name>-replay.log`, `229-final-native-results.json`,
+`229-final-{evidence.json,evidence-verification.log,linkage.log}`. Scoped evidence:
+`229-final-{frozen-dotnet,frontend-unit,frozen-browser-configured,detector}.log`;
+oracle `229-scan-oracle.log` and `229-final-oracle-comparison.log`. Retained static
+output provenance is `229-static-provenance.log`:112 tracked source/config files
+match,111 output files, inventory hash recorded in the external report.
+
+The final report `/tmp/opencode/liedertafel-218-229-report.md` pins both the
+implementation and documentation-only last SHA, final binary hash/capture paths,
+failed/red/unrun distinctions and remaining gates. Relevant retained controls:
+
+- `229-spool-red.log` failed with zero visible bytes before the flush fix;
+  `229-spool-green.log` and12 combined spool/lifecycle stress repetitions passed.
+  Prior lifecycle timeouts are real failed runs, not retroactively relabelled.
+- `229-preclaim-{red,green}.log` covers deadline expiry before acquiring a lease.
+- `229-foreign-lease-negative-control.log` shows the unsafe `>=` mutation failing
+  the real-PG foreign-lease assertion; restored exact equality passed separately.
+- `229-live-price-{red,green}.log` proves underscore rejection at the pure
+  evaluation override seam after reusing the accepted configuration converter.
+- Earlier failed fixture/setup/native runs and incomplete full pipelines remain
+  retained separately; neither their totals nor prior-source passes replace the
+  final-source combined run. Frozen NuGet warnings are not a Rust audit
+  pass; the scoped .NET run retains its existing package/compiler warnings.
+
+Inherited frozen passkey/member browser failures, original uncaptured
+**UNCLASSIFIED** redaction event, video FK refusal and conditional
+budget/current-price/unknown-ACK/notice qualifications remain unwaived. Hosted
+identity/RBAC/storage, external mail, live model/API/private corpus, actual
+image/AppHost, production deployment/cutover and future model-consuming HTTP
+lifetime gates remain **unrun**, not passed by these local checks. No push,
+issue/PR write, integration/main merge, deployment or worktree/resource cleanup
+was performed. Local fixture services/artifacts remain for the parent.
