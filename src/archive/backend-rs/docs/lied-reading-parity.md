@@ -27,19 +27,24 @@ does not establish the native Kestrel envelope. Raw bounded section-header
 metadata preserves whitespace/duplicates that multer's HeaderMap discards; body
 lengths and boundary parsing still come from multer. The whole form is buffered
 once under the independent30MB cap before parsing (Bytes clones share storage).
-Header limits count distinct case-insensitive names, with the actual line/CRLF
-budget. Attachment sections are ignored, not accumulated. Case-insensitive
+Header limits count distinct case-insensitive names. Frozen ProcessLineChar
+recognizes LF after CR before checking that LF against the line budget:99 padding
+characters fit the100 limit,100 do not;16,383 aggregate ASCII header characters
+leave room for the final empty line's CR,16,384 do not. Caps remain100/16KiB;
+no arbitrary allowance or source buffer-layout resource escape is adopted.
+Attachment sections are ignored, not accumulated. Case-insensitive
 disposition parameters, filename*, empty filename-as-scalar and quoted MIME B
 names use the actual framework metadata policy. The quoted MIME decoder alone
 allows noncanonical unused base64 bits; provider/auth decoding is unchanged.
 
 `tests/oracles/LesungFormGrammarOracle.cs` and `tests/browser/lesung-form-cases.cjs`
-compare **identical public bytes**:130 actual FormFeature observations covering
+compare **identical public bytes**:137 actual FormFeature observations covering
 UTF8/UTF16LE-BE/UTF32/BOM override/unknown or disabled charset, both encoded
 identities, attachment before/after valid fields, case/repeated fields, first
 file,127–129 boundaries,16–17 distinct or repeated headers, raw whitespace and
 limit-adjacent header blocks, valid boundary transport padding and its100-byte
-line budget,1024/1025 mixed sections, raw URL byte bounds/escaping/multibyte/empty
+line budget (space/tab98/99/100 and header16,382/16,383/16,384 adjacent controls),
+1024/1025 mixed sections, raw URL byte bounds/escaping/multibyte/empty
 segments and URL charsets. `lesung-form-native.cjs` tests Content-Length AND
 31-byte chunked framing on both actual frozen routes, and the default Rust Lied
 route. Set `ARCHIVE_FORM_ROUTES=/api/lied-lesungen,/api/auftritt-lesungen` on the
@@ -142,6 +147,16 @@ for audit. Synthetic100/20 usage is fixture delivery, not measured OCR quality.
 ## Reproduce and qualifications
 
 ### Final implementation validation
+
+**Latest LF-budget correction:** source rereview atb242ea0 closed R1–R4 and found
+one Low line-budget off-by-one. Three bounded checks now recognize accepted LF
+before its limit check. Actual frozen Kestrel BOTH routes versus Rust Lied, both
+Content-Length/chunked, reproduced16,383 headers and99 padding as400-versus409
+before the correction; all137 cases pass afterwards. Exact logs:
+`red-readline-header-native.log`, `red-readline-padding-native.log`,
+`green-readline-native.log`. All130 pre-existing actual oracle observations remain
+unchanged. The50-stage b242 table below is preserved **PRE-FIX** evidence, not
+clearance of this new Low; fresh full regates after the last code change pending.
 
 Review `230-review.md` was SOURCE/SPEC HOLD at029bca2; remediation is not an
 independent closure. Each code fix is a separate logical commit:
