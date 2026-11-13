@@ -64,7 +64,6 @@ update this section in the same PR whenever the member list changes.
   (or add `--test-name-pattern="formatter"` before the file for a focused run).
   Before changing native capture, redaction or schema fixtures, read
   `tests/telemetry/README.md` for external decoder setup and private replay rules.
-- Catalogue query binding: before changing scalar/repeated keys, read
 - Incoming HTTP W3C context: `node tests/browser/http-w3c-native.cjs` compares
   frozen ASP.NET and the product router, with the offline-only `http-w3c-native`
   example for non-Development sampling. Read `docs/http-w3c-parity.md` before
@@ -167,6 +166,15 @@ update this section in the same PR whenever the member list changes.
   `node tests/browser/reading-native.cjs` (also needs the offline-only
   `reading-cancel-native` example). Live scan evaluation has a runtime absent-env
   skip gate; configuration is not spending authorization.
+
+- Programme suggestions (#231): read `docs/programme-reading-parity.md` before
+  changing matching, photo/scan requests, HTTP lifetime/W3C/form controls or evaluation. Focused PG:
+  `cargo test -p archive-server --locked --test auftritt_lesen_api -- --ignored`.
+  Native UI/HTTP/OTLP: `node tests/browser/programm-reading-native.cjs` with the
+  offline-only `programme-http-native` example; live evaluation stays gated.
+  Shared generic controls: `node tests/browser/http-w3c-native.cjs`; use
+  `ARCHIVE_FORM_ROUTES=/api/lied-lesungen,/api/auftritt-lesungen node tests/browser/lesung-form-native.cjs`
+  on this consumer union (both frozen and both Rust routes must run).
 
 - Auftritte/Programme/initial Entwurf (#225): before changing partial dates,
   programme IDs/order, Zeitmarke guards, history, event documents or opaque form
