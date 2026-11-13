@@ -163,6 +163,14 @@ cancellation and decoded-expansion limits below remain explicit limitations.
 
 ## Native PDFium, bounds and honest limitations
 
+#229 shared-spool follow-up: the loader now lives in `extraction/pdf.rs` and is
+shared with `reading::PdfPageRenderer`. A new actual filesystem scheduling gate
+(`pdf_spool`) proved that Tokio write_all could return a path before its queued
+write executed (zero visible bytes). `File::flush().await` now precedes native
+handoff; it guarantees completed kernel-visible writes, not fsync durability.
+Earlier accepted passes cover their observed inputs, not this newly exposed
+scheduling race. See `reading-parity.md` for red/green and combined final gates.
+
 Wrapper exactly `pdfium-render0.9.5`, defaults off, explicit
 `pdfium_8125/thread_safe/image_025`. Current wrapper/API was rechecked at
 crates.io. Native publisher's latest non-prerelease was rechecked2026-11-10:

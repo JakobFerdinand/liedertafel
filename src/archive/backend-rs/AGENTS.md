@@ -153,6 +153,16 @@ update this section in the same PR whenever the member list changes.
   `examples/ai-foundation-native.rs` and `node tests/browser/ai-foundation-native.cjs`
   are offline test tools, not production commands or live-evaluation authorization.
 
+- Reading (#229): before changing stored reading state/dispatch, scan prompts,
+  rendering, quote verification or automated field writes, read
+  `docs/reading-parity.md`. Later draft/programme consumers reuse these seams and
+  must prove their own actual HTTP shutdown/disconnect/registry lifetimes.
+  Focused real-PG/native-PDF gate: `cargo test -p archive-server --locked --test
+  reading_worker --test reading_lifecycle -- --ignored`. Native unchanged UI:
+  `node tests/browser/reading-native.cjs` (also needs the offline-only
+  `reading-cancel-native` example). Live scan evaluation has a runtime absent-env
+  skip gate; configuration is not spending authorization.
+
 - Auftritte/Programme/initial Entwurf (#225): before changing partial dates,
   programme IDs/order, Zeitmarke guards, history, event documents or opaque form
   persistence, read `docs/events-parity.md` for binding/order/concurrency and

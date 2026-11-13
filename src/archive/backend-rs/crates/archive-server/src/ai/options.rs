@@ -8,6 +8,15 @@ pub struct Price {
 	pub output: Decimal,
 }
 impl Price {
+	/// External override strings use the accepted invariant configuration
+	/// converter, not Rust Decimal's extended FromStr grammar. Usable/positive
+	/// price checks remain with the caller, as for Options::find_price.
+	pub fn from_configuration(input: &str, output: &str) -> Result<Self, Error> {
+		Ok(Self {
+			input: config_decimal(input)?,
+			output: config_decimal(output)?,
+		})
+	}
 	pub fn new(input: &str, output: &str) -> Result<Self, Error> {
 		Ok(Self {
 			input: Decimal::from_str(input).map_err(|_| Error::Configuration)?,

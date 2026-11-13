@@ -30,7 +30,12 @@ pub struct Origin {
 	pub extraction: crate::extraction::Options,
 	pub extraction_queue: Arc<dyn crate::queue::Queue>,
 	pub reading_enabled: bool,
+	pub reading: crate::reading::Options,
+	pub reading_queue: Arc<dyn crate::queue::Queue>,
 	pub ai: Option<crate::ai::Services>,
+	/// Host signal, separate from HTTP disconnect. Later persisted draft readers
+	/// link their owned registry work to this, NOT to a tab's request lifetime.
+	pub shutdown: tokio_util::sync::CancellationToken,
 }
 impl std::fmt::Debug for Origin {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -52,7 +57,10 @@ impl Origin {
 			extraction: Default::default(),
 			extraction_queue: Arc::new(crate::queue::AzureQueue::unconfigured()),
 			reading_enabled: false,
+			reading: Default::default(),
+			reading_queue: Arc::new(crate::queue::AzureQueue::unconfigured()),
 			ai: None,
+			shutdown: Default::default(),
 			build_requests: global::meter(METER_NAME)
 				.u64_counter("archive.build.requests")
 				.with_description("Build-probe requests to /api/build")

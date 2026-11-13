@@ -153,7 +153,14 @@ pub async fn payload(origin: &Origin, job: &Job, kind: &str) -> Result<Value, Au
 	let analysis = (job.status == 2).then(|| score::analyze(job.text.as_deref()));
 	let reading = if origin.reading_enabled {
 		let pool = &origin.auth.as_deref().ok_or(AuthError::Database)?.pool;
-		sqlx::query_scalar::<_,Value>(r#"SELECT jsonb_build_object('status',CASE "Status" WHEN 0 THEN 'queued' WHEN 1 THEN 'running' WHEN 2 THEN 'waitingForBudget' WHEN 3 THEN 'completed' WHEN 4 THEN 'failed' END,'pagesTotal',"PagesTotal",'pagesRead',"PagesRead",'partial',COALESCE("PagesRead"<"PagesTotal",false) AND $2,'fieldsApplied',"FieldsApplied",'failureReason',"FailureReason",'attemptCount',"AttemptCount",'completedAt',"CompletedAt",'updatedAt',"UpdatedAt",'rowVersion',"RowVersion") FROM reading_jobs WHERE "DateiId"=$1"#).bind(job.datei_id).bind(job.text.as_ref().is_none_or(|t|t.encode_utf16().count()<origin.extraction.max_text_characters)).fetch_optional(pool).await?.unwrap_or(Value::Null)
+		crate::reading::Job::load(pool, job.datei_id)
+			.await?
+			.map(|j| {
+				j.payload(job.text.as_ref().is_some_and(|t| {
+					t.encode_utf16().count() >= origin.extraction.max_text_characters
+				}))
+			})
+			.unwrap_or(Value::Null)
 	} else {
 		Value::Null
 	};

@@ -63,6 +63,11 @@ impl Gateway {
 	pub fn model(&self) -> &str {
 		&self.inner.model
 	}
+	/// Snapshot hint for image batching. Admission independently rechecks the
+	/// current limit; callers cannot use this hint to bypass normalization.
+	pub fn input_bound(&self) -> i64 {
+		self.inner.ledger.options.borrow().max_input_tokens.max(1)
+	}
 	/// Synchronous ownership transfer: dropping even an unpolled response future
 	/// cannot strand admission/settlement in a request-owned future.
 	pub fn start(&self, request: Request, streaming: bool) -> Result<Call, Error> {

@@ -27,10 +27,23 @@ pub enum Error {
 	Cancelled,
 	#[error("PDF-Datei nicht verfügbar.")]
 	Io,
+	#[error("PDF-Datei überschreitet die Byte-Grenze.")]
+	TooLarge,
 }
 #[derive(Clone)]
 pub struct PdfEngine(Arc<Pdfium>);
 impl PdfEngine {
+	pub fn page_count(&self, path: &Path, cancelled: impl Fn() -> bool) -> Result<i32, Error> {
+		check(&cancelled)?;
+		let document = self
+			.0
+			.load_pdf_from_file(path, None)
+			.map_err(|_| Error::Io)?;
+		let count = document.pages().len();
+		drop(document);
+		check(&cancelled)?;
+		Ok(count)
+	}
 	pub fn from_env() -> Result<Self, Error> {
 		static ENGINE: OnceLock<Result<Arc<Pdfium>, Error>> = OnceLock::new();
 		ENGINE
@@ -161,6 +174,67 @@ impl PdfEngine {
 		drop(document);
 		check(&cancelled)?;
 		Ok(image)
+	}
+}
+/// One bounded, private seekable spool shared by extraction and scan consumers.
+/// Arc ownership keeps it alive inside native tasks even after async cancellation.
+pub struct Spool(pub PathBuf);
+impl Spool {
+	fn new(directory: &Path) -> Result<Self, Error> {
+		use std::os::unix::fs::OpenOptionsExt;
+		let path = directory.join(format!("archive-pdf-{}.spool", uuid::Uuid::new_v4()));
+		std::fs::OpenOptions::new()
+			.create_new(true)
+			.write(true)
+			.mode(0o600)
+			.open(&path)
+			.map_err(|_| Error::Io)?;
+		Ok(Self(path))
+	}
+	pub async fn load(
+		storage: &dyn crate::storage::Storage,
+		blob: &str,
+		max: u64,
+		directory: &Path,
+		cancelled: impl Fn() -> bool,
+	) -> Result<Arc<Self>, Error> {
+		use futures::StreamExt;
+		use tokio::io::AsyncWriteExt;
+		check(&cancelled)?;
+		let mut stream = storage
+			.open_read_bounded(blob, max)
+			.await
+			.map_err(|_| Error::Io)?
+			.ok_or(Error::Io)?;
+		let spool = Arc::new(Self::new(directory)?);
+		let mut file = tokio::fs::OpenOptions::new()
+			.write(true)
+			.open(&spool.0)
+			.await
+			.map_err(|_| Error::Io)?;
+		let mut stored = 0u64;
+		while let Some(bytes) = stream.next().await {
+			check(&cancelled)?;
+			let bytes = bytes.map_err(|_| Error::Io)?;
+			if bytes.len() as u64 > max.saturating_sub(stored) {
+				return Err(Error::TooLarge);
+			}
+			file.write_all(&bytes).await.map_err(|_| Error::Io)?;
+			stored += bytes.len() as u64;
+		}
+		drop(stream);
+		// Tokio write_all can finish after buffering, before its blocking file
+		// write runs. Native readers open a separate descriptor immediately:
+		// flush must complete first (kernel visibility, not an fsync promise).
+		file.flush().await.map_err(|_| Error::Io)?;
+		drop(file);
+		check(&cancelled)?;
+		Ok(spool)
+	}
+}
+impl Drop for Spool {
+	fn drop(&mut self) {
+		let _ = std::fs::remove_file(&self.0);
 	}
 }
 fn check(cancelled: &impl Fn() -> bool) -> Result<(), Error> {

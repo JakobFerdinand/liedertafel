@@ -21,13 +21,23 @@ async fn main() {
 
 async fn run() -> Result<(), StartupError> {
 	let args: Vec<String> = std::env::args().skip(1).collect();
-	if let Some(command) = args
-		.first()
-		.filter(|s| matches!(s.as_str(), "--extract-queue" | "--dispatch-extraction"))
-	{
+	if let Some(command) = args.first().filter(|s| {
+		matches!(
+			s.as_str(),
+			"--extract-queue" | "--dispatch-extraction" | "--read-queue" | "--dispatch-reading"
+		)
+	}) {
 		use tracing::Instrument;
 		let development = std::env::var("ARCHIVE_ENVIRONMENT").as_deref() == Ok("Development");
-		let defaults = archive_telemetry::ServiceDefaults::init(development, "archive-extraction")?;
+		let reading = matches!(command.as_str(), "--read-queue" | "--dispatch-reading");
+		let defaults = archive_telemetry::ServiceDefaults::init(
+			development,
+			if reading {
+				"archive-reading"
+			} else {
+				"archive-extraction"
+			},
+		)?;
 		let cancel = tokio_util::sync::CancellationToken::new();
 		let signal = cancel.clone();
 		let task = tokio::spawn(async move {
@@ -36,7 +46,11 @@ async fn run() -> Result<(), StartupError> {
 			tokio::select! {_ = tokio::signal::ctrl_c()=>{},_ = async{if let Some(term)=&mut term{term.recv().await;}else{std::future::pending::<()>().await;}}=>{}}
 			signal.cancel();
 		});
-		let span = if command == "--extract-queue" {
+		let span = if command == "--read-queue" {
+			tracing::info_span!("read-queue", otel.status_code = tracing::field::Empty)
+		} else if command == "--dispatch-reading" {
+			tracing::info_span!("dispatch-reading", otel.status_code = tracing::field::Empty)
+		} else if command == "--extract-queue" {
 			tracing::info_span!("extract-queue", otel.status_code = tracing::field::Empty)
 		} else {
 			tracing::info_span!(
@@ -45,8 +59,15 @@ async fn run() -> Result<(), StartupError> {
 			)
 		};
 		let result = async {
-			let result =
-				archive_server::extraction::command::run(command, development, &cancel).await;
+			let result = if reading {
+				archive_server::reading::command::run(command, development, &cancel)
+					.await
+					.map_err(StartupError::Reading)
+			} else {
+				archive_server::extraction::command::run(command, development, &cancel)
+					.await
+					.map_err(StartupError::Extraction)
+			};
 			if result.is_ok() {
 				tracing::info!("Archive job {} completed", &command[2..]);
 			} else {
@@ -62,7 +83,7 @@ async fn run() -> Result<(), StartupError> {
 		if !defaults.finish_finite_job() {
 			return Err(StartupError::FiniteTelemetry);
 		}
-		return result.map_err(StartupError::Extraction);
+		return result;
 	}
 	if let Some(command) = args.first().filter(|s| {
 		matches!(
@@ -130,9 +151,16 @@ async fn run() -> Result<(), StartupError> {
 	let mut origin = Origin::new(settings);
 	origin.uploads = archive_server::catalogue::uploads::UploadOptions::from_env()?;
 	origin.extraction = archive_server::extraction::Options::from_env();
-	origin.reading_enabled = std::env::var("Archive__Reading__Enabled")
-		.map(|s| s.eq_ignore_ascii_case("true"))
-		.unwrap_or(development);
+	origin.reading = archive_server::reading::Options::from_env(development);
+	origin.reading_enabled = origin.reading.enabled;
+	origin.reading_queue = Arc::new(
+		archive_server::reading::select_queue(
+			&origin.reading,
+			development,
+			Arc::new(archive_server::auth::SystemClock),
+		)
+		.map_err(|_| StartupError::Reading(archive_server::reading::command::CommandError))?,
+	);
 	origin.extraction_queue = Arc::new(
 		archive_server::queue::AzureQueue::select(
 			std::env::var("ConnectionStrings__archive-queues")
@@ -194,6 +222,7 @@ async fn run() -> Result<(), StartupError> {
 	let (signals, _) = tokio::sync::broadcast::channel::<()>(1);
 	let signal_task = {
 		let signals = signals.clone();
+		let shutdown = origin.shutdown.clone();
 		tokio::spawn(async move {
 			let mut term =
 				match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
@@ -207,6 +236,7 @@ async fn run() -> Result<(), StartupError> {
 				_ = tokio::signal::ctrl_c() => {},
 				_ = term.recv() => {},
 			}
+			shutdown.cancel();
 			let _ = signals.send(());
 		})
 	};
@@ -259,6 +289,8 @@ async fn run() -> Result<(), StartupError> {
 /// apphost resource fails visibly.
 #[derive(Debug, thiserror::Error)]
 enum StartupError {
+	#[error("{0}")]
+	Reading(archive_server::reading::command::CommandError),
 	#[error("{0}")]
 	Ai(#[from] archive_server::ai::Error),
 	#[error(

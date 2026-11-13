@@ -9,7 +9,7 @@ pub mod queries;
 pub mod search;
 pub mod trash;
 pub mod uploads;
-mod writes;
+pub(crate) mod writes;
 
 use crate::{
 	Origin,
