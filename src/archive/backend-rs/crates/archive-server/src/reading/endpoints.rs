@@ -20,7 +20,7 @@ fn fail(status: StatusCode, title: &'static str) -> AuthError {
 	AuthError::Problem(status, title)
 }
 pub(crate) fn routes() -> Vec<(&'static str, MethodRouter<Arc<Origin>>)> {
-	vec![
+	let mut routes = vec![
 		(
 			"/api/dateien/{id}/reading/retry",
 			post(retry).fallback(crate::api::api_miss),
@@ -29,7 +29,9 @@ pub(crate) fn routes() -> Vec<(&'static str, MethodRouter<Arc<Origin>>)> {
 			"/api/dateien/{id}/reading/continue",
 			post(continue_reading).fallback(crate::api::api_miss),
 		),
-	]
+	];
+	routes.extend(super::programme_endpoints::routes());
+	routes
 }
 async fn retry(
 	State(origin): State<Arc<Origin>>,

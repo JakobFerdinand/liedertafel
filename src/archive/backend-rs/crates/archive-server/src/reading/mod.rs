@@ -4,8 +4,13 @@
 pub mod command;
 mod endpoints;
 mod fields;
+mod http;
 mod model;
 mod options;
+mod photo;
+pub mod programme;
+mod programme_endpoints;
+mod programme_script;
 mod renderer;
 mod service;
 mod worker;
@@ -37,7 +42,8 @@ pub use fields::normalize as normalize_reading_text;
 pub use fields::{ReadField, clean_value, quote_is_verified};
 pub use model::{
 	FIELDS_VERSION, RenderedPage, ScanReadingModel, TRANSCRIPTION_VERSION, bound_text,
-	fields_instructions, scripted_scan_reader, strip_page_markers,
+	fields_instructions, scripted_scan_reader, scripted_scan_reader_with_programme_transcription,
+	strip_page_markers,
 };
 pub use options::Options;
 pub use renderer::PdfPageRenderer;

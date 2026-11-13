@@ -265,6 +265,9 @@ async fn run() -> Result<(), StartupError> {
 
 	// The watchdog includes model producers and their non-request-cancellable
 	// accounting retries. Never flush/shutdown OTLP while producers still exist.
+	origin.shutdown.cancel();
+	origin.reading_tasks.close();
+	origin.reading_tasks.wait().await;
 	let accounting_ok = if let Some(ai) = &origin.ai {
 		ai.gateway.drain().await
 	} else {

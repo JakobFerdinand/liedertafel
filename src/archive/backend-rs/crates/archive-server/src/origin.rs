@@ -36,6 +36,9 @@ pub struct Origin {
 	/// Host signal, separate from HTTP disconnect. Later persisted draft readers
 	/// link their owned registry work to this, NOT to a tab's request lifetime.
 	pub shutdown: tokio_util::sync::CancellationToken,
+	/// Joins complete HTTP reading producers (including native work and durable
+	/// outcome storage) independently of a disconnected handler's join handle.
+	pub reading_tasks: tokio_util::task::TaskTracker,
 }
 impl std::fmt::Debug for Origin {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -61,6 +64,7 @@ impl Origin {
 			reading_queue: Arc::new(crate::queue::AzureQueue::unconfigured()),
 			ai: None,
 			shutdown: Default::default(),
+			reading_tasks: Default::default(),
 			build_requests: global::meter(METER_NAME)
 				.u64_counter("archive.build.requests")
 				.with_description("Build-probe requests to /api/build")
