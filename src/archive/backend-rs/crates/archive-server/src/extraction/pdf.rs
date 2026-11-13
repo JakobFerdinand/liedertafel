@@ -180,6 +180,27 @@ impl PdfEngine {
 /// Arc ownership keeps it alive inside native tasks even after async cancellation.
 pub struct Spool(pub PathBuf);
 impl Spool {
+	/// Request bytes use the same private seekable spool and flushed native handoff
+	/// as bounded Blob input; no second PDF parser or long-lived byte store.
+	pub async fn from_bytes(
+		bytes: &[u8],
+		directory: &Path,
+		cancelled: impl Fn() -> bool,
+	) -> Result<Arc<Self>, Error> {
+		use tokio::io::AsyncWriteExt;
+		check(&cancelled)?;
+		let spool = Arc::new(Self::new(directory)?);
+		let mut file = tokio::fs::OpenOptions::new()
+			.write(true)
+			.open(&spool.0)
+			.await
+			.map_err(|_| Error::Io)?;
+		file.write_all(bytes).await.map_err(|_| Error::Io)?;
+		file.flush().await.map_err(|_| Error::Io)?;
+		drop(file);
+		check(&cancelled)?;
+		Ok(spool)
+	}
 	fn new(directory: &Path) -> Result<Self, Error> {
 		use std::os::unix::fs::OpenOptionsExt;
 		let path = directory.join(format!("archive-pdf-{}.spool", uuid::Uuid::new_v4()));

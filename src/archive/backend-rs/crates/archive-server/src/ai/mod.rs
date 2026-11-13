@@ -27,7 +27,12 @@ impl Services {
 		clock: std::sync::Arc<dyn crate::auth::Clock>,
 		development: bool,
 	) -> Result<Self, Error> {
-		Self::from_env_with_script(pool, clock, development, Script::new(Vec::new()))
+		Self::from_env_with_script(
+			pool,
+			clock,
+			development,
+			crate::reading::scripted_scan_reader(),
+		)
 	}
 	/// Domain-specific delivery stays below this exact gateway/SQL registration.
 	pub fn from_env_with_script(

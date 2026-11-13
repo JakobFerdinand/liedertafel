@@ -36,6 +36,10 @@ pub struct Origin {
 	/// Host signal, separate from HTTP disconnect. Later persisted draft readers
 	/// link their owned registry work to this, NOT to a tab's request lifetime.
 	pub shutdown: tokio_util::sync::CancellationToken,
+	/// Joins complete HTTP reading producers (including native work and durable
+	/// outcome storage) independently of a disconnected handler's join handle.
+	pub reading_tasks: tokio_util::task::TaskTracker,
+	pub draft_readings: Arc<crate::reading::DraftReadingRegistry>,
 }
 impl std::fmt::Debug for Origin {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -47,12 +51,15 @@ impl std::fmt::Debug for Origin {
 
 impl Origin {
 	pub fn new(settings: Settings) -> Self {
+		let draft_readings = Arc::new(crate::reading::DraftReadingRegistry::default());
 		Self {
 			auth: None,
 			storage: None,
 			read_ticket_lifetime: chrono::Duration::minutes(15),
 			uploads: crate::catalogue::uploads::UploadOptions::default(),
-			draft_lifecycle: Vec::new(),
+			draft_lifecycle: vec![draft_readings.clone()],
+			draft_readings,
+			reading_tasks: Default::default(),
 			finalized_hooks: Vec::new(),
 			extraction: Default::default(),
 			extraction_queue: Arc::new(crate::queue::AzureQueue::unconfigured()),
@@ -81,7 +88,7 @@ impl Origin {
 			self.ai = Some(crate::ai::Services {
 				gateway: crate::ai::Gateway::scripted(
 					ledger.clone(),
-					crate::ai::Script::new(Vec::new()),
+					crate::reading::scripted_scan_reader(),
 				),
 				ledger,
 			});
