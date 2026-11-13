@@ -80,6 +80,10 @@ captures are indexed separately in `failed-captures.json`, not relabelled clean.
 The durable report pins implementation and documentation-only last commit.
 Independent final source rereview is **SOURCE ACCEPTABLE at49ec786**, with
 R1/R2/R2a closed and no new actionable finding (`evidence/229-review.md`). This
+includes independent regeneration/isolated numeric-loader checks of all1703
+committed cases plus494 additional grammar controls (213 valid,281 qualified
+invalid/default cases; `evidence/229-r2a-source-probe/comparison.log`). These
+source-only dependency-shell probes are not extra product test functions. This
 does not claim reviewer SQL/native execution. Independent focused-runtime
 clearance and parent integration authorization remain separate required gates.
 Hosted/live/private/image/AppHost/future
