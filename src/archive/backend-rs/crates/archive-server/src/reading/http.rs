@@ -89,6 +89,12 @@ pub(crate) async fn read_form(
 					bad()
 				}
 			})? {
+				// FormFeature counts EVERY section, including files and ignored
+				// dispositions, before classifying its Content-Disposition.
+				count += 1;
+				if count > 1024 {
+					return Err(bad());
+				}
 				let headers = wire.read().map_err(|_| bad())?;
 				let disposition = section_disposition(&headers).map_err(|_| bad())?;
 				let Some((key, file)) = disposition else {
@@ -106,10 +112,6 @@ pub(crate) async fn read_form(
 					continue;
 				};
 				if !file {
-					count += 1;
-					if count > 1024 {
-						return Err(bad());
-					}
 					let content_type = headers
 						.get("content-type")
 						.and_then(|v| v.to_str().ok())
