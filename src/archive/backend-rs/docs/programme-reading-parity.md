@@ -71,8 +71,9 @@ Programme uses #230's shared request-drop child token and `Origin::spawn_reading
 A disconnected handler cancels its consumer, while the tracker joins native work
 and accounting independent of that handler's join handle. Host cancellation
 precedes Axum wait; producer close/wait precedes Gateway drain and OTLP flush.
-Both product main and the offline fixture use `Origin::drain_readings` before
-checked terminal telemetry flush; the parent-authorized shared patch owns these
+Model-capable product main and the offline fixture use `Origin::drain_readings`
+before checked terminal telemetry flush (dependency-free skeleton hosts retain
+best-effort flush); the parent-authorized shared patch owns these
 wrappers and product-host finish. There is no per-request global Gateway drain.
 
 `programm_http_lifetime` exercises actual TCP disconnect and host signal during a
@@ -120,7 +121,7 @@ native journeys/replays as well. Exact tested source/ancestry, terminal artifact
 counts and failed/unrun distinctions belong in durable `evidence/231-report.md`.
 Independent acceptance remains parent-owned.
 
-## Shared review remediation (parent-authorized; validation pending)
+## Shared review remediation (parent-authorized; pre-edge validation incomplete)
 
 The shared-only cumulative patch is pinned to #230 source
 `b242ea0d2dfc70c1f9bd4bacc6cf66c1154c077b`:
@@ -168,6 +169,40 @@ journey passed, or claim Rust Lied-route coverage. Both Rust routes require a
 fresh run on the later accepted consumer union. Independent #231 rereview and
 #230 shared-source/runtime clearance remain parent-owned; no acceptance or #232
 advancement follows from this patch transfer.
+
+### Executed pre-edge candidate d3c9eab
+
+Runtime source `d3c9eab97961de427eb76d0f5e55b99248310fc7`, after a no-op merge of
+latest accepted integration ed71063. Focused fmt/all-target clippy/builds and17
+programme functions passed. Programme parent-chain, generic W3C and same-byte
+form native gates all passed, each followed by its terminal private replay.
+Programme chains cover completed/default-product, disconnect, SIGTERM and failed
+settlement. Form coverage is130 cases ×2 framings ×frozen2/Rustprogramme1 routes;
+this is not a Rust Lied-route pass. Own external framework oracles regenerated
+130 form/174 URL-layout observations exactly, plus49 disposition observations.
+All package versions/checksums remain unchanged. The old-binary trace-chain red
+and original post-hoc W3C failure remain failed evidence, not reclassified passes.
+
+The fresh43-stage combined attempt **stopped at stage12**, not a full pass:
+11 preceding stages passed (fmt, clippy, ordinary118 tests/238 ignored, examples/
+product builds, active deny, ALL238 explicit tests/0 ignored, static OpenSSL3.5.9
+linkage, own frozen build, native-auth and replay). `members-native` failed before
+UI assertions because the external runner's long ticket TMPDIR exceeded
+Chromium's Unix-socket path limit. Its failed/unchecked capture is retained and
+31 remaining stages were not run. A shorter ticket-owned TMPDIR passed a direct
+browser launch/close check; no product/source change was made for that setup
+failure. Logs/terminal artifact audit: `231/final-shared-pipeline.log`,
+`231/final-shared/{results,partial-audit,captures}.json`. No jobs remain active.
+
+**New shared Low LF-budget finding:** the current raw-header cursor rejects valid
+99-space/tab boundary padding and16383-character ASCII header lines. Parent
+assigned #230 a separate versioned followup relativeb242, without mutating the
+existing patches. This candidate's130-case gates do not cover the new edges.
+Await parent authorization; consume only that separately pinned fix, then test
+98/99/100 spaces/tabs and16382/16383/16384 ASCII header bounds against actual
+programme/default origins and rerun complete fresh-source W3C/form/programme/
+inherited native and combined gates with a short own TMPDIR. No independent
+parser fix, acceptance, merge or #232 advancement is authorized.
 
 ## Historical pinned-source validation (before shared remediation)
 
