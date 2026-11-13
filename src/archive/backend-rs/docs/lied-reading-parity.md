@@ -1,5 +1,36 @@
 # Lied draft reading (#230)
 
+## Shutdown checkpoint — paused by user, not accepted
+
+Branch `ticket/230-rust-lied-reading`; implementation/union merge
+`99f0c5470feccd5889edea2f48633535412b8c43` incorporates accepted integration
+`06946d47cdfb875314636d0d963fe83df466c38c` (#231). The checkpoint commit changes
+this guide only. Four merge conflicts were resolved additively (root guidance,
+Origin registry field, HTTP-module visibility, both test-support exports); one
+automatically duplicated tracker initializer was removed. Shared/Programme code
+and Lied/Claim code retain their accepted/pre-union bytes.
+
+User cancelled validation during stage53, `mocked-ui`. Exactly52 stages recorded
+exit0; stage53 is interrupted, not passed. No later pipeline stage was planned;
+terminal artifact audit and final runtime/source clearance remain unrun/pending.
+Job `sh_1d5f67d9c001zETztpEd6xfFN8`, runner PID812170 and its exact owned children
+received SIGTERM; no live owned PID remained, and the shell completed exit143.
+No unrelated services/containers were stopped or cleaned up. No checks were
+started after the pause request. Partial logs/captures remain retained.
+
+Durable checkpoint: `target/agent-218/evidence/230-report.md` TOP, with exact final
+documentation HEAD/status, process/termination records and nonsecret resume
+instructions. Partial run: `evidence/230/final-union-06946d4/{results,captures}.json`,
+per-stage logs, `evidence/230/pipeline-union-06946d4.log`. No full-union pass or
+acceptance is claimed. #232 stays blocked. Resume requires fresh authorization,
+own230 target/fixtures/short scratch `/tmp/opencode/a230`, preserved immutable
+provenance and a NEW output directory; never overwrite this interrupted run.
+No live AI, tokens/private corpus, production, push/tracker/outbound merge/deploy
+or cleanup is authorized. URL-layout qualification and the shared failed full-
+navigation baseline remain retained, not successful-resume claims.
+
+The following historical validation sections predate this paused consumer union.
+
 Accepted base `ed710631694574b32776db7a7f35a295ac179201` (#229). Independent
 review/integration acceptance remains parent-owned. Frozen C#/tests/frontend,
 infrastructure, workflows and image are unchanged. #231 owns programme additions.
