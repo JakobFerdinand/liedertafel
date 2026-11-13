@@ -121,7 +121,36 @@ native journeys/replays as well. Exact tested source/ancestry, terminal artifact
 counts and failed/unrun distinctions belong in durable `evidence/231-report.md`.
 Independent acceptance remains parent-owned.
 
-## Shared review remediation (parent-authorized; pre-edge validation incomplete)
+## LF-budget followup (parent-authorized; fresh validation pending)
+
+After the retained pre-edge partial run, parent authorized only
+`230-shared-readline-lf-a630580.patch` from source
+`a6305809f63ce0ca1393981af9caf00419bb93a6`, SHA256
+`475557e1716c33235e85aff5730294203f7077d122668ca4fe45c1ad92095027`.
+V2 manifest, unchanged prior manifest and all old patch digests were independently
+verified; `git apply --check` passed before applying this followup ONCE. It changes
+only the shared header cursor's three LF-budget guards/comments, generic wire
+cases and actual form fixture. All three files exactly match the pinned source.
+Programme, Origin, dependencies and old patches are unchanged.
+
+The accepted LF after CR does not consume the line budget; CR still does. This
+keeps the caps unchanged and admits99-space/tab boundary padding and16383ASCII
+header characters. The137-case native differential explicitly covers98/99/100
+spaces AND tabs plus16382/16383/16384ASCII header bounds in Content-Length and
+chunked modes, always frozen BOTH routes versus Rust programme ONLY. The full
+137-case frozen comparison passed against old Rust binaries, while old Rust
+failed the new16383-header case400 versus409: retained actual behavioural red.
+After rebuild, all affected and full gates must run on the final committed tree.
+
+The previous12-stage attempt/member-browser failure/31unrun stages and its failed
+unchecked capture remain retained. Use the separately verified short ticket-owned
+TMPDIR for Chromium sockets; no product edit or assertion relaxation is needed.
+Source-layout and shared-navigation qualifications below remain limitations, not
+feature passes. Both Rust form routes require the later accepted consumer union.
+Independent #231 rereview and #230 shared-source/runtime clearance remain required;
+this is patch consumption, not acceptance/merge or #232 advancement.
+
+## Historical b242 shared remediation (pre-edge validation incomplete)
 
 The shared-only cumulative patch is pinned to #230 source
 `b242ea0d2dfc70c1f9bd4bacc6cf66c1154c077b`:

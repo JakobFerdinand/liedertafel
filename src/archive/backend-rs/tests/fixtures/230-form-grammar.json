@@ -241,6 +241,15 @@
     "files": []
   },
   {
+    "name": "header-length-16383",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
     "name": "header-length-16384",
     "error": "InvalidDataException"
   },
@@ -291,6 +300,50 @@
   },
   {
     "name": "boundary-long-padding",
+    "error": "InvalidDataException"
+  },
+  {
+    "name": "boundary-padding-space-98",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "boundary-padding-space-99",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "boundary-padding-space-100",
+    "error": "InvalidDataException"
+  },
+  {
+    "name": "boundary-padding-tab-98",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "boundary-padding-tab-99",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "boundary-padding-tab-100",
     "error": "InvalidDataException"
   },
   {

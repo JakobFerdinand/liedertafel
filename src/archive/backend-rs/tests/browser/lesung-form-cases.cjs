@@ -27,7 +27,7 @@ for(const n of [16,17])add('headers-'+n,[section('entwurfId',id,Array.from({leng
 add('duplicate-case-headers',[section('entwurfId',id,Array.from({length:17},(_,i)=>`${i%2?'X-SAME':'x-same'}: x\r\n`).join('')),section('anfrageId','1')]);
 add('duplicate-disposition',[section('entwurfId',id,'content-disposition: form-data; name="entwurfId"\r\n'),section('anfrageId','1')]);
 // .NET sums header-line UTF16 lengths, without line CRLF. Normal ASCII spelling.
-for(const n of [16380,16382,16384,16385,16400]){
+for(const n of [16380,16382,16383,16384,16385,16400]){
  const prefix='Content-Disposition: form-data; name="entwurfId"';const extra='X-Pad: ';const pad='x'.repeat(n-prefix.length-extra.length);
  add('header-length-'+n,[section('entwurfId',id,extra+pad+'\r\n'),section('anfrageId','1')]);
 }
@@ -39,6 +39,11 @@ add('empty-filename-first',[section('entwurfId',id),section('anfrageId','1'),Buf
 for(const [name,padding] of [['boundary-transport-padding',' \t'],['boundary-long-padding',' '.repeat(101)]]){
  const original=cases[0];cases.push({...original,name,body:Buffer.from(original.body,'base64').toString().replaceAll('--form230\r\n','--form230'+padding+'\r\n')});
  cases.at(-1).body=Buffer.from(cases.at(-1).body).toString('base64');
+}
+for(const byte of [' ','\t'])for(const n of [98,99,100]){
+ const original=cases[0],name='boundary-padding-'+(byte===' '?'space':'tab')+'-'+n;
+ const body=Buffer.from(original.body,'base64').toString().replaceAll('--form230\r\n','--form230'+byte.repeat(n)+'\r\n');
+ cases.push({...original,name,body:Buffer.from(body).toString('base64')});
 }
 for(const kind of ['scalar','file','ignored'])for(const total of [1024,1025]){
  const extra=kind==='file'?Buffer.from('Content-Disposition: form-data; name="ignored"; filename="x.bin"\r\n\r\nx'):section('ignored','x','',kind==='ignored'?'attachment':'form-data');
@@ -56,7 +61,8 @@ for(const length of [4194304,4194305]){
  urlCase('url-escaped-value-'+length,urlIdentity+'&unknown='+'%61'.repeat(Math.floor(length/3))+'a'.repeat(length%3));
 }
 for(const count of [1022,1023,1024])urlCase('url-empty-tail-'+count,urlIdentity+'&'.repeat(count));
-for(const text of ['', '&', '&&', '=', '=&', '&&'+urlIdentity, urlIdentity+'&', urlIdentity+'&&', urlIdentity+'&='])urlCase('url-empty-shape-'+cases.length,text);
+// Stable existing oracle labels even when new multipart controls are inserted.
+for(const [index,text] of ['', '&', '&&', '=', '=&', '&&'+urlIdentity, urlIdentity+'&', urlIdentity+'&&', urlIdentity+'&='].entries())urlCase('url-empty-shape-'+(56+index),text);
 for(const charset of ['utf-8','us-ascii','iso-8859-1','utf-16','utf-16be','utf-32','utf-32be','x-invalid','utf-7']){
  function encoded(text){if(charset==='utf-16')return Buffer.from(text,'utf16le');if(charset==='utf-16be')return utf16be(text);if(charset==='utf-32'||charset==='utf-32be')return Buffer.concat([...text].map(c=>Buffer.from(charset==='utf-32'?[c.charCodeAt(0),0,0,0]:[0,0,0,c.charCodeAt(0)])));return Buffer.from(text);}
  for(const [suffix,text] of [['plain',urlIdentity],['escaped',`entwurfId=${id.replaceAll('1','%31')}&anfrageId=%31`],['tail-nul',`entwurfId=${id}&anfrageId=1%00`],['literal-plus',`entwurfId=${id}&anfrageId=%2B1`],['raw-plus',`entwurfId=${id}&anfrageId=+1`]])urlCase('url-charset-'+charset+'-'+suffix,encoded(text),charset);

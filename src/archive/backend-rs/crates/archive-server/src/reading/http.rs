@@ -326,12 +326,13 @@ impl<'a> SectionHeaders<'a> {
 			.and_then(|b| b.strip_prefix(self.delimiter.as_slice()))
 			.ok_or(())?;
 		// Both MultipartReaderStream and multer permit linear transport padding
-		// on boundary lines. The frozen ReadLineAsync budget includes its CRLF.
+		// on boundary lines. The frozen ProcessLineChar recognizes LF after CR
+		// before its limit check: CR counts against100, the accepted LF does not.
 		let padding = rest
 			.iter()
 			.position(|b| !matches!(b, b' ' | b'\t'))
 			.unwrap_or(rest.len());
-		if padding + 2 > 100 {
+		if padding + 1 > 100 {
 			return Err(());
 		}
 		let rest = rest[padding..].strip_prefix(b"\r\n").ok_or(())?;
@@ -341,9 +342,10 @@ impl<'a> SectionHeaders<'a> {
 		let mut total = 0;
 		for line in scan[..end].split(|b| *b == b'\n') {
 			let line = line.strip_suffix(b"\r").unwrap_or(line);
-			// BufferedReadStream.ReadLineAsync must still fit its CRLF, including
-			// the final empty line. The aggregate uses the decoded UTF16 length.
-			if line.len() + 2 > 16384 - total {
+			// ProcessLineChar accepts LF after CR BEFORE checking its budget.
+			// CR still counts, including on the final empty header line. The
+			// aggregate uses decoded UTF16 length; caps themselves are unchanged.
+			if line.len() + 1 > 16384 - total {
 				return Err(());
 			}
 			total += String::from_utf8_lossy(line).encode_utf16().count();
@@ -364,7 +366,7 @@ impl<'a> SectionHeaders<'a> {
 				return Err(());
 			}
 		}
-		if total + 2 > 16384 {
+		if total + 1 > 16384 {
 			return Err(());
 		}
 		self.at = self.bytes.len() - rest.len() + end + 4;
