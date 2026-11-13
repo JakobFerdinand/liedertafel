@@ -17,7 +17,9 @@ Names accumulate case-insensitively, nonempty scalar values join with commas,
 first named file wins. URL-encoded forms count as form content; a valid identity
 without file reaches422. Native **30,000,000-byte whole-body** envelope remains
 distinct from Reading32MiB and Extraction64MiB. Boundary128,1024 sections,
-headers16/16KiB and URL key2048/value4MiB precede domain validation. Multipart
+headers16/16KiB and URL encoded-byte key2048/value4MiB precede domain validation.
+Every multipart section counts before classification (including files/ignored
+attachments);1024 passes,1025 refuses. Multipart
 text uses actual built-in charset/BOM decoding (unknown charset defaults to UTF8;
 disabled UTF7 is refused). Malformed forms return controlled JSON400 rather
 than framework exception payloads; native oversized bodies return413. TestServer
@@ -32,12 +34,13 @@ names use the actual framework metadata policy. The quoted MIME decoder alone
 allows noncanonical unused base64 bits; provider/auth decoding is unchanged.
 
 `tests/oracles/LesungFormGrammarOracle.cs` and `tests/browser/lesung-form-cases.cjs`
-compare **identical public bytes**:37 actual FormFeature observations covering
+compare **identical public bytes**:130 actual FormFeature observations covering
 UTF8/UTF16LE-BE/UTF32/BOM override/unknown or disabled charset, both encoded
 identities, attachment before/after valid fields, case/repeated fields, first
 file,127–129 boundaries,16–17 distinct or repeated headers, raw whitespace and
 limit-adjacent header blocks, valid boundary transport padding and its100-byte
-line budget. `lesung-form-native.cjs` tests Content-Length AND
+line budget,1024/1025 mixed sections, raw URL byte bounds/escaping/multibyte/empty
+segments and URL charsets. `lesung-form-native.cjs` tests Content-Length AND
 31-byte chunked framing on both actual frozen routes, and the default Rust Lied
 route. Set `ARCHIVE_FORM_ROUTES=/api/lied-lesungen,/api/auftritt-lesungen` on the
 consumer union to test both Rust routes; #231 must do that on its own branch.
@@ -51,8 +54,23 @@ claimed from this finite corpus.
 `tests/oracles/LesungFormOracle.cs` executes real ASP.NET ReadFormAsync,
 StringValues and BCL Int32 in en-US:150 observations over both form types.
 Signs/leading zeroes/ASCII numeric whitespace/source width/NUL ordering remain.
-URL percent-decoded NUL fails before Int32; multipart retains its legacy tail
-NUL tolerance. Existing independent139-case CLR Guid-string parser is reused.
+UTF8/ASCII URL percent-decoded NUL fails before Int32; multipart retains its legacy
+tail NUL tolerance. Other URL encodings use the actual FormPipeReader slow policy:
+encoding-specific RAW byte separators and limits, decode without BOM sniffing,
+then UTF8 percent-unescape. A slow-path percent NUL is retained. Unknown encoding
+falls back to UTF8; disabled built-in UTF7 refuses before identity. Invalid UTF8
+percent sequences remain literal, not lossy decoded replacements. Existing
+independent139-case CLR Guid-string parser is reused.
+
+`LesungUrlPipeOracle.cs` executes actual public FormPipeReader on identical fresh
+buffers in single/multi-segment layouts:174 observations, including adjacent4MiB
+limits. Its three empty-tail cases expose **source layout variance**: the slow
+path drops empty pairs that the fast path counts (1024 empty tails can evade the
+source slow-path count). Rust enforces the1024 raw-pair bound independent of
+transport layout, including empty segments except the nonexistent pair after a
+final delimiter. Default frozen native Content-Length/chunked cases agree. This
+finite native policy is not universal internal-pipe-layout equivalence or an
+independent waiver; the actual variance remains explicit for parent review.
 
 `DraftReader` extracts embedded text first with Extraction bounds. Only NoText
 renders first `min(3,ImagesPerCall,nativePages)` pages. The **whole requested
@@ -69,6 +87,11 @@ form/editor-mark mutation is reachable.
 ## Durable and instance-local arbitration
 
 Claim takes short parent/Datei key-share locks then conditional INSERT/ON CONFLICT.
+The COMPLETE Claim→registry→recheck→read→store future is transferred through
+`Origin::spawn_reading` **before the first Claim SQL await**, after auth/form/file
+validation. The handler retains its drop signal while ownership is unresolved.
+A successful owned Claim ignores that signal; eventual missing/foreign fallback
+checks it before reading/spending. A blocked Claim is not abandoned on disconnect.
 Equal/older numbers answer400; only higher numbers reset `liest`. PostgreSQL
 arbitrates first-insert races without broad exception retries or provider-time
 locks. Terminal UPDATE compares exact draft/Datei/request/`liest` **in SQL**;
@@ -87,10 +110,10 @@ interrupted projection and form-save preservation remain unchanged.
   closing the removal-before-registration gap without spending.
 - Other replicas may run to their own limit; conditional SQL refuses stale stores.
 
-Main cancels `Origin::shutdown` **before Axum wait**. Afterwards
 `Origin::spawn_reading` transfers the current HTTP tracing span together with
 owned work (plain Tokio spawn loses it); native OTLP verifies every model span's
-parent ID and trace against the exported HTTP span. `Origin::drain_readings`
+parent ID and trace against the exported HTTP span.
+Main cancels `Origin::shutdown` **before Axum wait**. Afterwards `Origin::drain_readings`
 joins whole consumer/native/store tasks, THEN Gateway
 accounting, THEN terminal telemetry. Model-capable hosts use checked three-signal
 finite flush/shutdown and fail nonzero on accounting/flush failure; the watchdog
@@ -106,9 +129,10 @@ below real Gateway/PostgreSQL. #231 alone extends its programme recognition.
 | Entire `LiedLesenApiTests.cs` | `lied_lesen_api`: text/scan/identity/wire mapping, analyzer/uncertain/quotes/duplicates/lyrics, cap/input/material/access/current membership/CSRF, order/form/native-envelope controls |
 | `LiedEntwurfApiTests.cs` reading methods238–520 | `lied_entwurf_reading`: outcome/resume/no form mutation, late discard/remove, supersession/higher retry, real notifications/equal first claims/budget/stale/foreign/stateless, actual three-minute limit and locked stale terminal UPDATE |
 | Same file persistence/validation | Existing #224 `lied_entwurf_api`, inherited regression, not re-claimed translation |
-| Actual HTTP disconnect | `lied_reading_lifetime`: real native TCP/Router/Gateway/PG/PDF, stateless cancellation/full reservation versus persisted completion/GET resume |
+| Actual HTTP disconnect | `lied_reading_lifetime`: real TCP/Router/Gateway/PG/PDF; held-model lifetimes plus real Claim row-lock barrier, actual Hyper-drop witness, owned completion and no-spend missing-file/foreign fallback |
 | Product terminal telemetry | Ordinary `lied_reading_process`: actual product SIGTERM fails nonzero on terminal flush refusal; inherited `process_startup` skeleton remains unchanged |
-| Native unchanged UI/model HTTP/host | `tests/browser/lied-reading-native.cjs` + offline-only `examples/lied-reading-native.rs`: real sign-in/CSRF, tab close/resume,30MB envelope, both raw-socket lifetimes, discard/both held-model shutdowns, failed settlement/nonzero/conservative reservation, all OTLP signals/private terminal replay |
+| Native unchanged UI/model HTTP/host | `tests/browser/lied-reading-native.cjs` + offline-only `examples/lied-reading-native.rs`: real sign-in/CSRF, tab close/resume,30MB envelope, both raw-socket lifetimes, early Claim-lock disconnect, discard/both held-model shutdowns, failed settlement/nonzero/conservative reservation, all OTLP signals/private terminal replay |
+| Full navigation versus tab close | `lied-navigation-native.cjs` + external build of `tests/oracles/NavigationHost.cs`: actual frozen Kestrel and Rust, same static client/PDF/provider holds; retained shared failed navigation versus two positive boundaries |
 
 The example permits only local `test230_lied_*` DB, loopback HTTP and local SMTP
 with a fixed synthetic credential. It serves product router/readers/registry and
@@ -126,10 +150,17 @@ cargo build --workspace --examples --locked
 # ALL inherited explicit SQL/schema/private Blob/Queue/native PDF gates apply.
 node tests/browser/lied-reading-native.cjs
 node tests/browser/lesung-form-native.cjs
+node tests/browser/lied-navigation-native.cjs
 node --test tests/browser/telemetry-*.test.cjs
 ```
 
 Native env adds `ARCHIVE_LIED_READING_PROBE` for the built offline example.
+Navigation also needs `ARCHIVE_NAVIGATION_DOTNET_HOST`: external net10 console
+project referencing unchanged backend and exact existing Mvc.Testing10.0.12,
+compiling only `NavigationHost.cs`. It uses actual Program/Kestrel in Development,
+real PG/Gateway/ledger and static frontend; only keyed provider DELIVERY waits on
+loopback HTTP then delegates to the frozen scripted client. Synthetic local DB,
+SMTP, endpoint and credential guards remain. No frontend/auth/ledger/native mocks.
 Dedicated230 PG55432/Azurite51033/52033/53033 stay separate from231; the initial
 custom-key fixture on51032 remains retained but is not the final gate fixture.
 Accepted
@@ -144,10 +175,26 @@ no matcher/reader/photo/programme source is duplicated here.
 Final source pins/counts/logs are recorded only after combined jobs complete in
 durable `target/agent-218/evidence/230-report.md`; pending gates are not passes.
 Initial native fixture errors (missing SDK choice index; wrong SQL table spelling)
-and a real **full-page-navigation** failure remain retained. Navigation left the
-unchanged browser marker failed while server outcome was read, suppressing its
-same-request suggestions. Final **actual tab-close** is a distinct passing
-journey, not erasure of that failure or a claim of identical frozen-.NET failure.
+and a real **full-page-navigation** failure remain retained. A controlled actual
+frozen.NET-versus-Rust differential now reproduces it identically, including
+after the Claim ownership repair:
+
+| Boundary on BOTH actual hosts | Browser/server state | Resumed title |
+| --- | --- | --- |
+| Full navigation while model held | `fehlgeschlagen` / `gelesen`, valid title suggestion | `Synthetic` — LOST SUGGESTION, retained failure |
+| Full navigation after result applied/persisted | `gelesen` / `gelesen` | `Waldfahrt` |
+| Actual tab close while model held | `liest` / `gelesen` | `Waldfahrt` |
+
+Instrumented fetch rethrows the SAME original exception, records only type/name,
+abort flags/status/timing in sessionStorage; no response/credential alteration.
+At held full-navigation both record pagehide then **TypeError**, not AbortError,
+with `signal.aborted=false`; no HTTP read response is observed. No browser console
+errors were emitted in the measured controls. The unchanged client consequently
+persists failed status and suppresses the same-request stored suggestions.
+This establishes the common baseline and boundary, not a new fixed UI journey.
+The differential asserts this retained failure AND both positive controls; a green
+differential is NOT successful full-navigation resume or acceptance/waiver.
+Original failed artifacts remain; frontend is frozen, parent owns disposition.
 
 Inherited passkey/member browser failures, UNCLASSIFIED historical redaction,
 video FK refusal, historical migration equivalents, conditional budget/current

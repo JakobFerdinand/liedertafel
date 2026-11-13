@@ -201,7 +201,7 @@ async fn blocked_claim_survives_socket_drop_but_eventual_stateless_or_foreign_fa
 			},
 		));
 		let mut editor = app.admin().await;
-		let mut foreign = app.member().await;
+		let mut foreign = app.sign_in("redaktion@liedertafel.test").await;
 		let foreign_id: Uuid = foreign.get("/api/auth/me").await.1["accountId"]
 			.as_str()
 			.unwrap()
@@ -253,11 +253,15 @@ async fn blocked_claim_survives_socket_drop_but_eventual_stateless_or_foreign_fa
 		tokio::time::timeout(Duration::from_secs(5), origin.reading_tasks.wait())
 			.await
 			.unwrap();
-		let body = if fallback == "foreign-owner" {
-			foreign.get(&path).await.1
+		let (status, body) = if fallback == "foreign-owner" {
+			foreign.get(&path).await
 		} else {
-			editor.get(&path).await.1
+			editor.get(&path).await
 		};
+		assert_eq!(
+			status, 200,
+			"resumed form remains visible to its actual owner: {body}"
+		);
 		let usage: i64 = sqlx::query_scalar("SELECT count(*) FROM ai_usage_entries")
 			.fetch_one(&app.pool)
 			.await

@@ -187,6 +187,9 @@ update this section in the same PR whenever the member list changes.
   Shared form native regression: `node tests/browser/lesung-form-native.cjs`;
   on the consumer union set `ARCHIVE_FORM_ROUTES=/api/lied-lesungen,/api/auftritt-lesungen`
   to test both default Rust routes against identical frozen ASP.NET form bytes.
+  `node tests/browser/lied-navigation-native.cjs` compares the retained failed
+  full-navigation boundary and positive tab-close/completed controls on actual
+  frozen Kestrel/Rust; its offline external host setup is in that parity guide.
 
 - Before changing culture ordering or CLR string/path Guid binding, read
   `docs/events-review-remediation.md`: migration 0004 preserves ICU equality
