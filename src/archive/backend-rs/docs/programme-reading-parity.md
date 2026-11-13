@@ -70,8 +70,11 @@ as a safe502 by the reader; it never silently repairs an exceptional quote/title
 Programme uses #230's shared request-drop child token and `Origin::reading_tasks`.
 A disconnected handler cancels its consumer, while the tracker joins native work
 and accounting independent of that handler's join handle. Host cancellation
-precedes Axum wait; producer close/wait precedes Gateway drain and checked OTLP
-flush. There is no per-request global Gateway drain.
+precedes Axum wait; producer close/wait precedes Gateway drain and OTLP flush.
+The offline finite HTTP fixture checks all flush results. Product main retains
+its pre-existing void flush/shutdown behavior; a failed-exporter exit guarantee
+for that shared long-running host is not established by this ticket. There is
+no per-request global Gateway drain.
 
 `programm_http_lifetime` exercises actual TCP disconnect and host signal during a
 held second call, with a reported100/20 first call and full-reservation settlement
@@ -82,9 +85,9 @@ provider); it exposes the real route/auth/Gateway/SQL with held scripted deliver
 It is not a product command, credentials bypass or live evaluation authorization.
 `programm-reading-native.cjs` drives it for actual process SIGTERM/failed
 settlement and terminal OTLP privacy, alongside the real default product/unchanged
-UI draft-resume/editor-save journey. These native gates are pending until an
-executed final evidence table is added; the socket gate alone is not a process
-or image/AppHost acceptance claim.
+UI draft-resume/editor-save journey. The final table records these executed
+gates; neither a socket gate nor the offline process fixture is image/AppHost
+acceptance or a paid-provider proof.
 
 ## Per-file ownership and controls
 
@@ -116,4 +119,60 @@ The native journey additionally needs `ARCHIVE_PROGRAMME_HTTP_PROBE` pointing to
 the built `programme-http-native` example. Run ALL inherited explicit gates and
 native journeys/replays as well. Exact tested source/ancestry, terminal artifacts,
 counts and failed/unrun distinctions belong in durable `evidence/231-report.md`.
-Current validation remains in progress, not accepted.
+Independent acceptance remains parent-owned.
+
+## Final pinned-source validation
+
+Implementation **`cfde61c3920b7c06efe7a9ac36586283d0f2896b`**, after a no-op merge
+of latest integration `ed71063` (already an ancestor). The handoff's subsequent
+commit is documentation-only. All35 sequential stages completed with exit0;
+the independent artifact audit verified counts, native terminal generations,
+permissions, source/oracle equality and linkage. Durable logs/results/captures:
+`evidence/231/final-pipeline.log`, `231/final/{results,evidence,captures}.json` and
+`231/final-audit-green.log`. No pending/ignored check is called a runtime pass.
+
+| Executed gate | Result |
+| --- | --- |
+| fmt → all-target clippy → ordinary workspace → builds → active pinned deny | PASS; locked dependencies, existing duplicate-version warnings retained |
+| Ordinary Rust workspace |118 passed,0 failed,238 ignored |
+| ALL combined explicit gates |238 passed,0 failed,0 ignored:229 SQL (including reader/native-PDF/model children),1 schema/adoption/grants,5 private Blob,1 private Queue,2 standalone native PDF |
+| Native auth/member/catalogue/upload/events/query/extraction/recordings/AI/reading/programme + individual replays |11/11 +11/11 PASS; three-signal terminal privacy completion, empty findings/errors/legacyMatches, capture0700/replay0600 |
+| Programme native additions | Real default product/unchanged UI photo→opaque form→restart/resume→editor save; actual transport30,000,000-byte extra-section refusal and distinct per-file refusal with no model rows; real HTTP disconnect and offline process SIGTERM/unknown+reported accounting; failed settlement retains reservation and exits1 |
+| Frozen scoped .NET, current PostgreSQL cases included |163 passed; existing NuGet/compiler warnings are not an audit pass |
+| Unchanged frontend units / mocked desktop-mobile UI / detector |115 /200 /110 passed; zero failed; units/detector zero skipped |
+| Actual frozen programme oracle regeneration |Exact80 request/prompt/string/match/photo/header/numbering/cost observations +1,112,064 scalar contexts in both modes (27,899 sparse changed/exception rows) |
+| Scripted positive evaluation |7/7 documents,13 physical calls,18,641 micro-EUR; all eight entry outcome labels retained, including the allowed `unmatched-missed` |
+| Default product linkage |Static OpenSSL3.5.9, no dynamic libssl/libcrypto; SHA256 `66cf5c63760eeb10816cd37280b3aef8be7e8a04a3684f7c77b2fb00adeef236` |
+
+Counts are test functions, not matrix rows, oracle observations, assertions or
+corpus children. Ordinary Rust/.NET totals include absent-config Scan and
+Programme live guards, **not paid evaluation passes**. Exact frozen scalar,
+photo-alpha, BMP numbering/date, kind-casing and synthetic cost controls had
+retained behavioral red→green runs. Initial fixture/compile/CLI mistakes and the
+first audit helper's Node spec-versus-TAP parser error remain separate failures;
+the corrected audit inspected the same completed stage artifacts, not a rerun.
+
+### Separate shared HTTP correlation finding — not cleared
+
+A post-hoc control against the final actual native capture **failed**: incoming
+synthetic HTTP `traceparent` was not adopted. Source inspection confirms the
+unchanged `frontend::ProbeSkipper` creates request spans without extracting W3C
+context; Queue workers' explicit remote-parent controls are separate and passed.
+Agent-span presence and all three signals/privacy passed, but this HTTP parent
+adoption did not. Evidence: `231/final/programme-w3c-posthoc-failure.json`.
+This is shared generic-HTTP ownership (#230/parent), not independently patched
+or waived here; it does not turn the11 passed native tests into a W3C pass.
+The parent must resolve/dispose this finding before claiming combined HTTP
+correlation parity. Product-main failed-exporter behavior above is source-derived,
+not an additional executed failure probe.
+
+Immutable reuse was checked against147 current tracked frontend files and112
+output files, exact PDFium8138 library SHA256 and OpenSSL3.5.9. Build target231,
+PostgreSQL55431, private Azurite51031/52031/53031, providers and final capture
+directories are ticket-owned. Native/decoded expansion, conditional cap/current
+price/ACK/notices, historical migration equivalents, frozen browser failures,
+original UNCLASSIFIED redaction and video-FK refusal remain unwaived. Hosted
+identity/storage/model/private corpus, production image/AppHost/cutover and paid
+evaluation remain unrun. No push/tracker/main or integration merge, deployment
+or manual cleanup occurred. Shared631bb44 snapshots preserve peer ownership;
+the second accepted consumer must merge the first and rerun the combined tree.
