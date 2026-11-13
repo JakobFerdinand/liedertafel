@@ -141,6 +141,50 @@ for audit. Synthetic100/20 usage is fixture delivery, not measured OCR quality.
 
 ## Reproduce and qualifications
 
+### Final implementation validation
+
+Review `230-review.md` was SOURCE/SPEC HOLD at029bca2; remediation is not an
+independent closure. Each code fix is a separate logical commit:
+
+| Finding | Fix | Evidence level / retained red→green |
+| --- | --- | --- |
+| R1 all-section1024 cap |61307d0 | actual frozen/default Rust native1024/1025 files/ignored/scalars; `red-form-r1-native-2.log` → `green-form-r1-native.log` |
+| R2 raw URL byte/count bounds |d5604c8 | actual adjacent2048/4194304 raw/escaped/multibyte/empty-tail native controls; `red-form-r2-native.log` → `green-form-r2-native.log`; internal pipe-layout variance remains separately explicit |
+| R3 URL charset/percent/BOM policy |78d94d7 | actual130-byte-case native differential +174 public FormPipeReader layout observations; `red-form-r3-native.log` → `green-form-r3-native.log` |
+| R4 Claim ownership |cc3546c | initially source-derived, then real TCP/PG lock + actual handler-drop witness reproduced missing owned result; `red-claim-socket.log` → `green-claim-socket.log`; no-spend foreign/missing fallback and native model-socket/W3C follow-up |
+| Known boundary transport padding |6e8616e | actual FormFeature/native accepted/rejected padding controls; `red-form-padding-native.log` → `green-form-padding-native.log` |
+
+Full-navigation causation/baseline is the measured differential below, not an
+assumed consequence of R4. Prior231 disposition/charset/header findings were
+covered by029; incoming context uses separate b1fb6ed and owned-parent46cf40d.
+
+Runtime/test source **b242ea0d2dfc70c1f9bd4bacc6cf66c1154c077b**, integration
+ancestor **ed710631694574b32776db7a7f35a295ac179201** (latest merge: already up to
+date). All50 sequential stages completed after the last implementation change;
+artifact audit passed. The final handoff commit changes documentation only.
+
+| Gate | Result |
+| --- | --- |
+| fmt, all-target clippy `-D warnings`, workspace/examples builds, pinned cargo-deny | PASS |
+| Ordinary Rust workspace |114 passed /247 ignored /0 failed |
+| ALL combined explicit gates |247 passed /0 ignored /0 failed; real PG/schema/private Blob/Queue/native PDF included |
+| Native protocol/lifecycle/differential gates |14/14; includes W3C,130-case forms and the retained shared-navigation-failure classification, NOT14 blanket successful-resume journeys |
+| Terminal private OTLP replays |14/14; findings/errors/legacyMatches empty, completion/secrecy checked;0700/0600 |
+| Unchanged frozen.NET scoped suites |160 passed |
+| Unchanged frontend unit / mocked desktop-mobile UI |115 /202 passed |
+| Official-schema detector/lifecycle |110 passed |
+| Actual form / disposition / URL pipe-layout observations |130 /49 /174, independently regenerated; observations are not test-function counts |
+| Native linkage |supported static OpenSSL3.5.9; no dynamic libssl/libcrypto |
+
+Durable artifacts are under original workspace
+`target/agent-218/evidence/230/final-b242ea0/` (`evidence.json`, `results.json`,
+`captures.json`, per-stage logs), with `audit-b242ea0.log` beside it. Independent
+source/runtime re-review, the source empty-segment qualification and shared failed
+navigation disposition remain parent-owned. Programme Rust route is absent here:
+#231 must retest its route/model chain and the combined consumer union. The green
+absent-config live guard is not a live-model evaluation. No acceptance, transfer,
+cutover or #232 clearance is implied by these implementer gates.
+
 ```sh
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
