@@ -67,14 +67,13 @@ as a safe502 by the reader; it never silently repairs an exceptional quote/title
 
 ## Lifetimes
 
-Programme uses #230's shared request-drop child token and `Origin::reading_tasks`.
+Programme uses #230's shared request-drop child token and `Origin::spawn_reading`.
 A disconnected handler cancels its consumer, while the tracker joins native work
 and accounting independent of that handler's join handle. Host cancellation
 precedes Axum wait; producer close/wait precedes Gateway drain and OTLP flush.
-The offline finite HTTP fixture checks all flush results. Product main retains
-its pre-existing void flush/shutdown behavior; a failed-exporter exit guarantee
-for that shared long-running host is not established by this ticket. There is
-no per-request global Gateway drain.
+Both product main and the offline fixture use `Origin::drain_readings` before
+checked terminal telemetry flush; the parent-authorized shared patch owns these
+wrappers and product-host finish. There is no per-request global Gateway drain.
 
 `programm_http_lifetime` exercises actual TCP disconnect and host signal during a
 held second call, with a reported100/20 first call and full-reservation settlement
@@ -121,7 +120,56 @@ native journeys/replays as well. Exact tested source/ancestry, terminal artifact
 counts and failed/unrun distinctions belong in durable `evidence/231-report.md`.
 Independent acceptance remains parent-owned.
 
-## Final pinned-source validation
+## Shared review remediation (parent-authorized; validation pending)
+
+The shared-only cumulative patch is pinned to #230 source
+`b242ea0d2dfc70c1f9bd4bacc6cf66c1154c077b`:
+`230-shared-final-from-631.patch`, SHA256
+`55f0ca16637ca1524ebb530c68a013cad06343f3467d86867025b6424f5645ff`.
+All manifest digests were independently verified before consumption. It updates
+16 shared files from the already-present631 snapshot; no core631 reapplication,
+Lied reader/registry/endpoint, Claim fix, AI/model/programme feature, frozen code
+or peer AGENTS import. Fifteen whole files match the shared source exactly; only
+the exact two shared wrappers are added to this consumer's existing `Origin`.
+Its Lied registry state/configuration stays excluded. Cargo's existing Unicode
+edge is preserved; only direct already-locked mime0.3.18 is added. All package
+versions/sources/checksums remain unchanged.
+
+The shared parser now preserves source disposition/name/header/charset/BOM and
+transport-padding rules, counts every multipart section before classification,
+and bounds encoded URL key/value bytes before charset-specific decoding. The
+generic same-byte130-case native harness always exercises BOTH frozen routes,
+then only this branch's implemented Rust `/api/auftritt-lesungen`, with
+Content-Length and chunked framing. Rust controlled malformed-form400 is not a
+claim of identical unhandled .NET400/500 exceptions. Own external .NET oracles
+regenerate130 form observations and174 URL-pipe observations, plus49 disposition/
+charset observations. They use no peer mutable fixture/build state.
+
+**Qualification:** actual .NET FormPipeReader fast/single-sequence and slow/
+multi-sequence paths count empty URL tails differently. Rust deterministically
+enforces1024 raw pairs, including empty segments but no invented pair after the
+final separator. Actual default Kestrel tests cover both
+Content-Length/chunked; they do not establish universal internal-layout parity
+or a general waiver. The source observations and qualification remain retained.
+
+Shared W3C extraction starts from empty context, carries traceparent/tracestate
+only and excludes probes/baggage. The programme native harness additionally
+decodes real OTLP for four distinguishable requests: successful product reading,
+disconnect, SIGTERM, and failed settlement. Each must have remote parent→HTTP
+span→both `programm-*` agent children with exact trace/parent IDs, tracestate and
+sampled flag. It first failed against the old binaries; that red and the original
+post-hoc failure are retained. The updated producer/fixture use shared wrappers;
+no duplicate HTTP framework is introduced.
+
+Full-page lost-suggestion navigation is an independently observed shared frozen/
+Rust **failure**, distinct from passed tab-close/completed-navigation controls.
+This branch does not import the Lied navigation harness, claim that failed
+journey passed, or claim Rust Lied-route coverage. Both Rust routes require a
+fresh run on the later accepted consumer union. Independent #231 rereview and
+#230 shared-source/runtime clearance remain parent-owned; no acceptance or #232
+advancement follows from this patch transfer.
+
+## Historical pinned-source validation (before shared remediation)
 
 Implementation **`cfde61c3920b7c06efe7a9ac36586283d0f2896b`**, after a no-op merge
 of latest integration `ed71063` (already an ancestor). The handoff's subsequent
@@ -152,7 +200,7 @@ retained behavioral red→green runs. Initial fixture/compile/CLI mistakes and t
 first audit helper's Node spec-versus-TAP parser error remain separate failures;
 the corrected audit inspected the same completed stage artifacts, not a rerun.
 
-### Separate shared HTTP correlation finding — not cleared
+### Historical shared HTTP correlation failure — retained as red
 
 A post-hoc control against the final actual native capture **failed**: incoming
 synthetic HTTP `traceparent` was not adopted. Source inspection confirms the

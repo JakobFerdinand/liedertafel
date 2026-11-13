@@ -70,6 +70,7 @@ dependencies = [
  "http-body-util",
  "image",
  "lettre",
+ "mime",
  "opentelemetry",
  "opentelemetry_sdk",
  "pbkdf2",

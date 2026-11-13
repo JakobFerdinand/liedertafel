@@ -1,0 +1,1054 @@
+[
+  {
+    "name": "utf8",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "utf16le",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "utf16be",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "utf8-bom",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "le-bom",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "be-bom",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "unknown-charset",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "disabled-utf7",
+    "error": "NotSupportedException"
+  },
+  {
+    "name": "ascii",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "latin",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "utf32le",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "utf32be",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "attachment-ignored",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "attachment-after-valid",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "utf16-identities",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "utf32-bom-le",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "utf32-bom-be",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "unknown-attachment",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "repeated-case-empty",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "repeated-case-invalid",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111,11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": false,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "boundary-127",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "boundary-128",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "boundary-129",
+    "error": "InvalidDataException"
+  },
+  {
+    "name": "headers-16",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "headers-17",
+    "error": "InvalidDataException"
+  },
+  {
+    "name": "duplicate-case-headers",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "duplicate-disposition",
+    "error": "InvalidDataException"
+  },
+  {
+    "name": "header-length-16380",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "header-length-16382",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "header-length-16384",
+    "error": "InvalidDataException"
+  },
+  {
+    "name": "header-length-16385",
+    "error": "InvalidDataException"
+  },
+  {
+    "name": "header-length-16400",
+    "error": "InvalidDataException"
+  },
+  {
+    "name": "header-whitespace-16382",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "header-whitespace-16400",
+    "error": "InvalidDataException"
+  },
+  {
+    "name": "empty-filename-first",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 1,
+    "files": [
+      {
+        "Name": "datei",
+        "FileName": "a.pdf",
+        "Length": 6
+      }
+    ]
+  },
+  {
+    "name": "boundary-transport-padding",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "boundary-long-padding",
+    "error": "InvalidDataException"
+  },
+  {
+    "name": "section-count-scalar-1024",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "section-count-scalar-1025",
+    "error": "InvalidDataException"
+  },
+  {
+    "name": "section-count-file-1024",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 1022,
+    "files": [
+      {
+        "Name": "ignored",
+        "FileName": "x.bin",
+        "Length": 1
+      },
+      {
+        "Name": "ignored",
+        "FileName": "x.bin",
+        "Length": 1
+      }
+    ]
+  },
+  {
+    "name": "section-count-file-1025",
+    "error": "InvalidDataException"
+  },
+  {
+    "name": "section-count-ignored-1024",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "section-count-ignored-1025",
+    "error": "InvalidDataException"
+  },
+  {
+    "name": "url-raw-key-2048",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-escaped-key-2048",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-utf8-key-2048",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-raw-key-2049",
+    "error": "InvalidDataException"
+  },
+  {
+    "name": "url-escaped-key-2049",
+    "error": "InvalidDataException"
+  },
+  {
+    "name": "url-utf8-key-2049",
+    "error": "InvalidDataException"
+  },
+  {
+    "name": "url-raw-value-4194304",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-escaped-value-4194304",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-raw-value-4194305",
+    "error": "InvalidDataException"
+  },
+  {
+    "name": "url-escaped-value-4194305",
+    "error": "InvalidDataException"
+  },
+  {
+    "name": "url-empty-tail-1022",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-empty-tail-1023",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-empty-tail-1024",
+    "error": "InvalidDataException"
+  },
+  {
+    "name": "url-empty-shape-56",
+    "error": null,
+    "entwurfId": null,
+    "anfrageId": null,
+    "identityValid": false,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-empty-shape-57",
+    "error": null,
+    "entwurfId": null,
+    "anfrageId": null,
+    "identityValid": false,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-empty-shape-58",
+    "error": null,
+    "entwurfId": null,
+    "anfrageId": null,
+    "identityValid": false,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-empty-shape-59",
+    "error": null,
+    "entwurfId": null,
+    "anfrageId": null,
+    "identityValid": false,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-empty-shape-60",
+    "error": null,
+    "entwurfId": null,
+    "anfrageId": null,
+    "identityValid": false,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-empty-shape-61",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-empty-shape-62",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-empty-shape-63",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-empty-shape-64",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-charset-utf-8-plain",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-charset-utf-8-escaped",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-charset-utf-8-tail-nul",
+    "error": "InvalidDataException"
+  },
+  {
+    "name": "url-charset-utf-8-literal-plus",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "+1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-charset-utf-8-raw-plus",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": " 1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-no-bom-sniff-utf-8",
+    "error": null,
+    "entwurfId": null,
+    "anfrageId": "1",
+    "identityValid": false,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-charset-us-ascii-plain",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-charset-us-ascii-escaped",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-charset-us-ascii-tail-nul",
+    "error": "InvalidDataException"
+  },
+  {
+    "name": "url-charset-us-ascii-literal-plus",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "+1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-charset-us-ascii-raw-plus",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": " 1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-no-bom-sniff-us-ascii",
+    "error": null,
+    "entwurfId": null,
+    "anfrageId": "1",
+    "identityValid": false,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-charset-iso-8859-1-plain",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-charset-iso-8859-1-escaped",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-charset-iso-8859-1-tail-nul",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1\u0000",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-charset-iso-8859-1-literal-plus",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "+1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-charset-iso-8859-1-raw-plus",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": " 1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-no-bom-sniff-iso-8859-1",
+    "error": null,
+    "entwurfId": null,
+    "anfrageId": "1",
+    "identityValid": false,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-charset-utf-16-plain",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-charset-utf-16-escaped",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-charset-utf-16-tail-nul",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1\u0000",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-charset-utf-16-literal-plus",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "+1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-charset-utf-16-raw-plus",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": " 1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-no-bom-sniff-utf-16",
+    "error": null,
+    "entwurfId": null,
+    "anfrageId": "1",
+    "identityValid": false,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-charset-utf-16be-plain",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-charset-utf-16be-escaped",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-charset-utf-16be-tail-nul",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1\u0000",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-charset-utf-16be-literal-plus",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "+1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-charset-utf-16be-raw-plus",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": " 1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-no-bom-sniff-utf-16be",
+    "error": null,
+    "entwurfId": null,
+    "anfrageId": "1",
+    "identityValid": false,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-charset-utf-32-plain",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-charset-utf-32-escaped",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-charset-utf-32-tail-nul",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1\u0000",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-charset-utf-32-literal-plus",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "+1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-charset-utf-32-raw-plus",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": " 1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-no-bom-sniff-utf-32",
+    "error": null,
+    "entwurfId": null,
+    "anfrageId": "1",
+    "identityValid": false,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-charset-utf-32be-plain",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-charset-utf-32be-escaped",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-charset-utf-32be-tail-nul",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1\u0000",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-charset-utf-32be-literal-plus",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "+1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-charset-utf-32be-raw-plus",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": " 1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-no-bom-sniff-utf-32be",
+    "error": null,
+    "entwurfId": null,
+    "anfrageId": "1",
+    "identityValid": false,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-charset-x-invalid-plain",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-charset-x-invalid-escaped",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-charset-x-invalid-tail-nul",
+    "error": "InvalidDataException"
+  },
+  {
+    "name": "url-charset-x-invalid-literal-plus",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "+1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-charset-x-invalid-raw-plus",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": " 1",
+    "identityValid": true,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-no-bom-sniff-x-invalid",
+    "error": null,
+    "entwurfId": null,
+    "anfrageId": "1",
+    "identityValid": false,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-charset-utf-7-plain",
+    "error": "NotSupportedException"
+  },
+  {
+    "name": "url-charset-utf-7-escaped",
+    "error": "NotSupportedException"
+  },
+  {
+    "name": "url-charset-utf-7-tail-nul",
+    "error": "NotSupportedException"
+  },
+  {
+    "name": "url-charset-utf-7-literal-plus",
+    "error": "NotSupportedException"
+  },
+  {
+    "name": "url-charset-utf-7-raw-plus",
+    "error": "NotSupportedException"
+  },
+  {
+    "name": "url-no-bom-sniff-utf-7",
+    "error": "NotSupportedException"
+  },
+  {
+    "name": "url-escape-%FF",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "%FF",
+    "identityValid": false,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-escape-%C3%A4",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "\u00e4",
+    "identityValid": false,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-escape-%E9",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "%E9",
+    "identityValid": false,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-escape-%C0%AF",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "%C0%AF",
+    "identityValid": false,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-escape-%E2%82",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "%E2%82",
+    "identityValid": false,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-escape-%ED%A0%80",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "%ED%A0%80",
+    "identityValid": false,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-escape-%F4%90%80%80",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "%F4%90%80%80",
+    "identityValid": false,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-escape-%GG",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "%GG",
+    "identityValid": false,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-escape-%u0031",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "%u0031",
+    "identityValid": false,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-escape-%26",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "&",
+    "identityValid": false,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-escape-%3D",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "=",
+    "identityValid": false,
+    "fileCount": 0,
+    "files": []
+  }
+]

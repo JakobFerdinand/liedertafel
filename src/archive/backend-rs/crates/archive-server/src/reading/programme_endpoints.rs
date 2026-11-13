@@ -14,7 +14,6 @@ use axum::{
 	routing::{MethodRouter, post},
 };
 use std::sync::Arc;
-use tracing::Instrument;
 pub const BAD_IDENTITY: &str = "Entwurf und Anfrage fehlen oder sind ungültig.";
 pub const NOT_READABLE: &str =
 	"Das Lesen ist nur für PDF-Dateien und Fotos (JPEG, PNG, WebP) möglich.";
@@ -69,8 +68,7 @@ async fn read(State(origin): State<Arc<Origin>>, request: Request) -> Result<Res
 	let bytes = bytes.to_vec();
 	let actor = access.current.account_id;
 	let reading = origin
-		.reading_tasks
-		.spawn(async move { reader.read(&bytes, Some(actor), &cancel).await }.in_current_span())
+		.spawn_reading(async move { reader.read(&bytes, Some(actor), &cancel).await })
 		.await
 		.map_err(|_| fail(StatusCode::BAD_GATEWAY, FAILED))?
 		.map_err(|error| match error {

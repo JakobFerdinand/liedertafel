@@ -73,15 +73,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 			host.shutdown.cancel();
 		})
 		.await?;
-		origin.reading_tasks.close();
-		origin.reading_tasks.wait().await;
-		let healthy = origin
-			.ai
-			.as_ref()
-			.ok_or("missing offline gateway")?
-			.gateway
-			.drain()
-			.await;
+		let healthy = origin.drain_readings().await;
 		pool.close().await;
 		tracing::info!("Offline programme HTTP producers and accounting drained");
 		Ok::<bool, Box<dyn std::error::Error>>(healthy)
