@@ -311,5 +311,157 @@
   {
     "name": "section-count-ignored-1025",
     "error": "InvalidDataException"
+  },
+  {
+    "name": "url-raw-key-2048",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-escaped-key-2048",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-utf8-key-2048",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-raw-key-2049",
+    "error": "InvalidDataException"
+  },
+  {
+    "name": "url-escaped-key-2049",
+    "error": "InvalidDataException"
+  },
+  {
+    "name": "url-utf8-key-2049",
+    "error": "InvalidDataException"
+  },
+  {
+    "name": "url-raw-value-4194304",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-escaped-value-4194304",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-raw-value-4194305",
+    "error": "InvalidDataException"
+  },
+  {
+    "name": "url-escaped-value-4194305",
+    "error": "InvalidDataException"
+  },
+  {
+    "name": "url-empty-tail-1022",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-empty-tail-1023",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-empty-tail-1024",
+    "error": "InvalidDataException"
+  },
+  {
+    "name": "url-empty-shape-56",
+    "error": null,
+    "entwurfId": null,
+    "anfrageId": null,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-empty-shape-57",
+    "error": null,
+    "entwurfId": null,
+    "anfrageId": null,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-empty-shape-58",
+    "error": null,
+    "entwurfId": null,
+    "anfrageId": null,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-empty-shape-59",
+    "error": null,
+    "entwurfId": null,
+    "anfrageId": null,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-empty-shape-60",
+    "error": null,
+    "entwurfId": null,
+    "anfrageId": null,
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-empty-shape-61",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-empty-shape-62",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-empty-shape-63",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "fileCount": 0,
+    "files": []
+  },
+  {
+    "name": "url-empty-shape-64",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "fileCount": 0,
+    "files": []
   }
 ]

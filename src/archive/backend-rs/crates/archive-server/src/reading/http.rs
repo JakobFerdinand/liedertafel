@@ -175,14 +175,32 @@ pub(crate) async fn read_form(
 			if bytes.windows(3).any(|w| w == b"%00") {
 				return Err(bad());
 			}
-			for (index, (key, value)) in url::form_urlencoded::parse(&bytes).enumerate() {
-				if index >= 1024
-					|| key.encode_utf16().count() > 2048
-					|| value.encode_utf16().count() > 4 * 1024 * 1024
-				{
+			let mut rest = bytes.as_ref();
+			let mut count = 0;
+			while !rest.is_empty() {
+				let end = rest.iter().position(|b| *b == b'&').unwrap_or(rest.len());
+				let pair = &rest[..end];
+				rest = if end < rest.len() {
+					&rest[end + 1..]
+				} else {
+					&[]
+				};
+				let equal = pair.iter().position(|b| *b == b'=');
+				let key_len = equal.unwrap_or(pair.len());
+				let value_len = equal.map_or(0, |at| pair.len() - at - 1);
+				count += 1;
+				if count > 1024 || key_len > 2048 || value_len > 4 * 1024 * 1024 {
 					return Err(bad());
 				}
-				result.insert(key.into_owned(), value.into_owned());
+				// FormPipeReader appends empty segments but does not invent a pair
+				// after a final '&'. URL crate parse otherwise discards the empties.
+				if pair.is_empty() {
+					result.insert(String::new(), String::new());
+				} else {
+					for (key, value) in url::form_urlencoded::parse(pair) {
+						result.insert(key.into_owned(), value.into_owned());
+					}
+				}
 			}
 		}
 		_ => return Err(bad()),

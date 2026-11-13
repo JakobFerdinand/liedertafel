@@ -44,5 +44,18 @@ for(const kind of ['scalar','file','ignored'])for(const total of [1024,1025]){
  const extra=kind==='file'?Buffer.from('Content-Disposition: form-data; name="ignored"; filename="x.bin"\r\n\r\nx'):section('ignored','x','',kind==='ignored'?'attachment':'form-data');
  add('section-count-'+kind+'-'+total,[section('entwurfId',id),section('anfrageId','1'),...Array.from({length:total-2},()=>extra)]);
 }
+function urlCase(name,bytes,charset='utf-8'){cases.push({name,contentType:'application/x-www-form-urlencoded; charset='+charset,body:(Buffer.isBuffer(bytes)?bytes:Buffer.from(bytes)).toString('base64')});}
+const urlIdentity=`entwurfId=${id}&anfrageId=1`;
+for(const length of [2048,2049]){
+ urlCase('url-raw-key-'+length,urlIdentity+'&'+'k'.repeat(length)+'=x');
+ urlCase('url-escaped-key-'+length,urlIdentity+'&'+'%61'.repeat(Math.floor(length/3))+'a'.repeat(length%3)+'=x');
+ urlCase('url-utf8-key-'+length,urlIdentity+'&'+'ä'.repeat(Math.floor(length/2))+'a'.repeat(length%2)+'=x');
+}
+for(const length of [4194304,4194305]){
+ urlCase('url-raw-value-'+length,urlIdentity+'&unknown='+'a'.repeat(length));
+ urlCase('url-escaped-value-'+length,urlIdentity+'&unknown='+'%61'.repeat(Math.floor(length/3))+'a'.repeat(length%3));
+}
+for(const count of [1022,1023,1024])urlCase('url-empty-tail-'+count,urlIdentity+'&'.repeat(count));
+for(const text of ['', '&', '&&', '=', '=&', '&&'+urlIdentity, urlIdentity+'&', urlIdentity+'&&', urlIdentity+'&='])urlCase('url-empty-shape-'+cases.length,text);
 module.exports={cases,id};
 if(require.main===module)process.stdout.write(JSON.stringify(cases));
