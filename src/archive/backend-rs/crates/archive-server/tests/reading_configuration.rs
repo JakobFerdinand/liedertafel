@@ -10,6 +10,16 @@ fn real_reading_numeric_environment_matches_frozen_values_or_documented_invalid_
 	let fixture: Value =
 		serde_json::from_str(include_str!("fixtures/229-reading-configuration.json")).unwrap();
 	let rows = fixture["rows"].as_array().unwrap();
+	for setting in ["MaxPdfBytes", "MaxPagesPerRequest"] {
+		for input in ["#0x1", "0x0x1", "&h0X1", "  #0x1  "] {
+			assert!(
+				rows.iter().any(|row| row["name"] == setting
+					&& row["input"] == input
+					&& row["error"] == false),
+				"missing actual valid {setting}={input}"
+			);
+		}
+	}
 	if let Ok(index) = std::env::var("ARCHIVE_229_READING_CONFIG_CASE") {
 		let row = &rows[index.parse::<usize>().unwrap()];
 		// Existing Rust interface keeps defaults for conversion errors whereas

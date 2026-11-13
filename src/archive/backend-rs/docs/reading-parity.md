@@ -42,7 +42,7 @@ External browser delivery dependencies are separately pinned/locked; the lost
 Queue npm install's exact version is unavailable and the newly recorded
 test-only version is not misrepresented as historical byte identity.
 
-Fresh full post-fix validation completed at implementation SHA
+The pre-R2a full post-fix validation completed at implementation SHA
 **`9c9ee0f2f072d0df1955640e396feb942b3555cb`**, after a no-op merge of latest
 integration `fda8e31`. All **35 recorded stages exited0**, sequentially:
 fmt → all-target clippy → workspace → examples/default build → active deny →
@@ -80,6 +80,38 @@ The durable report pins implementation and documentation-only last commit.
 Independent final source rereview and focused-runtime clearance are still
 separate, required parent-owned gates. Hosted/live/private/image/AppHost/future
 model-HTTP and cutover limitations below remain unwaived; #230/#231 stay blocked.
+
+### R2a residual converter finding after source rereview
+
+Independent rereview at `9c9ee0f` closed R1's source finding (including independently
+regenerated exhaustive BCL/production-Rust pure checks) and the original R2 padded
+numeric finding. It found **Low R2a**: the outer BaseNumberConverter prefix is
+followed by Convert radix16's own optional sign/prefix step. Valid `#0x1`,
+`0x0x1`, `&h0X1` and padded variants were incorrectly defaulted. The reviewer did
+not execute their downstream SQL/workload consequence; no cap bypass is claimed.
+
+The narrow fix consumes **one positive sign then one optional0x/0X** after the
+outer prefix, requires actual hex digits and retains the checked source widths.
+It does not repeatedly strip prefixes, accept a sign after the inner prefix or
+guess signed hex semantics. Versioned .NET10 `ParseNumbers.StringToInt/Long`
+confirms this ordering. R1 quote/casing, worker, native bounds tests and frozen
+sources are unchanged. The implementation diff from `9c9ee0f` is confined to
+options.rs, the existing ENV test, configuration oracle/fixture and this guide.
+
+The actual frozen binder matrix now has **1703 rows /131 spellings over13
+settings** (707 valid,996 exceptions), covering both source widths, outer/inner
+positive-sign ordering, empty/suffix/extra-prefix/sign/whitespace failures,
+maxima/two's-complement/adjacent overflow. Every row runs through real isolated
+Options ENV. `r2a-red.log` failed on actual `#0x1`:33554432 instead of1;
+`r2a-final-focused.log` passes the full matrix and unchanged real config worker.
+The initial expanded generator also included NUL, which cannot be passed in an
+OS ENV value; that harness failure is retained separately, not a product red or
+pass. The final ENV-domain matrix retains invalid suffix/ordering controls.
+Malformed/overflow Rust-default versus BCL-exception qualification remains.
+
+The9c9ee0f full35-stage green run above is retained **pre-R2a evidence only**.
+Fresh full post-last-code gates and another pinned source rereview/independent
+focused runtime clearance are pending; #230/#231 remain blocked.
 
 ### Independent review HOLD and local remediation
 

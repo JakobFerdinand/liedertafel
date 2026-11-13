@@ -148,6 +148,17 @@ fn configuration_integer(value: &str, wide: bool) -> Option<i64> {
 		.or_else(|| text.strip_prefix("&h"))
 		.or_else(|| text.strip_prefix("&H"));
 	if let Some(digits) = hexadecimal {
+		// Convert radix16 first consumes one positive sign, then one optional
+		// 0x/0X. Do not repeat prefix stripping or let from_str_radix accept a
+		// second sign after that prefix (e.g. #0x+1 is invalid in the BCL).
+		let digits = digits.strip_prefix('+').unwrap_or(digits);
+		let digits = digits
+			.strip_prefix("0x")
+			.or_else(|| digits.strip_prefix("0X"))
+			.unwrap_or(digits);
+		if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_hexdigit()) {
+			return None;
+		}
 		let bits = u64::from_str_radix(digits, 16).ok()?;
 		if wide {
 			Some(bits as i64)
