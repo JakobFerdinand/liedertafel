@@ -97,6 +97,7 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
+ "unicode-normalization",
  "url",
  "uuid",
  "webauthn-rs-core",

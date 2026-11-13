@@ -47,6 +47,7 @@ pdfium-render = { version = "=0.9.5", default-features = false, features = ["ima
 image = { version = "=0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
 regex = "1.12"
 mime = "=0.3.18"
+unicode-normalization = "=0.1.26"
 tracing-opentelemetry = "0.34"
 opentelemetry_sdk = "0.33.1"
 tokio-util = { version = "0.7.20", features = ["rt"] }
