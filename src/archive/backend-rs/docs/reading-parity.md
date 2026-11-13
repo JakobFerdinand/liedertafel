@@ -42,9 +42,10 @@ External browser delivery dependencies are separately pinned/locked; the lost
 Queue npm install's exact version is unavailable and the newly recorded
 test-only version is not misrepresented as historical byte identity.
 
-The pre-R2a full post-fix validation completed at implementation SHA
-**`9c9ee0f2f072d0df1955640e396feb942b3555cb`**, after a no-op merge of latest
-integration `fda8e31`. All **35 recorded stages exited0**, sequentially:
+Final full post-R2a validation completed at implementation SHA
+**`49ec786b81cbf47fe5b4dfad9695c0212c4978f4`**. Latest integration `fda8e31`
+is retained as an ancestor; the prior requested merge was a no-op. All **35
+recorded stages exited0**, sequentially:
 fmt → all-target clippy → workspace → examples/default build → active deny →
 linkage → ALL combined explicit gates → default product rebuild/linkage → ten
 native journeys and individual replays → frozen .NET and actual oracles →
@@ -58,9 +59,9 @@ frontend unit/detector/mocked UI. No historical count substitutes for these gate
 | Frozen scoped .NET | **128 passed**, with actual current reading PG park/wake and all three PG ledger contention/replica cases; historical rekey excluded only under its explicit equivalent |
 | Frontend unit / mocked desktop-mobile UI / detector | **115 /184 /110 passed**, zero failed; units/detector zero skipped |
 | Actual frozen scan agent | **3 observations**; schema and both prompts regenerated exactly |
-| Actual frozen quote/configuration oracles | Exact regenerated fixtures: **1,112,064 scalar +18 quote +8 clean cases**, **533 numeric binder cases/13 settings** |
+| Actual frozen quote/configuration oracles | Exact regenerated fixtures: **1,112,064 scalar +18 quote +8 clean cases**, **1703 numeric binder cases/131 spellings/13 settings** |
 | Locked fmt/clippy/builds/active cargo-deny0.20.2 | **PASS**; no policy suppression, existing duplicate-version/package/compiler warnings retained |
-| Final default product linkage | Static **OpenSSL3.5.9**, no dynamic libssl/libcrypto; SHA256 `871ef5b9af13e5b6d216c18ec827b6778628883be30839369f9cb777d0362829` |
+| Final default product linkage | Static **OpenSSL3.5.9**, no dynamic libssl/libcrypto; SHA256 `4d708cdf58bd71a20a54579c0f6e5415538feeca39ad1dc70ca2573a2bd37b61` |
 
 Counts are test functions, not expanded fixture cases/children. The ordinary
 Rust and frozen .NET totals each include an absent-configuration live scan guard
@@ -71,14 +72,17 @@ unchanged frontend (excluding generated next-env.d.ts);112 output files have
 inventory SHA256 `eb91ff006cb4d94544df532c48db0ce67cc13f7fd7462de3bb212dcfa7089df5`.
 This is newly generated output, not byte identity with the lost Nov10 export.
 
-Authoritative fresh logs: `evidence/229/postfix-pipeline.log`, individual
-`evidence/229/final/<stage>.log`, `final/results.json`, `final/captures.json`,
-`final/evidence.json`, `postfix-evidence-audit.log`; native/tool/frontend and
+Authoritative fresh logs: `evidence/229/r2a-pipeline.log`, individual
+`evidence/229/final-r2a/<stage>.log`, `final-r2a/results.json`, `final-r2a/captures.json`,
+`final-r2a/evidence.json`, `r2a-evidence-audit.log`; native/tool/frontend and
 review-fixture provenance are in `evidence/229/*-provenance.json`. Private failed
 captures are indexed separately in `failed-captures.json`, not relabelled clean.
 The durable report pins implementation and documentation-only last commit.
-Independent final source rereview and focused-runtime clearance are still
-separate, required parent-owned gates. Hosted/live/private/image/AppHost/future
+Independent final source rereview is **SOURCE ACCEPTABLE at49ec786**, with
+R1/R2/R2a closed and no new actionable finding (`evidence/229-review.md`). This
+does not claim reviewer SQL/native execution. Independent focused-runtime
+clearance and parent integration authorization remain separate required gates.
+Hosted/live/private/image/AppHost/future
 model-HTTP and cutover limitations below remain unwaived; #230/#231 stay blocked.
 
 ### R2a residual converter finding after source rereview
@@ -109,9 +113,12 @@ OS ENV value; that harness failure is retained separately, not a product red or
 pass. The final ENV-domain matrix retains invalid suffix/ordering controls.
 Malformed/overflow Rust-default versus BCL-exception qualification remains.
 
-The9c9ee0f full35-stage green run above is retained **pre-R2a evidence only**.
-Fresh full post-last-code gates and another pinned source rereview/independent
-focused runtime clearance are pending; #230/#231 remain blocked.
+The9c9ee0f full35-stage green run is retained **pre-R2a evidence only**, under
+`evidence/229/final/` and `postfix-pipeline.log`. The final49ec786 run above freshly
+repeats all35 stages after the lexical fix. The source rereview independently
+closed R2a at that exact pin. Its scope is source/pure loader observations, not
+SQL/native acceptance; independent focused-runtime clearance remains pending.
+#230/#231 remain blocked.
 
 ### Independent review HOLD and local remediation
 
@@ -160,8 +167,10 @@ duplicate query/reader framework, unsafe lease comparison, global search policy
 or unrelated worker change was added. Focused red/green/oracle logs are under
 `evidence/229/r1-*` and `r2-*`; historical failed logs lost at reboot are not
 recreated as fresh evidence. These are **local fixes, not independent clearance**.
-Final pinned-source rereview and independent focused runtime checks remain
-required, in addition to full fresh post-final-code validation.
+The subsequent final source rereview at49ec786 is acceptable and fresh local
+full gates are green as recorded above. Independent focused runtime checks
+remain required; neither the local tests nor source-only clearance substitutes
+for them.
 
 ## Shared boundary and later-consumer handoff
 
@@ -283,7 +292,7 @@ Rust tests below are under `crates/archive-server/tests`.
 | Frozen file | Rust owner and evidence |
 | --- | --- |
 | `ReadingWorkerTests.cs` | `reading_worker`: actual SQL/gateway/ledger, generated raster PDFs, deterministic/no-call path, only-empty/late-editor writes, malicious/unrequested/duplicate/uncertain/invalid quote/value controls, partial/resume, real cap/no churn/next-month wake and exact old saved usage, transient paid-page reuse, attempts/material/extraction/visibility matrix. `reading_quote_worker` adds actual frozen Unicode drop/write and locked late-editor cases; `reading_configuration_worker` checks padded runtime render/model/reservation bounds. Existing extraction handoff/Enabled and Queue drain gates are inherited, not duplicated. |
-| `ReadingOptions.cs` | `reading_configuration`:533 actual ConfigurationBuilder observations over all13 numeric settings, each exercised through real Options ENV in an isolated child; positive/default/clamp/source-width rules and explicit invalid-default versus binder-exception qualification. `reading_configuration_worker` and strengthened native reading journey prove actual configured extraction handoff and finite command/worker consumption, not only helper fields. |
+| `ReadingOptions.cs` | `reading_configuration`:1703 actual ConfigurationBuilder observations over all13 numeric settings, each exercised through real Options ENV in an isolated child; positive/default/clamp/source-width and two-step hex lexical rules, with explicit invalid-default versus binder-exception qualification. `reading_configuration_worker` and strengthened native reading journey prove actual configured extraction handoff and finite command/worker consumption, not only helper fields. |
 | `ReadingApiTests.cs` | `reading_api`: authenticated raw HTTP, state/source/REST nulls/no-store, roles/CSRF/disabled, retry/continue/material/full text, missing/pre-existing/insert-race rows, malformed body ignored, removed proposal/provenance routes. `reading_dispatch` exercises real selected/caller CAS send barriers and stamp failure. |
 | `ReadingPostgresLiveTests.cs` CURRENT cases | `reading_postgres`, `reading_worker`, `reading_dispatch`, `reading_lifecycle`: real canonical constraints/FKs and production gateway/ledger SQL, budget sweep/progress. No current SQL waiver. |
 | Same file, historical rekey/drop case | Explicit approved frozen-head adoption/preservation + older-history rejection in `historical_baseline`; obsolete transformation **NOT executed by Rust**. See `historical-migration-disposition.md` for the exact case/frontier and separately executed constraints. |
