@@ -7,6 +7,13 @@ use support::lesung;
 use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
 
+struct HandlerDropped(Arc<tokio::sync::Notify>);
+impl Drop for HandlerDropped {
+	fn drop(&mut self) {
+		self.0.notify_one();
+	}
+}
+
 async fn socket(
 	app: &support::App,
 	client: &support::Client,
@@ -160,4 +167,119 @@ async fn actual_socket_disconnect_does_not_cancel_an_owned_persisted_reading() {
 	assert!(origin.ai.as_ref().unwrap().gateway.drain().await);
 	assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
 	app.close().await;
+}
+
+#[tokio::test]
+#[ignore = "explicit PostgreSQL/native PDFium; actual handler-drop during row-lock-blocked Claim"]
+async fn blocked_claim_survives_socket_drop_but_eventual_stateless_or_foreign_fallback_never_spends()
+ {
+	for fallback in ["owned", "missing-file", "foreign-owner"] {
+		let mut app = support::App::new_scoped("claim230").await;
+		let script = reading::scripted_scan_reader();
+		let origin = lesung::configure(
+			&mut app,
+			script.clone(),
+			ai::Options::shipped(true),
+			reading::Options {
+				enabled: true,
+				..Default::default()
+			},
+			Default::default(),
+		);
+		let dropped = Arc::new(tokio::sync::Notify::new());
+		let notify = dropped.clone();
+		// A test-only lifetime witness, not a hook in Claim/registry/provider. It
+		// observes actual Hyper dropping the POST future while SQL is still blocked.
+		app.router = app.router.clone().layer(axum::middleware::from_fn(
+			move |request: axum::extract::Request, next: axum::middleware::Next| {
+				let notify = notify.clone();
+				async move {
+					let _guard = (request.uri().path() == "/api/lied-lesungen")
+						.then(|| HandlerDropped(notify));
+					next.run(request).await
+				}
+			},
+		));
+		let mut editor = app.admin().await;
+		let mut foreign = app.member().await;
+		let foreign_id: Uuid = foreign.get("/api/auth/me").await.1["accountId"]
+			.as_str()
+			.unwrap()
+			.parse()
+			.unwrap();
+		let id = Uuid::new_v4();
+		let file = Uuid::new_v4();
+		let path = format!("/api/lied-entwuerfe/{id}");
+		assert_eq!(editor.request("PUT",&path,json!({"entwurfId":id,"lied":{"title":"Handarbeit"},"dateien":[{"id":file,"name":"a.pdf","art":"noten","sizeBytes":100}]})).await.0,200);
+		let mut barrier = app.pool.begin().await.unwrap();
+		sqlx::query(r#"SELECT "Id" FROM lied_entwuerfe WHERE "Id"=$1 FOR UPDATE"#)
+			.bind(id)
+			.execute(&mut *barrier)
+			.await
+			.unwrap();
+		if fallback == "foreign-owner" {
+			sqlx::query(r#"UPDATE lied_entwuerfe SET "OwnerAccountId"=$2 WHERE "Id"=$1"#)
+				.bind(id)
+				.bind(foreign_id)
+				.execute(&mut *barrier)
+				.await
+				.unwrap();
+		}
+		let target = if fallback == "missing-file" {
+			Uuid::new_v4()
+		} else {
+			file
+		};
+		let (stream, stop, server) = socket(
+			&app,
+			&editor,
+			&[
+				("entwurfId", &id.to_string()),
+				("dateiId", &target.to_string()),
+				("anfrageId", "1"),
+			],
+		)
+		.await;
+		tokio::time::timeout(Duration::from_secs(5),async{loop{
+   let waiting:bool=sqlx::query_scalar(r#"SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE pid<>pg_backend_pid() AND datname=current_database() AND wait_event_type='Lock' AND query LIKE 'SELECT "Id" FROM lied_entwuerfe WHERE%FOR KEY SHARE%')"#).fetch_one(&app.pool).await.unwrap();
+   if waiting{break;}tokio::task::yield_now().await;
+  }}).await.unwrap();
+		drop(stream);
+		tokio::time::timeout(Duration::from_secs(5), dropped.notified())
+			.await
+			.unwrap();
+		barrier.commit().await.unwrap();
+		origin.reading_tasks.close();
+		tokio::time::timeout(Duration::from_secs(5), origin.reading_tasks.wait())
+			.await
+			.unwrap();
+		let body = if fallback == "foreign-owner" {
+			foreign.get(&path).await.1
+		} else {
+			editor.get(&path).await.1
+		};
+		let usage: i64 = sqlx::query_scalar("SELECT count(*) FROM ai_usage_entries")
+			.fetch_one(&app.pool)
+			.await
+			.unwrap();
+		let outcome = body["entwurf"]["dateien"][0]["lesung"].clone();
+		let calls = script.requests().len();
+		origin.shutdown.cancel();
+		stop.cancel();
+		server.await.unwrap();
+		assert!(origin.drain_readings().await);
+		app.close().await;
+		if fallback == "owned" {
+			assert_eq!(
+				outcome["status"], "gelesen",
+				"fully submitted owned Claim was lost on actual handler drop: {outcome}"
+			);
+			assert_eq!(calls, 2);
+			assert!(usage > 0);
+		} else {
+			assert!(outcome.is_null(), "{fallback}: {outcome}");
+			assert_eq!(calls, 0, "{fallback}");
+			assert_eq!(usage, 0, "{fallback}");
+		}
+	}
 }

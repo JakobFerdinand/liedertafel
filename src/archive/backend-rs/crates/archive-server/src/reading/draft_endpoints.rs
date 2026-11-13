@@ -55,42 +55,24 @@ async fn read(State(origin): State<Arc<Origin>>, request: Request) -> Result<Res
 		})
 		.ok_or(fail(StatusCode::UNPROCESSABLE_ENTITY, NOT_PDF))?;
 	let datei = crate::clr_guid::try_parse(&form.value("dateiId"));
-	let persisted = if let Some(file) = datei {
-		claim(
-			&auth.pool,
-			access.current.account_id,
-			entwurf,
-			file,
-			number,
-			auth.clock.now(),
-		)
-		.await?
-	} else {
-		false
-	};
-	let tracked = if persisted {
-		datei.map(|file| {
-			origin
-				.draft_readings
-				.start(entwurf, file, number, &origin.shutdown)
-		})
-	} else {
-		None
-	};
 	let (request_cancel, request_guard) = http::request_lifetime(&origin.shutdown);
-	let cancel = tracked
-		.as_ref()
-		.map(|h| h.cancel.clone())
-		.unwrap_or(request_cancel);
-	// Only stateless work is cancelled when Hyper drops the HTTP handler future.
-	let _request_guard = (!persisted).then_some(request_guard);
-	let read_deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(180);
+	// Keep the handler-drop signal even while ownership is unresolved. Claim's
+	// SQL must survive disconnect; only an eventual stateless fallback uses it.
+	let _request_guard = request_guard;
 	let bytes = bytes.to_vec();
 	let actor = access.current.account_id;
 	let task_origin = origin.clone();
 	let task=origin.spawn_reading(async move {
-  let origin=task_origin;let _tracked=tracked;
+  let origin=task_origin;
   let auth=origin.auth.as_deref().ok_or(fail(StatusCode::UNAUTHORIZED,crate::auth::UNAUTHORIZED))?;
+  // Transfer the COMPLETE claim/registry/read/store future before its first
+  // SQL await. A committed owned Claim must never become an unproduced liest.
+  let persisted=if let Some(file)=datei {claim(&auth.pool,actor,entwurf,file,number,auth.clock.now()).await?}else{false};
+  let tracked=if persisted {datei.map(|file|origin.draft_readings.start(entwurf,file,number,&origin.shutdown))}else{None};
+  let cancel=tracked.as_ref().map(|h|h.cancel.clone()).unwrap_or(request_cancel);
+  let _tracked=tracked;
+  if !persisted&&cancel.is_cancelled(){return Err(fail(StatusCode::BAD_GATEWAY,FAILED));}
+  let read_deadline=tokio::time::Instant::now()+std::time::Duration::from_secs(180);
   if persisted {
    // Register BEFORE checking the durable target, closing the commit→registry
    // removal gap. Old delayed registrations cannot cancel a higher request.
