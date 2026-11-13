@@ -42,10 +42,44 @@ External browser delivery dependencies are separately pinned/locked; the lost
 Queue npm install's exact version is unavailable and the newly recorded
 test-only version is not misrepresented as historical byte identity.
 
-Fresh full validation is in progress; authoritative current stage exits and
-private capture indexes are in the durable report/logs. No historical count is
-substituted for a fresh gate. Hosted/live/private/image/AppHost/future model-HTTP
-and cutover limitations below remain unwaived; #230/#231 stay blocked.
+Fresh full post-fix validation completed at implementation SHA
+**`9c9ee0f2f072d0df1955640e396feb942b3555cb`**, after a no-op merge of latest
+integration `fda8e31`. All **35 recorded stages exited0**, sequentially:
+fmt → all-target clippy → workspace → examples/default build → active deny →
+linkage → ALL combined explicit gates → default product rebuild/linkage → ten
+native journeys and individual replays → frozen .NET and actual oracles →
+frontend unit/detector/mocked UI. No historical count substitutes for these gates.
+
+| Fresh recovery gate | Executed result |
+| --- | --- |
+| Ordinary Rust workspace | **113 passed / 0 failed / 226 ignored** |
+| ALL combined explicit gates | **226 passed / 0 failed / 0 ignored**:217 SQL (including native PDF/gateway/worker/config children),1 schema/adoption/grants,5 private Blob,1 private Queue,2 standalone native PDF |
+| Native journeys and private drained replays | **10/10 PASS +10/10 PASS**, all terminal completion/secrecy checks, empty findings/errors/legacyMatches, capture0700/replay0600 |
+| Frozen scoped .NET | **128 passed**, with actual current reading PG park/wake and all three PG ledger contention/replica cases; historical rekey excluded only under its explicit equivalent |
+| Frontend unit / mocked desktop-mobile UI / detector | **115 /184 /110 passed**, zero failed; units/detector zero skipped |
+| Actual frozen scan agent | **3 observations**; schema and both prompts regenerated exactly |
+| Actual frozen quote/configuration oracles | Exact regenerated fixtures: **1,112,064 scalar +18 quote +8 clean cases**, **533 numeric binder cases/13 settings** |
+| Locked fmt/clippy/builds/active cargo-deny0.20.2 | **PASS**; no policy suppression, existing duplicate-version/package/compiler warnings retained |
+| Final default product linkage | Static **OpenSSL3.5.9**, no dynamic libssl/libcrypto; SHA256 `871ef5b9af13e5b6d216c18ec827b6778628883be30839369f9cb777d0362829` |
+
+Counts are test functions, not expanded fixture cases/children. The ordinary
+Rust and frozen .NET totals each include an absent-configuration live scan guard
+early return, **not** a paid evaluation pass. Scripted evaluation remains3/3
+positive documents,1092 synthetic micro-EUR, with wrong/missing/unchecked controls.
+The rebuilt static export checks147 tracked source/config/test files against the
+unchanged frontend (excluding generated next-env.d.ts);112 output files have
+inventory SHA256 `eb91ff006cb4d94544df532c48db0ce67cc13f7fd7462de3bb212dcfa7089df5`.
+This is newly generated output, not byte identity with the lost Nov10 export.
+
+Authoritative fresh logs: `evidence/229/postfix-pipeline.log`, individual
+`evidence/229/final/<stage>.log`, `final/results.json`, `final/captures.json`,
+`final/evidence.json`, `postfix-evidence-audit.log`; native/tool/frontend and
+review-fixture provenance are in `evidence/229/*-provenance.json`. Private failed
+captures are indexed separately in `failed-captures.json`, not relabelled clean.
+The durable report pins implementation and documentation-only last commit.
+Independent final source rereview and focused-runtime clearance are still
+separate, required parent-owned gates. Hosted/live/private/image/AppHost/future
+model-HTTP and cutover limitations below remain unwaived; #230/#231 stay blocked.
 
 ### Independent review HOLD and local remediation
 
@@ -216,12 +250,13 @@ Rust tests below are under `crates/archive-server/tests`.
 
 | Frozen file | Rust owner and evidence |
 | --- | --- |
-| `ReadingWorkerTests.cs` | `reading_worker`: actual SQL/gateway/ledger, generated raster PDFs, deterministic/no-call path, only-empty/late-editor writes, malicious/unrequested/duplicate/uncertain/invalid quote/value controls, partial/resume, real cap/no churn/next-month wake and exact old saved usage, transient paid-page reuse, attempts/material/extraction/visibility matrix. Existing extraction handoff/Enabled and Queue drain gates are inherited, not duplicated. |
+| `ReadingWorkerTests.cs` | `reading_worker`: actual SQL/gateway/ledger, generated raster PDFs, deterministic/no-call path, only-empty/late-editor writes, malicious/unrequested/duplicate/uncertain/invalid quote/value controls, partial/resume, real cap/no churn/next-month wake and exact old saved usage, transient paid-page reuse, attempts/material/extraction/visibility matrix. `reading_quote_worker` adds actual frozen Unicode drop/write and locked late-editor cases; `reading_configuration_worker` checks padded runtime render/model/reservation bounds. Existing extraction handoff/Enabled and Queue drain gates are inherited, not duplicated. |
+| `ReadingOptions.cs` | `reading_configuration`:533 actual ConfigurationBuilder observations over all13 numeric settings, each exercised through real Options ENV in an isolated child; positive/default/clamp/source-width rules and explicit invalid-default versus binder-exception qualification. `reading_configuration_worker` and strengthened native reading journey prove actual configured extraction handoff and finite command/worker consumption, not only helper fields. |
 | `ReadingApiTests.cs` | `reading_api`: authenticated raw HTTP, state/source/REST nulls/no-store, roles/CSRF/disabled, retry/continue/material/full text, missing/pre-existing/insert-race rows, malformed body ignored, removed proposal/provenance routes. `reading_dispatch` exercises real selected/caller CAS send barriers and stamp failure. |
 | `ReadingPostgresLiveTests.cs` CURRENT cases | `reading_postgres`, `reading_worker`, `reading_dispatch`, `reading_lifecycle`: real canonical constraints/FKs and production gateway/ledger SQL, budget sweep/progress. No current SQL waiver. |
 | Same file, historical rekey/drop case | Explicit approved frozen-head adoption/preservation + older-history rejection in `historical_baseline`; obsolete transformation **NOT executed by Rust**. See `historical-migration-disposition.md` for the exact case/frontier and separately executed constraints. |
 | `PdfPageRendererTests.cs` | `pdf_page_renderer`: actual native count, requested/clamped pages, JPEG1000px, dark drawn raster content, corrupt input/cancellation/spool cleanup. `pdf_spool` adds a deterministic real-filesystem queued-write handoff regression. Accepted `pdf_text_extractor`/extraction spool tests still run after sharing the loader. |
-| `ScanPromptTests.cs` | `scan_prompt`: exact actual frozen agent schema/prompt/output-bound capture, catalog bullets/version, UTF-16/value/quote rules. `tests/oracles/ScanReadingOracle.cs` executes the unchanged frozen agent/Gateway with fake delivery/budget ONLY for capturing requests, not as reading-domain or SQL acceptance. External project `/tmp/opencode/229-oracle/Oracle.csproj`; log `229-scan-oracle.log`. Committed schema/field-prompt fixtures byte/JSON-match that runtime output. No credential/socket exists in this oracle. Frozen NuGet/compiler warnings remain warnings, not an audit pass. |
+| `ScanPromptTests.cs` | `scan_prompt`: exact actual frozen agent schema/prompt/output-bound capture, catalog bullets/version, UTF-16/value/quote rules. `reading_quotes` adds exhaustive actual frozen scalar normalization and multi-character/clean/UTF-16 controls. `tests/oracles/ScanReadingOracle.cs` executes the unchanged frozen agent/Gateway with fake delivery/budget ONLY for capturing requests, not as reading-domain or SQL acceptance. Nov10 external project/log paths were lost; fresh external projects and scan/quote oracle logs are under durable `evidence/229`. Committed fixtures regenerate exactly. No credential/socket exists in these oracles. Frozen NuGet/compiler warnings remain warnings, not an audit pass. |
 | `ScanReadingEvaluationTests.cs` scripted | `scan_reading_evaluation`: generated1/3/5-page corpus through full worker/native renderer/Gateway/real ledger/field writer; per-document correctness and cost, explicit applied-wrong/missing/unchecked negative controls. These are reported outcomes, not extra test-function counts. |
 | Same file, `ScanReadingEvaluationLive` | Runtime exact three-value absent/whitespace gate BEFORE provider/fixture access. Configured unpriced/unusable deployment or bad/missing/empty corpus fails, not skips. Optional report/price names preserved; override strings reuse the accepted invariant AI configuration Decimal converter via `Price::from_configuration`, not Rust Decimal FromStr or the frozen evaluation's ambient-culture Double parser. Pure no-I/O controls reject underscores/grouping/nonfinite/nonpositive/underflow and pin exponent/Unicode-trim/ties-to-even behavior. This is an explicit test-configuration parity qualification, not full frozen Double grammar equivalence. No live path executed or private corpus read here. |
 | Worker cancellation/finite telemetry | `reading_lifecycle`, `reading_process`, `reading-native.cjs`, offline-only `reading-cancel-native` example: exact latest lease, claim timestamp, parent cancellation/no late writes/full reservation settlement; literal commands/native process signals, unchanged UI/search, W3C and all three actual OTLP signals, terminal private capture/replay. This is executable acceptance, not image/AppHost #235 or future model-HTTP shutdown evidence. |
@@ -252,7 +287,7 @@ built `reading-cancel-native` example; its guard accepts only its local
 `test229_reading_*` fixture database and loopback fake credential/provider.
 It is not a product command or a route to a hosted model.
 
-## Candidate validation — 2026-11-10
+## Historical candidate validation — 2026-11-10 (raw evidence lost at reboot)
 
 Runtime/test source: **`7bf628fe852f89b06b83514d879e5eef3c517fcb`**. Accepted
 integration tip **`fda8e319215dabd195d6bfd3da66193615b3553a`** is an ancestor;
