@@ -121,7 +121,7 @@ native journeys/replays as well. Exact tested source/ancestry, terminal artifact
 counts and failed/unrun distinctions belong in durable `evidence/231-report.md`.
 Independent acceptance remains parent-owned.
 
-## LF-budget followup (parent-authorized; fresh validation pending)
+## LF-budget followup (parent-authorized; fresh gates completed, review pending)
 
 After the retained pre-edge partial run, parent authorized only
 `230-shared-readline-lf-a630580.patch` from source
@@ -140,7 +140,7 @@ spaces AND tabs plus16382/16383/16384ASCII header bounds in Content-Length and
 chunked modes, always frozen BOTH routes versus Rust programme ONLY. The full
 137-case frozen comparison passed against old Rust binaries, while old Rust
 failed the new16383-header case400 versus409: retained actual behavioural red.
-After rebuild, all affected and full gates must run on the final committed tree.
+After rebuild, all affected and full gates ran on the final committed tree below.
 
 The previous12-stage attempt/member-browser failure/31unrun stages and its failed
 unchecked capture remain retained. Use the separately verified short ticket-owned
@@ -149,6 +149,56 @@ Source-layout and shared-navigation qualifications below remain limitations, not
 feature passes. Both Rust form routes require the later accepted consumer union.
 Independent #231 rereview and #230 shared-source/runtime clearance remain required;
 this is patch consumption, not acceptance/merge or #232 advancement.
+
+### Authoritative final local validation
+
+Tested implementation **`577e1a78e788a0ffb1e754d8d156412d2b305d84`**. Latest
+integration `ed710631694574b32776db7a7f35a295ac179201` was merged immediately before
+gates (Already up to date) and remains the current tip after completion. The
+subsequent handoff commit changes this guide only. Own fresh sequential job
+`sh_1d5d67391001s2RbkO5G3ZggNm` completed all43 stages with exit0, then artifact
+audit passed. No jobs remain active; no ignored/pending check is called a pass.
+
+| Executed final gate | Audited result |
+| --- | --- |
+| fmt → all-target clippy → ordinary workspace → builds → pinned active deny |PASS; all Cargo commands locked; existing duplicate-version warnings retained |
+| Ordinary workspace / ALL combined explicit gates |118 passed,0 failed,238 ignored /238 passed,0 failed,0 ignored; SQL/schema-grants/private Blob+Queue/native PDF all executed |
+| Inherited10 +programme +genericW3C +form natives and individual replays |13/13 +13/13 PASS; terminal completion/secrecy checked, empty findings/errors/legacyMatches; capture0700/replay0600 |
+| Form native |137 identical byte cases ×Content-Length/chunked on BOTH frozen routes and Rust programme ONLY;822 request observations, not822 test functions |
+| New LF edges |Space/tab98 and99 accepted,100 refused; ASCII header16382 and16383 accepted,16384 refused, all routes/framings above; Rust malformed400 does not assert .NET400/500 equivalence |
+| Generic decoded HTTP W3C |Actual frozen/Rust Development +non-Development4 comparisons PASS; sampled/unsampled, missing/invalid/zero roots, invalid tracestate, excluded probes, ignored baggage |
+| Programme decoded HTTP chains |4 requests: successful/default-product, disconnect, SIGTERM and failed settlement; exact remote→HTTP→both programm-* child trace/parent IDs, tracestate and sampling PASS; independent post-completion decoder rechecked them |
+| Framework form/disposition/URL-pipe oracles |Own projects regenerated137 form and174 source fast/slow URL-layout rows exactly;49 disposition/charset observations also executed |
+| Frozen scoped .NET /unchanged frontend units /mocked desktop-mobile UI /detector |163 /115 /200 /110 passed; zero failed, units/detector zero skipped |
+| Programme oracle /scripted evaluation |Exact80 non-scalar observations +1,112,064 scalar contexts in both modes;7/7 generated documents,13 physical calls, exact18,641 synthetic micro-EUR |
+| Product linkage |Static OpenSSL3.5.9; no dynamic libssl/libcrypto; SHA256 `37f03f8958d14eb0d3d65807112ef18e93467db75f88dd5dd480f4918a3812bf` |
+
+Durable evidence under231: `final-lf-pipeline.log`, `final-lf-audit.log`,
+`final-lf/{source,results,evidence,captures,programme-parent-chains}.json` and all
+stage logs. All old patch digests/prior manifest remain exact; shared files match
+their b242/a630 pins, and every original Cargo package version/source/checksum
+is unchanged. Immutable reuse was freshly rechecked:147 unchanged frontend files,
+112 static outputs, exact PDFium8138 and OpenSSL3.5.9. Target, PostgreSQL55431,
+private Blob51031/Queue52031, short browser scratch and generated fixtures are231
+owned. No peer mutable source/build/provider/fixture or active evidence was used.
+
+The original W3C failed post-hoc control, old-binary W3C/LF reds, review diagnostics
+and pre-edge Chromium failure/capture31unrun remain retained; new successful runs
+do not rewrite their statuses. The short-TMPDIR correction is runner-only, not a
+product change or assertion relaxation. Ordinary Rust/.NET totals include absent
+live-config guards, **not paid model passes**. Frozen NuGet/compiler warnings are
+not a .NET security audit. Synthetic delivery cannot establish real OCR quality.
+
+FormPipeReader fast/slow empty-tail layout variance and shared full-navigation
+lost suggestion remain documented limitations/failure, distinct from passed
+tab-close/completed-navigation controls; neither is relabelled a feature pass.
+This programme-only tree makes no Rust Lied-route/accepted-union claim. Model-
+capable main's checked flush is shared-source behavior; this gate does not add
+its own default-product failing-exporter probe. Hosted credentials/providers,
+private corpora, image/AppHost/production/cutover and live spend remain unrun.
+No push/tracker/deploy/outbound merge/manual cleanup occurred. Independent #231
+rereview and #230 shared-source/runtime clearance are still REQUIRED; parent
+owns acceptance/merge and #232 remains blocked.
 
 ## Historical b242 shared remediation (pre-edge validation incomplete)
 
