@@ -9,7 +9,7 @@ description = "Archive Rust origin: static Next.js export, auth/passkeys, readin
 [dependencies]
 archive-db = { path = "../archive-db" }
 archive-telemetry = { path = "../archive-telemetry" }
-axum = { version = "0.8.9", features = ["macros"] }
+axum = { version = "0.8.9", features = ["macros", "multipart"] }
 tokio = { workspace = true }
 tower = "0.5.3"
 tower-http = { version = "0.7.1", features = ["fs", "trace", "util"] }
@@ -44,8 +44,10 @@ futures = "0.3"
 time = "0.3"
 azure_storage_queue = { version = "=1.1.0", default-features = false }
 pdfium-render = { version = "=0.9.5", default-features = false, features = ["image_025", "pdfium_8125", "thread_safe"] }
-image = { version = "=0.25.10", default-features = false, features = ["jpeg"] }
+image = { version = "=0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
 regex = "1.12"
+mime = "=0.3.18"
+unicode-normalization = "=0.1.26"
 tracing-opentelemetry = "0.34"
 opentelemetry_sdk = "0.33.1"
 tokio-util = { version = "0.7.20", features = ["rt"] }

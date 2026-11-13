@@ -4,6 +4,24 @@ use base64::Engine;
 pub const TRANSCRIPTION_VERSION: &str = "scan-transcription-v1";
 pub const FIELDS_VERSION: &str = "scan-fields-v3";
 pub const TRANSCRIPTION_INSTRUCTIONS: &str = include_str!("transcription.txt");
+pub const PROGRAMME_TRANSCRIPTION_INSTRUCTIONS: &str = include_str!("programme-transcription.txt");
+pub const PROGRAMME_FIELDS_INSTRUCTIONS: &str = include_str!("programme-fields.txt");
+#[derive(serde::Deserialize)]
+pub struct ReadProgrammPunkt {
+	#[serde(rename = "titel")]
+	pub title: Option<String>,
+	#[serde(rename = "sicherheit")]
+	pub certainty: Option<String>,
+	#[serde(rename = "zitat")]
+	pub quote: Option<String>,
+}
+#[derive(serde::Deserialize)]
+pub struct ProgrammReading {
+	#[serde(rename = "felder")]
+	pub fields: Option<Vec<ReadField>>,
+	#[serde(rename = "punkte")]
+	pub entries: Option<Vec<ReadProgrammPunkt>>,
+}
 pub fn fields_instructions() -> String {
 	let bullets = crate::catalogue::writes::FIELD_PROMPTS
 		.iter()
@@ -43,6 +61,89 @@ pub struct ScanReadingModel {
 	pub options: Options,
 }
 impl ScanReadingModel {
+	pub fn programme_batch_size(&self, first: i32, maximum: i32) -> Result<i32, ai::Error> {
+		let bound = self.gateway.input_bound();
+		let count = maximum.clamp(1, 4);
+		let prompt = transcription_prompt(first, first.saturating_add(count - 1));
+		let options = ai::CallOptions {
+			instructions: Some(PROGRAMME_TRANSCRIPTION_INSTRUCTIONS.trim_end().into()),
+			..Default::default()
+		};
+		let (text, _) = ai::estimate_text(&[ai::Message::text("user", &prompt)], &options)?;
+		let last = text
+			.checked_add(
+				i64::from(count)
+					.checked_mul(self.options.estimated_tokens_per_image)
+					.ok_or(ai::Error::MoneyOverflow)?,
+			)
+			.ok_or(ai::Error::MoneyOverflow)?;
+		if last <= bound {
+			return Ok(count);
+		}
+		// Unlike the stored worker, a request has no persisted page continuation:
+		// refuse its whole first min(4,configured,total), never silently omit pages.
+		Err(ai::Error::InputTooLarge {
+			estimate: last,
+			bound,
+		})
+	}
+	pub async fn read_programme(
+		&self,
+		text: &str,
+		actor: Option<uuid::Uuid>,
+		cancel: &tokio_util::sync::CancellationToken,
+	) -> Result<ProgrammReading, ai::Error> {
+		let prompt = format!(
+			"PROGRAMMTEXT-ANFANG\n{}\nPROGRAMMTEXT-ENDE\n",
+			bound_text(text, self.options.max_field_text_characters)
+		);
+		let mut request = ai::Request::new(vec![ai::Message::text("user", &prompt)]);
+		request.agent = Some("archive-programm-fields".into());
+		request.options.instructions = Some(PROGRAMME_FIELDS_INSTRUCTIONS.trim_end().into());
+		request.options.response_format = Some(ai::ResponseFormat {
+			name: "ProgrammReading".into(),
+			description: None,
+			schema: serde_json::from_str(include_str!("programme-schema.json"))
+				.map_err(|_| ai::Error::Configuration)?,
+			strict: None,
+		});
+		let mut operation = ai::Operation::start("programm-fields", actor);
+		operation.max_output_tokens = Some(self.options.fields_max_output_tokens);
+		request.operation = Some(operation);
+		serde_json::from_str(&self.answer(request, cancel).await?).map_err(|_| ai::Error::Protocol)
+	}
+	pub async fn transcribe_programme(
+		&self,
+		pages: &[RenderedPage],
+		actor: Option<uuid::Uuid>,
+		cancel: &tokio_util::sync::CancellationToken,
+	) -> Result<String, ai::Error> {
+		let first = pages.first().ok_or(ai::Error::Protocol)?.page_number;
+		let last = pages.last().ok_or(ai::Error::Protocol)?.page_number;
+		let mut contents = vec![ai::Content::Text(transcription_prompt(first, last))];
+		for page in pages {
+			contents.push(ai::Content::ImageUrl(format!(
+				"data:{};base64,{}",
+				page.content_type,
+				base64::engine::general_purpose::STANDARD.encode(&page.bytes)
+			)));
+		}
+		let mut request = ai::Request::new(vec![ai::Message {
+			role: "user".into(),
+			contents,
+		}]);
+		request.agent = Some("archive-programm-transcriber".into());
+		request.options.instructions = Some(PROGRAMME_TRANSCRIPTION_INSTRUCTIONS.trim_end().into());
+		let mut operation = ai::Operation::start("programm-transcription", actor);
+		operation.max_output_tokens = Some(self.options.transcription_max_output_tokens);
+		operation.non_text_input_tokens = Some(
+			(pages.len() as i64)
+				.checked_mul(self.options.estimated_tokens_per_image)
+				.ok_or(ai::Error::MoneyOverflow)?,
+		);
+		request.operation = Some(operation);
+		Ok(strip_page_markers(&self.answer(request, cancel).await?))
+	}
 	pub fn batch_size(&self, first: i32, maximum: i32) -> Result<i32, ai::Error> {
 		let bound = self.gateway.input_bound();
 		let mut last_estimate = 0;
@@ -183,7 +284,14 @@ fn transcription_prompt(first: i32, last: i32) -> String {
 	)
 }
 pub fn scripted_scan_reader() -> ai::Script {
-	ai::Script::handler(|request| {
+	scripted_scan_reader_with_programme_transcription(None)
+}
+/// Evaluation-only delivery override. Still below the real Gateway/SQL ledger;
+/// no image understanding, domain writes or operation/actor selection here.
+pub fn scripted_scan_reader_with_programme_transcription(
+	transcription: Option<String>,
+) -> ai::Script {
+	ai::Script::handler(move |request| {
 		let prompt = request
 			.messages
 			.iter()
@@ -208,7 +316,32 @@ pub fn scripted_scan_reader() -> ai::Script {
 			.iter()
 			.flat_map(|m| &m.contents)
 			.any(|c| matches!(c, ai::Content::ImageUrl(_)));
-		let text = if images
+		let programme_transcription = images
+			&& request
+				.options
+				.instructions
+				.as_deref()
+				.is_some_and(|s| s.contains("Programmzettel"));
+		let programme_fields = request
+			.options
+			.instructions
+			.as_deref()
+			.is_some_and(|s| s.contains("PROGRAMMTEXT-ANFANG"));
+		let text = if programme_transcription {
+			format!(
+				"=== Seite 1 ===\n{}",
+				transcription
+					.as_deref()
+					.unwrap_or(super::programme_script::SAMPLE)
+			)
+		} else if request
+			.options
+			.instructions
+			.as_deref()
+			.is_some_and(|s| s.contains("PROGRAMMTEXT-ANFANG"))
+		{
+			super::programme_script::fields(&prompt)
+		} else if images
 			&& request
 				.options
 				.instructions
@@ -311,9 +444,20 @@ pub fn scripted_scan_reader() -> ai::Script {
 		} else {
 			return vec![ai::ScriptStep::Fail];
 		};
+		let usage = if programme_transcription && transcription.is_some() {
+			ai::Usage::reported(1700, 120)
+		} else if programme_transcription || programme_fields {
+			ai::Usage::reported(
+				((prompt.encode_utf16().count() + if programme_transcription { 4000 } else { 0 })
+					.div_ceil(4)) as i64,
+				(text.encode_utf16().count().div_ceil(4)) as i64,
+			)
+		} else {
+			ai::Usage::reported(100, 20)
+		};
 		vec![ai::ScriptStep::Update(ai::Update {
 			text,
-			usage: ai::Usage::reported(100, 20),
+			usage,
 			..Default::default()
 		})]
 	})

@@ -146,6 +146,23 @@ impl<B> MakeSpan<B> for ProbeSkipper {
 		}
 		// Never export query strings, cookies or headers. Auth and signed URL
 		// callers may carry secrets there even on rejected requests.
-		tracing::debug_span!("request", method=%request.method(), uri=%request.uri().path(), version=?request.version())
+		use opentelemetry::propagation::TextMapPropagator;
+		use tracing_opentelemetry::OpenTelemetrySpanExt;
+		// Only W3C trace context is a carrier. Never extract baggage or record
+		// headers. An empty base prevents invalid/absent input inheriting ambient
+		// task context; the request is a fresh root unless propagation is valid.
+		let mut carrier = std::collections::HashMap::new();
+		for name in ["traceparent", "tracestate"] {
+			if let Some(value) = request.headers().get(name).and_then(|v| v.to_str().ok()) {
+				carrier.insert(name.to_owned(), value.to_owned());
+			}
+		}
+		let parent = opentelemetry_sdk::propagation::TraceContextPropagator::new()
+			.extract_with_context(&opentelemetry::Context::new(), &carrier);
+		let span = tracing::debug_span!(parent: None, "request", method=%request.method(), uri=%request.uri().path(), version=?request.version());
+		// Newly created span, before any context access/export. Without a tracing
+		// OTEL layer (unit-only routers), set_parent is intentionally unavailable.
+		let _ = span.set_parent(parent);
+		span
 	}
 }

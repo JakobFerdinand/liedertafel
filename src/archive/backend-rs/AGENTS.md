@@ -163,6 +163,16 @@ update this section in the same PR whenever the member list changes.
   `reading-cancel-native` example). Live scan evaluation has a runtime absent-env
   skip gate; configuration is not spending authorization.
 
+- Programme suggestions (#231): read `docs/programme-reading-parity.md` before
+  changing matching, photo/scan requests, HTTP lifetime/W3C/form controls or evaluation. Focused PG:
+  `cargo test -p archive-server --locked --test auftritt_lesen_api -- --ignored`.
+  Native UI/HTTP/OTLP: `node tests/browser/programm-reading-native.cjs` with the
+  offline-only `programme-http-native` example; live evaluation stays gated.
+  Shared generic controls: `node tests/browser/http-w3c-native.cjs`; use
+  `ARCHIVE_FORM_ROUTES=/api/auftritt-lesungen node tests/browser/lesung-form-native.cjs`
+  on this programme-only candidate (both frozen routes always run; both Rust
+  routes are required only after the accepted union includes Lied reading).
+
 - Auftritte/Programme/initial Entwurf (#225): before changing partial dates,
   programme IDs/order, Zeitmarke guards, history, event documents or opaque form
   persistence, read `docs/events-parity.md` for binding/order/concurrency and

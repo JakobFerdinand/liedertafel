@@ -1,0 +1,12 @@
+{
+  "lieder": ["Ave Maria", "Der Mond ist aufgegangen", "Süßer die Glocken nie klingen", "Wanderlust", "Stille Nacht, heilige Nacht", "O du fröhliche", "Heidenröslein", "Im Wald und auf der Heide"],
+  "documents": [
+    {"name":"klar-konzert","transcription":"Frühjahrskonzert der Liedertafel\nSamstag, 21. März 1998\nOrt: Pfarrsaal Mining\n1. Ave Maria\n2. Der Mond ist aufgegangen\n3. Süßer die Glocken nie klingen","expected":{"title":"Frühjahrskonzert der Liedertafel","year":1998,"month":3,"day":21,"venue":"Pfarrsaal Mining","programm":[{"text":"Ave Maria","lied":"Ave Maria"},{"text":"Der Mond ist aufgegangen","lied":"Der Mond ist aufgegangen"},{"text":"Süßer die Glocken nie klingen","lied":"Süßer die Glocken nie klingen"}]}},
+    {"name":"ocr-rauschen","transcription":"Konzert der Liedertafel\n12. Mai 1951\nOrt: Gasthaus zur Post\n1. Der Mond ist aufgegangn\n2. Siisser die Glocken nie klingen\n3. Wanderlied\n4. Heidenroeslein","expected":{"title":"Konzert der Liedertafel","year":1951,"month":5,"day":12,"venue":"Gasthaus zur Post","programm":[{"text":"Der Mond ist aufgegangn","lied":"Der Mond ist aufgegangen"},{"text":"Siisser die Glocken nie klingen","lied":"Süßer die Glocken nie klingen"},{"text":"Wanderlied","lied":null},{"text":"Heidenroeslein","lied":"Heidenröslein"}]}},
+    {"name":"ungefaehres-jahr","transcription":"Sängerfest\num 1950\n1. Ave Maria","expected":{"title":"Sängerfest","year":1950,"approximate":true,"programm":[{"text":"Ave Maria","lied":"Ave Maria"}]}},
+    {"name":"nur-monat","transcription":"Weihnachtsfeier der Liedertafel\nDezember 1938\nGasthaus Post\n1. Stille Nacht\n2. O du fröhliche","expected":{"title":"Weihnachtsfeier der Liedertafel","year":1938,"month":12,"venue":"Gasthaus Post","programm":[{"text":"Stille Nacht","lied":"Stille Nacht, heilige Nacht"},{"text":"O du fröhliche","lied":"O du fröhliche"}]}},
+    {"name":"doppelter-titel","transcription":"Gottesdienst\n3. Oktober 1965\n1. Ave Maria","extraLieder":["Ave Maria"],"expected":{"title":"Gottesdienst","year":1965,"month":10,"day":3,"programm":[{"text":"Ave Maria","lied":"Ave Maria"}]}},
+    {"name":"unbekannte-lieder","transcription":"Konzert\n1. Ein Lied das es nicht gibt\n2. Noch ein Lied","expected":{"title":"Konzert","programm":[{"text":"Ein Lied das es nicht gibt","lied":null},{"text":"Noch ein Lied","lied":null}]}},
+    {"name":"leer","transcription":"","expected":{"programm":[]}}
+  ]
+}

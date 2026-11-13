@@ -265,9 +265,16 @@ async fn run() -> Result<(), StartupError> {
 
 	// The watchdog includes model producers and their non-request-cancellable
 	// accounting retries. Never flush/shutdown OTLP while producers still exist.
-	let accounting_ok = if let Some(ai) = &origin.ai {
-		ai.gateway.drain().await
+	let accounting_ok = origin.drain_readings().await;
+	tracing::info!("Archive origin producers and accounting drained");
+	// A model-capable web host owns the same checked terminal three-signal
+	// flush as finite AI jobs. Dependency-free skeleton hosts keep their existing
+	// best-effort shutdown (including the frozen unreachable-collector control).
+	let telemetry_ok = if origin.ai.is_some() {
+		defaults.finish_finite_job()
 	} else {
+		defaults.flush();
+		defaults.shutdown();
 		true
 	};
 	// The budget watchdog must not outlive a successful drain.
@@ -275,10 +282,11 @@ async fn run() -> Result<(), StartupError> {
 	let _ = signal_task.await;
 	let _ = drain_watcher.await;
 
-	defaults.flush();
-	defaults.shutdown();
 	if !accounting_ok {
 		return Err(StartupError::AiAccounting);
+	}
+	if !telemetry_ok {
+		return Err(StartupError::FiniteTelemetry);
 	}
 	tracing::info!("Archive origin was shut down cleanly");
 	serve_result
