@@ -170,42 +170,131 @@ pub(crate) async fn read_form(
 						"Der Anfrageinhalt ist zu groß.",
 					)
 				})?;
-			// ASP.NET UrlDecoder rejects a percent-decoded NUL before Int32
-			// binding. Multipart values deliberately retain the legacy tail NUL.
-			if bytes.windows(3).any(|w| w == b"%00") {
+			let charset = content.get_param("charset").map(|v| v.as_str());
+			if charset.is_some_and(disabled_utf7) {
 				return Err(bad());
 			}
+			let page = charset.and_then(encoding_code_page).unwrap_or(65001);
+			let and = url_separator(page, b'&');
+			let equals = url_separator(page, b'=');
 			let mut rest = bytes.as_ref();
 			let mut count = 0;
 			while !rest.is_empty() {
-				let end = rest.iter().position(|b| *b == b'&').unwrap_or(rest.len());
+				let end = rest
+					.windows(and.len())
+					.position(|b| b == and)
+					.unwrap_or(rest.len());
 				let pair = &rest[..end];
 				rest = if end < rest.len() {
-					&rest[end + 1..]
+					&rest[end + and.len()..]
 				} else {
 					&[]
 				};
-				let equal = pair.iter().position(|b| *b == b'=');
+				let equal = pair.windows(equals.len()).position(|b| b == equals);
 				let key_len = equal.unwrap_or(pair.len());
-				let value_len = equal.map_or(0, |at| pair.len() - at - 1);
+				let value_len = equal.map_or(0, |at| pair.len() - at - equals.len());
 				count += 1;
 				if count > 1024 || key_len > 2048 || value_len > 4 * 1024 * 1024 {
 					return Err(bad());
 				}
 				// FormPipeReader appends empty segments but does not invent a pair
-				// after a final '&'. URL crate parse otherwise discards the empties.
-				if pair.is_empty() {
-					result.insert(String::new(), String::new());
-				} else {
-					for (key, value) in url::form_urlencoded::parse(pair) {
-						result.insert(key.into_owned(), value.into_owned());
-					}
-				}
+				// after a final '&'. Bounds are encoded bytes, not decoded characters.
+				let key = &pair[..key_len];
+				let value = equal.map_or(&[][..], |at| &pair[at + equals.len()..]);
+				result.insert(
+					url_value(page, key).map_err(|_| bad())?,
+					url_value(page, value).map_err(|_| bad())?,
+				);
 			}
 		}
 		_ => return Err(bad()),
 	}
 	Ok(result)
+}
+
+fn disabled_utf7(name: &str) -> bool {
+	matches!(
+		name.to_ascii_lowercase().as_str(),
+		"utf-7"
+			| "csunicode11utf7"
+			| "unicode-1-1-utf-7"
+			| "unicode-2-0-utf-7"
+			| "x-unicode-1-1-utf-7"
+			| "x-unicode-2-0-utf-7"
+	)
+}
+fn url_separator(page: u16, value: u8) -> Vec<u8> {
+	match page {
+		1200 => vec![value, 0],
+		1201 => vec![0, value],
+		12000 => vec![value, 0, 0, 0],
+		12001 => vec![0, 0, 0, value],
+		_ => vec![value],
+	}
+}
+fn url_value(page: u16, bytes: &[u8]) -> Result<String, ()> {
+	if matches!(page, 65001 | 20127) {
+		// FormPipeReader's UrlDecoder validates percent UTF8 before GetString;
+		// invalid escapes remain literal, decoded NUL is rejected on this path.
+		Ok(decode_header_name(page, &url_unescape(bytes, true)?))
+	} else {
+		// Other encodings decode BEFORE Uri.UnescapeDataString (UTF8 percent
+		// escapes). There is NO StreamReader/BOM autodetection for URL forms.
+		let text = decode_header_name(page, bytes);
+		Ok(String::from_utf8_lossy(&url_unescape(text.as_bytes(), false)?).into_owned())
+	}
+}
+fn url_unescape(bytes: &[u8], reject_nul: bool) -> Result<Vec<u8>, ()> {
+	fn hex(byte: u8) -> Option<u8> {
+		match byte {
+			b'0'..=b'9' => Some(byte - b'0'),
+			b'a'..=b'f' => Some(byte - b'a' + 10),
+			b'A'..=b'F' => Some(byte - b'A' + 10),
+			_ => None,
+		}
+	}
+	fn escaped(bytes: &[u8]) -> Option<u8> {
+		if bytes.first() != Some(&b'%') {
+			return None;
+		}
+		Some(hex(*bytes.get(1)?)? * 16 + hex(*bytes.get(2)?)?)
+	}
+	let mut output = Vec::with_capacity(bytes.len());
+	let mut at = 0;
+	while at < bytes.len() {
+		if let Some(first) = escaped(&bytes[at..]) {
+			if first == 0 && reject_nul {
+				return Err(());
+			}
+			if first.is_ascii() {
+				output.push(first);
+				at += 3;
+				continue;
+			}
+			let width = match first {
+				0xc2..=0xdf => 2,
+				0xe0..=0xef => 3,
+				0xf0..=0xf4 => 4,
+				_ => 0,
+			};
+			let mut candidate = vec![first];
+			for n in 1..width {
+				if let Some(byte) = bytes.get(at + n * 3..).and_then(escaped) {
+					candidate.push(byte);
+				} else {
+					break;
+				}
+			}
+			if width > 0 && candidate.len() == width && std::str::from_utf8(&candidate).is_ok() {
+				output.extend(candidate);
+				at += width * 3;
+				continue;
+			}
+		}
+		output.push(if bytes[at] == b'+' { b' ' } else { bytes[at] });
+		at += 1;
+	}
+	Ok(output)
 }
 
 /// Raw section-header cursor only. Body lengths come from multer's completed

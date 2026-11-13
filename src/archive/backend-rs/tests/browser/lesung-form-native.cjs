@@ -25,7 +25,7 @@ async function run(kind,mailPort,otlp){
   for(const route of routes)for(const [index,row] of cases.entries())for(const chunked of [false,true]){
    const body=Buffer.from(row.body,'base64'),oracle=expected[index];assert.equal(row.name,oracle.name);
    const response=await new Promise((resolve,reject)=>{const request=http.request(base+route,{method:'POST',headers:{cookie:[...cookies].map(([k,v])=>`${k}=${v}`).join('; '),'X-CSRF-TOKEN':csrf,'content-type':row.contentType,'x-forwarded-proto':'https',...(chunked?{}:{'content-length':body.length})}},r=>{r.resume();r.on('end',()=>resolve(r.statusCode));});request.on('error',reject);if(chunked){for(let at=0;at<body.length;at+=31)request.write(body.subarray(at,at+31));request.end();}else request.end(body);});
-   if(oracle.error){assert(response>=400&&response!==409,`${kind} ${route} ${row.name} chunked=${chunked} must refuse form before Enabled`);if(kind==='rust')assert.equal(response,400);}else{const status=oracle.entwurfId===id&&oracle.anfrageId==='1'?409:400;assert.equal(response,status,`${kind} ${route} ${row.name} chunked=${chunked}`);}
+   if(oracle.error){assert(response>=400&&response!==409,`${kind} ${route} ${row.name} chunked=${chunked} must refuse form before Enabled`);if(kind==='rust')assert.equal(response,400);}else{const status=oracle.identityValid?409:400;assert.equal(response,status,`${kind} ${route} ${row.name} chunked=${chunked}`);}
   }
   console.log(JSON.stringify({kind,routes,cases:cases.length,framingModes:2,passed:true}));
  }finally{if(origin){if(origin.exitCode===null)origin.kill('SIGTERM');assert.equal((await capture.closed(origin))[0],0);}await admin.end();}

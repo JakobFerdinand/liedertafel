@@ -57,5 +57,12 @@ for(const length of [4194304,4194305]){
 }
 for(const count of [1022,1023,1024])urlCase('url-empty-tail-'+count,urlIdentity+'&'.repeat(count));
 for(const text of ['', '&', '&&', '=', '=&', '&&'+urlIdentity, urlIdentity+'&', urlIdentity+'&&', urlIdentity+'&='])urlCase('url-empty-shape-'+cases.length,text);
+for(const charset of ['utf-8','us-ascii','iso-8859-1','utf-16','utf-16be','utf-32','utf-32be','x-invalid','utf-7']){
+ function encoded(text){if(charset==='utf-16')return Buffer.from(text,'utf16le');if(charset==='utf-16be')return utf16be(text);if(charset==='utf-32'||charset==='utf-32be')return Buffer.concat([...text].map(c=>Buffer.from(charset==='utf-32'?[c.charCodeAt(0),0,0,0]:[0,0,0,c.charCodeAt(0)])));return Buffer.from(text);}
+ for(const [suffix,text] of [['plain',urlIdentity],['escaped',`entwurfId=${id.replaceAll('1','%31')}&anfrageId=%31`],['tail-nul',`entwurfId=${id}&anfrageId=1%00`],['literal-plus',`entwurfId=${id}&anfrageId=%2B1`],['raw-plus',`entwurfId=${id}&anfrageId=+1`]])urlCase('url-charset-'+charset+'-'+suffix,encoded(text),charset);
+ const bom=charset==='utf-16'?[255,254]:charset==='utf-16be'?[254,255]:charset==='utf-32'?[255,254,0,0]:charset==='utf-32be'?[0,0,254,255]:[239,187,191];
+ urlCase('url-no-bom-sniff-'+charset,Buffer.concat([Buffer.from(bom),encoded(urlIdentity)]),charset);
+}
+for(const escaped of ['%FF','%C3%A4','%E9','%C0%AF','%E2%82','%ED%A0%80','%F4%90%80%80','%GG','%u0031','%26','%3D'])urlCase('url-escape-'+escaped,`entwurfId=${id}&anfrageId=${escaped}`);
 module.exports={cases,id};
 if(require.main===module)process.stdout.write(JSON.stringify(cases));
