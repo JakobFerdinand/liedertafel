@@ -65,6 +65,11 @@ update this section in the same PR whenever the member list changes.
   Before changing native capture, redaction or schema fixtures, read
   `tests/telemetry/README.md` for external decoder setup and private replay rules.
 - Catalogue query binding: before changing scalar/repeated keys, read
+- Incoming HTTP W3C context: `node tests/browser/http-w3c-native.cjs` compares
+  frozen ASP.NET and the product router, with the offline-only `http-w3c-native`
+  example for non-Development sampling. Read `docs/http-w3c-parity.md` before
+  changing request-parent extraction, health skipping or sampler controls.
+- Catalogue query binding: before changing scalar/repeated keys, read
   `docs/catalogue-review-followup.md` for the actual frozen .NET differential,
   empty/duplicate binding semantics and the authenticated PG regression command.
 - The three live-spend AI evaluations keep their skip-when-unconfigured
