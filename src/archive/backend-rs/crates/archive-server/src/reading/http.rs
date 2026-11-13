@@ -215,8 +215,17 @@ impl<'a> SectionHeaders<'a> {
 			.bytes
 			.get(self.at..)
 			.and_then(|b| b.strip_prefix(self.delimiter.as_slice()))
-			.and_then(|b| b.strip_prefix(b"\r\n"))
 			.ok_or(())?;
+		// Both MultipartReaderStream and multer permit linear transport padding
+		// on boundary lines. The frozen ReadLineAsync budget includes its CRLF.
+		let padding = rest
+			.iter()
+			.position(|b| !matches!(b, b' ' | b'\t'))
+			.unwrap_or(rest.len());
+		if padding + 2 > 100 {
+			return Err(());
+		}
+		let rest = rest[padding..].strip_prefix(b"\r\n").ok_or(())?;
 		let scan = &rest[..rest.len().min(16452)];
 		let end = scan.windows(4).position(|w| w == b"\r\n\r\n").ok_or(())?;
 		let mut headers = axum::http::HeaderMap::new();

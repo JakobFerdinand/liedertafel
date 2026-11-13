@@ -32,11 +32,12 @@ names use the actual framework metadata policy. The quoted MIME decoder alone
 allows noncanonical unused base64 bits; provider/auth decoding is unchanged.
 
 `tests/oracles/LesungFormGrammarOracle.cs` and `tests/browser/lesung-form-cases.cjs`
-compare **identical public bytes**:35 actual FormFeature observations covering
+compare **identical public bytes**:37 actual FormFeature observations covering
 UTF8/UTF16LE-BE/UTF32/BOM override/unknown or disabled charset, both encoded
 identities, attachment before/after valid fields, case/repeated fields, first
 file,127–129 boundaries,16–17 distinct or repeated headers, raw whitespace and
-limit-adjacent header blocks. `lesung-form-native.cjs` tests Content-Length AND
+limit-adjacent header blocks, valid boundary transport padding and its100-byte
+line budget. `lesung-form-native.cjs` tests Content-Length AND
 31-byte chunked framing on both actual frozen routes, and the default Rust Lied
 route. Set `ARCHIVE_FORM_ROUTES=/api/lied-lesungen,/api/auftritt-lesungen` on the
 consumer union to test both Rust routes; #231 must do that on its own branch.

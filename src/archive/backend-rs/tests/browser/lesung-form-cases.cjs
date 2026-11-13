@@ -36,5 +36,9 @@ for(const n of [16382,16400]){
  add('header-whitespace-'+n,[section('entwurfId',id,extra+pad+'\r\n'),section('anfrageId','1')]);
 }
 add('empty-filename-first',[section('entwurfId',id),section('anfrageId','1'),Buffer.from('Content-Disposition: form-data; name="datei"; filename=""\r\n\r\n'),Buffer.from('Content-Disposition: form-data; name="datei"; filename="a.pdf"\r\n\r\n%PDF-x')]);
+for(const [name,padding] of [['boundary-transport-padding',' \t'],['boundary-long-padding',' '.repeat(101)]]){
+ const original=cases[0];cases.push({...original,name,body:Buffer.from(original.body,'base64').toString().replaceAll('--form230\r\n','--form230'+padding+'\r\n')});
+ cases.at(-1).body=Buffer.from(cases.at(-1).body).toString('base64');
+}
 module.exports={cases,id};
 if(require.main===module)process.stdout.write(JSON.stringify(cases));

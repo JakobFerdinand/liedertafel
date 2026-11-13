@@ -225,5 +225,16 @@
         "Length": 6
       }
     ]
+  },
+  {
+    "name": "boundary-transport-padding",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "files": []
+  },
+  {
+    "name": "boundary-long-padding",
+    "error": "InvalidDataException"
   }
 ]
