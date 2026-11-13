@@ -184,6 +184,9 @@ update this section in the same PR whenever the member list changes.
   `node tests/browser/lied-reading-native.cjs` also needs the offline-only
   `lied-reading-native` example. This is not a product command or live-provider
   authorization.
+  Shared form native regression: `node tests/browser/lesung-form-native.cjs`;
+  on the consumer union set `ARCHIVE_FORM_ROUTES=/api/lied-lesungen,/api/auftritt-lesungen`
+  to test both default Rust routes against identical frozen ASP.NET form bytes.
 
 - Before changing culture ordering or CLR string/path Guid binding, read
   `docs/events-review-remediation.md`: migration 0004 preserves ICU equality

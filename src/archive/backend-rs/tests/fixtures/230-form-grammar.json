@@ -1,0 +1,229 @@
+[
+  {
+    "name": "utf8",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "files": []
+  },
+  {
+    "name": "utf16le",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "files": []
+  },
+  {
+    "name": "utf16be",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "files": []
+  },
+  {
+    "name": "utf8-bom",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "files": []
+  },
+  {
+    "name": "le-bom",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "files": []
+  },
+  {
+    "name": "be-bom",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "files": []
+  },
+  {
+    "name": "unknown-charset",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "files": []
+  },
+  {
+    "name": "disabled-utf7",
+    "error": "NotSupportedException"
+  },
+  {
+    "name": "ascii",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "files": []
+  },
+  {
+    "name": "latin",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "files": []
+  },
+  {
+    "name": "utf32le",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "files": []
+  },
+  {
+    "name": "utf32be",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "files": []
+  },
+  {
+    "name": "attachment-ignored",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "files": []
+  },
+  {
+    "name": "attachment-after-valid",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "files": []
+  },
+  {
+    "name": "utf16-identities",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "files": []
+  },
+  {
+    "name": "utf32-bom-le",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "files": []
+  },
+  {
+    "name": "utf32-bom-be",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "files": []
+  },
+  {
+    "name": "unknown-attachment",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "files": []
+  },
+  {
+    "name": "repeated-case-empty",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "files": []
+  },
+  {
+    "name": "repeated-case-invalid",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111,11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "files": []
+  },
+  {
+    "name": "boundary-127",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "files": []
+  },
+  {
+    "name": "boundary-128",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "files": []
+  },
+  {
+    "name": "boundary-129",
+    "error": "InvalidDataException"
+  },
+  {
+    "name": "headers-16",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "files": []
+  },
+  {
+    "name": "headers-17",
+    "error": "InvalidDataException"
+  },
+  {
+    "name": "duplicate-case-headers",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "files": []
+  },
+  {
+    "name": "duplicate-disposition",
+    "error": "InvalidDataException"
+  },
+  {
+    "name": "header-length-16380",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "files": []
+  },
+  {
+    "name": "header-length-16382",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "files": []
+  },
+  {
+    "name": "header-length-16384",
+    "error": "InvalidDataException"
+  },
+  {
+    "name": "header-length-16385",
+    "error": "InvalidDataException"
+  },
+  {
+    "name": "header-length-16400",
+    "error": "InvalidDataException"
+  },
+  {
+    "name": "header-whitespace-16382",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "files": []
+  },
+  {
+    "name": "header-whitespace-16400",
+    "error": "InvalidDataException"
+  },
+  {
+    "name": "empty-filename-first",
+    "error": null,
+    "entwurfId": "11111111-1111-1111-1111-111111111111",
+    "anfrageId": "1",
+    "files": [
+      {
+        "Name": "datei",
+        "FileName": "a.pdf",
+        "Length": 6
+      }
+    ]
+  }
+]

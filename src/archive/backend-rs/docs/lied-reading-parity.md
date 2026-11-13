@@ -18,9 +18,34 @@ first named file wins. URL-encoded forms count as form content; a valid identity
 without file reaches422. Native **30,000,000-byte whole-body** envelope remains
 distinct from Reading32MiB and Extraction64MiB. Boundary128,1024 sections,
 headers16/16KiB and URL key2048/value4MiB precede domain validation. Multipart
-text uses charset decoding. Malformed forms return controlled JSON400 rather
+text uses actual built-in charset/BOM decoding (unknown charset defaults to UTF8;
+disabled UTF7 is refused). Malformed forms return controlled JSON400 rather
 than framework exception payloads; native oversized bodies return413. TestServer
-does not establish the native Kestrel envelope.
+does not establish the native Kestrel envelope. Raw bounded section-header
+metadata preserves whitespace/duplicates that multer's HeaderMap discards; body
+lengths and boundary parsing still come from multer. The whole form is buffered
+once under the independent30MB cap before parsing (Bytes clones share storage).
+Header limits count distinct case-insensitive names, with the actual line/CRLF
+budget. Attachment sections are ignored, not accumulated. Case-insensitive
+disposition parameters, filename*, empty filename-as-scalar and quoted MIME B
+names use the actual framework metadata policy. The quoted MIME decoder alone
+allows noncanonical unused base64 bits; provider/auth decoding is unchanged.
+
+`tests/oracles/LesungFormGrammarOracle.cs` and `tests/browser/lesung-form-cases.cjs`
+compare **identical public bytes**:35 actual FormFeature observations covering
+UTF8/UTF16LE-BE/UTF32/BOM override/unknown or disabled charset, both encoded
+identities, attachment before/after valid fields, case/repeated fields, first
+file,127–129 boundaries,16–17 distinct or repeated headers, raw whitespace and
+limit-adjacent header blocks. `lesung-form-native.cjs` tests Content-Length AND
+31-byte chunked framing on both actual frozen routes, and the default Rust Lied
+route. Set `ARCHIVE_FORM_ROUTES=/api/lied-lesungen,/api/auftritt-lesungen` on the
+consumer union to test both Rust routes; #231 must do that on its own branch.
+Oracle parser refusal is not a claim of universal native .NET400 versus500
+equivalence: frozen unhandled exceptions may be500; Rust returns controlled400
+before Enabled. The separate49-observation disposition oracle includes all36
+enabled built-in aliases. Axum/multer remain the parser, including their existing
+malformed-body acceptance limits; no universal RFC/.NET parser equivalence is
+claimed from this finite corpus.
 
 `tests/oracles/LesungFormOracle.cs` executes real ASP.NET ReadFormAsync,
 StringValues and BCL Int32 in en-US:150 observations over both form types.
@@ -99,6 +124,7 @@ cargo test -p archive-server --locked --test lied_lesen_api --test lied_entwurf_
 cargo build --workspace --examples --locked
 # ALL inherited explicit SQL/schema/private Blob/Queue/native PDF gates apply.
 node tests/browser/lied-reading-native.cjs
+node tests/browser/lesung-form-native.cjs
 node --test tests/browser/telemetry-*.test.cjs
 ```
 
@@ -110,7 +136,9 @@ immutable OpenSSL3.5.9/PDFium8138/browser/static files are provenance checked.
 Source-neutral external capture-root relocation moves inherited hardcoded paths
 to230's private durable root; scanner/assertions remain unchanged. Existing
 versions/checksums remain pinned; only feature-required package/edge additions
-for Axum multipart/image PNG-WebP and direct already-locked MIME occur.
+for Axum multipart/image PNG-WebP and direct already-locked MIME occur. The
+requested #231 union also exposes already-locked unicode-normalization0.1.26;
+no matcher/reader/photo/programme source is duplicated here.
 
 Final source pins/counts/logs are recorded only after combined jobs complete in
 durable `target/agent-218/evidence/230-report.md`; pending gates are not passes.

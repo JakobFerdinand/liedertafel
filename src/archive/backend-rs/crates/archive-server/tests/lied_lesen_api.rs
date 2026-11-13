@@ -505,3 +505,181 @@ async fn required_form_guid_uses_the_shared_clr_string_grammar_not_typed_json() 
 	}
 	app.close().await;
 }
+
+#[tokio::test]
+#[ignore = "explicit PostgreSQL/native PDFium; actual ASP.NET disposition metadata observations"]
+async fn disposition_parameter_case_extended_filename_empty_filename_and_ignored_sections_match_forms()
+ {
+	let mut app = support::App::new_scoped("lesen230").await;
+	configure(&mut app);
+	let client = app.admin().await;
+	let fields = [
+		("entwurfId", "11111111-1111-1111-1111-111111111111"),
+		("anfrageId", "1"),
+	];
+	let pdf = lesung::text_pdf(&["Ave Maria"]);
+	for attribute in [
+		"NAME=\"datei\"; filename=\"a.pdf\"",
+		"name=\"datei\"; FILENAME=\"a.pdf\"",
+		"name=\"datei\"; filename*=utf-8''a.pdf",
+		"name=\"datei\"; filename=\"Grüße.pdf\"",
+	] {
+		let mut body = lesung::multipart(&fields, &[]);
+		body.truncate(body.len() - b"--lesen230--\r\n".len());
+		body.extend_from_slice(
+			format!("--lesen230\r\nContent-Disposition: form-data; {attribute}\r\n\r\n").as_bytes(),
+		);
+		body.extend_from_slice(&pdf);
+		body.extend_from_slice(b"\r\n--lesen230--\r\n");
+		let (status, _, answer) =
+			lesung::raw(&client, "multipart/form-data; boundary=lesen230", body).await;
+		assert_eq!(status, 200, "{attribute}: {answer}");
+	}
+	for (disposition, filename, expected) in [
+		("form-data", "", 200),
+		("attachment", "ignored.pdf", 200),
+		("form-data", "empty.pdf", 422),
+	] {
+		let mut body = lesung::multipart(&fields, &[]);
+		body.truncate(body.len() - b"--lesen230--\r\n".len());
+		body.extend_from_slice(format!("--lesen230\r\nContent-Disposition: {disposition}; name=\"datei\"; filename=\"{filename}\"\r\n\r\n\r\n--lesen230\r\nContent-Disposition: form-data; name=\"datei\"; filename=\"real.pdf\"\r\n\r\n").as_bytes());
+		body.extend_from_slice(&pdf);
+		body.extend_from_slice(b"\r\n--lesen230--\r\n");
+		let (status, _, answer) =
+			lesung::raw(&client, "multipart/form-data; boundary=lesen230", body).await;
+		assert_eq!(status, expected, "{disposition}/{filename}: {answer}");
+	}
+	let body = String::from_utf8(lesung::multipart(&fields, &[]))
+		.unwrap()
+		.replace("name=", "NaMe=");
+	assert_eq!(
+		lesung::raw(
+			&client,
+			"multipart/form-data; boundary=lesen230",
+			body.into_bytes()
+		)
+		.await
+		.0,
+		422
+	);
+	app.close().await;
+}
+
+#[tokio::test]
+#[ignore = "explicit PostgreSQL/native PDFium; actual BCL MIME encoded-name disposition behavior"]
+async fn mime_encoded_section_names_bind_and_decoded_empty_filenames_remain_form_values() {
+	let mut app = support::App::new_scoped("lesen230").await;
+	configure(&mut app);
+	let client = app.admin().await;
+	let fields = [
+		("entwurfId", "11111111-1111-1111-1111-111111111111"),
+		("anfrageId", "1"),
+	];
+	let pdf = lesung::text_pdf(&["Ave Maria"]);
+	let original = lesung::multipart(&fields, &[("datei", &pdf)]);
+	// Actual ASP.NET GetName decodes quoted base64 MIME words, not just filename.
+	let noncanonical = String::from_utf8(original.clone())
+		.unwrap()
+		.replace("name=\"datei\"", "name=\"=?utf-8?B?ZGF0ZWl=?=\"")
+		.into_bytes();
+	assert_eq!(
+		lesung::raw(
+			&client,
+			"multipart/form-data; boundary=lesen230",
+			noncanonical
+		)
+		.await
+		.0,
+		200
+	);
+	let body = String::from_utf8(original)
+		.unwrap()
+		.replace("name=\"datei\"", "name=\"=?utf-8?B?ZGF0ZWk=?=\"")
+		.into_bytes();
+	assert_eq!(
+		lesung::raw(&client, "multipart/form-data; boundary=lesen230", body)
+			.await
+			.0,
+		200
+	);
+	let body = String::from_utf8(lesung::multipart(&fields, &[("datei", &pdf)]))
+		.unwrap()
+		.replace("filename=\"not-a-pdf.txt\"", "filename=\"=?utf-8?B??=\"")
+		.into_bytes();
+	assert_eq!(
+		lesung::raw(&client, "multipart/form-data; boundary=lesen230", body)
+			.await
+			.0,
+		422
+	);
+	app.close().await;
+}
+
+#[tokio::test]
+#[ignore = "explicit PostgreSQL/native PDFium; all36 enabled BCL built-in encoding aliases at HTTP"]
+async fn mime_name_decoding_preserves_the_enabled_bcl_encoding_aliases() {
+	let mut app = support::App::new_scoped("lesen230").await;
+	configure(&mut app);
+	let client = app.admin().await;
+	let fields = [
+		("entwurfId", "11111111-1111-1111-1111-111111111111"),
+		("anfrageId", "1"),
+	];
+	let pdf = lesung::text_pdf(&["Ave Maria"]);
+	// Literal encodings of "datei", independently generated with .NET10 GetBytes.
+	let groups: [(&[&str], &str); 5] = [
+		(
+			&[
+				"ansi_x3.4-1968",
+				"ansi_x3.4-1986",
+				"ascii",
+				"cp367",
+				"csascii",
+				"ibm367",
+				"iso-ir-6",
+				"iso646-us",
+				"iso_646.irv:1991",
+				"us",
+				"us-ascii",
+				"cp819",
+				"csisolatin1",
+				"ibm819",
+				"iso-8859-1",
+				"iso-ir-100",
+				"iso8859-1",
+				"iso_8859-1",
+				"iso_8859-1:1987",
+				"l1",
+				"latin1",
+				"unicode-1-1-utf-8",
+				"unicode-2-0-utf-8",
+				"utf-8",
+				"x-unicode-1-1-utf-8",
+				"x-unicode-2-0-utf-8",
+			],
+			"ZGF0ZWk=",
+		),
+		(
+			&["iso-10646-ucs-2", "ucs-2", "unicode", "utf-16", "utf-16le"],
+			"ZABhAHQAZQBpAA==",
+		),
+		(&["unicodefffe", "utf-16be"], "AGQAYQB0AGUAaQ=="),
+		(&["utf-32", "utf-32le"], "ZAAAAGEAAAB0AAAAZQAAAGkAAAA="),
+		(&["utf-32be"], "AAAAZAAAAGEAAAB0AAAAZQAAAGk="),
+	];
+	for (aliases, encoded) in groups {
+		for alias in aliases {
+			let body = String::from_utf8(lesung::multipart(&fields, &[("datei", &pdf)]))
+				.unwrap()
+				.replace(
+					"name=\"datei\"",
+					&format!("name=\"=?{alias}?B?{encoded}?=\""),
+				)
+				.into_bytes();
+			let (status, _, answer) =
+				lesung::raw(&client, "multipart/form-data; boundary=lesen230", body).await;
+			assert_eq!(status, 200, "{alias}: {answer}");
+		}
+	}
+	app.close().await;
+}
