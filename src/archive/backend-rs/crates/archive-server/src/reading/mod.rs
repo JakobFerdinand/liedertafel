@@ -33,6 +33,7 @@ pub fn select_queue(
 		clock,
 	)
 }
+pub use fields::normalize as normalize_reading_text;
 pub use fields::{ReadField, clean_value, quote_is_verified};
 pub use model::{
 	FIELDS_VERSION, RenderedPage, ScanReadingModel, TRANSCRIPTION_VERSION, bound_text,

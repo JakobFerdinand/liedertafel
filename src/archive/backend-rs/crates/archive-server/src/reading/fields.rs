@@ -31,12 +31,25 @@ pub fn clean_value(field: &str, raw: Option<&str>) -> Option<String> {
 	.then_some(value)
 }
 pub fn normalize(value: &str) -> String {
-	value
+	let collapsed = value
 		.replace('\u{ad}', "")
 		.split_whitespace()
 		.collect::<Vec<_>>()
-		.join(" ")
-		.to_lowercase()
+		.join(" ");
+	// Frozen .NET invariant casing is scalar/simple (no final-sigma context,
+	// no full folding), with U+0130 explicitly preserved by ChangeCaseInvariant.
+	// The actual frozen helper's exhaustive scalar + string-context oracle pins
+	// this deliberately narrow policy; search/auth casing is not changed.
+	collapsed
+		.chars()
+		.map(|c| {
+			if c == '\u{130}' {
+				c
+			} else {
+				c.to_lowercase().next().unwrap_or(c)
+			}
+		})
+		.collect()
 }
 pub fn quote_is_verified(read: &ReadField, value: &str, text: &str) -> bool {
 	let field = read.field.as_deref().unwrap_or_default();
