@@ -35,11 +35,19 @@ Wave 1 (#219) created the workspace.
 
 - `crates/archive-telemetry`: service-defaults equivalent — OTLP traces,
   metrics and logs for every host, the Development-mandatory endpoint check,
-  the dev sampler and the `Liedertafel.Archive` schema parity.
+  the dev sampler, checked finite-operator flush/shutdown and the
+  `Liedertafel.Archive` schema parity.
 - `crates/archive-server`: the archive origin — static Next.js export,
-  `/api/build`, `/alive` (+ `/health` in Development) and the single
+  auth/passkeys, shared access/maintenance gates, catalogue/Datei reads and writes,
+  uploads, trash/tier lifecycle and owned Angefangen persistence, `/api/build`,
+  `/alive` (+ `/health` in Development) and the single
   implemented-routes list with the stable JSON 404/501 miss for unported
   `/api/*` routes.
+- `crates/archive-db`: explicit `--migrate`, frozen EF/Neon baseline adoption,
+  SQLx history and runtime grant repair; its Cargo build script tracks newly
+  added migration files. Before editing migrations or their
+  parity checks, read `crates/archive-db/baseline/README.md` for provenance and
+  the disposable PostgreSQL/pg_dump gate.
 
 Add one line per member crate under the workspace root as they land, and
 update this section in the same PR whenever the member list changes.
@@ -52,9 +60,22 @@ update this section in the same PR whenever the member list changes.
   happen on purpose.
 - Frontend deps (`pnpm`) are untouched by this workspace; the frontend `out/`
   export is served by the backend binary.
+- Native telemetry detector/lifecycle: `node --test tests/browser/telemetry-*.test.cjs`
+  (or add `--test-name-pattern="formatter"` before the file for a focused run).
+  Before changing native capture, redaction or schema fixtures, read
+  `tests/telemetry/README.md` for external decoder setup and private replay rules.
+- Catalogue query binding: before changing scalar/repeated keys, read
+  `docs/catalogue-review-followup.md` for the actual frozen .NET differential,
+  empty/duplicate binding semantics and the authenticated PG regression command.
 - The three live-spend AI evaluations keep their skip-when-unconfigured
   environment gates from the C# suites; without explicit configuration they
   must pass by skipping, never by calling a model.
+- Migration process checks: `cargo test -p archive-server --locked --test
+  migrate_process`. The real schema/grant gate is explicitly ignored by default;
+  with a dedicated throwaway server and pg_dump 17 configured per the baseline
+  README, run `cargo test -p archive-server --locked --test migrate_process
+  postgres_migration_contract -- --ignored --nocapture`. Report an unrun gate
+  as unavailable, not passed.
 
 ## Lint and format before you commit
 
@@ -92,10 +113,91 @@ update this section in the same PR whenever the member list changes.
 
 ## Routes and contracts
 
+- Auth/passkeys (#221): before changing auth policy, session storage, mail or
+  translated auth tests, read `docs/auth-parity.md` for the expert-core boundary,
+  legacy synthetic fixtures, oracle/exception mapping and real PG/browser/native
+  commands, approved exact-version license exceptions and native OpenSSL/support
+  requirements. Later member routes reuse `Auth::authorize`/`RequestAccess::respond`;
+  account-changing transactions reuse `Auth::revoke_sessions`.
+
+- Member administration/operator/mail (#222): before editing these boundaries
+  or their tests, read `docs/member-parity.md` for transaction lock order,
+  repair-vs-email-change credential behavior, native CLI/browser/OTLP commands,
+  frozen-suite mapping and the honestly failed frozen browser controls. Focused
+  PG example: `cargo test -p archive-server --locked --test member_revocation
+   last_active_administrator -- --ignored`.
+
+- Catalogue/Blob reads/tiers (#223): before changing visibility, shared search,
+  tickets, provider configuration or tier policy, read `docs/catalogue-parity.md`
+  for the oracle map, bounded range reader, official SDK/local signing seam,
+  explicit PostgreSQL/Azurite/browser gates and later-wave ownership. Focused:
+  `cargo test -p archive-server --locked --test lied_api member_reads -- --ignored`.
+
+- Upload/trash/draft persistence (#224): before changing sessions, replacement,
+  owner visibility, permanent removal, Cold→Hot or Angefangen, read
+  `docs/upload-trash-parity.md` for ordering, oracle ownership and the frozen
+  video-job Restrict limitation. Focused PG gate: `cargo test -p archive-server
+  --locked --test upload_races -- --ignored`. Native UI gate:
+  `node tests/browser/upload-native.cjs` (private Azurite endpoint must be
+  reachable by its own server-side copy fetch).
+
 - Any `/api/*` route without a Rust implementation answers the single stable
   JSON 404/501 error shape, driven by one list of implemented routes.
+
+- AI foundation (#228): before using the gateway, modifying ledger SQL/prices,
+  provider wire types, cancellation or notices, read `docs/ai-foundation-parity.md`.
+  Features take `ai::Gateway`, never a provider. Finite hosts await `drain()`
+  before checked telemetry flush. Focused offline gate: `cargo test -p
+  archive-server --locked --test ai_guards --test ai_wire`; real PostgreSQL:
+  `cargo test -p archive-server --locked --test ai_ledger -- --ignored`.
+  `examples/ai-foundation-native.rs` and `node tests/browser/ai-foundation-native.cjs`
+  are offline test tools, not production commands or live-evaluation authorization.
+
+- Reading (#229): before changing stored reading state/dispatch, scan prompts,
+  rendering, quote verification or automated field writes, read
+  `docs/reading-parity.md`. Later draft/programme consumers reuse these seams and
+  must prove their own actual HTTP shutdown/disconnect/registry lifetimes.
+  Focused real-PG/native-PDF gate: `cargo test -p archive-server --locked --test
+  reading_worker --test reading_lifecycle -- --ignored`. Native unchanged UI:
+  `node tests/browser/reading-native.cjs` (also needs the offline-only
+  `reading-cancel-native` example). Live scan evaluation has a runtime absent-env
+  skip gate; configuration is not spending authorization.
+
+- Programme suggestions (#231): read `docs/programme-reading-parity.md` before
+  changing matching, photo/scan requests, HTTP lifetime/W3C/form controls or evaluation. Focused PG:
+  `cargo test -p archive-server --locked --test auftritt_lesen_api -- --ignored`.
+  Native UI/HTTP/OTLP: `node tests/browser/programm-reading-native.cjs` with the
+  offline-only `programme-http-native` example; live evaluation stays gated.
+  Shared generic controls: `node tests/browser/http-w3c-native.cjs`; use
+  `ARCHIVE_FORM_ROUTES=/api/auftritt-lesungen node tests/browser/lesung-form-native.cjs`
+  on this programme-only candidate (both frozen routes always run; both Rust
+  routes are required only after the accepted union includes Lied reading).
+
+- Auftritte/Programme/initial Entwurf (#225): before changing partial dates,
+  programme IDs/order, Zeitmarke guards, history, event documents or opaque form
+  persistence, read `docs/events-parity.md` for binding/order/concurrency and
+  per-file oracle ownership. Historical EF cases use the explicit approved
+  equivalents in `docs/historical-migration-disposition.md`, not old-schema
+  upgrades. Focused PG: `cargo test -p archive-server --locked --test
+  auftritt_programm -- --ignored`. Native unchanged UI:
+  `node tests/browser/events-native.cjs`; scan/model semantics stay #231.
+
+- Before changing culture ordering or CLR string/path Guid binding, read
+  `docs/events-review-remediation.md`: migration 0004 preserves ICU equality
+  before secondary keys; `clr_guid` is separate from strict typed JSON Guid.
+  The independent fixture generator is `tests/oracles/ReviewOracle.cs`; its
+  external-project setup/provenance are in that document. Focused real-PG gate:
+  `cargo test -p archive-server --locked --test clr_guid_api --test event_culture
+  -- --ignored`. Keep constrained draft API fallback before auth.
 - `/api/build` and the readiness endpoint have the same shapes as today from
   wave 1 onward.
+- Aufnahmen/Zeitmarken (#227): before changing recording slots/publication/tickets,
+  passage CRUD/review or their Programme/history projections, read
+  `docs/recordings-parity.md` for per-file ownership, direct-Blob policy and
+  independent playback-versus-passage stale gates. Focused PG:
+  `cargo test -p archive-server --locked --test recording_passage_api -- --ignored`.
+  Native unchanged UI/private Blob/OTLP: `node tests/browser/recordings-native.cjs`.
+  Seeded completed-copy integration is not the #233 video worker.
 - OTLP traces/metrics/logs keep the dashboard-compatible schema; every host
   registers the service-defaults equivalent (OTLP mandatory, console-only
   logging insufficient) and workers carry W3C trace context.
@@ -105,6 +207,12 @@ update this section in the same PR whenever the member list changes.
   `../README.md`.
 
 ## Done means
+
+For extraction, Queue, PDF or worker-search changes, read
+`docs/extraction-parity.md` for finite drain/lease/hook contracts, pinned native
+ABI/spool limits and per-file ownership. Focused real-PG gate: `cargo test -p
+archive-server --locked --test extraction_worker -- --ignored`; native unchanged
+UI/private Queue gate: `node tests/browser/extraction-native.cjs`.
 
 - fmt + clippy + tests green, parity cases translated
   where the wave demands them, C# backend untouched, telemetry visible in the

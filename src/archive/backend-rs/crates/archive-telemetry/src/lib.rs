@@ -8,12 +8,13 @@
 //! three signals whenever an OTLP endpoint exists and refuses to boot in
 //! Development without one.
 //!
+//! AI spans use the dedicated AI_SOURCE and static statuses without recording
+//! provider exceptions/content; unlike the frozen SDK there are no exception
+//! messages or stack traces to scrub after capture. Raw SDK events remain quiet.
 //! Deferred from the C# service defaults on purpose:
-//! - `AiExceptionRedactionProcessor` belongs to the AI wave (no AI spans exist
-//!   yet in Rust).
-//! - `UrlRedactionProcessor` arrives together with the first wave whose Rust
-//!   spans can actually carry URLs with credentials (the `Archive:` Azure/queue
-//!   spans are still C#-side; wave 1 only serves static files and `/api/build`).
+//! - #221 request spans omit queries/headers and globally suppress credential-
+//!   dumping WebAuthn/mail SDK events. Later storage/AI waves must retain safe
+//!   URL/error instrumentation at their own boundaries.
 //! - OTLP header auth for a dashboard API key: `opentelemetry-otlp` currently
 //!   carries headers on HTTP transports only, and local gRPC export needs none.
 
@@ -27,6 +28,7 @@ use tracing_subscriber::prelude::*;
 /// ActivitySource/Meter name of the archive, kept for schema parity with the
 /// C# backend so the internal dashboard reads the same shapes.
 pub const ACTIVITY_SOURCE: &str = "Liedertafel.Archive";
+pub const AI_SOURCE: &str = "Liedertafel.Archive.Ai";
 
 const OTEL_SERVICE_NAME: &str = "OTEL_SERVICE_NAME";
 const OTEL_EXPORTER_OTLP_ENDPOINT: &str = "OTEL_EXPORTER_OTLP_ENDPOINT";
@@ -135,6 +137,31 @@ impl ServiceDefaults {
 		tracing::debug!("Telemetry flushed before shutdown");
 	}
 
+	/// Finite operator equivalent of RunArchiveJobAsync: all three flush results
+	/// matter, and each provider gets the oracle's five-second shutdown budget.
+	/// Provider error payloads are intentionally never formatted into diagnostics.
+	pub fn finish_finite_job(&self) -> bool {
+		let traces = self.tracer_provider.force_flush().is_ok();
+		let metrics = self.meter_provider.force_flush().is_ok();
+		let logs = self.logger_provider.force_flush().is_ok();
+		if !traces || !metrics || !logs {
+			tracing::error!("Archive job telemetry flush failed");
+		}
+		let traces_stopped = self
+			.tracer_provider
+			.shutdown_with_timeout(Duration::from_secs(5))
+			.is_ok();
+		let metrics_stopped = self
+			.meter_provider
+			.shutdown_with_timeout(Duration::from_secs(5))
+			.is_ok();
+		let logs_stopped = self
+			.logger_provider
+			.shutdown_with_timeout(Duration::from_secs(5))
+			.is_ok();
+		traces && metrics && logs && traces_stopped && metrics_stopped && logs_stopped
+	}
+
 	/// Shuts the three providers down; the log batch processor drains its
 	/// queued records as part of this.
 	pub fn shutdown(&self) {
@@ -168,7 +195,23 @@ fn install_tracing_subscriber(defaults: &ServiceDefaults) -> Result<(), InitErro
 	let subscriber = tracing_subscriber::registry()
 		.with(console_layer)
 		.with(otel_trace_layer)
-		.with(otel_log_layer);
+		.with(otel_log_layer)
+		// WebAuthn core intentionally traces full credentials and ceremony state.
+		// Mandatory global filter applies to console, traces AND logs, even when
+		// RUST_LOG=trace. Application emits safe, fixed auth outcome events instead.
+		.with(tracing_subscriber::filter::filter_fn(|metadata| {
+			!metadata.target().starts_with("webauthn")
+				&& !metadata.target().starts_with("lettre")
+				&& !metadata.target().starts_with("azure_")
+				&& !metadata.target().starts_with("typespec")
+				&& !metadata.target().starts_with("reqwest")
+				&& !metadata.target().starts_with("crypto_glue")
+				&& !metadata.target().starts_with("hyper")
+				&& !metadata.target().starts_with("h2")
+				&& !metadata.target().starts_with("tonic")
+				&& !metadata.target().starts_with("sqlx")
+				&& !metadata.target().starts_with("pdfium_render")
+		}));
 
 	tracing::subscriber::set_global_default(subscriber)
 		.map_err(|_| InitError::TracingSubscriberTaken)
@@ -180,6 +223,8 @@ fn quiet_internals() -> tracing_subscriber::EnvFilter {
 	// trace level.
 	tracing_subscriber::EnvFilter::new(concat!(
 		"error,",
+		"archive_server=info,",
+		"archive_db=info,",
 		"hyper=off,",
 		"tonic=off,",
 		"h2=off,",
