@@ -155,11 +155,13 @@ Content-Length/chunked, reproduced16,383 headers and99 padding as400-versus409
 before the correction; all137 cases pass afterwards. Exact logs:
 `red-readline-header-native.log`, `red-readline-padding-native.log`,
 `green-readline-native.log`. All130 pre-existing actual oracle observations remain
-unchanged. The50-stage b242 table below is preserved **PRE-FIX** evidence, not
-clearance of this new Low; fresh full regates after the last code change pending.
+unchanged. All50 stages were freshly repeated at a630580 after this last code
+change and the artifact audit passed. The prior b242 evidence remains preserved
+as PRE-FIX in its separate evidence directory; it is not LF-follow-up clearance.
 
-Review `230-review.md` was SOURCE/SPEC HOLD at029bca2; remediation is not an
-independent closure. Each code fix is a separate logical commit:
+Review `230-review.md` independently SOURCE-CLOSED R1–R4 atb242ea0 and retained
+only the new LF Low. That Low's final source/runtime clearance remains pending.
+Each code fix is a separate logical commit:
 
 | Finding | Fix | Evidence level / retained red→green |
 | --- | --- | --- |
@@ -168,12 +170,13 @@ independent closure. Each code fix is a separate logical commit:
 | R3 URL charset/percent/BOM policy |78d94d7 | actual130-byte-case native differential +174 public FormPipeReader layout observations; `red-form-r3-native.log` → `green-form-r3-native.log` |
 | R4 Claim ownership |cc3546c | initially source-derived, then real TCP/PG lock + actual handler-drop witness reproduced missing owned result; `red-claim-socket.log` → `green-claim-socket.log`; no-spend foreign/missing fallback and native model-socket/W3C follow-up |
 | Known boundary transport padding |6e8616e | actual FormFeature/native accepted/rejected padding controls; `red-form-padding-native.log` → `green-form-padding-native.log` |
+| LF-before-limit off-by-one |a630580 | exact space/tab98/99/100 and ASCII header16382/16383/16384 actual oracle/native controls; two native reds above →137-case green; unchanged100/16384 caps |
 
 Full-navigation causation/baseline is the measured differential below, not an
 assumed consequence of R4. Prior231 disposition/charset/header findings were
 covered by029; incoming context uses separate b1fb6ed and owned-parent46cf40d.
 
-Runtime/test source **b242ea0d2dfc70c1f9bd4bacc6cf66c1154c077b**, integration
+Runtime/test source **a6305809f63ce0ca1393981af9caf00419bb93a6**, integration
 ancestor **ed710631694574b32776db7a7f35a295ac179201** (latest merge: already up to
 date). All50 sequential stages completed after the last implementation change;
 artifact audit passed. The final handoff commit changes documentation only.
@@ -183,22 +186,26 @@ artifact audit passed. The final handoff commit changes documentation only.
 | fmt, all-target clippy `-D warnings`, workspace/examples builds, pinned cargo-deny | PASS |
 | Ordinary Rust workspace |114 passed /247 ignored /0 failed |
 | ALL combined explicit gates |247 passed /0 ignored /0 failed; real PG/schema/private Blob/Queue/native PDF included |
-| Native protocol/lifecycle/differential gates |14/14; includes W3C,130-case forms and the retained shared-navigation-failure classification, NOT14 blanket successful-resume journeys |
+| Native protocol/lifecycle/differential gates |14/14; includes W3C,137-case forms and the retained shared-navigation-failure classification, NOT14 blanket successful-resume journeys |
 | Terminal private OTLP replays |14/14; findings/errors/legacyMatches empty, completion/secrecy checked;0700/0600 |
 | Unchanged frozen.NET scoped suites |160 passed |
 | Unchanged frontend unit / mocked desktop-mobile UI |115 /202 passed |
 | Official-schema detector/lifecycle |110 passed |
-| Actual form / disposition / URL pipe-layout observations |130 /49 /174, independently regenerated; observations are not test-function counts |
+| Actual form / disposition / URL pipe-layout observations |137 /49 /174, independently regenerated; observations are not test-function counts |
 | Native linkage |supported static OpenSSL3.5.9; no dynamic libssl/libcrypto |
 
 Durable artifacts are under original workspace
-`target/agent-218/evidence/230/final-b242ea0/` (`evidence.json`, `results.json`,
-`captures.json`, per-stage logs), with `audit-b242ea0.log` beside it. Independent
-source/runtime re-review, the source empty-segment qualification and shared failed
-navigation disposition remain parent-owned. Programme Rust route is absent here:
+`target/agent-218/evidence/230/final-a630580/` (`evidence.json`, `results.json`,
+`captures.json`, per-stage logs), with `audit-a630580.log` beside it. Final LF
+source rereview/runtime clearance remain parent-owned. The accepted source-layout
+qualification and shared failed-navigation baseline stay retained, not new owner
+blockers or successful-resume claims. Programme Rust route is absent here:
 #231 must retest its route/model chain and the combined consumer union. The green
 absent-config live guard is not a live-model evaluation. No acceptance, transfer,
 cutover or #232 clearance is implied by these implementer gates.
+For231 already consuming the verified b242 chain, only the separate
+`230-shared-readline-lf-a630580.patch` is new; source/base/scope/digest are in
+`230-final-shared-patches-v2.json`. All old patch bytes/manifests remain unchanged.
 
 ```sh
 cargo fmt --all -- --check
