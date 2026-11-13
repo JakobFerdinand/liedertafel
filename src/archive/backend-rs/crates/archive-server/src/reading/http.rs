@@ -51,14 +51,17 @@ pub(crate) async fn read_form(
 		.get("content-type")
 		.and_then(|v| v.to_str().ok())
 		.unwrap_or_default()
-		.split(';')
-		.next()
-		.unwrap_or_default()
-		.trim()
-		.to_ascii_lowercase();
+		.parse::<mime::Mime>()
+		.map_err(|_| bad())?;
 	let mut result = FormData::default();
-	match content.as_str() {
+	match content.essence_str() {
 		"multipart/form-data" => {
+			if content
+				.get_param("boundary")
+				.is_none_or(|b| b.as_str().len() > 128)
+			{
+				return Err(bad());
+			}
 			let mut form = Multipart::from_request(request, &())
 				.await
 				.map_err(|_| bad())?;
@@ -78,7 +81,30 @@ pub(crate) async fn read_form(
 					return Err(bad());
 				}
 				let key = part.name().unwrap_or_default().to_owned();
+				if part.headers().len() > 16
+					|| part
+						.headers()
+						.iter()
+						.map(|(k, v)| k.as_str().len() + v.as_bytes().len() + 4)
+						.sum::<usize>() > 16384
+				{
+					return Err(bad());
+				}
 				let file = part.file_name().is_some();
+				if !file {
+					let value = part.text().await.map_err(|error| {
+						if error.status() == StatusCode::PAYLOAD_TOO_LARGE {
+							fail(
+								StatusCode::PAYLOAD_TOO_LARGE,
+								"Der Anfrageinhalt ist zu groß.",
+							)
+						} else {
+							bad()
+						}
+					})?;
+					result.insert(key, value);
+					continue;
+				}
 				let bytes = part.bytes().await.map_err(|error| {
 					if error.status() == StatusCode::PAYLOAD_TOO_LARGE {
 						fail(
@@ -89,11 +115,7 @@ pub(crate) async fn read_form(
 						bad()
 					}
 				})?;
-				if file {
-					result.files.push((key, bytes.to_vec()));
-				} else {
-					result.insert(key, String::from_utf8_lossy(&bytes).into_owned());
-				}
+				result.files.push((key, bytes.to_vec()));
 			}
 		}
 		"application/x-www-form-urlencoded" => {
@@ -105,6 +127,11 @@ pub(crate) async fn read_form(
 						"Der Anfrageinhalt ist zu groß.",
 					)
 				})?;
+			// ASP.NET UrlDecoder rejects a percent-decoded NUL before Int32
+			// binding. Multipart values deliberately retain the legacy tail NUL.
+			if bytes.windows(3).any(|w| w == b"%00") {
+				return Err(bad());
+			}
 			for (index, (key, value)) in url::form_urlencoded::parse(&bytes).enumerate() {
 				if index >= 1024
 					|| key.encode_utf16().count() > 2048

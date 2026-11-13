@@ -84,6 +84,7 @@ async fn read(State(origin): State<Arc<Origin>>, request: Request) -> Result<Res
 		.unwrap_or(request_cancel);
 	// Only stateless work is cancelled when Hyper drops the HTTP handler future.
 	let _request_guard = (!persisted).then_some(request_guard);
+	let read_deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(180);
 	let bytes = bytes.to_vec();
 	let actor = access.current.account_id;
 	let task_origin = origin.clone();
@@ -100,13 +101,13 @@ async fn read(State(origin): State<Arc<Origin>>, request: Request) -> Result<Res
   let reader=DraftReader{model:super::ScanReadingModel::new(ai.gateway.clone(),origin.reading.clone()),extraction:origin.extraction.clone()};
   let mut reading=Box::pin(reader.read(&bytes,Some(actor),&cancel));
   let result=if persisted {
-   tokio::select! { result=&mut reading=>result,_=tokio::time::sleep(std::time::Duration::from_secs(180))=>{cancel.cancel();reading.await} }
+   tokio::select! { biased; _=tokio::time::sleep_until(read_deadline)=>{cancel.cancel();reading.await},result=&mut reading=>result }
   }else{reading.await};
  let outcome=result.map_err(|error|match error {
   DraftError::Material(reason)=>fail(StatusCode::UNPROCESSABLE_ENTITY,reason),
   DraftError::Ai(crate::ai::Error::BudgetExceeded(_))=>fail(StatusCode::TOO_MANY_REQUESTS,BUDGET),
-  DraftError::Ai(crate::ai::Error::InputTooLarge{..})=>fail(StatusCode::UNPROCESSABLE_ENTITY,super::worker::INPUT_TOO_LARGE),
-  _=>fail(StatusCode::BAD_GATEWAY,FAILED),
+  DraftError::InputTooLarge | DraftError::Ai(crate::ai::Error::InputTooLarge{..})=>fail(StatusCode::UNPROCESSABLE_ENTITY,super::worker::INPUT_TOO_LARGE),
+  _=>{tracing::warn!("Draft reading failed (DraftError)");fail(StatusCode::BAD_GATEWAY,FAILED)},
  });
  if persisted {
   let (status,title,fields)=match &outcome {Ok(fields)=>("gelesen","",serde_json::to_string(fields).map_err(|_|fail(StatusCode::BAD_GATEWAY,FAILED))?),Err(AuthError::Problem(status,title))=>(if *status==StatusCode::TOO_MANY_REQUESTS {"nicht-verfuegbar"}else{"fehlgeschlagen"},*title,"[]".into()),_ =>("fehlgeschlagen",FAILED,"[]".into())};

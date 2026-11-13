@@ -33,6 +33,8 @@ pub struct DraftSuggestion {
 }
 #[derive(Debug, thiserror::Error)]
 pub enum DraftError {
+	#[error("Die angefragten Seiten überschreiten die Eingabegrenze.")]
+	InputTooLarge,
 	#[error("Dokument nicht lesbar.")]
 	Material(&'static str),
 	#[error("PDF-Verarbeitung gescheitert.")]
@@ -77,7 +79,11 @@ impl DraftReader {
 					return Ok(vec![]);
 				}
 				// Include the shared prompt/image estimator BEFORE native rendering.
-				let count = self.model.batch_size(1, count)?;
+				if self.model.batch_size(1, count)? != count {
+					// A draft asks for its first three pages as ONE call. Do not use
+					// the worker's adaptive batching to silently omit requested pages.
+					return Err(DraftError::InputTooLarge);
+				}
 				let pages = renderer
 					.render(
 						spool,

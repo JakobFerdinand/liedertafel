@@ -26,6 +26,7 @@ use std::{
 use tower::ServiceExt;
 use uuid::Uuid;
 pub mod catalogue;
+pub mod lesung;
 pub mod reading;
 pub mod recordings;
 pub mod storage;

@@ -172,6 +172,14 @@ update this section in the same PR whenever the member list changes.
   auftritt_programm -- --ignored`. Native unchanged UI:
   `node tests/browser/events-native.cjs`; scan/model semantics stay #231.
 
+- Lied draft reading (#230): before changing multipart binding, persisted
+  claim/store, registry notifications or HTTP producer shutdown, read
+  `docs/lied-reading-parity.md`. Focused PG/native-PDF example:
+  `cargo test -p archive-server --locked --test lied_entwurf_reading discarding -- --ignored`.
+  `node tests/browser/lied-reading-native.cjs` also needs the offline-only
+  `lied-reading-native` example. This is not a product command or live-provider
+  authorization.
+
 - Before changing culture ordering or CLR string/path Guid binding, read
   `docs/events-review-remediation.md`: migration 0004 preserves ICU equality
   before secondary keys; `clr_guid` is separate from strict typed JSON Guid.

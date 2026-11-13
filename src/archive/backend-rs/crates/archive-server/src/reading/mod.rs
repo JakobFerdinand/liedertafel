@@ -1,6 +1,5 @@
-//! Stored Noten reading and the shared scan-model boundary. Drafts/programmes
-//! consume the model/renderer/verification seams later; no HTTP model lifetime
-//! or draft registry is implemented here.
+//! Stored Noten reading, Lied draft suggestions and their shared scan boundary.
+//! HTTP consumers keep request/owned-draft lifetimes separate and use Gateway.
 pub mod command;
 mod draft;
 mod draft_endpoints;
