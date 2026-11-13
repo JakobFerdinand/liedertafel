@@ -52,36 +52,59 @@ impl Options {
 			result.enabled = v.trim().eq_ignore_ascii_case("true");
 		}
 		macro_rules! number {
-			($name:literal,$target:expr) => {
+			($name:literal,$target:expr,$wide:expr) => {
 				if let Ok(v) = std::env::var(concat!("Archive__Reading__", $name)) {
-					if let Ok(v) = v.parse() {
+					if let Some(v) = configuration_integer(&v, $wide) {
 						if v > 0 {
-							$target = v;
+							// Source widths were checked before conversion to the
+							// wider/unsigned Rust storage representation.
+							$target = v as _;
 						}
 					}
 				}
 			};
 		}
-		number!("MaxPdfBytes", result.max_pdf_bytes);
-		number!("MaxPagesPerRequest", result.max_pages_per_request);
-		number!("ImagesPerCall", result.images_per_call);
-		number!("MaxImageLongSide", result.max_image_long_side);
-		number!("EstimatedTokensPerImage", result.estimated_tokens_per_image);
+		number!("MaxPdfBytes", result.max_pdf_bytes, true);
+		number!("MaxPagesPerRequest", result.max_pages_per_request, false);
+		number!("ImagesPerCall", result.images_per_call, false);
+		number!("MaxImageLongSide", result.max_image_long_side, false);
+		number!(
+			"EstimatedTokensPerImage",
+			result.estimated_tokens_per_image,
+			false
+		);
 		number!(
 			"TranscriptionMaxOutputTokens",
-			result.transcription_max_output_tokens
+			result.transcription_max_output_tokens,
+			false
 		);
-		number!("FieldsMaxOutputTokens", result.fields_max_output_tokens);
-		number!("MaxFieldTextCharacters", result.max_field_text_characters);
-		number!("MaxAttempts", result.queue.max_attempts);
-		number!("MaxDispatchPerRun", result.queue.max_dispatch_per_run);
-		number!("BatchSize", result.queue.batch_size);
-		number!("MaxMessagesPerRun", result.queue.max_messages_per_run);
+		number!(
+			"FieldsMaxOutputTokens",
+			result.fields_max_output_tokens,
+			false
+		);
+		number!(
+			"MaxFieldTextCharacters",
+			result.max_field_text_characters,
+			false
+		);
+		number!("MaxAttempts", result.queue.max_attempts, false);
+		number!(
+			"MaxDispatchPerRun",
+			result.queue.max_dispatch_per_run,
+			false
+		);
+		number!("BatchSize", result.queue.batch_size, false);
+		number!(
+			"MaxMessagesPerRun",
+			result.queue.max_messages_per_run,
+			false
+		);
 		if let Ok(v) = std::env::var("Archive__Reading__JpegQuality")
-			&& let Ok(v) = v.parse::<u8>()
+			&& let Some(v) = configuration_integer(&v, false)
 			&& (1..=100).contains(&v)
 		{
-			result.jpeg_quality = v;
+			result.jpeg_quality = v as u8;
 		}
 		result.images_per_call = result.images_per_call.min(10);
 		result.max_image_long_side = result.max_image_long_side.min(2048);
@@ -109,5 +132,31 @@ impl Options {
 			result.queue.queue_name = v.trim().into();
 		}
 		result
+	}
+}
+
+/// Frozen BaseNumberConverter trims first, then converts a signed Int32 (or
+/// Int64 for PDF bytes). Its #/0x/&h hex forms use signed-width bit patterns.
+/// Unconvertible values retain the pre-existing Rust default rather than the
+/// frozen binder's startup exception; actual binder fixtures qualify this.
+fn configuration_integer(value: &str, wide: bool) -> Option<i64> {
+	let text = value.trim();
+	let hexadecimal = text
+		.strip_prefix('#')
+		.or_else(|| text.strip_prefix("0x"))
+		.or_else(|| text.strip_prefix("0X"))
+		.or_else(|| text.strip_prefix("&h"))
+		.or_else(|| text.strip_prefix("&H"));
+	if let Some(digits) = hexadecimal {
+		let bits = u64::from_str_radix(digits, 16).ok()?;
+		if wide {
+			Some(bits as i64)
+		} else {
+			u32::try_from(bits).ok().map(|bits| i64::from(bits as i32))
+		}
+	} else if wide {
+		text.parse::<i64>().ok()
+	} else {
+		text.parse::<i32>().ok().map(i64::from)
 	}
 }

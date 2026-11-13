@@ -5,6 +5,98 @@ Independent review/acceptance belongs to the parent. Frozen backend/tests,
 frontend, infrastructure, workflows and Dockerfile are unchanged. No live AI,
 hosted token, Neon, external mail or private document is used.
 
+## Reboot recovery — 2026-11-13
+
+The reboot cleared **all** former `/tmp/opencode` helpers, logs, reports, native
+installs and private captures. The Nov10 validation table and red/green filenames
+below are historical claims preserved in `c4abb2d`, **not currently available raw
+proof**. Lost failed/timeout runs remain historical failures; no replacement log
+is fabricated. Independent source review remains parent-owned and pinned to
+`c4abb2d`, not inferred from this recovery or repeated by the implementer.
+
+Fresh recovery evidence lives under the ignored durable root
+`/home/jakob/private/liedertafel/src/archive/backend-rs/target/agent-218/`:
+`evidence/229-report.md`, `evidence/229/` (helpers, private env and stage logs),
+`evidence/229-scratch/` (private captures/spools), and `native/229/` (exact native
+installs, external test dependencies and an unchanged-source frontend export).
+The restored worktree is `worktrees/229`; Cargo still uses `target/ticket-229`.
+Only the named stopped `archive-229-postgres`17.6 and `archive-229-azurite`3.35.0
+fixtures were restarted after safe image/loopback-port checks; data/targets and
+all unrelated containers were retained.
+
+For committed tests with hardcoded scratch paths, the empty post-reboot
+`/tmp/opencode` directory is a compatibility **symlink** to durable
+`evidence/229-scratch`, not evidence on tmpfs. New capture indexes use resolved
+durable paths, with directory0700/replay0600 and checked terminal completions.
+The environment and recovered own local fixture password stay private0600.
+No source assertions or product configuration are changed for path recovery.
+
+Native downloads retain the exact committed OpenSSL3.5.9/PDFium8138 archive and
+library digests from `auth-dependency-audit.md` / `extraction-parity.md`; no host
+native library or Cargo dependency/toolchain/policy upgrade is made. Fresh
+provenance includes public URLs/digests and unmodified OpenSSL static build
+commands (`no-tests`, so no upstream OpenSSL test-suite pass is claimed).
+The frontend export is rebuilt from unchanged tracked sources with its frozen
+lockfile and package-manager11.3.0, with source/output inventory provenance.
+External browser delivery dependencies are separately pinned/locked; the lost
+Queue npm install's exact version is unavailable and the newly recorded
+test-only version is not misrepresented as historical byte identity.
+
+Fresh full validation is in progress; authoritative current stage exits and
+private capture indexes are in the durable report/logs. No historical count is
+substituted for a fresh gate. Hosted/live/private/image/AppHost/future model-HTTP
+and cutover limitations below remain unwaived; #230/#231 stay blocked.
+
+### Independent review HOLD and local remediation
+
+The independent source review at `c4abb2d` found **R1 Low** quote-casing and
+**R2 Medium** numeric ENV parity gaps (`evidence/229-review.md`). Its small
+offline probes did not execute SQL writes. The pre-fix recovery run completed
+fmt/clippy/109 ordinary/224 explicit/build/audit/static linkage and native auth
+plus replay, then **failed before member browser assertions** because the long
+absolute TMPDIR exceeded Chromium's Unix-socket path limit. Its logs/capture are
+retained under `evidence/229/pre-fix` and durable scratch; later stages were unrun.
+The short compatibility TMPDIR alias addresses only that setup failure. No code
+was edited until that job's completion notification.
+
+- **R1**, `359d5e6`: shared reading normalization now uses deliberately simple
+  invariant scalar lowercase, explicitly preserving U+0130, not Rust full/context
+  casing. Search/auth folding is unchanged. Versioned .NET10 `pal_casing.c`
+  documents the simple ICU mapping and invariant dotted-I special case. The new
+  `ReadingQuoteOracle.cs` invokes the **actual unchanged** frozen Normalize,
+  CleanValue and QuoteIsVerified helpers:1,112,064 scalar observations (1512
+  nonidentity entries),18 multi-character quote and8 clean/UTF-16 cases. This
+  checks rather than assumes per-scalar Rust/BCL equivalence. It covers dotted-I
+  rejection, sigma acceptance, German accents, combining/non-NFC, supplementary
+  letters/emoji, ß versus SS, soft hyphen, .NET whitespace and UTF-16 limits.
+  `reading_quotes` and real-PG `reading_quote_worker` showed behavioral red→green:
+  the original worker actually wrote the forbidden dotted-I expansion; the fixed
+  worker drops it, accepts the frozen Greek case, and preserves a late editor's
+  field using a row-lock-controlled race. Real gateway/SQL accounting remains in
+  the path; no timing sleep or replacement writer proves that result.
+- **R2**: numeric ENV parsing trims before conversion, including JPEG, and retains
+  the frozen signed source widths (Int64 PDF bytes; Int32 other settings), positive
+  defaults and image/pixel/batch/JPEG clamps. Actual BaseNumberConverter #/0x/&h
+  signed-width forms are also checked rather than guessed. The actual unchanged
+  ReadingOptions + ConfigurationBuilder oracle captures **533 cases over all13
+  numeric settings**. `reading_configuration` executes each through real ENV in
+  a separate child. Malformed/overflow values still retain the pre-existing Rust
+  defaults whereas the frozen binder throws: **not identical exception behavior**.
+  This is not a demonstrated monthly-cap bypass. `reading_configuration_worker`
+  checks actual padded page/image/JPEG/text/output/nontext reservation bounds;
+  a no-trim mutation fails the actual page-progress assertion. The native reading
+  journey now uses padded3-page/2-image values, asserts the actual extraction
+  handoff and finite command costs/progress, and verifies a padded10-byte refusal
+  without another model call. Original native red was PageLimit20 versus3.
+
+The shared #230/#231 trust boundary inherits the corrected quote policy; no
+duplicate query/reader framework, unsafe lease comparison, global search policy
+or unrelated worker change was added. Focused red/green/oracle logs are under
+`evidence/229/r1-*` and `r2-*`; historical failed logs lost at reboot are not
+recreated as fresh evidence. These are **local fixes, not independent clearance**.
+Final pinned-source rereview and independent focused runtime checks remain
+required, in addition to full fresh post-final-code validation.
+
 ## Shared boundary and later-consumer handoff
 
 `reading::ScanReadingModel` takes **only Gateway**. Each invocation starts a
