@@ -50,6 +50,16 @@ impl std::fmt::Debug for Origin {
 }
 
 impl Origin {
+	/// Owned work outlives a handler, not its telemetry parent. Tokio tasks do
+	/// not inherit tracing spans automatically; preserve it at ownership transfer.
+	pub fn spawn_reading<F>(&self, future: F) -> tokio::task::JoinHandle<F::Output>
+	where
+		F: std::future::Future + Send + 'static,
+		F::Output: Send + 'static,
+	{
+		use tracing::Instrument;
+		self.reading_tasks.spawn(future.in_current_span())
+	}
 	/// Call only AFTER signalling shutdown and awaiting Axum. Detached persisted
 	/// consumers must finish native work/outcome storage before Gateway accounting
 	/// drain and terminal telemetry. This ordering cannot wait on an HTTP response.

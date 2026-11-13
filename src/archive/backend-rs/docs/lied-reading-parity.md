@@ -62,7 +62,10 @@ interrupted projection and form-save preservation remain unchanged.
 - Other replicas may run to their own limit; conditional SQL refuses stale stores.
 
 Main cancels `Origin::shutdown` **before Axum wait**. Afterwards
-`Origin::drain_readings` joins whole consumer/native/store tasks, THEN Gateway
+`Origin::spawn_reading` transfers the current HTTP tracing span together with
+owned work (plain Tokio spawn loses it); native OTLP verifies every model span's
+parent ID and trace against the exported HTTP span. `Origin::drain_readings`
+joins whole consumer/native/store tasks, THEN Gateway
 accounting, THEN terminal telemetry. Model-capable hosts use checked three-signal
 finite flush/shutdown and fail nonzero on accounting/flush failure; the watchdog
 covers this sequence. Dependency-free skeleton hosts retain their prior
@@ -100,7 +103,9 @@ node --test tests/browser/telemetry-*.test.cjs
 ```
 
 Native env adds `ARCHIVE_LIED_READING_PROBE` for the built offline example.
-Dedicated230 PG55432/Azurite51032/52032/53032 stay separate from231. Accepted
+Dedicated230 PG55432/Azurite51033/52033/53033 stay separate from231; the initial
+custom-key fixture on51032 remains retained but is not the final gate fixture.
+Accepted
 immutable OpenSSL3.5.9/PDFium8138/browser/static files are provenance checked.
 Source-neutral external capture-root relocation moves inherited hardcoded paths
 to230's private durable root; scanner/assertions remain unchanged. Existing

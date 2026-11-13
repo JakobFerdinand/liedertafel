@@ -88,7 +88,7 @@ async fn read(State(origin): State<Arc<Origin>>, request: Request) -> Result<Res
 	let bytes = bytes.to_vec();
 	let actor = access.current.account_id;
 	let task_origin = origin.clone();
-	let task=origin.reading_tasks.spawn(async move {
+	let task=origin.spawn_reading(async move {
   let origin=task_origin;let _tracked=tracked;
   let auth=origin.auth.as_deref().ok_or(fail(StatusCode::UNAUTHORIZED,crate::auth::UNAUTHORIZED))?;
   if persisted {
