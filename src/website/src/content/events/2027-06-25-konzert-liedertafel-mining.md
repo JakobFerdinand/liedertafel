@@ -1,5 +1,5 @@
 ---
-date: "2027-07-25"
+date: "2027-06-25"
 name: "Konzert Liedertafel"
 location: "Mining"
 ---
