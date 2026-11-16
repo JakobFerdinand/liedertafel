@@ -63,6 +63,8 @@ Frozen backend/tests/frontend/infra/workflows/product Dockerfile stay unchanged.
   schema has no status CHECK. `video_api::unknown_stored_video_status_retains_the_frozen_numeric_payload`
   exercises actual authenticated HTTP/current SQL for0–4 and four unknown signed
   values; all four unknowns failed first, while the normal five labels matched.
+  Unknown signed retry replies now also compare the entire payload and persisted
+  row before/after, with a positive real-Queue send control followed by no enqueue.
 
 ## Native bytes and publication
 
@@ -124,6 +126,22 @@ Rust paths are `crates/archive-server/tests/` unless stated otherwise.
 | Additional public HTTP/current SQL boundaries | `video_api`: owner finalize/outbox/status/retry, selected-version quiet stamps/send count, rollback and concurrent finalize; `video_lifetime`: actual process tree/deadline/SIGTERM/lease/late winner/editor slot; `video_media`: actual square/rotation/decode/length/missing Blob |
 | FiniteJobsTests/TelemetryTests video members | `video_worker` + `tests/browser/{video,video-process}-native.cjs`; complete remaining command matrix234 and authenticated HTTP/protobuf export235 remain distinct |
 | AppHost playable video fact | Native unchangedUI/normalCLI/private QueueBlob here; actual image/AppHost remains235 |
+
+Assertion follow-up (C1): `video_worker` independently discriminates message
+dequeue4 from durable attempt2 with MaxAttempts4 (removing only the dequeue arm
+actually fails); positive receipt backoff reappears within redisplay1s rather than
+the configured5s×dequeue. A forwarding-only local HTTP observer records the real
+private Queue requests, not substitute responses: default/invalid queue name,
+batch1/message cap10,8h visibility and8h visibility-fit1 with requested batch2.
+Current SQL59/61-minute leases discriminate the1h stale fallback; blank ffprobe
+and ffmpeg both reach actual tools beyond all prechecks. Invalid attempt/input
+setters retain default3/10GiB prechecks. Copy checks include exact name, owner,
+kind, content type, creator, unique Blob path, persisted bytes/size and completed
+timestamp/failure/attempt; keep checks retain their completed timestamp too.
+`video_api` adds anonymous/member, missing/forged CSRF, live role downgrade and
+revocation, with no-store on success and rejection. Revocation with stale
+identity-bound CSRF is400 before authorization; refreshed anonymous CSRF remains
+unauthorized401. No auth behavior was changed to make those tests pass.
 
 The frozen keep test puts the same Datei in both recording slots using EF
 InMemory. **Current** PostgreSQL `CK_recordings_dateien` rejects that fixture.

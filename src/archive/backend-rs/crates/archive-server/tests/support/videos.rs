@@ -10,6 +10,94 @@ use std::{path::PathBuf, sync::Arc};
 use uuid::Uuid;
 pub const CLIP: &[u8] =
 	include_bytes!("../../../../../../../tests/archive/apphost/TestAssets/kurzfilm.mp4");
+
+/// Observe the real CLI's Queue HTTP requests while forwarding every request
+/// unchanged to private Azurite. No fake receive/disposition/provider response.
+pub struct QueueObserver {
+	child: tokio::process::Child,
+	port_file: PathBuf,
+	requests: PathBuf,
+	pub connection: String,
+}
+impl QueueObserver {
+	pub async fn new(directory: &std::path::Path) -> Self {
+		let connection = std::env::var("ARCHIVE_TEST_QUEUE").unwrap();
+		let endpoint = connection
+			.split(';')
+			.find_map(|field| field.strip_prefix("QueueEndpoint="))
+			.unwrap();
+		let url = url::Url::parse(endpoint).unwrap();
+		assert_eq!(url.host_str(), Some("127.0.0.1"));
+		let port_file = directory.join(format!("queue-observer-{}.port", Uuid::new_v4()));
+		let requests = port_file.with_extension("jsonl");
+		let script = r#"import http.server,http.client,json,os,sys,urllib.parse
+target=urllib.parse.urlparse(sys.argv[1])
+fd=os.open(sys.argv[3],os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)
+class Handler(http.server.BaseHTTPRequestHandler):
+ def log_message(self,*args): pass
+ def forward(self):
+  query=urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+  safe={k:v for k,v in query.items() if k in ['numofmessages','visibilitytimeout','comp','restype']}
+  os.write(fd,(json.dumps({'method':self.command,'path':urllib.parse.urlparse(self.path).path,'query':safe})+'\n').encode())
+  body=self.rfile.read(int(self.headers.get('Content-Length','0')))
+  upstream=http.client.HTTPConnection(target.hostname,target.port,timeout=15)
+  upstream.request(self.command,self.path,body,dict(self.headers))
+  response=upstream.getresponse();data=response.read()
+  self.send_response(response.status)
+  for name,value in response.getheaders():
+   if name.lower() not in ['transfer-encoding','content-length','connection']: self.send_header(name,value)
+  self.send_header('Content-Length',str(len(data)));self.send_header('Connection','close');self.end_headers()
+  self.wfile.write(data);upstream.close()
+ do_GET=do_POST=do_PUT=do_DELETE=forward
+server=http.server.ThreadingHTTPServer(('127.0.0.1',0),Handler)
+with open(os.open(sys.argv[2],os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600),'w') as f: f.write(str(server.server_port))
+server.serve_forever()
+"#;
+		let child = tokio::process::Command::new("/usr/bin/python3")
+			.args([
+				"-c",
+				script,
+				endpoint,
+				port_file.to_str().unwrap(),
+				requests.to_str().unwrap(),
+			])
+			.kill_on_drop(true)
+			.stdout(std::process::Stdio::null())
+			.stderr(std::process::Stdio::null())
+			.spawn()
+			.unwrap();
+		tokio::time::timeout(std::time::Duration::from_secs(3), async {
+			while !port_file.exists() {
+				tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+			}
+		})
+		.await
+		.unwrap();
+		let port: u16 = std::fs::read_to_string(&port_file)
+			.unwrap()
+			.parse()
+			.unwrap();
+		let mut observed = url.clone();
+		observed.set_port(Some(port)).unwrap();
+		Self {
+			child,
+			port_file,
+			requests,
+			connection: connection.replace(endpoint, observed.as_str()),
+		}
+	}
+	pub async fn finish(mut self) -> Vec<Value> {
+		self.child.kill().await.unwrap(); // waits/reaps this observer only
+		let requests = std::fs::read_to_string(&self.requests)
+			.unwrap()
+			.lines()
+			.map(|line| serde_json::from_str(line).unwrap())
+			.collect();
+		std::fs::remove_file(self.port_file).unwrap();
+		std::fs::remove_file(self.requests).unwrap();
+		requests
+	}
+}
 pub struct Video {
 	pub app: App,
 	pub id: Uuid,

@@ -403,6 +403,9 @@ async fn an_already_playable_original_stays_one_object() {
 	let s = playable.status().await;
 	assert_eq!(s["status"], "notNeeded");
 	assert_eq!(s["attemptCount"], 1);
+	assert!(s["failureReason"].is_null());
+	assert!(s["completedAt"].is_string());
+	assert_eq!(s["completedAt"], s["updatedAt"]);
 	assert!(s["playbackDateiId"].is_null());
 	let count: i64 = sqlx::query_scalar("SELECT count(*) FROM dateien")
 		.fetch_one(&playable.app.pool)
@@ -468,6 +471,84 @@ async fn transient_storage_failure_requeues_with_backoff_then_exhausts() {
 	);
 	v.done().await;
 }
+
+#[tokio::test]
+#[ignore = "explicit CLI/current PG/private Queue high dequeue versus low row attempts and bounded backoff"]
+async fn dequeue_budget_exhausts_independently_of_row_attempts_and_backoff_is_bounded() {
+	let v = Video::new(CLIP, "aufnahme", "video/mp4", false).await;
+	v.seed_job(0, 0).await;
+	// This is a same-receipt test; keep the legitimate pre-drain outbox sweep
+	// from adding a second envelope while the one-second backoff elapses.
+	sqlx::query(
+		r#"UPDATE video_jobs SET "LastEnqueuedAt"=now()+interval '1 minute' WHERE "DateiId"=$1"#,
+	)
+	.bind(v.id)
+	.execute(&v.app.pool)
+	.await
+	.unwrap();
+	v.send().await;
+	let message = v.queue.receive(1, 30).await.unwrap().pop().unwrap();
+	assert_eq!(message.dequeue_count, 1);
+	v.queue.abandon(&message, 0).await.unwrap();
+	let bad = std::env::var("ARCHIVE_TEST_AZURITE")
+		.unwrap()
+		.split(';')
+		.map(|field| {
+			if field.starts_with("AccountKey=") {
+				"AccountKey=QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="
+			} else {
+				field
+			}
+		})
+		.collect::<Vec<_>>()
+		.join(";");
+	let extra = [
+		("ConnectionStrings__archive-blobs", bad),
+		("Archive__Video__MaxAttempts", "4".into()),
+		("Archive__Video__MaxMessagesPerRun", "1".into()),
+		("Archive__Video__VisibilityBackoff", "00:00:05".into()),
+		("Archive__Video__RedisplayAfter", "00:00:01".into()),
+	];
+	v.run(&extra).await;
+	let status = v.status().await;
+	assert_eq!(status["status"], "queued");
+	assert_eq!(status["attemptCount"], 1);
+	assert!(status["lastAttemptAt"].is_string());
+	assert!(status["completedAt"].is_null());
+	assert!(
+		v.queue.receive(1, 30).await.unwrap().is_empty(),
+		"receipt backoff must be positive"
+	);
+	// Five seconds times dequeue2 must be capped by redisplay1s, not10s.
+	let message = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+		loop {
+			if let Some(message) = v.queue.receive(1, 30).await.unwrap().pop() {
+				break message;
+			}
+			tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+		}
+	})
+	.await
+	.unwrap();
+	assert_eq!(message.dequeue_count, 3);
+	v.queue.abandon(&message, 0).await.unwrap();
+	v.run(&extra).await; // product dequeue4; durable attempt2 still below4
+	let status = v.status().await;
+	assert_eq!(status["status"], "failed");
+	assert_eq!(
+		status["attemptCount"], 2,
+		"row budget must not explain message exhaustion"
+	);
+	assert_eq!(
+		status["failureReason"],
+		"Die Konvertierung ist nach mehreren Versuchen fehlgeschlagen."
+	);
+	assert!(
+		v.queue.receive(1, 1).await.unwrap().is_empty(),
+		"exhausted receipt is deleted"
+	);
+	v.done().await;
+}
 #[tokio::test]
 #[ignore = "explicit current PG/private Queue/Blob CLI gate"]
 async fn pump_drains_until_empty_and_applies_bounded_dispositions() {
@@ -523,6 +604,178 @@ async fn lease_and_batch_options_stay_defensively_bounded_through_cli() {
 	);
 	v.done().await;
 }
+
+#[tokio::test]
+#[ignore = "explicit product CLI/forwarded private Queue HTTP default and invalid option controls"]
+async fn default_and_invalid_video_queue_options_are_observed_on_real_requests() {
+	let v = Video::new(CLIP, "aufnahme", "video/mp4", false).await;
+	let queue = AzureQueue::select(
+		Some(&std::env::var("ARCHIVE_TEST_QUEUE").unwrap()),
+		None,
+		"archive-videos",
+		true,
+		Arc::new(SystemClock),
+	)
+	.unwrap();
+	queue.ensure().await.unwrap();
+	assert!(
+		queue.receive(1, 1).await.unwrap().is_empty(),
+		"exclusive233 default queue must start empty"
+	);
+	for variant in ["default", "invalid", "visibility-fit"] {
+		for _ in 0..11 {
+			queue.send("poison").await.unwrap();
+		}
+		let observer = support::videos::QueueObserver::new(&v.directory).await;
+		let mut command = v.command(
+			"--transcode-queue",
+			&[(
+				"ConnectionStrings__archive-queues",
+				observer.connection.clone(),
+			)],
+		);
+		for key in [
+			"QueueName",
+			"TimeBudget",
+			"BatchSize",
+			"ReceiveVisibility",
+			"MaxMessagesPerRun",
+			"DrainBudget",
+		] {
+			command.env_remove(format!("Archive__Video__{key}"));
+		}
+		if variant == "invalid" {
+			for key in ["TimeBudget", "ReceiveVisibility", "DrainBudget"] {
+				command.env(format!("Archive__Video__{key}"), "00:00:00");
+			}
+			for key in ["BatchSize", "MaxMessagesPerRun"] {
+				command.env(format!("Archive__Video__{key}"), "0");
+			}
+			command.env("Archive__Video__QueueName", "  ");
+		}
+		if variant == "visibility-fit" {
+			command.env("Archive__Video__BatchSize", "2");
+		}
+		assert!(command.output().await.unwrap().status.success());
+		let requests = observer.finish().await;
+		let receives: Vec<_> = requests
+			.iter()
+			.filter(|r| {
+				r["method"] == "GET"
+					&& r["path"]
+						.as_str()
+						.is_some_and(|p| p.ends_with("/archive-videos/messages"))
+			})
+			.collect();
+		assert_eq!(receives.len(), 10, "default message cap10: {variant}");
+		for receive in receives {
+			assert_eq!(
+				receive["query"]["numofmessages"],
+				serde_json::json!(["1"]),
+				"default batch1 and8h budget/visibility fit1: {variant}"
+			);
+			assert_eq!(
+				receive["query"]["visibilitytimeout"],
+				serde_json::json!(["28800"]),
+				"frozen8h visibility/budget: {variant}"
+			);
+		}
+		let remaining = queue.receive(32, 30).await.unwrap();
+		assert_eq!(remaining.len(), 1);
+		queue.delete(&remaining[0]).await.unwrap();
+	}
+	v.done().await;
+}
+
+#[tokio::test]
+#[ignore = "explicit product CLI/current PG/private providers stale defaults and reachable executable fallbacks"]
+async fn stale_input_attempt_and_tool_defaults_survive_invalid_setters() {
+	for minutes in [59, 61] {
+		let v = Video::new(CLIP, "aufnahme", "video/mp4", false).await;
+		v.seed_job(1, 0).await;
+		sqlx::query(r#"UPDATE video_jobs SET "LastAttemptAt"=now()-make_interval(mins=>$2),"LastEnqueuedAt"=now()+interval '1 minute' WHERE "DateiId"=$1"#).bind(v.id).bind(minutes).execute(&v.app.pool).await.unwrap();
+		let before = v.status().await;
+		v.send().await;
+		let observer = support::videos::QueueObserver::new(&v.directory).await;
+		v.run(&[
+			(
+				"ConnectionStrings__archive-queues",
+				observer.connection.clone(),
+			),
+			("Archive__Video__StaleRunningAfter", "00:00:00".into()),
+			("Archive__Video__TimeBudget", "00:00:00".into()),
+			("Archive__Video__FfprobePath", "   ".into()),
+			("Archive__Video__FfmpegPath", "\t ".into()),
+		])
+		.await;
+		let requests = observer.finish().await;
+		let status = v.status().await;
+		if minutes == 59 {
+			assert_eq!(status, before, "invalid stale setter falls back to1h");
+			assert!(
+				requests.iter().any(|r| r["method"] == "PUT"
+					&& r["query"]["visibilitytimeout"] == serde_json::json!(["60"])),
+				"default fresh-lease backoff is60s"
+			);
+		} else {
+			assert_eq!(
+				status["status"], "completed",
+				"blank ffprobe AND ffmpeg paths must reach real defaults past all prechecks"
+			);
+			assert_eq!(status["attemptCount"], 1);
+		}
+		v.done().await;
+	}
+	for (attempts, size, expected_attempts, expected_status, reason) in [
+		(
+			3,
+			CLIP.len() as i64,
+			3,
+			"failed",
+			"Die Konvertierung ist nach mehreren Versuchen fehlgeschlagen.",
+		),
+		(2, CLIP.len() as i64, 3, "completed", ""),
+		(
+			0,
+			10 * 1024 * 1024 * 1024,
+			1,
+			"failed",
+			"Die Aufnahme konnte nicht gelesen werden.",
+		),
+		(
+			0,
+			10 * 1024 * 1024 * 1024 + 1,
+			0,
+			"failed",
+			"Die Aufnahme ist zu groß für die automatische Konvertierung.",
+		),
+	] {
+		let v = Video::new(CLIP, "aufnahme", "video/mp4", false).await;
+		v.seed_job(0, attempts).await;
+		sqlx::query(r#"UPDATE dateien SET "SizeBytes"=$2 WHERE "Id"=$1"#)
+			.bind(v.id)
+			.bind(size)
+			.execute(&v.app.pool)
+			.await
+			.unwrap();
+		v.send().await;
+		v.run(&[
+			("Archive__Video__MaxAttempts", "0".into()),
+			("Archive__Video__MaxInputBytes", "0".into()),
+			("Archive__Video__FfprobePath", "  ".into()),
+		])
+		.await;
+		let status = v.status().await;
+		assert_eq!(status["status"], expected_status);
+		assert_eq!(status["attemptCount"], expected_attempts);
+		if reason.is_empty() {
+			assert!(status["failureReason"].is_null());
+		} else {
+			assert_eq!(status["failureReason"], reason);
+		}
+		v.done().await;
+	}
+}
 #[tokio::test]
 #[ignore = "explicit current PG/private Queue CLI dispatcher gate"]
 async fn dispatcher_sweeps_only_unstamped_and_strictly_stale_queued_rows_in_order() {
@@ -532,9 +785,11 @@ async fn dispatcher_sweeps_only_unstamped_and_strictly_stale_queued_rows_in_orde
 	let fresh = datei(&v.app, v.owner, false, "aufnahme", "video/mp4").await;
 	let running = datei(&v.app, v.owner, false, "aufnahme", "video/mp4").await;
 	sqlx::query(r#"UPDATE video_jobs SET "LastEnqueuedAt"=NULL,"CreatedAt"=now()-interval '30 minutes' WHERE "DateiId"=$1"#).bind(v.id).execute(&v.app.pool).await.unwrap();
-	for (id, status, created, enqueued) in
-		[(stale, 0, 120, 61), (fresh, 0, 10, 0), (running, 1, 5, 120)]
-	{
+	for (id, status, created, enqueued) in [
+		(stale, 0, 120, 61),
+		(fresh, 0, 10, 59),
+		(running, 1, 5, 120),
+	] {
 		sqlx::query(r#"INSERT INTO video_jobs ("DateiId","Status","AttemptCount","TriggeredByAccountId","CreatedAt","UpdatedAt","LastEnqueuedAt","RowVersion") VALUES ($1,$2,0,$3,now()-make_interval(mins=>$4),now(),now()-make_interval(mins=>$5),7)"#).bind(id).bind(status).bind(Uuid::nil()).bind(created).bind(enqueued).execute(&v.app.pool).await.unwrap();
 	}
 	let output = v
@@ -637,6 +892,7 @@ async fn original_becomes_a_real_h264_copy_and_fills_only_empty_slot() {
 		.await
 		.unwrap();
 	url.set_path(&db);
+	let started = chrono::Utc::now();
 	let output = tokio::time::timeout(
 		std::time::Duration::from_secs(30),
 		tokio::process::Command::new(env!("CARGO_BIN_EXE_archive-server"))
@@ -664,6 +920,14 @@ async fn original_becomes_a_real_h264_copy_and_fills_only_empty_slot() {
 	let (status, payload) = editor.get(&format!("/api/dateien/videos?ids={id}")).await;
 	assert_eq!(status, 200, "{payload}");
 	assert_eq!(payload["results"][0]["status"], "completed", "{payload}");
+	let job = &payload["results"][0];
+	assert!(job["failureReason"].is_null());
+	assert_eq!(job["attemptCount"], 1);
+	let completed = chrono::DateTime::parse_from_rfc3339(job["completedAt"].as_str().unwrap())
+		.unwrap()
+		.with_timezone(&chrono::Utc);
+	assert!(completed >= started && completed <= chrono::Utc::now());
+	assert_eq!(job["completedAt"], job["updatedAt"]);
 	let copy = Uuid::parse_str(payload["results"][0]["playbackDateiId"].as_str().unwrap()).unwrap();
 	assert_ne!(copy, id);
 	let stored: (Option<Uuid>, Option<f64>, i64) = sqlx::query_as(
@@ -679,6 +943,35 @@ async fn original_becomes_a_real_h264_copy_and_fills_only_empty_slot() {
 		.fetch_one(&app.pool)
 		.await
 		.unwrap();
+	let metadata: serde_json::Value =
+		sqlx::query_scalar("SELECT to_jsonb(d) FROM dateien d WHERE \"Id\"=$1")
+			.bind(copy)
+			.fetch_one(&app.pool)
+			.await
+			.unwrap();
+	let original: serde_json::Value =
+		sqlx::query_scalar("SELECT to_jsonb(d) FROM dateien d WHERE \"Id\"=$1")
+			.bind(id)
+			.fetch_one(&app.pool)
+			.await
+			.unwrap();
+	assert_eq!(metadata["Kind"], "aufnahme");
+	assert_eq!(metadata["ContentType"], "video/mp4");
+	assert_eq!(metadata["EventId"], event.to_string());
+	assert!(metadata["LiedId"].is_null());
+	assert_eq!(
+		metadata["CreatedByAccountId"],
+		original["CreatedByAccountId"]
+	);
+	assert_eq!(metadata["OriginalFileName"], "Konzert - Abspielkopie.mp4");
+	assert!(copy_blob.starts_with(&format!("dateien/{copy}/")));
+	assert!(copy_blob.ends_with(".mp4"));
+	assert_ne!(copy_blob, original["BlobName"].as_str().unwrap());
+	let count: i64 = sqlx::query_scalar("SELECT count(*) FROM dateien")
+		.fetch_one(&app.pool)
+		.await
+		.unwrap();
+	assert_eq!(count, 2, "one persistent original and exactly one copy");
 	let downloaded = blobs
 		.blob_client(&copy_blob)
 		.download(None)
@@ -688,6 +981,8 @@ async fn original_becomes_a_real_h264_copy_and_fills_only_empty_slot() {
 		.collect()
 		.await
 		.unwrap();
+	assert_eq!(metadata["SizeBytes"], downloaded.len());
+	assert!(!downloaded.is_empty(), "the exact committed blob exists");
 	let path = std::env::temp_dir().join(format!("video233-{}.mp4", Uuid::new_v4()));
 	tokio::fs::write(&path, downloaded).await.unwrap();
 	let probe = tokio::process::Command::new("ffprobe")

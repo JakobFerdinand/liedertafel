@@ -7,10 +7,36 @@ use support::{App, storage::FakeStorage, upload};
 #[tokio::test]
 #[ignore = "explicit current PostgreSQL/authenticated HTTP stored enum fallback gate"]
 async fn unknown_stored_video_status_retains_the_frozen_numeric_payload() {
-	use support::catalogue::{datei, lied};
-	let app = App::new().await;
-	let owner = lied(&app, "Stored video enum", json!({})).await;
-	let id = datei(&app, owner, false, "aufnahme", "video/mp4").await;
+	use archive_server::{
+		Origin, Settings,
+		auth::{Auth, AuthConfig, SystemClock},
+		build_router,
+		queue::{AzureQueue, Queue},
+	};
+	let mut v =
+		support::videos::Video::new(support::videos::CLIP, "aufnahme", "video/mp4", false).await;
+	let mut origin = Origin::new(Settings::new(true, Default::default(), 0)).with_auth(
+		Auth::new(
+			v.app.pool.clone(),
+			AuthConfig::development(),
+			v.app.mail.clone(),
+			v.app.time.clone(),
+		)
+		.unwrap(),
+	);
+	origin.video_queue = Arc::new(
+		AzureQueue::select(
+			Some(&std::env::var("ARCHIVE_TEST_QUEUE").unwrap()),
+			None,
+			&v.queue_name,
+			true,
+			Arc::new(SystemClock),
+		)
+		.unwrap(),
+	);
+	v.app.router = build_router(Arc::new(origin));
+	let app = &v.app;
+	let id = v.id;
 	let mut editor = app.admin().await;
 	assert_eq!(
 		editor
@@ -19,6 +45,13 @@ async fn unknown_stored_video_status_retains_the_frozen_numeric_payload() {
 			.0,
 		200
 	);
+	let initial = v.queue.receive(2, 30).await.unwrap();
+	assert_eq!(
+		initial.len(),
+		1,
+		"positive actual retry sends one notification"
+	);
+	v.queue.delete(&initial[0]).await.unwrap();
 	let mut failures = Vec::new();
 	// Literal frozen VideoEndpoints.ToStatusString cases. Unknown values use
 	// the signed integer Enum.ToString(), never the Failed name or a number token.
@@ -48,12 +81,128 @@ async fn unknown_stored_video_status_retains_the_frozen_numeric_payload() {
 		if item["status"] != expected {
 			failures.push((stored, item["status"].clone(), expected));
 		}
+		if !matches!(stored, 0..=4) {
+			let before: serde_json::Value =
+				sqlx::query_scalar("SELECT to_jsonb(j) FROM video_jobs j WHERE \"DateiId\"=$1")
+					.bind(id)
+					.fetch_one(&app.pool)
+					.await
+					.unwrap();
+			let (status, reply) = editor
+				.post(&format!("/api/dateien/{id}/video/retry"), json!({}))
+				.await;
+			assert_eq!(status, 200);
+			assert_eq!(
+				reply, *item,
+				"unknown status retry is an unchanged literal payload"
+			);
+			let after: serde_json::Value =
+				sqlx::query_scalar("SELECT to_jsonb(j) FROM video_jobs j WHERE \"DateiId\"=$1")
+					.bind(id)
+					.fetch_one(&app.pool)
+					.await
+					.unwrap();
+			assert_eq!(
+				after, before,
+				"unknown status may not authorize a retry/reset/stamp"
+			);
+			assert!(v.queue.receive(1, 1).await.unwrap().is_empty());
+		}
 	}
-	app.close().await;
+	v.done().await;
 	assert!(
 		failures.is_empty(),
 		"frozen literal HTTP status mismatches: {failures:?}"
 	);
+}
+
+#[tokio::test]
+#[ignore = "explicit current PG/video HTTP anonymous CSRF current membership and no-store controls"]
+async fn video_routes_require_current_editor_membership_csrf_and_never_cache() {
+	use support::catalogue::{datei, lied};
+	let app = App::new().await;
+	let mut admin = app.admin().await;
+	let mut editor = app.sign_in("redaktion@liedertafel.test").await;
+	let editor_id = editor.get("/api/auth/me").await.1["accountId"].clone();
+	let owner = lied(&app, "Video access", json!({})).await;
+	let id = datei(&app, owner, false, "aufnahme", "video/mp4").await;
+	let read = format!("/api/dateien/videos?ids={id}");
+	let write = format!("/api/dateien/{id}/video/retry");
+	let mut anonymous = app.client();
+	anonymous.csrf().await;
+	let mut member = app.member().await;
+	for (client, expected) in [(&mut anonymous, 401), (&mut member, 403)] {
+		for (method, path) in [("GET", &read), ("POST", &write)] {
+			let (status, headers, _) = client.wire(method, path, "{}").await;
+			assert_eq!(status, expected);
+			assert_eq!(headers["cache-control"], "no-store");
+		}
+	}
+	let token = editor.token.clone();
+	for forged in ["", "forged-video-csrf-token"] {
+		editor.token = forged.into();
+		let (status, headers, _) = editor.wire("POST", &write, "{}").await;
+		assert_eq!(status, 400);
+		assert_eq!(headers["cache-control"], "no-store");
+	}
+	editor.token = token;
+	let jobs: i64 = sqlx::query_scalar("SELECT count(*) FROM video_jobs")
+		.fetch_one(&app.pool)
+		.await
+		.unwrap();
+	assert_eq!(jobs, 0, "denied retries may not create work");
+	for (method, path) in [("POST", &write), ("GET", &read)] {
+		let (status, headers, _) = editor.wire(method, path, "{}").await;
+		assert_eq!(status, 200);
+		assert_eq!(headers["cache-control"], "no-store");
+	}
+	let before = editor.get(&read).await.1;
+	assert_eq!(
+		admin
+			.post(
+				"/api/admin/members/role",
+				json!({"accountId":editor_id,"role":"Member"})
+			)
+			.await
+			.0,
+		200
+	);
+	for (method, path) in [("GET", &read), ("POST", &write)] {
+		let (status, headers, _) = editor.wire(method, path, "{}").await;
+		assert_eq!(
+			status, 403,
+			"existing cookie must not retain editor authority"
+		);
+		assert_eq!(headers["cache-control"], "no-store");
+	}
+	assert_eq!(
+		admin
+			.post(
+				"/api/admin/members/deactivate",
+				json!({"accountId":editor_id})
+			)
+			.await
+			.0,
+		200
+	);
+	for (method, path) in [("GET", &read), ("POST", &write)] {
+		let (status, headers, _) = editor.wire(method, path, "{}").await;
+		assert_eq!(
+			status,
+			if method == "GET" { 401 } else { 400 },
+			"revoked session is unauthorized; stale identity-bound CSRF is rejected before mutation authorization"
+		);
+		assert_eq!(headers["cache-control"], "no-store");
+	}
+	editor.csrf().await;
+	let (status, headers, _) = editor.wire("POST", &write, "{}").await;
+	assert_eq!(
+		status, 401,
+		"valid anonymous CSRF cannot restore revoked membership"
+	);
+	assert_eq!(headers["cache-control"], "no-store");
+	assert_eq!(admin.get(&read).await.1, before);
+	app.close().await;
 }
 
 #[tokio::test]
