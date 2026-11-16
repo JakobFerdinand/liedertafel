@@ -254,10 +254,28 @@ fn source(raw: &str) -> Bound<()> {
 	}
 	let value = obj.text("value")?.ok_or(())?;
 	if kind == "data" {
-		use base64::Engine;
-		base64::engine::general_purpose::STANDARD
-			.decode(&value)
-			.map_err(|_| ())?;
+		use base64::{
+			Engine,
+			engine::{
+				DecodePaddingMode,
+				general_purpose::{GeneralPurpose, GeneralPurposeConfig},
+			},
+		};
+		// LOCAL pinned AG-UI -> MEAI Convert.FromBase64String grammar. Only
+		// SP/TAB/CR/LF are ignored; VT/FF/NBSP are invalid. Unused pad bits
+		// may be nonzero, but padding length/placement must remain correct.
+		let data: Vec<u8> = value
+			.bytes()
+			.filter(|b| !matches!(b, b' ' | b'\t' | b'\r' | b'\n'))
+			.collect();
+		GeneralPurpose::new(
+			&base64::alphabet::STANDARD,
+			GeneralPurposeConfig::new()
+				.with_decode_allow_trailing_bits(true)
+				.with_decode_padding_mode(DecodePaddingMode::RequireCanonical),
+		)
+		.decode(&data)
+		.map_err(|_| ())?;
 		if obj.text("mimeType")?.is_none() {
 			return Err(());
 		}

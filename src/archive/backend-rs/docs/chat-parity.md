@@ -1,6 +1,31 @@
 # Member chat (#232)
 
-## Review-remediated candidate (2026-11-16)
+## P2 media-data grammar remediation (2026-11-16)
+
+The protocol rereview closed P1; the catalogue rereview closed S1–S6. Its catalogue,
+evaluation, history and ledger source/test files remain byte-identical to005e46b.
+P2 changes only `chat/input.rs`'s AG-UI data-source validation, not any global,
+auth or provider Base64 policy. It ignores only SP/TAB/CR/LF, accepts nonzero
+unused pad bits, and explicitly retains required canonical padding length and
+placement. VT/FF/NBSP, malformed padding and invalid alphabet remain safe400
+before provider/ledger/thread work, never copied frozen500s.
+
+`232-chat-media-base64.json` records234 actual frozen HTTP + BCL
+`Convert.FromBase64String` observations: the independent12 unchanged raw bodies
+first, all ASCII control/space/DEL positions, additional Unicode whitespace,
+padding/alphabet boundaries, unused pad bits and audio/video/document consumers.
+All58 BCL-valid rows finish in frozen HTTP;176 BCL-invalid rows produce frozen
+FormatException/500 and safely reject400 in Rust. The original751 fixture is
+unchanged. The shared actual product-router/native binder gates now run985
+bodies; accepted browser media remains untrusted and only the last user text
+reaches the model. Exact red/green/native/full results and final pins belong in
+the durable report; the table below is explicitly pre-P2, not new acceptance.
+
+API lookup: Context7 quota exhausted; pinned base640.22.1 docs.rs and local
+package source confirm `with_decode_allow_trailing_bits` and
+`DecodePaddingMode::RequireCanonical`. No dependency/lockfile change.
+
+## PRE-P2 review-remediated candidate (2026-11-16)
 
 P1 and S1–S6 are implemented in separate commits through product-source pin
 `6f3f5ffad04f3f8b925a212498eb307f7f5f7f67`; original `ad8de88` evidence remains

@@ -2,7 +2,7 @@
 // before the FIRST SQL await is separate from the later history-save controls.
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),net=require('node:net'),http2=require('node:http2'),{spawn}=require('node:child_process'),{once}=require('node:events'),{randomUUID}=require('node:crypto');
 const capture=require('./telemetry-capture.cjs').createCapture('chat-binding-native');
-const {Client}=require('pg'),rows=require('../fixtures/232-chat-binding.json').cases,mail=[],signals=new Set();
+const {Client}=require('pg'),rows=[...require('../fixtures/232-chat-binding.json').cases,...require('../fixtures/232-chat-media-base64.json').cases],mail=[],signals=new Set();
 const server=process.env.ARCHIVE_TEST_POSTGRES,binary=process.env.ARCHIVE_BINARY;assert(server&&binary&&['127.0.0.1','localhost'].includes(new URL(server).hostname));
 const smtp=net.createServer(s=>{s.setEncoding('utf8');s.write('220 synthetic\r\n');let b='',data=false,m='';s.on('data',c=>{b+=c;let p;while((p=b.indexOf('\r\n'))>=0){const l=b.slice(0,p);b=b.slice(p+2);if(data){if(l==='.'){mail.push(m);data=false;s.write('250 ok\r\n');}else m+=l+'\n';}else if(/^(EHLO|HELO)/.test(l))s.write('250 hi\r\n');else if(l==='DATA'){data=true;m='';s.write('354 send\r\n');}else if(l==='QUIT')s.end('221 bye\r\n');else s.write('250 ok\r\n');}});});
 const collector=capture.collector(http2.createServer());collector.on('stream',(s,h)=>{let b=[];s.on('data',c=>b.push(c));s.on('end',()=>{capture.signal(h[':path'],Buffer.concat(b));signals.add(h[':path']);s.respond({':status':200,'content-type':'application/grpc'},{waitForTrailers:true});s.on('wantTrailers',()=>s.sendTrailers({'grpc-status':'0'}));s.end(Buffer.alloc(5));});});
