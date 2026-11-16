@@ -117,6 +117,14 @@ update this section in the same PR whenever the member list changes.
 
 ## Routes and contracts
 
+- Video (#233): before changing transcode/dispatch, finalize outbox, video status/
+  retry, tool processes or copy publication, read `docs/video-parity.md` for
+  lease/CAS/finite bounds, actual square/rotation policy and retained FK/capacity
+  limits. Focused: `cargo test -p archive-server --locked --test video_worker
+  -- --ignored` (private PG/Queue/Blob + real tools). Native: `node
+  tests/browser/video-native.cjs` and `node tests/browser/video-process-native.cjs`.
+  Frozen video-job permanent-removal refusal remains non-success; image is235.
+
 - Member chat (#232): before changing AG-UI, authoritative history, catalogue
   tools/citations, A2UI replay, chat options or SSE shutdown, read
   `docs/chat-parity.md`. Focused PG: `cargo test -p archive-server --locked
