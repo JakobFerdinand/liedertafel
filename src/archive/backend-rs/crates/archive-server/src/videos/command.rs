@@ -19,7 +19,11 @@ pub async fn run(
 		Err(_) => return Err(CommandError),
 	};
 	if maintenance {
-		tracing::info!("Transcode paused: maintenance mode is enabled");
+		if command == "--dispatch-videos" {
+			tracing::info!(target: "Archive.Videos", "Video dispatch paused: maintenance mode is enabled");
+		} else {
+			tracing::info!(target: "Archive.Videos", "Video worker paused: maintenance mode is enabled");
+		}
 		return Ok(());
 	}
 	use crate::{

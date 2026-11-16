@@ -19,6 +19,12 @@ Frozen backend/tests/frontend/infra/workflows/product Dockerfile stay unchanged.
   Actual CLI/PG/Queue controls first reproduced invalid dispatch/transcode and
   padded-true dependency access. Paused healthy fixtures retain the full job,
   original bytes and unread receipt; no private worker-only seam is introduced.
+  Exact exported pause messages remain `Video worker paused: maintenance mode is
+  enabled` / `Video dispatch paused: maintenance mode is enabled`, category
+  `Archive.Videos`. `ARCHIVE_VIDEO_PAUSE_ONLY=1 node tests/browser/video-process-native.cjs`
+  checks both actual CLI exits, decoded OTLP scope/message, command spans and
+  correlated normal completion after child closure and collector drain, without
+  opening providers. The same controls run in the ordinary process journey.
 - `Archive:Video` retains frozen defaults: 10GiB input, three attempts, stale
   lease1h, message/visibility8h, redisplay1h, dispatch100, backoff1m, batch1/cap32,
   messages10, drain10h. Positive configured values retain their source widths;

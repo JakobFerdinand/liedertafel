@@ -6,7 +6,24 @@ const binary=process.env.ARCHIVE_BINARY,server=process.env.ARCHIVE_TEST_POSTGRES
 const database=`video233_process_${randomUUID().replaceAll('-','')}`,container=`video233-${randomUUID()}`,queueName=`video233-${randomUUID()}`,url=new URL(server);url.pathname=database;
 const signals={};let serial=0;
 const collector=telemetry.collector(http2.createServer());collector.on('stream',(stream,headers)=>{const chunks=[];stream.on('data',c=>chunks.push(c));stream.on('end',()=>{const route=headers[':path'];telemetry.signal(route,Buffer.concat(chunks));signals[route]=Buffer.concat([signals[route]||Buffer.alloc(0),...chunks]);stream.respond({':status':200,'content-type':'application/grpc'},{waitForTrailers:true});stream.on('wantTrailers',()=>stream.sendTrailers({'grpc-status':'0'}));stream.end(Buffer.from([0,0,0,0,0]));});});
+async function pauseControls(env){
+ const invalid='invalid-video-maintenance-provider-233';telemetry.marker('object','paused-provider',invalid);
+ for(const [command,message] of [['transcode-queue','Video worker paused: maintenance mode is enabled'],['dispatch-videos','Video dispatch paused: maintenance mode is enabled']]){
+  const child=spawn(binary,['--'+command],{env:{...env,Archive__MaintenanceMode:' true ','ConnectionStrings__archive-db':invalid,'ConnectionStrings__archive-queues':invalid,'ConnectionStrings__archive-blobs':invalid},stdio:['ignore','pipe','pipe'],signal:AbortSignal.timeout(10000)});telemetry.watch(child,`paused-${command}`,0);assert.equal((await telemetry.closed(child))[0],0);
+  const spans=require('./http-w3c-controls.cjs').decode(Buffer.concat(Object.entries(signals).filter(([r])=>r.includes('TraceService')).map(([,b])=>b))),span=spans.find(s=>s.name===command);assert(span,'paused command span');assert.notEqual(span.status?.code,2,'pause must not mark command as error');
+  const type=require('./telemetry-redaction.cjs').root.lookupType('opentelemetry.proto.collector.logs.v1.ExportLogsServiceRequest');const logs=[];
+  for(const [route,bytes] of Object.entries(signals).filter(([r])=>r.includes('LogsService')))for(let at=0;at<bytes.length;){assert.equal(bytes[at],0);const n=bytes.readUInt32BE(at+1),request=type.decode(bytes.subarray(at+5,at+5+n));at+=5+n;for(const resource of request.resourceLogs||[])for(const scope of resource.scopeLogs||[])for(const record of scope.logRecords||[])logs.push({category:scope.scope?.name,record});}
+  const pause=logs.find(l=>l.record.body?.stringValue===message);assert(pause,'exact command-specific exported pause message');assert.equal(pause.category,'Archive.Videos','exported maintenance category');
+  const completion=logs.find(l=>l.record.body?.stringValue===`Archive job ${command} completed`);assert(completion,'normal exported completion');
+  for(const log of [pause,completion]){assert(Buffer.from(log.record.traceId).equals(Buffer.from(span.traceId)));assert(Buffer.from(log.record.spanId).equals(Buffer.from(span.spanId)));}
+ }
+}
 async function main(){
+ if(process.env.ARCHIVE_VIDEO_PAUSE_ONLY==='1'){
+  collector.listen(0,'127.0.0.1');await once(collector,'listening');
+  try{await pauseControls({...process.env,ARCHIVE_ENVIRONMENT:'Development',OTEL_EXPORTER_OTLP_ENDPOINT:`http://127.0.0.1:${collector.address().port}`,RUST_LOG:'trace'});}finally{await telemetry.drain();}
+  telemetry.assertClean();console.log('PASS: both actual maintenance commands exit0 before providers with exact exported pause category/message, command span and correlated normal completion');return;
+ }
  const admin=new Client({connectionString:server});await admin.connect();await admin.query(`CREATE DATABASE ${database}`);let db;
  const field=name=>connection.match(new RegExp(`(?:^|;)${name}=([^;]+)`))[1];telemetry.marker('key','storage-key',field('AccountKey'));
  const pipeline=newPipeline(new StorageSharedKeyCredential(field('AccountName'),field('AccountKey')));pipeline.factories.push({create(next){return{sendRequest(request){request.headers.set('x-ms-version','2025-11-05');return next.sendRequest(request);}}}});const service=new BlobServiceClient(field('BlobEndpoint'),pipeline),blobs=service.getContainerClient(container);
@@ -17,7 +34,7 @@ async function main(){
   const env={...process.env,ARCHIVE_ENVIRONMENT:'Development',RUST_LOG:'trace',OTEL_EXPORTER_OTLP_ENDPOINT:`http://127.0.0.1:${collector.address().port}`,OTEL_BSP_SCHEDULE_DELAY:'100',OTEL_BLRP_SCHEDULE_DELAY:'100',OTEL_METRIC_EXPORT_INTERVAL:'100','ConnectionStrings__archive-db':url.href,'ConnectionStrings__archive-migrations':url.href,'ConnectionStrings__archive-blobs':connection,'ConnectionStrings__archive-queues':queues,Archive__Assets__ContainerName:container,Archive__Video__QueueName:queueName,TMPDIR:directory};
   function start(args,extra={},expected=0){const child=spawn(binary,args,{env:{...env,...extra},stdio:['ignore','pipe','pipe'],signal:AbortSignal.timeout(30000)});telemetry.watch(child,`finite-${serial++}`,expected);return child;}
   async function command(args,extra={},expected=0){assert.equal((await telemetry.closed(start(args,extra,expected)))[0],expected);}
-  await command(['--migrate']);db=new Client({connectionString:url.href});await db.connect();
+   await pauseControls(env);await command(['--migrate']);db=new Client({connectionString:url.href});await db.connect();
   const owner=randomUUID(),id=randomUUID(),actor=randomUUID(),blob=`dateien/${id}/original`;telemetry.marker('object','original-blob',blob);
   await db.query('INSERT INTO lieder ("Id","Title","CreatedAt","UpdatedAt","CreatedByAccountId","UpdatedByAccountId","RowVersion") VALUES ($1,\'Synthetic\',now(),now(),$2,$2,1)',[owner,actor]);
   const bytes=fs.readFileSync(path.resolve(__dirname,'../../../../../tests/archive/apphost/TestAssets/kurzfilm.mp4'));await blobs.getBlockBlobClient(blob).uploadData(bytes,{blobHTTPHeaders:{blobContentType:'video/mp4'}});
