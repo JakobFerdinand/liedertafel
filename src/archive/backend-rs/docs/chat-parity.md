@@ -2,6 +2,16 @@
 
 ## P2 media-data grammar remediation (2026-11-16)
 
+Tested product/test pin `6524fb8f799557625fb10ad1f8a776f0cd59454d`: fresh fmt,
+locked all-target clippy,124 ordinary/310 explicit tests,95 frozen cases,
+124 unchanged browser cases,110 detector controls and18 native suites with18
+new private terminal replays passed after the final product change. All4 actual
+strict components and both form consumers ran. Native default-product binding:
+985 bodies,294 accepted/691 zero-call/row/thread rejections. Final guide changes
+are documentation-only; exact final pin, preservation/idle/source-linkage audit
+and limitations are in `evidence/232-report.md`. Independent protocol P2 review
+and catalogue narrow-union verification remain required; #233 stays blocked.
+
 The protocol rereview closed P1; the catalogue rereview closed S1–S6. Its catalogue,
 evaluation, history and ledger source/test files remain byte-identical to005e46b.
 P2 changes only `chat/input.rs`'s AG-UI data-source validation, not any global,
