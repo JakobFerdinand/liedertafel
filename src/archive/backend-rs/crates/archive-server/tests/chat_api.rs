@@ -5,6 +5,31 @@ use serde_json::json;
 use support::App;
 
 #[tokio::test]
+#[ignore = "dedicated local PostgreSQL; separately observed frozen Npgsql persistence failure"]
+async fn split_surrogate_persisted_answer_fails_without_saving_a_turn_but_keeps_paid_usage() {
+	use support::chat::*;
+	let mut app = App::new_scoped("chat232_persist_split").await;
+	let harness = install_with(
+		&mut app,
+		Script::new(vec![vec![
+			ScriptStep::Update(Update::text("a😀x")),
+			ScriptStep::Update(Update::usage(Usage::reported(10, 4))),
+		]]),
+		|o| o.chat.max_answer_chars = 2,
+	);
+	let mut member = app.member().await;
+	let thread = uuid::Uuid::new_v4().to_string();
+	let events = run(&mut member, &thread, "Question").await;
+	assert_eq!(text(&events), "a😀x");
+	assert_eq!(events.last().unwrap()["type"], "RUN_ERROR");
+	let counts:(i64,i64,i64)=sqlx::query_as("SELECT (SELECT count(*) FROM chat_threads),(SELECT count(*) FROM chat_messages),(SELECT count(*) FROM ai_usage_entries)").fetch_one(&app.pool).await.unwrap();
+	assert_eq!(counts, (0, 0, 1));
+	assert_eq!(harness.script.requests().len(), 1);
+	assert!(harness.origin.drain_readings().await);
+	app.close().await;
+}
+
+#[tokio::test]
 #[ignore = "dedicated local PostgreSQL"]
 async fn member_access_and_csrf_precede_disabled_chat_and_history_hides_missing_threads() {
 	let app = App::new_scoped("chat232_access").await;

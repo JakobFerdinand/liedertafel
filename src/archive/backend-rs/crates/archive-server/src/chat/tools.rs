@@ -67,10 +67,27 @@ pub(super) fn prefix(text: &str, bound: usize) -> String {
 		})
 		.collect()
 }
+// .NET slices UTF16 code units; its default JSON serializer replaces a sliced
+// high surrogate with U+FFFD. This is a WIRE rule, not PostgreSQL encoding.
+pub(super) fn wire_prefix(text: &str, bound: usize) -> String {
+	String::from_utf16_lossy(&text.encode_utf16().take(bound).collect::<Vec<_>>())
+}
+// Independently observed frozen ChatThreadHistoryProvider/Npgsql10.0.3 rejects
+// an unpaired surrogate before its turn batch commits. Never silently store a
+// shorter scalar-safe answer or apply JSON's replacement policy to SQL.
+pub(super) fn persisted_prefix(text: &str, bound: usize) -> Option<String> {
+	String::from_utf16(&text.encode_utf16().take(bound).collect::<Vec<_>>()).ok()
+}
 pub(super) fn lied_payload(lied: &Lied, labels: Vec<&str>) -> Value {
-	json!({"id":lied.id,"title":lied.title,"composer":lied.composer,"arranger":lied.arranger,"lyricist":lied.lyricist,"lyricsExcerpt":lied.lyrics.as_deref().filter(|l|!l.is_empty()).map(|l|prefix(l,300)),"trefferIn":labels})
+	json!({"id":lied.id,"title":lied.title,"composer":lied.composer,"arranger":lied.arranger,"lyricist":lied.lyricist,"lyricsExcerpt":lied.lyrics.as_deref().filter(|l|!l.is_empty()).map(|l|wire_prefix(l,300)),"trefferIn":labels})
 }
 async fn search_payload(pool: &sqlx::PgPool, query: &str, page: i32) -> Result<Value, sqlx::Error> {
+	let boundary = query
+		.trim()
+		.encode_utf16()
+		.take(200)
+		.last()
+		.filter(|u| (0xd800..=0xdbff).contains(u));
 	let query = prefix(query.trim(), 200);
 	let page = page.max(1);
 	if page > 5 {
@@ -81,15 +98,73 @@ async fn search_payload(pool: &sqlx::PgPool, query: &str, page: i32) -> Result<V
 	let tokens = search::tokens_of(&query);
 	let rows = queries::lieder(pool).await?;
 	let noten = search::load_noten_texts(pool, &tokens).await?;
-	let matches = search::matching(&tokens, &rows, &noten, &query);
+	let mut matches = search::matching(&tokens, &rows, &noten, &query);
+	// JSON replacement is wrong for internal matching: frozen ordinal Contains
+	// retains the sliced high surrogate, and must not also return scalar-prefix
+	// decoys. Use shared search for candidates/order, then constrain only this
+	// otherwise unrepresentable final token as UTF16, retaining shared folds.
+	let mut earlier = tokens.clone();
+	let split = boundary.map(|high| {
+		let last = search::fold(Some(query.rsplit(' ').next().unwrap_or_default().trim()));
+		if !last.is_empty() {
+			earlier.pop();
+		}
+		let mut units = last.encode_utf16().collect::<Vec<_>>();
+		units.push(high);
+		units
+	});
+	if let Some(split) = &split {
+		matches.retain(|m| m.fields.iter().any(|f| contains_units(&f.folded, split)));
+		for m in &mut matches {
+			let title = search::fold(Some(&m.lied.title));
+			m.rank = if earlier.iter().all(|t| title.contains(t)) && contains_units(&title, split) {
+				1
+			} else {
+				2
+			};
+		}
+		matches.sort_by(|a, b| {
+			a.rank
+				.cmp(&b.rank)
+				.then_with(|| {
+					search::ordinal(
+						&search::fold(Some(&a.lied.title)),
+						&search::fold(Some(&b.lied.title)),
+					)
+				})
+				.then(a.lied.id.cmp(&b.lied.id))
+		});
+	}
 	let lieder: Vec<_> = search::page(&matches, page, 10)
 		.iter()
-		.map(|m| lied_payload(m.lied, search::labels(&tokens, &m.fields)))
+		.map(|m| {
+			lied_payload(
+				m.lied,
+				if let Some(split) = &split {
+					m.fields
+						.iter()
+						.filter(|f| {
+							earlier.iter().any(|t| f.folded.contains(t))
+								|| contains_units(&f.folded, split)
+						})
+						.map(|f| f.label)
+						.collect()
+				} else {
+					search::labels(&tokens, &m.fields)
+				},
+			)
+		})
 		.collect();
 	let more = (page as usize) * 10 < matches.len();
 	Ok(
 		json!({"lieder":lieder,"page":page,"pageSize":10,"totalCount":matches.len(),"hasMore":more,"nextPage":if page<5&&more{Some(page+1)}else{None},"limitReached":page==5&&more}),
 	)
+}
+fn contains_units(text: &str, token: &[u16]) -> bool {
+	text.encode_utf16()
+		.collect::<Vec<_>>()
+		.windows(token.len())
+		.any(|w| w == token)
 }
 async fn details(pool: &sqlx::PgPool, raw: &str) -> Result<Value, crate::auth::AuthError> {
 	let Some(id) = crate::clr_guid::try_parse(raw) else {
@@ -123,7 +198,7 @@ async fn details(pool: &sqlx::PgPool, raw: &str) -> Result<Value, crate::auth::A
 			.as_ref()
 			.filter(|a| !a.clean_text.is_empty() && budget > 0 && sent.insert(a.clean_text.clone()))
 			.map(|a| {
-				let text = prefix(&a.clean_text, 2000.min(budget));
+				let text = wire_prefix(&a.clean_text, 2000.min(budget));
 				budget -= text.encode_utf16().count();
 				text
 			});

@@ -67,6 +67,25 @@ safe-client guarantee.
 
 ## Catalogue and A2UI
 
+S4/S5 boundary expectations in `232-chat-clipping.json` come from actual frozen
+factory HTTP A2UI plus provider-captured tool strings, not source-extracted
+expressions. They cover the space at index159, split title/composer/teaser,
+300-unit lyrics and2000-unit analyzed score text; a200-unit split query with a
+scalar-prefix decoy separately confirms internal UTF16 matching. JSON clipping
+replaces the retained unpaired surrogate with U+FFFD. Internal query matching
+must not use that JSON replacement or silently broaden to the scalar prefix;
+only the split final token needs a UTF16 constraint over shared search candidates.
+
+Persistence was observed **separately** by invoking the unchanged frozen
+`ChatThreadHistoryProvider.StoreTurnAsync` with its actual EF10.0.12/Npgsql10.0.3
+against dedicated PostgreSQL/current-model tables: bound2 over `a😀x` throws
+`EncoderFallbackException` inside the turn batch and leaves no messages; bound3
+saves `a😀`. This is real provider/database evidence, not a frozen full HTTP/PG
+journey or historical-migration claim. Rust now rejects that invalid persistence
+slice before committing a turn, emits the existing safe RUN_ERROR, and keeps
+already settled paid usage without replay. Complete pairs still persist. No
+wire-replacement policy is applied to SQL and no schema/ledger policy changes.
+
 `tools.rs` uses the shared member search/ranking/visible completed Noten paths,
 page size10, query200 UTF16, pages1..5, bounded deduplicated score text, and
 `events/history.rs`'s current history/recording visibility. `search_agreement`

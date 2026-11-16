@@ -69,7 +69,7 @@ fn clip(text: &str, bound: usize) -> String {
 	if text.encode_utf16().count() <= bound {
 		text.into()
 	} else {
-		format!("{}…", super::tools::prefix(text, bound - 1))
+		format!("{}…", super::tools::wire_prefix(text, bound - 1))
 	}
 }
 fn optional(root: &mut Value, key: &str, value: Option<&str>) {
@@ -99,7 +99,7 @@ fn beginning(text: &str) -> String {
 		.unwrap_or(159);
 	format!(
 		"{}…",
-		super::tools::prefix(&text, cut).trim_end_matches([' ', ',', ';', '/'])
+		super::tools::wire_prefix(&text, cut).trim_end_matches([' ', ',', ';', '/'])
 	)
 }
 async fn resolve(pool: &sqlx::PgPool, request: &Request) -> Result<Option<Value>, AuthError> {

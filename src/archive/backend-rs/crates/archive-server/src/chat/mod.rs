@@ -306,21 +306,28 @@ async fn produce(
 		let _ = tx.send(error);
 	}
 	// Final history always stays owned, even if HttpAgent stops at RUN_ERROR.
+	let persisted_answer = if success {
+		let Some(answer) = tools::persisted_prefix(
+			&answer,
+			usize::try_from(origin.chat.max_answer_chars).unwrap_or(0),
+		) else {
+			tracing::error!("Archiv-Chat: Verlauf konnte nicht gespeichert werden.");
+			let _ = tx.send(
+				json!({"type":"RUN_ERROR","message":"Die Antwort konnte nicht fertig gestellt werden."}),
+			);
+			return;
+		};
+		Some(answer)
+	} else {
+		None
+	};
 	if save(
 		&auth.pool,
 		id,
 		account,
 		owner.is_none(),
 		&question,
-		success
-			.then_some(answer.as_str())
-			.map(|a| {
-				tools::prefix(
-					a,
-					usize::try_from(origin.chat.max_answer_chars).unwrap_or(0),
-				)
-			})
-			.as_deref(),
+		persisted_answer.as_deref(),
 		if success { surfaces.json() } else { None },
 		auth.clock.now(),
 	)

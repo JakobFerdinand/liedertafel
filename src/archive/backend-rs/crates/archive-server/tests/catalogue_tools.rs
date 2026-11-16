@@ -4,6 +4,40 @@ use serde_json::json;
 use support::{App, catalogue::*, chat::invoke};
 
 #[tokio::test]
+#[ignore = "dedicated local PostgreSQL; frozen actual provider tool-wire capture"]
+async fn tool_excerpt_split_surrogate_is_replaced_on_wire() {
+	let fixture: serde_json::Value = serde_json::from_str(include_str!(
+		"../../../tests/fixtures/232-chat-clipping.json"
+	))
+	.unwrap();
+	let mut app = App::new_scoped("chat232_excerpt_split").await;
+	let id = lied(
+		&app,
+		"Boundary Lied",
+		json!({"lyrics":format!("{}😀","a".repeat(299))}),
+	)
+	.await;
+	let value = invoke(&mut app, "lied_details", json!({"liedId":id})).await;
+	assert_eq!(
+		value["lieder"][0]["lyricsExcerpt"],
+		fixture["cases"][1]["lyricsExcerpt"]
+	);
+	let score = datei(&app, id, false, "noten", "application/pdf").await;
+	text(&app, score, &format!("{}😀x", "a".repeat(1999)), 2, 0).await;
+	let value = invoke(&mut app, "lied_details", json!({"liedId":id})).await;
+	assert_eq!(
+		value["dateien"][0]["notenText"],
+		fixture["cases"][3]["notenText"]
+	);
+	let title = format!("{}😀", "q".repeat(199));
+	lied(&app, &title, json!({})).await;
+	lied(&app, &format!("{}x", "q".repeat(199)), json!({})).await;
+	let value = invoke(&mut app, "catalogue_search", json!({"query":title})).await;
+	assert_eq!(value["totalCount"], fixture["cases"][4]["queryCount"]);
+	app.close().await;
+}
+
+#[tokio::test]
 #[ignore = "dedicated local PostgreSQL"]
 async fn details_include_live_completed_cleaned_score_facts_bounded_deduplicated_text_and_fields() {
 	let mut app = App::new_scoped("chat232_details").await;

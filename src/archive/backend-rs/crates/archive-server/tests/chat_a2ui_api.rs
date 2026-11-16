@@ -42,6 +42,55 @@ async fn teaser_includes_the_word_ending_at_the_space_at_utf16_index159() {
 }
 
 #[tokio::test]
+#[ignore = "dedicated local PostgreSQL; actual frozen serializer split-surrogate observations"]
+async fn split_surrogate_card_clips_use_frozen_wire_replacement_not_scalar_drop() {
+	let fixture: serde_json::Value = serde_json::from_str(include_str!(
+		"../../../tests/fixtures/232-chat-clipping.json"
+	))
+	.unwrap();
+	let mut app = App::new_scoped("chat232_card_split").await;
+	let mut member = app.member().await;
+	for (index, title, composer, lyrics) in [
+		(
+			1,
+			format!("{}😀x", "t".repeat(198)),
+			format!("{}😀x", "k".repeat(198)),
+			format!("{}😀", "a".repeat(299)),
+		),
+		(
+			2,
+			"Boundary Lied".into(),
+			"Komponist".into(),
+			format!("{}😀xx", "a".repeat(158)),
+		),
+	] {
+		let id = lied(&app, &title, json!({"composer":composer,"lyrics":lyrics})).await;
+		let harness = install(
+			&mut app,
+			Script::new(vec![
+				vec![tool(
+					"zeige_oberflaeche",
+					json!({"komponenten":[{"komponente":"LiedKarte","liedId":id}]}),
+				)],
+				vec![],
+			]),
+		);
+		member.router = app.router.clone();
+		let events = run(&mut member, "", "Boundary question").await;
+		let root = &events.iter().find(|e| e["name"] == "archive.a2ui").unwrap()["value"][1]["updateComponents"]
+			["components"][0];
+		for key in ["titel", "komponist", "textanfang"] {
+			assert_eq!(
+				root[key], fixture["cases"][index]["card"][key],
+				"case {index}: {key}"
+			);
+		}
+		assert!(harness.origin.drain_readings().await);
+	}
+	app.close().await;
+}
+
+#[tokio::test]
 #[ignore = "dedicated local PostgreSQL"]
 async fn model_ids_resolve_server_card_data_store_jsonb_and_rebuild_on_every_load() {
 	let mut app = App::new_scoped("chat232_a2ui").await;
