@@ -54,7 +54,9 @@ pub(super) async fn invoke(
 	};
 	// Frozen tools return compact JsonSerializer JSON as a STRING. Meaningful
 	// nulls here are not SSE fields and must survive into provider grounding.
-	Ok(value.to_string())
+	Ok(crate::reading::programme_script::default_json(
+		value.to_string(),
+	))
 }
 pub(super) fn prefix(text: &str, bound: usize) -> String {
 	let mut units = 0;

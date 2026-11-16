@@ -37,6 +37,23 @@ struct Inner {
 	cancel: CancellationToken,
 	closed: Mutex<bool>,
 	healthy: Arc<AtomicBool>,
+	observer: Mutex<Option<mpsc::UnboundedSender<Observation>>>,
+}
+
+/// Explicit metadata-only evaluation observer. Content, tool arguments/results,
+/// account/operation IDs, endpoints and credentials are structurally absent.
+#[derive(Clone, Debug)]
+pub enum Observation {
+	Request {
+		tools: usize,
+		max_output_tokens: Option<i32>,
+		model_option_cleared: bool,
+		streaming: bool,
+	},
+	Update {
+		model: Option<String>,
+		usage: Usage,
+	},
 }
 impl Drop for Inner {
 	fn drop(&mut self) {
@@ -57,11 +74,21 @@ impl Gateway {
 				cancel: CancellationToken::new(),
 				closed: Mutex::new(false),
 				healthy: Arc::new(AtomicBool::new(true)),
+				observer: Mutex::new(None),
 			}),
 		}
 	}
 	pub fn model(&self) -> &str {
 		&self.inner.model
+	}
+	/// Install before starting an explicitly configured evaluation. This changes
+	/// neither normalization/admission nor provider ownership and never exposes it.
+	pub fn observe_metadata(&self) -> mpsc::UnboundedReceiver<Observation> {
+		let (sender, receiver) = mpsc::unbounded_channel();
+		if let Ok(mut slot) = self.inner.observer.lock() {
+			*slot = Some(sender);
+		}
+		receiver
 	}
 	/// Snapshot hint for image batching. Admission independently rechecks the
 	/// current limit; callers cannot use this hint to bypass normalization.
@@ -83,6 +110,12 @@ impl Gateway {
 		let provider = self.inner.provider.clone();
 		let model = self.inner.model.clone();
 		let healthy = self.inner.healthy.clone();
+		let observer = self
+			.inner
+			.observer
+			.lock()
+			.ok()
+			.and_then(|slot| slot.clone());
 		let tags = vec![
 			KeyValue::new("gen_ai.operation.name", "chat"),
 			KeyValue::new("gen_ai.system", "openai"),
@@ -131,6 +164,7 @@ impl Gateway {
 					reservation = ledger.reserve(call) => reservation?,
 				};
 				let mut usage = Usage::default();
+				if let Some(observer)=&observer {let _=observer.send(Observation::Request{tools:normalized.options.tools.len(),max_output_tokens:normalized.options.max_output_tokens,model_option_cleared:normalized.options.model_id.is_none(),streaming:normalized.streaming});}
 				let mut stream = provider.stream(normalized);
 				let result = async {
 					loop {
@@ -138,6 +172,7 @@ impl Gateway {
 						let Some(update) = update else { return Ok(()); };
 						let update = update?;
 						let report = update.usage;
+						if let Some(observer)=&observer {let _=observer.send(Observation::Update{model:update.wire_usage.as_ref().and_then(|u|u.model.clone()),usage:report});}
 						let (ack, received) = oneshot::channel();
 						tokio::select! { biased; _=producer_cancel.cancelled()=>return Err(Error::Cancelled), result=tx.send((update,ack))=>result.map_err(|_| Error::Cancelled)? }
 						// Don't observe queued/unconsumed final usage on abandonment.

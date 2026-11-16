@@ -149,6 +149,7 @@ async fn run() -> Result<(), StartupError> {
 		archive_telemetry::ServiceDefaults::init(settings.development, "archive-server")?;
 	let development = settings.development;
 	let mut origin = Origin::new(settings);
+	origin.chat = archive_server::chat::Options::from_env()?;
 	origin.uploads = archive_server::catalogue::uploads::UploadOptions::from_env()?;
 	origin.extraction = archive_server::extraction::Options::from_env();
 	origin.reading = archive_server::reading::Options::from_env(development);

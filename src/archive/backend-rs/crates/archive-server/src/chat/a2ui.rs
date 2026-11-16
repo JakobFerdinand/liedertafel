@@ -59,7 +59,7 @@ impl Surfaces {
 				_ => dropped += 1,
 			}
 		}
-		Ok(json!({"angezeigt":shown,"verworfen":dropped,"hinweis":if shown.is_empty(){"Es wurde keine Oberfläche angezeigt. Antworte nur mit Text und erwähne keine Karte."}else{"Die Oberfläche erscheint unter deiner Antwort. Beschreibe sie kurz im Text und wiederhole nicht ihren Inhalt."}}).to_string())
+		Ok(crate::reading::programme_script::default_json(json!({"angezeigt":shown,"verworfen":dropped,"hinweis":if shown.is_empty(){"Es wurde keine Oberfläche angezeigt. Antworte nur mit Text und erwähne keine Karte."}else{"Die Oberfläche erscheint unter deiner Antwort. Beschreibe sie kurz im Text und wiederhole nicht ihren Inhalt."}}).to_string()))
 	}
 }
 fn present(value: &Option<String>) -> bool {

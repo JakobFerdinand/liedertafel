@@ -1,6 +1,8 @@
 //! Member-only read-only chat. Provider delivery stays below the real Gateway.
 mod a2ui;
 mod citations;
+mod options;
+pub use options::Options;
 pub(crate) mod script;
 mod tools;
 mod usage;
@@ -22,34 +24,11 @@ use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
+use tracing::Instrument;
 use uuid::Uuid;
 
 pub const UNAVAILABLE: &str = "Der Archiv-Chat ist derzeit nicht verfügbar.";
 pub const THREAD_NOT_FOUND: &str = "Chatverlauf nicht gefunden.";
-
-#[derive(Clone)]
-pub struct Options {
-	pub enabled: bool,
-	pub disabled: bool,
-	pub max_tool_calls: i32,
-	pub no_token_seconds: i32,
-	pub overall_seconds: i32,
-	pub max_question_chars: i32,
-	pub max_answer_chars: i32,
-}
-impl Default for Options {
-	fn default() -> Self {
-		Self {
-			enabled: false,
-			disabled: false,
-			max_tool_calls: 5,
-			no_token_seconds: 30,
-			overall_seconds: 120,
-			max_question_chars: 2000,
-			max_answer_chars: 8000,
-		}
-	}
-}
 
 pub(crate) fn routes() -> Vec<(&'static str, MethodRouter<Arc<Origin>>)> {
 	vec![
@@ -88,7 +67,9 @@ async fn run(State(origin): State<Arc<Origin>>, request: Request) -> Result<Resp
 	if question.is_empty() {
 		return Err(invalid());
 	}
-	if question.encode_utf16().count() > 2000 {
+	if i64::try_from(question.encode_utf16().count()).unwrap_or(i64::MAX)
+		> i64::from(origin.chat.max_question_chars)
+	{
 		return Err(AuthError::Problem(
 			StatusCode::BAD_REQUEST,
 			"Die Frage ist zu lang.",
@@ -112,9 +93,16 @@ async fn run(State(origin): State<Arc<Origin>>, request: Request) -> Result<Resp
 	let owned = origin.clone();
 	// Transfer the WHOLE producer before thread/history SQL. The response owns
 	// disconnect cancellation; returning this handler must not cancel its body.
-	origin.spawn_reading(async move {
-		produce(owned, id, account, question, input, cancel, ready, tx).await;
-	});
+	origin.spawn_reading(
+		async move {
+			produce(owned, id, account, question, input, cancel, ready, tx).await;
+		}
+		.instrument(tracing::info_span!(
+			"invoke_agent archive-chat",
+			gen_ai.agent.name = "archive-chat",
+			otel.status_code = tracing::field::Empty
+		)),
+	);
 	accepted.await.map_err(|_| AuthError::Database)??;
 	let stream = futures::stream::unfold((rx, guard), |(mut rx, guard)| async move {
 		rx.recv().await.map(|value: Value| {
@@ -231,7 +219,11 @@ async fn produce(
 		.get("runId")
 		.and_then(Value::as_str)
 		.unwrap_or_default();
-	let _ = tx.send(json!({"type":"RUN_STARTED","threadId":id,"runId":run_id}));
+	let mut started = json!({"type":"RUN_STARTED","threadId":id,"runId":run_id});
+	if let Some(parent) = input.get("parentRunId").and_then(Value::as_str) {
+		started["parentRunId"] = json!(parent);
+	}
+	let _ = tx.send(started);
 	let mut messages: Vec<_> = history
 		.into_iter()
 		.filter(|m| matches!(m.role.as_str(), "user" | "assistant") && !m.content.is_empty())
@@ -299,7 +291,14 @@ async fn produce(
 					if cancel.is_cancelled(){return Err(ai::Error::Cancelled);}
 					let args:Value=serde_json::from_str(arguments.raw()).map_err(|_|ai::Error::Protocol)?;
 					let invoke=async{if name=="zeige_oberflaeche"{surfaces.show(&auth.pool,&args).await.unwrap_or_else(|_|"{}".into())}else{tools::invoke(&auth.pool,&name,&args).await.unwrap_or_else(|_|"{}".into())}};
-					let result=tokio::select!{biased;_=cancel.cancelled()=>return Err(ai::Error::Cancelled),_=wait_deadline(overall)=>return Err(ai::Error::Cancelled),result=invoke=>result};
+					// Unknown provider-supplied names/arguments are never telemetry.
+					let span = match name.as_str() {
+						"catalogue_search" => tracing::info_span!("execute_tool catalogue_search", gen_ai.tool.name = "catalogue_search"),
+						"lied_details" => tracing::info_span!("execute_tool lied_details", gen_ai.tool.name = "lied_details"),
+						"zeige_oberflaeche" => tracing::info_span!("execute_tool zeige_oberflaeche", gen_ai.tool.name = "zeige_oberflaeche"),
+						_ => tracing::info_span!("execute_tool unknown"),
+					};
+					let result=tokio::select!{biased;_=cancel.cancelled()=>return Err(ai::Error::Cancelled),_=wait_deadline(overall)=>return Err(ai::Error::Cancelled),result=invoke.instrument(span)=>result};
 					candidates.collect(&result);
 					results.push(ai::Content::FunctionResult{id:call_id,result:ai::Payload::Text(result)});
 				}
@@ -310,9 +309,13 @@ async fn produce(
 	}.await;
 	let success = result.is_ok();
 	if !success {
-		let _ = tx.send(
-			json!({"type":"RUN_ERROR","message":"Die Antwort konnte nicht fertig gestellt werden."}),
-		);
+		tracing::Span::current().record("otel.status_code", "ERROR");
+		let error = if matches!(result, Err(ai::Error::BudgetExceeded(_))) {
+			json!({"type":"RUN_ERROR","code":"monatsbudget_erreicht","message":"Monatsbudget erreicht. Der Archiv-Chat steht im nächsten Monat wieder zur Verfügung; Suche und Archiv funktionieren weiter."})
+		} else {
+			json!({"type":"RUN_ERROR","message":"Die Antwort konnte nicht fertig gestellt werden."})
+		};
+		let _ = tx.send(error);
 	}
 	// Final history always stays owned, even if HttpAgent stops at RUN_ERROR.
 	if save(
@@ -321,7 +324,15 @@ async fn produce(
 		account,
 		owner.is_none(),
 		&question,
-		success.then_some(answer.as_str()),
+		success
+			.then_some(answer.as_str())
+			.map(|a| {
+				tools::prefix(
+					a,
+					usize::try_from(origin.chat.max_answer_chars).unwrap_or(0),
+				)
+			})
+			.as_deref(),
 		if success { surfaces.json() } else { None },
 		auth.clock.now(),
 	)
@@ -375,8 +386,11 @@ fn end_text(tx: &tokio::sync::mpsc::UnboundedSender<Value>, message: &mut Option
 	}
 }
 fn deadline(seconds: i32) -> Result<Option<tokio::time::Instant>, ai::Error> {
-	if seconds == -1 {
-		Ok(None)
+	// Actual BCL CancelAfter(TimeSpan.FromSeconds(Int32)) capture: -1 SECOND
+	// is not Timeout.InfiniteTimeSpan (-1 millisecond), and >UInt32 milliseconds
+	// also throws. Keep these configuration errors rather than infinite waits.
+	if !(0..=4_294_967).contains(&seconds) {
+		Err(ai::Error::Configuration)
 	} else {
 		Ok(Some(
 			tokio::time::Instant::now()
@@ -386,6 +400,7 @@ fn deadline(seconds: i32) -> Result<Option<tokio::time::Instant>, ai::Error> {
 		))
 	}
 }
+
 async fn wait_deadline(deadline: Option<tokio::time::Instant>) {
 	if let Some(deadline) = deadline {
 		tokio::time::sleep_until(deadline).await;
@@ -432,4 +447,17 @@ async fn save(
 	// Trimming is a separate save, matching the frozen history provider.
 	sqlx::query(r#"DELETE FROM chat_messages WHERE "ThreadId"=$1 AND "Id" NOT IN (SELECT "Id" FROM chat_messages WHERE "ThreadId"=$1 ORDER BY "CreatedAt" DESC,"Id" DESC LIMIT 20)"#).bind(id).execute(pool).await?;
 	Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+	#[tokio::test]
+	async fn whole_second_deadline_domain_matches_actual_frozen_bcl_capture() {
+		for seconds in [-2, -1, 4_294_968, i32::MAX] {
+			assert!(super::deadline(seconds).is_err());
+		}
+		for seconds in [0, 1, 4_294_967] {
+			assert!(super::deadline(seconds).unwrap().is_some());
+		}
+	}
 }

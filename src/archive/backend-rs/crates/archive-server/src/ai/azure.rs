@@ -1,4 +1,7 @@
 //! Hand-written dated AOAI Chat Completions REST/SSE. No OpenAI SDK wrappers.
+#[cfg(test)]
+#[path = "azure_chat_probe_tests.rs"]
+mod chat_probe_tests;
 use super::{
 	Content, Error, Gateway, Ledger, ProviderRequest, ToolDelta, Update, Usage, gateway::Provider,
 };
@@ -510,7 +513,10 @@ fn wire_request(request: &ProviderRequest, deployment: &str) -> Result<Value, Er
 		}
 	}
 	let options = &request.options;
-	let mut value = json!({"model":deployment,"messages":messages,"reasoning_effort":options.reasoning_effort.as_deref().unwrap_or("none"),"max_completion_tokens":options.max_output_tokens});
+	// Gateway rejects foreign overrides and clears the option before every
+	// product call. Retaining the private adapter's frozen encoding also permits
+	// the single approved offline raw probe without an exported bypass.
+	let mut value = json!({"model":options.model_id.as_deref().unwrap_or(deployment),"messages":messages,"reasoning_effort":options.reasoning_effort.as_deref().unwrap_or("none"),"max_completion_tokens":options.max_output_tokens});
 	if request.streaming {
 		value["stream"] = json!(true);
 		value["stream_options"] = json!({"include_usage":true});

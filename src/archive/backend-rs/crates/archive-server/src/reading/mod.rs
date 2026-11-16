@@ -57,6 +57,7 @@ pub use model::{
 	strip_page_markers,
 };
 pub use options::Options;
+pub(crate) use options::configuration_integer;
 pub use renderer::PdfPageRenderer;
 pub use service::{Job, dispatch, enqueue, insert};
 pub use worker::{Error as ReadingError, Worker};

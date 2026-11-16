@@ -117,6 +117,16 @@ update this section in the same PR whenever the member list changes.
 
 ## Routes and contracts
 
+- Member chat (#232): before changing AG-UI, authoritative history, catalogue
+  tools/citations, A2UI replay, chat options or SSE shutdown, read
+  `docs/chat-parity.md`. Focused PG: `cargo test -p archive-server --locked
+  --test chat_http_lifetime -- --ignored`. Default product/locked-client/UI:
+  `node tests/browser/chat-native.cjs`; process/SQL failure/privacy controls:
+  `node tests/browser/chat-lifetime-native.cjs` with offline-only
+  `chat-http-native` example. Live evaluation keeps its ordinary absent-env gate;
+  the single foreign-model probe has an offline-only disposition, not spending
+  authorization. Current jsonb SQL and historical head equivalent are separate.
+
 - Auth/passkeys (#221): before changing auth policy, session storage, mail or
   translated auth tests, read `docs/auth-parity.md` for the expert-core boundary,
   legacy synthetic fixtures, oracle/exception mapping and real PG/browser/native

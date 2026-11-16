@@ -139,7 +139,7 @@ impl Options {
 /// Int64 for PDF bytes). Its #/0x/&h hex forms use signed-width bit patterns.
 /// Unconvertible values retain the pre-existing Rust default rather than the
 /// frozen binder's startup exception; actual binder fixtures qualify this.
-fn configuration_integer(value: &str, wide: bool) -> Option<i64> {
+pub(crate) fn configuration_integer(value: &str, wide: bool) -> Option<i64> {
 	let text = value.trim();
 	let hexadecimal = text
 		.strip_prefix('#')

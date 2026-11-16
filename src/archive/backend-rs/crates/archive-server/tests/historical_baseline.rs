@@ -25,6 +25,10 @@ async fn snapshot(db: &mut PgConnection) -> serde_json::Value {
 	sqlx::query_scalar(r#"SELECT jsonb_build_object('users',(SELECT jsonb_agg(to_jsonb(t) ORDER BY "Id") FROM "AspNetUsers" t),'roles',(SELECT jsonb_agg(to_jsonb(t) ORDER BY "Id") FROM "AspNetRoles" t),'memberships',(SELECT jsonb_agg(to_jsonb(t)) FROM "AspNetUserRoles" t),'passkeys',(SELECT jsonb_agg(to_jsonb(t)) FROM "AspNetUserPasskeys" t),'lieder',(SELECT jsonb_agg(to_jsonb(t) ORDER BY "Id") FROM lieder t),'dateien',(SELECT jsonb_agg(to_jsonb(t) ORDER BY "Id") FROM dateien t),'events',(SELECT jsonb_agg(to_jsonb(t) ORDER BY "Id") FROM events t),'programmes',(SELECT jsonb_agg(to_jsonb(t) ORDER BY "Id") FROM programmes t),'items',(SELECT jsonb_agg(to_jsonb(t) ORDER BY "Position") FROM programme_items t),'recordings',(SELECT jsonb_agg(to_jsonb(t) ORDER BY "Id") FROM recordings t),'marks',(SELECT jsonb_agg(to_jsonb(t) ORDER BY "Id") FROM recording_passages t),'uploads',(SELECT jsonb_agg(to_jsonb(t) ORDER BY "Id") FROM upload_sessions t),'ef',(SELECT jsonb_agg(to_jsonb(t) ORDER BY "MigrationId") FROM "__EFMigrationsHistory" t))"#).fetch_one(db).await.unwrap()
 }
 
+async fn chat_snapshot(db: &mut PgConnection) -> serde_json::Value {
+	sqlx::query_scalar(r#"SELECT jsonb_build_object('threads',(SELECT jsonb_agg(to_jsonb(t) ORDER BY "Id") FROM chat_threads t),'messages',(SELECT jsonb_agg(to_jsonb(t) ORDER BY "Id") FROM chat_messages t))"#).fetch_one(db).await.unwrap()
+}
+
 #[tokio::test]
 #[ignore = "explicit disposable PostgreSQL; native frozen-head equivalent"]
 async fn programme_and_old_model_head_adoption_preserves_all_current_rows_and_rejects_old_history()
@@ -80,9 +84,20 @@ async fn programme_and_old_model_head_adoption_preserves_all_current_rows_and_re
 	sqlx::raw_sql(r#"INSERT INTO extraction_jobs ("DateiId","Status","Text","AttemptCount","TriggeredByAccountId","CreatedAt","UpdatedAt","RowVersion","TextSource") VALUES ('20000000-0000-0000-0000-000000000008',2,'Schon bezahlter Notentext',2,'00000000-0000-0000-0000-00000000000a',now(),now(),7,1);
 	INSERT INTO reading_jobs ("DateiId","Status","PagesTotal","PagesRead","PageLimit","FieldsDone","FieldsApplied","FailureReason","AttemptCount","TriggeredByAccountId","CreatedAt","UpdatedAt","RowVersion") VALUES ('20000000-0000-0000-0000-000000000008',2,35,10,20,false,3,NULL,0,'00000000-0000-0000-0000-00000000000a',now(),now(),8);"#).execute(&mut db).await.unwrap();
 	let reading_before:serde_json::Value=sqlx::query_scalar(r#"SELECT jsonb_build_object('extraction',(SELECT jsonb_agg(to_jsonb(t)) FROM extraction_jobs t),'reading',(SELECT jsonb_agg(to_jsonb(t)) FROM reading_jobs t))"#).fetch_one(&mut db).await.unwrap();
+	// #232 approved head equivalent. The account deliberately has no Identity
+	// row: the frozen chat account column is NOT an account FK. This is not
+	// the old add/down/up A2ui migration; current jsonb SQL has a separate gate.
+	sqlx::raw_sql(r#"INSERT INTO chat_threads ("Id","AccountId","CreatedAt","UpdatedAt") VALUES ('23200000-0000-0000-0000-000000000001','23200000-0000-0000-0000-000000000002','2026-10-01T12:00:00Z','2026-10-01T12:00:01Z');
+	INSERT INTO chat_messages ("Id","ThreadId","Role","Content","CreatedAt","A2uiJson") VALUES
+	('23200000-0000-0000-0000-000000000003','23200000-0000-0000-0000-000000000001','user','Alte Frage','2026-10-01T12:00:00Z',NULL),
+	('23200000-0000-0000-0000-000000000004','23200000-0000-0000-0000-000000000001','assistant','Alte Textantwort','2026-10-01T12:00:00.000001Z',NULL),
+	('23200000-0000-0000-0000-000000000005','23200000-0000-0000-0000-000000000001','assistant','Text mit Karte','2026-10-01T12:00:01Z','[{"version":"v0.9","createSurface":{"surfaceId":"s1","catalogId":"urn:liedertafel:archiv:a2ui:katalog:v1"}},{"version":"v0.9","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"LiedKarte","liedId":"20000000-0000-0000-0000-000000000001","titel":"Erstes Lied"}]}}]'),
+	('23200000-0000-0000-0000-000000000006','23200000-0000-0000-0000-000000000001','assistant','','2026-10-01T12:00:02Z','[{"version":"v0.9","createSurface":{"surfaceId":"s1","catalogId":"urn:liedertafel:archiv:a2ui:katalog:v1"}},{"version":"v0.9","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"LiedKarte","liedId":"20000000-0000-0000-0000-000000000002","titel":"Zweites Lied"}]}}]');"#).execute(&mut db).await.unwrap();
+	let chat_before = chat_snapshot(&mut db).await;
 	let before = snapshot(&mut db).await;
 	// Both older-history frontiers must refuse before adoption; no transforms.
 	for frontier in [
+		"20261010174016_FieldProvenanceAndProposals",
 		"20261016170055_AddLiederAndDateien",
 		"20261017185113_AuftrittDateien",
 		"20261019102646_LiedEntwuerfe",
@@ -99,6 +114,7 @@ async fn programme_and_old_model_head_adoption_preserves_all_current_rows_and_re
 		);
 		let rows:serde_json::Value=sqlx::query_scalar(r#"SELECT jsonb_build_object('extraction',(SELECT jsonb_agg(to_jsonb(t)) FROM extraction_jobs t),'reading',(SELECT jsonb_agg(to_jsonb(t)) FROM reading_jobs t))"#).fetch_one(&mut db).await.unwrap();
 		assert_eq!(rows, reading_before);
+		assert_eq!(chat_before, chat_snapshot(&mut db).await);
 		for (id, version) in later {
 			sqlx::query(r#"INSERT INTO "__EFMigrationsHistory" VALUES ($1,$2)"#)
 				.bind(id)
@@ -123,6 +139,7 @@ async fn programme_and_old_model_head_adoption_preserves_all_current_rows_and_re
 		sqlx::raw_sql(create).execute(&mut db).await.unwrap();
 		assert!(!migrate(url.as_str()).await.status.success());
 		assert_eq!(before, snapshot(&mut db).await);
+		assert_eq!(chat_before, chat_snapshot(&mut db).await);
 		let sentinel: String =
 			sqlx::query_scalar(sqlx::AssertSqlSafe(if create.contains("public.songs") {
 				"SELECT sentinel FROM public.songs"
@@ -143,6 +160,7 @@ async fn programme_and_old_model_head_adoption_preserves_all_current_rows_and_re
 			String::from_utf8_lossy(&output.stderr)
 		);
 		assert_eq!(before, snapshot(&mut db).await);
+		assert_eq!(chat_before, chat_snapshot(&mut db).await);
 	}
 	let reading_after:serde_json::Value=sqlx::query_scalar(r#"SELECT jsonb_build_object('extraction',(SELECT jsonb_agg(to_jsonb(t)) FROM extraction_jobs t),'reading',(SELECT jsonb_agg(to_jsonb(t)) FROM reading_jobs t))"#).fetch_one(&mut db).await.unwrap();
 	assert_eq!(reading_before, reading_after);

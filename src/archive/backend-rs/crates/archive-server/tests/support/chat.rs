@@ -87,6 +87,10 @@ pub fn tool(name: &str, args: Value) -> ScriptStep {
 	})
 }
 pub async fn invoke(app: &mut App, name: &str, args: Value) -> Value {
+	// Each independent adapter fixture signs in through the real code boundary.
+	// Move its injected clock past the previous email allocation window instead
+	// of disabling/deleting the product's abuse counters during table cases.
+	*app.time.0.lock().unwrap() += chrono::Duration::hours(2);
 	let harness = install(app, Script::new(vec![vec![tool(name, args)], vec![]]));
 	let mut member = app.member().await;
 	let events = run(&mut member, "", "Synthetische Werkzeugfrage").await;
