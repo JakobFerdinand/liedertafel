@@ -8,6 +8,29 @@ implied by offline tests.
 
 ## Ownership and wire
 
+### P1 request grammar remediation
+
+`chat/input.rs` replaces permissive Value lookups. Its recorded public HTTP
+corpus (`tests/fixtures/232-chat-binding.json`) includes the independent reviewer's
+original30 bodies plus721 typed/polymorphic/case/duplicate/media-source controls.
+Expected status/question values come from an actual unchanged frozen factory
+using AGUI.Abstractions/Server1.0.0, corroborated against pinned upstream source
+f08ccf853497914ef70a5f0197af45bb74915bc2 and reflection of the loaded assemblies.
+Generated CLR properties bind case-insensitively and validate every occurrence;
+the user/custom discriminator readers use last exact-case JsonElement lookups.
+Text parts concatenate in order. All supplied history/tool/context/resume shapes
+are validated but remain untrusted and are not model grounding or executable
+tools. Only the last user question survives into the owned producer.
+
+The65 explicitly marked unsafe frozen observations are safely rejected400 before
+provider/ledger/thread writes instead of copying500 or invalid null-runId SSE.
+These include null entries and downstream construction errors; the pinned MEAI
+adapter also throws `Unknown chat role` for activity/reasoning messages, which
+this member-chat adapter rejects safely rather than forwarding unsupported roles.
+No strict-client schema was relaxed. The native binder gate uses the default
+binary, identical raw bodies, real auth/SQL, the locked client with text parts,
+and a separate before-first-ownership-SQL lock/socket-abort/SIGTERM control.
+
 `chat/mod.rs` authorizes Member + CSRF before the independent Enabled/Disabled
 gates, then transfers the entire producer into the existing Origin tracker
 before thread/history SQL. Its cancellation guard belongs to the SSE body:

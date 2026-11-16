@@ -123,7 +123,9 @@ update this section in the same PR whenever the member list changes.
   --test chat_http_lifetime -- --ignored`. Default product/locked-client/UI:
   `node tests/browser/chat-native.cjs`; process/SQL failure/privacy controls:
   `node tests/browser/chat-lifetime-native.cjs` with offline-only
-  `chat-http-native` example. Live evaluation keeps its ordinary absent-env gate;
+  `chat-http-native` example. Pinned raw request grammar and first-SQL ownership:
+  `node tests/browser/chat-binding-native.cjs` (`chat_binding` is its focused PG
+  sibling). Live evaluation keeps its ordinary absent-env gate;
   the single foreign-model probe has an offline-only disposition, not spending
   authorization. Current jsonb SQL and historical head equivalent are separate.
 

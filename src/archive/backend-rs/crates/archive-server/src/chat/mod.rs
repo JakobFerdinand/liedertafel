@@ -1,6 +1,7 @@
 //! Member-only read-only chat. Provider delivery stays below the real Gateway.
 mod a2ui;
 mod citations;
+mod input;
 mod options;
 pub use options::Options;
 pub(crate) mod script;
@@ -56,14 +57,8 @@ async fn run(State(origin): State<Arc<Origin>>, request: Request) -> Result<Resp
 	let bytes = axum::body::to_bytes(request.into_body(), 30_000_000)
 		.await
 		.map_err(|_| invalid())?;
-	let input: Value = serde_json::from_slice(&bytes).map_err(|_| invalid())?;
-	let question = input["messages"]
-		.as_array()
-		.and_then(|m| m.iter().rev().find(|m| m["role"] == "user"))
-		.and_then(|m| m["content"].as_str())
-		.unwrap_or_default()
-		.trim()
-		.to_owned();
+	let mut input = input::parse(&bytes).map_err(|_| invalid())?;
+	let question = std::mem::take(&mut input.question);
 	if question.is_empty() {
 		return Err(invalid());
 	}
@@ -75,11 +70,7 @@ async fn run(State(origin): State<Arc<Origin>>, request: Request) -> Result<Resp
 			"Die Frage ist zu lang.",
 		));
 	}
-	let raw = input
-		.get("threadId")
-		.and_then(Value::as_str)
-		.unwrap_or_default()
-		.trim();
+	let raw = input.thread_id.trim();
 	let id = if raw.is_empty() {
 		Uuid::now_v7()
 	} else {
@@ -177,7 +168,7 @@ async fn produce(
 	id: Uuid,
 	account: Uuid,
 	question: String,
-	input: Value,
+	input: input::Input,
 	cancel: CancellationToken,
 	ready: tokio::sync::oneshot::Sender<Result<(), AuthError>>,
 	tx: tokio::sync::mpsc::UnboundedSender<Value>,
@@ -215,12 +206,9 @@ async fn produce(
 	if ready.send(Ok(())).is_err() {
 		cancel.cancel();
 	}
-	let run_id = input
-		.get("runId")
-		.and_then(Value::as_str)
-		.unwrap_or_default();
+	let run_id = &input.run_id;
 	let mut started = json!({"type":"RUN_STARTED","threadId":id,"runId":run_id});
-	if let Some(parent) = input.get("parentRunId").and_then(Value::as_str) {
+	if let Some(parent) = &input.parent_run_id {
 		started["parentRunId"] = json!(parent);
 	}
 	let _ = tx.send(started);
