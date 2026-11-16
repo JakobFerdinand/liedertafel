@@ -64,6 +64,10 @@ update this section in the same PR whenever the member list changes.
   (or add `--test-name-pattern="formatter"` before the file for a focused run).
   Before changing native capture, redaction or schema fixtures, read
   `tests/telemetry/README.md` for external decoder setup and private replay rules.
+- Incoming HTTP W3C context: `node tests/browser/http-w3c-native.cjs` compares
+  frozen ASP.NET and the product router, with the offline-only `http-w3c-native`
+  example for non-Development sampling. Read `docs/http-w3c-parity.md` before
+  changing request-parent extraction, health skipping or sampler controls.
 - Catalogue query binding: before changing scalar/repeated keys, read
   `docs/catalogue-review-followup.md` for the actual frozen .NET differential,
   empty/duplicate binding semantics and the authenticated PG regression command.
@@ -169,9 +173,8 @@ update this section in the same PR whenever the member list changes.
   Native UI/HTTP/OTLP: `node tests/browser/programm-reading-native.cjs` with the
   offline-only `programme-http-native` example; live evaluation stays gated.
   Shared generic controls: `node tests/browser/http-w3c-native.cjs`; use
-  `ARCHIVE_FORM_ROUTES=/api/auftritt-lesungen node tests/browser/lesung-form-native.cjs`
-  on this programme-only candidate (both frozen routes always run; both Rust
-  routes are required only after the accepted union includes Lied reading).
+  `ARCHIVE_FORM_ROUTES=/api/lied-lesungen,/api/auftritt-lesungen node tests/browser/lesung-form-native.cjs`
+  on this consumer union (both frozen and both Rust routes must run).
 
 - Auftritte/Programme/initial Entwurf (#225): before changing partial dates,
   programme IDs/order, Zeitmarke guards, history, event documents or opaque form
@@ -181,6 +184,20 @@ update this section in the same PR whenever the member list changes.
   upgrades. Focused PG: `cargo test -p archive-server --locked --test
   auftritt_programm -- --ignored`. Native unchanged UI:
   `node tests/browser/events-native.cjs`; scan/model semantics stay #231.
+
+- Lied draft reading (#230): before changing multipart binding, persisted
+  claim/store, registry notifications or HTTP producer shutdown, read
+  `docs/lied-reading-parity.md`. Focused PG/native-PDF example:
+  `cargo test -p archive-server --locked --test lied_entwurf_reading discarding -- --ignored`.
+  `node tests/browser/lied-reading-native.cjs` also needs the offline-only
+  `lied-reading-native` example. This is not a product command or live-provider
+  authorization.
+  Shared form native regression: `node tests/browser/lesung-form-native.cjs`;
+  on the consumer union set `ARCHIVE_FORM_ROUTES=/api/lied-lesungen,/api/auftritt-lesungen`
+  to test both default Rust routes against identical frozen ASP.NET form bytes.
+  `node tests/browser/lied-navigation-native.cjs` compares the retained failed
+  full-navigation boundary and positive tab-close/completed controls on actual
+  frozen Kestrel/Rust; its offline external host setup is in that parity guide.
 
 - Before changing culture ordering or CLR string/path Guid binding, read
   `docs/events-review-remediation.md`: migration 0004 preserves ICU equality
