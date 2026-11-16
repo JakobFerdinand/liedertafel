@@ -1,5 +1,23 @@
 # Member chat (#232)
 
+## Review-remediated candidate (2026-11-16)
+
+P1 and S1–S6 are implemented in separate commits through product-source pin
+`6f3f5ffad04f3f8b925a212498eb307f7f5f7f67`; original `ad8de88` evidence remains
+pre-remediation. Fresh post-code gates passed: fmt, locked all-target clippy,
+124 ordinary/310 explicit Rust tests,95 unchanged frozen cases,124 unchanged
+frontend browser cases,110 detector/lifecycle controls and18 native suites with
+18 fresh private three-signal terminal replays. Both form consumers, default
+product/locked HttpAgent,751 raw binder bodies and first-SQL ownership control
+are included. The native auth runner's wrong filename attempt is retained; the
+correct harness passed. Exact pins/logs and final clean/idle audit live in the
+durable `evidence/232-report.md`; counts are not independent acceptance.
+
+The guide's final documentation-only commit does not change the tested product
+or test tree. Both independent rereviews and parent-owned serialized acceptance
+remain required; #233 is blocked. No paid/live/hosted provider, deployment,
+outbound merge/push, fixture cleanup or frozen-source change was authorized.
+
 This is a local implementation candidate, not an accepted port wave.
 The frozen C# backend/tests and static frontend remain unchanged. This guide owns
 the chat seams; foundation accounting limitations remain in
@@ -199,9 +217,11 @@ three-signal replay, terminal audit and independent review remain required after
 the final code change. Final candidate pin/results belong in the durable #232
 evidence report, not inferred from these reproduction commands.
 
-Local evidence includes the unchanged scoped frozen95 cases, immutable
+Pre-remediation evidence includes the unchanged scoped frozen95 cases, immutable
 desktop/mobile chat/A2UI124 browser cases,110 detector/lifecycle controls and
 17 independently replayed native captures (including both shared form consumers).
+The new18-suite post-remediation results are distinguished at the top and in
+the durable report; no original failure or capture has been removed.
 The native navigation differential retains the shared failed held full-page
 navigation boundary separately from completed-navigation/tab-close controls.
 Earlier setup/failure logs remain failures. Final full explicit counts/results
