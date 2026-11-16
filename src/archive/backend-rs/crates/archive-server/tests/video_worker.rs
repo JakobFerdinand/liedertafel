@@ -10,6 +10,32 @@ use support::videos::{CLIP, Video};
 use support::{App, catalogue::*};
 use uuid::Uuid;
 
+#[test]
+fn video_option_defaults_preserve_the_frozen_getter_matrix() {
+	let options = archive_server::videos::Options::default();
+	assert_eq!(options.queue.queue_name, "archive-videos");
+	assert_eq!(options.queue.batch_size, 1);
+	assert_eq!(options.queue.visibility_fit_batch_size(), 1);
+	assert_eq!(
+		options.queue.stale_running_after,
+		chrono::Duration::hours(1)
+	);
+	assert_eq!(options.queue.time_budget, chrono::Duration::hours(8));
+	assert_eq!(options.ffmpeg_path, "ffmpeg");
+	assert_eq!(options.ffprobe_path, "ffprobe");
+	assert_eq!(options.max_input_bytes, 10 * 1024 * 1024 * 1024);
+	assert_eq!(options.queue.max_attempts, 3);
+	assert_eq!(options.queue.redisplay_after, chrono::Duration::hours(1));
+	assert_eq!(options.queue.max_dispatch_per_run, 100);
+	assert_eq!(
+		options.queue.visibility_backoff,
+		chrono::Duration::minutes(1)
+	);
+	assert_eq!(options.queue.receive_visibility, chrono::Duration::hours(8));
+	assert_eq!(options.queue.max_messages_per_run, 10);
+	assert_eq!(options.queue.drain_budget, chrono::Duration::hours(10));
+}
+
 #[tokio::test]
 async fn maintenance_pauses_both_video_commands_before_dependencies() {
 	for value in [
@@ -672,7 +698,7 @@ async fn default_and_invalid_video_queue_options_are_observed_on_real_requests()
 			assert_eq!(
 				receive["query"]["numofmessages"],
 				serde_json::json!(["1"]),
-				"default batch1 and8h budget/visibility fit1: {variant}"
+				"default/visibility-fit batch1; exact message budget is pinned separately: {variant}"
 			);
 			assert_eq!(
 				receive["query"]["visibilitytimeout"],

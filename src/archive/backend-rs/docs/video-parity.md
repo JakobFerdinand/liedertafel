@@ -122,7 +122,7 @@ Rust paths are `crates/archive-server/tests/` unless stated otherwise.
 | MissingJobRowIsSelfHealedAndProcessedToCompletion | `video_worker::missing_job_row_self_heals_with_the_file_creator` |
 | MissingDateiIsDeletedWithoutAnyRowWork | `video_worker::missing_file_is_deleted_without_row_work` |
 | MalformedAndForeignEnvelopesAreDeletedAsPoison | `video_worker::malformed_and_foreign_envelopes_are_deleted_as_poison` |
-| LeaseAndBatchOptionsStayDefensivelyBounded | `video_worker::lease_and_batch_options_stay_defensively_bounded_through_cli`, actual configured child processes; inherited Queue drain regression controls remain |
+| LeaseAndBatchOptionsStayDefensivelyBounded | `video_worker::video_option_defaults_preserve_the_frozen_getter_matrix` (ordinary public pure defaults), `lease_and_batch_options_stay_defensively_bounded_through_cli` and real Queue observer/setter/path controls; inherited Queue drain regression controls remain |
 | PumpDrainsUntilTheQueueIsEmptyAndAppliesDispositions | `video_worker::pump_drains_until_empty_and_applies_bounded_dispositions` |
 | DispatcherSweepsExactlyTheUnstampedAndStaleQueuedRows | `video_worker::dispatcher_sweeps_only_unstamped_and_strictly_stale_queued_rows_in_order` |
 | Additional public HTTP/current SQL boundaries | `video_api`: owner finalize/outbox/status/retry, selected-version quiet stamps/send count, rollback and concurrent finalize; `video_lifetime`: actual process tree/deadline/SIGTERM/lease/late winner/editor slot; `video_media`: actual square/rotation/decode/length/missing Blob |
@@ -130,7 +130,14 @@ Rust paths are `crates/archive-server/tests/` unless stated otherwise.
 | AppHost playable video fact | Native unchangedUI/normalCLI/private QueueBlob here; actual image/AppHost remains235 |
 | R1 exited-leader/escaped-helper | User-approved **shared retained failure**; independent unchanged frozen-class versus unchanged Rust-module differential below, not a passing product containment gate |
 
-Assertion follow-up (C1): `video_worker` independently discriminates message
+Assertion follow-up (C1): the ordinary pure
+`video_worker::video_option_defaults_preserve_the_frozen_getter_matrix` pins the
+public `videos::Options::default()` getter matrix, including literal message
+budget8h. Receive visibility/fit observations alone do not distinguish4h/8h/24h
+budgets; they are not proof of that exact default. This is additive coverage of
+already-correct code, not a production bug/fix or an eight-hour execution test.
+The existing CLI/default/fallback controls remain. `video_worker` independently
+discriminates message
 dequeue4 from durable attempt2 with MaxAttempts4 (removing only the dequeue arm
 actually fails); positive receipt backoff reappears within redisplay1s rather than
 the configured5s×dequeue. A forwarding-only local HTTP observer records the real
