@@ -190,6 +190,9 @@ pub struct Update {
 	pub text: String,
 	pub tools: Vec<ToolDelta>,
 	pub usage: Usage,
+	/// Terminal AG-UI metadata is separate from maxima/ACK-based billing Usage.
+	/// Missing dimensions/labels must not become fabricated zero counts.
+	pub wire_usage: Option<Box<WireUsage>>,
 	pub finish_reason: Option<String>,
 }
 impl Update {
@@ -202,9 +205,37 @@ impl Update {
 	pub fn usage(usage: Usage) -> Self {
 		Self {
 			usage,
+			wire_usage: usage.reported.then(|| {
+				Box::new(WireUsage {
+					input_tokens: Some(usage.input),
+					output_tokens: Some(usage.output),
+					..Default::default()
+				})
+			}),
 			..Default::default()
 		}
 	}
+}
+
+#[derive(Clone, Debug, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WireUsage {
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub provider: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub model: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub input_tokens: Option<i64>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub output_tokens: Option<i64>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub total_tokens: Option<i64>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub reasoning_tokens: Option<i64>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub cached_input_tokens: Option<i64>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub cache_write_input_tokens: Option<i64>,
 }
 
 /// Bounded indexed wire assembly only, not a tool executor or loop. Later

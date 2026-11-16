@@ -113,7 +113,7 @@ pub fn fields(prompt: &str) -> String {
 /// The frozen stand-in uses default System.Text.Json (BasicLatin), not the
 /// provider encoder's relaxed Unicode policy. Preserve its synthetic UTF-16
 /// response length/token cost as well as the generated JSON data.
-fn default_json(raw: String) -> String {
+pub(crate) fn default_json(raw: String) -> String {
 	use std::fmt::Write;
 	let mut result = String::new();
 	let mut chars = raw.chars();

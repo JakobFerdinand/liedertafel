@@ -14,6 +14,8 @@ use std::{
 pub enum ScriptStep {
 	Update(Update),
 	Delay(Duration),
+	/// Offline delivery-only barrier; fixture SQL remains outside the provider.
+	Wait(Arc<tokio::sync::Notify>),
 	Hold,
 	Fail,
 }
@@ -75,6 +77,7 @@ impl Script {
 				match actions.pop_front()? {
 					ScriptStep::Update(update) => return Some((Ok(update), actions)),
 					ScriptStep::Delay(duration) => tokio::time::sleep(duration).await,
+					ScriptStep::Wait(release) => release.notified().await,
 					ScriptStep::Hold => std::future::pending::<()>().await,
 					ScriptStep::Fail => return Some((Err(Error::Provider), VecDeque::new())),
 				}

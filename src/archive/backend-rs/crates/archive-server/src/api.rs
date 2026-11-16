@@ -69,6 +69,7 @@ fn implemented_api_routes(_origin: Arc<Origin>) -> Vec<(&'static str, MethodRout
 	routes.extend(crate::recordings::routes());
 	routes.extend(crate::ai::routes());
 	routes.extend(crate::reading::routes());
+	routes.extend(crate::chat::routes());
 	routes
 }
 

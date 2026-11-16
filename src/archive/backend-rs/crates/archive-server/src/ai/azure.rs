@@ -1,4 +1,7 @@
 //! Hand-written dated AOAI Chat Completions REST/SSE. No OpenAI SDK wrappers.
+#[cfg(test)]
+#[path = "azure_chat_probe_tests.rs"]
+mod chat_probe_tests;
 use super::{
 	Content, Error, Gateway, Ledger, ProviderRequest, ToolDelta, Update, Usage, gateway::Provider,
 };
@@ -358,6 +361,50 @@ fn parse_update(value: &Value, streaming: bool) -> Result<Update, Error> {
 			usage_count(usage, "prompt_tokens")?,
 			usage_count(usage, "completion_tokens")?,
 		);
+		let details = |key: &str, names: &[&str]| -> Result<Option<Vec<i64>>, Error> {
+			let Some(value) = usage.get(key).filter(|v| !v.is_null()) else {
+				return Ok(None);
+			};
+			if !value.is_object() {
+				return Err(Error::Protocol);
+			}
+			names
+				.iter()
+				.map(|key| {
+					if value.get(*key).is_some_and(Value::is_null) {
+						Ok(0)
+					} else {
+						usage_count(value, key)
+					}
+				})
+				.collect::<Result<Vec<_>, _>>()
+				.map(Some)
+		};
+		let input = details("prompt_tokens_details", &["cached_tokens", "audio_tokens"])?;
+		let output = details(
+			"completion_tokens_details",
+			&[
+				"reasoning_tokens",
+				"audio_tokens",
+				"accepted_prediction_tokens",
+				"rejected_prediction_tokens",
+			],
+		)?;
+		update.wire_usage = Some(Box::new(super::WireUsage {
+			model: value
+				.get("model")
+				.and_then(Value::as_str)
+				.map(str::to_owned),
+			// Actual frozen SDK materializes its base Int32 counts as zero
+			// when absent. Nested details stay absent unless an object exists;
+			// its null/missing fields instead materialize as zero.
+			input_tokens: Some(usage_count(usage, "prompt_tokens")?),
+			output_tokens: Some(usage_count(usage, "completion_tokens")?),
+			total_tokens: Some(usage_count(usage, "total_tokens")?),
+			cached_input_tokens: input.and_then(|v| v.first().copied()),
+			reasoning_tokens: output.and_then(|v| v.first().copied()),
+			..Default::default()
+		}));
 	}
 	let choices = value
 		.get("choices")
@@ -466,7 +513,10 @@ fn wire_request(request: &ProviderRequest, deployment: &str) -> Result<Value, Er
 		}
 	}
 	let options = &request.options;
-	let mut value = json!({"model":deployment,"messages":messages,"reasoning_effort":options.reasoning_effort.as_deref().unwrap_or("none"),"max_completion_tokens":options.max_output_tokens});
+	// Gateway rejects foreign overrides and clears the option before every
+	// product call. Retaining the private adapter's frozen encoding also permits
+	// the single approved offline raw probe without an exported bypass.
+	let mut value = json!({"model":options.model_id.as_deref().unwrap_or(deployment),"messages":messages,"reasoning_effort":options.reasoning_effort.as_deref().unwrap_or("none"),"max_completion_tokens":options.max_output_tokens});
 	if request.streaming {
 		value["stream"] = json!(true);
 		value["stream_options"] = json!({"include_usage":true});

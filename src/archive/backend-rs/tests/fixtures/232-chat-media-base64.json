@@ -1,0 +1,2345 @@
+{
+  "source": "actual unchanged frozen HTTP + Convert.FromBase64String / 2026-11-16 / original independent P2 reviewer12 first byte-identical raw strings",
+  "cases": [
+    {
+      "name": "base64-0",
+      "raw": "{\"threadId\": \"\", \"runId\": \"extra-review\", \"messages\": [{\"role\": \"user\", \"content\": [{\"type\": \"image\", \"source\": {\"type\": \"data\", \"value\": \"AA==\", \"mimeType\": \"image/png\"}}]}, {\"id\": \"m\", \"role\": \"user\", \"content\": \"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "base64-1",
+      "raw": "{\"threadId\": \"\", \"runId\": \"extra-review\", \"messages\": [{\"role\": \"user\", \"content\": [{\"type\": \"image\", \"source\": {\"type\": \"data\", \"value\": \"A A==\", \"mimeType\": \"image/png\"}}]}, {\"id\": \"m\", \"role\": \"user\", \"content\": \"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "base64-2",
+      "raw": "{\"threadId\": \"\", \"runId\": \"extra-review\", \"messages\": [{\"role\": \"user\", \"content\": [{\"type\": \"image\", \"source\": {\"type\": \"data\", \"value\": \"AA==\\r\\n\", \"mimeType\": \"image/png\"}}]}, {\"id\": \"m\", \"role\": \"user\", \"content\": \"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "base64-3",
+      "raw": "{\"threadId\": \"\", \"runId\": \"extra-review\", \"messages\": [{\"role\": \"user\", \"content\": [{\"type\": \"image\", \"source\": {\"type\": \"data\", \"value\": \"\\tAA== \", \"mimeType\": \"image/png\"}}]}, {\"id\": \"m\", \"role\": \"user\", \"content\": \"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "base64-4",
+      "raw": "{\"threadId\": \"\", \"runId\": \"extra-review\", \"messages\": [{\"role\": \"user\", \"content\": [{\"type\": \"image\", \"source\": {\"type\": \"data\", \"value\": \"AB==\", \"mimeType\": \"image/png\"}}]}, {\"id\": \"m\", \"role\": \"user\", \"content\": \"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "base64-5",
+      "raw": "{\"threadId\": \"\", \"runId\": \"extra-review\", \"messages\": [{\"role\": \"user\", \"content\": [{\"type\": \"image\", \"source\": {\"type\": \"data\", \"value\": \"AAA=\", \"mimeType\": \"image/png\"}}]}, {\"id\": \"m\", \"role\": \"user\", \"content\": \"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "0000",
+      "safeMalformed": false
+    },
+    {
+      "name": "base64-6",
+      "raw": "{\"threadId\": \"\", \"runId\": \"extra-review\", \"messages\": [{\"role\": \"user\", \"content\": [{\"type\": \"image\", \"source\": {\"type\": \"data\", \"value\": \"AAB=\", \"mimeType\": \"image/png\"}}]}, {\"id\": \"m\", \"role\": \"user\", \"content\": \"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "0000",
+      "safeMalformed": false
+    },
+    {
+      "name": "base64-7",
+      "raw": "{\"threadId\": \"\", \"runId\": \"extra-review\", \"messages\": [{\"role\": \"user\", \"content\": [{\"type\": \"image\", \"source\": {\"type\": \"data\", \"value\": \"AA\", \"mimeType\": \"image/png\"}}]}, {\"id\": \"m\", \"role\": \"user\", \"content\": \"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "base64-8",
+      "raw": "{\"threadId\": \"\", \"runId\": \"extra-review\", \"messages\": [{\"role\": \"user\", \"content\": [{\"type\": \"image\", \"source\": {\"type\": \"data\", \"value\": \"AA===\", \"mimeType\": \"image/png\"}}]}, {\"id\": \"m\", \"role\": \"user\", \"content\": \"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "base64-9",
+      "raw": "{\"threadId\": \"\", \"runId\": \"extra-review\", \"messages\": [{\"role\": \"user\", \"content\": [{\"type\": \"image\", \"source\": {\"type\": \"data\", \"value\": \"AA==\\u00a0\", \"mimeType\": \"image/png\"}}]}, {\"id\": \"m\", \"role\": \"user\", \"content\": \"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "base64-10",
+      "raw": "{\"threadId\": \"\", \"runId\": \"extra-review\", \"messages\": [{\"role\": \"user\", \"content\": [{\"type\": \"image\", \"source\": {\"type\": \"data\", \"value\": \"AA==\\u000b\", \"mimeType\": \"image/png\"}}]}, {\"id\": \"m\", \"role\": \"user\", \"content\": \"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "base64-11",
+      "raw": "{\"threadId\": \"\", \"runId\": \"extra-review\", \"messages\": [{\"role\": \"user\", \"content\": [{\"type\": \"image\", \"source\": {\"type\": \"data\", \"value\": \"AA==\\f\", \"mimeType\": \"image/png\"}}]}, {\"id\": \"m\", \"role\": \"user\", \"content\": \"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-0-leading",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"\\u0000AA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-0-middle",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"A\\u0000A==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-0-padding",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA=\\u0000=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-0-trailing",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\u0000\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-1-leading",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"\\u0001AA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-1-middle",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"A\\u0001A==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-1-padding",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA=\\u0001=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-1-trailing",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\u0001\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-2-leading",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"\\u0002AA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-2-middle",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"A\\u0002A==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-2-padding",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA=\\u0002=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-2-trailing",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\u0002\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-3-leading",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"\\u0003AA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-3-middle",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"A\\u0003A==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-3-padding",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA=\\u0003=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-3-trailing",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\u0003\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-4-leading",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"\\u0004AA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-4-middle",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"A\\u0004A==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-4-padding",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA=\\u0004=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-4-trailing",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\u0004\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-5-leading",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"\\u0005AA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-5-middle",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"A\\u0005A==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-5-padding",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA=\\u0005=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-5-trailing",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\u0005\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-6-leading",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"\\u0006AA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-6-middle",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"A\\u0006A==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-6-padding",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA=\\u0006=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-6-trailing",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\u0006\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-7-leading",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"\\u0007AA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-7-middle",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"A\\u0007A==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-7-padding",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA=\\u0007=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-7-trailing",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\u0007\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-8-leading",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"\\bAA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-8-middle",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"A\\bA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-8-padding",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA=\\b=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-8-trailing",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\b\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-9-leading",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"\\tAA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "ascii-9-middle",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"A\\tA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "ascii-9-padding",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA=\\t=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "ascii-9-trailing",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\t\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "ascii-10-leading",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"\\nAA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "ascii-10-middle",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"A\\nA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "ascii-10-padding",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA=\\n=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "ascii-10-trailing",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\n\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "ascii-11-leading",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"\\u000bAA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-11-middle",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"A\\u000bA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-11-padding",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA=\\u000b=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-11-trailing",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\u000b\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-12-leading",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"\\fAA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-12-middle",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"A\\fA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-12-padding",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA=\\f=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-12-trailing",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\f\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-13-leading",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"\\rAA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "ascii-13-middle",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"A\\rA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "ascii-13-padding",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA=\\r=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "ascii-13-trailing",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\r\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "ascii-14-leading",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"\\u000eAA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-14-middle",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"A\\u000eA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-14-padding",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA=\\u000e=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-14-trailing",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\u000e\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-15-leading",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"\\u000fAA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-15-middle",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"A\\u000fA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-15-padding",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA=\\u000f=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-15-trailing",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\u000f\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-16-leading",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"\\u0010AA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-16-middle",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"A\\u0010A==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-16-padding",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA=\\u0010=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-16-trailing",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\u0010\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-17-leading",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"\\u0011AA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-17-middle",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"A\\u0011A==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-17-padding",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA=\\u0011=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-17-trailing",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\u0011\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-18-leading",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"\\u0012AA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-18-middle",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"A\\u0012A==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-18-padding",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA=\\u0012=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-18-trailing",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\u0012\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-19-leading",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"\\u0013AA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-19-middle",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"A\\u0013A==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-19-padding",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA=\\u0013=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-19-trailing",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\u0013\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-20-leading",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"\\u0014AA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-20-middle",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"A\\u0014A==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-20-padding",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA=\\u0014=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-20-trailing",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\u0014\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-21-leading",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"\\u0015AA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-21-middle",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"A\\u0015A==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-21-padding",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA=\\u0015=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-21-trailing",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\u0015\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-22-leading",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"\\u0016AA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-22-middle",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"A\\u0016A==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-22-padding",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA=\\u0016=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-22-trailing",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\u0016\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-23-leading",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"\\u0017AA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-23-middle",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"A\\u0017A==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-23-padding",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA=\\u0017=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-23-trailing",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\u0017\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-24-leading",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"\\u0018AA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-24-middle",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"A\\u0018A==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-24-padding",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA=\\u0018=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-24-trailing",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\u0018\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-25-leading",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"\\u0019AA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-25-middle",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"A\\u0019A==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-25-padding",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA=\\u0019=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-25-trailing",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\u0019\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-26-leading",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"\\u001aAA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-26-middle",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"A\\u001aA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-26-padding",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA=\\u001a=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-26-trailing",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\u001a\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-27-leading",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"\\u001bAA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-27-middle",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"A\\u001bA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-27-padding",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA=\\u001b=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-27-trailing",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\u001b\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-28-leading",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"\\u001cAA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-28-middle",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"A\\u001cA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-28-padding",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA=\\u001c=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-28-trailing",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\u001c\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-29-leading",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"\\u001dAA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-29-middle",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"A\\u001dA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-29-padding",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA=\\u001d=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-29-trailing",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\u001d\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-30-leading",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"\\u001eAA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-30-middle",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"A\\u001eA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-30-padding",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA=\\u001e=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-30-trailing",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\u001e\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-31-leading",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"\\u001fAA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-31-middle",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"A\\u001fA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-31-padding",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA=\\u001f=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-31-trailing",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\u001f\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-32-leading",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\" AA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "ascii-32-middle",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"A A==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "ascii-32-padding",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA= =\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "ascii-32-trailing",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA== \",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "ascii-127-leading",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-127-middle",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-127-padding",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "ascii-127-trailing",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "non-ascii-space-133",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "non-ascii-space-160",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA== \",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "non-ascii-space-5760",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA== \",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "non-ascii-space-8192",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA== \",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "non-ascii-space-8195",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA== \",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "non-ascii-space-8232",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA== \",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "non-ascii-space-8233",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA== \",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "non-ascii-space-8239",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA== \",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "non-ascii-space-8287",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA== \",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "non-ascii-space-12288",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==　\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "non-ascii-space-65279",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==﻿\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "padding-alphabet-0",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "",
+      "safeMalformed": false
+    },
+    {
+      "name": "padding-alphabet-1",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\" \",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "",
+      "safeMalformed": false
+    },
+    {
+      "name": "padding-alphabet-2",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"\\t\\r\\n\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "",
+      "safeMalformed": false
+    },
+    {
+      "name": "padding-alphabet-3",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AAAA\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "000000",
+      "safeMalformed": false
+    },
+    {
+      "name": "padding-alphabet-4",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AAAAAA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00000000",
+      "safeMalformed": false
+    },
+    {
+      "name": "padding-alphabet-5",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AAAAAAA=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "0000000000",
+      "safeMalformed": false
+    },
+    {
+      "name": "padding-alphabet-6",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AAAAB===\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "padding-alphabet-7",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "padding-alphabet-8",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AAA\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "padding-alphabet-9",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"A\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "padding-alphabet-10",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "padding-alphabet-11",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AAA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "padding-alphabet-12",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA===\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "padding-alphabet-13",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA====\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "padding-alphabet-14",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"====\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "padding-alphabet-15",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"=AAA\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "padding-alphabet-16",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"A=AA\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "padding-alphabet-17",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA=A\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "padding-alphabet-18",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==AAAA\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "padding-alphabet-19",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==AA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "padding-alphabet-20",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AAA=AAAA\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "padding-alphabet-21",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==A\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "padding-alphabet-22",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\u0000\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "padding-alphabet-23",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"A-A=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "padding-alphabet-24",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"A_A=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "padding-alphabet-25",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA!=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "padding-alphabet-26",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA@=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "padding-alphabet-27",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA?=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "padding-alphabet-28",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"ＡＡ==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "padding-alphabet-29",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"ÁA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "padding-alphabet-30",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"A😀==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "one-byte-padbits-A",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AA==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "one-byte-padbits-B",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AB==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "one-byte-padbits-C",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AC==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "one-byte-padbits-D",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AD==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "one-byte-padbits-E",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AE==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "one-byte-padbits-F",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AF==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "one-byte-padbits-G",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AG==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "one-byte-padbits-H",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AH==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "one-byte-padbits-I",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AI==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "one-byte-padbits-J",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AJ==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "one-byte-padbits-K",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AK==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "one-byte-padbits-L",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AL==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "one-byte-padbits-M",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AM==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "one-byte-padbits-N",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AN==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "one-byte-padbits-O",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AO==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "one-byte-padbits-P",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AP==\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "two-byte-padbits-A",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AAA=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "0000",
+      "safeMalformed": false
+    },
+    {
+      "name": "two-byte-padbits-B",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AAB=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "0000",
+      "safeMalformed": false
+    },
+    {
+      "name": "two-byte-padbits-C",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AAC=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "0000",
+      "safeMalformed": false
+    },
+    {
+      "name": "two-byte-padbits-D",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"data\",\"value\":\"AAD=\",\"mimeType\":\"image/png\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "0000",
+      "safeMalformed": false
+    },
+    {
+      "name": "audio-210",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"audio\",\"source\":{\"type\":\"data\",\"value\":\"A A==\",\"mimeType\":\"audio/wav\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "audio-211",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"audio\",\"source\":{\"type\":\"data\",\"value\":\"AB==\",\"mimeType\":\"audio/wav\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "audio-212",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"audio\",\"source\":{\"type\":\"data\",\"value\":\"AAB=\",\"mimeType\":\"audio/wav\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "0000",
+      "safeMalformed": false
+    },
+    {
+      "name": "audio-213",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"audio\",\"source\":{\"type\":\"data\",\"value\":\"AA\",\"mimeType\":\"audio/wav\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "audio-214",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"audio\",\"source\":{\"type\":\"data\",\"value\":\"AA===\",\"mimeType\":\"audio/wav\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "audio-215",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"audio\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\u000b\",\"mimeType\":\"audio/wav\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "audio-216",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"audio\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\f\",\"mimeType\":\"audio/wav\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "audio-217",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"audio\",\"source\":{\"type\":\"data\",\"value\":\"AA== \",\"mimeType\":\"audio/wav\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "video-218",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"video\",\"source\":{\"type\":\"data\",\"value\":\"A A==\",\"mimeType\":\"video/mp4\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "video-219",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"video\",\"source\":{\"type\":\"data\",\"value\":\"AB==\",\"mimeType\":\"video/mp4\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "video-220",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"video\",\"source\":{\"type\":\"data\",\"value\":\"AAB=\",\"mimeType\":\"video/mp4\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "0000",
+      "safeMalformed": false
+    },
+    {
+      "name": "video-221",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"video\",\"source\":{\"type\":\"data\",\"value\":\"AA\",\"mimeType\":\"video/mp4\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "video-222",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"video\",\"source\":{\"type\":\"data\",\"value\":\"AA===\",\"mimeType\":\"video/mp4\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "video-223",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"video\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\u000b\",\"mimeType\":\"video/mp4\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "video-224",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"video\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\f\",\"mimeType\":\"video/mp4\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "video-225",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"video\",\"source\":{\"type\":\"data\",\"value\":\"AA== \",\"mimeType\":\"video/mp4\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "document-226",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"document\",\"source\":{\"type\":\"data\",\"value\":\"A A==\",\"mimeType\":\"application/pdf\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "document-227",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"document\",\"source\":{\"type\":\"data\",\"value\":\"AB==\",\"mimeType\":\"application/pdf\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "00",
+      "safeMalformed": false
+    },
+    {
+      "name": "document-228",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"document\",\"source\":{\"type\":\"data\",\"value\":\"AAB=\",\"mimeType\":\"application/pdf\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 200,
+      "status": 200,
+      "question": "Wie wird das Wetter morgen?",
+      "bclAccepted": true,
+      "decodedHex": "0000",
+      "safeMalformed": false
+    },
+    {
+      "name": "document-229",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"document\",\"source\":{\"type\":\"data\",\"value\":\"AA\",\"mimeType\":\"application/pdf\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "document-230",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"document\",\"source\":{\"type\":\"data\",\"value\":\"AA===\",\"mimeType\":\"application/pdf\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "document-231",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"document\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\u000b\",\"mimeType\":\"application/pdf\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "document-232",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"document\",\"source\":{\"type\":\"data\",\"value\":\"AA==\\f\",\"mimeType\":\"application/pdf\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    },
+    {
+      "name": "document-233",
+      "raw": "{\"threadId\":\"\",\"runId\":\"extra-review\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"document\",\"source\":{\"type\":\"data\",\"value\":\"AA== \",\"mimeType\":\"application/pdf\"}}]},{\"id\":\"m\",\"role\":\"user\",\"content\":\"Wie wird das Wetter morgen?\"}]}",
+      "frozenStatus": 500,
+      "status": 400,
+      "question": null,
+      "bclAccepted": false,
+      "decodedHex": null,
+      "safeMalformed": true
+    }
+  ]
+}

@@ -33,6 +33,7 @@ pub struct Origin {
 	pub reading: crate::reading::Options,
 	pub reading_queue: Arc<dyn crate::queue::Queue>,
 	pub ai: Option<crate::ai::Services>,
+	pub chat: crate::chat::Options,
 	/// Host signal, separate from HTTP disconnect. Later persisted draft readers
 	/// link their owned registry work to this, NOT to a tab's request lifetime.
 	pub shutdown: tokio_util::sync::CancellationToken,
@@ -90,6 +91,7 @@ impl Origin {
 			reading: Default::default(),
 			reading_queue: Arc::new(crate::queue::AzureQueue::unconfigured()),
 			ai: None,
+			chat: Default::default(),
 			shutdown: Default::default(),
 			build_requests: global::meter(METER_NAME)
 				.u64_counter("archive.build.requests")

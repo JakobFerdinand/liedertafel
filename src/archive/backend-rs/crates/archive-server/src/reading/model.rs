@@ -442,7 +442,9 @@ pub fn scripted_scan_reader_with_programme_transcription(
 			}
 			serde_json::json!({"felder":fields}).to_string()
 		} else {
-			return vec![ai::ScriptStep::Fail];
+			// Accepted programme and score recognition wins first. The member
+			// chat extends the same delivery BELOW Gateway/current SQL only.
+			return crate::chat::script::delivery(request);
 		};
 		let usage = if programme_transcription && transcription.is_some() {
 			ai::Usage::reported(1700, 120)

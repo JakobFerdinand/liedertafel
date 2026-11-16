@@ -89,3 +89,52 @@ async fn links(
 	}
 	Ok(by_event)
 }
+
+/// Member chat's bounded projection over the same live appearances and the
+/// existing publication/playback/timestamp resolver. Unknown dates are past
+/// here, deliberately unlike the programme directory's upcoming navigation.
+pub(crate) async fn chat_history(
+	pool: &sqlx::PgPool,
+	lied: Uuid,
+) -> Result<(Vec<Value>, Vec<Value>), AuthError> {
+	let entries:Vec<Uuid>=sqlx::query_scalar(r#"SELECT DISTINCT p."EventId" FROM programme_items i JOIN programmes p ON p."Id"=i."ProgrammeId" WHERE i."LiedId"=$1"#).bind(lied).fetch_all(pool).await?;
+	let mut files = crate::catalogue::queries::dateien(pool, Some(lied), None).await?;
+	files.retain(|f| f.kind == "aufnahme" && f.recorded_at_event_id.is_some());
+	files.sort_by(|a, b| a.created_at.cmp(&b.created_at).then(a.id.cmp(&b.id)));
+	let mut events = visible(pool).await?;
+	events.retain(|e| {
+		entries.contains(&e.id) || files.iter().any(|f| f.recorded_at_event_id == Some(e.id))
+	});
+	events.sort_by(date::compare);
+	events.truncate(20);
+	let ids: Vec<_> = events.iter().map(|e| e.id).collect();
+	let marks = links(pool, lied, &ids, false).await?;
+	let today = sqlx::query_scalar::<_, chrono::NaiveDate>(
+		"SELECT (now() AT TIME ZONE 'Europe/Vienna')::date",
+	)
+	.fetch_one(pool)
+	.await?;
+	let mut sung = Vec::new();
+	let mut planned = Vec::new();
+	for event in events {
+		let recordings: Vec<_> = files
+			.iter()
+			.filter(|f| f.recorded_at_event_id == Some(event.id))
+			.take(10)
+			.map(|f| {
+				f.original_file_name
+					.clone()
+					.unwrap_or_else(|| f.id.to_string())
+			})
+			.collect();
+		let timestamps:Vec<_>=marks.get(&event.id).iter().flat_map(|v|v.iter()).take(5).map(|m|json!({"aufnahme":m["recordingLabel"],"start":m["startSeconds"],"status":m["timestampState"]})).collect();
+		let entry = json!({"auftritt":event.title,"auftrittId":event.id,"art":event.kind,"ort":event.venue,"datum":event.display(),"aufnahmen":recordings,"zeitmarken":timestamps});
+		if entries.contains(&event.id) && event.date_year.is_some() && date::upcoming(&event, today)
+		{
+			planned.push(entry);
+		} else {
+			sung.push(entry);
+		}
+	}
+	Ok((sung, planned))
+}

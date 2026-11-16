@@ -8,7 +8,7 @@ mod notice;
 mod options;
 mod script;
 pub use azure::AzureConfig;
-pub use gateway::{Call, Gateway};
+pub use gateway::{Call, Gateway, Observation};
 pub use live_gate::LiveEvaluation;
 pub use model::*;
 pub use notice::{CostState, Notices, routes};
