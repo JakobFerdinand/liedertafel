@@ -11,6 +11,7 @@ pub mod api;
 pub mod auth;
 mod binding;
 pub mod catalogue;
+pub mod chat;
 mod clr_guid;
 pub mod events;
 pub mod extraction;

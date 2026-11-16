@@ -3,7 +3,7 @@
 mod date;
 mod documents;
 mod drafts;
-mod history;
+pub(crate) mod history;
 mod programme;
 use crate::{
 	Origin,
@@ -246,7 +246,7 @@ async fn patch(
 ) -> Result<Response, AuthError> {
 	write(origin, Some(id), request).await
 }
-fn validate_kind(kind: &str) -> Result<(), AuthError> {
+pub(crate) fn validate_kind(kind: &str) -> Result<(), AuthError> {
 	if [
 		"concert", "service", "wedding", "funeral", "festival", "other",
 	]

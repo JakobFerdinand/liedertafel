@@ -13,7 +13,7 @@ mod options;
 mod photo;
 pub mod programme;
 mod programme_endpoints;
-mod programme_script;
+pub(crate) mod programme_script;
 mod renderer;
 mod service;
 mod worker;

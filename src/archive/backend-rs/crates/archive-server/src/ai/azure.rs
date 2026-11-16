@@ -358,6 +358,50 @@ fn parse_update(value: &Value, streaming: bool) -> Result<Update, Error> {
 			usage_count(usage, "prompt_tokens")?,
 			usage_count(usage, "completion_tokens")?,
 		);
+		let details = |key: &str, names: &[&str]| -> Result<Option<Vec<i64>>, Error> {
+			let Some(value) = usage.get(key).filter(|v| !v.is_null()) else {
+				return Ok(None);
+			};
+			if !value.is_object() {
+				return Err(Error::Protocol);
+			}
+			names
+				.iter()
+				.map(|key| {
+					if value.get(*key).is_some_and(Value::is_null) {
+						Ok(0)
+					} else {
+						usage_count(value, key)
+					}
+				})
+				.collect::<Result<Vec<_>, _>>()
+				.map(Some)
+		};
+		let input = details("prompt_tokens_details", &["cached_tokens", "audio_tokens"])?;
+		let output = details(
+			"completion_tokens_details",
+			&[
+				"reasoning_tokens",
+				"audio_tokens",
+				"accepted_prediction_tokens",
+				"rejected_prediction_tokens",
+			],
+		)?;
+		update.wire_usage = Some(Box::new(super::WireUsage {
+			model: value
+				.get("model")
+				.and_then(Value::as_str)
+				.map(str::to_owned),
+			// Actual frozen SDK materializes its base Int32 counts as zero
+			// when absent. Nested details stay absent unless an object exists;
+			// its null/missing fields instead materialize as zero.
+			input_tokens: Some(usage_count(usage, "prompt_tokens")?),
+			output_tokens: Some(usage_count(usage, "completion_tokens")?),
+			total_tokens: Some(usage_count(usage, "total_tokens")?),
+			cached_input_tokens: input.and_then(|v| v.first().copied()),
+			reasoning_tokens: output.and_then(|v| v.first().copied()),
+			..Default::default()
+		}));
 	}
 	let choices = value
 		.get("choices")
