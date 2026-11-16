@@ -1,5 +1,74 @@
 # Lied draft reading (#230)
 
+## Resumed final-union validation — complete, acceptance pending
+
+On 2026-11-16 the user authorized resuming the saved clean branch at
+`877f009cc0d095460f94caf312ed912abafd551f`, whose code/test union is
+`99f0c5470feccd5889edea2f48633535412b8c43` and includes accepted integration
+`06946d47cdfb875314636d0d963fe83df466c38c`. This handoff changes this guide only;
+no product, test, frozen frontend/backend, infrastructure or workflow edit was
+needed. Independent source review `evidence/230-resume-source-review.md` found
+zero new findings at that exact union. Independent runtime/Claim clearance and
+parent-owned serialized acceptance remain pending; #232 remains blocked.
+
+Fresh full validation completed automatically as job
+`sh_1e3426193001vzqv5a0lt54km4` before the terminal artifact audit or documentation
+edit. All53 sequential stages exited0 and the new timestamped audit passed.
+Durable paths relative to the original workspace's `target/agent-218/evidence/`:
+
+- `230/resume-union-20261116T072824Z/`: `source.json`, `results.json`,
+  `captures.json`, `evidence.json` and individual stage logs.
+- `230/resume-union-20261116T072824Z{.py,.log,-audit.py,-audit.log}`:
+  exact runner, full console, audit and successful audit output.
+- `230/resume-union-20261116T072824Z-{preflight,idle}.json`: source/resource
+  provenance, immutable interrupted-artifact inventory and no-active-writer check.
+- New UI output is under the timestamped run's `mocked-ui-results/`; the resume
+  helper was corrected before launch to avoid reusing interrupted UI output.
+  All1619 recorded old artifact digests were checked unchanged after completion.
+
+| Fresh final-union gate | Actual result |
+| --- | --- |
+| Ordered stages, terminal artifact audit |53/53 exit0; audit PASS |
+| Ordinary Rust workspace |119 passed /259 ignored /0 failed |
+| ALL combined explicit gates |259 passed /0 ignored /0 failed; real local PG/schema/private Blob/Queue/native PDF included |
+| Native protocol/lifecycle/differential gates and terminal private replays |15/15 and15/15; findings/errors/legacy matches empty, terminal completion/secrecy checked,0700/0600 |
+| Actual identical-byte form differential |137 cases ×2 framings ×both routes ×both hosts =1096 requests; BOTH Rust routes covered |
+| Unchanged frozen.NET scoped suites |195 passed |
+| Unchanged frontend unit / mocked desktop-mobile UI |115 /218 passed |
+| Official-schema detector/lifecycle |110 passed |
+| Actual framework form / disposition / URL-layout observations |137 /49 /174; oracle fixtures regenerate exactly |
+| Programme offline evaluation |7/7 documents,13 synthetic calls,18641 synthetic microEUR; no live provider |
+| Default native binary |SHA256 `c2b13a69bc6d951722853c8340cf60a6ad3dc1d87ecb420bb1ed882d35098b03`; static OpenSSL3.5.9, no dynamic libssl/libcrypto |
+
+Both Lied and Programme actual HTTP/model W3C chains, Claim lock/socket ownership,
+disconnect, host shutdown, accounting/telemetry refusal and drain controls ran.
+The native navigation differential **retains the shared frozen/Rust failed held
+full-navigation journey**, distinct from positive actual tab-close and completed-
+navigation controls. Fifteen green differential gates are not fifteen successful
+resume journeys. The174 FormPipeReader observations retain internal fast/slow
+empty-segment layout variance; deterministic Rust1024 raw-pair enforcement is
+not universal source-layout equivalence. Neither qualification is waived.
+
+Preflight rechecked147 tracked frontend files,112 static outputs, pinned PDFium
+8138 hash and supported OpenSSL3.5.9. The reboot-lost short scratch symlink
+`/tmp/opencode/a230` was restored to durable own230-scratch. Only retained own230
+PostgreSQL55432 and standard Azurite51033/52033/53033 were started; no unrelated
+container was changed. No application source changed during validation. Following
+completion/audit, no owned build/test/browser/provider/capture process remained;
+fixtures stay running and retained, idle for parent-assigned independent review.
+
+Earlier interrupted52/53 and pre-union runs below remain historical evidence,
+not substituted passes. Absent-config live gates are not paid evaluations. All
+inherited passkey/member browser failures, historical UNCLASSIFIED redaction,
+video-FK refusal, migration equivalents, conditional budget/current-price/
+unknown-ACK/not-exactly-once and cooperative-native/decoded-expansion limits
+remain explicit in this guide and the governing parity reports. No hosted tokens,
+live AI, private corpus, production, push/publication, outbound integration/main
+merge, deployment or cleanup occurred. Parent owns independent runtime acceptance
+and merger scheduling; this is an implementer handoff, not acceptance.
+
+## Preserved shutdown and pre-union history
+
 ## Shutdown checkpoint — paused by user, not accepted
 
 Branch `ticket/230-rust-lied-reading`; implementation/union merge
