@@ -88,12 +88,19 @@ fn beginning(text: &str) -> String {
 	if text.encode_utf16().count() <= 160 {
 		return text;
 	}
-	let prefix = super::tools::prefix(&text, 159);
-	let cut = prefix
-		.rfind(' ')
-		.filter(|&i| prefix[..i].encode_utf16().count() > 80)
-		.unwrap_or(prefix.len());
-	format!("{}…", prefix[..cut].trim_end_matches([' ', ',', ';', '/']))
+	// Frozen LastIndexOf(' ',159) includes the space AT index159.
+	let cut = text
+		.encode_utf16()
+		.take(160)
+		.enumerate()
+		.filter_map(|(i, c)| (c == u16::from(b' ')).then_some(i))
+		.last()
+		.filter(|&i| i > 80)
+		.unwrap_or(159);
+	format!(
+		"{}…",
+		super::tools::prefix(&text, cut).trim_end_matches([' ', ',', ';', '/'])
+	)
 }
 async fn resolve(pool: &sqlx::PgPool, request: &Request) -> Result<Option<Value>, AuthError> {
 	let kind = request.komponente.as_deref().unwrap_or_default();

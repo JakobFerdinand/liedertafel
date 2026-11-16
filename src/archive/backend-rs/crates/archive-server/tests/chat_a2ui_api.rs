@@ -5,6 +5,43 @@ use serde_json::json;
 use support::{App, catalogue::lied, chat::*};
 
 #[tokio::test]
+#[ignore = "dedicated local PostgreSQL; actual frozen HTTP teaser oracle"]
+async fn teaser_includes_the_word_ending_at_the_space_at_utf16_index159() {
+	let fixture: serde_json::Value = serde_json::from_str(include_str!(
+		"../../../tests/fixtures/232-chat-clipping.json"
+	))
+	.unwrap();
+	let mut app = App::new_scoped("chat232_teaser_boundary").await;
+	let lyrics = format!("{} {} {}", "a".repeat(100), "b".repeat(58), "c".repeat(10));
+	let id = lied(
+		&app,
+		"Boundary Lied",
+		json!({"lyrics":lyrics,"composer":"Komponist"}),
+	)
+	.await;
+	let harness = install(
+		&mut app,
+		Script::new(vec![
+			vec![tool(
+				"zeige_oberflaeche",
+				json!({"komponenten":[{"komponente":"LiedKarte","liedId":id}]}),
+			)],
+			vec![],
+		]),
+	);
+	let mut member = app.member().await;
+	let events = run(&mut member, "", "Boundary question").await;
+	let root = &events.iter().find(|e| e["name"] == "archive.a2ui").unwrap()["value"][1]["updateComponents"]
+		["components"][0];
+	assert_eq!(
+		root["textanfang"],
+		fixture["cases"][0]["card"]["textanfang"]
+	);
+	assert!(harness.origin.drain_readings().await);
+	app.close().await;
+}
+
+#[tokio::test]
 #[ignore = "dedicated local PostgreSQL"]
 async fn model_ids_resolve_server_card_data_store_jsonb_and_rebuild_on_every_load() {
 	let mut app = App::new_scoped("chat232_a2ui").await;
