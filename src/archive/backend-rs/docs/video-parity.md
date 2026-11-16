@@ -12,6 +12,13 @@ Frozen backend/tests/frontend/infra/workflows/product Dockerfile stay unchanged.
   provider/DB work in maintenance, complete through checked finite telemetry,
   and use the accepted shared Queue drain (serial batches, visibility starts
   before receive, deadline=min(message,batch), release headroom, no heartbeat).
+  Video commands validate one typed maintenance snapshot for entry, drain and
+  per-message gates. Absent means false; present blank/malformed fails before
+  providers (frozen .NET10 `GetValue<bool>`, not the origin's blank-as-absent
+  convenience). Padded/case-insensitive true pauses; false permits real work.
+  Actual CLI/PG/Queue controls first reproduced invalid dispatch/transcode and
+  padded-true dependency access. Paused healthy fixtures retain the full job,
+  original bytes and unread receipt; no private worker-only seam is introduced.
 - `Archive:Video` retains frozen defaults: 10GiB input, three attempts, stale
   lease1h, message/visibility8h, redisplay1h, dispatch100, backoff1m, batch1/cap32,
   messages10, drain10h. Positive configured values retain their source widths;

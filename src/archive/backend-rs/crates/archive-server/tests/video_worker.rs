@@ -12,26 +12,176 @@ use uuid::Uuid;
 
 #[tokio::test]
 async fn maintenance_pauses_both_video_commands_before_dependencies() {
-	for command in ["--transcode-queue", "--dispatch-videos"] {
-		let output = tokio::time::timeout(
-			std::time::Duration::from_secs(3),
-			tokio::process::Command::new(env!("CARGO_BIN_EXE_archive-server"))
-				.arg(command)
-				.env("ARCHIVE_ENVIRONMENT", "Production")
-				.env("Archive__MaintenanceMode", "true")
-				.env("PORT", "0")
-				.env_remove("OTEL_EXPORTER_OTLP_ENDPOINT")
-				.env("ConnectionStrings__archive-db", "invalid")
-				.env("ConnectionStrings__archive-queues", "invalid")
-				.kill_on_drop(true)
-				.output(),
-		)
-		.await;
+	for value in [
+		"true",
+		"TRUE",
+		" true ",
+		"\tTrUe\r\n",
+		"\u{00a0}true\u{00a0}",
+	] {
+		for command in ["--transcode-queue", "--dispatch-videos"] {
+			let output = tokio::time::timeout(
+				std::time::Duration::from_secs(3),
+				tokio::process::Command::new(env!("CARGO_BIN_EXE_archive-server"))
+					.arg(command)
+					.env("ARCHIVE_ENVIRONMENT", "Production")
+					.env("Archive__MaintenanceMode", value)
+					.env("PORT", "0")
+					.env_remove("OTEL_EXPORTER_OTLP_ENDPOINT")
+					.env("ConnectionStrings__archive-db", "invalid")
+					.env("ConnectionStrings__archive-queues", "invalid")
+					.kill_on_drop(true)
+					.output(),
+			)
+			.await;
+			assert!(
+				output.is_ok(),
+				"{command} must complete finitely before opening providers"
+			);
+			assert!(output.unwrap().unwrap().status.success());
+		}
+	}
+}
+
+#[tokio::test]
+#[ignore = "explicit real PG/private Queue typed maintenance CLI flag matrix"]
+async fn invalid_maintenance_refuses_work_before_dispatch_and_false_values_allow_it() {
+	let mut failures = Vec::new();
+	// Actual .NET10 GetValue<bool> controls from the framework oracle. Blank
+	// present values are invalid, unlike an absent key's false default.
+	for command in ["--dispatch-videos", "--transcode-queue"] {
+		for value in [
+			"not-bool",
+			"1",
+			"0",
+			"yes",
+			"",
+			" ",
+			"\u{feff}true",
+			"true\u{200b}",
+		] {
+			let v = Video::new(CLIP, "aufnahme", "video/mp4", false).await;
+			v.seed_job(0, 0).await;
+			sqlx::query(r#"UPDATE video_jobs SET "LastEnqueuedAt"=NULL WHERE "DateiId"=$1"#)
+				.bind(v.id)
+				.execute(&v.app.pool)
+				.await
+				.unwrap();
+			let output = v
+				.command(command, &[("Archive__MaintenanceMode", value.into())])
+				.output()
+				.await
+				.unwrap();
+			let status = v.status().await;
+			if output.status.success()
+				|| status["status"] != "queued"
+				|| status["attemptCount"] != 0
+				|| !status["lastEnqueuedAt"].is_null()
+			{
+				failures.push((
+					command,
+					value,
+					output.status.code(),
+					status["status"].clone(),
+					status["attemptCount"].clone(),
+				));
+			}
+			let receipts = v.queue.receive(1, 1).await.unwrap();
+			if !receipts.is_empty() {
+				failures.push((
+					command,
+					value,
+					output.status.code(),
+					serde_json::json!("dispatched notification"),
+					status["attemptCount"].clone(),
+				));
+			}
+			for message in receipts {
+				v.queue.delete(&message).await.unwrap();
+			}
+			v.done().await;
+		}
+	}
+	// False is an actual work-admission control, not merely another failed
+	// command against broken dependencies. Exercise both entry/pump paths.
+	for (command, value) in [
+		("--dispatch-videos", " false "),
+		("--transcode-queue", "\u{0085}FaLsE\u{0085}"),
+	] {
+		let v = Video::new(CLIP, "aufnahme", "video/mp4", false).await;
+		v.seed_job(0, 0).await;
+		sqlx::query(r#"UPDATE video_jobs SET "LastEnqueuedAt"=NULL WHERE "DateiId"=$1"#)
+			.bind(v.id)
+			.execute(&v.app.pool)
+			.await
+			.unwrap();
 		assert!(
-			output.is_ok(),
-			"{command} must complete finitely before opening providers"
+			v.command(command, &[("Archive__MaintenanceMode", value.into())])
+				.output()
+				.await
+				.unwrap()
+				.status
+				.success()
 		);
-		assert!(output.unwrap().unwrap().status.success());
+		let status = v.status().await;
+		assert!(status["lastEnqueuedAt"].is_string());
+		assert_eq!(
+			status["status"],
+			if command == "--dispatch-videos" {
+				"queued"
+			} else {
+				"completed"
+			}
+		);
+		v.done().await;
+	}
+	assert!(
+		failures.is_empty(),
+		"invalid maintenance admitted video work: {failures:?}"
+	);
+}
+
+#[tokio::test]
+#[ignore = "explicit real PG/private Queue padded maintenance preserves state and unopened receipts"]
+async fn padded_maintenance_preserves_jobs_bytes_and_unread_notifications() {
+	for command in ["--dispatch-videos", "--transcode-queue"] {
+		let v = Video::new(CLIP, "aufnahme", "video/mp4", false).await;
+		v.seed_job(0, 0).await;
+		sqlx::query(r#"UPDATE video_jobs SET "LastEnqueuedAt"=NULL WHERE "DateiId"=$1"#)
+			.bind(v.id)
+			.execute(&v.app.pool)
+			.await
+			.unwrap();
+		v.send().await;
+		let before = v.status().await;
+		assert!(
+			v.command(
+				command,
+				&[("Archive__MaintenanceMode", " \tTrUe\r\n".into())]
+			)
+			.output()
+			.await
+			.unwrap()
+			.status
+			.success()
+		);
+		assert_eq!(v.status().await, before);
+		let messages = v.queue.receive(2, 1).await.unwrap();
+		assert_eq!(messages.len(), 1);
+		assert_eq!(
+			messages[0].dequeue_count, 1,
+			"paused command must not read a receipt"
+		);
+		v.queue.delete(&messages[0]).await.unwrap();
+		assert_eq!(
+			v.storage
+				.read_header(&v.blob, CLIP.len())
+				.await
+				.unwrap()
+				.unwrap(),
+			CLIP
+		);
+		v.done().await;
 	}
 }
 

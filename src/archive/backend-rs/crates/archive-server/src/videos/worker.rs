@@ -40,7 +40,7 @@ pub(super) struct Worker {
 	pub storage: Arc<dyn Storage>,
 	pub clock: Arc<dyn Clock>,
 	pub options: Options,
-	pub maintenance: Arc<dyn Fn() -> bool + Send + Sync>,
+	pub maintenance: bool,
 	pub tasks: TaskTracker,
 	pub directory: PathBuf,
 }
@@ -147,7 +147,7 @@ impl Worker {
 		if self.clock.now() >= deadline {
 			return Ok(self.backoff(message));
 		}
-		if (self.maintenance)() {
+		if self.maintenance {
 			return Ok(Disposition::Abandon(self.options.queue.visibility_backoff));
 		}
 		let Some(datei) = queries::dateien(&self.pool, None, Some(id)).await?.pop() else {
