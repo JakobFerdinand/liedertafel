@@ -184,6 +184,43 @@ gates use checked child-closed/collector-drained three-signal captures and fresh
 terminal private replays per `tests/telemetry/README.md`. All inherited310 explicit
 PG/schema/grants/Blob/Queue/PDF gates and18native gates/replays remain required.
 
+## Validated implementation checkpoint (2026-11-16)
+
+Source/test pin `66048df24ae8ae1ef5747b6aae386817ee0611d8`. Fresh combined run
+`target/agent-218/evidence/233/full-20261116T153207Z` (workspace-external private
+evidence) completed all54 stages with no carried stages. This is implementation
+evidence, **not independent runtime acceptance, merge or cutover approval**.
+
+| Gate | Actual result |
+| --- | --- |
+| fmt / workspace all-targets clippy / locked build+examples / cargo-deny | exit0 |
+| Ordinary Rust | 135 harness passes, including **three absent-live runtime returns**;348 explicitly ignored gates are separate |
+| Explicit current PG/schema/adoption/grants/Blob/Queue/PDF/native-tool union | 348 passed (inherited310 + video38),0 failed/ignored |
+| Video ordinary / explicit | 9 probe +2 worker/defaults ordinary;6 API +9 lifetime +3 media +20 worker explicit |
+| Native journeys / fresh terminal private replays | 20 /20 exit0; all child-closed/collector-drained captures checked |
+| Telemetry detector / selected frozen .NET | 110 /192 passed |
+| Unchanged frontend unit / check / build / selected desktop+mobile browser | 115 /exit0 /exit0 /302 passed |
+
+`artifact-audit.json` and `terminal-review-audit.json` retain original run hashes,
+exact counts,20 final capture/replay hashes and147 byte-verified frontend source
+files. All43 interruption-corrupted ELF artifacts still match their preserved
+hashes. Default product SHA256 is
+`ee339c4a7a44b81d52632faa8dcaec4b15920b52257a432afc90179c5a03ed43`, with static
+OpenSSL3.5.9 and no dynamic libssl/libcrypto. Extra absent-env checks explicitly
+confirmed all three live evaluations skipped before provider construction; they
+are **not live evaluation passes**. The narrower guard-test Cargo invocation
+relinked a different target binary; a normal locked workspace build restored the
+exact actually-tested default-product hash, recorded separately in the audit.
+
+Prior interrupted/setup-failed runs remain incomplete/failures. The corrected
+external pg_dump wrapper forwards the test-selected user/database; isolated
+frontend frozen-lock modules leave shared229 modules untouched; the mock-browser
+Production host supplies only synthetic configuration and uses one locked
+Playwright installation. No product behavior, dependency version, frozen source
+or test was changed to repair those runner setups. Lost pre-interruption `/tmp`
+captures are not recovered or promoted by these fresh captures. R1's explicitly
+retained **failed** cleanup boundary and all limits below remain in force.
+
 ## Retained limits
 
 - **R1, explicit user decision 2026-11-16: retain parity.** An exited tool leader
