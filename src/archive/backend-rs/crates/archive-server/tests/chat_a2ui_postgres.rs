@@ -73,11 +73,44 @@ async fn current_jsonb_roundtrip_containment_and_fresh_visibility_recheck_rebuil
 		calls,
 		"GET/recheck never calls provider"
 	);
+	// Mixed stored replay, not model invocation: current visible ID survives;
+	// nonexistent, unsupported URL/Button, and duplicate-ID surfaces do not.
+	let mut mixed = Vec::new();
+	for (index,root) in [json!({"id":"root","component":"LiedKarte","liedId":first,"titel":"Gefälscht"}),json!({"id":"root","component":"LiedKarte","liedId":Uuid::new_v4(),"titel":"Geheime Probe"}),json!({"id":"root","component":"Button","label":"Klick","href":"https://boese.example"}),json!({"id":"root","component":"LiedKarte","liedId":first,"titel":"Gefälscht","href":"https://boese.example"})].into_iter().enumerate() {
+		let surface=format!("s{}",index+1);
+		mixed.push(json!({"version":"v0.9","createSurface":{"surfaceId":surface,"catalogId":"urn:liedertafel:archiv:a2ui:katalog:v1"}}));
+		mixed.push(json!({"version":"v0.9","updateComponents":{"surfaceId":surface,"components":[root]}}));
+	}
+	sqlx::query(r#"UPDATE chat_messages SET "A2uiJson"=$2 WHERE "Id"=$1"#)
+		.bind(id)
+		.bind(json!(mixed))
+		.execute(&app.pool)
+		.await
+		.unwrap();
+	let (_, history) = member.get(&format!("/api/chat/thread/{thread}")).await;
+	let answer = history["messages"]
+		.as_array()
+		.unwrap()
+		.iter()
+		.find(|m| m["role"] == "assistant")
+		.unwrap();
+	assert_eq!(answer["content"], "Text bleibt.");
+	assert_eq!(answer["a2ui"].as_array().unwrap().len(), 2);
+	assert_eq!(
+		answer["a2ui"][1]["updateComponents"]["components"][0]["titel"],
+		"Aktueller Titel"
+	);
+	for forbidden in ["boese.example", "Gefälscht", "Geheime Probe"] {
+		assert!(!history.to_string().contains(forbidden));
+	}
+	assert_eq!(harness.script.requests().len(), calls);
 	// Unreadable application shape is legitimate jsonb, never a whole-thread error.
 	for garbage in [
 		json!("not an array"),
 		json!({"garbage":true}),
 		json!([{"version":"unknown"}]),
+		json!([1, 2, 3]),
+		json!([null]),
 	] {
 		sqlx::query(r#"UPDATE chat_messages SET "A2uiJson"=$2 WHERE "Id"=$1"#)
 			.bind(id)

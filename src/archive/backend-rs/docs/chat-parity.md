@@ -82,6 +82,29 @@ recensor saved text or recreate citation chips. No basic/editor catalog exists.
 
 ## Frozen-file ownership
 
+### S1–S3 review remediation
+
+The live evaluation hard citation set is freshly queried member-visible Lieder,
+with folded labels; irrelevant valid citations remain soft, including page-two
+browse, draft-title echo and lyric/composer-token relevance offline controls.
+Each of the17 scripted runs snapshots ledger row IDs and requires exactly one
+fresh operation with positive input/output/cost and zero reservation. The final
+set must contain17 distinct operations; an evidence-deletion negative control
+demonstrates that an earlier positive row cannot mask a later missing row.
+
+Adapter assertions now include54 reverse-inserted titles and complete page lists,
+whitespace/page0 and Lied00, exact analyzed `Tenor 1 A♭ 44 Hosianna,`/dedup/null
+and trashed Noten exclusion;23 filtered titles/20 nonmatches across three turns,
+exact/disjoint citations and browse end-of-pages; GET no-store; two visible
+Programme entries with order and optional-note omission, missing/empty/trashed
+Auftritt guards. Stored replay mixes valid/nonexistent/Button/URL/duplicate cards
+and includes `[1,2,3]`/`[null]` garbage. Card-bearing foreign/anonymous/revoked GETs
+stay unobservable and do not call a provider. Statement triggers reject every
+chat/ledger save in the all-save-failure fixture, leaving usage/messages/threads
+empty. The independent locked unchanged frontend parser validates all4 actual
+HTTP-built components, with an extra-property negative control per component
+(`chat-a2ui-parse.cjs`, invoked by `chat_a2ui_api`); this is not4 new UI journeys.
+
 Paths below are `tests/archive/backend/*.cs`; Rust siblings are under
 `crates/archive-server/tests`. Grouped tests/table rows are not extra functions.
 An ownership row is not by itself an executed assertion-equivalence claim.

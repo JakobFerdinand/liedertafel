@@ -321,3 +321,93 @@ async fn four_catalog_components_bound_deduplicate_and_hide_trashed_programme_en
 	assert!(harness.origin.drain_readings().await);
 	app.close().await;
 }
+
+#[tokio::test]
+#[ignore = "dedicated local PostgreSQL and locked unchanged frontend parser"]
+async fn two_visible_programme_entries_keep_order_optional_notes_and_all_four_strict_schemas() {
+	let mut app = App::new_scoped("chat232_programme_order").await;
+	let first = lied(&app, "Erstes Lied", json!({})).await;
+	let second = lied(&app, "Zweites Lied", json!({})).await;
+	let event = support::catalogue::event(&app).await;
+	let empty = support::catalogue::event(&app).await;
+	let mut other = app.admin().await;
+	assert_eq!(
+		other
+			.request(
+				"PUT",
+				&format!("/api/events/{event}/programme/items"),
+				json!({"items":[{"liedId":second,"note":" Erster Punkt "},{"liedId":first}]})
+			)
+			.await
+			.0,
+		200
+	);
+	let harness = install(
+		&mut app,
+		Script::new(vec![
+			vec![tool(
+				"zeige_oberflaeche",
+				json!({"komponenten":[{"komponente":"LiedKarte","liedId":first},{"komponente":"AuftrittKarte","auftrittId":event},{"komponente":"Quellen","liedIds":[first,second]},{"komponente":"ProgrammListe","auftrittId":event}]}),
+			)],
+			vec![ScriptStep::Update(Update::text("Gespeicherte Karten."))],
+		]),
+	);
+	other.router = app.router.clone();
+	let mut member = app.member().await;
+	let thread = uuid::Uuid::new_v4().to_string();
+	let events = run(&mut member, &thread, "Karten").await;
+	let cards = &events.iter().find(|e| e["name"] == "archive.a2ui").unwrap()["value"];
+	assert_eq!(
+		cards[7]["updateComponents"]["components"][0]["punkte"],
+		json!([{"position":1,"liedId":second,"titel":"Zweites Lied","notiz":"Erster Punkt"},{"position":2,"liedId":first,"titel":"Erstes Lied"}])
+	);
+	// Validate the real server output, not a hand-built fixture, with the exact
+	// unchanged frontend parser and its locked Zod dependency.
+	use std::{
+		io::Write,
+		process::{Command, Stdio},
+	};
+	let mut child = Command::new("node")
+		.current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+		.arg("tests/browser/chat-a2ui-parse.cjs")
+		.stdin(Stdio::piped())
+		.spawn()
+		.unwrap();
+	child
+		.stdin
+		.take()
+		.unwrap()
+		.write_all(cards.to_string().as_bytes())
+		.unwrap();
+	assert!(child.wait().unwrap().success());
+	let route = format!("/api/chat/thread/{thread}");
+	assert_eq!(other.get(&route).await.0, 404);
+	let mut anonymous = app.client();
+	assert_eq!(anonymous.get(&route).await.0, 401);
+	let (status, headers, _) = member.wire("GET", &route, "").await;
+	assert_eq!(status, 200);
+	assert_eq!(headers["cache-control"], "no-store");
+	let calls = harness.script.requests().len();
+	sqlx::query(r#"UPDATE "AspNetUsers" SET "LockoutEnd"=now()+interval '1 day',"LockoutEnabled"=true WHERE "NormalizedEmail"='MITGLIED@LIEDERTAFEL.TEST'"#).execute(&app.pool).await.unwrap();
+	assert_eq!(member.get(&route).await.0, 401);
+	assert_eq!(harness.script.requests().len(), calls);
+	assert!(harness.origin.drain_readings().await);
+	// The independent parent guards must reject empty/missing and trashed event,
+	// even though its saved programme still contains visible Lieder.
+	sqlx::query(r#"UPDATE events SET "DeletedAt"=now() WHERE "Id"=$1"#)
+		.bind(event)
+		.execute(&app.pool)
+		.await
+		.unwrap();
+	let requests = json!({"komponenten":[{"komponente":"ProgrammListe","auftrittId":event},{"komponente":"AuftrittKarte","auftrittId":event},{"komponente":"ProgrammListe","auftrittId":empty},{"komponente":"ProgrammListe","auftrittId":uuid::Uuid::new_v4()}]});
+	let harness = install(
+		&mut app,
+		Script::new(vec![vec![tool("zeige_oberflaeche", requests)], vec![]]),
+	);
+	other.router = app.router.clone();
+	let events = run(&mut other, "", "Nicht sichtbare Programme").await;
+	assert_eq!(events.last().unwrap()["type"], "RUN_FINISHED");
+	assert!(!events.iter().any(|e| e["name"] == "archive.a2ui"));
+	assert!(harness.origin.drain_readings().await);
+	app.close().await;
+}

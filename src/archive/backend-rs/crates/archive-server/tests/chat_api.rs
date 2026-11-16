@@ -40,24 +40,42 @@ async fn filtered_catalogue_continuation_keeps_original_query_from_saved_history
 	use support::{catalogue::lied, chat::*};
 	let mut app = App::new_scoped("chat232_filtered").await;
 	let harness = install(&mut app, archive_server::reading::scripted_scan_reader());
-	for i in 0..12 {
+	for i in 0..23 {
+		lied(&app, &format!("Lied {i:02}"), json!({"composer":"Silcher"})).await;
+	}
+	for i in 0..20 {
 		lied(
 			&app,
-			&format!("Silcher-Lied {i:02}"),
-			json!({"composer":"Silcher"}),
+			&format!("Fremd {i:02}"),
+			json!({"composer":"Schubert"}),
 		)
 		.await;
 	}
-	lied(&app, "Fremder Treffer", json!({"composer":"Schubert"})).await;
 	let mut member = app.member().await;
 	let thread = uuid::Uuid::new_v4().to_string();
-	let first = run(&mut member, &thread, "Silcher").await;
-	assert!(text(&first).contains("Soll ich Seite 2 zeigen?"));
-	let second = run(&mut member, &thread, "Zeige weitere Lieder").await;
-	let answer = text(&second);
-	assert!(answer.contains("Silcher-Lied 10"));
-	assert!(answer.contains("Silcher-Lied 11"));
-	assert!(!answer.contains("Fremder Treffer"));
+	let mut seen = std::collections::HashSet::new();
+	for (question, count) in [
+		("Silcher", 10),
+		("weitere Lieder", 10),
+		("nächste Seite", 3),
+	] {
+		let events = run(&mut member, &thread, question).await;
+		assert_eq!(events.last().unwrap()["type"], "RUN_FINISHED");
+		let answer = text(&events);
+		assert!(answer.contains("insgesamt 23"));
+		assert!(!answer.contains("Fremd"));
+		let ids: Vec<_> = events
+			.iter()
+			.filter(|e| e["name"] == "archive.citations")
+			.flat_map(|e| e["value"].as_array().unwrap())
+			.map(|c| c["id"].as_str().unwrap())
+			.collect();
+		assert_eq!(ids.len(), count);
+		for id in ids {
+			assert!(seen.insert(id.to_owned()), "no repeated continuation ID");
+		}
+	}
+	assert_eq!(seen.len(), 23);
 	let requests = harness.script.requests();
 	let archive_server::ai::Content::FunctionCall { arguments, .. } = &requests[3]
 		.messages
@@ -197,6 +215,32 @@ async fn unpriced_model_and_unwritable_real_ledger_fail_closed_before_provider_w
 		assert!(harness.origin.drain_readings().await);
 		app.close().await;
 	}
+}
+
+#[tokio::test]
+#[ignore = "dedicated local PostgreSQL; all chat and ledger writes fail"]
+async fn every_save_failure_keeps_provider_usage_history_and_threads_empty() {
+	use support::chat::*;
+	let mut app = App::new_scoped("chat232_all_save_fail").await;
+	let harness = install(
+		&mut app,
+		Script::new(vec![vec![ScriptStep::Update(Update::text("Must not run"))]]),
+	);
+	let mut member = app.member().await;
+	sqlx::raw_sql("CREATE FUNCTION refuse_all_chat_saves() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic all saves failure'; END $$; CREATE TRIGGER fail_save BEFORE INSERT OR UPDATE OR DELETE ON ai_budget_months FOR EACH STATEMENT EXECUTE FUNCTION refuse_all_chat_saves(); CREATE TRIGGER fail_save BEFORE INSERT OR UPDATE OR DELETE ON ai_usage_entries FOR EACH STATEMENT EXECUTE FUNCTION refuse_all_chat_saves(); CREATE TRIGGER fail_save BEFORE INSERT OR UPDATE OR DELETE ON chat_threads FOR EACH STATEMENT EXECUTE FUNCTION refuse_all_chat_saves(); CREATE TRIGGER fail_save BEFORE INSERT OR UPDATE OR DELETE ON chat_messages FOR EACH STATEMENT EXECUTE FUNCTION refuse_all_chat_saves();").execute(&app.pool).await.unwrap();
+	let thread = uuid::Uuid::new_v4();
+	let events = run(&mut member, &thread.to_string(), "Die Waldfahrt").await;
+	assert_eq!(events.last().unwrap()["type"], "RUN_ERROR");
+	assert!(!events.iter().any(|e| e["type"] == "RUN_FINISHED"));
+	assert!(harness.script.requests().is_empty());
+	let counts:(i64,i64,i64)=sqlx::query_as("SELECT (SELECT count(*) FROM ai_usage_entries),(SELECT count(*) FROM chat_threads),(SELECT count(*) FROM chat_messages)").fetch_one(&app.pool).await.unwrap();
+	assert_eq!(counts, (0, 0, 0));
+	assert_eq!(
+		member.get(&format!("/api/chat/thread/{thread}")).await.0,
+		404
+	);
+	assert!(harness.origin.drain_readings().await);
+	app.close().await;
 }
 
 #[tokio::test]
@@ -469,7 +513,12 @@ async fn successful_run_streams_strict_events_saves_authoritative_text_and_accou
 	assert_eq!(events.last().unwrap()["type"], "RUN_FINISHED");
 	assert_eq!(text(&events), "Eine deutsche Antwort.");
 	assert_eq!(events.last().unwrap()["usage"][0]["inputTokens"], 12);
-	let (_, restored) = member.get(&format!("/api/chat/thread/{thread}")).await;
+	let (status, headers, bytes) = member
+		.wire("GET", &format!("/api/chat/thread/{thread}"), "")
+		.await;
+	assert_eq!(status, 200);
+	assert_eq!(headers["cache-control"], "no-store");
+	let restored: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
 	let turns = restored["messages"].as_array().unwrap();
 	assert_eq!(turns.len(), 2);
 	assert!(
@@ -608,6 +657,22 @@ async fn default_scripted_delivery_browses_and_continues_using_server_history() 
 	assert!(text(&next).contains("Lied 10"));
 	assert!(text(&next).contains("Lied 11"));
 	assert!(!text(&next).contains("Lied 00"));
+	assert!(!text(&next).contains("Soll ich Seite"));
+	let first_ids: Vec<_> = first
+		.iter()
+		.filter(|e| e["name"] == "archive.citations")
+		.flat_map(|e| e["value"].as_array().unwrap())
+		.map(|c| c["id"].clone())
+		.collect();
+	let next_ids: Vec<_> = next
+		.iter()
+		.filter(|e| e["name"] == "archive.citations")
+		.flat_map(|e| e["value"].as_array().unwrap())
+		.map(|c| c["id"].clone())
+		.collect();
+	assert_eq!(first_ids.len(), 10);
+	assert_eq!(next_ids.len(), 2);
+	assert!(next_ids.iter().all(|id| !first_ids.contains(id)));
 	assert_eq!(harness.script.requests().len(), 4);
 	assert!(harness.origin.drain_readings().await);
 	app.close().await;

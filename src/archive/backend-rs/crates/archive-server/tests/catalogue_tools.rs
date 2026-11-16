@@ -13,7 +13,7 @@ async fn details_include_live_completed_cleaned_score_facts_bounded_deduplicated
 		text(
 			&app,
 			file,
-			"Tenor I\nG-Dur\nMusik: Silcher\nDie Sänger wandern im Wald",
+			"Tenor 1 A♭\n44 .å\nHo -\nåê\nsi -\nå\nan -\nå\nna,",
 			2,
 			0,
 		)
@@ -21,6 +21,13 @@ async fn details_include_live_completed_cleaned_score_facts_bounded_deduplicated
 	}
 	let other = datei(&app, id, false, "sonstiges", "application/pdf").await;
 	text(&app, other, "PRIVATE_FREMDE_NOTIZ", 2, 0).await;
+	let trashed = datei(&app, id, false, "noten", "application/pdf").await;
+	text(&app, trashed, "veraltet", 2, 0).await;
+	sqlx::query(r#"UPDATE dateien SET "DeletedAt"=now() WHERE "Id"=$1"#)
+		.bind(trashed)
+		.execute(&app.pool)
+		.await
+		.unwrap();
 	let value = invoke(&mut app, "lied_details", json!({"liedId":id})).await;
 	assert_eq!(value["lieder"][0]["title"], "Waldfahrt");
 	assert_eq!(value["besetzung"], "TTBB");
@@ -34,11 +41,16 @@ async fn details_include_live_completed_cleaned_score_facts_bounded_deduplicated
 		notes.iter().filter(|v| v["notenText"].is_string()).count(),
 		1
 	);
-	assert!(
+	assert!(notes.iter().all(|v| v["notenFakten"]["musicalKey"] == "A♭"));
+	assert_eq!(
 		notes
 			.iter()
-			.all(|v| v["notenFakten"]["musicalKey"] == "G-Dur")
+			.filter(|v| v["notenText"] == "Tenor 1 A♭ 44 Hosianna,")
+			.count(),
+		1
 	);
+	assert_eq!(notes.iter().filter(|v| v["notenText"].is_null()).count(), 1);
+	assert!(!value.to_string().contains("veraltet"));
 	assert!(!value.to_string().contains("PRIVATE_FREMDE_NOTIZ"));
 	assert!(!value.to_string().contains("BlobName"));
 	app.close().await;
@@ -103,7 +115,7 @@ async fn history_separates_planned_from_sung_keeps_honest_dates_and_published_ti
 #[ignore = "dedicated local PostgreSQL"]
 async fn actual_search_adapter_pages_counts_clamps_limits_narrows_and_handles_past_end() {
 	let mut app = App::new_scoped("chat232_tool_pages").await;
-	for i in 0..54 {
+	for i in (0..54).rev() {
 		lied(&app, &format!("Lied {i:02}"), json!({})).await;
 	}
 	for (page, expected, count, more, next, limit) in [
@@ -115,7 +127,7 @@ async fn actual_search_adapter_pages_counts_clamps_limits_narrows_and_handles_pa
 		let value = invoke(
 			&mut app,
 			"catalogue_search",
-			json!({"query":"","page":page}),
+			json!({"query":if page==0 {"  \t "} else {""},"page":page}),
 		)
 		.await;
 		assert_eq!(value["totalCount"], 54);
@@ -124,9 +136,17 @@ async fn actual_search_adapter_pages_counts_clamps_limits_narrows_and_handles_pa
 		assert_eq!(value["hasMore"], more);
 		assert_eq!(value["nextPage"], json!(next));
 		assert_eq!(value["limitReached"], limit);
+		assert_eq!(value["pageSize"], 10);
 		assert_eq!(
-			value["lieder"][0]["title"],
-			format!("Lied {:02}", (expected - 1) * 10)
+			value["lieder"]
+				.as_array()
+				.unwrap()
+				.iter()
+				.map(|l| l["title"].as_str().unwrap().to_owned())
+				.collect::<Vec<_>>(),
+			((expected - 1) * 10..expected * 10)
+				.map(|i| format!("Lied {i:02}"))
+				.collect::<Vec<_>>()
 		);
 	}
 	let maximum = invoke(
@@ -157,6 +177,21 @@ async fn actual_search_adapter_pages_counts_clamps_limits_narrows_and_handles_pa
 	assert_eq!(end["totalCount"], 1);
 	assert_eq!(end["lieder"], json!([]));
 	assert_eq!(end["limitReached"], false);
+	let first00 = invoke(
+		&mut app,
+		"catalogue_search",
+		json!({"query":"Lied 00","page":1}),
+	)
+	.await;
+	assert_eq!(
+		first00["lieder"]
+			.as_array()
+			.unwrap()
+			.iter()
+			.map(|l| l["title"].as_str().unwrap())
+			.collect::<Vec<_>>(),
+		vec!["Lied 00"]
+	);
 	app.close().await;
 }
 

@@ -126,6 +126,8 @@ update this section in the same PR whenever the member list changes.
   `chat-http-native` example. Pinned raw request grammar and first-SQL ownership:
   `node tests/browser/chat-binding-native.cjs` (`chat_binding` is its focused PG
   sibling). Live evaluation keeps its ordinary absent-env gate;
+  `chat_a2ui_api` also invokes `tests/browser/chat-a2ui-parse.cjs` over actual
+  HTTP component output (needs `ARCHIVE_STATIC_ROOT`'s unchanged locked client).
   the single foreign-model probe has an offline-only disposition, not spending
   authorization. Current jsonb SQL and historical head equivalent are separate.
 
