@@ -4,6 +4,84 @@ use archive_server::ai::{Script, ScriptStep, Update};
 use serde_json::json;
 use support::{App, catalogue::lied, chat::*};
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "dedicated local PostgreSQL; controlled SQL edit between surface calls"]
+async fn quellen_identity_is_the_resolved_id_sequence_not_mutable_server_labels() {
+	use std::sync::{
+		Arc,
+		atomic::{AtomicUsize, Ordering},
+	};
+	let mut app = App::new_scoped("chat232_quellen_identity").await;
+	let first = lied(
+		&app,
+		"Originaler Titel",
+		json!({"composer":"Originaler Komponist"}),
+	)
+	.await;
+	let second = lied(&app, "Zweiter Titel", json!({})).await;
+	let reached = Arc::new(tokio::sync::Notify::new());
+	let notice = reached.clone();
+	let release = Arc::new(tokio::sync::Notify::new());
+	let wait = release.clone();
+	let step = AtomicUsize::new(0);
+	let harness = install(
+		&mut app,
+		Script::handler(move |_| match step.fetch_add(1, Ordering::SeqCst) {
+			0 => vec![tool(
+				"zeige_oberflaeche",
+				json!({"komponenten":[{"komponente":"Quellen","liedIds":[first,first,second]}]}),
+			)],
+			1 => {
+				notice.notify_one();
+				vec![
+					ScriptStep::Wait(wait.clone()),
+					tool(
+						"zeige_oberflaeche",
+						json!({"komponenten":[{"komponente":"Quellen","liedIds":[first,second]}]}),
+					),
+				]
+			}
+			_ => vec![ScriptStep::Update(Update::text("Karten fertig."))],
+		}),
+	);
+	let mut member = app.member().await;
+	let pending = tokio::spawn(async move { run(&mut member, "", "Quellen").await });
+	tokio::time::timeout(std::time::Duration::from_secs(10), reached.notified())
+		.await
+		.unwrap();
+	sqlx::query(
+		r#"UPDATE lieder SET "Title"='Geänderter Titel',"Composer"='Geänderter Komponist' WHERE "Id"=$1"#,
+	)
+	.bind(first)
+	.execute(&app.pool)
+	.await
+	.unwrap();
+	release.notify_one();
+	let events = pending.await.unwrap();
+	let cards = &events.iter().find(|e| e["name"] == "archive.a2ui").unwrap()["value"];
+	assert_eq!(
+		cards.as_array().unwrap().len(),
+		2,
+		"one Quellen surface despite the controlled label/composer change"
+	);
+	assert_eq!(
+		cards[1]["updateComponents"]["components"][0]["quellen"][0]["titel"],
+		"Originaler Titel"
+	);
+	let requests = harness.script.requests();
+	assert_eq!(requests.len(), 3);
+	let archive_server::ai::Content::FunctionResult { result, .. } =
+		&requests[2].messages.last().unwrap().contents[0]
+	else {
+		unreachable!()
+	};
+	let result: serde_json::Value = serde_json::from_str(result.raw()).unwrap();
+	assert_eq!(result["angezeigt"], json!([]));
+	assert_eq!(result["verworfen"], 1);
+	assert!(harness.origin.drain_readings().await);
+	app.close().await;
+}
+
 #[tokio::test]
 #[ignore = "dedicated local PostgreSQL; actual frozen HTTP teaser oracle"]
 async fn teaser_includes_the_word_ending_at_the_space_at_utf16_index159() {

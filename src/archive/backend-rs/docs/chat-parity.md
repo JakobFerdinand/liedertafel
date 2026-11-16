@@ -98,6 +98,11 @@ retrieval, as in frozen ShowAsync: this is not a retrieved-ID allowlist. GET
 rechecks current visibility and ignores stored display properties/URLs, drops
 malformed cards without failing text, and never calls the provider. It does not
 recensor saved text or recreate citation chips. No basic/editor catalog exists.
+S6 keys Quellen by its resolved canonical Lied-ID sequence, not mutable titles
+or composers. The HTTP regression pauses delivery between two surface calls,
+edits both fields in real SQL outside the provider, then releases delivery and
+requires one surface plus one dropped duplicate. Its delivery-only async barrier
+changes no Gateway/ACK/reservation/shutdown policy.
 
 ## Frozen-file ownership
 

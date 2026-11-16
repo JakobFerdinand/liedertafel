@@ -21,9 +21,18 @@ impl Surfaces {
 		(!self.messages.is_empty()).then(|| json!(self.messages))
 	}
 	fn add(&mut self, props: Value) -> bool {
+		let source_ids: Vec<_> = props["quellen"]
+			.as_array()
+			.into_iter()
+			.flatten()
+			.map(|source| &source["liedId"])
+			.collect();
 		let key = format!(
 			"{}|{}|{}|{}",
-			props["component"], props["liedId"], props["auftrittId"], props["quellen"]
+			props["component"],
+			props["liedId"],
+			props["auftrittId"],
+			json!(source_ids)
 		);
 		if self.messages.len() >= 8 || !self.keys.insert(key) {
 			return false;
