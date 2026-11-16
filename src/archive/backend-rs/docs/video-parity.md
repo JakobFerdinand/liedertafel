@@ -70,10 +70,12 @@ Frozen backend/tests/frontend/infra/workflows/product Dockerfile stay unchanged.
 
 `ffprobe`/`ffmpeg` use native argv, never a shell. Both output pipes drain
 concurrently; tool output/paths/provider payloads are not telemetry. An owned
-supervisor survives a dropped handler future, kills actual descendants and the
-dedicated process group, then waits/reaps before command completion. Linux uses
-`/proc` and fixed `/bin/kill` argv for safe tree signalling without adding a
-Cargo dependency/unsafe code. This is Linux-native evidence, not Windows parity.
+supervisor survives a dropped handler future, signals currently discoverable
+descendants and the dedicated process group, waits for its immediate child and
+closes its owned pipes before command completion. Linux uses `/proc` and fixed
+`/bin/kill` argv without adding a Cargo dependency/unsafe code. This is not an
+unconditional descendant-containment or descendant-reaping guarantee; see R1
+below. Ordinary waiting/same-group deadline and SIGTERM controls remain required.
 
 ENOENT for either tool produces the exact frozen terminal German reason:
 
@@ -126,6 +128,7 @@ Rust paths are `crates/archive-server/tests/` unless stated otherwise.
 | Additional public HTTP/current SQL boundaries | `video_api`: owner finalize/outbox/status/retry, selected-version quiet stamps/send count, rollback and concurrent finalize; `video_lifetime`: actual process tree/deadline/SIGTERM/lease/late winner/editor slot; `video_media`: actual square/rotation/decode/length/missing Blob |
 | FiniteJobsTests/TelemetryTests video members | `video_worker` + `tests/browser/{video,video-process}-native.cjs`; complete remaining command matrix234 and authenticated HTTP/protobuf export235 remain distinct |
 | AppHost playable video fact | Native unchangedUI/normalCLI/private QueueBlob here; actual image/AppHost remains235 |
+| R1 exited-leader/escaped-helper | User-approved **shared retained failure**; independent unchanged frozen-class versus unchanged Rust-module differential below, not a passing product containment gate |
 
 Assertion follow-up (C1): `video_worker` independently discriminates message
 dequeue4 from durable attempt2 with MaxAttempts4 (removing only the dequeue arm
@@ -176,6 +179,33 @@ PG/schema/grants/Blob/Queue/PDF gates and18native gates/replays remain required.
 
 ## Retained limits
 
+- **R1, explicit user decision 2026-11-16: retain parity.** An exited tool leader
+  can leave a live helper which escaped into another session/process group.
+  Later `/proc` ancestry snapshots and the old leader's process group cannot find
+  that helper. Both the entire unchanged frozen `FfmpegVideoTranscoder` public
+  `InspectAsync` on .NET10.0.12 and the unchanged Rust process module with exact
+  locked dependencies actually returned while this helper remained live, including
+  after host exit (three repetitions each, token cancellation and Rust dropped
+  caller/tracker drain). This is a **failed cleanup boundary**, not containment
+  success or a new guarantee. No process hardening/dependency/unsafe/infra change
+  is authorized by this disposition.
+  Independent provenance, exact observations and reproduction commands are in
+  `/home/jakob/private/liedertafel-218-agent-notes/evidence/R1-differential.md`, with
+  external hosts/driver under its adjacent `R1-differential-scratch/`.
+  `python3 run.py --repeats 1 --require-contained` actually exited1; final red
+  `runs/run-5b390824c3dc4f05b4bcb1dd6ebd59b9/results.json` is retained.
+  `python3 run.py --repeats 3` exited0 only for **shared-failure classification**
+  (`runs/run-21eaba0dab6749819af457a2e8b07cb1/results.json`), never a containment
+  pass. Original/preliminary failed observations remain, including a frozen
+  waiting-control zombie/open readers and an earlier Rust waiting-control zombie.
+  In the final waiting controls Rust helpers were gone and its pipe readers
+  closed; frozen helpers were nonlive zombies with readers still open at return.
+  The driver's subreaper was only for its own post-observation cleanup: every
+  known synthetic PID was killed/reaped afterward. These are Linux synthetic
+  class/module observations, **not full product, real ffmpeg, OTLP or image**
+  results. Actual product ordinary tree/pipe/deadline/SIGTERM/drop-tracker native
+  tests and checked private replays are still required; no old failure is erased
+  and no full cleanup claim is inferred from their narrower passing controls.
 - video_jobs original/playback Restrict FKs remain unchanged. Permanent removal
   keeps the known23503/non-success500/no-byte-deletion refusal, **not successful
   video cleanup**. No cascade/job deletion/schema change is introduced.
