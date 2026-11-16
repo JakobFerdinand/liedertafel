@@ -54,7 +54,9 @@ async fn recorded_seventeen_case_taxonomy_preserves_grounding_cards_unknowns_and
 	let harness = install(&mut app, archive_server::reading::scripted_scan_reader());
 	let mut member = app.member().await;
 	let lieder = seed(&app, &corpus).await;
+	let mut operations = std::collections::HashSet::new();
 	for case in corpus["cases"].as_array().unwrap() {
+		let before = usage_ids(&app).await;
 		let question = case[0].as_str().unwrap();
 		let category = case[1].as_str().unwrap();
 		let expected = case[2].as_str();
@@ -179,22 +181,56 @@ async fn recorded_seventeen_case_taxonomy_preserves_grounding_cards_unknowns_and
 			}
 			_ => {}
 		}
-		let (cost, input, output): (i64, i64, i64) = sqlx::query_as(
-			r#"SELECT min("CostMicroEur"),min("InputTokens"),min("OutputTokens") FROM ai_usage_entries"#,
-		)
-		.fetch_one(&app.pool)
-		.await
-		.unwrap();
-		assert!(cost > 0 && input > 0 && output > 0);
-		let reserved: i64 = sqlx::query_scalar(
-			r#"SELECT COALESCE(sum("ReservedMicroEur"),0)::bigint FROM ai_usage_entries"#,
-		)
-		.fetch_one(&app.pool)
-		.await
-		.unwrap();
-		assert_eq!(reserved, 0);
+		let operation = fresh_settled_usage(&app, &before).await.unwrap();
+		assert!(
+			operations.insert(operation),
+			"{category}: distinct operation"
+		);
 		println!("EVAL passed-{category}; positive settled synthetic cost");
 	}
+	assert_eq!(operations.len(), 17);
+	assert!(harness.origin.drain_readings().await);
+	app.close().await;
+}
+
+async fn usage_ids(app: &App) -> Vec<Uuid> {
+	sqlx::query_scalar(r#"SELECT "Id" FROM ai_usage_entries"#)
+		.fetch_all(&app.pool)
+		.await
+		.unwrap()
+}
+
+async fn fresh_settled_usage(app: &App, before: &[Uuid]) -> Result<Uuid, &'static str> {
+	let rows:Vec<(Uuid,i64,i64,i64,i64)>=sqlx::query_as(r#"SELECT "OperationId","CostMicroEur","InputTokens","OutputTokens","ReservedMicroEur" FROM ai_usage_entries WHERE NOT ("Id"=ANY($1))"#).bind(before).fetch_all(&app.pool).await.unwrap();
+	let [(operation, cost, input, output, reserved)] = rows.as_slice() else {
+		return Err("exactly one fresh operation row required");
+	};
+	if *cost <= 0 || *input <= 0 || *output <= 0 || *reserved != 0 {
+		return Err("positive settled cost required for this run");
+	}
+	Ok(*operation)
+}
+
+#[tokio::test]
+#[ignore = "dedicated local PostgreSQL; evidence-gap negative control"]
+async fn earlier_positive_usage_cannot_mask_a_missing_later_http_run_row() {
+	let mut app = App::new_scoped("chat232_eval_gap").await;
+	let harness = install(&mut app, archive_server::reading::scripted_scan_reader());
+	let mut member = app.member().await;
+	run(&mut member, "", "Wie wird das Wetter morgen?").await;
+	let before = usage_ids(&app).await;
+	run(&mut member, "", "Wie wird das Wetter morgen?").await;
+	// Evidence mutation, not a claim that Gateway loses rows: preserve the first
+	// positive answer while deliberately removing only the later answer's row.
+	sqlx::query(r#"DELETE FROM ai_usage_entries WHERE NOT ("Id"=ANY($1))"#)
+		.bind(&before)
+		.execute(&app.pool)
+		.await
+		.unwrap();
+	assert!(
+		fresh_settled_usage(&app, &before).await.is_err(),
+		"earlier positive evidence must not stand in for this run"
+	);
 	assert!(harness.origin.drain_readings().await);
 	app.close().await;
 }
