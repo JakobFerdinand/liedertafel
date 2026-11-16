@@ -5,6 +5,58 @@ use std::sync::Arc;
 use support::{App, storage::FakeStorage, upload};
 
 #[tokio::test]
+#[ignore = "explicit current PostgreSQL/authenticated HTTP stored enum fallback gate"]
+async fn unknown_stored_video_status_retains_the_frozen_numeric_payload() {
+	use support::catalogue::{datei, lied};
+	let app = App::new().await;
+	let owner = lied(&app, "Stored video enum", json!({})).await;
+	let id = datei(&app, owner, false, "aufnahme", "video/mp4").await;
+	let mut editor = app.admin().await;
+	assert_eq!(
+		editor
+			.post(&format!("/api/dateien/{id}/video/retry"), json!({}))
+			.await
+			.0,
+		200
+	);
+	let mut failures = Vec::new();
+	// Literal frozen VideoEndpoints.ToStatusString cases. Unknown values use
+	// the signed integer Enum.ToString(), never the Failed name or a number token.
+	for (stored, expected) in [
+		(0, "queued"),
+		(1, "running"),
+		(2, "completed"),
+		(3, "notNeeded"),
+		(4, "failed"),
+		(-1, "-1"),
+		(5, "5"),
+		(i32::MIN, "-2147483648"),
+		(i32::MAX, "2147483647"),
+	] {
+		sqlx::query(r#"UPDATE video_jobs SET "Status"=$2 WHERE "DateiId"=$1"#)
+			.bind(id)
+			.bind(stored)
+			.execute(&app.pool)
+			.await
+			.unwrap();
+		let (status, body) = editor.get(&format!("/api/dateien/videos?ids={id}")).await;
+		assert_eq!(status, 200, "{body}");
+		let item = &body["results"][0];
+		assert_eq!(item["dateiId"], id.to_string());
+		assert_eq!(item["rowVersion"], 0);
+		assert_eq!(item["attemptCount"], 0);
+		if item["status"] != expected {
+			failures.push((stored, item["status"].clone(), expected));
+		}
+	}
+	app.close().await;
+	assert!(
+		failures.is_empty(),
+		"frozen literal HTTP status mismatches: {failures:?}"
+	);
+}
+
+#[tokio::test]
 #[ignore = "explicit disposable PostgreSQL gate"]
 async fn finalized_video_outbox_and_editor_status_are_real_and_idempotent() {
 	let mut app = App::new().await;

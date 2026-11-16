@@ -37,6 +37,11 @@ Frozen backend/tests/frontend/infra/workflows/product Dockerfile stay unchanged.
   canonical parent-aware visibility/current membership/CSRF/no-store; bounded
   insert-race recovery, freshRunning409, terminal idempotence and failed/stale
   reset preserve the frozen state matrix.
+- Unknown stored integer statuses retain the frozen numeric-string payload
+  (`Enum.ToString` fallback), rather than being mislabeled `failed`. The current
+  schema has no status CHECK. `video_api::unknown_stored_video_status_retains_the_frozen_numeric_payload`
+  exercises actual authenticated HTTP/current SQL for0–4 and four unknown signed
+  values; all four unknowns failed first, while the normal five labels matched.
 
 ## Native bytes and publication
 

@@ -43,7 +43,15 @@ impl Job {
 		matches!(self.status, 2..=4)
 	}
 	pub fn payload(&self) -> serde_json::Value {
-		serde_json::json!({"dateiId":self.datei_id,"status":match self.status{0=>"queued",1=>"running",2=>"completed",3=>"notNeeded",_=>"failed"},"playbackDateiId":self.playback_datei_id,"failureReason":self.failure_reason,"attemptCount":self.attempt_count,"completedAt":self.completed_at,"lastAttemptAt":self.last_attempt_at,"lastEnqueuedAt":self.last_enqueued_at,"updatedAt":self.updated_at,"rowVersion":self.row_version})
+		let status = match self.status {
+			0 => "queued".into(),
+			1 => "running".into(),
+			2 => "completed".into(),
+			3 => "notNeeded".into(),
+			4 => "failed".into(),
+			value => value.to_string(),
+		};
+		serde_json::json!({"dateiId":self.datei_id,"status":status,"playbackDateiId":self.playback_datei_id,"failureReason":self.failure_reason,"attemptCount":self.attempt_count,"completedAt":self.completed_at,"lastAttemptAt":self.last_attempt_at,"lastEnqueuedAt":self.last_enqueued_at,"updatedAt":self.updated_at,"rowVersion":self.row_version})
 	}
 }
 pub(crate) async fn insert(
