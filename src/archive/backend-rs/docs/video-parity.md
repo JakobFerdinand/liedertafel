@@ -31,6 +31,14 @@ Frozen backend/tests/frontend/infra/workflows/product Dockerfile stay unchanged.
   return the row to Queued before receipt backoff. Parent cancellation leaves
   its counted Running lease recoverable; deadline recovery uses a surviving
   parent, not the expired processing token.
+- An expired message that never took a counted lease abandons immediately,
+  without reloading a job or acknowledging a concurrent terminal row.
+  `video_lifetime::preclaim_deadline_abandons_even_when_a_concurrent_writer_finishes_the_row`
+  first reproduced actual receipt deletion through a blocked pre-claim SQL read;
+  queued/missing-row and ordinary-terminal-delete controls distinguish it from
+  row mutation or a generic timeout. A second real SQL lock gate proves receipt
+  release does not depend on job-recovery SQL becoming available. Claimed native
+  deadline recovery retains its separate existing tests.
 - Editor `GET /api/dateien/videos?ids=…` retains CLR Guid parsing, dedup/request
   order, max100, skipped unknowns, explicit REST nulls and own-Datei-deletion
   filtering (a trashed parent is intentionally not filtered here). Retry uses

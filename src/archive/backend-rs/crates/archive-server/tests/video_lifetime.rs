@@ -1,11 +1,187 @@
 #![allow(clippy::unwrap_used)] // Actual descendant/process/SQL assertions.
 mod support;
+use archive_server::queue::Queue;
 use std::{
 	path::{Path, PathBuf},
 	time::Duration,
 };
 use support::videos::{CLIP, Video};
 use uuid::Uuid;
+
+#[tokio::test]
+#[ignore = "explicit product CLI/private Queue/real PG pre-claim deadline disposition gate"]
+async fn preclaim_deadline_abandons_even_when_a_concurrent_writer_finishes_the_row() {
+	let mut failures = Vec::new();
+	for (name, missing, concurrent_terminal) in [
+		("terminal", false, true),
+		("queued", false, false),
+		("missing", true, false),
+	] {
+		let v = Video::new(CLIP, "aufnahme", "video/mp4", false).await;
+		if !missing {
+			v.seed_job(0, 0).await;
+		}
+		v.send().await;
+		let database: String = sqlx::query_scalar("SELECT current_database()")
+			.fetch_one(&v.app.pool)
+			.await
+			.unwrap();
+		let mut lock = v.app.pool.begin().await.unwrap();
+		sqlx::raw_sql("LOCK TABLE dateien IN ACCESS EXCLUSIVE MODE")
+			.execute(&mut *lock)
+			.await
+			.unwrap();
+		let child = v
+			.command(
+				"--transcode-queue",
+				&[
+					("Archive__Video__TimeBudget", "00:00:02".into()),
+					("Archive__Video__VisibilityBackoff", "00:00:01".into()),
+					("Archive__Video__MaxMessagesPerRun", "1".into()),
+				],
+			)
+			.stdout(std::process::Stdio::piped())
+			.stderr(std::process::Stdio::piped())
+			.spawn()
+			.unwrap();
+		// Observe the real product process blocked on its first Datei read,
+		// before it can see/claim any job. No worker/private-function seam.
+		tokio::time::timeout(Duration::from_secs(5), async {
+			loop {
+				let blocked: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=$1 AND application_name='archive-server' AND wait_event_type='Lock' AND query LIKE '%FROM dateien%')").bind(&database).fetch_one(&v.app.pool).await.unwrap();
+				if blocked { break; }
+				tokio::time::sleep(Duration::from_millis(10)).await;
+			}
+		}).await.unwrap();
+		if concurrent_terminal {
+			sqlx::query(r#"UPDATE video_jobs SET "Status"=3,"CompletedAt"=now(),"RowVersion"="RowVersion"+1 WHERE "DateiId"=$1"#).bind(v.id).execute(&v.app.pool).await.unwrap();
+		}
+		// The positive backoff has elapsed while the pre-claim read stays
+		// locked. An abandoned receipt is visible again; a deleted one is not.
+		tokio::time::sleep(Duration::from_millis(3300)).await;
+		let receipts = v.queue.receive(1, 30).await.unwrap();
+		let observed = receipts.len();
+		for message in receipts {
+			assert_eq!(
+				message.body,
+				archive_server::queue::envelope("transcode", v.id)
+			);
+			assert_eq!(message.dequeue_count, 2);
+			v.queue.delete(&message).await.unwrap();
+		}
+		lock.rollback().await.unwrap();
+		let output = tokio::time::timeout(Duration::from_secs(5), child.wait_with_output())
+			.await
+			.unwrap()
+			.unwrap();
+		assert!(output.status.success(), "{name}: finite exit");
+		let row: Option<(i32, i32, i64)> = sqlx::query_as(
+			r#"SELECT "Status","AttemptCount","RowVersion" FROM video_jobs WHERE "DateiId"=$1"#,
+		)
+		.bind(v.id)
+		.fetch_optional(&v.app.pool)
+		.await
+		.unwrap();
+		assert_eq!(
+			row,
+			if missing {
+				None
+			} else if concurrent_terminal {
+				Some((3, 0, 1))
+			} else {
+				Some((0, 0, 0))
+			},
+			"{name}: only the fixture's concurrent writer may change the row"
+		);
+		if observed != 1 {
+			failures.push((name, observed));
+		}
+		v.done().await;
+	}
+	// Actual delete control: with a normally readable terminal row, the same
+	// envelope really is acknowledged and does not reappear after backoff.
+	let v = Video::new(CLIP, "aufnahme", "video/mp4", false).await;
+	v.seed_job(3, 0).await;
+	v.send().await;
+	v.run(&[]).await;
+	assert!(v.queue.receive(1, 1).await.unwrap().is_empty());
+	assert_eq!(v.status().await["attemptCount"], 0);
+	v.done().await;
+	assert!(
+		failures.is_empty(),
+		"pre-claim deadline lost queue receipt instead of abandoning: {failures:?}"
+	);
+}
+
+#[tokio::test]
+#[ignore = "explicit product CLI/private Queue/real PG no-lease no-reload dependency gate"]
+async fn preclaim_deadline_releases_receipt_without_waiting_for_job_recovery_sql() {
+	let v = Video::new(CLIP, "aufnahme", "video/mp4", false).await;
+	v.seed_job(0, 0).await;
+	v.send().await;
+	let database: String = sqlx::query_scalar("SELECT current_database()")
+		.fetch_one(&v.app.pool)
+		.await
+		.unwrap();
+	let mut lock = v.app.pool.begin().await.unwrap();
+	sqlx::raw_sql("LOCK TABLE dateien IN ACCESS EXCLUSIVE MODE")
+		.execute(&mut *lock)
+		.await
+		.unwrap();
+	let child = v
+		.command(
+			"--transcode-queue",
+			&[
+				("Archive__Video__TimeBudget", "00:00:02".into()),
+				("Archive__Video__VisibilityBackoff", "00:00:01".into()),
+				("Archive__Video__MaxMessagesPerRun", "1".into()),
+			],
+		)
+		.stdout(std::process::Stdio::piped())
+		.stderr(std::process::Stdio::piped())
+		.spawn()
+		.unwrap();
+	tokio::time::timeout(Duration::from_secs(5), async {
+		loop {
+			let blocked: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=$1 AND application_name='archive-server' AND wait_event_type='Lock' AND query LIKE '%FROM dateien%')").bind(&database).fetch_one(&v.app.pool).await.unwrap();
+			if blocked { break; }
+			tokio::time::sleep(Duration::from_millis(10)).await;
+		}
+	}).await.unwrap();
+	// A recovery read would now wait here too. The expired, unclaimed message
+	// must be abandoned while BOTH relations remain unavailable to the worker.
+	sqlx::raw_sql("LOCK TABLE video_jobs IN ACCESS EXCLUSIVE MODE")
+		.execute(&mut *lock)
+		.await
+		.unwrap();
+	tokio::time::sleep(Duration::from_millis(3300)).await;
+	let recovery_query: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=$1 AND application_name='archive-server' AND wait_event_type='Lock' AND query LIKE '%FROM video_jobs%')").bind(&database).fetch_one(&v.app.pool).await.unwrap();
+	let messages = v.queue.receive(1, 30).await.unwrap();
+	let count = messages.len();
+	for message in messages {
+		assert_eq!(message.dequeue_count, 2);
+		v.queue.delete(&message).await.unwrap();
+	}
+	lock.rollback().await.unwrap();
+	let output = tokio::time::timeout(Duration::from_secs(5), child.wait_with_output())
+		.await
+		.unwrap()
+		.unwrap();
+	assert!(output.status.success());
+	assert!(
+		!recovery_query,
+		"unclaimed deadline must not start a job recovery query"
+	);
+	assert_eq!(
+		count, 1,
+		"receipt must be released without recovery SQL availability"
+	);
+	let status = v.status().await;
+	assert_eq!(status["status"], "queued");
+	assert_eq!(status["attemptCount"], 0);
+	assert_eq!(status["rowVersion"], 0);
+	v.done().await;
+}
 async fn wait_file(path: &Path) {
 	tokio::time::timeout(Duration::from_secs(5), async {
 		while !path.exists() {

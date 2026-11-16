@@ -120,6 +120,11 @@ impl Worker {
 		} else {
 			tracing::warn!("Transcode exceeded its time budget");
 		}
+		// No counted lease means no recovery query and no authority to
+		// acknowledge a concurrent terminal winner after our deadline.
+		if lease.is_none() {
+			return Ok(self.backoff(message));
+		}
 		let fresh = Job::load(&self.pool, id).await?;
 		if let Some(fresh) = fresh {
 			if fresh.terminal() {
