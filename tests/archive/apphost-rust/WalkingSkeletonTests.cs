@@ -38,7 +38,13 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         await app.ResourceNotifications.WaitForResourceAsync("archive-worker-smoke", KnownResourceStates.NotStarted, token);
 
         await RustStack.AssertImageOriginAsync(app, token);
-        using var frontend = app.CreateHttpClient("archive-frontend", "http");
+        // Every request below supplies the intended cookie explicitly. The
+        // default cookie jar would append a second archive.csrf cookie;
+        // unlike ASP.NET, Rust refuses ambiguous cookie names.
+        using var frontend = new HttpClient(new HttpClientHandler { UseCookies = false })
+        {
+            BaseAddress = app.GetEndpoint("archive-frontend", "http"),
+        };
         Assert.Contains("Systemstatus", await frontend.GetStringAsync("/system/status/", token));
         var build = await frontend.GetFromJsonAsync<JsonElement>("/api/build", token);
         Assert.Equal("Liedertafel Archiv", build.GetProperty("application").GetString());
@@ -63,21 +69,19 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         var csrf = await frontend.GetAsync("/api/antiforgery", token);
         var csrfBody = await csrf.Content.ReadFromJsonAsync<JsonElement>(token);
         var csrfCookie = csrf.Headers.GetValues("Set-Cookie").Single().Split(';')[0];
-        using (var noCookieJar = new HttpClient(new HttpClientHandler { UseCookies = false })
-               { BaseAddress = frontend.BaseAddress })
+        foreach (var (cookie, csrfHeader) in new[]
         {
-            foreach (var forged in new[] { false, true })
-            {
-                using var rejected = new HttpRequestMessage(HttpMethod.Post, "/api/dev/exercise");
-                if (forged)
-                {
-                    rejected.Headers.Add("Cookie", csrfCookie);
-                    rejected.Headers.Add("X-CSRF-TOKEN", "forged");
-                }
-                using var response = await noCookieJar.SendAsync(rejected, token);
-                Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-                Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
-            }
+            ((string?)null, (string?)null),
+            (csrfCookie, "forged"),
+            ($"{csrfCookie}; {csrfCookie}", csrfBody.GetProperty("token").GetString()),
+        })
+        {
+            using var rejected = new HttpRequestMessage(HttpMethod.Post, "/api/dev/exercise");
+            if (cookie is not null) rejected.Headers.Add("Cookie", cookie);
+            if (csrfHeader is not null) rejected.Headers.Add("X-CSRF-TOKEN", csrfHeader);
+            using var response = await frontend.SendAsync(rejected, token);
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
         }
         using var exercise = new HttpRequestMessage(HttpMethod.Post, "/api/dev/exercise");
         exercise.Headers.Add("Cookie", csrfCookie);
