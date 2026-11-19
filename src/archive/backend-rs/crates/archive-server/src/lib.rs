@@ -16,6 +16,8 @@ mod clr_guid;
 pub mod events;
 pub mod extraction;
 pub mod frontend;
+pub mod inventur;
+pub mod ops;
 pub mod origin;
 pub mod reading;
 pub mod recordings;

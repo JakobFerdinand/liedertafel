@@ -7,6 +7,48 @@ use std::time::Duration;
 
 /// Byte-identical manual fallback, including its psql wrapper.
 pub const RUNTIME_GRANTS: &str = include_str!("../runtime-grants.sql");
+const MIGRATIONS: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
+
+const STATUS_PREFIX: &str = "archive.sqlx.applied.v1:";
+
+/// Read-only Development diagnostic. No history means all migrations are
+/// pending. An existing history needs a projection from an explicit migrate.
+pub async fn development_status(pool: &sqlx::PgPool) -> Result<(bool, Vec<String>), sqlx::Error> {
+	// PostgreSQL exposes object comments to connected users, but only the
+	// owner can edit this comment. No grants, role changes, SECURITY DEFINER
+	// functions or history-row access are needed.
+	let (value, has_history, projection): (i32, bool, Option<String>) = sqlx::query_as(
+		"SELECT 1, history IS NOT NULL, pg_catalog.obj_description(history, 'pg_class')
+		 FROM (SELECT pg_catalog.to_regclass('public._sqlx_migrations') AS history) AS state",
+	)
+	.fetch_one(pool)
+	.await?;
+	let versions: Vec<i64> = if has_history {
+		let invalid =
+			|| sqlx::Error::Protocol("Migration status requires explicit --migrate.".into());
+		let payload = projection
+			.as_deref()
+			.and_then(|s| s.strip_prefix(STATUS_PREFIX))
+			.ok_or_else(invalid)?;
+		let versions = payload
+			.split(',')
+			.map(str::parse)
+			.collect::<Result<Vec<i64>, _>>()
+			.map_err(|_| invalid())?;
+		if versions.windows(2).any(|pair| pair[0] >= pair[1]) {
+			return Err(invalid());
+		}
+		versions
+	} else {
+		Vec::new()
+	};
+	let pending = MIGRATIONS
+		.iter()
+		.filter(|m| m.migration_type.is_up_migration() && !versions.contains(&m.version))
+		.map(|m| format!("{:04}_{}", m.version, m.description.replace(' ', "_")))
+		.collect();
+	Ok((value == 1, pending))
+}
 
 /// Runtime uses only its own credentials, never the migration connection.
 /// Lazy pool: probes/startup do not wake Neon; no periodic keep-alive.
@@ -102,7 +144,7 @@ async fn migrate(connection: &mut PgConnection) -> Result<(), MigrationError> {
 		.commit()
 		.await
 		.map_err(|_| MigrationError::Grants)?;
-	let mut migrations = sqlx::migrate!("./migrations");
+	let mut migrations = MIGRATIONS;
 	// This name is fixed from the very first Rust migration, not a history move.
 	migrations.dangerous_set_table_name("public._sqlx_migrations");
 	migrations.set_locking(false); // The encompassing lock above includes grant repair.
@@ -121,15 +163,46 @@ async fn migrate(connection: &mut PgConnection) -> Result<(), MigrationError> {
 			.execute(&mut *connection)
 			.await
 			.map_err(|_| MigrationError::Grants)?;
-		// Commit the canonical broad grant and BOTH history revocations together.
-		// Otherwise a failed second repair could leave Rust history writable.
-		sqlx::raw_sql("REVOKE ALL ON TABLE public._sqlx_migrations FROM archive_runtime; COMMIT;")
+		// Commit the canonical grants, both history revocations and refreshed
+		// projection together. A failed revocation must not expose history.
+		sqlx::raw_sql("REVOKE ALL ON TABLE public._sqlx_migrations FROM archive_runtime;")
+			.execute(&mut *connection)
+			.await
+			.map_err(|_| MigrationError::Grants)?;
+		publish_development_status(connection).await?;
+		sqlx::raw_sql("COMMIT")
 			.execute(&mut *connection)
 			.await
 			.map_err(|_| MigrationError::Grants)?;
 		tracing::info!("Runtime grants applied");
 	} else {
+		publish_development_status(connection).await?;
 		tracing::info!("Runtime grants skipped: not connected as archive_migrator");
 	}
+	Ok(())
+}
+
+async fn publish_development_status(connection: &mut PgConnection) -> Result<(), MigrationError> {
+	// Only version integers already validated by SQLx. Quote the value as
+	// a SQL literal on the server; neither names nor SQL come from clients.
+	sqlx::raw_sql(
+		r#"
+		DO $status$
+		DECLARE versions text;
+		BEGIN
+			SELECT pg_catalog.string_agg(version::text, ',' ORDER BY version) INTO STRICT versions
+			FROM public._sqlx_migrations WHERE success;
+			IF versions IS NULL THEN
+				RAISE EXCEPTION 'Cannot publish an empty applied migration list';
+			END IF;
+			EXECUTE pg_catalog.format('COMMENT ON TABLE public._sqlx_migrations IS %L',
+				'archive.sqlx.applied.v1:' || versions);
+		END
+		$status$;
+	"#,
+	)
+	.execute(connection)
+	.await
+	.map_err(|_| MigrationError::Grants)?;
 	Ok(())
 }

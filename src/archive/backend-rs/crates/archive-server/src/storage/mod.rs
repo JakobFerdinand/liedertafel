@@ -271,6 +271,75 @@ impl std::fmt::Debug for BlobStorage {
 	}
 }
 impl BlobStorage {
+	pub(crate) async fn ensure_private_container(&self) -> Result<(), StorageError> {
+		let service = self.service_client()?;
+		let container = service.blob_container_client(&self.config.container);
+		match container.create(None).await {
+			Ok(_) => Ok(()),
+			Err(e) if matches!(e.kind(),azure_core::error::ErrorKind::HttpResponse{status:azure_core::http::StatusCode::Conflict,error_code:Some(code),..} if code=="ContainerAlreadyExists") => {
+				Ok(())
+			}
+			Err(e) => Err(e.into()),
+		}
+	}
+	pub(crate) async fn ensure_emulator_cors(&self) -> Result<(), StorageError> {
+		use azure_storage_blob::models::CorsRule;
+		let service = self.service_client()?;
+		let mut properties = service.get_properties(None).await?.into_model()?;
+		if properties.cors.as_ref().is_none_or(Vec::is_empty) {
+			properties.cors = Some(vec![CorsRule {
+				allowed_headers: Some("*".into()),
+				allowed_methods: Some("GET,HEAD,PUT,OPTIONS".into()),
+				allowed_origins: Some("*".into()),
+				exposed_headers: Some("*".into()),
+				max_age_in_seconds: Some(3600),
+			}]);
+			service
+				.set_properties(RequestContent::try_from(properties)?, None)
+				.await?;
+		}
+		Ok(())
+	}
+	pub(crate) async fn upload_diagnostic(
+		&self,
+		blob: &str,
+		bytes: Vec<u8>,
+	) -> Result<(), StorageError> {
+		self.service_client()?
+			.blob_client(&self.config.container, blob)
+			.upload(RequestContent::from(bytes), None)
+			.await?;
+		Ok(())
+	}
+	pub(crate) fn list_prefix<'a>(
+		&'a self,
+		prefix: &'a str,
+	) -> Result<BoxStream<'a, Result<String, StorageError>>, StorageError> {
+		use azure_storage_blob::models::BlobContainerClientListBlobsOptions;
+		let container = self
+			.service_client()?
+			.blob_container_client(&self.config.container);
+		let pages = container
+			.list_blobs(Some(BlobContainerClientListBlobsOptions {
+				prefix: Some(prefix.into()),
+				..Default::default()
+			}))?
+			.into_pages();
+		let names = pages
+			.map_err(StorageError::from)
+			.and_then(move |page| async move {
+				let page = page.into_model()?;
+				Ok(futures::stream::iter(page.blob_items.into_iter().map(
+					move |item| {
+						item.name
+							.filter(|name| name.starts_with(prefix))
+							.ok_or(StorageError::Unavailable)
+					},
+				)))
+			})
+			.try_flatten();
+		Ok(Box::pin(names))
+	}
 	pub fn new(config: StorageConfig, clock: Arc<dyn Clock>) -> Result<Self, StorageError> {
 		let credential = credential(
 			config.endpoint.is_some() && config.key.is_none(),

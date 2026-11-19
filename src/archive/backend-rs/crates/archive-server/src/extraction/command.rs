@@ -14,10 +14,14 @@ pub async fn run(
 	development: bool,
 	cancel: &tokio_util::sync::CancellationToken,
 ) -> Result<(), CommandError> {
-	let paused =
-		|| std::env::var("Archive__MaintenanceMode").is_ok_and(|s| s.eq_ignore_ascii_case("true"));
+	let maintenance = crate::settings::finite_maintenance().map_err(|_| CommandError)?;
+	let paused = move || maintenance;
 	if paused() {
-		tracing::info!("Extraction paused: maintenance mode is enabled");
+		if command == "--dispatch-extraction" {
+			tracing::info!(target: "Archive.Extraction", "Extraction dispatch paused: maintenance mode is enabled");
+		} else {
+			tracing::info!(target: "Archive.Extraction", "Extraction worker paused: maintenance mode is enabled");
+		}
 		return Ok(());
 	}
 	let options = Options::from_env();

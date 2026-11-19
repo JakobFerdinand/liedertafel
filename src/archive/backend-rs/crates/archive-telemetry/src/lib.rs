@@ -225,8 +225,9 @@ fn quiet_internals() -> tracing_subscriber::EnvFilter {
 		"error,",
 		"archive_server=info,",
 		"archive_db=info,",
-		// Frozen finite-video maintenance category is an explicit tracing target.
-		"Archive.Videos=info,",
+		// Frozen finite-runner and Development diagnostic categories.
+		"Archive.Jobs=info,Archive.Papierkorb=info,Archive.Diagnostics=info,",
+		"Archive.Extraction=info,Archive.Reading=info,Archive.Videos=info,",
 		"hyper=off,",
 		"tonic=off,",
 		"h2=off,",

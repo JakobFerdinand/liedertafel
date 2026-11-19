@@ -208,15 +208,27 @@ impl AzureQueue {
 		}
 		Ok(())
 	}
+	/// Only the Development smoke path calls this, on a new scratch name.
+	pub(crate) async fn delete_scratch(&self) -> Result<(), QueueError> {
+		match self.client.as_ref().ok_or(QueueError)?.delete(None).await {
+			Ok(_) => Ok(()),
+			Err(error) if missing(&error) => Ok(()),
+			Err(_) => Err(QueueError),
+		}
+	}
 }
 
 /// Only W3C context, never baggage or provider metadata.
-pub fn envelope(kind: &str, id: uuid::Uuid) -> String {
+pub(crate) fn trace_carrier() -> std::collections::HashMap<String, String> {
 	use opentelemetry::propagation::TextMapPropagator;
 	use tracing_opentelemetry::OpenTelemetrySpanExt;
 	let mut carrier = std::collections::HashMap::new();
 	opentelemetry_sdk::propagation::TraceContextPropagator::new()
 		.inject_context(&tracing::Span::current().context(), &mut carrier);
+	carrier
+}
+pub fn envelope(kind: &str, id: uuid::Uuid) -> String {
+	let carrier = trace_carrier();
 	serde_json::json!({"type":kind,"dateiId":id,"traceParent":carrier.get("traceparent"),"traceState":carrier.get("tracestate")}).to_string()
 }
 impl Queue for AzureQueue {

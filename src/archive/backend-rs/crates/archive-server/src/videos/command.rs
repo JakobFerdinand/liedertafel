@@ -9,15 +9,7 @@ pub async fn run(
 	// Frozen GetValue<bool>: absent is false, but present blank/malformed
 	// values fail closed. Snapshot before opening dependencies and reuse it
 	// for both subsequent gates; process environment is not a reload source.
-	let maintenance = match std::env::var("Archive__MaintenanceMode") {
-		Err(std::env::VarError::NotPresent) => false,
-		Ok(value) => value
-			.trim()
-			.to_ascii_lowercase()
-			.parse()
-			.map_err(|_| CommandError)?,
-		Err(_) => return Err(CommandError),
-	};
+	let maintenance = crate::settings::finite_maintenance().map_err(|_| CommandError)?;
 	if maintenance {
 		if command == "--dispatch-videos" {
 			tracing::info!(target: "Archive.Videos", "Video dispatch paused: maintenance mode is enabled");

@@ -98,7 +98,7 @@ pub(super) fn accepts(kind: &str, header: Option<&[u8]>, content: &str) -> bool 
 		}
 	}
 }
-pub(super) fn detect(h: &[u8], video: bool) -> &'static str {
+pub(crate) fn detect(h: &[u8], video: bool) -> &'static str {
 	if h.len() >= 12 && h.get(4..8) == Some(b"ftyp") {
 		let brand = &h[8..12];
 		if brand == b"qt  " {
