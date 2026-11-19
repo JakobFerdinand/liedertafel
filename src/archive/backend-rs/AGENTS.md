@@ -66,6 +66,8 @@ update this section in the same PR whenever the member list changes.
   `tests/telemetry/README.md` for external decoder setup and private replay rules.
 - #235's separate local Rust image/AppHost, seven cross-stack methods and
   authenticated HTTP/protobuf gates are in `docs/image-apphost-parity.md`.
+  The image check's focused negative controls run with
+  `bash tests/image/check-apphost-image-failures.sh` against the same local tag.
   Run the image gates from the #234/#235 union; do not retarget the frozen
   Aspire host, the production Dockerfile or workflows.
 - Incoming HTTP W3C context: `node tests/browser/http-w3c-native.cjs` compares

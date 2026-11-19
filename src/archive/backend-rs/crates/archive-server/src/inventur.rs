@@ -6,7 +6,7 @@ use crate::{
 	extraction::pdf::{Outcome, PdfEngine},
 	reading,
 };
-use rust_decimal::Decimal;
+use rust_decimal::{Decimal, RoundingStrategy};
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::{
@@ -73,7 +73,7 @@ pub fn run(args: &[String], mut out: impl Write) -> Result<u8, Error> {
 		&root,
 		&mut vec![directory_identity(&fs::metadata(&root)?)],
 	)?;
-	let report = walk.report(&root, &model, configuration)?;
+	let (report, estimated_eur) = walk.report(&root, &model, configuration)?;
 	let encoded = serde_json::to_string_pretty(&report)?;
 	if let Some(path) = option("--out") {
 		let path = full_path(Path::new(path))?;
@@ -114,7 +114,8 @@ pub fn run(args: &[String], mut out: impl Write) -> Result<u8, Error> {
 		report["media"]["midiFiles"],
 		array_len(&report["duplicates"])
 	)?;
-	if let Some(eur) = c["estimatedEur"].as_f64() {
+	if let Some(eur) = estimated_eur {
+		let eur = eur.round_dp_with_strategy(6, RoundingStrategy::MidpointAwayFromZero);
 		writeln!(
 			out,
 			"Lesekosten-Schätzung ({model}, analytisch): {eur:.6} EUR für {} Anfragen",
@@ -253,7 +254,7 @@ impl Walk {
 		root: &Path,
 		model: &str,
 		config: BTreeMap<String, String>,
-	) -> Result<Value, Error> {
+	) -> Result<(Value, Option<Decimal>), Error> {
 		self.files.sort_by(|a, b| ordinal(&a.path, &b.path));
 		self.empty.sort_by(|a, b| ordinal(a, b));
 		let duplicates = duplicates(&mut self.files)?;
@@ -329,7 +330,7 @@ impl Walk {
 			v.map(|d| d.to_string().parse::<serde_json::Number>())
 				.transpose()
 		};
-		Ok(json!({
+		let report = json!({
 			"root":root,
 			"totals":{"fileCount":self.files.len(),"bytes":self.files.iter().map(|f| f.bytes).sum::<u64>(),"folderCount":self.folders,"emptyFolders":self.empty},
 			"byType":by_type.into_iter().map(|(t,(n,b))| json!({"contentType":t,"fileCount":n,"bytes":b})).collect::<Vec<_>>(),
@@ -343,7 +344,8 @@ impl Walk {
 				"assumptions":{"maxPagesPerRequest":reading.max_pages_per_request,"imagesPerCall":reading.images_per_call,
 					"tokensPerImage":reading.estimated_tokens_per_image,"promptTokensPerCall":1000,"transcriptionMaxOutputTokens":reading.transcription_max_output_tokens}},
 			"files":self.files,
-		}))
+		});
+		Ok((report, eur))
 	}
 }
 

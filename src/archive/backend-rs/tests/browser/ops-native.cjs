@@ -149,7 +149,7 @@ async function command(args, extra, { code = 0, bodySucceeded = code === 0, mess
 
 // Independent frozen command, on the same synthetic fixtures reset to their
 // starting states. Its console/OTLP aren't mixed into Rust privacy evidence.
-async function frozenUploads(grace, expectedCode) {
+async function frozenCleanup(args, extra, expectedCode, message) {
   const sink = http2.createServer();
   const sessions = new Set();
   sink.on("session", session => {
@@ -166,7 +166,7 @@ async function frozenUploads(grace, expectedCode) {
   });
   const otlpPort = await listen(sink);
   const directory = fs.mkdtempSync("/tmp/opencode/234-frozen-home-");
-  const child = spawn(process.env.ARCHIVE_234_DOTNET ?? "dotnet", [frozenDll,"--cleanup-uploads"], {
+  const child = spawn(process.env.ARCHIVE_234_DOTNET ?? "dotnet", [frozenDll,...args], {
     cwd:directory,
     env:{
       HOME:directory,
@@ -174,13 +174,17 @@ async function frozenUploads(grace, expectedCode) {
       OTEL_EXPORTER_OTLP_ENDPOINT:`http://127.0.0.1:${otlpPort}`, OTEL_EXPORTER_OTLP_PROTOCOL:"grpc",
       "ConnectionStrings__archive-db":`Host=127.0.0.1;Port=${pgPort};Database=${dbName};Username=postgres;Password=${process.env.ARCHIVE_234_PG_PASSWORD};SSL Mode=Disable`,
       "ConnectionStrings__archive-blobs":`DefaultEndpointsProtocol=http;${connection}`,
-      Archive__MaintenanceMode:"true", Archive__Assets__ExpiryGrace:grace,
+      ...extra,
     },
-    stdio:"ignore",
+    stdio:["ignore","pipe","ignore"],
   });
+  let stdout = "";
+  child.stdout.setEncoding("utf8").on("data", chunk => { stdout += chunk; });
   const timer = setTimeout(() => child.kill("SIGKILL"), 30_000);
   try {
-    assert.deepEqual(await once(child,"close"),[expectedCode,null],`frozen ExpiryGrace ${grace}`);
+    assert.deepEqual(await once(child,"close"),[expectedCode,null],`frozen ${args.join(" ")}: ${
+      stdout.match(/Archive job [^\n]+ failed \([A-Za-z.]+\)/)?.[0] ?? "no failure log"}`);
+    if (message) assert(stdout.includes(message), message);
   } finally {
     clearTimeout(timer);
     for (const session of sessions) session.destroy();
@@ -473,8 +477,10 @@ async function main() {
           assert.equal(await blobs.getBlobClient(name).exists(),!removed,grace);
         }
       };
+      const args = i === 0 ? ["--cleanup-uploads", `--Archive:Assets:ExpiryGrace=${grace}`] : ["--cleanup-uploads"];
+      const graceEnv = {...paused, Archive__Assets__ExpiryGrace:i === 0 ? "invalid" : grace};
       if (frozenDll) {
-        await frozenUploads(grace,valid ? 0 : 1);
+        await frozenCleanup(args, graceEnv, valid ? 0 : 1);
         await check();
         if (valid) {
           const [name] = candidates[0];
@@ -482,7 +488,7 @@ async function main() {
           await db.query(`UPDATE upload_sessions SET "State"=0 WHERE "BlobName"=$1`,[name]);
         }
       }
-      await command(["--cleanup-uploads"], {...paused, Archive__Assets__ExpiryGrace:grace}, valid ?
+      await command(args, graceEnv, valid ?
         {message:"Cleanup marked 1 upload sessions abandoned"} : {code:1});
       await check();
       // Retire these synthetic rows from later cutoff cases.
@@ -504,6 +510,42 @@ async function main() {
     await datei("recent",live,6);
     await datei("child",old,null);
     const beforeCleanup = await objects();
+    const beforeRows = async () => [
+      (await db.query('SELECT * FROM lieder ORDER BY "Id"')).rows,
+      (await db.query('SELECT * FROM events ORDER BY "Id"')).rows,
+      (await db.query('SELECT * FROM dateien ORDER BY "Id"')).rows,
+    ];
+    const snapshot = await beforeRows();
+    const pause = {message:"Papierkorb cleanup paused: maintenance mode is enabled",category:"Archive.Papierkorb"};
+    for (const [args, extra, expected] of [
+      [["--Archive:MaintenanceMode=true"], {}, pause],
+      [["Archive:MaintenanceMode=false","/archive:maintenancemode"," TrUe "], {Archive__MaintenanceMode:"bad"}, pause],
+      [["--Archive:MaintenanceMode", "false", "--Archive:Papierkorb:RetentionDays=9"], paused,
+        {message:"0 Lieder, 0 Auftritte, 0 Dateien past 9 days"}],
+      [["--dry-run", "--Archive:MaintenanceMode=true"], {Archive__Papierkorb__RetentionDays:"9"},
+        {message:"0 Lieder, 0 Auftritte, 0 Dateien past 9 days"}],
+      [["--Archive:Papierkorb:RetentionDays=0x09", "--dry-run"], {},
+        {message:"0 Lieder, 0 Auftritte, 0 Dateien past 9 days"}],
+      [["--Archive:MaintenanceMode="], paused, {code:1}],
+      [["--Archive:MaintenanceMode=false", "--Archive:Papierkorb:RetentionDays=2147483647"], paused, {code:1}],
+      [["--Archive:Papierkorb:RetentionDays=-2147483648"], {}, {code:1}],
+      [["--Archive:Papierkorb:RetentionDays=2147483648"], {}, {code:1}],
+      [["--Archive:Papierkorb:RetentionDays=invalid"], {}, {code:1}],
+    ]) {
+      const argv = ["--cleanup-papierkorb", ...args];
+      if (frozenDll) {
+        // Frozen Program registers PapierkorbCleaner on the web host, not
+        // the finite host. It can prove the pause, but cannot run the cleaner
+        // after it binds false. Rust exercises the adopted cleaner behavior.
+        const frozenPaused = expected === pause;
+        await frozenCleanup(argv, extra, frozenPaused ? 0 : 1, frozenPaused ? pause.message : undefined);
+        assert.deepEqual(await beforeRows(),snapshot);
+        assert.deepEqual(await objects(),beforeCleanup);
+      }
+      await command(argv, extra, expected);
+      assert.deepEqual(await beforeRows(),snapshot);
+      assert.deepEqual(await objects(),beforeCleanup);
+    }
     await command(["--cleanup-papierkorb","--dry-run"], {},{message:"1 Lieder, 1 Auftritte, 1 Dateien past 7 days"});
     assert.deepEqual(await objects(),beforeCleanup);
     await command(["--cleanup-papierkorb"], {},{message:"1 Lieder, 1 Auftritte, 1 Dateien past 7 days"});
@@ -513,7 +555,7 @@ async function main() {
     assert.deepEqual((await db.query(`SELECT "BlobName" FROM dateien ORDER BY "BlobName"`)).rows.map(r=>r.BlobName),
       ["dateien/live","dateien/recent"]);
     await command(["--cleanup-papierkorb"], {},{message:"0 Lieder, 0 Auftritte, 0 Dateien past 7 days"});
-    await command(["--cleanup-papierkorb"], {Archive__Papierkorb__RetentionDays:"5"},
+    await command(["--cleanup-papierkorb","--Archive:Papierkorb:RetentionDays=5"], {Archive__Papierkorb__RetentionDays:"9"},
       {message:"0 Lieder, 0 Auftritte, 1 Dateien past 5 days"});
     assert(!(await objects()).includes("dateien/recent"));
     const blocked = await datei("restrict",live,8);

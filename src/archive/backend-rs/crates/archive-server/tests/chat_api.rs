@@ -348,8 +348,15 @@ async fn foreign_thread_revoked_member_and_2001_unit_question_are_zero_extra_spe
 		"Keine Berechtigung für diesen Chatverlauf."
 	);
 	let absent = uuid::Uuid::new_v4();
+	let owned_path = format!("/api/chat/thread/{thread}");
+	let (status, own_history) = member.get(&owned_path).await;
+	assert_eq!(status, 200);
+	assert_eq!(own_history["messages"][0]["content"], "Eigene Frage");
+	assert_eq!(own_history["messages"][1]["content"], "Eigene Antwort");
+	let foreign_history = other.get(&owned_path).await;
+	assert_eq!(foreign_history.0, 404);
 	assert_eq!(
-		other.get(&format!("/api/chat/thread/{thread}")).await,
+		foreign_history,
 		other.get(&format!("/api/chat/thread/{absent}")).await
 	);
 	assert_eq!(

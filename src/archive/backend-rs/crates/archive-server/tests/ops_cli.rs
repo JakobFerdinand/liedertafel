@@ -466,7 +466,7 @@ fn inventur_merges_base_development_and_environment_price_configuration_offline(
 		fs::copy(env!("CARGO_BIN_EXE_archive-server"), &exe).unwrap();
 	}
 	fs::write(fixture.0.join("appsettings.json"),r#"{"Archive":{"Chat":{"DeploymentName":" base "},"Ai":{"Models":{"base":{"InputPricePerMillionEur":1,"OutputPricePerMillionEur":2}}}}}"#).unwrap();
-	fs::write(fixture.0.join("appsettings.Development.json"),r#"{"Archive":{"Reading":{"ImagesPerCall":4},"Ai":{"Models":{"base":{"OutputPricePerMillionEur":3.5}}}}}"#).unwrap();
+	fs::write(fixture.0.join("appsettings.Development.json"),r#"{"Archive":{"Reading":{"ImagesPerCall":4},"Ai":{"Models":{"base":{"OutputPricePerMillionEur":3.500000000000000000000000001}}}}}"#).unwrap();
 	let output = Command::new(exe)
 		.env_clear()
 		.env("ARCHIVE_ENVIRONMENT", "Production")
@@ -481,6 +481,98 @@ fn inventur_merges_base_development_and_environment_price_configuration_offline(
 	let costs = &serde_json::from_str::<Value>(report).unwrap()["readingCost"];
 	assert_eq!(costs["model"], "base");
 	assert_eq!(costs["priceInputEurPerMillion"], 5.5);
-	assert_eq!(costs["priceOutputEurPerMillion"], 3.5);
+	assert!(costs["priceOutputEurPerMillion"].is_number());
+	assert_eq!(
+		costs["priceOutputEurPerMillion"].to_string(),
+		"3.500000000000000000000000001"
+	);
 	assert_eq!(costs["assumptions"]["imagesPerCall"], 4);
+}
+
+#[test]
+#[ignore = "requires the pinned local PDFium; optionally compares the actual frozen executable"]
+fn inventur_preserves_exact_prices_estimate_and_summary() {
+	let dir = Fixture::new();
+	let root = dir.0.join("source");
+	fs::create_dir(&root).unwrap();
+	fs::copy(
+		fixture().join("Sample B/1. Noten/PT - Sample B.pdf"),
+		root.join("scan.pdf"),
+	)
+	.unwrap();
+	let run = |mut cmd: Command, name: &str, input: &str, output_price: &str| {
+		let path = dir.0.join(name);
+		let result = cmd
+			.args([
+				"--inventur",
+				root.to_str().unwrap(),
+				"--model",
+				"precise",
+				"--out",
+			])
+			.arg(&path)
+			.env(
+				"Archive__Ai__Models__precise__InputPricePerMillionEur",
+				input,
+			)
+			.env(
+				"Archive__Ai__Models__precise__OutputPricePerMillionEur",
+				output_price,
+			)
+			.output()
+			.unwrap();
+		assert!(result.status.success(), "{:?}", result.status);
+		let report = serde_json::from_slice::<Value>(&fs::read(path).unwrap()).unwrap();
+		let stdout = String::from_utf8(result.stdout).unwrap();
+		(report, stdout.lines().last().unwrap().to_owned())
+	};
+	for (input, output, estimate, summary) in [
+		(
+			"123456789012345678.1234567890",
+			"3.500000000000000000000000001",
+			"3209876514320987.648709876514",
+			"3209876514320987.648710",
+		),
+		("0.00001", "0.000048", "0.0000005", "0.000001"),
+	] {
+		let mut rust = archive();
+		rust.env(
+			"Archive__Pdfium__LibraryPath",
+			std::env::var_os("Archive__Pdfium__LibraryPath").unwrap(),
+		);
+		let assert_costs = |report: &Value| {
+			for (field, expected) in [
+				("priceInputEurPerMillion", input),
+				("priceOutputEurPerMillion", output),
+				("estimatedEur", estimate),
+			] {
+				let number = &report["readingCost"][field];
+				assert!(number.is_number(), "{field}: {number}");
+				let decimal = |s: &str| s.parse::<rust_decimal::Decimal>().unwrap();
+				assert_eq!(decimal(&number.to_string()), decimal(expected), "{field}");
+			}
+		};
+		let (mut report, line) = run(rust, "rust.json", input, output);
+		assert_costs(&report);
+		assert_eq!(
+			line,
+			format!("Lesekosten-Schätzung (precise, analytisch): {summary} EUR für 1 Anfragen")
+		);
+		if let Some(oracle) = frozen() {
+			let (mut expected, frozen_line) = run(oracle, "frozen.json", input, output);
+			assert_costs(&expected);
+			assert_eq!(line, frozen_line);
+			// JSON numbers may have different trailing zeroes, but the exact
+			// decimal values were checked above on both emitted reports.
+			for field in [
+				"priceInputEurPerMillion",
+				"priceOutputEurPerMillion",
+				"estimatedEur",
+			] {
+				report["readingCost"][field] = Value::Null;
+				expected["readingCost"][field] = Value::Null;
+			}
+			assert_eq!(report, expected);
+		}
+	}
 }

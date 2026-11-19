@@ -28,19 +28,20 @@ pub async fn run(
 	if command != "--cleanup-dropped-blobs" && !development {
 		return Err(Error::Development);
 	}
-	if command == "--cleanup-papierkorb" && crate::settings::finite_maintenance()? {
-		tracing::info!(target: "Archive.Papierkorb", "Papierkorb cleanup paused: maintenance mode is enabled");
-		return Ok(());
-	}
 	match command {
 		"--initialize-local-storage" => local::initialize(cancel).await?,
 		"--worker-smoke" => local::exercise(cancel, None).await?,
 		_ => {
+			let config = cleanup::Configuration::from_args(args)?;
+			if command == "--cleanup-papierkorb" && config.maintenance()? {
+				tracing::info!(target: "Archive.Papierkorb", "Papierkorb cleanup paused: maintenance mode is enabled");
+				return Ok(());
+			}
 			let dry_run = args.iter().any(|a| a == "--dry-run");
 			tokio::select! {
 				biased;
 				_ = cancel.cancelled() => return Err(Error::Cancelled),
-				result = cleanup::run(command, dry_run, development) => result?,
+				result = cleanup::run(command, &config, dry_run, development) => result?,
 			}
 		}
 	}

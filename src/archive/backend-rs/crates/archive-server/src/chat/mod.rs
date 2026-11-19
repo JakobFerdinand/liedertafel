@@ -121,8 +121,21 @@ struct Stored {
 	#[sqlx(rename = "A2uiJson")]
 	a2ui: Option<Value>,
 }
-async fn recent(pool: &sqlx::PgPool, id: Uuid) -> Result<Vec<Stored>, sqlx::Error> {
-	sqlx::query_as(r#"SELECT * FROM (SELECT * FROM chat_messages WHERE "ThreadId"=$1 ORDER BY "CreatedAt" DESC,"Id" DESC LIMIT 20) recent ORDER BY "CreatedAt","Id""#).bind(id).fetch_all(pool).await
+async fn recent(pool: &sqlx::PgPool, id: Uuid, account: Uuid) -> Result<Vec<Stored>, sqlx::Error> {
+	// The history snapshot independently enforces ownership. The earlier
+	// ownership lookup still decides whether to reject or start a thread.
+	sqlx::query_as(
+		r#"SELECT * FROM (
+			SELECT m."Id", m."Role", m."Content", m."CreatedAt", m."A2uiJson"
+			FROM chat_messages m JOIN chat_threads t ON t."Id" = m."ThreadId"
+			WHERE m."ThreadId" = $1 AND t."AccountId" = $2
+			ORDER BY m."CreatedAt" DESC, m."Id" DESC LIMIT 20
+		) recent ORDER BY "CreatedAt", "Id""#,
+	)
+	.bind(id)
+	.bind(account)
+	.fetch_all(pool)
+	.await
 }
 async fn thread(
 	State(origin): State<Arc<Origin>>,
@@ -147,7 +160,7 @@ async fn thread(
 		return Ok(access.respond(problem(StatusCode::NOT_FOUND, THREAD_NOT_FOUND)));
 	}
 	let mut messages = Vec::new();
-	for m in recent(&auth.pool, id).await? {
+	for m in recent(&auth.pool, id, access.current.account_id).await? {
 		let cards = if let Some(stored) = m.a2ui {
 			a2ui::recheck(&auth.pool, stored).await?
 		} else {
@@ -196,7 +209,7 @@ async fn produce(
 		)));
 		return;
 	}
-	let history = match recent(&auth.pool, id).await {
+	let history = match recent(&auth.pool, id, account).await {
 		Ok(h) => h,
 		Err(_) => {
 			let _ = ready.send(Err(AuthError::Database));

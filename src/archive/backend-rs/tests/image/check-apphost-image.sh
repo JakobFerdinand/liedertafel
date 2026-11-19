@@ -14,7 +14,8 @@ image=localhost/liedertafel-235:$tag
   test "$(id -u)" = 10001
   test "$(stat -c %u /app/scratch)" = 10001
   test "$(stat -c %a /app/scratch)" = 700
-  test ! -w /app/wwwroot
+  fail() { echo "$*" >&2; exit 1; }
+  if test -w /app/wwwroot; then fail "/app/wwwroot must not be writable"; fi
   umask 077
   export TMPDIR=/scratch-cap/private
   mkdir "$TMPDIR"
@@ -22,17 +23,28 @@ image=localhost/liedertafel-235:$tag
   file=$(mktemp)
   test "$(stat -c %a "$file")" = 600
   rm "$file"
-  ! command -v node
-  ldd /app/archive-server | tee "$TMPDIR/archive.ldd"
-  ! grep -E "lib(ssl|crypto)\.so|not found" "$TMPDIR/archive.ldd"
-  ldd /app/native/libpdfium.so | tee "$TMPDIR/pdfium.ldd"
-  ! grep "not found" "$TMPDIR/pdfium.ldd"
+  if command -v node; then fail "Node must not be present in the runtime image"; fi
+  reject_linkage() {
+    if grep -E "$1" "$2"; then
+      fail "Unexpected native linkage in $2"
+    else
+      status=$?
+      if test "$status" -ne 1; then exit "$status"; fi
+    fi
+  }
+  ldd /app/archive-server >"$TMPDIR/archive.ldd"
+  cat "$TMPDIR/archive.ldd"
+  reject_linkage "lib(ssl|crypto)\.so|not found" "$TMPDIR/archive.ldd"
+  ldd /app/native/libpdfium.so >"$TMPDIR/pdfium.ldd"
+  cat "$TMPDIR/pdfium.ldd"
+  reject_linkage "not found" "$TMPDIR/pdfium.ldd"
   grep -aq "OpenSSL 3.5.9" /app/archive-server
   echo "655e831208783f38dc187ad424bdfdae39858cfbfcf3a9a2cb9dd0694b5abcad  /app/native/libpdfium.so" | sha256sum -c -
   test -s /usr/share/doc/archive-native/pdfium/LICENSE
   test -s /usr/share/doc/archive-native/pdfium/licenses/harfbuzz.txt
   test -s /usr/share/doc/archive-native/OpenSSL-LICENSE.txt
-  test "$(find /usr/share/doc/archive-native/mpl-source -name "*-0.5.5.crate" | wc -l)" = 4
+  find /usr/share/doc/archive-native/mpl-source -name "*-0.5.5.crate" >"$TMPDIR/mpl-source"
+  test "$(wc -l <"$TMPDIR/mpl-source")" = 4
   test -s /usr/share/doc/ffmpeg/copyright
   test -s /usr/share/doc/libx264-164/copyright
   dpkg-query -W -f="\${Package} \${Version} \${source:Package} \${source:Version}\n" ffmpeg libx264-164
@@ -94,5 +106,6 @@ PY
 
 "$runtime" stats --no-stream --format '{{.CPUPerc}} {{.MemUsage}}' "$container"
 "$runtime" kill --signal TERM "$container" >/dev/null
-test "$(timeout 15 "$runtime" wait "$container")" = 0
+exit_code=$(timeout 15 "$runtime" wait "$container")
+test "$exit_code" = 0
 printf '%s\n' 'PASS local amd64 image linkage, native codecs, private scratch, export and SIGTERM'

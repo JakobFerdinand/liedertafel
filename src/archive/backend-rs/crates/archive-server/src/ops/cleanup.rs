@@ -6,7 +6,10 @@ use crate::{
 use chrono::{DateTime, Datelike, Duration, Utc};
 use futures::TryStreamExt;
 use sqlx::PgPool;
-use std::{collections::HashSet, sync::Arc};
+use std::{
+	collections::{HashMap, HashSet},
+	sync::Arc,
+};
 use uuid::Uuid;
 
 #[derive(Debug, thiserror::Error)]
@@ -21,31 +24,115 @@ pub enum Error {
 	Removal(#[from] crate::auth::AuthError),
 }
 
-pub async fn run(command: &str, dry: bool, development: bool) -> Result<(), Error> {
+// Only the three cleanup commands read this overlay. The origin and other
+// finite commands retain their existing configuration sources.
+pub(super) struct Configuration<'a>(HashMap<String, &'a str>);
+
+impl<'a> Configuration<'a> {
+	pub(super) fn from_args(args: &'a [String]) -> Result<Self, Error> {
+		let mut values = HashMap::new();
+		let mut args = args.iter().map(String::as_str);
+		while let Some(arg) = args.next() {
+			let prefixed = arg.strip_prefix("--").or_else(|| arg.strip_prefix('/'));
+			let (key, value) = if let Some(pair) = prefixed.unwrap_or(arg).split_once('=') {
+				if prefixed.is_none() && arg.starts_with('-') {
+					return Err(Error::Configuration);
+				}
+				pair
+			} else if let Some(key) = prefixed {
+				// The frozen provider consumes the next token even if it
+				// looks like another switch (including after --dry-run).
+				let Some(value) = args.next() else { break };
+				(key, value)
+			} else {
+				continue;
+			};
+			values.insert(key.to_ascii_lowercase(), value);
+		}
+		Ok(Self(values))
+	}
+
+	fn get(&self, key: &str) -> Option<std::borrow::Cow<'_, str>> {
+		self.0
+			.get(&key.replace("__", ":").to_ascii_lowercase())
+			.map(|v| (*v).into())
+			.or_else(|| std::env::var(key).ok().map(Into::into))
+	}
+
+	pub(super) fn maintenance(&self) -> Result<bool, crate::settings::SettingsError> {
+		let Some(value) = self.0.get("archive:maintenancemode") else {
+			return crate::settings::finite_maintenance();
+		};
+		value
+			.trim()
+			.to_ascii_lowercase()
+			.parse()
+			.map_err(|_| crate::settings::SettingsError::InvalidMaintenance)
+	}
+}
+
+pub(super) async fn run(
+	command: &str,
+	config: &Configuration<'_>,
+	dry: bool,
+	development: bool,
+) -> Result<(), Error> {
 	let clock = Arc::new(SystemClock);
 	let connection = [
 		"ConnectionStrings__archive-migrations",
 		"ConnectionStrings__archive-db",
 	]
 	.into_iter()
-	.find_map(|k| std::env::var(k).ok().filter(|v| !v.trim().is_empty()))
+	.find_map(|k| config.get(k).filter(|v| !v.trim().is_empty()))
 	.ok_or(Error::Configuration)?;
 	let pool = archive_db::runtime_pool(&connection).map_err(|_| Error::Configuration)?;
-	let storage = BlobStorage::new(StorageConfig::from_env(development)?, clock.clone())?;
+	let mut storage = StorageConfig::select(
+		config.get("ConnectionStrings__archive-blobs").as_deref(),
+		config.get("Archive__Assets__ServiceUri").as_deref(),
+		config.get("Archive__Assets__ContainerName").as_deref(),
+		development,
+	)?;
+	if let Some(lifetime) = config.get("Archive__Assets__ReadTicketLifetime") {
+		storage.read_lifetime =
+			crate::storage::parse_lifetime(&lifetime).ok_or(StorageError::Configuration)?;
+	}
+	let storage = BlobStorage::new(storage, clock.clone())?;
 	let result = match command {
-		"--cleanup-uploads" => pending(&pool, &storage, clock.now()).await,
+		"--cleanup-uploads" => {
+			pending(
+				&pool,
+				&storage,
+				clock.now(),
+				config.get("Archive__Assets__ExpiryGrace").as_deref(),
+			)
+			.await
+		}
 		"--cleanup-dropped-blobs" => dropped(&pool, &storage, dry).await,
-		"--cleanup-papierkorb" => papierkorb(&pool, &storage, clock.now(), dry).await,
+		"--cleanup-papierkorb" => {
+			papierkorb(
+				&pool,
+				&storage,
+				clock.now(),
+				dry,
+				config.get("Archive__Papierkorb__RetentionDays").as_deref(),
+			)
+			.await
+		}
 		_ => Err(Error::Configuration),
 	};
 	pool.close().await;
 	result
 }
 
-async fn pending(pool: &PgPool, storage: &BlobStorage, now: DateTime<Utc>) -> Result<(), Error> {
-	let grace = match std::env::var("Archive__Assets__ExpiryGrace") {
-		Ok(value) => expiry_grace(&value).ok_or(Error::Configuration)?,
-		Err(_) => Duration::hours(1),
+async fn pending(
+	pool: &PgPool,
+	storage: &BlobStorage,
+	now: DateTime<Utc>,
+	grace: Option<&str>,
+) -> Result<(), Error> {
+	let grace = match grace {
+		Some(value) => expiry_grace(value).ok_or(Error::Configuration)?,
+		None => Duration::hours(1),
 	};
 	let cutoff = now
 		.checked_sub_signed(grace)
@@ -202,13 +289,28 @@ async fn papierkorb(
 	storage: &BlobStorage,
 	now: DateTime<Utc>,
 	dry: bool,
+	retention_days: Option<&str>,
 ) -> Result<(), Error> {
-	let days: i32 = match std::env::var("Archive__Papierkorb__RetentionDays") {
-		Ok(value) => value.trim().parse().map_err(|_| Error::Configuration)?,
-		Err(_) => 7,
+	let days = match retention_days {
+		Some(value) => {
+			let value = value.trim().to_ascii_lowercase();
+			let hex = value
+				.strip_prefix('#')
+				.or_else(|| value.strip_prefix("0x"))
+				.or_else(|| value.strip_prefix("&h"));
+			match hex {
+				Some(hex) => {
+					u32::from_str_radix(hex.strip_prefix('+').unwrap_or(hex), 16).map(|n| n as i32)
+				}
+				None => value.parse(),
+			}
+			.map_err(|_| Error::Configuration)?
+		}
+		None => 7,
 	};
 	let cutoff = now
 		.checked_sub_signed(Duration::days(i64::from(days)))
+		.filter(|cutoff| (1..=9999).contains(&cutoff.year()))
 		.ok_or(Error::Configuration)?;
 	let lieder: Vec<Uuid> = sqlx::query_scalar(r#"SELECT "Id" FROM lieder WHERE "DeletedAt" < $1"#)
 		.bind(cutoff)
