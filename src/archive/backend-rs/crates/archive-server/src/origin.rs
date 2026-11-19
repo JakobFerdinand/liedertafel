@@ -60,6 +60,13 @@ impl Origin {
 		F: std::future::Future + Send + 'static,
 		F::Output: Send + 'static,
 	{
+		self.track_request_work(future)
+	}
+	pub(crate) fn track_request_work<F>(&self, future: F) -> tokio::task::JoinHandle<F::Output>
+	where
+		F: std::future::Future + Send + 'static,
+		F::Output: Send + 'static,
+	{
 		use tracing::Instrument;
 		self.reading_tasks.spawn(future.in_current_span())
 	}

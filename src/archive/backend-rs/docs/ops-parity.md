@@ -1,0 +1,71 @@
+# Maintainer operations (#234)
+
+The normal `archive-server` binary owns these seams. No migration runs
+implicitly. The local image and AppHost gates, and OTLP HTTP/protobuf, belong
+to #235. The C# backend and its existing tests remain the reference.
+
+| Rust seam | Frozen owner | Contract |
+| --- | --- | --- |
+| `--inventur <verzeichnis> [--model <schluessel>] [--out <bericht.json>]` | `InventurTests`, [Quellen-Inventur runbook](../../docs/drive-inventur.md) | Offline, with indented camelCase JSON and a German summary. Root errors exit 2. Absolute `Archive__Pdfium__LibraryPath` is required if a PDF is encountered; loading the native library is never reported as a zero-page scan. The text classification reuses the bounded Rust extractor; the sanitized corpus is a parity gate, not proof of arbitrary PDFium/PdfPig layout equivalence. |
+| `--cleanup-uploads` | `UploadSessionResumeTests` cleaner cases | Development. Expired Pending only, strictly before now minus `Archive__Assets__ExpiryGrace` (default one hour). Best-effort staged-object removal, then persist Abandoned. No dry run. |
+| `--cleanup-dropped-blobs [--dry-run]` | `DroppedBlobCleanerTests` | Maintenance does not gate this command. Enumerate `revisions/`, then `pending/`, then `dateien/`. Exact ordinal pending names referenced by **any** session stay. Live Dateien and other prefixes stay. Dry run makes no changes; `Kept` excludes unrelated prefixes. |
+| `--cleanup-papierkorb [--dry-run]` | `PapierkorbCleanerTests` and `PapierkorbRecoveryTests.RestoringAfterSevenDaysRefusesAndTheCleanupFinishesTheRow` | Development only, paused during maintenance. Snapshot IDs strictly before the retention cutoff (default seven days); restore keeps its existing at-or-before refusal. Remove Dateien, then Lieder, then Auftritte through shared removal, not by prefix. The counts describe selected rows, not recursively removed children. |
+| `--initialize-local-storage`, `--worker-smoke`, `/api/dev/exercise` | `LocalServices`; AppHost clean start | Private `archive-assets`, configured extraction/reading/video queues, initial emulator CORS without replacing existing rules. Smoke uses an owned Blob and unique scratch queue with W3C Producer → Consumer and actual SMTP; it cleans Blob then scratch queue, with a 15s cleanup budget independent of cancellation. HTTP exercise has a 30s work deadline and the host drains owned cleanup after disconnect. |
+| `/api/dev/database`, `/api/dev/ai-budget`, `/api/dev/extraction-duplicate` | `DiagnosticEndpoints`; AppHost clean start, mixed batch, extraction roundtrip | Development only. Read-only SQLx `pendingMigrations`, not EF migration names; AI totals use the existing ledger's month, spent and cap, with no provider invocation. Duplicate sends one extraction envelope; no queue gives 502, configured transport failure 500. |
+| `--send-test-mail` | `SendTestMailAsync`, #222 operator/mail gates | Remains Development + explicit Azure provider + valid recipient. Smoke uses local SMTP instead. Do not deliver an external test message as an acceptance run. |
+
+**Retained limits.** Frozen `FiniteJobs.IsDevelopmentRequired` refuses
+Papierkorb cleanup outside Development even though the unchanged Bicep
+schedules it in production. The video-job Restrict FK still blocks removal;
+the command fails and does not delete that Datei's bytes or cascade the job.
+An expired owner selected before the sweep removes its children as in the
+frozen owner removal. A dropped-blob operator should run in a quiescent
+maintenance window: it uses the frozen snapshot of session references, not
+a transaction spanning the database and Blob Storage. The operational
+diagnostics do not grant runtime access to SQLx bookkeeping tables.
+
+Inventur reads the shipped defaults plus optional `appsettings.json`, then
+`appsettings.Development.json` beside the executable and finally environment
+overrides, irrespective of the host environment. `--model` overrides the
+deployment-name price key; otherwise the last fallback is `scripted`. Unknown
+or unpriced models produce null EUR and a note. `.url` targets are never fetched.
+Directory symlinks are not traversed. The frozen repeated-suffix failure on a
+stem still ending in `)` after stripping a numeric suffix is not reinterpreted
+as an additional duplicate candidate; the Rust command exits nonzero with a
+bounded error.
+
+## Gates
+
+From `src/archive/backend-rs`, use an isolated `CARGO_TARGET_DIR`:
+
+```sh
+cargo test -p archive-server --locked --test ops_http --test ops_cli
+cargo test -p archive-server --locked --test ops_cli -- --ignored
+```
+
+For the ignored Inventur cases, set `Archive__Pdfium__LibraryPath` to the pinned
+PDFium from [extraction parity](extraction-parity.md). To compare the entire
+sanitized corpus report to a fresh frozen executable, also set
+`ARCHIVE_234_FROZEN_DLL` and `ARCHIVE_234_DOTNET` to their absolute paths.
+Only generated and committed sanitized inputs belong in these gates.
+
+`node tests/browser/ops-native.cjs` takes the built `ARCHIVE_BINARY` and explicit
+`ARCHIVE_234_{PG,BLOB,QUEUE,SMTP,MAIL}_PORT`, `ARCHIVE_234_PG_PASSWORD` for
+**dedicated fresh loopback fixtures**. Use PostgreSQL 17.6, Azurite 3.35.0 and
+Mailpit 1.27.8; no local production settings are inherited by subprocesses.
+Provide Node fixture libraries `pg`, `@azure/storage-blob`, `@azure/storage-queue`
+and `protobufjs@8.8.1` via `NODE_PATH`. The capture helper needs a writable
+`/tmp/opencode`; if necessary bind a private scratch directory there in a
+private mount namespace. Reset only the dedicated fixture containers between runs. The harness uses the
+product processes, a schema-aware local gRPC collector, and real SQL, Blob,
+Queue and SMTP. The captured report must be redaction-clean after child-pipe
+and collector drain.
+
+The harness checks the exact seven pause messages and their log categories,
+malformed pause configuration, Development refusals, successful ungated work,
+three-signal success/failure exit codes, and cancellation with scratch resources
+already created. HTTP probes cover status/cache/CSRF (including the frozen form
+fallback), database pending before/after explicit migration, ledger aggregates,
+and extraction duplicate delivery. The maintenance/control runs have no
+configured hosted provider credentials. Existing member operator and worker
+tests still own their feature-specific positive work and identity contracts.

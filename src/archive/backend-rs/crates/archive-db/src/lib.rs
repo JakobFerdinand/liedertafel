@@ -7,6 +7,31 @@ use std::time::Duration;
 
 /// Byte-identical manual fallback, including its psql wrapper.
 pub const RUNTIME_GRANTS: &str = include_str!("../runtime-grants.sql");
+const MIGRATIONS: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
+
+/// Read-only Development diagnostic. Missing history on a fresh store means all
+/// compiled migrations are pending. Never create history or grant runtime access.
+pub async fn development_status(pool: &sqlx::PgPool) -> Result<(bool, Vec<String>), sqlx::Error> {
+	let mut conn = pool.acquire().await?;
+	let value: i32 = sqlx::query_scalar("SELECT 1").fetch_one(&mut *conn).await?;
+	let has_history: bool =
+		sqlx::query_scalar("SELECT to_regclass('public._sqlx_migrations') IS NOT NULL")
+			.fetch_one(&mut *conn)
+			.await?;
+	let versions: Vec<i64> = if has_history {
+		sqlx::query_scalar("SELECT version FROM public._sqlx_migrations WHERE success")
+			.fetch_all(&mut *conn)
+			.await?
+	} else {
+		Vec::new()
+	};
+	let pending = MIGRATIONS
+		.iter()
+		.filter(|m| m.migration_type.is_up_migration() && !versions.contains(&m.version))
+		.map(|m| format!("{:04}_{}", m.version, m.description.replace(' ', "_")))
+		.collect();
+	Ok((value == 1, pending))
+}
 
 /// Runtime uses only its own credentials, never the migration connection.
 /// Lazy pool: probes/startup do not wake Neon; no periodic keep-alive.
@@ -102,7 +127,7 @@ async fn migrate(connection: &mut PgConnection) -> Result<(), MigrationError> {
 		.commit()
 		.await
 		.map_err(|_| MigrationError::Grants)?;
-	let mut migrations = sqlx::migrate!("./migrations");
+	let mut migrations = MIGRATIONS;
 	// This name is fixed from the very first Rust migration, not a history move.
 	migrations.dangerous_set_table_name("public._sqlx_migrations");
 	migrations.set_locking(false); // The encompassing lock above includes grant repair.

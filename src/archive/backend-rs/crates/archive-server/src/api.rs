@@ -56,7 +56,7 @@ impl ApiMiss {
 /// C# behavior (unregistered methods answer the miss, not a raw 405). The
 /// entries are state-aware handlers, so `implemented_api_routes` receives
 /// the `Origin` that `with_state` applies at router assembly.
-fn implemented_api_routes(_origin: Arc<Origin>) -> Vec<(&'static str, MethodRouter<Arc<Origin>>)> {
+fn implemented_api_routes(origin: Arc<Origin>) -> Vec<(&'static str, MethodRouter<Arc<Origin>>)> {
 	let mut routes = vec![("/api/build", get(build).fallback(api_miss))];
 	routes.push((
 		"/api/maintenance",
@@ -71,6 +71,9 @@ fn implemented_api_routes(_origin: Arc<Origin>) -> Vec<(&'static str, MethodRout
 	routes.extend(crate::ai::routes());
 	routes.extend(crate::reading::routes());
 	routes.extend(crate::chat::routes());
+	if origin.settings.development {
+		routes.extend(crate::ops::diagnostics::routes());
+	}
 	routes
 }
 

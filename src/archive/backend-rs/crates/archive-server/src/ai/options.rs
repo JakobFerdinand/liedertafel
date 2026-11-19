@@ -202,8 +202,21 @@ impl Options {
 		result
 	}
 	pub fn from_env(development: bool) -> Result<Self, Error> {
+		Self::configured(development, false, std::env::vars())
+	}
+	/// Inventory applies both shipped price layers, without Gateway options or validation.
+	pub(crate) fn inventory_prices(
+		values: impl IntoIterator<Item = (String, String)>,
+	) -> Result<Self, Error> {
+		Self::configured(true, true, values)
+	}
+	fn configured(
+		development: bool,
+		prices_only: bool,
+		values: impl IntoIterator<Item = (String, String)>,
+	) -> Result<Self, Error> {
 		let mut result = Self::shipped(development);
-		for (key, value) in std::env::vars() {
+		for (key, value) in values {
 			// .NET's ENV provider normalizes '__' to ':' and binds section /
 			// property names case-insensitively. Only AI option names are folded;
 			// the configured deployment/model identity is never lowercased.
@@ -216,6 +229,7 @@ impl Options {
 				continue;
 			}
 			match &parts[2..] {
+				[_] if prices_only => {}
 				[setting] if setting.eq_ignore_ascii_case("MonthlyCapEur") => {
 					result.monthly_cap_eur = config_decimal(&value)?
 				}
@@ -254,7 +268,9 @@ impl Options {
 				_ => {}
 			}
 		}
-		result.cap_micro_eur()?;
+		if !prices_only {
+			result.cap_micro_eur()?;
+		}
 		Ok(result)
 	}
 	pub fn find_price(&self, model: &str) -> Option<&Price> {

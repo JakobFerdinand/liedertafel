@@ -8,19 +8,30 @@ use archive_server::{Origin, build_router, settings::Settings};
 
 const SHUTDOWN_BUDGET: Duration = Duration::from_secs(30);
 
-#[tokio::main]
-async fn main() {
-	// SQLx and Azure/reqwest enable different Rustls 0.23 providers. Select a
-	// process default explicitly so feature unification cannot panic on TLS.
-	let _ = rustls::crypto::ring::default_provider().install_default();
-	if let Err(error) = run().await {
-		eprintln!("archive-server: {error}");
-		std::process::exit(1);
+fn main() {
+	let args: Vec<String> = std::env::args().skip(1).collect();
+	// The inventory does not start a host, initialize TLS, or install telemetry.
+	let result = if args.first().is_some_and(|s| s == "--inventur") {
+		archive_server::inventur::run(&args[1..], std::io::stdout().lock())
+			.map_err(StartupError::from)
+	} else {
+		run(args).map(|()| 0)
+	};
+	match result {
+		Ok(0) => {}
+		Ok(code) => std::process::exit(i32::from(code)),
+		Err(error) => {
+			eprintln!("archive-server: {error}");
+			std::process::exit(1);
+		}
 	}
 }
 
-async fn run() -> Result<(), StartupError> {
-	let args: Vec<String> = std::env::args().skip(1).collect();
+#[tokio::main]
+async fn run(args: Vec<String>) -> Result<(), StartupError> {
+	// SQLx and Azure/reqwest enable different Rustls 0.23 providers. Select a
+	// process default explicitly so feature unification cannot panic on TLS.
+	let _ = rustls::crypto::ring::default_provider().install_default();
 	if let Some(command) = args.first().filter(|s| {
 		matches!(
 			s.as_str(),
@@ -30,46 +41,64 @@ async fn run() -> Result<(), StartupError> {
 				| "--dispatch-reading"
 				| "--transcode-queue"
 				| "--dispatch-videos"
+				| "--initialize-local-storage"
+				| "--worker-smoke"
+				| "--cleanup-uploads"
+				| "--cleanup-dropped-blobs"
+				| "--cleanup-papierkorb"
+				| "--bootstrap-admin"
+				| "--repair-admin"
+				| "--seed-dev-auth"
+				| "--send-test-mail"
+				| "--migrate"
 		)
 	}) {
 		use tracing::Instrument;
 		let development = std::env::var("ARCHIVE_ENVIRONMENT").as_deref() == Ok("Development");
 		let reading = matches!(command.as_str(), "--read-queue" | "--dispatch-reading");
 		let video = matches!(command.as_str(), "--transcode-queue" | "--dispatch-videos");
+		let extraction = matches!(
+			command.as_str(),
+			"--extract-queue" | "--dispatch-extraction"
+		);
+		let operator = matches!(
+			command.as_str(),
+			"--bootstrap-admin" | "--repair-admin" | "--seed-dev-auth" | "--send-test-mail"
+		);
+		let migrate = command == "--migrate";
 		let defaults = archive_telemetry::ServiceDefaults::init(
 			development,
 			if video {
 				"archive-transcode"
 			} else if reading {
 				"archive-reading"
-			} else {
+			} else if extraction {
 				"archive-extraction"
+			} else if operator {
+				"archive-operator"
+			} else if migrate {
+				"archive-migrate"
+			} else {
+				"archive-ops"
 			},
 		)?;
 		let cancel = tokio_util::sync::CancellationToken::new();
 		let signal = cancel.clone();
+		let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+			.map_err(StartupError::Signal)?;
 		let task = tokio::spawn(async move {
-			let mut term =
-				tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).ok();
-			tokio::select! {_ = tokio::signal::ctrl_c()=>{},_ = async{if let Some(term)=&mut term{term.recv().await;}else{std::future::pending::<()>().await;}}=>{}}
+			tokio::select! {
+				_ = tokio::signal::ctrl_c() => {},
+				_ = term.recv() => {},
+			}
 			signal.cancel();
 		});
-		let span = if command == "--transcode-queue" {
-			tracing::info_span!("transcode-queue", otel.status_code = tracing::field::Empty)
-		} else if command == "--dispatch-videos" {
-			tracing::info_span!("dispatch-videos", otel.status_code = tracing::field::Empty)
-		} else if command == "--read-queue" {
-			tracing::info_span!("read-queue", otel.status_code = tracing::field::Empty)
-		} else if command == "--dispatch-reading" {
-			tracing::info_span!("dispatch-reading", otel.status_code = tracing::field::Empty)
-		} else if command == "--extract-queue" {
-			tracing::info_span!("extract-queue", otel.status_code = tracing::field::Empty)
-		} else {
-			tracing::info_span!(
-				"dispatch-extraction",
-				otel.status_code = tracing::field::Empty
-			)
-		};
+		let job_name = &command[2..];
+		let span = tracing::info_span!(
+			"archive.job",
+			otel.name = job_name,
+			otel.status_code = tracing::field::Empty
+		);
 		let result = async {
 			let result = if video {
 				archive_server::videos::command::run(command, development, &cancel)
@@ -79,16 +108,45 @@ async fn run() -> Result<(), StartupError> {
 				archive_server::reading::command::run(command, development, &cancel)
 					.await
 					.map_err(StartupError::Reading)
-			} else {
+			} else if extraction {
 				archive_server::extraction::command::run(command, development, &cancel)
 					.await
 					.map_err(StartupError::Extraction)
+			} else if operator || migrate {
+				tokio::select! {
+					biased;
+					_ = cancel.cancelled() => Err(StartupError::Cancelled),
+					result = async {
+						if operator {
+							archive_server::auth::operator::run(command, &args[1..], development).await?;
+						} else {
+							archive_db::migrate_from_env().await?;
+						}
+						Ok(())
+					} => result,
+				}
+			} else {
+				archive_server::ops::run(command, &args[1..], development, &cancel)
+					.await
+					.map_err(StartupError::Ops)
 			};
-			if result.is_ok() {
-				tracing::info!("Archive job {} completed", &command[2..]);
+			let success = result.is_ok();
+			opentelemetry::global::meter(archive_telemetry::ACTIVITY_SOURCE)
+				.u64_counter("archive.jobs.runs")
+				.with_description("Finite archive command outcomes before telemetry flush")
+				.build()
+				.add(
+					1,
+					&[
+						opentelemetry::KeyValue::new("archive.job.name", job_name.to_owned()),
+						opentelemetry::KeyValue::new("archive.job.success", success),
+					],
+				);
+			if success {
+				tracing::info!(target: "Archive.Jobs", "Archive job {job_name} completed");
 			} else {
 				tracing::Span::current().record("otel.status_code", "ERROR");
-				tracing::error!("Archive job {} failed", &command[2..]);
+				tracing::error!(target: "Archive.Jobs", "Archive job {job_name} failed");
 			}
 			result
 		}
@@ -100,65 +158,6 @@ async fn run() -> Result<(), StartupError> {
 			return Err(StartupError::FiniteTelemetry);
 		}
 		return result;
-	}
-	if let Some(command) = args.first().filter(|s| {
-		matches!(
-			s.as_str(),
-			"--bootstrap-admin" | "--repair-admin" | "--seed-dev-auth" | "--send-test-mail"
-		)
-	}) {
-		use tracing::Instrument;
-		let development = std::env::var("ARCHIVE_ENVIRONMENT").as_deref() == Ok("Development");
-		let defaults = archive_telemetry::ServiceDefaults::init(development, "archive-operator")?;
-		let span = match command.as_str() {
-			"--bootstrap-admin" => {
-				tracing::info_span!("bootstrap-admin", otel.status_code = tracing::field::Empty)
-			}
-			"--repair-admin" => {
-				tracing::info_span!("repair-admin", otel.status_code = tracing::field::Empty)
-			}
-			"--seed-dev-auth" => {
-				tracing::info_span!("seed-dev-auth", otel.status_code = tracing::field::Empty)
-			}
-			_ => tracing::info_span!("send-test-mail", otel.status_code = tracing::field::Empty),
-		};
-		let result = async {
-			let result =
-				archive_server::auth::operator::run(command, &args[1..], development).await;
-			let job_name = &command[2..];
-			if result.is_ok() {
-				tracing::info!("Archive job {job_name} completed");
-			} else {
-				tracing::Span::current().record("otel.status_code", "ERROR");
-				tracing::error!("Archive job {job_name} failed");
-			}
-			result
-		}
-		.instrument(span)
-		.await;
-		if !defaults.finish_finite_job() {
-			return Err(StartupError::FiniteTelemetry);
-		}
-		return result.map_err(StartupError::Operator);
-	}
-	if std::env::args().nth(1).as_deref() == Some("--migrate") {
-		let development = std::env::var("ARCHIVE_ENVIRONMENT").as_deref() == Ok("Development");
-		let defaults = archive_telemetry::ServiceDefaults::init(development, "archive-migrate")?;
-		use tracing::Instrument;
-		let result = async {
-			let result = archive_db::migrate_from_env().await;
-			if result.is_ok() {
-				tracing::info!("Archive job migrate completed");
-			} else {
-				tracing::error!("Archive job migrate failed");
-			}
-			result
-		}
-		.instrument(tracing::info_span!("migrate"))
-		.await;
-		defaults.flush();
-		defaults.shutdown();
-		return result.map_err(StartupError::Migration);
 	}
 	let settings = Settings::from_env()?;
 	let defaults =
@@ -329,6 +328,14 @@ async fn run() -> Result<(), StartupError> {
 /// apphost resource fails visibly.
 #[derive(Debug, thiserror::Error)]
 enum StartupError {
+	#[error("Archive job was cancelled.")]
+	Cancelled,
+	#[error("SIGTERM handler could not register: {0}")]
+	Signal(std::io::Error),
+	#[error("{0}")]
+	Ops(archive_server::ops::Error),
+	#[error("{0}")]
+	Inventur(#[from] archive_server::inventur::Error),
 	#[error("{0}")]
 	Video(archive_server::videos::command::CommandError),
 	#[error("{0}")]

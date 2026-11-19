@@ -44,16 +44,24 @@ impl Default for Options {
 }
 impl Options {
 	pub fn from_env(development: bool) -> Self {
+		Self::from_configuration(development, |key| {
+			std::env::var(format!("Archive__Reading__{key}")).ok()
+		})
+	}
+	pub(crate) fn from_configuration(
+		development: bool,
+		get: impl Fn(&str) -> Option<String>,
+	) -> Self {
 		let mut result = Self {
 			enabled: development,
 			..Default::default()
 		};
-		if let Ok(v) = std::env::var("Archive__Reading__Enabled") {
+		if let Some(v) = get("Enabled") {
 			result.enabled = v.trim().eq_ignore_ascii_case("true");
 		}
 		macro_rules! number {
 			($name:literal,$target:expr,$wide:expr) => {
-				if let Ok(v) = std::env::var(concat!("Archive__Reading__", $name)) {
+				if let Some(v) = get($name) {
 					if let Some(v) = configuration_integer(&v, $wide) {
 						if v > 0 {
 							// Source widths were checked before conversion to the
@@ -100,7 +108,7 @@ impl Options {
 			result.queue.max_messages_per_run,
 			false
 		);
-		if let Ok(v) = std::env::var("Archive__Reading__JpegQuality")
+		if let Some(v) = get("JpegQuality")
 			&& let Some(v) = configuration_integer(&v, false)
 			&& (1..=100).contains(&v)
 		{
@@ -111,7 +119,7 @@ impl Options {
 		result.queue.batch_size = result.queue.batch_size.min(4);
 		macro_rules! duration {
 			($name:literal,$field:ident) => {
-				if let Ok(v) = std::env::var(concat!("Archive__Reading__", $name)) {
+				if let Some(v) = get($name) {
 					if let Some(v) =
 						crate::storage::parse_lifetime(&v).filter(|v| *v > chrono::Duration::zero())
 					{
@@ -126,7 +134,7 @@ impl Options {
 		duration!("VisibilityBackoff", visibility_backoff);
 		duration!("ReceiveVisibility", receive_visibility);
 		duration!("DrainBudget", drain_budget);
-		if let Ok(v) = std::env::var("Archive__Reading__QueueName")
+		if let Some(v) = get("QueueName")
 			&& !v.trim().is_empty()
 		{
 			result.queue.queue_name = v.trim().into();
