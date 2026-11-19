@@ -1,4 +1,4 @@
-use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
+use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor, message::SinglePart};
 use std::{future::Future, pin::Pin};
 pub mod acs;
 
@@ -65,7 +65,7 @@ impl Mail for SmtpMail {
 				.from(self.from.parse().map_err(|_| MailError::Delivery)?)
 				.to(message.to.parse().map_err(|_| MailError::Delivery)?)
 				.subject(message.subject)
-				.body(message.text)
+				.singlepart(SinglePart::plain(message.text))
 				.map_err(|_| MailError::Delivery)?;
 			let transport = AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&self.host)
 				.port(self.port)

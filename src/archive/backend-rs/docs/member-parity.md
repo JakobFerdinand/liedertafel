@@ -113,6 +113,13 @@ unbounded response bodies are allowed. Success is service handoff, not inbox
 delivery. Logs retain only status, allowlisted error codes, parsed GUID operation
 IDs or fixed failure text, never provider messages or mail content.
 
+The SMTP MIME regression delivers synthetic messages to a fresh local Mailpit
+and asserts its decoded German text, both kinds of code, and the invitation's
+`/anmelden/` path. From `backend-rs`, set `ARCHIVE_TEST_MAILPIT_SMTP_PORT`
+and `ARCHIVE_TEST_MAILPIT_HTTP_PORT` to the dedicated loopback ports for that
+instance, then run `cargo test -p archive-server --locked --test smtp_mail
+-- --ignored`. Use a new empty instance for each run.
+
 ## Frozen-suite mapping
 
 Rust suites live in `crates/archive-server/tests`. Consolidation below preserves
