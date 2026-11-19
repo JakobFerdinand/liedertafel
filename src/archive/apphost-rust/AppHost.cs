@@ -52,6 +52,9 @@ var mail = builder.AddContainer("archive-mail", "docker.io/axllent/mailpit", "v1
 IResourceBuilder<ContainerResource> Image(string name) =>
     builder.AddContainer(name, "localhost/liedertafel-235", tag)
         .WithImagePullPolicy(ImagePullPolicy.Never)
+        // A reproducible local envelope for the small synthetic workloads;
+        // not a production capacity claim or an infrastructure sizing change.
+        .WithContainerRuntimeArgs("--cpus=3", "--memory=1g")
         .WithEnvironment("ARCHIVE_ENVIRONMENT", "Development")
         .WithEnvironment("OTEL_METRIC_EXPORT_INTERVAL", "5000")
         .WithOtlpExporter(OtlpProtocol.HttpProtobuf);

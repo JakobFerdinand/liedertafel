@@ -57,7 +57,8 @@ read-only root with 128 MiB tmpfs scratch, and measure actual scratch use. The
 dependency-free origin control also uses 2 CPU and 512 MiB RAM, actual
 liveness/static assets/build/404, observed stats and SIGTERM followed by exit 0.
 Scratch owner/mode and writable-file permissions are tested; these synthetic
-bounds are **not** a worker sizing recommendation. Even with
+bounds are **not** a worker sizing recommendation. AppHost API and finite
+containers use a local envelope of 3 CPU and 1 GiB RAM. Even with
 bounded spooling and finite drain, native PDF decode is not hard-preemptible;
 large decoded PDFs/photos, hosted concurrency and long-video scratch use
 retain their earlier capacity qualifications.
