@@ -19,7 +19,7 @@ namespace Archive.Rust.AppHost.Tests;
 /// the completed state. An immediate rerun exits finitely on the empty queue
 /// without reworking the row, a scanned PDF ends in the explicit noText
 /// state, and a duplicated queue message (development diagnostic) is handled
-/// idempotently. The first run asserts Finished with exit code 0; reruns
+/// idempotently. The first run asserts container exit code 0; reruns
 /// observe a new completion log before waiting for that run's successful exit.
 /// </summary>
 public sealed class ExtractionRoundtripTests(ITestOutputHelper output)
@@ -183,7 +183,7 @@ public sealed class ExtractionRoundtripTests(ITestOutputHelper output)
         int? exitCode = null;
         await notifications.WaitForResourceAsync(resource, update =>
         {
-            if (update.Snapshot.State?.Text != KnownResourceStates.Finished) return false;
+            if (!RustStack.IsExited(update)) return false;
             exitCode = update.Snapshot.ExitCode;
             return true;
         }, token);
@@ -192,7 +192,7 @@ public sealed class ExtractionRoundtripTests(ITestOutputHelper output)
 
     /// <summary>
     /// Read the completion-log baseline before start, then wait for a new
-    /// occurrence before observing the latest process's successful Finished state. Each GetAllAsync
+    /// occurrence before observing the latest container's successful exit. Each GetAllAsync
     /// enumeration supplies a fresh snapshot of the current log backlog.
     /// Preserve completion identities because restarting replaces process logs.
     /// </summary>
@@ -224,7 +224,7 @@ public sealed class ExtractionRoundtripTests(ITestOutputHelper output)
         }
 
         await app.ResourceNotifications.WaitForResourceAsync(resourceName, update =>
-            update.Snapshot.State?.Text == KnownResourceStates.Finished
+            RustStack.IsExited(update)
             && update.Snapshot.ExitCode == 0, timeout.Token);
         backlog = await ReadLogsAsync();
         Assert.DoesNotContain(backlog, line =>

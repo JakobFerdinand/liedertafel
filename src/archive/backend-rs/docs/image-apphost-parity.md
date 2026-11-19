@@ -21,6 +21,8 @@ container network, `archive-blobs-235:10000` is an actual DNS alias of Azurite,
 including for its server-side copy fetch. The xUnit transfer client maps only
 that destination's **socket** to Aspire's allocated local port. It never
 changes the signed path, query or Host, and refuses external destinations.
+For finite jobs the DCP container state `Exited` replaces the project process
+state `Finished`; both require an actual exit code of 0.
 The emulator's `--disableProductStyleUrl` selects account-in-path addressing
 for this alias; `--skipApiVersionCheck` is for the pinned local emulator
 and does not disable authentication. PostgreSQL runs the canonical role

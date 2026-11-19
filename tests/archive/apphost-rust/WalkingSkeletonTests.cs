@@ -1809,7 +1809,7 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         int? exitCode = null;
         await notifications.WaitForResourceAsync(name, update =>
         {
-            if (update.Snapshot.State?.Text != KnownResourceStates.Finished) return false;
+            if (!RustStack.IsExited(update)) return false;
             exitCode = update.Snapshot.ExitCode;
             return true;
         }, token);
