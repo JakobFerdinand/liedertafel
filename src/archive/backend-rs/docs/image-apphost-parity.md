@@ -52,10 +52,12 @@ dotnet test tests/archive/apphost-rust --filter FullyQualifiedName~ExtractionRou
 Use the tests' normal teardown or allow the cancellation timeout to unwind.
 Do not publish logs: even synthetic codes, loopback dashboard sign-in tokens
 and SAS query values in dependency logs are private capture data. Independent
-image checks use an isolated codec run, a 2-CPU/512-MiB dependency-free
-process, actual liveness/static assets/build/404, observed process stats and
-SIGTERM followed by exit 0. Scratch owner/mode and writable-file permissions
-are tested; that is **not** a 512-MiB worker sizing recommendation. Even with
+image checks bound the isolated codec run to 2 CPU and 512 MiB RAM on a
+read-only root with 128 MiB tmpfs scratch, and measure actual scratch use. The
+dependency-free origin control also uses 2 CPU and 512 MiB RAM, actual
+liveness/static assets/build/404, observed stats and SIGTERM followed by exit 0.
+Scratch owner/mode and writable-file permissions are tested; these synthetic
+bounds are **not** a worker sizing recommendation. Even with
 bounded spooling and finite drain, native PDF decode is not hard-preemptible;
 large decoded PDFs/photos, hosted concurrency and long-video scratch use
 retain their earlier capacity qualifications.

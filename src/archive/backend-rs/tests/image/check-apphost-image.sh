@@ -8,18 +8,25 @@ image=localhost/liedertafel-235:$tag
 
 # Loader, linkage, distro codecs, notices and nonroot scratch. No host mounts
 # or network access. The cross-stack tests separately use PDFium on real PDFs.
-"$runtime" run --rm --pull=never --network=none --entrypoint sh "$image" -ec '
+"$runtime" run --rm --pull=never --network=none --cpus=2 --memory=512m --read-only \
+  --tmpfs /scratch-cap:rw,noexec,nosuid,size=128m,mode=1777 \
+  --entrypoint sh "$image" -ec '
   test "$(id -u)" = 10001
+  test "$(stat -c %u /app/scratch)" = 10001
   test "$(stat -c %a /app/scratch)" = 700
   test ! -w /app/wwwroot
+  umask 077
+  export TMPDIR=/scratch-cap/private
+  mkdir "$TMPDIR"
+  test "$(stat -c %a "$TMPDIR")" = 700
   file=$(mktemp)
   test "$(stat -c %a "$file")" = 600
   rm "$file"
   ! command -v node
-  ldd /app/archive-server | tee /app/scratch/archive.ldd
-  ! grep -E "lib(ssl|crypto)\.so|not found" /app/scratch/archive.ldd
-  ldd /app/native/libpdfium.so | tee /app/scratch/pdfium.ldd
-  ! grep "not found" /app/scratch/pdfium.ldd
+  ldd /app/archive-server | tee "$TMPDIR/archive.ldd"
+  ! grep -E "lib(ssl|crypto)\.so|not found" "$TMPDIR/archive.ldd"
+  ldd /app/native/libpdfium.so | tee "$TMPDIR/pdfium.ldd"
+  ! grep "not found" "$TMPDIR/pdfium.ldd"
   grep -aq "OpenSSL 3.5.9" /app/archive-server
   echo "655e831208783f38dc187ad424bdfdae39858cfbfcf3a9a2cb9dd0694b5abcad  /app/native/libpdfium.so" | sha256sum -c -
   test -s /usr/share/doc/archive-native/pdfium/LICENSE
@@ -35,6 +42,8 @@ image=localhost/liedertafel-235:$tag
   grep -qx h264 "$TMPDIR/codecs"
   grep -qx aac "$TMPDIR/codecs"
   ffmpeg -v error -xerror -i "$TMPDIR/codec.mp4" -f null -
+  du -sh "$TMPDIR"
+  df -h "$TMPDIR"
 '
 
 # A bounded local smoke, not a capacity claim. This is the product executable
