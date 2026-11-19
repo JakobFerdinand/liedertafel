@@ -49,6 +49,10 @@ internal static class RustStack
 
     public static async Task AssertImageOriginAsync(DistributedApplication app, CancellationToken token)
     {
+        // A real dashboard supplied the injected endpoint. Treat its URL as
+        // sensitive (it may contain a local login token); never log the URI.
+        var dashboard = await app.GetDashboardUrlAsync(token);
+        Assert.True(dashboard.IsLoopback, "Expected the local Aspire dashboard.");
         using var origin = app.CreateHttpClient("archive-api", "http");
         using var proxy = app.CreateHttpClient("archive-frontend", "http");
         var html = await origin.GetStringAsync("/system/status/", token);
@@ -58,6 +62,8 @@ internal static class RustStack
         Assert.NotEmpty(await origin.GetByteArrayAsync(nextAsset.Groups[1].Value, token));
         var build = await origin.GetFromJsonAsync<JsonElement>("/api/build", token);
         var fromProxy = await proxy.GetFromJsonAsync<JsonElement>("/api/build", token);
+        Assert.True(build.GetProperty("development").GetBoolean());
+        Assert.True(fromProxy.GetProperty("development").GetBoolean());
         Assert.Equal(build.GetProperty("version").GetString(), fromProxy.GetProperty("version").GetString());
         Assert.Equal(Environment.GetEnvironmentVariable("ARCHIVE_235_EXPECTED_VERSION")
             ?? throw new InvalidOperationException("Set ARCHIVE_235_EXPECTED_VERSION to the image's compile-time VERSION."),
