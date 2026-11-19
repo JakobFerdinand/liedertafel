@@ -19,7 +19,8 @@ internal static class RustStack
     // DCP reports container exits as Exited, where the frozen ProjectResource
     // reports Finished. A terminal notification alone never proves success.
     public static bool IsExited(ResourceEvent update) =>
-        update.Snapshot.State?.Text is KnownResourceStates.Exited or KnownResourceStates.Finished;
+        update.Snapshot.State?.Text == KnownResourceStates.Exited
+        || update.Snapshot.State?.Text == KnownResourceStates.Finished;
 
     public static HttpClient BlobClient(DistributedApplication app)
     {
