@@ -156,9 +156,8 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         using var logoutResponse = await frontend.SendAsync(logout, token);
         Assert.Equal(HttpStatusCode.OK, logoutResponse.StatusCode);
 
-        // The shared test-client cookie jar keeps sending the session ticket
-        // after logout (cookie auth is stateless), so the anonymous check
-        // needs a jar-free client to prove the cookie is truly gone.
+        // A separate client confirms the anonymous response without any
+        // manually supplied cookies.
         using var anonymous = new HttpClient { BaseAddress = frontend.BaseAddress };
         var meAfter = await anonymous.GetFromJsonAsync<JsonElement>("/api/auth/me", token);
         Assert.False(meAfter.GetProperty("authenticated").GetBoolean());
@@ -190,10 +189,9 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         // ARC-006 invitations through the real Next.js proxy and Mailpit.
         // The administrator signs in, invites a new singer, and the recipient
         // accepts through the existing email-code flow with a stable account ID.
-        // A jar-free client carries exactly the manually attached session:
-        // the shared client's cookie jar still holds earlier member/editor
-        // tickets, and even a fresh HttpClient would accumulate competing
-        // archive.auth cookies from the verify responses below.
+        // Keep manually attached session and CSRF cookies separated by actor,
+        // as with distinct browser profiles. Rebinding the same browser's
+        // CSRF state to a different session invalidates its old token.
         using var api = new HttpClient(new HttpClientHandler { UseCookies = false })
         {
             BaseAddress = frontend.BaseAddress,
@@ -263,7 +261,7 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
 
         // The invited singer accepts with the existing code flow; the stable
         // account ID from the invitation matches the verified session.
-        var (neuCsrfCookie, neuToken) = await GetCsrfAsync(api, dupCsrfCookie, token);
+        var (neuCsrfCookie, neuToken) = await GetCsrfAsync(api, null, token);
         using var neuRequest = new HttpRequestMessage(HttpMethod.Post, "/api/auth/code/request");
         neuRequest.Headers.Add("Cookie", neuCsrfCookie);
         neuRequest.Headers.Add("X-CSRF-TOKEN", neuToken);
@@ -348,7 +346,7 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
 
         // Denied re-verification by the inactive account: no disclosure on
         // request (202) and uniform invalid-code on verify.
-        var (revokedCsrfCookie, revokedToken) = await GetCsrfAsync(api, deactivateCsrfCookie, token);
+        var (revokedCsrfCookie, revokedToken) = await GetCsrfAsync(api, memberCsrfCookie, token);
         using var revokedRequest = new HttpRequestMessage(HttpMethod.Post, "/api/auth/code/request");
         revokedRequest.Headers.Add("Cookie", revokedCsrfCookie);
         revokedRequest.Headers.Add("X-CSRF-TOKEN", revokedToken);
@@ -363,7 +361,7 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         using var revokedVerifyResponse = await api.SendAsync(revokedVerify, token);
         Assert.Equal(HttpStatusCode.BadRequest, revokedVerifyResponse.StatusCode);
 
-        var (reactivateCsrfCookie, reactivateToken) = await GetCsrfAsync(api, $"{revokedVerifyCsrfCookie}; {adminSession}", token);
+        var (reactivateCsrfCookie, reactivateToken) = await GetCsrfAsync(api, $"{deactivateCsrfCookie}; {adminSession}", token);
         using var reactivate = new HttpRequestMessage(HttpMethod.Post, "/api/admin/members/reactivate");
         reactivate.Headers.Add("Cookie", $"{reactivateCsrfCookie}; {adminSession}");
         reactivate.Headers.Add("X-CSRF-TOKEN", reactivateToken);
@@ -381,7 +379,7 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         var neuMeStaleBody = await neuMeStaleResponse.Content.ReadFromJsonAsync<JsonElement>(token);
         Assert.False(neuMeStaleBody.GetProperty("authenticated").GetBoolean());
 
-        var (neu2CsrfCookie, neu2Token) = await GetCsrfAsync(api, reactivateCsrfCookie, token);
+        var (neu2CsrfCookie, neu2Token) = await GetCsrfAsync(api, revokedVerifyCsrfCookie, token);
         using var neu2Request = new HttpRequestMessage(HttpMethod.Post, "/api/auth/code/request");
         neu2Request.Headers.Add("Cookie", neu2CsrfCookie);
         neu2Request.Headers.Add("X-CSRF-TOKEN", neu2Token);
@@ -404,7 +402,7 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
             neu2VerifyResponse.Headers.GetValues("Set-Cookie"), c => c.StartsWith("archive.auth=")).Split(';')[0];
 
         // Role changes obey on the next request without a fresh sign-in.
-        var (roleCsrfCookie, roleToken) = await GetCsrfAsync(api, $"{neu2VerifyCsrfCookie}; {adminSession}", token);
+        var (roleCsrfCookie, roleToken) = await GetCsrfAsync(api, $"{reactivateCsrfCookie}; {adminSession}", token);
         using var roleChange = new HttpRequestMessage(HttpMethod.Post, "/api/admin/members/role");
         roleChange.Headers.Add("Cookie", $"{roleCsrfCookie}; {adminSession}");
         roleChange.Headers.Add("X-CSRF-TOKEN", roleToken);
@@ -434,7 +432,7 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
 
         // No silent attach: the sign-in flow has no account for the new
         // address yet (uniform 202 without mail) and rejects the change code.
-        var (preCsrfCookie, preToken) = await GetCsrfAsync(api, changeCsrfCookie, token);
+        var (preCsrfCookie, preToken) = await GetCsrfAsync(api, neu2VerifyCsrfCookie, token);
         using var preRequest = new HttpRequestMessage(HttpMethod.Post, "/api/auth/code/request");
         preRequest.Headers.Add("Cookie", preCsrfCookie);
         preRequest.Headers.Add("X-CSRF-TOKEN", preToken);
@@ -449,7 +447,7 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         using var misuseResponse = await api.SendAsync(misuse, token);
         Assert.Equal(HttpStatusCode.BadRequest, misuseResponse.StatusCode);
 
-        var (confirmCsrfCookie, confirmToken) = await GetCsrfAsync(api, $"{misCsrfCookie}; {adminSession}", token);
+        var (confirmCsrfCookie, confirmToken) = await GetCsrfAsync(api, $"{changeCsrfCookie}; {adminSession}", token);
         using var confirm = new HttpRequestMessage(HttpMethod.Post, "/api/admin/members/email/confirm");
         confirm.Headers.Add("Cookie", $"{confirmCsrfCookie}; {adminSession}");
         confirm.Headers.Add("X-CSRF-TOKEN", confirmToken);
@@ -479,7 +477,7 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         Assert.False(neu2MeMovedBody.GetProperty("authenticated").GetBoolean());
 
         // The old address no longer signs in; the new one returns the same ID.
-        var (oldMailCsrfCookie, oldMailToken) = await GetCsrfAsync(api, confirmCsrfCookie, token);
+        var (oldMailCsrfCookie, oldMailToken) = await GetCsrfAsync(api, misCsrfCookie, token);
         using var oldMailRequest = new HttpRequestMessage(HttpMethod.Post, "/api/auth/code/request");
         oldMailRequest.Headers.Add("Cookie", oldMailCsrfCookie);
         oldMailRequest.Headers.Add("X-CSRF-TOKEN", oldMailToken);
@@ -513,7 +511,7 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         Assert.Equal(invitedAccountId, movedVerifyBody.GetProperty("accountId").GetString());
 
         // Collision with the administrator's address is rejected cleanly.
-        var (collisionCsrfCookie, collisionToken) = await GetCsrfAsync(api, $"{movedVerifyCsrfCookie}; {adminSession}", token);
+        var (collisionCsrfCookie, collisionToken) = await GetCsrfAsync(api, $"{confirmCsrfCookie}; {adminSession}", token);
         using var collision = new HttpRequestMessage(HttpMethod.Post, "/api/admin/members/email/request");
         collision.Headers.Add("Cookie", $"{collisionCsrfCookie}; {adminSession}");
         collision.Headers.Add("X-CSRF-TOKEN", collisionToken);
