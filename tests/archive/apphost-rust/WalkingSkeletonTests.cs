@@ -54,10 +54,10 @@ public sealed class WalkingSkeletonTests(ITestOutputHelper output)
         var commands = app.Services.GetRequiredService<ResourceCommandService>();
         await commands.ExecuteCommandAsync("archive-migrate", "start", token);
         await AssertSuccessfulCompletion(app.ResourceNotifications, "archive-migrate", token);
-        database = await frontend.GetFromJsonAsync<JsonElement>("/api/dev/database", token);
-        Assert.Empty(database.GetProperty("pendingMigrations").EnumerateArray());
         await RustStack.AssertAppliedBaselineAndGrantsAsync(app, token);
         await RustStack.AssertAdoptionAsync(app, commands, token);
+        database = await frontend.GetFromJsonAsync<JsonElement>("/api/dev/database", token);
+        Assert.Empty(database.GetProperty("pendingMigrations").EnumerateArray());
 
         // Cookie/token flow crosses the real Next.js development proxy.
         var csrf = await frontend.GetAsync("/api/antiforgery", token);
