@@ -15,11 +15,13 @@
 //! - #221 request spans omit queries/headers and globally suppress credential-
 //!   dumping WebAuthn/mail SDK events. Later storage/AI waves must retain safe
 //!   URL/error instrumentation at their own boundaries.
-//! - OTLP header auth for a dashboard API key: `opentelemetry-otlp` currently
-//!   carries headers on HTTP transports only, and local gRPC export needs none.
+//!
+//! Explicit OTLP HTTP/protobuf uses SDK-managed endpoints and authentication
+//! headers. Existing unconfigured-protocol installations still default to gRPC.
 
 use opentelemetry::trace::TracerProvider as _;
 use opentelemetry::{KeyValue, global};
+use opentelemetry_otlp::{Protocol, WithExportConfig as _};
 use std::env;
 use std::time::Duration;
 use tracing_subscriber::layer::Layer as _;
@@ -55,6 +57,9 @@ pub enum InitError {
 
 	#[error("the OTLP exporter could not be built: {0}")]
 	ExporterBuild(#[from] opentelemetry_otlp::ExporterBuildError),
+
+	#[error("OTLP protocol must be grpc or http/protobuf")]
+	UnsupportedProtocol,
 
 	#[error("the tracing subscriber is already registered; initialize telemetry once")]
 	TracingSubscriberTaken,
@@ -209,6 +214,7 @@ fn install_tracing_subscriber(defaults: &ServiceDefaults) -> Result<(), InitErro
 				&& !metadata.target().starts_with("hyper")
 				&& !metadata.target().starts_with("h2")
 				&& !metadata.target().starts_with("tonic")
+				&& !metadata.target().starts_with("opentelemetry")
 				&& !metadata.target().starts_with("sqlx")
 				&& !metadata.target().starts_with("pdfium_render")
 		}));
@@ -225,6 +231,8 @@ fn quiet_internals() -> tracing_subscriber::EnvFilter {
 		"error,",
 		"archive_server=info,",
 		"archive_db=info,",
+		// The shared finite runner emits a static outcome, not exception data.
+		"Archive.Jobs=info,",
 		// Frozen finite-video maintenance category is an explicit tracing target.
 		"Archive.Videos=info,",
 		"hyper=off,",
@@ -246,9 +254,14 @@ fn span_exporter(with_export: bool) -> Result<Option<opentelemetry_otlp::SpanExp
 	if !with_export {
 		return Ok(None);
 	}
-	let exporter = opentelemetry_otlp::SpanExporter::builder()
-		.with_tonic()
-		.build()?;
+	let builder = opentelemetry_otlp::SpanExporter::builder();
+	let exporter = match protocol("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL")? {
+		Protocol::HttpBinary => builder
+			.with_http()
+			.with_protocol(Protocol::HttpBinary)
+			.build()?,
+		_ => builder.with_tonic().with_protocol(Protocol::Grpc).build()?,
+	};
 	Ok(Some(exporter))
 }
 
@@ -261,9 +274,17 @@ fn build_meter_provider(
 		opentelemetry_sdk::metrics::SdkMeterProvider::builder().with_resource(resource.clone());
 
 	if with_export {
-		let exporter = opentelemetry_otlp::MetricExporter::builder()
-			.with_tonic()
-			.build()?;
+		let exporter = opentelemetry_otlp::MetricExporter::builder();
+		let exporter = match protocol("OTEL_EXPORTER_OTLP_METRICS_PROTOCOL")? {
+			Protocol::HttpBinary => exporter
+				.with_http()
+				.with_protocol(Protocol::HttpBinary)
+				.build()?,
+			_ => exporter
+				.with_tonic()
+				.with_protocol(Protocol::Grpc)
+				.build()?,
+		};
 		let reader = opentelemetry_sdk::metrics::PeriodicReader::builder(exporter)
 			.with_interval(interval)
 			.build();
@@ -285,9 +306,17 @@ fn build_logger_provider(
 		return Ok(builder.build());
 	}
 
-	let exporter = opentelemetry_otlp::LogExporter::builder()
-		.with_tonic()
-		.build()?;
+	let exporter = opentelemetry_otlp::LogExporter::builder();
+	let exporter = match protocol("OTEL_EXPORTER_OTLP_LOGS_PROTOCOL")? {
+		Protocol::HttpBinary => exporter
+			.with_http()
+			.with_protocol(Protocol::HttpBinary)
+			.build()?,
+		_ => exporter
+			.with_tonic()
+			.with_protocol(Protocol::Grpc)
+			.build()?,
+	};
 	let batch = opentelemetry_sdk::logs::BatchLogProcessor::builder(exporter)
 		.with_batch_config(
 			opentelemetry_sdk::logs::BatchConfigBuilder::default()
@@ -296,6 +325,18 @@ fn build_logger_provider(
 		)
 		.build();
 	Ok(builder.with_log_processor(batch).build())
+}
+
+fn protocol(signal_variable: &str) -> Result<Protocol, InitError> {
+	let configured = env::var(signal_variable)
+		.ok()
+		.filter(|value| !value.is_empty())
+		.or_else(|| env::var("OTEL_EXPORTER_OTLP_PROTOCOL").ok());
+	match configured.as_deref() {
+		None | Some("" | "grpc") => Ok(Protocol::Grpc),
+		Some("http/protobuf") => Ok(Protocol::HttpBinary),
+		_ => Err(InitError::UnsupportedProtocol),
+	}
 }
 
 /// Development always samples (the C# service defaults' `AlwaysOnSampler`);
