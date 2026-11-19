@@ -29,10 +29,14 @@ WORKDIR /build
 COPY src/archive/backend-rs/Cargo.toml src/archive/backend-rs/Cargo.lock src/archive/backend-rs/rust-toolchain.toml ./
 COPY src/archive/backend-rs/crates/ crates/
 ARG VERSION=local-235
-RUN ARCHIVE_IMAGE_VERSION="$VERSION" OPENSSL_DIR=/opt/archive-openssl OPENSSL_STATIC=1 \
-    cargo build --jobs "$BUILD_JOBS" --locked --release -p archive-server --bin archive-server
 # Keep the precise covered MPL source artifacts (which include their notices).
-RUN mkdir -p /notices/mpl-source \
+RUN --mount=type=cache,id=archive-235-cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=archive-235-cargo-target,target=/cargo-target \
+    ARCHIVE_IMAGE_VERSION="$VERSION" OPENSSL_DIR=/opt/archive-openssl OPENSSL_STATIC=1 \
+    CARGO_TARGET_DIR=/cargo-target \
+    cargo build --jobs "$BUILD_JOBS" --locked --release -p archive-server --bin archive-server \
+    && install -D /cargo-target/release/archive-server /artifacts/archive-server \
+    && mkdir -p /notices/mpl-source \
     && for crate in base64urlsafedata webauthn-attestation-ca webauthn-rs-core webauthn-rs-proto; do \
          cp "$CARGO_HOME"/registry/cache/*/"$crate"-0.5.5.crate /notices/mpl-source/ || exit 1; \
        done \
@@ -48,7 +52,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && install -d -m 0700 -o 10001 -g 10001 /app/scratch
 COPY --from=frontend /build/out/ /app/wwwroot/
-COPY --from=backend /build/target/release/archive-server /app/archive-server
+COPY --from=backend /artifacts/archive-server /app/archive-server
 COPY --from=backend /native/pdfium/lib/libpdfium.so /app/native/libpdfium.so
 COPY --from=backend /notices/ /usr/share/doc/archive-native/
 COPY src/archive/backend-rs/docs/image-native-notices.md /usr/share/doc/archive-native/README.md
