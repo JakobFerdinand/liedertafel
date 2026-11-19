@@ -13,6 +13,7 @@ use opentelemetry_proto::tonic::collector::{
 	trace::v1::ExportTraceServiceRequest,
 };
 use opentelemetry_proto::tonic::common::v1::any_value::Value;
+use opentelemetry_proto::tonic::metrics::v1::{metric, number_data_point};
 use opentelemetry_proto::tonic::resource::v1::Resource;
 use prost::Message;
 
@@ -58,6 +59,25 @@ fn finite_job_child() {
 		i32::from(outcome)
 	});
 	std::process::exit(result);
+}
+
+#[test]
+fn exporter_startup_error_does_not_echo_endpoint() {
+	let output = Command::new(std::env::current_exe().unwrap())
+		.args(["--exact", "finite_job_child"])
+		.env("ARCHIVE_TEST_FINITE_MODE", "success")
+		.env(
+			"OTEL_EXPORTER_OTLP_ENDPOINT",
+			format!("https://[?sig={SECRET}"),
+		)
+		.env("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
+		.env_remove("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
+		.env_remove("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL")
+		.output()
+		.unwrap();
+	assert!(!output.status.success());
+	assert_safe(&output.stdout);
+	assert_safe(&output.stderr);
 }
 
 #[test]
@@ -399,7 +419,27 @@ fn assert_signals(
 				.scope_metrics
 				.into_iter()
 				.flat_map(|s| s.metrics)
-				.any(|m| m.name == metric_name);
+				.any(|m| {
+					if m.name != metric_name {
+						return false;
+					}
+					let Some(metric::Data::Sum(sum)) = m.data else { return false };
+					sum.data_points.into_iter().any(|point| {
+						if point.value != Some(number_data_point::Value::AsInt(1)) {
+							return false;
+						}
+						if metric_name == METRIC {
+							return true;
+						}
+						point.attributes.iter().any(|attr| {
+							attr.key == "archive.job.name"
+								&& matches!(attr.value.as_ref().and_then(|v| v.value.as_ref()), Some(Value::StringValue(name)) if name == span_name)
+						}) && point.attributes.iter().any(|attr| {
+							attr.key == "archive.job.success"
+								&& matches!(attr.value.as_ref().and_then(|v| v.value.as_ref()), Some(Value::BoolValue(success)) if *success != fail)
+						})
+					})
+				});
 		}
 	}
 	assert!(metric_found);

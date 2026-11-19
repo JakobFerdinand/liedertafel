@@ -7,6 +7,7 @@ const paths = new Set(['/v1/logs', '/v1/traces', '/v1/metrics']);
 let active = 0;
 let invalid = false;
 let sealed = false;
+const requests = new Map();
 const server = http.createServer(async (request, response) => {
   if (request.method === 'GET' && request.url === '/ready') {
     response.end();
@@ -15,6 +16,17 @@ const server = http.createServer(async (request, response) => {
   // Called only after the product process and its stdout/stderr closed.
   if (request.method === 'POST' && request.url === '/seal') {
     sealed = true;
+    let timeout;
+    try {
+      await Promise.race([
+        Promise.all(requests.values()),
+        new Promise((_, reject) => { timeout = setTimeout(reject, 2000); }),
+      ]);
+    } catch {
+      invalid = true;
+    } finally {
+      clearTimeout(timeout);
+    }
     if (invalid || active !== 0) response.statusCode = 409;
     response.end(JSON.stringify(captures));
     return;
@@ -27,6 +39,13 @@ const server = http.createServer(async (request, response) => {
     response.statusCode = 403;
     response.end();
     return;
+  }
+  const socket = request.socket;
+  if (!requests.has(socket)) {
+    requests.set(socket, new Promise(resolve => socket.once('close', () => {
+      requests.delete(socket);
+      resolve();
+    })));
   }
   active++;
   try {

@@ -55,14 +55,22 @@ pub enum InitError {
 	#[error("Development requires OTLP configuration. Start the archive through AppHost.")]
 	MissingOtlpEndpoint,
 
-	#[error("the OTLP exporter could not be built: {0}")]
-	ExporterBuild(#[from] opentelemetry_otlp::ExporterBuildError),
+	#[error("the OTLP exporter could not be built; check its endpoint and configuration")]
+	ExporterBuild,
 
 	#[error("OTLP protocol must be grpc or http/protobuf")]
 	UnsupportedProtocol,
 
 	#[error("the tracing subscriber is already registered; initialize telemetry once")]
 	TracingSubscriberTaken,
+}
+
+impl From<opentelemetry_otlp::ExporterBuildError> for InitError {
+	fn from(_: opentelemetry_otlp::ExporterBuildError) -> Self {
+		// The SDK can embed a URL or transport configuration in its error.
+		// Do not retain it even as Debug/source: main's diagnostic is public.
+		Self::ExporterBuild
+	}
 }
 
 impl ServiceDefaults {
