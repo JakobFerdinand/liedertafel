@@ -47,6 +47,14 @@ impl From<azure_core::Error> for StorageError {
 }
 
 pub trait Storage: Send + Sync {
+	fn upload_file<'a>(
+		&'a self,
+		_blob: &'a str,
+		_path: &'a std::path::Path,
+		_content_type: &'a str,
+	) -> BoxFuture<'a, Result<(), StorageError>> {
+		Box::pin(async { Err(StorageError::Unavailable) })
+	}
 	fn open_read_bounded<'a>(
 		&'a self,
 		blob: &'a str,
@@ -629,6 +637,67 @@ impl azure_core::http::policies::Policy for NetworkDeadline {
 	}
 }
 impl Storage for BlobStorage {
+	fn upload_file<'a>(
+		&'a self,
+		blob: &'a str,
+		path: &'a std::path::Path,
+		content_type: &'a str,
+	) -> BoxFuture<'a, Result<(), StorageError>> {
+		Box::pin(async move {
+			use azure_storage_blob::models::{
+				BlockBlobClientCommitBlockListOptions, BlockLookupList,
+			};
+			use tokio::io::AsyncReadExt;
+			let client = self
+				.client
+				.as_ref()
+				.ok_or(StorageError::Configuration)?
+				.blob_container_client(&self.config.container)
+				.blob_client(blob)
+				.block_blob_client();
+			let mut file = tokio::fs::File::open(path)
+				.await
+				.map_err(|_| StorageError::Unavailable)?;
+			let mut blocks = Vec::new();
+			loop {
+				let mut buffer = vec![0u8; 8 * 1024 * 1024];
+				let mut length = 0;
+				while length < buffer.len() {
+					let n = file
+						.read(&mut buffer[length..])
+						.await
+						.map_err(|_| StorageError::Unavailable)?;
+					if n == 0 {
+						break;
+					}
+					length += n;
+				}
+				if length == 0 {
+					break;
+				}
+				buffer.truncate(length);
+				let id = format!("{:08}", blocks.len()).into_bytes();
+				client
+					.stage_block(&id, length as u64, RequestContent::from(buffer), None)
+					.await?;
+				blocks.push(id);
+			}
+			let list = BlockLookupList {
+				latest: Some(blocks),
+				..Default::default()
+			};
+			client
+				.commit_block_list(
+					list.try_into()?,
+					Some(BlockBlobClientCommitBlockListOptions {
+						blob_content_type: Some(content_type.into()),
+						..Default::default()
+					}),
+				)
+				.await?;
+			Ok(())
+		})
+	}
 	fn open_read_bounded<'a>(
 		&'a self,
 		blob: &'a str,

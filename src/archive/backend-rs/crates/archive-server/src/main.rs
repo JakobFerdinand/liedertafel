@@ -24,15 +24,23 @@ async fn run() -> Result<(), StartupError> {
 	if let Some(command) = args.first().filter(|s| {
 		matches!(
 			s.as_str(),
-			"--extract-queue" | "--dispatch-extraction" | "--read-queue" | "--dispatch-reading"
+			"--extract-queue"
+				| "--dispatch-extraction"
+				| "--read-queue"
+				| "--dispatch-reading"
+				| "--transcode-queue"
+				| "--dispatch-videos"
 		)
 	}) {
 		use tracing::Instrument;
 		let development = std::env::var("ARCHIVE_ENVIRONMENT").as_deref() == Ok("Development");
 		let reading = matches!(command.as_str(), "--read-queue" | "--dispatch-reading");
+		let video = matches!(command.as_str(), "--transcode-queue" | "--dispatch-videos");
 		let defaults = archive_telemetry::ServiceDefaults::init(
 			development,
-			if reading {
+			if video {
+				"archive-transcode"
+			} else if reading {
 				"archive-reading"
 			} else {
 				"archive-extraction"
@@ -46,7 +54,11 @@ async fn run() -> Result<(), StartupError> {
 			tokio::select! {_ = tokio::signal::ctrl_c()=>{},_ = async{if let Some(term)=&mut term{term.recv().await;}else{std::future::pending::<()>().await;}}=>{}}
 			signal.cancel();
 		});
-		let span = if command == "--read-queue" {
+		let span = if command == "--transcode-queue" {
+			tracing::info_span!("transcode-queue", otel.status_code = tracing::field::Empty)
+		} else if command == "--dispatch-videos" {
+			tracing::info_span!("dispatch-videos", otel.status_code = tracing::field::Empty)
+		} else if command == "--read-queue" {
 			tracing::info_span!("read-queue", otel.status_code = tracing::field::Empty)
 		} else if command == "--dispatch-reading" {
 			tracing::info_span!("dispatch-reading", otel.status_code = tracing::field::Empty)
@@ -59,7 +71,11 @@ async fn run() -> Result<(), StartupError> {
 			)
 		};
 		let result = async {
-			let result = if reading {
+			let result = if video {
+				archive_server::videos::command::run(command, development, &cancel)
+					.await
+					.map_err(StartupError::Video)
+			} else if reading {
 				archive_server::reading::command::run(command, development, &cancel)
 					.await
 					.map_err(StartupError::Reading)
@@ -152,6 +168,21 @@ async fn run() -> Result<(), StartupError> {
 	origin.chat = archive_server::chat::Options::from_env()?;
 	origin.uploads = archive_server::catalogue::uploads::UploadOptions::from_env()?;
 	origin.extraction = archive_server::extraction::Options::from_env();
+	origin.video = archive_server::videos::Options::from_env();
+	origin.video_queue = Arc::new(
+		archive_server::videos::select_queue(
+			&origin.video,
+			development,
+			Arc::new(archive_server::auth::SystemClock),
+		)
+		.map_err(|_| StartupError::Video(archive_server::videos::command::CommandError))?,
+	);
+	origin
+		.finalized_hooks
+		.push(Arc::new(archive_server::videos::Hook {
+			queue: origin.video_queue.clone(),
+			clock: Arc::new(archive_server::auth::SystemClock),
+		}));
 	origin.reading = archive_server::reading::Options::from_env(development);
 	origin.reading_enabled = origin.reading.enabled;
 	origin.reading_queue = Arc::new(
@@ -298,6 +329,8 @@ async fn run() -> Result<(), StartupError> {
 /// apphost resource fails visibly.
 #[derive(Debug, thiserror::Error)]
 enum StartupError {
+	#[error("{0}")]
+	Video(archive_server::videos::command::CommandError),
 	#[error("{0}")]
 	Reading(archive_server::reading::command::CommandError),
 	#[error("{0}")]

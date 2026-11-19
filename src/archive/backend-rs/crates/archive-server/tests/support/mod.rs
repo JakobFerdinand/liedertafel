@@ -33,6 +33,7 @@ pub mod reading;
 pub mod recordings;
 pub mod storage;
 pub mod upload;
+pub mod videos;
 
 #[derive(Default)]
 pub struct CaptureMail(

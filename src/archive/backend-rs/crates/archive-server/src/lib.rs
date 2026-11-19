@@ -21,6 +21,7 @@ pub mod reading;
 pub mod recordings;
 pub mod settings;
 pub mod storage;
+pub mod videos;
 pub use storage::queue;
 
 pub use origin::{Origin, build_router};
