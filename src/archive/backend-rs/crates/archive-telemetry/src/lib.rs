@@ -239,8 +239,6 @@ fn quiet_internals() -> tracing_subscriber::EnvFilter {
 		"error,",
 		"archive_server=info,",
 		"archive_db=info,",
-		// The shared finite runner emits a static outcome, not exception data.
-		"Archive.Jobs=info,",
 		// Frozen finite-video maintenance category is an explicit tracing target.
 		"Archive.Videos=info,",
 		"hyper=off,",
