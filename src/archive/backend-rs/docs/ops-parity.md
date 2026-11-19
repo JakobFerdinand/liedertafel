@@ -40,6 +40,27 @@ to leading-zero precision and midpoint rounding, the fixture includes the
 BCL rejection caused by its limited rounding table. TimeSpan extrema bind,
 but a cutoff outside the .NET calendar still refuses the cleanup.
 
+Only the three cleanup commands accept trailing configuration overrides for
+their existing settings (maintenance, grace/retention, database and Blob
+configuration). The frozen argument forms `--Key=value`, `Key=value`,
+`--Key value`, and `/Key value` are case-insensitive, last wins, and override
+environment values; unset configuration keeps the existing Rust defaults.
+Blank/malformed maintenance refuses work when Papierkorb reads it; the other
+cleanups still don't read the flag. Put `--dry-run` **last**: in the frozen
+configuration provider a bare long switch consumes the next token if present.
+Retention cutoff must stay within the .NET calendar, just like the grace
+cutoff. The native gate runs the actual frozen and Rust cleanup commands
+against disposable rows and objects to check these boundaries. Frozen
+`--cleanup-papierkorb` can prove the pause but cannot run the cleaner after
+the flag binds false: `Program.cs` registers `PapierkorbCleaner` on the web
+host only. The native Rust cases exercise the adopted retention behavior
+from the frozen cleaner class; the oracle's unpaused process failure is
+explicitly retained, not counted as a frozen cleanup pass.
+
+The frozen `MaintenanceTests` HTTP payload/probe/auth/fallback matrix is in
+`catalogue_maintenance.rs`; the normal Production forwarded-HTTPS
+antiforgery control is in `auth_api.rs`.
+
 The runtime-role diagnostic is exercised through the normal binary in
 `cargo test -p archive-server --locked --test migrate_process
 postgres_migration_contract -- --ignored`; use disposable PostgreSQL and
@@ -67,6 +88,11 @@ before running on any non-fixture inventory. The frozen repeated-suffix failure 
 stem still ending in `)` after stripping a numeric suffix is not reinterpreted
 as an additional duplicate candidate; the Rust command exits nonzero with a
 bounded error.
+
+Inventur retains decimal prices from JSON/environment, emits exact JSON
+numbers, and formats its six-place summary directly from the decimal estimate.
+The high-precision and midpoint controls can compare actual reports and the
+summary to the frozen executable.
 
 ## Gates
 

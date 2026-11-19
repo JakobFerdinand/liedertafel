@@ -46,6 +46,7 @@ podman build --layers \
   --build-arg VERSION="$ARCHIVE_235_EXPECTED_VERSION" \
   -t "localhost/liedertafel-235:$Archive__TestImageTag" .
 bash src/archive/backend-rs/tests/image/check-apphost-image.sh
+bash src/archive/backend-rs/tests/image/check-apphost-image-failures.sh
 pnpm --dir src/archive/frontend install --frozen-lockfile
 dotnet test tests/archive/apphost-rust
 # Focused equivalent, from the root:
@@ -65,6 +66,10 @@ containers use a local envelope of 3 CPU and 1 GiB RAM. Even with
 bounded spooling and finite drain, native PDF decode is not hard-preemptible;
 large decoded PDFs/photos, hosted concurrency and long-video scratch use
 retain their earlier capacity qualifications.
+
+The separate failure controls use the exact image's shell with harmless
+overrides for writable export, Node, unwanted/missing libraries, failed
+`ldd`, and a failed linkage check. They do not modify the image.
 
 From `src/archive/backend-rs`, the new OTLP test runs without containers:
 
@@ -107,3 +112,7 @@ each topology and oracle translation.
 The broader #220 canonical schema/adoption drift/older-schema/permission
 gates still stand. This gate does not retire frozen source, excused historical
 EF transformations, wider browser suites, or any existing failed controls.
+
+The eight inherited, unsuppressed RustSec findings remain a release blocker
+(`RUSTSEC-2026-0543`, `-0555`, and `-0560` through `-0565`). Local image/AppHost
+passes are not dependency-audit or cutover approval.
