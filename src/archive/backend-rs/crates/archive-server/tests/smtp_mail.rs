@@ -1,8 +1,84 @@
 use archive_server::auth::mail::{
-	Mail, SmtpMail, code_message, email_change_message, invitation_message,
+	Mail, MailMessage, SmtpMail, code_message, email_change_message, invitation_message,
 };
 use serde_json::Value;
 use std::time::Duration;
+use tokio::{
+	io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+	net::TcpListener,
+};
+
+#[tokio::test]
+async fn smtp_preserves_envelope_and_final_body_line() {
+	let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+	let mail = SmtpMail {
+		host: "127.0.0.1".into(),
+		port: listener.local_addr().unwrap().port(),
+		from: "Archive <archive@example.test>".into(),
+	};
+	let receiver = async {
+		let (socket, _) = listener.accept().await.unwrap();
+		let mut socket = BufReader::new(socket);
+		socket.write_all(b"220 test SMTP\r\n").await.unwrap();
+		let mut line = String::new();
+		for (command, reply) in [
+			("EHLO", "250 test SMTP\r\n"),
+			("MAIL FROM:<archive@example.test>", "250 sender OK\r\n"),
+			(
+				"RCPT TO:<member+archive@example.test>",
+				"250 recipient OK\r\n",
+			),
+			("DATA", "354 send message\r\n"),
+		] {
+			line.clear();
+			socket.read_line(&mut line).await.unwrap();
+			let actual = line.strip_suffix("\r\n").expect("SMTP command line");
+			if command == "EHLO" {
+				assert!(actual.starts_with("EHLO "));
+			} else {
+				assert_eq!(actual, command);
+			}
+			socket.write_all(reply.as_bytes()).await.unwrap();
+		}
+
+		let mut data = String::new();
+		loop {
+			line.clear();
+			assert_ne!(socket.read_line(&mut line).await.unwrap(), 0);
+			if line == ".\r\n" {
+				break;
+			}
+			data.push_str(&line);
+		}
+		socket.write_all(b"250 accepted\r\n").await.unwrap();
+		line.clear();
+		socket.read_line(&mut line).await.unwrap();
+		assert_eq!(line, "QUIT\r\n");
+		socket.write_all(b"221 bye\r\n").await.unwrap();
+		data
+	};
+	let (sent, data) = tokio::time::timeout(Duration::from_secs(5), async {
+		tokio::join!(
+			mail.send(MailMessage {
+				to: "Member <member+archive@example.test>".into(),
+				subject: "Archive delivery check".into(),
+				text: "The archive is ready.".into(),
+			}),
+			receiver,
+		)
+	})
+	.await
+	.expect("loopback SMTP transaction timed out");
+	sent.unwrap();
+	let (headers, body) = data.split_once("\r\n\r\n").expect("MIME header separator");
+	assert!(
+		headers
+			.lines()
+			.any(|line| line == "Subject: Archive delivery check")
+	);
+	// The MIME body already ends in CRLF; DATA must not add another line.
+	assert_eq!(body, "The archive is ready.\r\n");
+}
 
 #[tokio::test]
 #[ignore = "requires a fresh local Mailpit on dedicated SMTP and HTTP ports"]
@@ -89,4 +165,9 @@ async fn mailpit_decodes_german_auth_mail() {
 			);
 		}
 	}
+	assert_eq!(
+		messages().await["total"],
+		3,
+		"one delivery per auth message"
+	);
 }

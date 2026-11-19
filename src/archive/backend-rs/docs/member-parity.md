@@ -113,12 +113,16 @@ unbounded response bodies are allowed. Success is service handoff, not inbox
 delivery. Logs retain only status, allowlisted error codes, parsed GUID operation
 IDs or fixed failure text, never provider messages or mail content.
 
-The SMTP MIME regression delivers synthetic messages to a fresh local Mailpit
-and asserts its decoded German text, both kinds of code, and the invitation's
-`/anmelden/` path. From `backend-rs`, set `ARCHIVE_TEST_MAILPIT_SMTP_PORT`
-and `ARCHIVE_TEST_MAILPIT_HTTP_PORT` to the dedicated loopback ports for that
-instance, then run `cargo test -p archive-server --locked --test smtp_mail
--- --ignored`. Use a new empty instance for each run.
+Run `cargo test -p archive-server --locked --test smtp_mail` from `backend-rs`
+to check a normal loopback SMTP transaction: display names stay out of the
+envelope, the plus-address survives delivery, and the DATA terminator does
+not insert a blank line after a CRLF-terminated body.
+
+The separate Mailpit regression checks one delivery per synthetic message,
+decoded German text, both kinds of code, and the invitation's `/anmelden/`
+path. Set `ARCHIVE_TEST_MAILPIT_SMTP_PORT` and `ARCHIVE_TEST_MAILPIT_HTTP_PORT`
+to the dedicated loopback ports of a fresh empty Mailpit, then run
+`cargo test -p archive-server --locked --test smtp_mail -- --ignored`.
 
 ## Frozen-suite mapping
 

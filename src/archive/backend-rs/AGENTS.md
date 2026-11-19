@@ -159,9 +159,9 @@ update this section in the same PR whenever the member list changes.
 
 - Member administration/operator/mail (#222): before editing these boundaries
   or their tests, read `docs/member-parity.md` for transaction lock order,
-  repair-vs-email-change credential behavior, native CLI/browser/OTLP commands,
-  frozen-suite mapping and the honestly failed frozen browser controls. Focused
-  PG example: `cargo test -p archive-server --locked --test member_revocation
+  repair-vs-email-change credentials, loopback SMTP/Mailpit, native
+  CLI/browser/OTLP and frozen-suite mapping (including failed browser controls).
+  Focused PG: `cargo test -p archive-server --locked --test member_revocation
    last_active_administrator -- --ignored`.
 
 - Catalogue/Blob reads/tiers (#223): before changing visibility, shared search,
