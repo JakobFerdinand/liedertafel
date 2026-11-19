@@ -113,6 +113,8 @@ The broader #220 canonical schema/adoption drift/older-schema/permission
 gates still stand. This gate does not retire frozen source, excused historical
 EF transformations, wider browser suites, or any existing failed controls.
 
-The eight inherited, unsuppressed RustSec findings remain a release blocker
-(`RUSTSEC-2026-0543`, `-0555`, and `-0560` through `-0565`). Local image/AppHost
-passes are not dependency-audit or cutover approval.
+The original #235 audit snapshot recorded eight inherited findings. The
+`lettre` 0.11.24 update clears `RUSTSEC-2026-0560` through `-0565`.
+`RUSTSEC-2026-0543` (`chrono`) and `RUSTSEC-2026-0555` (`chrono-tz`) remain
+unsuppressed release blockers. Local image/AppHost passes are not
+dependency-audit or cutover approval.
