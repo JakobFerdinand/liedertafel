@@ -5,6 +5,18 @@
 use std::env;
 use std::path::PathBuf;
 
+pub(crate) fn finite_maintenance() -> Result<bool, SettingsError> {
+	match env::var("Archive__MaintenanceMode") {
+		Err(env::VarError::NotPresent) => Ok(false),
+		Ok(v) => v
+			.trim()
+			.to_ascii_lowercase()
+			.parse()
+			.map_err(|_| SettingsError::InvalidMaintenance),
+		Err(_) => Err(SettingsError::InvalidMaintenance),
+	}
+}
+
 /// `/api/build` payload: matches the ASP.NET informational version. The
 /// container build stamps `ARCHIVE_IMAGE_VERSION` at compile time the way
 /// C# `dotnet publish -p:Version=` does — the cutover wave (#236) wires the

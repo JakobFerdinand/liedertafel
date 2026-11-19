@@ -4,7 +4,7 @@ use crate::binding;
 use crate::clr_guid::GuidPath;
 mod dateien;
 pub mod drafts;
-mod kinds;
+pub(crate) mod kinds;
 pub mod queries;
 pub mod search;
 pub mod trash;

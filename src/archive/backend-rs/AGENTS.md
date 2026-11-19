@@ -121,6 +121,11 @@ update this section in the same PR whenever the member list changes.
 
 ## Routes and contracts
 
+- Ops (#234): before changing Inventur, cleanup, finite command gates or
+  `/api/dev` diagnostics, read `docs/ops-parity.md` for frozen ownership,
+  retained FK/hosting limits and the private native gate. Focused:
+  `cargo test -p archive-server --locked --test ops_http --test ops_cli`.
+
 - Video (#233): before changing transcode/dispatch, finalize outbox, video status/
   retry, tool processes or copy publication, read `docs/video-parity.md` for
   lease/CAS/finite bounds, actual square/rotation policy and retained FK/capacity

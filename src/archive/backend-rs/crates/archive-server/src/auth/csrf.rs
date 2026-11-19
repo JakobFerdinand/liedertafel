@@ -14,6 +14,31 @@ use sqlx::Row;
 use subtle::ConstantTimeEq;
 
 impl Auth {
+	pub(crate) fn has_diagnostic_csrf_cookie(headers: &HeaderMap) -> bool {
+		cookie(headers, "archive.csrf")
+			.and_then(token_digest)
+			.is_some()
+	}
+
+	/// Anonymous mutations (Development diagnostics) use the same session-bound
+	/// token without the member role gate or the auth API's cache policy.
+	pub(crate) async fn validate_diagnostic_csrf(
+		auth: Option<&Self>,
+		headers: &HeaderMap,
+	) -> Result<(), AuthError> {
+		let bad = || AuthError::Problem(StatusCode::BAD_REQUEST, INVALID_CSRF);
+		if !Self::has_diagnostic_csrf_cookie(headers)
+			|| headers
+				.get("X-CSRF-TOKEN")
+				.and_then(|v| v.to_str().ok())
+				.is_none_or(|v| v.len() != 43)
+		{
+			return Err(bad());
+		}
+		let auth = auth.ok_or_else(bad)?;
+		let lookup = auth.session(cookie(headers, "archive.auth")).await?;
+		auth.validate_csrf(headers, lookup.current.as_ref()).await
+	}
 	pub(super) fn secure(&self, headers: &HeaderMap) -> bool {
 		!self.config.development
 			|| headers

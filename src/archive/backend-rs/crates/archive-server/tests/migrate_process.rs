@@ -394,6 +394,34 @@ async fn role_and_grant_contract(
 		.await
 		.unwrap();
 	sqlx::raw_sql("RESET ROLE; ALTER ROLE archive_migrator PASSWORD 'mig;rate''quoted'; ALTER ROLE archive_runtime PASSWORD 'runtime-only'").execute(&mut db).await.unwrap();
+	let runtime_options = options
+		.clone()
+		.database("archive")
+		.username("archive_runtime")
+		.password("runtime-only");
+	let runtime_connection = runtime_options.to_url_lossy().to_string();
+	let (mut origin, endpoint, collector) = start_runtime_diagnostic(&runtime_connection).await;
+	async fn diagnostic(endpoint: &str) -> (u16, serde_json::Value) {
+		let response = reqwest::get(endpoint).await.unwrap();
+		let status = response.status().as_u16();
+		(status, response.json().await.unwrap())
+	}
+	assert_eq!(
+		diagnostic(&endpoint).await,
+		(
+			200,
+			serde_json::json!({"connected":true,"pendingMigrations":[
+				"0001_frozen_ef_baseline","0002_auth_sessions","0003_auth_allocation_budgets","0004_culture_comparison"
+			]})
+		)
+	);
+	assert!(
+		sqlx::query_scalar::<_, bool>("SELECT to_regclass('public._sqlx_migrations') IS NULL")
+			.fetch_one(&mut db)
+			.await
+			.unwrap(),
+		"API starts without implicit migrations"
+	);
 	let connection = format!(
 		"Host={};Port={};Database=archive;Username=archive_migrator;Password=\"mig;rate'quoted\";SSL Mode=Disable;Maximum Pool Size=5;Minimum Pool Size=0;Timeout=5;Command Timeout=10;Keepalive=0",
 		options.get_host(),
@@ -407,6 +435,13 @@ async fn role_and_grant_contract(
 		"VerifyFull must not downgrade on this non-TLS disposable server"
 	);
 	assert_success(&run_migrate(&connection).await);
+	assert_eq!(
+		diagnostic(&endpoint).await,
+		(
+			200,
+			serde_json::json!({"connected":true,"pendingMigrations":[]})
+		)
+	);
 	// The grants script's database-name guard stays a hard process failure.
 	sqlx::raw_sql("CREATE DATABASE archive_wrong OWNER archive_migrator")
 		.execute(&mut *admin)
@@ -431,15 +466,7 @@ async fn role_and_grant_contract(
 	)
 	.await
 	.unwrap();
-	let mut runtime = PgConnection::connect_with(
-		&options
-			.clone()
-			.database("archive")
-			.username("archive_runtime")
-			.password("runtime-only"),
-	)
-	.await
-	.unwrap();
+	let mut runtime = PgConnection::connect_with(&runtime_options).await.unwrap();
 	assert_culture_collation(&mut migrator).await;
 	let owner:String=sqlx::query_scalar("SELECT pg_get_userbyid(collowner) FROM pg_collation WHERE oid='public.archive_culture'::regcollation").fetch_one(&mut migrator).await.unwrap();
 	assert_eq!(owner, "archive_migrator");
@@ -543,6 +570,7 @@ async fn role_and_grant_contract(
 		"DELETE FROM public.\"__EFMigrationsHistory\"",
 		"SELECT * FROM public._sqlx_migrations",
 		"DELETE FROM public._sqlx_migrations",
+		"COMMENT ON TABLE public._sqlx_migrations IS 'runtime cannot spoof diagnostic metadata'",
 		"SELECT public.future_function()",
 	] {
 		let error = sqlx::raw_sql(forbidden)
@@ -577,14 +605,38 @@ async fn role_and_grant_contract(
 			.await
 			.is_err()
 	);
-	let runtime_connection = options
-		.clone()
-		.database("archive")
-		.username("archive_runtime")
-		.password("runtime-only")
-		.to_url_lossy()
-		.to_string();
 	assert!(!run_migrate(&runtime_connection).await.status.success());
+	// Older Rust databases can already have history but lack its projection.
+	// The runtime must not guess success or write anything; a migration no-op
+	// under the real migrator publishes a new trusted projection.
+	sqlx::raw_sql("COMMENT ON TABLE public._sqlx_migrations IS NULL")
+		.execute(&mut migrator)
+		.await
+		.unwrap();
+	assert_eq!(diagnostic(&endpoint).await.0, 500);
+	assert_success(&run_migrate(&connection).await);
+	assert_eq!(
+		diagnostic(&endpoint).await,
+		(
+			200,
+			serde_json::json!({"connected":true,"pendingMigrations":[]})
+		)
+	);
+	assert!(
+		std::process::Command::new("kill")
+			.args(["-TERM", &origin.id().unwrap().to_string()])
+			.status()
+			.unwrap()
+			.success()
+	);
+	assert!(
+		tokio::time::timeout(Duration::from_secs(15), origin.wait())
+			.await
+			.unwrap()
+			.unwrap()
+			.success()
+	);
+	collector.abort();
 	// Default grants already exist on an EF estate at adoption time. Even a
 	// failed baseline check must not expose freshly-created Rust bookkeeping.
 	// Restore an EF-only fixture before testing failed *baseline* adoption again.
@@ -615,6 +667,49 @@ async fn role_and_grant_contract(
 		.execute(&mut *admin)
 		.await
 		.unwrap();
+}
+
+async fn start_runtime_diagnostic(
+	connection: &str,
+) -> (tokio::process::Child, String, tokio::task::JoinHandle<()>) {
+	let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+	let otlp = format!("http://{}", listener.local_addr().unwrap());
+	let router = axum::Router::new().fallback(|_body: axum::body::Bytes| async {
+		axum::http::Response::builder()
+			.header("content-type", "application/grpc")
+			.header("grpc-status", "0")
+			.body(axum::body::Body::from(vec![0, 0, 0, 0, 0]))
+			.unwrap()
+	});
+	let collector = tokio::spawn(async move {
+		axum::serve(listener, router).await.unwrap();
+	});
+	let reserve = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+	let port = reserve.local_addr().unwrap().port();
+	drop(reserve);
+	let base = format!("http://127.0.0.1:{port}");
+	let child = tokio::process::Command::new(env!("CARGO_BIN_EXE_archive-server"))
+		.env_clear()
+		.env("ARCHIVE_ENVIRONMENT", "Development")
+		.env("PORT", port.to_string())
+		.env("OTEL_EXPORTER_OTLP_ENDPOINT", otlp)
+		.env("ConnectionStrings__archive-db", connection)
+		.stdout(Stdio::null())
+		.stderr(Stdio::null())
+		.kill_on_drop(true)
+		.spawn()
+		.unwrap();
+	tokio::time::timeout(Duration::from_secs(10), async {
+		while !reqwest::get(format!("{base}/alive"))
+			.await
+			.is_ok_and(|r| r.status().is_success())
+		{
+			tokio::time::sleep(Duration::from_millis(25)).await;
+		}
+	})
+	.await
+	.expect("runtime-role origin readiness");
+	(child, format!("{base}/api/dev/database"), collector)
 }
 
 async fn dump(options: &sqlx::postgres::PgConnectOptions, database: &str) -> String {
