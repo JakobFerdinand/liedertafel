@@ -68,7 +68,7 @@ fn spool_waits_for_queued_file_writes_before_handing_the_path_to_native_readers(
 		.build()
 		.unwrap();
 	runtime.block_on(async{
-  let directory=std::path::PathBuf::from(format!("/tmp/opencode/229-spool-barrier-{}",uuid::Uuid::new_v4()));use std::os::unix::fs::DirBuilderExt;std::fs::DirBuilder::new().mode(0o700).create(&directory).unwrap();
+  let directory=std::env::temp_dir().join(format!("229-spool-barrier-{}",uuid::Uuid::new_v4()));use std::os::unix::fs::DirBuilderExt;std::fs::DirBuilder::new().mode(0o700).create(&directory).unwrap();
   let gate=Arc::new(Gate{released:Mutex::new(false),release:Condvar::new(),entered:tokio::sync::Notify::new()});let input=Controlled{gate:gate.clone()};let target=directory.clone();let mut task=tokio::spawn(async move{Spool::load(&input,"synthetic",1000,&target,||false).await});gate.entered.notified().await;
   let early=tokio::time::timeout(std::time::Duration::from_millis(25),&mut task).await;let premature=early.is_ok();
   let visible_before_release=std::fs::read_dir(&directory).unwrap().map(|e|e.unwrap().metadata().unwrap().len()).sum::<u64>();

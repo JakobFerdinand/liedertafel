@@ -56,9 +56,9 @@ per ADR-0001 (one editable Programm per Auftritt).
 
 - `tests/archive/fixtures/drive-inventur/` — the sanitized corpus with
   `mapping.json` (folder-to-catalogue expectations for #143) and its README.
-- `tests/archive/backend/InventurTests.cs` — keeps corpus, mapping and report
+- `src/archive/backend-rs/crates/archive-server/tests/ops_cli.rs` — keeps corpus, mapping and report
   truthful; the mapping's flags vocabulary is walk-fact only.
-- `src/archive/backend/Inventur/` — the deterministic walker and the
+- `src/archive/backend-rs/crates/archive-server/src/inventur/` — the deterministic walker and the
   `--inventur` console command.
 
 ## Maintainer runbook against the real source
@@ -77,10 +77,12 @@ per ADR-0001 (one editable Programm per Auftritt).
 3. **Run the inventory** from the repository root:
 
    ```bash
-   dotnet run --project src/archive/backend -- --inventur "/pfad/zur/export-ansicht" \
+   src/archive/backend-rs/target/debug/archive-server --inventur "/pfad/zur/export-ansicht" \
      --model gpt-6-luna --out src/archive/.local/inventur.json
    ```
 
+   Build first as described in the [archive runbook](../README.md) and set
+   `Archive__Pdfium__LibraryPath` to the pinned native library for PDFs.
    The command never touches the network, database or a model; `--model` only
    names the `Archive:Ai:Models` price pair for the estimate (without it the
    report keeps the `estimatedEur` empty and says so).

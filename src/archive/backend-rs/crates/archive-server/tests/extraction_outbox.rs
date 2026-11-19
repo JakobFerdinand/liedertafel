@@ -292,7 +292,7 @@ async fn reading_inserted_token_lost_stamp_and_terminal_duplicate() {
 			reading_enabled: true,
 			reading_page_limit: 20,
 			reading_queue: Some(queue.clone()),
-			spool_directory: PathBuf::from("/tmp/opencode"),
+			spool_directory: std::env::temp_dir(),
 		};
 		let message = Message {
 			id: "handoff".into(),

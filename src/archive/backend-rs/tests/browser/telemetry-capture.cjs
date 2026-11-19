@@ -5,7 +5,7 @@ const assert = require("node:assert/strict");
 const { analyzeCapture } = require("./telemetry-redaction.cjs");
 function createCapture(name) {
   assert(/^[a-z-]+$/.test(name));
-  const directory = fs.mkdtempSync(path.join("/tmp/opencode", `223-${name}-telemetry-`));
+  const directory = fs.mkdtempSync(path.join(process.env.TMPDIR || "/tmp/opencode", `223-${name}-telemetry-`));
   fs.chmodSync(directory, 0o700);
   const evidence = path.join(directory, "replay.jsonl");
   const fd = fs.openSync(evidence, "wx", 0o600);

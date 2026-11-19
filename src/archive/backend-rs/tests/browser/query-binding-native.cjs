@@ -64,17 +64,20 @@ async function run(kind,mailPort,otlpPort){
   }finally{try{if(origin)await stop(origin);}finally{if(db)await db.end();await admin.query(`DROP DATABASE ${database} WITH (FORCE)`);await admin.end();}}
 }
 async function main(){
-  execFileSync('git',['diff','--exit-code','dc3357e','--','src/archive/backend'],{cwd:path.resolve(frozen,'../../..'),stdio:'pipe'});
+  const oracleOnly=process.argv.includes('--oracle-only');
+  const compareFrozen=oracleOnly||process.argv.includes('--compare-frozen');
+  if(compareFrozen)execFileSync('git',['diff','--exit-code','dc3357e','--','src/archive/backend'],{cwd:path.resolve(frozen,'../../..'),stdio:'pipe'});
   const mailPort=await listen(smtp),otlpPort=await listen(collector);
   try{
-    const oracle=await run('dotnet',mailPort,otlpPort);
+    const fixture=require('../fixtures/catalogue-query-binding.json');
+    assert.deepEqual(rows,fixture.rows);
+    const oracle=compareFrozen?await run('dotnet',mailPort,otlpPort):fixture.cases;
     if(process.env.ARCHIVE_QUERY_ORACLE){assert(process.argv.includes('--oracle-only'),'fixture generation requires explicit oracle-only run');fs.writeFileSync(process.env.ARCHIVE_QUERY_ORACLE,JSON.stringify({source:'frozen .NET native /api/lieder + real PG + real email/CSRF',environment:process.env.ARCHIVE_QUERY_DOTNET_ENVIRONMENT||'Testing',sourceTree:execFileSync('git',['rev-parse','dc3357e:src/archive/backend'],{encoding:'utf8'}).trim(),rows,cases:oracle},null,2)+'\n',{mode:0o600});}
-    if(!process.argv.includes('--oracle-only')){
-      const fixture=require('../fixtures/catalogue-query-binding.json');
-      assert.deepEqual(rows,fixture.rows);assert.deepEqual(oracle,fixture.cases,'fresh frozen executable must reproduce the committed independent observations');
-      const actual=await run('rust',mailPort,otlpPort);assert.deepEqual(actual,oracle,'Rust query projection must equal the actual frozen .NET executable');
+    if(!oracleOnly){
+      assert.deepEqual(oracle,fixture.cases,'fresh frozen executable must reproduce the committed independent observations');
+      const actual=await run('rust',mailPort,otlpPort);assert.deepEqual(actual,oracle,'Rust query projection must equal the frozen observations');
     }
-    await telemetry.drain();telemetry.assertClean();console.log(`PASS: ${oracle.length} frozen .NET ${process.argv.includes('--oracle-only')?'query observations':'vs Rust authenticated query cases'}`);
+    await telemetry.drain();telemetry.assertClean();console.log(`PASS: ${oracle.length} frozen .NET ${oracleOnly?'query observations':'vs Rust authenticated query cases'}`);
   }finally{for(const child of children)if(child.exitCode===null)await stop(child);smtp.close();await telemetry.drain();}
 }
 main().catch(()=>{console.error('Native query differential failed; inspect private capture and local query evidence.');process.exitCode=1;});

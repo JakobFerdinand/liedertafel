@@ -1,18 +1,17 @@
 # backend-rs agent guide
 
-This directory is the Rust rewrite of the archive backend (a Cargo workspace,
-spec [#218](https://github.com/JakobFerdinand/liedertafel/issues/218), wave 1
-[#219](https://github.com/JakobFerdinand/liedertafel/issues/219)). Research
-notes behind the agent setup: `../docs/rust-port-agent-setup.md`. The root
-AGENTS.md at the repo top applies here too; nested files are additive.
+This Cargo workspace is the archive backend ([#218](https://github.com/JakobFerdinand/liedertafel/issues/218)).
+The root AGENTS.md applies too. Follow `../README.md` for startup and
+`.github/workflows/archive.yml` at the repo root for release checks.
 
 ## Boundary
 
-- `src/archive/backend` (the C# backend) is frozen: it is the parity oracle
-  for the whole port. Do not modify it or its tests while the port runs; all
-  backend work lands here.
-- The statically exported Next.js frontend (`src/archive/frontend`) is not
-  changed by the port; it stays the only client seam.
+- The retired C# oracle and tests are available at
+  `8c7a077988d3ca6a0a72788fb4cc13da9e3ae4a6` in git. Historical parity guides
+  reference paths in that tree; use a separate checkout for oracle regeneration.
+  The release check runs the translated Rust suites, not a C# backend build.
+- The statically exported Next.js frontend (`src/archive/frontend`) remains
+  the client seam.
 
 ## Documentation lookup is mandatory
 
@@ -54,8 +53,8 @@ update this section in the same PR whenever the member list changes.
 
 ## Build, check, test
 
-- Build: `cargo build --workspace --locked`. Tests: `cargo test -p <member>`;
-  focused: `cargo test <member> --test <file> <filter-substring>`.
+- Build: `cargo build --workspace --locked`. Tests: `cargo test --locked -p <member>`;
+  focused: `cargo test --locked -p <member> --test <file> <filter-substring>`.
 - `Cargo.lock` is committed; every command passes `--locked` so upgrades only
   happen on purpose.
 - Frontend deps (`pnpm`) are untouched by this workspace; the frontend `out/`
@@ -64,14 +63,14 @@ update this section in the same PR whenever the member list changes.
   (or add `--test-name-pattern="formatter"` before the file for a focused run).
   Before changing native capture, redaction or schema fixtures, read
   `tests/telemetry/README.md` for external decoder setup and private replay rules.
-- #235's separate local Rust image/AppHost, seven cross-stack methods and
+- Production image/AppHost, seven cross-stack methods and
   authenticated HTTP/protobuf gates are in `docs/image-apphost-parity.md`.
   The image check's focused negative controls run with
   `bash tests/image/check-apphost-image-failures.sh` against the same local tag.
-  Run the image gates from the #234/#235 union; do not retarget the frozen
-  Aspire host, the production Dockerfile or workflows.
-- Incoming HTTP W3C context: `node tests/browser/http-w3c-native.cjs` compares
-  frozen ASP.NET and the product router, with the offline-only `http-w3c-native`
+  `tests/image/check-translated.sh` is the offline release gate for real
+  prerequisites, including ignored tests. Keep captures private.
+- Incoming HTTP W3C context: `node tests/browser/http-w3c-native.cjs` checks
+  the product router, with the offline-only `http-w3c-native`
   example for non-Development sampling. Read `docs/http-w3c-parity.md` before
   changing request-parent extraction, health skipping or sampler controls.
 - Catalogue query binding: before changing scalar/repeated keys, read
@@ -134,7 +133,7 @@ update this section in the same PR whenever the member list changes.
   limits. Focused: `cargo test -p archive-server --locked --test video_worker
   -- --ignored` (private PG/Queue/Blob + real tools). Native: `node
   tests/browser/video-native.cjs` and `node tests/browser/video-process-native.cjs`.
-  Frozen video-job permanent-removal refusal remains non-success; image is235.
+  The retained video-job permanent-removal refusal is not successful cleanup.
 
 - Member chat (#232): before changing AG-UI, authoritative history, catalogue
   tools/citations, A2UI replay, chat options or SSE shutdown, read
@@ -205,9 +204,9 @@ update this section in the same PR whenever the member list changes.
   `cargo test -p archive-server --locked --test auftritt_lesen_api -- --ignored`.
   Native UI/HTTP/OTLP: `node tests/browser/programm-reading-native.cjs` with the
   offline-only `programme-http-native` example; live evaluation stays gated.
-  Shared generic controls: `node tests/browser/http-w3c-native.cjs`; use
-  `ARCHIVE_FORM_ROUTES=/api/lied-lesungen,/api/auftritt-lesungen node tests/browser/lesung-form-native.cjs`
-  on this consumer union (both frozen and both Rust routes must run).
+  Shared generic controls: `node tests/browser/http-w3c-native.cjs` and
+  `node tests/browser/lesung-form-native.cjs` (both Rust routes against the
+  retained oracle fixtures).
 
 - Auftritte/Programme/initial Entwurf (#225): before changing partial dates,
   programme IDs/order, Zeitmarke guards, history, event documents or opaque form
@@ -225,17 +224,15 @@ update this section in the same PR whenever the member list changes.
   `node tests/browser/lied-reading-native.cjs` also needs the offline-only
   `lied-reading-native` example. This is not a product command or live-provider
   authorization.
-  Shared form native regression: `node tests/browser/lesung-form-native.cjs`;
-  on the consumer union set `ARCHIVE_FORM_ROUTES=/api/lied-lesungen,/api/auftritt-lesungen`
-  to test both default Rust routes against identical frozen ASP.NET form bytes.
-  `node tests/browser/lied-navigation-native.cjs` compares the retained failed
-  full-navigation boundary and positive tab-close/completed controls on actual
-  frozen Kestrel/Rust; its offline external host setup is in that parity guide.
+  `node tests/browser/lesung-form-native.cjs` exercises both routes against
+  the recorded frozen form grammar. `lied-navigation-native.cjs` runs the
+  Rust-only regression (including the retained failed full-navigation boundary).
+  Use the pinned historical tree and parity guide for Kestrel/Rust regeneration.
 
 - Before changing culture ordering or CLR string/path Guid binding, read
   `docs/events-review-remediation.md`: migration 0004 preserves ICU equality
   before secondary keys; `clr_guid` is separate from strict typed JSON Guid.
-  The independent fixture generator is `tests/oracles/ReviewOracle.cs`; its
+  The historical fixture generator was `tests/oracles/ReviewOracle.cs`; its
   external-project setup/provenance are in that document. Focused real-PG gate:
   `cargo test -p archive-server --locked --test clr_guid_api --test event_culture
   -- --ignored`. Keep constrained draft API fallback before auth.
@@ -264,7 +261,6 @@ ABI/spool limits and per-file ownership. Focused real-PG gate: `cargo test -p
 archive-server --locked --test extraction_worker -- --ignored`; native unchanged
 UI/private Queue gate: `node tests/browser/extraction-native.cjs`.
 
-- fmt + clippy + tests green, parity cases translated
-  where the wave demands them, C# backend untouched, telemetry visible in the
+- fmt + clippy + applicable tests green, telemetry visible in the
   local Aspire stack, and this file updated in the same PR whenever the
   workspace layout, commands or checks change.

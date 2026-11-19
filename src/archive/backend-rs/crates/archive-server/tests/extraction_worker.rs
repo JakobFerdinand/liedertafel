@@ -8,12 +8,9 @@ use archive_server::{
 use chrono::Duration;
 use futures::future::BoxFuture;
 use serde_json::json;
-use std::{
-	path::PathBuf,
-	sync::{
-		Arc,
-		atomic::{AtomicUsize, Ordering},
-	},
+use std::sync::{
+	Arc,
+	atomic::{AtomicUsize, Ordering},
 };
 use support::{App, catalogue::*};
 
@@ -59,7 +56,7 @@ async fn transient_terminal_stale_attempt_poison_and_oversize_matrix() {
 		reading_enabled: false,
 		reading_page_limit: 20,
 		reading_queue: None,
-		spool_directory: PathBuf::from("/tmp/opencode"),
+		spool_directory: std::env::temp_dir(),
 	};
 	let mut message = Message {
 		id: "test".into(),
@@ -326,7 +323,7 @@ async fn actual_stream_length_bounds_private_spool_cleanup_and_encrypted_failure
 	let app = App::new().await;
 	let owner = lied(&app, "Spool", json!({})).await;
 	let cancel = tokio_util::sync::CancellationToken::new();
-	let dir = PathBuf::from(format!("/tmp/opencode/226-spool-{}", uuid::Uuid::new_v4()));
+	let dir = std::env::temp_dir().join(format!("226-spool-{}", uuid::Uuid::new_v4()));
 	std::fs::create_dir(&dir).unwrap();
 	for (bytes, cap, expected) in [
 		(
@@ -410,7 +407,7 @@ fn worker(app: &App, storage: Arc<dyn Storage>) -> Worker {
 		reading_enabled: false,
 		reading_page_limit: 20,
 		reading_queue: None,
-		spool_directory: PathBuf::from("/tmp/opencode"),
+		spool_directory: std::env::temp_dir(),
 	}
 }
 fn message(id: uuid::Uuid) -> Message {

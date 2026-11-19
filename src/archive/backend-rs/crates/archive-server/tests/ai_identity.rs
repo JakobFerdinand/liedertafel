@@ -58,8 +58,7 @@ async fn managed_identity_is_trimmed_once_and_blank_uses_only_offline_developer_
 		Some("11111111-1111-1111-1111-111111111111"),
 		Some("  11111111-1111-1111-1111-111111111111  "),
 	] {
-		let directory = std::path::PathBuf::from("/tmp/opencode")
-			.join(format!("228-identity-{}", uuid::Uuid::new_v4()));
+		let directory = std::env::temp_dir().join(format!("228-identity-{}", uuid::Uuid::new_v4()));
 		std::fs::create_dir(&directory).unwrap();
 		std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
 		let command_log = directory.join("commands");

@@ -65,8 +65,8 @@ internal static class RustStack
         Assert.True(build.GetProperty("development").GetBoolean());
         Assert.True(fromProxy.GetProperty("development").GetBoolean());
         Assert.Equal(build.GetProperty("version").GetString(), fromProxy.GetProperty("version").GetString());
-        Assert.Equal(Environment.GetEnvironmentVariable("ARCHIVE_235_EXPECTED_VERSION")
-            ?? throw new InvalidOperationException("Set ARCHIVE_235_EXPECTED_VERSION to the image's compile-time VERSION."),
+        Assert.Equal(Environment.GetEnvironmentVariable("ARCHIVE_EXPECTED_IMAGE_VERSION")
+            ?? throw new InvalidOperationException("Set ARCHIVE_EXPECTED_IMAGE_VERSION to the image's compile-time VERSION."),
             build.GetProperty("version").GetString());
         using var miss = await origin.GetAsync("/api/no-such-rust-image-route", token);
         Assert.Equal(HttpStatusCode.NotFound, miss.StatusCode);
@@ -256,7 +256,7 @@ internal static class RustStack
         {
             RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false,
         };
-        foreach (var arg in new[] { "run", "--rm", "--pull=never", "--network=none", "-i", "--entrypoint", tool, $"localhost/liedertafel-235:{tag}" }.Concat(args))
+        foreach (var arg in new[] { "run", "--rm", "--pull=never", "--network=none", "-i", "--entrypoint", tool, $"localhost/liedertafel-archive:{tag}" }.Concat(args))
             start.ArgumentList.Add(arg);
         using var process = Process.Start(start) ?? throw new InvalidOperationException($"Could not start {tool}.");
         try

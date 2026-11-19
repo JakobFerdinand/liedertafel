@@ -7,13 +7,9 @@ async fn renderer_counts_and_renders_only_requested_pages_with_visible_pixels_an
 {
 	let cancel = tokio_util::sync::CancellationToken::new();
 	let pdf = support::reading::Bytes(support::reading::scan(3));
-	let spool = Spool::load(
-		&pdf,
-		"synthetic",
-		1_000_000,
-		std::path::Path::new("/tmp/opencode"),
-		|| false,
-	)
+	let spool = Spool::load(&pdf, "synthetic", 1_000_000, &std::env::temp_dir(), || {
+		false
+	})
 	.await
 	.unwrap();
 	let path = spool.0.clone();
@@ -62,15 +58,9 @@ async fn renderer_counts_and_renders_only_requested_pages_with_visible_pixels_an
 	drop(spool);
 	assert!(!path.exists());
 	let invalid = support::reading::Bytes(b"%PDF-1.7\n%%EOF".to_vec());
-	let spool = Spool::load(
-		&invalid,
-		"synthetic",
-		100,
-		std::path::Path::new("/tmp/opencode"),
-		|| false,
-	)
-	.await
-	.unwrap();
+	let spool = Spool::load(&invalid, "synthetic", 100, &std::env::temp_dir(), || false)
+		.await
+		.unwrap();
 	assert!(
 		renderer
 			.page_count(spool, Default::default())

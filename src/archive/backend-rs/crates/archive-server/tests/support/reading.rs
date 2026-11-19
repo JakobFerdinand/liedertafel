@@ -109,7 +109,7 @@ impl Harness {
 			app.time.clone(),
 			ScanReadingModel::new(gateway.clone(), reading),
 		);
-		worker.spool_directory = "/tmp/opencode".into();
+		worker.spool_directory = std::env::temp_dir();
 		Self {
 			worker,
 			gateway,

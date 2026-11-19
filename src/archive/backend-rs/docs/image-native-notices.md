@@ -1,13 +1,11 @@
-# Local Rust AppHost image — native inventory
+# Archive image — native inventory
 
-This candidate is for internal, disposable Linux amd64/glibc testing only.
-Do not push, distribute or deploy it under #235. The archive image maintainer
-owns reviewing native advisories, rebuilding and rerunning all image gates before
-any production packaging decision; Cargo advisories alone do not cover these
-components.
+The image targets Linux amd64/glibc. Review native advisories, distribution
+requirements and the exact image gates before publishing; Cargo advisories
+alone do not cover these components.
 
 - OpenSSL 3.5.9 LTS, Apache-2.0: [unmodified upstream source][ssl], digest
-  pinned in `Dockerfile.apphost`, linked statically into `archive-server`.
+  pinned in `src/archive/Dockerfile`, linked statically into `archive-server`.
   Upstream 3.5 support ends 2030-04-08; recheck patch releases and advisories
   at each build. The upstream native test suite is not run (`no-tests`).
 - bblanchon `chromium/8138` PDFium linux-x64, [publisher source/build][pdf]:
@@ -24,6 +22,8 @@ components.
 - For the four approved MPL-2.0 exceptions, exact unmodified crates.io source
   archives are in `/usr/share/doc/archive-native/mpl-source` with their upstream
   notices. See `auth-dependency-audit.md` and `deny.toml` for the scoped decision.
+- The .NET runtime MIT notice covers derived compatibility code, not a
+  shipped .NET runtime.
 
 [ssl]: https://github.com/openssl/openssl/releases/tag/openssl-3.5.9
 [pdf]: https://github.com/bblanchon/pdfium-binaries/releases/tag/chromium/8138

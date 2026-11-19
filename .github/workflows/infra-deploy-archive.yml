@@ -11,16 +11,19 @@ on:
   push:
     branches:
       - main
+    # Only Bicep changes trigger automatic deployment from main.
     paths:
-      - 'infrastructure/archive/**'
-      - '.github/workflows/infra-deploy-archive.yml'
+      - 'infrastructure/archive/**/*.bicep'
+      - 'infrastructure/archive/**/*.bicepparam'
   pull_request:
     types: [opened, synchronize, reopened]
     branches:
       - main
     paths:
-      - 'infrastructure/archive/**'
+      - 'infrastructure/archive/**/*.bicep'
+      - 'infrastructure/archive/**/*.bicepparam'
       - '.github/workflows/infra-deploy-archive.yml'
+      - '.github/scripts/check-archive-what-if.sh'
   workflow_dispatch:
     inputs:
       initialImage:
@@ -35,18 +38,27 @@ permissions:
 
 env:
   RESOURCE_GROUP: RG-Liedertafel-Archive
+  INITIAL_IMAGE: ${{ inputs.initialImage || 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest' }}
 
 jobs:
   what-if:
     name: What-if preview
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
       - uses: azure/login@v3
+        if: github.event_name == 'pull_request'
         with:
-          client-id: ${{ github.event_name == 'pull_request' && secrets.AZURE_CLIENT_ID_ARCHIVE_PREVIEW || secrets.AZURE_CLIENT_ID_ARCHIVE }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID_ARCHIVE_PREVIEW }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID_ARCHIVE }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID_ARCHIVE }}
+
+      - uses: azure/login@v3
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID_ARCHIVE }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID_ARCHIVE }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID_ARCHIVE }}
 
@@ -64,7 +76,8 @@ jobs:
             --resource-group "$RESOURCE_GROUP" \
             --query "properties.template.containers[0].image" -o tsv 2>/dev/null || true)
           if [ -z "$CURRENT_IMAGE" ] || [ "$CURRENT_IMAGE" = "null" ]; then
-            CURRENT_IMAGE="${{ inputs.initialImage || 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest' }}"
+            [[ "$INITIAL_IMAGE" =~ ^[[:alnum:]_./:@-]+$ ]]
+            CURRENT_IMAGE="$INITIAL_IMAGE"
             echo "No deployed app found; using placeholder for preview only."
           fi
           echo "image=$CURRENT_IMAGE" >> "$GITHUB_OUTPUT"
@@ -148,7 +161,11 @@ jobs:
 
   deploy:
     name: Deploy archive infrastructure
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    needs: what-if
+    if: >-
+      ${{ !cancelled() && github.ref == 'refs/heads/main' &&
+          (github.event_name == 'push' ||
+           (github.event_name == 'workflow_dispatch' && needs.what-if.result == 'success')) }}
     runs-on: ubuntu-latest
     # Shares the release lock: image/maintenance capture and topology deploy
     # cannot interleave a release. Duplicate infra runs also serialize on the
@@ -186,7 +203,8 @@ jobs:
             --resource-group "$RESOURCE_GROUP" \
             --query "properties.template.containers[0].image" -o tsv 2>/dev/null || true)
           if [ -z "$CURRENT_IMAGE" ] || [ "$CURRENT_IMAGE" = "null" ]; then
-            CURRENT_IMAGE="${{ inputs.initialImage || 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest' }}"
+            [[ "$INITIAL_IMAGE" =~ ^[[:alnum:]_./:@-]+$ ]]
+            CURRENT_IMAGE="$INITIAL_IMAGE"
             echo "::notice::No deployed app found; deploying placeholder image. Run archive.yml immediately afterwards."
           else
             echo "Preserving deployed image $CURRENT_IMAGE"
@@ -211,16 +229,8 @@ jobs:
         env:
           ARCHIVE_CONTAINER_IMAGE: ${{ steps.image.outputs.image }}
           ARCHIVE_GHCR_PASSWORD: ${{ secrets.GHCR_PULL_PAT_ARCHIVE }}
-        run: |
-          if az deployment group what-if \
-            --resource-group "$RESOURCE_GROUP" \
-            --template-file infrastructure/archive/main.bicep \
-            --parameters infrastructure/archive/main.bicepparam \
-            --parameters maintenanceMode="${{ steps.maintenance.outputs.mode }}" \
-            --no-pretty-print | jq -e 'any(.changes[]?; .changeType == "Delete" or .changeType == "Replace")' >/dev/null; then
-            echo "::error::What-if detected destructive (Delete/Replace) changes; refusing to apply."
-            exit 1
-          fi
+          MAINTENANCE_MODE: ${{ steps.maintenance.outputs.mode }}
+        run: bash .github/scripts/check-archive-what-if.sh
 
       - name: Deploy archive resources
         env:

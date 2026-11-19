@@ -116,11 +116,11 @@ fn finite_jobs_flush_authenticated_http_protobuf_even_on_failure() {
 }
 
 #[test]
-#[ignore = "requires built localhost/liedertafel-235 candidate with #234 and local container runtime"]
+#[ignore = "requires built localhost/liedertafel-archive candidate and local container runtime"]
 fn actual_image_finite_jobs_flush_authenticated_http_protobuf() {
 	let tag = std::env::var("Archive__TestImageTag").unwrap();
 	let runtime = std::env::var("ASPIRE_CONTAINER_RUNTIME").unwrap_or_else(|_| "podman".into());
-	let image = format!("localhost/liedertafel-235:{tag}");
+	let image = format!("localhost/liedertafel-archive:{tag}");
 	let network = format!("archive-235-otlp-{}", std::process::id());
 	let pg = format!("{network}-db");
 	let mut local = Containers {

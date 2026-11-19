@@ -23,6 +23,60 @@ function scanCapture(capture, markers) {
   if (result.errors.length) throw Error("invalid-or-unsupported-capture");
   return result.findings;
 }
+// tracing-opentelemetry adds busy_ns/idle_ns as direct span attributes.
+// Recognize only one key and one intValue on the wire; duplicated keys,
+// mixed oneofs, and unexpected fields are scanned as ordinary payload.
+const activityKeys = new Set(["busy_ns", "idle_ns"]);
+function spanActivityDuration(bytes) {
+  const attribute = protobuf.Reader.create(bytes);
+  let activity, duration = false;
+  while (attribute.pos < attribute.len) {
+    switch (attribute.uint32()) {
+      case 10: {
+        if (activity) return false;
+        const key = utf8.decode(attribute.bytes());
+        if (!activityKeys.has(key)) return false;
+        activity = key;
+        break;
+      }
+      case 18: {
+        if (duration) return false;
+        const value = protobuf.Reader.create(attribute.bytes());
+        // intValue = field 3, wire type 0. A proper substring can only
+        // collide with a duration longer than a six-digit OTP.
+        if (!value.len || value.uint32() !== 24 ||
+            BigInt(value.int64().toString()) <= 999999n || value.pos !== value.len) return false;
+        duration = true;
+        break;
+      }
+      default: return false;
+    }
+  }
+  return duration && activity;
+}
+function spanActivityKeys(buffer, attributesId) {
+  const span = protobuf.Reader.create(buffer), counts = new Map();
+  while (span.pos < span.len) {
+    const tag = span.uint32();
+    if (tag !== (attributesId << 3 | 2)) {
+      span.skipType(tag & 7);
+      continue;
+    }
+    // Count keys independently of value validity or field order so a
+    // duplicate cannot make a different KeyValue look trustworthy.
+    const attribute = protobuf.Reader.create(span.bytes());
+    while (attribute.pos < attribute.len) {
+      const field = attribute.uint32();
+      if (field !== 10) {
+        attribute.skipType(field & 7);
+        continue;
+      }
+      const key = utf8.decode(attribute.bytes());
+      if (activityKeys.has(key)) counts.set(key, (counts.get(key) || 0) + 1);
+    }
+  }
+  return counts;
+}
 function analyzeCapture(capture, markers) {
   const findings = [], metadata = [], errors = [];
   if (!capture.signals.length && !capture.console.length) errors.push({ channel: "capture", field: "capture", reason: "empty-capture" });
@@ -40,18 +94,24 @@ function analyzeCapture(capture, markers) {
     binary.push(...[...text].map(value=>Buffer.from(value)));
     return { marker, index, text: [...text], binary };
   });
-  function match(value, location, destination = findings, bytes = false, exact = false) {
+  function match(value, location, destination = findings, bytes = false, exact = false, activityDuration = false) {
     for (const {marker, index, text, binary} of needles) {
       if (!marker.value) continue;
       // Credentials can be exported as protobuf bytes instead of their API
       // Base64/hex representation. Do not reinterpret short numeric OTPs.
       const found = exact ? String(value).includes(marker.value) : bytes ? binary.some(needle=>value.includes(needle)) : text.some(needle=>String(value).includes(needle));
-      if (found) destination.push({ marker: index, type: marker.type, label: marker.label, ...location });
+      if (found) {
+        const target = activityDuration && marker.type === "otp" && /^\d{6}$/.test(marker.value)
+          ? metadata : destination;
+        target.push({ marker: index, type: marker.type, label: marker.label, ...location });
+      }
     }
   }
-  function walk(type, buffer, location) {
+  function walk(type, buffer, location, activityDuration = false) {
     const reader = protobuf.Reader.create(buffer);
     const occurrences = new Map();
+    const spanKeys = type.fullName === ".opentelemetry.proto.trace.v1.Span"
+      ? spanActivityKeys(buffer, type.fields.attributes.id) : null;
     while (reader.pos < reader.len) {
       const tag = reader.uint32(), field = type.fieldsById[tag >>> 3], wire = tag & 7;
       if (!field) throw Error("unknown-schema-field");
@@ -61,7 +121,11 @@ function analyzeCapture(capture, markers) {
       const here = { ...location, field: fieldPath };
       if (field.resolvedType instanceof protobuf.Type) {
         if (wire !== 2) throw Error("invalid-message-wire");
-        walk(field.resolvedType, reader.bytes(), here);
+        const child = reader.bytes();
+        const activity = (spanKeys && field.name === "attributes" &&
+          spanKeys.get(spanActivityDuration(child)) === 1) ||
+          (activityDuration && type.fullName === ".opentelemetry.proto.common.v1.KeyValue" && field.name === "value");
+        walk(field.resolvedType, child, here, activity);
       } else if (field.type === "string" || field.type === "bytes") {
         if (wire !== 2) throw Error("invalid-payload-wire");
         const bytes = reader.bytes();
@@ -73,7 +137,8 @@ function analyzeCapture(capture, markers) {
           const start = r.pos;
           const value = r[method]().toString();
           const clock = field.type === "fixed64" && clocks.has(`${type.fullName}.${field.name}`);
-          match(value, position, clock ? metadata : findings);
+          match(value, position, clock ? metadata : findings, false, false,
+            activityDuration && type.fullName === ".opentelemetry.proto.common.v1.AnyValue" && field.name === "intValue");
           // A numeric attribute can disclose 012345 as 12345. Only typed OTP
           // markers are normalised, only at numeric fields, never text/IDs.
           if(!clock)for(const {marker,index} of needles)if(marker.type==='otp'&&/^0\d{5}$/.test(marker.value)&&BigInt(marker.value).toString()===value){

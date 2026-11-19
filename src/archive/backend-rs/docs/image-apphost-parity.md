@@ -1,15 +1,14 @@
-# Rust image against the Aspire cross-stack oracle (#235)
+# Production image and Aspire cross-stack checks (#235, #236)
 
-Local-only. `Dockerfile.apphost` builds the normal locked release
-`archive-server`, and Node 24 + pnpm 11.3.0 build the unchanged Next static
-export. The runtime contains no Node or .NET; see
-[native inventory](image-native-notices.md). This is not a production
-Dockerfile, registry image, ARM/musl test, or authorization for #236.
+`src/archive/Dockerfile` builds the normal locked release `archive-server`,
+and Node 24 + pnpm 11.3.0 build the unchanged Next static export. The runtime
+contains no Node or .NET; see [native inventory](image-native-notices.md).
+Local tests do not validate ARM/musl or authorize a hosted release.
 
 `src/archive/apphost-rust` creates new PostgreSQL 17.6, Azurite 3.35.0 and
 Mailpit 1.27.8 containers, without persistent resources. Aspire 13.6.5 is
-used **only** in the additive gate (13.5.3 in the frozen stack has
-GHSA-f7vh-h5g3-7jrh). Aspire injects its real dashboard OTLP/HTTP endpoint.
+also powers the local development orchestrator. Aspire injects its real
+dashboard OTLP/HTTP endpoint.
 The live API, storage initializer, explicit migrate/adoption checks and four
 finite workers use the same local tag with image pulling disabled. The
 unchanged Next dev server still proxies real API traffic; we separately fetch
@@ -31,20 +30,19 @@ the model is the product's offline scripted provider below the real Gateway.
 
 ## Run
 
-Requires rootless Podman (or local Docker with BuildKit), .NET 10, the Aspire
-CLI bundle, Node 24, pnpm, Python 3, and a worktree with #234's
-diagnostics/finite operations. Do not share a
+Requires Podman (or local Docker with BuildKit), .NET 10, the Aspire
+CLI bundle, Node 24, pnpm, Python 3 and jq. Do not share a
 frontend worktree with another dev server. From the repo root:
 
 ```sh
 export ASPIRE_CONTAINER_RUNTIME=podman
 export Archive__TestImageTag=local-$(git rev-parse --short HEAD)
-export ARCHIVE_235_EXPECTED_VERSION=$Archive__TestImageTag
+export ARCHIVE_EXPECTED_IMAGE_VERSION=$Archive__TestImageTag
 podman build --layers \
-  --ignorefile src/archive/backend-rs/Dockerfile.apphost.dockerignore \
-  -f src/archive/backend-rs/Dockerfile.apphost \
-  --build-arg VERSION="$ARCHIVE_235_EXPECTED_VERSION" \
-  -t "localhost/liedertafel-235:$Archive__TestImageTag" .
+  --ignorefile src/archive/Dockerfile.dockerignore \
+  -f src/archive/Dockerfile \
+  --build-arg VERSION="$ARCHIVE_EXPECTED_IMAGE_VERSION" \
+  -t "localhost/liedertafel-archive:$Archive__TestImageTag" .
 bash src/archive/backend-rs/tests/image/check-apphost-image.sh
 bash src/archive/backend-rs/tests/image/check-apphost-image-failures.sh
 pnpm --dir src/archive/frontend install --frozen-lockfile
@@ -94,7 +92,8 @@ scrubbing later. Existing gRPC default and transport remain unchanged.
 
 ## Assertion translation
 
-The source of truth is `tests/archive/apphost` and its seven `[Fact]` methods.
+The source oracle is `tests/archive/apphost` and its seven `[Fact]` methods
+at `8c7a077988d3ca6a0a72788fb4cc13da9e3ae4a6`.
 The copies in `tests/archive/apphost-rust` deliberately retain original
 method names, fixtures and assertion bodies, so a side-by-side diff shows
 each topology and oracle translation.
@@ -110,11 +109,13 @@ each topology and oracle translation.
 | `ExtractionRoundtripThroughRealAzuriteQueueAndFiniteWorker` | Real PDF→Blob→outbox→Queue→finite extraction, timestamps/single attempt, empty rerun, raster/no-text, duplicate/no-op, handoff to actual offline scripted reading plus prefill, lyrics/attribution and progress. Reruns require a **new timestamped `Extraction drain completed` log identity** and exit 0; an old Finished snapshot alone cannot pass. |
 
 The broader #220 canonical schema/adoption drift/older-schema/permission
-gates still stand. This gate does not retire frozen source, excused historical
-EF transformations, wider browser suites, or any existing failed controls.
+gates still stand. The release check does not rerun old EF transformations
+or reclassify existing failed controls.
 
 The original #235 audit snapshot recorded eight inherited findings. The
 `lettre` 0.11.24 update clears `RUSTSEC-2026-0560` through `-0565`.
 `RUSTSEC-2026-0543` (`chrono`) and `RUSTSEC-2026-0555` (`chrono-tz`) remain
-unsuppressed release blockers. Local image/AppHost passes are not
-dependency-audit or cutover approval.
+visible, but only those two **unmaintained** findings are nonblocking per
+[#236 comment 7011201805](https://github.com/JakobFerdinand/liedertafel/issues/236#issuecomment-7011201805).
+`tests/image/check-dependencies.sh` keeps raw findings and fails on other errors.
+Removal remains follow-up; local test passes do not authorize cutover.

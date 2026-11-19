@@ -321,9 +321,20 @@ node --test tests/browser/telemetry-*.test.cjs
 ```
 
 Native env adds `ARCHIVE_LIED_READING_PROBE` for the built offline example.
-Navigation also needs `ARCHIVE_NAVIGATION_DOTNET_HOST`: external net10 console
-project referencing unchanged backend and exact existing Mvc.Testing10.0.12,
-compiling only `NavigationHost.cs`. It uses actual Program/Kestrel in Development,
+The release matrix runs the Rust-only navigation regression, requiring the
+recorded held-full-navigation failure and both positive controls below. It
+does not treat the failed journey as successful resume.
+
+To regenerate the two-origin differential, use a separate detached worktree at
+`8c7a077988d3ca6a0a72788fb4cc13da9e3ae4a6`. In that tree build
+`src/archive/backend/Archive.Backend.csproj` (Debug), build the offline Rust
+example and export the unchanged frontend. Set `ARCHIVE_NAVIGATION_DOTNET_HOST`
+to an external net10 console build referencing the pinned backend and exact
+Mvc.Testing 10.0.12, compiling only that tree's
+`src/archive/backend-rs/tests/oracles/NavigationHost.cs`. Run the
+`tests/browser/lied-navigation-native.cjs` from the **pinned** workspace,
+with the same loopback DB, binary, probe, PDFium, Chromium and export variables.
+It uses actual Program/Kestrel in Development,
 real PG/Gateway/ledger and static frontend; only keyed provider DELIVERY waits on
 loopback HTTP then delegates to the frozen scripted client. Synthetic local DB,
 SMTP, endpoint and credential guards remain. No frontend/auth/ledger/native mocks.

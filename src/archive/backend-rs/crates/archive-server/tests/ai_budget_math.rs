@@ -46,7 +46,7 @@ fn month_is_vienna_calendar_including_summer_and_winter() {
 #[test]
 fn shipped_price_cap_and_long_context_bound_match_frozen_configuration_and_infrastructure() {
 	let value: serde_json::Value =
-		serde_json::from_str(include_str!("../../../..//backend/appsettings.json")).unwrap();
+		serde_json::from_str(include_str!("fixtures/ai-frozen-options.json")).unwrap();
 	let options = Options::shipped(false);
 	assert_eq!(
 		options.max_input_tokens,

@@ -27,6 +27,12 @@ clock fields**, and the anchored native console formatter clock (plain or its
 observed ANSI format), are classified as metadata. A timestamp-looking attribute
 or message remains payload. Trace/span IDs stay bytes, not decimal/hex strings
 that could manufacture a numeric match; their actual bytes are still inspected.
+The tracing layer's `busy_ns` and `idle_ns` additionally classify only a
+six-digit OTP **substring** in a larger positive `intValue` of a direct span
+attribute as timing metadata. An exact numeric code, a leading-zero code
+normalized to its number, another marker type, and string/unknown/nested fields
+still fail closed. Repeated timing keys in the same span, including across
+separate attributes, and mixed value fields receive no exception.
 Canonical Base64/Base64url/hex credential spellings and raw credential bytes are
 checked. Numeric OTPs are not interpreted as encoded credentials; numeric payload
 fields also detect an OTP whose leading zeroes were lost by numeric conversion.

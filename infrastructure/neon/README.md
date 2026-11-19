@@ -23,7 +23,7 @@ identity. Do not put Neon API credentials in the archive deployment.
 | Compute | 0.25–0.5 CU, direct read-write endpoint |
 | History retention | 21600 seconds (six hours) |
 | Suspend setting | `0`: use the Free plan's five-minute idle suspension |
-| Neon Auth | Disabled; ASP.NET owns application authentication |
+| Neon Auth | Disabled; the archive owns application authentication |
 
 The existing `liedertafel-archiv` project **`bitter-base-66886756` runs PG18**.
 Leave it untouched. Do not automatically reuse it, its branch or its endpoint;
@@ -228,16 +228,17 @@ Supply `ConnectionStrings__archive-migrations` through the separate migration
 process's environment, then run the existing explicit command:
 
 ```bash
-dotnet run --project src/archive/backend --no-launch-profile -- --migrate
+(cd src/archive/backend-rs && cargo run --locked -p archive-server -- --migrate)
 ```
 
-After **every successful explicit migration**, before starting/resuming runtime,
-run [`runtime-grants.sql`](runtime-grants.sql) **as `archive_migrator`**, not admin
-or runtime. This helper grants DML on existing application tables and sequence
+The production image's `--migrate` applies [`runtime-grants.sql`](runtime-grants.sql)
+automatically as `archive_migrator`. Run it manually only for recovery with
+runtime paused, **as `archive_migrator`**, not admin or runtime. This helper
+grants DML on existing application tables and sequence
 access, installs default privileges as the migrator, revokes public function
 execution, and **revokes ALL runtime privileges
-on `public."__EFMigrationsHistory"`** after the broad table grants. Default grants
-alone would expose that table. Do not start runtime if migration or grant repair
+on `public."__EFMigrationsHistory"` and `public._sqlx_migrations`** after the broad
+table grants. Default grants alone would expose them. Do not start runtime if migration or grant repair
 fails. Coordinate this step with runtime downtime so intermediate grants are not
 exposed to an active application.
 

@@ -135,4 +135,4 @@ async function main() {
   // Own synthetic database/container intentionally retained for evidence audit.
  }
 }
-main().catch(error=>{require('node:fs').writeFileSync('/tmp/opencode/231-programme-native-failure.txt',String(error.stack),{mode:0o600});console.error('Programme native gate failed; inspect private 231-programme-native-failure.txt');process.exitCode=1;});
+main().catch(error=>{require('node:fs').writeFileSync(require('node:path').join(require('node:os').tmpdir(),'231-programme-native-failure.txt'),String(error.stack),{mode:0o600});console.error('Programme native gate failed; inspect private 231-programme-native-failure.txt');process.exitCode=1;});

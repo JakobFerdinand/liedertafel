@@ -6,7 +6,7 @@ using Microsoft.Extensions.Configuration;
 var builder = DistributedApplication.CreateBuilder(args);
 var tag = builder.Configuration["Archive:TestImageTag"];
 if (tag is null || !System.Text.RegularExpressions.Regex.IsMatch(tag, @"\A[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}\z"))
-    throw new InvalidOperationException("Set Archive__TestImageTag to a built localhost/liedertafel-235 tag.");
+    throw new InvalidOperationException("Set Archive__TestImageTag to a built localhost/liedertafel-archive tag.");
 
 var appHost = builder.AppHostDirectory;
 var admin = builder.AddParameter("pg-admin", "archive_admin");
@@ -50,7 +50,7 @@ var mail = builder.AddContainer("archive-mail", "docker.io/axllent/mailpit", "v1
     .WithHttpHealthCheck("/readyz");
 
 IResourceBuilder<ContainerResource> Image(string name) =>
-    builder.AddContainer(name, "localhost/liedertafel-235", tag)
+    builder.AddContainer(name, "localhost/liedertafel-archive", tag)
         .WithImagePullPolicy(ImagePullPolicy.Never)
         // A reproducible local envelope for the small synthetic workloads;
         // not a production capacity claim or an infrastructure sizing change.

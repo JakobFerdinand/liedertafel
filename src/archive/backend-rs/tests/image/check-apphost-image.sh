@@ -3,8 +3,8 @@ set -euo pipefail
 
 runtime=${ASPIRE_CONTAINER_RUNTIME:-podman}
 tag=${Archive__TestImageTag:?Set Archive__TestImageTag to the local candidate tag}
-version=${ARCHIVE_235_EXPECTED_VERSION:?Set ARCHIVE_235_EXPECTED_VERSION to the build version}
-image=localhost/liedertafel-235:$tag
+version=${ARCHIVE_EXPECTED_IMAGE_VERSION:?Set ARCHIVE_EXPECTED_IMAGE_VERSION to the build version}
+image=localhost/liedertafel-archive:$tag
 
 # Loader, linkage, distro codecs, notices and nonroot scratch. No host mounts
 # or network access. The cross-stack tests separately use PDFium on real PDFs.
@@ -24,6 +24,7 @@ image=localhost/liedertafel-235:$tag
   test "$(stat -c %a "$file")" = 600
   rm "$file"
   if command -v node; then fail "Node must not be present in the runtime image"; fi
+  if command -v dotnet; then fail ".NET must not be present in the runtime image"; fi
   reject_linkage() {
     if grep -E "$1" "$2"; then
       fail "Unexpected native linkage in $2"
@@ -43,6 +44,7 @@ image=localhost/liedertafel-235:$tag
   test -s /usr/share/doc/archive-native/pdfium/LICENSE
   test -s /usr/share/doc/archive-native/pdfium/licenses/harfbuzz.txt
   test -s /usr/share/doc/archive-native/OpenSSL-LICENSE.txt
+  test -s /usr/share/doc/archive-native/dotnet-runtime-LICENSE.txt
   find /usr/share/doc/archive-native/mpl-source -name "*-0.5.5.crate" >"$TMPDIR/mpl-source"
   test "$(wc -l <"$TMPDIR/mpl-source")" = 4
   test -s /usr/share/doc/ffmpeg/copyright
@@ -77,7 +79,7 @@ import time
 def request(path):
     connection = http.client.HTTPConnection(sys.argv[1], timeout=2)
     try:
-        connection.request("GET", path)
+        connection.request("GET", path, headers={"X-Forwarded-Proto": "https"})
         response = connection.getresponse()
         return response.status, response.getheader("Content-Type"), response.read()
     finally:
@@ -102,10 +104,42 @@ assert status == 200 and content_type.startswith("application/json")
 assert json.loads(body) == {"application": "Liedertafel Archiv", "version": sys.argv[2], "development": False}
 status, content_type, body = request("/api/no-such-rust-image-route")
 assert status == 404 and content_type.startswith("application/problem+json") and json.loads(body)
+assert json.loads(request("/api/maintenance")[2])["maintenance"] is False
+assert request("/api/dev/database")[0] == 404
 PY
 
 "$runtime" stats --no-stream --format '{{.CPUPerc}} {{.MemUsage}}' "$container"
 "$runtime" kill --signal TERM "$container" >/dev/null
 exit_code=$(timeout 15 "$runtime" wait "$container")
 test "$exit_code" = 0
+"$runtime" rm "$container" >/dev/null
+
+# The published release observes the same public routes with the flag set.
+container=$("$runtime" run -d --pull=never --cpus=2 --memory=512m \
+  -e Authentication__PasskeyRelyingPartyId=archive.invalid \
+  -e Authentication__PasskeyOrigins__0=https://archive.invalid \
+  -e Mail__Provider=Azure -e Mail__AzureEndpoint=https://mail.invalid \
+  -e Archive__MaintenanceMode=true -p 127.0.0.1::8080 "$image")
+address=$("$runtime" port "$container" 8080/tcp)
+base="http://$address"
+curl --silent --show-error --fail --retry 20 --retry-connrefused --retry-delay 1 "$base/alive" >/dev/null
+curl --silent --show-error --fail "$base/api/maintenance" | jq -e '.maintenance == true' >/dev/null
+curl --silent --show-error --fail "$base/api/build" | jq -e --arg version "$version" '.version == $version and .development == false' >/dev/null
+body=$(mktemp)
+trap 'rm -f "$body"; "$runtime" rm -f "$container" >/dev/null 2>&1 || true' EXIT
+[[ $(curl --silent --show-error -o "$body" -w '%{http_code}' "$base/api/antiforgery") == 503 ]]
+grep -Fiq wartung "$body"
+"$runtime" stop "$container" >/dev/null
+
+# Pause before opening any dependency: use no network and no configuration.
+for command in --extract-queue --read-queue --dispatch-reading --transcode-queue --dispatch-videos; do
+  "$runtime" run --rm --pull=never --network=none -e Archive__MaintenanceMode=true "$image" "$command"
+done
+# The frozen production command also refuses outside Development, despite the
+# existing schedule. Pin this as a limitation, not a successful hosted sweep.
+status=0
+"$runtime" run --rm --pull=never --network=none -e Archive__MaintenanceMode=true \
+  "$image" --cleanup-papierkorb >"$body" 2>&1 || status=$?
+test "$status" = 1
+grep -Fq 'Local service commands require Development.' "$body"
 printf '%s\n' 'PASS local amd64 image linkage, native codecs, private scratch, export and SIGTERM'

@@ -1,5 +1,8 @@
 # Rust-Port Agent Setup (#218/#219)
 
+> Historical planning notes for the port. For current startup and verification,
+> use [the archive runbook](../README.md) and [the workspace guide](../backend-rs/AGENTS.md).
+
 Status: research findings for preparing the agent tooling around `backend-rs`
 (wave 1, ticket [#219](https://github.com/JakobFerdinand/liedertafel/issues/219),
 parent spec [#218](https://github.com/JakobFerdinand/liedertafel/issues/218)).

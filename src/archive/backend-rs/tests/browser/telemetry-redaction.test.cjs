@@ -30,6 +30,58 @@ function frame(kind, message) {
   const prefix = Buffer.alloc(5); prefix.writeUInt32BE(body.length, 1);
   return { route: `/opentelemetry.proto.collector.${kind}.v1.${service}Service/Export`, body: Buffer.concat([prefix, body]) };
 }
+test("only substring collisions in typed span activity durations are benign", () => {
+  const scan = (surface, key, value, marker = otp, kind = "trace") => {
+    const record = message(kind, surface, value);
+    const attributes = kind === "logs" ? record.resourceLogs[0].scopeLogs[0].logRecords[0].attributes
+      : surface === "resource" ? record.resourceSpans[0].resource.attributes
+      : surface === "event" ? record.resourceSpans[0].scopeSpans[0].spans[0].events[0].attributes
+      : record.resourceSpans[0].scopeSpans[0].spans[0].attributes;
+    attributes[0].key = key;
+    return analyzeCapture({ signals: [frame(kind, record)], console: [] }, [marker]);
+  };
+  for (const key of ["idle_ns", "busy_ns"]) {
+    const benign = scan("attribute", key, { intValue: 71234568 });
+    assert.deepEqual(benign.errors, []);
+    assert.deepEqual(benign.findings, []);
+    assert.equal(benign.metadata.length, 1);
+    assert.equal(scan("attribute", key, { intValue: 123456 }).findings.length, 1);
+    assert.equal(scan("attribute", key, { intValue: 12345 }, { ...otp, value: "012345" }).findings.length, 1);
+    assert.equal(scan("attribute", key, { intValue: 71234568 }, { ...otp, type: "credential" }).findings.length, 1);
+    for (const value of [{ stringValue: "71234568" }, { doubleValue: 71234568 },
+      { intValue: -71234568 }, { intValue: 71234568, stringValue: "123456" }]) {
+      assert(scan("attribute", key, value).findings.length > 0);
+    }
+    for (const surface of ["resource", "event"]) assert.equal(scan(surface, key, { intValue: 71234568 }).findings.length, 1);
+    assert.equal(scan("attribute", key, { intValue: 71234568 }, otp, "logs").findings.length, 1);
+  }
+  assert.equal(scan("attribute", "unknown_duration_ns", { intValue: 71234568 }).findings.length, 1);
+});
+test("repeated timing keys anywhere in one span are ordinary payload", () => {
+  const idle = value => ({ key: "idle_ns", value });
+  const busy = value => ({ key: "busy_ns", value });
+  const collision = { intValue: 71234568 };
+  const scan = (...spans) => analyzeCapture({
+    signals: [frame("trace", { resourceSpans: [{ scopeSpans: [{ spans }] }] })], console: [],
+  }, [otp]);
+  const single = scan({ attributes: [idle(collision), busy(collision)] }, { attributes: [idle(collision)] });
+  assert.deepEqual(single.errors, []);
+  assert.equal(single.findings.length, 0);
+  assert.equal(single.metadata.length, 3);
+  for (const timing of [idle, busy]) {
+    for (const second of [{ intValue: 99 }, { stringValue: "not a duration" }, undefined]) {
+      for (const attributes of [[timing(collision), timing(second)], [timing(second), timing(collision)]]) {
+        const outcome = scan({ attributes });
+        assert.deepEqual(outcome.errors, []);
+        assert.equal(outcome.metadata.length, 0);
+        assert.equal(outcome.findings.length, 1);
+      }
+    }
+    const repeated = scan({ attributes: [timing(collision), timing(collision)] });
+    assert.equal(repeated.metadata.length, 0);
+    assert.equal(repeated.findings.length, 2);
+  }
+});
 const kv = value => ({ key: "private", value });
 function message(kind, surface, value) {
   const resource = { attributes: [] }, scope = { attributes: [] };

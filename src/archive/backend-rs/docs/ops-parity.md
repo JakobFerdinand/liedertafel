@@ -2,7 +2,8 @@
 
 The normal `archive-server` binary owns these seams. No migration runs
 implicitly. The local image and AppHost gates, and OTLP HTTP/protobuf, belong
-to #235. The C# backend and its existing tests remain the reference.
+to #235. The frozen C# backend and tests at `8c7a077` in git remain the
+historical reference.
 
 | Rust seam | Frozen owner | Contract |
 | --- | --- | --- |
