@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const { spawn } = require("node:child_process");
 const { randomUUID } = require("node:crypto");
 const { once } = require("node:events");
+const fs = require("node:fs");
 const http2 = require("node:http2");
 const net = require("node:net");
 const { Client } = require("pg");
@@ -164,8 +165,11 @@ async function frozenUploads(grace, expectedCode) {
     stream.resume();
   });
   const otlpPort = await listen(sink);
+  const directory = fs.mkdtempSync("/tmp/opencode/234-frozen-home-");
   const child = spawn(process.env.ARCHIVE_234_DOTNET ?? "dotnet", [frozenDll,"--cleanup-uploads"], {
+    cwd:directory,
     env:{
+      HOME:directory,
       ASPNETCORE_ENVIRONMENT:"Development", DOTNET_ENVIRONMENT:"Development",
       OTEL_EXPORTER_OTLP_ENDPOINT:`http://127.0.0.1:${otlpPort}`, OTEL_EXPORTER_OTLP_PROTOCOL:"grpc",
       "ConnectionStrings__archive-db":`Host=127.0.0.1;Port=${pgPort};Database=${dbName};Username=postgres;Password=${process.env.ARCHIVE_234_PG_PASSWORD};SSL Mode=Disable`,
@@ -181,6 +185,7 @@ async function frozenUploads(grace, expectedCode) {
     clearTimeout(timer);
     for (const session of sessions) session.destroy();
     await new Promise(resolve => sink.close(resolve));
+    fs.rmSync(directory,{recursive:true});
   }
 }
 

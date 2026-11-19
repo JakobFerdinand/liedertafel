@@ -55,6 +55,9 @@ PDFium from [extraction parity](extraction-parity.md). Set
 the sanitized corpus, BOMs and acyclic link reports to a fresh frozen
 executable. The native gate also uses those variables to compare cleanup grace
 exit codes, rows and objects against the frozen command.
+For that optional frozen comparison only, start the disposable Azurite with
+`--skipApiVersionCheck`: the frozen Azure Blob SDK requests a version newer
+than Azurite 3.35.0 accepts. Also run the Rust-only gate on strict Azurite.
 Only generated and committed sanitized inputs belong in these gates.
 
 `node tests/browser/ops-native.cjs` takes the built `ARCHIVE_BINARY` and explicit
