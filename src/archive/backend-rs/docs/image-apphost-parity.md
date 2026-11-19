@@ -31,8 +31,9 @@ the model is the product's offline scripted provider below the real Gateway.
 
 ## Run
 
-Requires rootless Podman (or local Docker), .NET 10, Node 24, pnpm, Python 3,
-and a worktree with #234's diagnostics/finite operations. Do not share a
+Requires rootless Podman (or local Docker with BuildKit), .NET 10, the Aspire
+CLI bundle, Node 24, pnpm, Python 3, and a worktree with #234's
+diagnostics/finite operations. Do not share a
 frontend worktree with another dev server. From the repo root:
 
 ```sh
