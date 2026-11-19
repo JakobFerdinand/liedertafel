@@ -7,7 +7,7 @@ to #235. The C# backend and its existing tests remain the reference.
 | Rust seam | Frozen owner | Contract |
 | --- | --- | --- |
 | `--inventur <verzeichnis> [--model <schluessel>] [--out <bericht.json>]` | `InventurTests`, [Quellen-Inventur runbook](../../docs/drive-inventur.md) | Offline, with indented camelCase JSON and a German summary. Root errors exit 2. Absolute `Archive__Pdfium__LibraryPath` is required if a PDF is encountered; loading the native library is never reported as a zero-page scan. The text classification reuses the bounded Rust extractor; the sanitized corpus is a parity gate, not proof of arbitrary PDFium/PdfPig layout equivalence. |
-| `--cleanup-uploads` | `UploadSessionResumeTests` cleaner cases | Development. Expired Pending only, strictly before now minus `Archive__Assets__ExpiryGrace` (default one hour). Best-effort staged-object removal, then persist Abandoned. No dry run. |
+| `--cleanup-uploads` | `UploadSessionResumeTests` cleaner cases | Development. Pending only, strictly before now minus `Archive__Assets__ExpiryGrace` (default one hour). Grace accepts invariant signed TimeSpan values: `0` means no grace, a bare integer counts days, and negative grace moves the cutoff ahead. Best-effort staged-object removal, then persist Abandoned. No dry run. |
 | `--cleanup-dropped-blobs [--dry-run]` | `DroppedBlobCleanerTests` | Maintenance does not gate this command. Enumerate `revisions/`, then `pending/`, then `dateien/`. Exact ordinal pending names referenced by **any** session stay. Live Dateien and other prefixes stay. Dry run makes no changes; `Kept` excludes unrelated prefixes. |
 | `--cleanup-papierkorb [--dry-run]` | `PapierkorbCleanerTests` and `PapierkorbRecoveryTests.RestoringAfterSevenDaysRefusesAndTheCleanupFinishesTheRow` | Development only, paused during maintenance. Snapshot IDs strictly before the retention cutoff (default seven days); restore keeps its existing at-or-before refusal. Remove Dateien, then Lieder, then Auftritte through shared removal, not by prefix. The counts describe selected rows, not recursively removed children. |
 | `--initialize-local-storage`, `--worker-smoke`, `/api/dev/exercise` | `LocalServices`; AppHost clean start | Private `archive-assets`, configured extraction/reading/video queues, initial emulator CORS without replacing existing rules. Smoke uses an owned Blob and unique scratch queue with W3C Producer → Consumer and actual SMTP; it cleans Blob then scratch queue, with a 15s cleanup budget independent of cancellation. HTTP exercise has a 30s work deadline and the host drains owned cleanup after disconnect. |
@@ -28,8 +28,14 @@ Inventur reads the shipped defaults plus optional `appsettings.json`, then
 `appsettings.Development.json` beside the executable and finally environment
 overrides, irrespective of the host environment. `--model` overrides the
 deployment-name price key; otherwise the last fallback is `scripted`. Unknown
-or unpriced models produce null EUR and a note. `.url` targets are never fetched.
-Directory symlinks are not traversed. The frozen repeated-suffix failure on a
+or unpriced models produce null EUR and a note. `.url` targets use UTF-8 by
+default, honoring UTF-8, UTF-16 and UTF-32 BOMs as the frozen reader does; the
+targets are never fetched. Inventory follows directory links under their
+enumerated paths, even if the target lies outside the input root. A link to a
+directory on the current ancestry is counted but not descended into; this is
+an intentional finite boundary the frozen walk lacks. A dangling link fails the
+walk (Rust exits 1 instead of an unhandled .NET exception). Review linked paths
+before running on any non-fixture inventory. The frozen repeated-suffix failure on a
 stem still ending in `)` after stripping a numeric suffix is not reinterpreted
 as an additional duplicate candidate; the Rust command exits nonzero with a
 bounded error.
@@ -44,9 +50,11 @@ cargo test -p archive-server --locked --test ops_cli -- --ignored
 ```
 
 For the ignored Inventur cases, set `Archive__Pdfium__LibraryPath` to the pinned
-PDFium from [extraction parity](extraction-parity.md). To compare the entire
-sanitized corpus report to a fresh frozen executable, also set
-`ARCHIVE_234_FROZEN_DLL` and `ARCHIVE_234_DOTNET` to their absolute paths.
+PDFium from [extraction parity](extraction-parity.md). Set
+`ARCHIVE_234_FROZEN_DLL` and `ARCHIVE_234_DOTNET` to absolute paths to compare
+the sanitized corpus, BOMs and acyclic link reports to a fresh frozen
+executable. The native gate also uses those variables to compare cleanup grace
+exit codes, rows and objects against the frozen command.
 Only generated and committed sanitized inputs belong in these gates.
 
 `node tests/browser/ops-native.cjs` takes the built `ARCHIVE_BINARY` and explicit

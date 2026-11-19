@@ -3,7 +3,7 @@ use crate::{
 	catalogue::trash::{remove_datei, remove_owner},
 	storage::{BlobStorage, Storage, StorageConfig, StorageError},
 };
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Datelike, Duration, Utc};
 use futures::TryStreamExt;
 use sqlx::PgPool;
 use std::{collections::HashSet, sync::Arc};
@@ -44,10 +44,13 @@ pub async fn run(command: &str, dry: bool, development: bool) -> Result<(), Erro
 
 async fn pending(pool: &PgPool, storage: &BlobStorage, now: DateTime<Utc>) -> Result<(), Error> {
 	let grace = match std::env::var("Archive__Assets__ExpiryGrace") {
-		Ok(value) => crate::storage::parse_lifetime(&value).ok_or(Error::Configuration)?,
+		Ok(value) => expiry_grace(&value).ok_or(Error::Configuration)?,
 		Err(_) => Duration::hours(1),
 	};
-	let cutoff = now.checked_sub_signed(grace).ok_or(Error::Configuration)?;
+	let cutoff = now
+		.checked_sub_signed(grace)
+		.filter(|cutoff| (1..=9999).contains(&cutoff.year()))
+		.ok_or(Error::Configuration)?;
 	let mut tx = pool.begin().await?;
 	// Lock only expired Pending rows. A concurrent finalize/renew/cancel cannot
 	// move one of those rows between selection and deleting its staging object.
@@ -74,6 +77,73 @@ async fn pending(pool: &PgPool, storage: &BlobStorage, now: DateTime<Utc>) -> Re
 	tx.commit().await?;
 	tracing::info!(target: "Archive.Jobs", abandoned_count=ids.len(), "Cleanup marked {} upload sessions abandoned", ids.len());
 	Ok(())
+}
+
+/// ExpiryGrace is bound as an invariant .NET TimeSpan, unlike storage's
+/// ticket-duration settings. In particular a bare integer counts days, and
+/// the sign applies to the whole interval (including zero).
+fn expiry_grace(value: &str) -> Option<Duration> {
+	fn number(s: &str) -> Option<i64> {
+		if s.is_empty() || !s.bytes().all(|c| c.is_ascii_digit()) {
+			return None;
+		}
+		let significant = s.trim_start_matches('0');
+		if significant.is_empty() {
+			Some(0)
+		} else {
+			significant.parse().ok()
+		}
+	}
+	fn seconds(s: &str) -> Option<(i64, i64)> {
+		let Some((whole, fraction)) = s.split_once('.') else {
+			return Some((number(s)?, 0));
+		};
+		let fraction_number = number(fraction)?;
+		if fraction_number > 9_999_999 {
+			return None;
+		}
+		let mut ticks = 0;
+		for i in 0..7 {
+			ticks = ticks * 10 + i64::from(fraction.as_bytes().get(i).map_or(0, |b| b - b'0'));
+		}
+		if fraction.as_bytes().get(7).is_some_and(|b| *b >= b'5') {
+			ticks += 1;
+		}
+		Some((if whole.is_empty() { 0 } else { number(whole)? }, ticks))
+	}
+	let value = value.trim();
+	let (negative, unsigned) = value
+		.strip_prefix('-')
+		.map_or((false, value), |s| (true, s));
+	let total = |d: i64, h, m, (s, fraction)| {
+		if h > 23 || m > 59 || s > 59 {
+			return None;
+		}
+		let ticks =
+			(((i128::from(d) * 24 + i128::from(h)) * 60 + i128::from(m)) * 60 + i128::from(s))
+				* 10_000_000 + i128::from(fraction);
+		i64::try_from(if negative { -ticks } else { ticks }).ok()
+	};
+	let fields = unsigned.split(':').collect::<Vec<_>>();
+	let ticks = match fields.as_slice() {
+		[d] => total(number(d)?, 0, 0, (0, 0)),
+		[h, m] => match h.split_once('.') {
+			Some((d, h)) => total(number(d)?, number(h)?, number(m)?, (0, 0)),
+			None => total(0, number(h)?, number(m)?, (0, 0)),
+		},
+		[first, second, third] => {
+			if let Some((d, h)) = first.split_once('.') {
+				total(number(d)?, number(h)?, number(second)?, seconds(third)?)
+			} else {
+				let (a, b) = (number(first)?, number(second)?);
+				total(0, a, b, seconds(third)?).or_else(|| total(a, b, number(third)?, (0, 0)))
+			}
+		}
+		[d, h, m, s] => total(number(d)?, number(h)?, number(m)?, seconds(s)?),
+		_ => None,
+	}?;
+	Duration::try_seconds(ticks / 10_000_000)?
+		.checked_add(&Duration::nanoseconds((ticks % 10_000_000) * 100))
 }
 
 async fn dropped(pool: &PgPool, storage: &BlobStorage, dry: bool) -> Result<(), Error> {

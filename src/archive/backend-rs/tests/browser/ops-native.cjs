@@ -12,6 +12,7 @@ const { channels } = require("./telemetry-redaction.cjs");
 const capture = require("./telemetry-capture.cjs").createCapture("ops-native");
 
 const binary = process.env.ARCHIVE_BINARY;
+const frozenDll = process.env.ARCHIVE_234_FROZEN_DLL;
 const pgPort = process.env.ARCHIVE_234_PG_PORT;
 const blobPort = process.env.ARCHIVE_234_BLOB_PORT;
 const queuePort = process.env.ARCHIVE_234_QUEUE_PORT;
@@ -143,6 +144,44 @@ async function command(args, extra, { code = 0, bodySucceeded = code === 0, mess
     .flatMap(m => m.scopeMetrics).flatMap(m => m.metrics).some(m => m.name === "archive.jobs.runs"), job);
   if (message) assert(emitted.some(s => s.text.includes(message) && (!category || s.category === category)), message);
   return entries;
+}
+
+// Independent frozen command, on the same synthetic fixtures reset to their
+// starting states. Its console/OTLP aren't mixed into Rust privacy evidence.
+async function frozenUploads(grace, expectedCode) {
+  const sink = http2.createServer();
+  const sessions = new Set();
+  sink.on("session", session => {
+    sessions.add(session);
+    session.on("close", () => sessions.delete(session));
+  });
+  sink.on("stream", stream => {
+    stream.on("end", () => {
+      stream.respond({":status":200,"content-type":"application/grpc"}, {waitForTrailers:true});
+      stream.on("wantTrailers", () => stream.sendTrailers({"grpc-status":"0"}));
+      stream.end(Buffer.from([0,0,0,0,0]));
+    });
+    stream.resume();
+  });
+  const otlpPort = await listen(sink);
+  const child = spawn(process.env.ARCHIVE_234_DOTNET ?? "dotnet", [frozenDll,"--cleanup-uploads"], {
+    env:{
+      ASPNETCORE_ENVIRONMENT:"Development", DOTNET_ENVIRONMENT:"Development",
+      OTEL_EXPORTER_OTLP_ENDPOINT:`http://127.0.0.1:${otlpPort}`, OTEL_EXPORTER_OTLP_PROTOCOL:"grpc",
+      "ConnectionStrings__archive-db":`Host=127.0.0.1;Port=${pgPort};Database=${dbName};Username=postgres;Password=${process.env.ARCHIVE_234_PG_PASSWORD};SSL Mode=Disable`,
+      "ConnectionStrings__archive-blobs":`DefaultEndpointsProtocol=http;${connection}`,
+      Archive__MaintenanceMode:"true", Archive__Assets__ExpiryGrace:grace,
+    },
+    stdio:"ignore",
+  });
+  const timer = setTimeout(() => child.kill("SIGKILL"), 30_000);
+  try {
+    assert.deepEqual(await once(child,"close"),[expectedCode,null],`frozen ExpiryGrace ${grace}`);
+  } finally {
+    clearTimeout(timer);
+    for (const session of sessions) session.destroy();
+    await new Promise(resolve => sink.close(resolve));
+  }
 }
 
 async function main() {
@@ -400,6 +439,49 @@ async function main() {
     },{message:"Pending upload blob could not be deleted during cleanup",category:"Archive.Jobs"});
     assert.equal((await db.query(`SELECT "State" FROM upload_sessions WHERE "BlobName"='pending/unavailable'`)).rows[0].State,2);
     assert((await objects()).includes("pending/unavailable"));
+
+    // Isolate the remaining default-grace fixture from the signed overrides.
+    await db.query(`UPDATE upload_sessions SET "UploadTicketExpiresAt"=now()+interval '30 days' WHERE "BlobName"='pending/fresh'`);
+    for (const [i, [grace, expiredOffset, freshOffset, valid]] of [
+      ["0",-60,60,true],
+      ["-0",-60,60,true],
+      [" -0:02 ",60,600,true],
+      ["1",-172800,-43200,true],
+      ["1.02:03",-172800,-43200,true],
+      ["00:00:00.00000015",-60,60,true],
+      ["+1",-60,60,false],
+      ["--00:00:00",-60,60,false],
+    ].entries()) {
+      const candidates = [[`pending/grace-${i}-older`,expiredOffset], [`pending/grace-${i}-newer`,freshOffset]];
+      for (const [name, offset] of candidates) {
+        await put(name);
+        await db.query(`INSERT INTO upload_sessions ("Id","BlobName","ContentType","MaxSizeBytes","UploadTicketExpiresAt","State","CreatedByAccountId","CreatedAt","LiedId")
+          VALUES ($1,$2,'application/pdf',100,now()+$3*interval '1 second',0,$4,now(),$5)`,
+          [randomUUID(),name,offset,actor,live]);
+      }
+      const check = async () => {
+        for (const [j,[name]] of candidates.entries()) {
+          const removed = valid && j === 0;
+          assert.equal((await db.query(`SELECT "State" FROM upload_sessions WHERE "BlobName"=$1`,[name])).rows[0].State,removed ? 2 : 0,grace);
+          assert.equal(await blobs.getBlobClient(name).exists(),!removed,grace);
+        }
+      };
+      if (frozenDll) {
+        await frozenUploads(grace,valid ? 0 : 1);
+        await check();
+        if (valid) {
+          const [name] = candidates[0];
+          await put(name);
+          await db.query(`UPDATE upload_sessions SET "State"=0 WHERE "BlobName"=$1`,[name]);
+        }
+      }
+      await command(["--cleanup-uploads"], {...paused, Archive__Assets__ExpiryGrace:grace}, valid ?
+        {message:"Cleanup marked 1 upload sessions abandoned"} : {code:1});
+      await check();
+      // Retire these synthetic rows from later cutoff cases.
+      await db.query(`UPDATE upload_sessions SET "UploadTicketExpiresAt"=now()+interval '30 days' WHERE "BlobName"=ANY($1)`,
+        [candidates.map(([name])=>name)]);
+    }
 
     async function datei(name, owner, days) {
       const id = randomUUID();

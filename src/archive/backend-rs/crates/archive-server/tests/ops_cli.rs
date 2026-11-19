@@ -9,6 +9,179 @@ fn archive() -> Command {
 	command
 }
 
+fn native_report(mut command: Command, root: &Path, output: &Path) -> Value {
+	let result = command
+		.arg("--inventur")
+		.arg(root)
+		.args(["--model", "unpriced-test-fixture", "--out"])
+		.arg(output)
+		.output()
+		.unwrap();
+	assert!(
+		result.status.success(),
+		"{}",
+		String::from_utf8_lossy(&result.stderr)
+	);
+	serde_json::from_slice(&fs::read(output).unwrap()).unwrap()
+}
+
+fn frozen() -> Option<Command> {
+	let oracle = std::env::var_os("ARCHIVE_234_FROZEN_DLL")?;
+	let exe = std::env::var_os("ARCHIVE_234_DOTNET").unwrap_or_else(|| "dotnet".into());
+	let mut cmd = Command::new(exe);
+	cmd.env_clear().arg(oracle);
+	Some(cmd)
+}
+
+#[test]
+fn inventur_reads_shortcut_boms_and_utf8_fallback_without_fetching() {
+	let fixture = Fixture::new();
+	let root = fixture.0.join("source");
+	fs::create_dir(&root).unwrap();
+	let url = "http://127.0.0.1:1/ä";
+	let text = format!("[InternetShortcut]\r\n uRl= {url} \r\nURL=second");
+	let utf16 = |be| {
+		text.encode_utf16()
+			.flat_map(|unit| {
+				if be {
+					unit.to_be_bytes()
+				} else {
+					unit.to_le_bytes()
+				}
+			})
+			.collect::<Vec<_>>()
+	};
+	let utf32 = |be| {
+		text.chars()
+			.flat_map(|c| {
+				if be {
+					u32::from(c).to_be_bytes()
+				} else {
+					u32::from(c).to_le_bytes()
+				}
+			})
+			.collect::<Vec<_>>()
+	};
+	type ShortcutCase<'a> = (&'a str, &'a [u8], &'a [u8], Option<&'a str>);
+	let cases: &[ShortcutCase<'_>] = &[
+		("utf16le", b"\xff\xfe", &utf16(false), Some(url)),
+		("utf16be", b"\xfe\xff", &utf16(true), Some(url)),
+		("utf32le", b"\xff\xfe\0\0", &utf32(false), Some(url)),
+		("utf32be", b"\0\0\xfe\xff", &utf32(true), Some(url)),
+		("utf8", b"\xef\xbb\xbf", text.as_bytes(), Some(url)),
+		("ordinary", b"", text.as_bytes(), Some(url)),
+		(
+			"fallback",
+			b"",
+			b"\xff\nURL=urn:synthetic\xff",
+			Some("urn:synthetic�"),
+		),
+		(
+			"double-bom",
+			b"\xef\xbb\xbf",
+			b"\xef\xbb\xbfURL=urn:synthetic",
+			None,
+		),
+		(
+			"bare-cr",
+			b"",
+			b"[InternetShortcut]\rURL=urn:synthetic",
+			None,
+		),
+		("missing-url", b"", b"[InternetShortcut]\n", None),
+		("empty-url", b"", b"URL=   \nURL=second", Some("")),
+	];
+	for (name, bom, body, _) in cases {
+		fs::write(root.join(format!("{name}.url")), [*bom, *body].concat()).unwrap();
+	}
+	let rust = native_report(archive(), &root, &fixture.0.join("rust.json"));
+	for (name, _, _, expected) in cases {
+		let path = format!("{name}.url");
+		let shortcut = rust["shortcuts"]
+			.as_array()
+			.unwrap()
+			.iter()
+			.find(|s| s["path"] == path)
+			.unwrap();
+		assert_eq!(shortcut["linkTarget"].as_str(), *expected, "{name}");
+	}
+	if let Some(oracle) = frozen() {
+		assert_eq!(
+			rust,
+			native_report(oracle, &root, &fixture.0.join("frozen.json"))
+		);
+	}
+}
+
+#[cfg(unix)]
+#[test]
+fn inventur_counts_linked_directories_per_path_and_does_not_recurse_into_ancestors() {
+	use std::os::unix::fs::symlink;
+	let fixture = Fixture::new();
+	let root = fixture.0.join("source");
+	fs::create_dir_all(root.join("real/empty")).unwrap();
+	fs::write(root.join("real/score.txt"), b"hello").unwrap();
+	symlink("real", root.join("alias-a")).unwrap();
+	symlink("real", root.join("alias-b")).unwrap();
+	let out = fixture.0.join("rust.json");
+	let report = native_report(archive(), &root, &out);
+	let paths = |report: &Value| {
+		report["files"]
+			.as_array()
+			.unwrap()
+			.iter()
+			.map(|f| f["path"].clone())
+			.collect::<Vec<_>>()
+	};
+	assert_eq!(
+		paths(&report),
+		json!(["alias-a/score.txt", "alias-b/score.txt", "real/score.txt"])
+			.as_array()
+			.unwrap()
+			.clone()
+	);
+	assert_eq!(
+		report["totals"],
+		json!({"fileCount":3,"bytes":15,"folderCount":6,
+		"emptyFolders":["alias-a/empty","alias-b/empty","real/empty"]})
+	);
+	if let Some(oracle) = frozen() {
+		assert_eq!(
+			report,
+			native_report(oracle, &root, &fixture.0.join("frozen.json"))
+		);
+	}
+	// The frozen walk has no cycle policy. Only run this part against Rust.
+	symlink("..", root.join("real/back")).unwrap();
+	let mut cmd = Command::new("timeout");
+	cmd.args(["5s", env!("CARGO_BIN_EXE_archive-server")]);
+	let loop_report = native_report(cmd, &root, &out);
+	assert_eq!(paths(&loop_report), paths(&report));
+	assert_eq!(loop_report["totals"]["folderCount"], 9);
+	assert_eq!(
+		loop_report["totals"]["emptyFolders"],
+		report["totals"]["emptyFolders"]
+	);
+
+	fs::remove_file(root.join("real/back")).unwrap();
+	let external = fixture.0.join("synthetic-sibling");
+	fs::create_dir(&external).unwrap();
+	fs::write(external.join("example.txt"), b"synthetic").unwrap();
+	symlink("../synthetic-sibling", root.join("external")).unwrap();
+	let report = native_report(archive(), &root, &out);
+	assert!(paths(&report).contains(&json!("external/example.txt")));
+	if let Some(oracle) = frozen() {
+		assert_eq!(
+			report,
+			native_report(oracle, &root, &fixture.0.join("frozen.json"))
+		);
+	}
+	symlink("does-not-exist", root.join("dangling")).unwrap();
+	let dangling = archive().arg("--inventur").arg(&root).output().unwrap();
+	assert_eq!(dangling.status.code(), Some(1));
+	assert!(dangling.stdout.is_empty());
+}
+
 fn fixture() -> &'static Path {
 	Path::new(concat!(
 		env!("CARGO_MANIFEST_DIR"),

@@ -10,9 +10,11 @@ use rust_decimal::Decimal;
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::{
+	borrow::Cow,
 	collections::BTreeMap,
 	fs::{self, File},
 	io::{self, Read, Write},
+	os::unix::fs::MetadataExt,
 	path::{Component, Path, PathBuf},
 };
 
@@ -66,7 +68,11 @@ pub fn run(args: &[String], mut out: impl Write) -> Result<u8, Error> {
 				.unwrap_or_else(|| "scripted".into())
 		});
 	let mut walk = Walk::default();
-	walk.visit(&root, &root)?;
+	walk.visit(
+		&root,
+		&root,
+		&mut vec![directory_identity(&fs::metadata(&root)?)],
+	)?;
 	let report = walk.report(&root, &model, configuration)?;
 	let encoded = serde_json::to_string_pretty(&report)?;
 	if let Some(path) = option("--out") {
@@ -210,17 +216,29 @@ struct Pdf {
 }
 
 impl Walk {
-	fn visit(&mut self, root: &Path, dir: &Path) -> Result<(), Error> {
+	fn visit(
+		&mut self,
+		root: &Path,
+		dir: &Path,
+		ancestors: &mut Vec<(u64, u64)>,
+	) -> Result<(), Error> {
 		let mut empty = true;
 		for item in fs::read_dir(dir)? {
 			let item = item?;
-			let file_type = item.file_type()?;
 			let path = item.path();
 			empty &= item.file_name() == ".gitkeep";
-			if file_type.is_dir() {
+			// Follow links, but keep the enumerated path, not the target path.
+			// A dangling link fails the walk just like an unreadable entry.
+			let metadata = fs::metadata(&path)?;
+			if metadata.is_dir() {
 				self.folders += 1;
-				self.visit(root, &path)?;
-			} else if file_type.is_file() || (file_type.is_symlink() && path.is_file()) {
+				let identity = directory_identity(&metadata);
+				if !ancestors.contains(&identity) {
+					ancestors.push(identity);
+					self.visit(root, &path, ancestors)?;
+					ancestors.pop();
+				}
+			} else if metadata.is_file() {
 				self.files.push(Entry::read(relative(root, &path), &path)?);
 			}
 		}
@@ -329,6 +347,10 @@ impl Walk {
 	}
 }
 
+fn directory_identity(metadata: &fs::Metadata) -> (u64, u64) {
+	(metadata.dev(), metadata.ino())
+}
+
 impl Entry {
 	fn read(relative: String, path: &Path) -> Result<Self, Error> {
 		let mut file = File::open(path)?;
@@ -358,9 +380,8 @@ impl Entry {
 			if ext == ".url"
 				&& let Ok(contents) = fs::read(path)
 			{
-				entry.link_target = String::from_utf8_lossy(&contents)
-					.trim_start_matches('\u{feff}')
-					.lines()
+				entry.link_target = shortcut_text(&contents)
+					.split('\n')
 					.map(str::trim)
 					.find_map(|line| {
 						line.get(..4)
@@ -399,6 +420,55 @@ impl Entry {
 			}
 		}
 		Ok(entry)
+	}
+}
+
+fn shortcut_text(bytes: &[u8]) -> Cow<'_, str> {
+	// File.ReadAllText detects one BOM. Check UTF-32 first: its LE marker
+	// starts with the UTF-16 LE marker. Broken units use replacement text.
+	if let Some((bytes, big_endian)) = bytes
+		.strip_prefix(b"\0\0\xfe\xff")
+		.map(|b| (b, true))
+		.or_else(|| bytes.strip_prefix(b"\xff\xfe\0\0").map(|b| (b, false)))
+	{
+		let (chunks, remainder) = bytes.as_chunks::<4>();
+		let mut text: String = chunks
+			.iter()
+			.map(|&word| {
+				let code = if big_endian {
+					u32::from_be_bytes(word)
+				} else {
+					u32::from_le_bytes(word)
+				};
+				char::from_u32(code).unwrap_or(char::REPLACEMENT_CHARACTER)
+			})
+			.collect();
+		if !remainder.is_empty() {
+			text.push(char::REPLACEMENT_CHARACTER);
+		}
+		Cow::Owned(text)
+	} else if let Some((bytes, big_endian)) = bytes
+		.strip_prefix(b"\xfe\xff")
+		.map(|b| (b, true))
+		.or_else(|| bytes.strip_prefix(b"\xff\xfe").map(|b| (b, false)))
+	{
+		let (chunks, remainder) = bytes.as_chunks::<2>();
+		let units = chunks.iter().map(|&word| {
+			if big_endian {
+				u16::from_be_bytes(word)
+			} else {
+				u16::from_le_bytes(word)
+			}
+		});
+		let mut text: String = char::decode_utf16(units)
+			.map(|c| c.unwrap_or(char::REPLACEMENT_CHARACTER))
+			.collect();
+		if !remainder.is_empty() {
+			text.push(char::REPLACEMENT_CHARACTER);
+		}
+		Cow::Owned(text)
+	} else {
+		String::from_utf8_lossy(bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes))
 	}
 }
 
