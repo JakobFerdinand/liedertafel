@@ -82,6 +82,9 @@ async fn pending(pool: &PgPool, storage: &BlobStorage, now: DateTime<Utc>) -> Re
 /// ExpiryGrace is bound as an invariant .NET TimeSpan, unlike storage's
 /// ticket-duration settings. In particular a bare integer counts days, and
 /// the sign applies to the whole interval (including zero).
+/// Grammar and token/precision limits: .NET 10.0.14 TimeSpanParse.cs (MIT;
+/// notice in tests/oracles/dotnet-runtime-LICENSE.txt). Binder oracle in
+/// tests/oracles/ExpiryGraceOracle.cs.
 fn expiry_grace(value: &str) -> Option<Duration> {
 	fn number(s: &str) -> Option<i64> {
 		if s.is_empty() || !s.bytes().all(|c| c.is_ascii_digit()) {
@@ -91,7 +94,10 @@ fn expiry_grace(value: &str) -> Option<Duration> {
 		if significant.is_empty() {
 			Some(0)
 		} else {
-			significant.parse().ok()
+			significant
+				.parse::<i64>()
+				.ok()
+				.filter(|&n| n <= 0x0fff_ffff)
 		}
 	}
 	fn seconds(s: &str) -> Option<(i64, i64)> {
@@ -99,16 +105,20 @@ fn expiry_grace(value: &str) -> Option<Duration> {
 			return Some((number(s)?, 0));
 		};
 		let fraction_number = number(fraction)?;
-		if fraction_number > 9_999_999 {
+		let leading_zeroes = fraction.len() - fraction.trim_start_matches('0').len();
+		let ticks = if fraction_number == 0 || leading_zeroes >= 8 {
+			0
+		} else if (leading_zeroes == 0 && fraction.len() > 7) || fraction.len() > 14 {
+			// Without leading zeroes the BCL rejects precision >7. With
+			// leading zeroes its rounding table supports at most 7 excess
+			// places; beyond that the binder rejects the BCL indexing error.
 			return None;
-		}
-		let mut ticks = 0;
-		for i in 0..7 {
-			ticks = ticks * 10 + i64::from(fraction.as_bytes().get(i).map_or(0, |b| b - b'0'));
-		}
-		if fraction.as_bytes().get(7).is_some_and(|b| *b >= b'5') {
-			ticks += 1;
-		}
+		} else if fraction.len() <= 7 {
+			fraction_number * 10_i64.pow((7 - fraction.len()) as u32)
+		} else {
+			let scale = 10_i64.pow((fraction.len() - 7) as u32);
+			(fraction_number + scale / 2) / scale
+		};
 		Some((if whole.is_empty() { 0 } else { number(whole)? }, ticks))
 	}
 	let value = value.trim();
@@ -145,6 +155,10 @@ fn expiry_grace(value: &str) -> Option<Duration> {
 	Duration::try_seconds(ticks / 10_000_000)?
 		.checked_add(&Duration::nanoseconds((ticks % 10_000_000) * 100))
 }
+
+#[cfg(test)]
+#[path = "cleanup_grace_contract.rs"]
+mod grace_contract;
 
 async fn dropped(pool: &PgPool, storage: &BlobStorage, dry: bool) -> Result<(), Error> {
 	let (mut revisions, mut staged, mut kept) = (0, 0, 0);

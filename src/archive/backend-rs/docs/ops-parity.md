@@ -11,7 +11,7 @@ to #235. The C# backend and its existing tests remain the reference.
 | `--cleanup-dropped-blobs [--dry-run]` | `DroppedBlobCleanerTests` | Maintenance does not gate this command. Enumerate `revisions/`, then `pending/`, then `dateien/`. Exact ordinal pending names referenced by **any** session stay. Live Dateien and other prefixes stay. Dry run makes no changes; `Kept` excludes unrelated prefixes. |
 | `--cleanup-papierkorb [--dry-run]` | `PapierkorbCleanerTests` and `PapierkorbRecoveryTests.RestoringAfterSevenDaysRefusesAndTheCleanupFinishesTheRow` | Development only, paused during maintenance. Snapshot IDs strictly before the retention cutoff (default seven days); restore keeps its existing at-or-before refusal. Remove Dateien, then Lieder, then Auftritte through shared removal, not by prefix. The counts describe selected rows, not recursively removed children. |
 | `--initialize-local-storage`, `--worker-smoke`, `/api/dev/exercise` | `LocalServices`; AppHost clean start | Private `archive-assets`, configured extraction/reading/video queues, initial emulator CORS without replacing existing rules. Smoke uses an owned Blob and unique scratch queue with W3C Producer → Consumer and actual SMTP; it cleans Blob then scratch queue, with a 15s cleanup budget independent of cancellation. HTTP exercise has a 30s work deadline and the host drains owned cleanup after disconnect. |
-| `/api/dev/database`, `/api/dev/ai-budget`, `/api/dev/extraction-duplicate` | `DiagnosticEndpoints`; AppHost clean start, mixed batch, extraction roundtrip | Development only. Read-only SQLx `pendingMigrations`, not EF migration names; AI totals use the existing ledger's month, spent and cap, with no provider invocation. Duplicate sends one extraction envelope; no queue gives 502, configured transport failure 500. |
+| `/api/dev/database`, `/api/dev/ai-budget`, `/api/dev/extraction-duplicate` | `DiagnosticEndpoints`; AppHost clean start, mixed batch, extraction roundtrip | Development only. Pending SQLx IDs are computed from compiled migrations and the applied-version catalog comment published by explicit `--migrate`; no history reads or extra grants for `archive_runtime`. AI totals use the existing ledger's month, spent and cap, with no provider invocation. Duplicate sends one extraction envelope; no queue gives 502, configured transport failure 500. |
 | `--send-test-mail` | `SendTestMailAsync`, #222 operator/mail gates | Remains Development + explicit Azure provider + valid recipient. Smoke uses local SMTP instead. Do not deliver an external test message as an acceptance run. |
 
 **Retained limits.** Frozen `FiniteJobs.IsDevelopmentRequired` refuses
@@ -23,6 +23,34 @@ frozen owner removal. A dropped-blob operator should run in a quiescent
 maintenance window: it uses the frozen snapshot of session references, not
 a transaction spanning the database and Blob Storage. The operational
 diagnostics do not grant runtime access to SQLx bookkeeping tables.
+
+### Review regressions
+
+`ExpiryGrace` uses its own invariant TimeSpan binding rather than the storage
+ticket-duration parser. The fixture `tests/fixtures/expiry-grace-bcl.json`
+captures signed 100ns ticks or rejection from .NET 10.0.14, under `de-AT`,
+using `ConfigurationBuilder.Bind` against the unchanged `AssetStorageOptions`.
+Run `cargo test -p archive-server --locked --lib
+exact_ticks_and_rejections_match_frozen_expiry_grace_binding`. To regenerate,
+compile `tests/oracles/ExpiryGraceOracle.cs` in an external `net10.0` console
+project with nullable/implicit usings, a `Microsoft.AspNetCore.App` framework
+reference, and a reference to the freshly built frozen `Archive.Backend.dll`.
+The oracle prints JSON; retain its input, tick and rejection rows. In addition
+to leading-zero precision and midpoint rounding, the fixture includes the
+BCL rejection caused by its limited rounding table. TimeSpan extrema bind,
+but a cutoff outside the .NET calendar still refuses the cleanup.
+
+The runtime-role diagnostic is exercised through the normal binary in
+`cargo test -p archive-server --locked --test migrate_process
+postgres_migration_contract -- --ignored`; use disposable PostgreSQL and
+pg_dump 17 as in [the baseline runbook](../crates/archive-db/baseline/README.md).
+No history on a fresh database reports every compiled ID pending. Existing
+history without valid status metadata fails closed until a successful explicit
+`--migrate`, which also publishes status on a migration no-op. The comment
+records only successful SQLx version integers; it is not an authorization
+signal, and an interrupted run may leave the last published status until
+the next successful migration. Direct reads and writes (including comment
+changes) remain denied to `archive_runtime`.
 
 Inventur reads the shipped defaults plus optional `appsettings.json`, then
 `appsettings.Development.json` beside the executable and finally environment
