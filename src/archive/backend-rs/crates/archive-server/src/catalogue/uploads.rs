@@ -504,12 +504,7 @@ async fn finalize(
 	let body = body(request, super::binding::Shape::Finalize).await?;
 	let s = session(&origin, id, access.current.account_id).await?;
 	if s.state == 1 {
-		let d = sqlx::query_as::<_, queries::Datei>(r#"SELECT * FROM dateien WHERE "Id"=$1"#)
-			.bind(s.finalized_datei_id)
-			.fetch_optional(&auth.pool)
-			.await?
-			.ok_or_else(|| fail(StatusCode::CONFLICT, CONFLICT))?;
-		return Ok(access.respond(Json(json!({"datei":d.summary(Value::Null)})).into_response()));
+		return Ok(access.respond(finalized_upload(&auth.pool, &s).await?));
 	}
 	if s.state != 0 {
 		return Err(fail(
@@ -568,25 +563,44 @@ async fn finalize(
 		None
 	};
 	let provider = storage(&origin)?;
-	let info = provider
-		.probe(&s.blob_name)
-		.await
-		.map_err(|_| storage_error())?;
+	// Another finalizer can commit and remove staging while this request is
+	// outside the transaction. Only replay a committed, still-owned result.
+	let account_id = access.current.account_id;
+	let replay = |error| async {
+		let current = session(&origin, id, account_id).await?;
+		if current.state == 1 {
+			return finalized_upload(&auth.pool, &current).await;
+		}
+		Err(error)
+	};
+	let info = match provider.probe(&s.blob_name).await {
+		Ok(info) => info,
+		Err(_) => return Ok(access.respond(replay(storage_error()).await?)),
+	};
 	// Preserve probe/header ordering even when probe says the object is missing.
 	let header = if info.as_ref().is_some_and(|p| p.size_bytes == 0) {
 		Some(vec![])
 	} else {
-		provider
-			.read_header(&s.blob_name, 64)
-			.await
-			.map_err(|_| storage_error())?
+		match provider.read_header(&s.blob_name, 64).await {
+			Ok(header) => header,
+			Err(_) => return Ok(access.respond(replay(storage_error()).await?)),
+		}
 	};
-	let info = info.ok_or_else(|| {
-		fail(
-			StatusCode::CONFLICT,
-			"Die Datei wurde noch nicht übertragen.",
-		)
-	})?;
+	let Some(info) = info else {
+		return Ok(access.respond(
+			replay(fail(
+				StatusCode::CONFLICT,
+				"Die Datei wurde noch nicht übertragen.",
+			))
+			.await?,
+		));
+	};
+	if header.is_none() {
+		let current = session(&origin, id, access.current.account_id).await?;
+		if current.state == 1 {
+			return Ok(access.respond(finalized_upload(&auth.pool, &current).await?));
+		}
+	}
 	let stored:i64=sqlx::query_scalar(r#"SELECT COALESCE(sum("SizeBytes"),0)::bigint FROM dateien WHERE CASE WHEN $1::uuid IS NOT NULL THEN "LiedId"=$1 ELSE "EventId"=$2 END"#).bind(s.lied_id).bind(s.event_id).fetch_one(&auth.pool).await?;
 	if i128::from(info.size_bytes) > i128::from(s.max_size_bytes)
 		|| i128::from(info.size_bytes) + i128::from(stored)
@@ -619,10 +633,9 @@ async fn finalize(
 	let datei = Uuid::new_v4();
 	let target = format!("dateien/{datei}/{}", Uuid::new_v4());
 	let now = auth.clock.now();
-	provider
-		.promote(&s.blob_name, &target)
-		.await
-		.map_err(|_| storage_error())?;
+	if provider.promote(&s.blob_name, &target).await.is_err() {
+		return Ok(access.respond(replay(storage_error()).await?));
+	}
 	let result=async {
 		let mut tx=auth.pool.begin().await?;
 		let won=sqlx::query(r#"UPDATE upload_sessions SET "State"=1,"FinalizedDateiId"=$2 WHERE "Id"=$1 AND "State"=0"#).bind(id).bind(datei).execute(&mut *tx).await?.rows_affected();
@@ -647,6 +660,14 @@ async fn finalize(
 		let _ = hook.after_save(&saved, &auth.pool).await;
 	}
 	Ok(access.respond(Json(json!({"datei":saved.summary(Value::Null)})).into_response()))
+}
+async fn finalized_upload(pool: &sqlx::PgPool, session: &Pending) -> Result<Response, AuthError> {
+	let datei = sqlx::query_as::<_, queries::Datei>(r#"SELECT * FROM dateien WHERE "Id"=$1"#)
+		.bind(session.finalized_datei_id)
+		.fetch_optional(pool)
+		.await?
+		.ok_or_else(|| fail(StatusCode::CONFLICT, CONFLICT))?;
+	Ok(Json(json!({"datei":datei.summary(Value::Null)})).into_response())
 }
 fn save_error(error: sqlx::Error) -> AuthError {
 	if error

@@ -554,13 +554,26 @@ async fn video_outbox_failure_rolls_back_finalize_and_concurrent_replay_creates_
 	let mut peer = app.client();
 	peer.cookies = editor.cookies.clone();
 	peer.token = editor.token.clone();
-	let (a, b) = tokio::join!(
-		upload::finish(&mut editor, &session),
-		upload::finish(&mut peer, &session)
+	let entered = Arc::new(tokio::sync::Notify::new());
+	let resume = Arc::new(tokio::sync::Notify::new());
+	*storage.pause_next_promote.lock().unwrap() = Some((entered.clone(), resume.clone()));
+	let (a, b) = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+		tokio::join!(upload::finish(&mut editor, &session), async {
+			entered.notified().await;
+			let result = upload::finish(&mut peer, &session).await;
+			resume.notify_one();
+			result
+		})
+	})
+	.await
+	.expect("both finalizers must complete");
+	assert_eq!(
+		a.0, 200,
+		"staging disappeared after the other request committed: {}",
+		a.1
 	);
-	assert!([200, 409].contains(&a.0.as_u16()));
-	assert!([200, 409].contains(&b.0.as_u16()));
-	assert!(a.0 == 200 || b.0 == 200);
+	assert_eq!(b.0, 200, "{}", b.1);
+	assert_eq!(a.1["datei"]["id"], b.1["datei"]["id"]);
 	assert_eq!(upload::finish(&mut editor, &session).await.0, 200);
 	let count: i64 = sqlx::query_scalar("SELECT count(*) FROM video_jobs")
 		.fetch_one(&app.pool)

@@ -12,6 +12,12 @@ pub struct FakeStorage {
 	pub tier_fail: AtomicBool,
 	pub objects: Mutex<std::collections::HashMap<String, (Vec<u8>, String)>>,
 	pub promote_barrier: Mutex<Option<std::sync::Arc<tokio::sync::Barrier>>>,
+	pub pause_next_promote: Mutex<
+		Option<(
+			std::sync::Arc<tokio::sync::Notify>,
+			std::sync::Arc<tokio::sync::Notify>,
+		)>,
+	>,
 }
 impl FakeStorage {
 	pub fn store(&self, blob: &str, bytes: &[u8], content: &str) {
@@ -74,6 +80,11 @@ impl Storage for FakeStorage {
 				.push(("promote".into(), target.into()));
 			if self.fail.load(Ordering::SeqCst) {
 				return Err(StorageError::Unavailable);
+			}
+			let pause = self.pause_next_promote.lock().unwrap().take();
+			if let Some((entered, resume)) = pause {
+				entered.notify_one();
+				resume.notified().await;
 			}
 			{
 				let mut objects = self.objects.lock().unwrap();
