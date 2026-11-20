@@ -200,10 +200,13 @@ jobs:
           ASPIRE_CLI_TELEMETRY_OPTOUT: '1'
         run: |
           # Resolve once on a fresh runner, before building the image or Rust tests.
-          dnx --yes aspire.cli@13.6.5 -- setup --install-path "$RUNNER_TEMP/archive-aspire"
-          bundle="$RUNNER_TEMP/archive-aspire/bundle"
-          test -x "$bundle/dcp/dcp"
-          echo "AspireCliBundlePath=$bundle" >> "$GITHUB_ENV"
+          install_path="$RUNNER_TEMP/archive-aspire"
+          # Aspire 13.6 validates discovery after extraction; a custom path
+          # is not discoverable on a runner without a preexisting Aspire home.
+          export ASPIRE_LAYOUT_PATH="$install_path/bundle"
+          dnx --yes aspire.cli@13.6.5 -- setup --install-path "$install_path"
+          test -x "$ASPIRE_LAYOUT_PATH/dcp/dcp"
+          echo "AspireCliBundlePath=$ASPIRE_LAYOUT_PATH" >> "$GITHUB_ENV"
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
         working-directory: src/archive/frontend
