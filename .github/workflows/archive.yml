@@ -251,6 +251,10 @@ jobs:
           ARCHIVE_EXPECTED_IMAGE_VERSION: ${{ steps.version.outputs.version }}
           ASPIRE_CONTAINER_RUNTIME: docker
         run: |
+          # Install once before parallel MSBuild projects resolve the same bundle.
+          dnx --yes aspire.cli@13.6.5 -- setup --install-path "$RUNNER_TEMP/archive-aspire"
+          export AspireCliBundlePath="$RUNNER_TEMP/archive-aspire/bundle"
+          test -x "$AspireCliBundlePath/dcp/dcp"
           dotnet build src/archive/Archive.slnx --configuration Release
           dotnet test tests/archive/apphost-rust --no-build --configuration Release
       - name: Production browser smoke
