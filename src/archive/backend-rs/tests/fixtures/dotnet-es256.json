@@ -1,0 +1,36 @@
+{
+  "syntheticOnly": true,
+  "provenance": "Frozen .NET 10 source at 0ff95e6, actual HTTP enrollment via unchanged frontend + Chromium CDP virtual ES256 authenticator; no production data",
+  "user": {
+    "Id": "01a1c00a-8204-78cd-981d-f71ddeb3a2be",
+    "Email": "mitglied@liedertafel.test",
+    "NormalizedEmail": "MITGLIED@LIEDERTAFEL.TEST",
+    "DisplayName": "Testmitglied"
+  },
+  "data": {
+    "Name": "Synthetic test authenticator",
+    "CreatedAt": "2026-11-09T11:21:42.917656+00:00",
+    "PublicKey": "pQECAyYgASFYIFEFT7kGVHOQbsHQ4uh5L4zbA2/aGWxittggF+xXrbQHIlggKVxI1YnSKACep4lA0VyaHQYTWggXC7zbiO7a4sHbusk=",
+    "SignCount": 1,
+    "IsBackedUp": false,
+    "Transports": [
+      "internal"
+    ],
+    "ClientDataJson": "eyJ0eXBlIjoid2ViYXV0aG4uY3JlYXRlIiwiY2hhbGxlbmdlIjoidEROV1d4NUx4VFhKaW5Fdnp5S2lIVnhrLXBxQUFyaVZnc25nYlhLclFKMCIsIm9yaWdpbiI6Imh0dHA6Ly9sb2NhbGhvc3Q6NTgyMjEiLCJjcm9zc09yaWdpbiI6ZmFsc2UsIm90aGVyX2tleXNfY2FuX2JlX2FkZGVkX2hlcmUiOiJkbyBub3QgY29tcGFyZSBjbGllbnREYXRhSlNPTiBhZ2FpbnN0IGEgdGVtcGxhdGUuIFNlZSBodHRwczovL2dvby5nbC95YWJQZXgifQ==",
+    "IsUserVerified": true,
+    "IsBackupEligible": false,
+    "AttestationObject": "o2NmbXRkbm9uZWdhdHRTdG10oGhhdXRoRGF0YVikSZYN5YgOjGh0NBcPZHZgW4/krrmihjLHmVzzuoMdl2NFAAAAAQECAwQFBgcIAQIDBAUGBwgAIKMU7s4LgB4VGbGUFmUUDd5hvDM2DSZB/CG3UPVdqp4QpQECAyYgASFYIFEFT7kGVHOQbsHQ4uh5L4zbA2/aGWxittggF+xXrbQHIlggKVxI1YnSKACep4lA0VyaHQYTWggXC7zbiO7a4sHbusk="
+  },
+  "credential": {
+    "credentialId": "oxTuzguAHhUZsZQWZRQN3mG8MzYNJkH8IbdQ9V2qnhA=",
+    "isResidentCredential": true,
+    "rpId": "localhost",
+    "privateKey": "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg1ktN6pRFnloEin7PQ7/WVyMthqclCj3b+VwObIzwqwKhRANCAARRBU+5BlRzkG7B0OLoeS+M2wNv2hlsYrbYIBfsV620BylcSNWJ0igAnqeJQNFcmh0GE1oIFwu824ju2uLB27rJ",
+    "userHandle": "MDFhMWMwMGEtODIwNC03OGNkLTk4MWQtZjcxZGRlYjNhMmJl",
+    "signCount": 1,
+    "backupEligibility": false,
+    "backupState": false,
+    "userName": "mitglied@liedertafel.test",
+    "userDisplayName": "Testmitglied"
+  }
+}

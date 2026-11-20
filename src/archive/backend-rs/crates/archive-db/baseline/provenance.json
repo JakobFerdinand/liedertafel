@@ -1,0 +1,183 @@
+{
+  "database": "archive",
+  "server_version": "17.11 (9045acd)",
+  "read_only": "on",
+  "ef_history": [
+    {
+      "MigrationId": "20260911201343_InitialArchive",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20260914115546_AuthSignIn",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20260915075956_AuthSignInConcurrency",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20260915084628_IdentityAuth",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20260915095217_MemberInvitations",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20260915104841_MemberRevocation",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20260915115350_MemberEmailChange",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20260918111536_MemberPasskeys",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20260919125632_CatalogueSongs",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20260919132544_ArrangementVoiceConfigurationAndVersionKeys",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20260919143809_ArchiveAssetsAndUploadSessions",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20260919163927_ArchiveAssetDescription",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20260920113100_UploadSessionResume",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20260922110543_SongAlternateTitlesAndLyrics",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20260922214454_ArchiveChat",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20260924050100_RepertoireFilters",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20260924100654_HistoricalEvents",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20260924145540_EventAssets",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20260925072429_EventProgrammes",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20260926061548_PerformanceEvidence",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20261002103803_ExtractionJobs",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20261004104336_ScoreRevisionHistory",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20261004165004_ProgrammeConfirmation",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20261005104333_ConcertRecordings",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20261006010744_RecordingPassages",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20261006111010_AiUsageLedger",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20261010174016_FieldProvenanceAndProposals",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20261011160524_ChatMessageA2ui",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20261012052810_ScanReading",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20261016120733_RemoveProvenanceAndProposals",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20261016170055_AddLiederAndDateien",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20261017050837_LiedReferencesInProgramme",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20261017181057_DateiExtraction",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20261017185113_AuftrittDateien",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20261017232616_DropOldCatalogue",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20261018120825_UploadSessionFinalizeGuard",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20261019102646_LiedEntwuerfe",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20261020151647_AuftrittProgramm",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20261020181751_RemoveEventPublication",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20261021170328_AuftrittEntwuerfe",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20261022201704_Videos",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20261022204955_PapierkorbRecovery",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20261023215101_AiCostNotices",
+      "ProductVersion": "10.0.12"
+    },
+    {
+      "MigrationId": "20261028084325_ColdStorage",
+      "ProductVersion": "10.0.12"
+    }
+  ]
+}

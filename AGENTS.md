@@ -9,14 +9,14 @@ Use this guide when editing or extending the codebase.
 - src/dashboard: internal, auth-gated Astro dashboard (Svelte islands + Layerchart) for the `liedertafel-dashboard` Static Web App; overview at `/`, session inspector at `/sessions`. Shared API/date helpers in `src/lib`, UI grouped under `src/components/{filters,overview,breakdowns,sessions}`, styling in `src/styles/global.css`.
 - src/dashboard-api: Azure Functions managed API (C# .NET isolated); serves read-only `/api/pageviews/stats`, `/api/pageviews/sessions`, and `/api/pageviews/sessions/{sessionRef}` endpoints. All require bounded Vienna date ranges; session references are opaque, range-bound handles.
 - src/pageview-storage: shared C# library (net10.0) referenced by both APIs; owns the stored pageview shape (`PageViewEntity`), table name and `Pv|yyyy-MM-dd` UTC partition scheme (`PageViewTable`) and navigation vocabulary (`NavigationTypes`). Change stored-data rules here, never in an API. Its path is in both API workflows' path filters.
-- src/archive: .NET 10 / Aspire choir archive. `apphost/` orchestrates local services, `service-defaults/` owns OTLP and finite-worker defaults, `backend/` serves the API/static export and explicit EF migrations, `frontend/` is Next.js App Router + TypeScript + Tailwind + Biome. Read `src/archive/README.md` for contracts and startup. `src/archive/backend-rs/` hosts the Rust rewrite of the backend (#218; wave 1 in #219) — its nested `AGENTS.md` governs that workspace, and the agent-setup research notes live in `src/archive/docs/rust-port-agent-setup.md`.
-- tests/archive: xUnit backend/OTLP checks under `backend/` and clean-stack Aspire integration checks under `apphost/`. Browser checks live in `src/archive/frontend/tests`.
+- src/archive: Rust choir archive. `backend-rs/` owns the API, static export, finite workers, migrations and OTLP; its nested `AGENTS.md` lists feature-specific checks. `apphost/` orchestrates local development, `apphost-rust/` is the disposable image-test topology, and `frontend/` is the unchanged Next.js static client. Follow `src/archive/README.md` for startup and verification.
+- tests/archive: cross-stack Aspire tests in `apphost-rust/`, shared synthetic fixtures in `apphost/TestAssets/` and `fixtures/`; browser checks live in `src/archive/frontend/tests`.
 - infrastructure: Azure Bicep templates for the RG-Liedertafel estate.
 - infrastructure/neon: archive Neon CLI/API setup runbook and SQL role/grant
   bootstrap. Follow its README for private credential handling; run
   `bootstrap-roles.sql` once as admin. `runtime-grants.sql` runs automatically
   inside the release's `--migrate` as `archive_migrator` (embedded copy at
-  `src/archive/backend/Data/runtime-grants.sql`, kept identical by a test);
+  `src/archive/backend-rs/crates/archive-db/runtime-grants.sql`, kept identical by a test);
   run it by hand only as a fallback. OpenTofu was trialled but is not adopted.
 - Plans and tickets: GitHub Issues (see `## Agent skills`); the choir archive is parent issue #96 with sub-issues ordered by milestone (Vereinfachung, Bestand, Betrieb). `src/archive/docs/architecture.md` is the archive architecture (§14 governs AI assistance). The deterministic
 source-folder inventory (Drive, #98) runbook lives at
@@ -42,32 +42,23 @@ source-folder inventory (Drive, #98) runbook lives at
 - Add `-- --azurite` to also verify real Table Storage queries against local Azurite.
 - API fixture export for browser smoke checks: append `-- --fixtures /tmp/liedertafel-insights-validation` (see `tests/dashboard-api/README.md`).
 - Dashboard API (local): `cd src/dashboard-api && dotnet run` (with `StorageConnection` in `local.settings.json`)
-- Archive local stack: `dotnet run --project src/archive/apphost` (Docker required; Podman: prefix `ASPIRE_CONTAINER_RUNTIME=podman`). Start `archive-migrate` explicitly in the dashboard for schema setup.
-- Archive build: `dotnet build src/archive/Archive.slnx`
-- Archive backend tests: `dotnet test tests/archive/backend`
-- Archive focused xUnit test: `dotnet test tests/archive/backend --filter FullyQualifiedName~TelemetryTests`
-- Archive live chat evaluation (keyless via az login; skips when unconfigured): `dotnet test tests/archive/backend --filter "Category=ChatEvaluationLive" --logger "console;verbosity=detailed"` with `ARCHIVE_CHAT_ENDPOINT`, `ARCHIVE_CHAT_DEPLOYMENT_NAME` and optional `ARCHIVE_CHAT_MODEL_VERSION` set; a deployment without a price under `Archive:Ai:Models` also needs `ARCHIVE_CHAT_INPUT_PRICE_EUR` and `ARCHIVE_CHAT_OUTPUT_PRICE_EUR` (EUR per million tokens), otherwise every call is refused
-- Archive video transcode worker (#161, deterministic ffmpeg): `dotnet run --project src/archive/backend -- --transcode-queue`; the `--dispatch-videos` command sweeps un-enqueued `video_jobs` rows. Local runs need `ffmpeg`/`ffprobe` on the PATH (`Archive:Video:FfmpegPath`/`FfprobePath` set them); without them the worker records a clear German failure on the Datei and exits finitely. The AppHost resource `archive-transcode` runs it with `WithArchiveDependencies`; the AppHost video roundtrip test requires ffmpeg on the test host's PATH.
-- Archive AI ledger on real PostgreSQL (the production SQL; the PostgreSQL-only cases skip when unconfigured): `dotnet test tests/archive/backend --filter "FullyQualifiedName~AiBudgetLedgerTests"` with `ARCHIVE_TEST_POSTGRES` set to a connection string for a throwaway server whose user may create databases (each test creates, migrates and drops its own)
-- Archive scan reading (ARC-034-1) evaluation: `dotnet test tests/archive/backend --filter "Category=ScanReadingEvaluation"` runs generated scans through the whole reading job with the scripted client (no provider). `--filter "Category=ScanReadingEvaluationLive"` reads the maintainer's private scans (`ARCHIVE_SCAN_EVAL_DIR` with the PDFs and an `expected.json`, optional `ARCHIVE_SCAN_EVAL_REPORT`) with `ARCHIVE_CHAT_ENDPOINT` and `ARCHIVE_CHAT_DEPLOYMENT_NAME` set (az login) and skips when unconfigured; it costs a few cents per document.
-- Archive programme scan (#131) evaluation: `dotnet test tests/archive/backend --filter "Category=ProgrammReadingEvaluation"` runs generated programme photographs through `ProgrammReader` with the scripted model (no provider) and reports header errors, wrong matches and cost. `--filter "Category=ProgrammReadingEvaluationLive"` reads the maintainer's private scans (`ARCHIVE_PROGRAMM_EVAL_DIR` with the scans and an `expected.json`, optional `ARCHIVE_PROGRAMM_EVAL_REPORT`) with `ARCHIVE_CHAT_ENDPOINT` and `ARCHIVE_CHAT_DEPLOYMENT_NAME` set (az login) and skips when unconfigured.
-- Archive scan reading on real PostgreSQL (migration over existing extraction rows, constraints, the budget sweep, real ledger SQL; skip when unconfigured): `dotnet test tests/archive/backend --filter "Category=PostgresReading"` with `ARCHIVE_TEST_POSTGRES` set as for the AI ledger
-- Archive migration contracts on real PostgreSQL (the data-migrating migrations `DropOldCatalogue` and `AuftrittProgramm` over seeded rows; skip when unconfigured): `dotnet test tests/archive/backend --filter "Category=PostgresContract"` with `ARCHIVE_TEST_POSTGRES` set as for the AI ledger
-- Archive A2UI cards on real PostgreSQL (migration with existing rows, jsonb round trip, resolvers and load-time re-check as real SQL; skip when unconfigured): `dotnet test tests/archive/backend --filter "Category=PostgresA2ui"` with `ARCHIVE_TEST_POSTGRES` set as for the AI ledger
-- Archive deterministic source/folder inventory (no database, queue or model; #98): `dotnet run --project src/archive/backend -- --inventur <verzeichnis> [--model <schluessel> --out bericht.json]` — runbook in `src/archive/docs/drive-inventur.md`
-- Archive integration test: `dotnet test tests/archive/apphost` (fresh containers; stop a running archive AppHost first).
+- Archive local stack: build with `cargo build --workspace --locked` from `src/archive/backend-rs`, then from root `dotnet run --project src/archive/apphost` (Podman: `ASPIRE_CONTAINER_RUNTIME=podman`). Start `archive-migrate` explicitly in Aspire. Set `Archive__Pdfium__LibraryPath` for PDF operations and have `ffmpeg`/`ffprobe` for video jobs.
+- Archive Aspire projects: `dotnet build src/archive/Archive.slnx`. Image integration: `dotnet test tests/archive/apphost-rust --filter FullyQualifiedName~ExtractionRoundtripThroughRealAzuriteQueueAndFiniteWorker` (candidate and other prerequisites in `src/archive/backend-rs/docs/image-apphost-parity.md`).
+- Archive backend: from `src/archive/backend-rs`, `cargo test --workspace --locked`; single example `cargo test --locked -p archive-server --test ops_http`. Real SQL/Queue/Blob/PDFium/image cases are ignored by default, not passed. From the repo root `bash src/archive/backend-rs/tests/image/check-translated.sh` runs both tiers and native tests with synthetic dependencies; see `src/archive/README.md#focused-verification`.
+- Archive release checks: `.github/workflows/archive.yml` adds dependency policy, detector, exact-image AppHost and frontend browser gates. The three live AI evaluations explicitly skip without configuration; separate authorization is required to supply it.
+- Archive infra guard: `bash src/archive/backend-rs/tests/image/check-infra-preview-policy.sh` tests the pre-apply what-if with a stub CLI, without Azure.
+- Archive deterministic inventory: `archive-server --inventur <verzeichnis> [--model <schluessel> --out bericht.json]`; see `src/archive/docs/drive-inventur.md`.
 - Archive frontend deps/check/build: from `src/archive/frontend`, `pnpm install --frozen-lockfile`, `pnpm run check`, `pnpm run build`.
 - Archive frontend reducer tests (pure, no browser; Node's built-in runner with type stripping, Node 24): from `src/archive/frontend`, `pnpm run test:unit`. Single file: `node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test lib/lied-entwurf/reducer.test.ts`. Tests sit beside the module as `*.test.ts` under `lib/`; modules under test import siblings with `.ts` extensions and must not use the `@/` alias.
 - Archive browsers: from `src/archive/frontend`, `pnpm exec playwright install chromium`, then `ARCHIVE_BASE_URL=http://localhost:<frontend-port> pnpm run test:browser`. Single test: `pnpm run test:browser -- --grep "German deep link"`.
-- Archive image: `docker build -f src/archive/Dockerfile -t liedertafel-archive:local .` (Podman additionally needs `--ignorefile src/archive/Dockerfile.dockerignore`). Full smoke instructions in the archive README.
-- Rust backend workspace (wave 1, #219): build/check/test in `src/archive/backend-rs` per its nested AGENTS.md — `cargo build --workspace --locked`. Run the apphost against it with `Archive__RustOrigin=true`.
+- Archive image: `docker build -f src/archive/Dockerfile -t localhost/liedertafel-archive:local .` (Podman additionally needs `--ignorefile src/archive/Dockerfile.dockerignore`). See `src/archive/backend-rs/docs/image-apphost-parity.md` for exact-image checks.
 
 ### Linting
 - Website/dashboard have no lint script. Archive frontend has generated Biome `lint` / `format` scripts and `check` (Biome + Next route types + TypeScript).
 - Do not invent lint commands; add one only if explicitly requested.
 
 ### Tests
-- Website/dashboard unit tests run with Node's built-in runner (type stripping, Node 24): from `src/website` or `src/dashboard`, `pnpm run test:unit`. Single files: `node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test src/lib/pageview-beacon.test.ts` (website), `node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test src/lib/loader.test.ts` (dashboard); archive uses Playwright and xUnit as listed above.
+- Website/dashboard unit tests run with Node's built-in runner (type stripping, Node 24): from `src/website` or `src/dashboard`, `pnpm run test:unit`. Single files: `node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test src/lib/pageview-beacon.test.ts` (website), `node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test src/lib/loader.test.ts` (dashboard); archive uses Cargo, Playwright and Aspire xUnit as listed above.
 - API endpoint/date/pagination checks live in `tests/dashboard-api`; run `dotnet run --project tests/dashboard-api`.
 - Dashboard single-test command: not applicable; the focused console harness runs all API checks.
 - If tests are added later, update this file with a single-test example.
@@ -136,73 +127,15 @@ uses its generated Next.js/Biome conventions and local `AGENTS.md`.
 - `src/website/dist/` is a build output directory.
 - Avoid editing `dist/` directly unless explicitly asked.
 - Archive `frontend/out/`, `.next/`, `.next-dev/`, Playwright output, .NET `bin/obj`
-  and `.local/` keys are generated/ignored. Never copy development keys into images.
+  and `.local/` data is generated/ignored. Never copy local data or credentials into images.
 
 ## Archive Contracts
 
-- [ADR-0001](docs/adr/0001-flat-lied-and-upload-first.md) simplifies the archive:
-  flat Lied → Dateien, upload-first editing, AI suggestions only inline (no
-  review queue or per-field origin), one editable Programm per Auftritt. The old
-  catalogue (songs, arrangements, musical versions, assets, file revisions) is
-  gone from code and schema (migration `DropOldCatalogue`); a Datei is
-  immutable and replaced or deleted into the Papierkorb, and is read through
-  `DateiQueries.Visible`. Blobs of the dropped model are released by the finite
-  `--cleanup-dropped-blobs` command, which never touches `dateien/`. The ADR and
-  `GLOSSARY.md` win for new work.
-- Keep Next.js statically exportable; ASP.NET serves the only production origin.
-  Browser APIs use relative `/api/*`; API errors must never fall back to HTML.
-- Every archive C# host calls `AddServiceDefaults()`. Development requires
-  AppHost-injected OTLP logs/traces/metrics; console logging alone is insufficient.
-- Later workers join `WithArchiveDependencies`, use explicit start for finite
-  operator work, carry W3C trace context, and use `RunArchiveJobAsync` to flush.
-- EF migrations are explicit (`archive-migrate` / `--migrate`), never API startup.
-  Schema lives under `backend/Data/Migrations`; each feature adds its own entities.
-- Every model call goes through `Ai/AiGateway` (telemetry → budget → provider)
-  and carries an `AiOperation`. Raw provider clients are registered only under
-  the key `AiGateway.ProviderKey`; a host registers everything with
-  `AddArchiveAi(configuration)`. The EUR 15 monthly cap, prices and limits are
-  `Archive:Ai` settings. The ledger store is PostgreSQL SQL; tests on EF
-  InMemory use `InMemoryAiLedgerStore`.
-- Agent-made UI is A2UI with the archive catalog only (`frontend/lib/a2ui.ts`,
-  `backend/Chat/A2uiSurfaces.cs`): the model passes record ids to
-  `zeige_oberflaeche`, the server resolves them against what the audience may
-  see and builds the messages, stores them with the chat message and rebuilds
-  them on load. Never accept text or URLs from the model; never register the
-  basic catalog. AG-UI events leave the server without null properties (the
-  strict `@ag-ui/client` refuses explicit nulls); Playwright chat mocks use
-  `tests/chat-mock.ts`.
-- The AI reading job (ARC-034-1, `--read-queue` / `--dispatch-reading`, `backend/Reading`)
-  reads page images (PDFium through the `PDFtoImage` package, native libraries
-  ship in the package) and text, and writes catalogue fields only through
-  `AutomatedFieldWriter`: only certain, quote-verified values are written, and
-  only into fields that are still empty; everything else is dropped. A value an
-  editor entered is never overwritten, and nothing records where a value came
-  from. Keep input per call below
-  `Archive:Ai:MaxInputTokensPerCall` (Luna's long-context tier). Every finite
-  command registers `AddArchiveAi`; what differs is the identity the hosted job
-  runs under. It stays switched off (`Archive:Reading:Enabled`, false in
-  `appsettings.json`, true in Development) until its Azure job, identity and
-  scheduled `--dispatch-reading` exist.
-- The Lied draft reading (#177/#178, `POST /api/lied-lesungen`, `backend/Reading/DraftReader`
-  and `DraftReadingEndpoints`) runs the model inside the **web app** (not a job) for
-  an editor's PDF, before any Lied exists. It goes through `ScanReadingModel` and
-  `AiGateway` like every model call, writes nothing but suggestions (plus the
-  persisted per-Datei outcome of an own "Angefangen" draft), and is stopped by
-  `DraftReadingRegistry` when its draft is discarded, its Datei removed or a newer
-  `anfrageId` arrives (not when the tab merely closes, so resume works). It
-  answers 409 while `Archive:Reading:Enabled` is false, 429 at the monthly cap.
-- The Auftritt-from-scan reading (#131, `POST /api/auftritt-lesungen`,
-  `backend/Reading/ProgrammReader`, `ProgrammMatcher`, `ProgrammReadingEndpoints`) follows
-  the Lied draft reading: in the web app, through `AiGateway` (features `programm-*`),
-  writes nothing but suggestions (title, date, place, Programm entries). Matching a Programm
-  entry to a Lied is deterministic code (`ProgrammMatcher`); only an exact title naming one
-  Lied is pre-selected as sure, near misses are marked unsure, the editor picks or creates
-  the Lied. Auftritt drafts live in `auftritt_entwuerfe` (`Events/AuftrittEntwurf*`); the
-  evaluation set is `tests/archive/backend/ProgrammLesenEvaluationTests.cs`
-  (`Category=ProgrammReadingEvaluation`, live variant `ProgrammReadingEvaluationLive`).
-- Keep liveness dependency-free. Local diagnostics/mail/storage operations are
-  Development-only; no production credentials are needed for ordinary startup.
-- Root SDK and site Functions now select .NET 10 with latest-feature roll-forward.
+- [ADR-0001](docs/adr/0001-flat-lied-and-upload-first.md) and `GLOSSARY.md` govern the flat Lied → Dateien model, upload-first editing, immutable Datei replacement/Papierkorb and one editable Programm per Auftritt.
+- Rust serves the only production origin. Keep Next.js statically exportable and API URLs relative; API errors must never fall back to HTML. Liveness stays dependency-free.
+- `archive-telemetry` owns OTLP logs/traces/metrics, required in Development. Finite workers carry W3C context, drain admitted work, and flush before exit. Run migrations explicitly (`archive-migrate` / `--migrate`), never at API startup. The SQLx migrations adopt the verified frozen EF head; older/drifted schemas refuse adoption.
+- AI uses the shared Gateway (telemetry → budget → provider), with the EUR 15 cap and environment-only model prices. A2UI accepts record IDs, not text or URLs; the server resolves visibility and builds/rechecks cards (strict AG-UI client: omit nulls). Stored reading only fills empty fields with certain, quote-verified values. Lied/Auftritt readings return inline suggestions; only exact unique Lied matches are pre-selected. See the nested Rust guide for feature contracts.
+- Local diagnostics/mail/storage setup are Development-only; normal startup needs no production credentials. The .NET 10 SDK remains for Aspire and the unrelated Functions.
 
 ## Infrastructure
 - Azure estate lives in resource group `RG-Liedertafel` (public Static Web App `liedertafel`, internal dashboard Static Web App `liedertafel-dashboard`).
@@ -219,7 +152,7 @@ uses its generated Next.js/Biome conventions and local `AGENTS.md`.
   identity, optional managed cert). The running image is selected only via
   `archive.yml` (merged check + release: full check suite first, then a
   `archive-prod`-gated release job that reuses the checked image; push to
-  `main` on image-affecting files or explicit `workflow_dispatch`,
+  `main` on image-affecting files or explicit `workflow_dispatch` on `main`,
   deploy by GHCR digest); `infra-deploy-archive.yml` passes the deployed image
   through so infra re-runs cannot revert a release. PR what-if uses a separate
   Contributor-only preview identity. Runbook:

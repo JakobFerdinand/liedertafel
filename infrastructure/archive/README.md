@@ -57,13 +57,16 @@ preview, destructive-change guard, image pass-through).
 
 ## Routine operation
 
-- Release: merges to `main` touching `src/archive/**` or `global.json` run
-  `archive.yml` automatically; or run it via `workflow_dispatch` (input
-  `version`). The check runs first, then the release job runs without an
-  approval gate — keep the digest from the run summary.
-- Infrastructure change: normal PR; what-if comment appears; merge deploys.
-  The workflow preserves the deployed image — verify the digest in
-  `/api/build` afterwards.
+- Release: the archive workflow checks archive changes and releases after a
+  green check on image-affecting pushes to `main`. Manual dispatch on `main`
+  also **releases**, even with `run_migration=false`; it is not validation or
+  rollback. Keep the digest from the run summary.
+- Bicep and infra workflow PR edits get a what-if using the preview identity;
+  only Bicep changes on `main` trigger automatic infrastructure deployment.
+  Manual infra dispatch on `main` previews **and applies** if preview succeeds.
+  For validation without an apply, use the PR preview or local checks.
+  Confirm digests in the app and job templates; `/api/build` reports version,
+  not the digest.
 - Verification (per ARC-009): two distinguishable digests, selected version
   visible, idle scale-down to 0 plus a cold request (~60 s acceptable), infra
   reapply without image change.
@@ -86,7 +89,7 @@ preview, destructive-change guard, image pass-through).
   `runtimeIdentityPrincipalId`, `runtimeIdentityClientId`, `keysBlobUri`,
   `keysKeyVaultKeyUri`, `assetsServiceUri`, `assetsQueueServiceUri`,
   `aiEndpoint`, `customDomainBound`.
-- Release inputs: image digest (`ghcr.io/jakobferdinand/liedertafel-archive@sha256:…`).
+- Release outputs: checked image digest (`ghcr.io/jakobferdinand/liedertafel-archive@sha256:…`).
 - Deliberately absent here (later slices): the import job wiring (ARC-037
   reuses `assetsQueueServiceUri`) and the score-text search surface
   (ARC-035). Hosted sign-in (ARC-011) is wired: Blob key ring, Key Vault
@@ -147,8 +150,8 @@ deployment above. Linking an unverified domain fails with
 
 ### Sending notes for ARC-011 and the pilot
 
-- Runtime sends keyless via `EmailClient(endpoint,
-  DefaultAzureCredential)` with endpoint
+- Runtime sends keyless via Azure Communication Services Email, using the
+  Rust Azure Identity managed identity credential with endpoint
   `https://acs-liedertafel-archive.europe.communication.azure.com` (Europe
   geography regionalizes the host). With the user-assigned identity, the
   container needs `AZURE_CLIENT_ID=2f6f5bc6-b441-4ed4-abfa-c2e53f994547`;
@@ -165,7 +168,7 @@ deployment above. Linking an unverified domain fails with
 - Pre-link rejection evidence (2026-09-17): data-plane send from the unlinked
   domain answers `404 DomainNotLinked`, nothing delivered.
 
-## Hosted persistent sign-in (ARC-011)
+## Hosted persistent sign-in (ARC-011, Rust cutover #236)
 
 `main.bicep` additionally owns: storage account `stliedertafelarchive`
 (Entra-only, no anonymous blob) with private container `dataprotection`,
@@ -175,11 +178,13 @@ Key Vault RSA wrapping key `dataprotection-wrap` (2048, wrap/unwrap), and
 and `Archive__OperatorToken` as Key Vault references, `AZURE_CLIENT_ID`,
 and the non-secret `Authentication__KeysBlobUri` /
 `Authentication__KeysKeyVaultKeyUri` (versionless key URI: rotation needs
-no Bicep change). Probes stay `/alive`-only; scale stays 0–2. The backend
-fails fast in Production without both key URIs, refuses the pre-ARC-011
-`Authentication:KeysPath` placeholder, and honors `X-Forwarded-Proto`
-(Container Apps terminates TLS at the front proxy; without it every hosted
-antiforgery POST dies with an SSL 500 — observed live 2026-09-17).
+no Bicep change). The last .NET digest needs those URIs for its key ring.
+Rust instead stores opaque session/antiforgery state in PostgreSQL; it does
+not read the key ring. Keep the legacy resources and grants in place for
+rollback. Members must sign in again; compatible passkeys remain registered.
+Rust still relies on Container Apps' trusted ingress for forwarded client
+information; TLS terminates there, the origin itself stays on port 8080,
+and production cookies are Secure. Probes stay `/alive`-only; scale stays 0–2.
 
 Live Neon project (provisioned 2026-09-17 per `infrastructure/neon/`):
 `liedertafel-archive-prod` (`muddy-leaf-09559586`), PG17, Frankfurt,
@@ -232,7 +237,7 @@ env "ConnectionStrings__archive-db=$(az keyvault secret show \
   "Archive__OperatorToken=$(az keyvault secret show \
     --vault-name kv-liedertafel-archive --name archive-operator-token \
     --query value -o tsv)" \
-  dotnet run --project src/archive/backend --no-launch-profile -- \
+  src/archive/backend-rs/target/debug/archive-server \
   --bootstrap-admin --email <pilot-address> --name "<display>" \
   --operator "<name>" --operator-token "$(az keyvault secret show \
     --vault-name kv-liedertafel-archive --name archive-operator-token \
@@ -294,8 +299,8 @@ so the idempotent CLI step runs after the Bicep deploy. The account sits in
 `germanywestcentral` (param `aiLocation`), not the group's `austriaeast`:
 Austria East is not an EU Data Zone region for Azure OpenAI, and the default
 chat model must stay inside the EU Data Zone.
-The model version is pinned; changing it requires a re-run of the chat
-evaluation and a pricing re-check first (`OnceCurrentVersionExpired` keeps
+The model version is pinned; changing it requires a pricing re-check and
+separately authorized live evaluation (`OnceCurrentVersionExpired` keeps
 the pin until the provider expires the version). `id-archive-app` receives
 `Cognitive Services OpenAI User` on the account (`deployRoleAssignments`
 guarded), so the app talks to the endpoint keylessly via
@@ -308,26 +313,16 @@ manual kill switch. Model prices are application settings: if
 `aiChatDeploymentName` is ever overridden, both
 `Archive__Ai__Models__<deployment>__InputPricePerMillionEur` and
 `…__OutputPricePerMillionEur` must be set on the app, otherwise every chat
-run is refused (`unpriced_model`). A test keeps the `aiChatDeploymentName`
-default and the shipped `Archive:Ai:Models` keys in step.
+run is refused (`unpriced_model`). The Rust `ai_budget_math` test keeps
+the Bicep deployment default and the shipped Rust price entries in step.
 
-**Switching to Luna (ARC-021-1).** The Luna deployment is a new resource;
-incremental mode leaves the old `gpt-5-4-mini` deployment in place (a rollback
-path, and its quota stays used). `Archive__Chat__DeploymentName` is the
-deployment resource's own name, so the container app depends on the deployment
-in the compiled template. A push of this template starts
-`infra-deploy-archive.yml` and switches the app to `gpt-6-luna`, so the image
-that prices `gpt-6-luna` (stage A, `src/archive/**`) must already be released:
-never push both changes together, the infrastructure workflow would run first
-and the old image would refuse every chat run (`unpriced_model`). Order: stage A
-push (after one `ChatEvaluationLive` against the existing deployment, see the
-ARC-021-1 ticket), check `OpenAI.DataZoneStandard.gpt-6-luna` quota in
-`germanywestcentral`, stage B push (what-if: Create the deployment, Modify the
-app; no Delete/Replace), live evaluation on Luna (exact commands in the ticket),
-then delete the old deployment with
-`az cognitiveservices account deployment delete -g RG-Liedertafel-Archive
--n aoai-liedertafel-archive --deployment-name gpt-5-4-mini` and its price
-entry. A group budget backstop (EUR 10/month,
+**Changing the deployment.** `Archive__Chat__DeploymentName` comes from the
+deployment resource. Keep both models priced in the running image before
+changing the configured deployment; do not race the image release with
+the Bicep change. Check quota and region pricing, and verify a what-if with
+no Delete/Replace. Keep the old deployment while it remains a rollback
+option. ARC-021-1 is the historical Luna switch, not a cutover action.
+A group budget backstop (EUR 10/month,
 alert-only, ARC-004 review trigger) is intentionally NOT in Bicep: the
 Consumption budgets API rejects programmatic creation on this subscription
 with 401 even for the subscription Owner (finding recorded in ARC-043,
@@ -481,7 +476,7 @@ after the month changes or the cap is raised.
 
 The switch: the bicep parameter `readingEnabled` (default `true`) sets
 `Archive__Reading__Enabled` on the app, the extraction job and both reading
-jobs. It is `false` in `appsettings.json`, so production only reads scans
+jobs. The Rust production default is `false`, so production only reads scans
 because this template says so. Setting
 `readingEnabled` to `false` (parameter file or `--parameters`) and running
 the infrastructure workflow stops only NEW work: the extraction job hands
@@ -667,7 +662,7 @@ window; push-triggered runs always migrate.
 
 ### Operator sequence
 
-1. Review the migration (`src/archive/backend/Data/Migrations/`) and keep
+1. Review the migration (`src/archive/backend-rs/crates/archive-db/migrations/`) and keep
    the change additive where possible (new tables, new nullable columns,
    new indexes). Destructive changes (renames/drops, new `NOT NULL`
    without default, type changes) break the previous image — split them
@@ -682,10 +677,10 @@ window; push-triggered runs always migrate.
    discarded after the window.
 3. Run `archive.yml` (`workflow_dispatch`, inputs `version` plus
    `run_migration=true`). The workflow then:
-   enters maintenance on the app, the extraction job AND the reading jobs
+   enters maintenance on the app and all configured archive jobs
    (`Archive__MaintenanceMode=true`, members see the German banner/`/wartung/`,
-   conflicting API work answers 503), stops in-flight extraction and reading executions
-   and confirms quiescence (new executions exit 0 before database work), runs the
+   conflicting API work answers 503), stops in-flight job executions
+   and confirms quiescence (paused jobs do not do database work), runs the
    selected image's `--migrate` exactly once with the migration role,
    deploys the digest to app and jobs, proves the window on the new revision,
    clears maintenance everywhere to reopen access and the jobs, and
@@ -697,8 +692,8 @@ window; push-triggered runs always migrate.
 
 Competing runs serialize on the `archive-prod` concurrency group: a second
 release or infrastructure deploy waits instead of interleaving the first.
-EF records applied versions in the migration history, so a queued run or a replay is a safe
-no-op — an applied migration never runs twice.
+SQLx records applied versions and checksums, so an applied migration never
+runs twice. The legacy EF history is read-only baseline metadata.
 
 ### Credentials
 
@@ -706,24 +701,64 @@ no-op — an applied migration never runs twice.
   grant to read the per-window credential (maintainer, one-off):
   `Key Vault Secrets User` on `kv-liedertafel-archive`. It never receives
   the admin credential or Neon API keys.
-- Ordinary container startup never migrates: the app image has no
-  migration credential and `Program.cs` applies nothing on boot.
+- Ordinary container startup never migrates: the running app has no
+  migration credential and the web command applies nothing on boot.
   `--migrate` inside the release step is the only production migration
   path.
 
+### First Rust release (#236)
+
+Treat the code merge and the hosted cutover as separate decisions: a merge to
+`main` with image inputs changed triggers the protected release, so wait for
+maintainer approval and a prepared migration window before merging. Record the
+previous app and job image digests and the pre-release maintenance state. The
+unchanged Neon strings keep `SSL Mode=VerifyFull`; the app receives only runtime
+credentials, `--migrate` receives only the per-window migrator credential.
+The current migrations adopt the verified frozen head and make additive
+changes; they never replay historical EF transformations. A code-only
+rollback, if still schema-compatible, re-pins the previous verified digest for
+the app **and all jobs** under maintenance, not a database restore. Session
+cookies may require fresh sign-in in either direction. Keep the legacy keys.
+
+Confirm the exact version, app and job digests, HTTP health and maintenance,
+signed Blob/Queue access, keyless mail and hosted behavior after an authorized
+release. Local emulator tests do not validate these hosted identities or Neon
+trust. The separately authorized passkey compatibility inventory was already
+completed (1 compatible, 0 unsupported, 0 unparseable); do not repeat it as a
+routine smoke. Scheduled `--cleanup-papierkorb` is Development-only in both
+backends, despite its existing Bicep schedule; the release pins the job but
+does not claim it can sweep live data. Review the follow-up separately.
+
 ### Failure handling and rollback
 
-- Migration failure: the run fails with the `[migrate]` diagnostics and
-  **maintenance stays active**. Inspect, fix forward in code (new
-  migration/image), and retry the release. Never retry blindly and never
-  restore the database.
+- Migration failure: **maintenance stays active**. The release log deliberately
+  replaces migration output with `[migrate]` markers; they are not diagnostics.
+  Use the separately authorized operator path to inspect the reviewed baseline,
+  SQLx history and migrator grants without exposing credentials. Fix forward
+  and retry only after identifying the cause. Never restore the database.
 - Failed pre-open checks keep maintenance active the same way. A failed
   final smoke after reopening means fix-forward with a new release.
-- Rollback is code-only: redeploy the previous digest (a new release run
-  or `az containerapp update --image`), valid only while that image stays
-  schema-compatible (additive changes). There is deliberately no database
-  restore/export and no backup job; editor trash and revision history
-  remain the ordinary recovery path.
+- **Code rollback, only in a separately authorized maintenance window:**
+  1. Serialize with releases and infrastructure deployments. Confirm the
+     previous verified, pullable app and job digests and maintenance settings
+     from the pre-release record. Compare the applied migrations with the
+     previous build's schema, grants and write contracts. If compatibility
+     cannot be demonstrated, keep maintenance active and fix forward.
+  2. Enable maintenance on the app and every configured job: extraction,
+     reading, reading dispatch, video, video dispatch and Papierkorb. Verify
+     the public maintenance response; stop and confirm quiescence for all
+     running job executions. Do not start a live job as a smoke check.
+  3. Re-pin the previous verified image by digest for the **app and each job**
+     using the Container Apps app/job image updates. Keep the maintenance
+     settings in place during those updates. Do not dispatch `archive.yml`,
+     rebuild a tag, run migration, or restore the database.
+  4. Check the app's ready revision, expected build, health and maintenance
+     503. Verify every job template image and its unchanged arguments. Stop
+     and inspect again if any resource diverges. Only then restore the
+     recorded maintenance states and verify the public shell and CSRF
+     response. Existing users may need to sign in again. If any stage fails,
+     retain or re-enable maintenance and escalate; never leave a mixed
+     app/job estate open.
 - **Deliberate exception, ARC-022-3 (owner decision 2026-10-06):** the
   release carrying migration `20261006111010_AiUsageLedger` renames
   `chat_usage_entries` to `ai_usage_entries` in place, in one release,

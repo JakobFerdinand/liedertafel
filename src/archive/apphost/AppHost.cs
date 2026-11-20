@@ -1,146 +1,88 @@
-using Archive.AppHost;
+using Aspire.Hosting.ApplicationModel;
 using Microsoft.Extensions.Configuration;
 
 var builder = DistributedApplication.CreateBuilder(args);
-
+var workspace = Path.GetFullPath(Path.Combine(builder.AppHostDirectory, "../backend-rs"));
+var binary = Path.GetFullPath(builder.Configuration["Archive:ServerBinary"] ?? "target/debug/archive-server", workspace);
 var persist = builder.Configuration.GetValue("Archive:PersistLocalData", true);
 var postgres = builder.AddPostgres("archive-postgres").WithImageTag("17.6");
 if (persist) postgres.WithDataVolume();
 var database = postgres.AddDatabase("archive-db", "archive");
-var storage = builder.AddAzureStorage("archive-storage")
-    .RunAsEmulator(emulator =>
-    {
-        emulator.WithImageTag("3.35.0");
-        if (persist) emulator.WithDataVolume();
-        // Ticket URLs (ARC-015 upload/read, key persistence blob) carry the
-        // mapped host port. The emulator's server-side blob copy fetches the
-        // copy source from inside its own container, so the mapped host port
-        // must equal the container port (10000) for that source to resolve.
-        emulator.WithBlobPort(10000);
-    });
+var storage = builder.AddAzureStorage("archive-storage").RunAsEmulator(emulator =>
+{
+    emulator.WithImageTag("3.35.0");
+    if (persist) emulator.WithDataVolume();
+    // Direct signed links and Azurite's own server-side copy use the same port.
+    emulator.WithBlobPort(10000);
+    emulator.WithArgs("--skipApiVersionCheck");
+});
 var blobs = storage.AddBlobs("archive-blobs");
 var queues = storage.AddQueues("archive-queues");
 var mail = builder.AddContainer("archive-mail", "docker.io/axllent/mailpit", "v1.27.8")
     .WithHttpEndpoint(targetPort: 8025, name: "http")
     .WithEndpoint(targetPort: 1025, name: "smtp")
     .WithHttpHealthCheck("/readyz");
-var dependencies = new ArchiveDependencies(database, blobs, queues, mail);
+var azureMail = builder.Configuration["Mail:Provider"]?.Equals("Azure", StringComparison.OrdinalIgnoreCase) == true;
 
-// ARC-010: ordinary startup stays on Mailpit capture (Smtp default). Setting
-// Mail:Provider=Azure via user secrets or environment (never committed), plus
-// Mail:AzureConnectionString as the local authorized credential, routes the
-// API and the explicit archive-mail-test run below through the real sender.
-var mailSource = new ArchiveMailSource(
-    builder.Configuration.GetValue("Mail:Provider", "Smtp") ?? "Smtp",
-    builder.Configuration["Mail:AzureEndpoint"],
-    builder.Configuration["Mail:AzureConnectionString"]);
-
-var initialize = builder.AddProject<Projects.Archive_Backend>("archive-storage-init", launchProfileName: null)
-    .WithArgs("--initialize-local-storage")
-    .WithArchiveDependencies(dependencies, mailSource);
-
-builder.AddProject<Projects.Archive_Backend>("archive-migrate", launchProfileName: null)
-    .WithArgs("--migrate")
-    .WithArchiveTelemetry()
-    .WithReference(database, "archive-migrations")
-    .WaitFor(database)
-    .WithExplicitStart();
-
-// #219 wave 1: `Archive:RustOrigin=true` starts the Cargo-built backend-rs
-// binary as the archive origin — the statically exported frontend, /api/build,
-// readiness and the stable 404/501 miss for every unported /api/* route.
-// The frozen C# backend stays the default until the cutover (spec #218).
-if (builder.Configuration.GetValue("Archive:RustOrigin", false))
+IResourceBuilder<ExecutableResource> Server(string name, string? command = null)
 {
-    var rs = builder.AddExecutable(
-            "archive-api-rs",
-            builder.Configuration.GetValue("Archive:RustOriginBinary", "./target/debug/archive-server") ?? "./target/debug/archive-server",
-            Path.Combine(builder.AppHostDirectory, "..", "backend-rs"))
-        .WithHttpEndpoint(env: "PORT")
-        // The DCP-injected environment: OTLP endpoint, dev sampler and small
-        // batch delays — the executable counterpart of WithArchiveTelemetry().
+    var resource = builder.AddExecutable(name, binary, workspace)
         .WithEnvironment("ARCHIVE_ENVIRONMENT", "Development")
+        .WithEnvironment("ARCHIVE_STATIC_ROOT", Path.Combine(workspace, "../frontend/out"))
         .WithEnvironment("OTEL_METRIC_EXPORT_INTERVAL", "5000")
-        .WithOtlpExporter()
-        .WithHttpHealthCheck("/alive");
-
-    builder.AddJavaScriptApp("archive-frontend", "../frontend")
-        .WithPnpm()
-        .WithHttpEndpoint(env: "PORT")
-        .WithEnvironment("ARCHIVE_API_URL", rs.GetEndpoint("http"))
-        .WaitFor(rs);
+        .WithOtlpExporter(OtlpProtocol.HttpProtobuf);
+    if (command is not null) resource.WithArgs(command);
+    if (builder.Configuration["Archive:Pdfium:LibraryPath"] is { Length: > 0 } pdfium)
+        resource.WithEnvironment("Archive__Pdfium__LibraryPath", pdfium);
+    return resource;
 }
-else
+
+IResourceBuilder<ExecutableResource> WithMail(IResourceBuilder<ExecutableResource> resource)
 {
-    var api = builder.AddProject<Projects.Archive_Backend>("archive-api", launchProfileName: "http")
-        .WithArchiveDependencies(dependencies, mailSource)
-        .WithEnvironment("Development__KeysPath", Path.GetFullPath(Path.Combine(builder.AppHostDirectory, "../.local/keys")))
-        .WaitForCompletion(initialize)
-        .WithHttpHealthCheck("/alive");
-
-    builder.AddJavaScriptApp("archive-frontend", "../frontend")
-        .WithPnpm()
-        .WithHttpEndpoint(env: "PORT")
-        .WithEnvironment("ARCHIVE_API_URL", api.GetEndpoint("http"))
-        .WithReference(api)
-        .WaitFor(api);
+    if (azureMail)
+    {
+        resource.WithEnvironment("Mail__Provider", "Azure")
+            .WithEnvironment("Mail__AzureEndpoint", builder.Configuration["Mail:AzureEndpoint"]);
+        if (builder.Configuration["Mail:AzureConnectionString"] is { Length: > 0 } connection)
+            resource.WithEnvironment("Mail__AzureConnectionString", connection);
+        return resource;
+    }
+    return resource.WithEnvironment("Mail__Provider", "Smtp")
+        .WithEnvironment("Mail__Host", mail.GetEndpoint("smtp").Property(EndpointProperty.Host))
+        .WithEnvironment("Mail__Port", mail.GetEndpoint("smtp").Property(EndpointProperty.Port));
 }
 
-// This finite diagnostic demonstrates the registration/flush contract for later jobs.
-builder.AddProject<Projects.Archive_Backend>("archive-worker-smoke", launchProfileName: null)
-    .WithArgs("--worker-smoke")
-    .WithArchiveDependencies(dependencies, mailSource)
-    .WaitForCompletion(initialize)
-    .WithExplicitStart();
+IResourceBuilder<ExecutableResource> WithDependencies(IResourceBuilder<ExecutableResource> resource) =>
+    WithMail(resource).WithReference(database).WithReference(blobs).WithReference(queues)
+        .WithEnvironment("Archive__Chat__Provider", "Scripted")
+        .WaitFor(database).WaitFor(blobs).WaitFor(queues).WaitFor(mail);
 
-// Explicit ARC-010 integration run with Aspire telemetry: sends the marked
-// German test message via the real Azure sender. Requires Mail:Provider=Azure
-// and Archive:MailTestRecipient in AppHost configuration; the backend refuses
-// otherwise, so this resource can never emit real mail on default startup.
-builder.AddProject<Projects.Archive_Backend>("archive-mail-test", launchProfileName: null)
-    .WithArgs("--send-test-mail", builder.Configuration.GetValue("Archive:MailTestRecipient", string.Empty) ?? string.Empty)
-    .WithArchiveDependencies(dependencies, mailSource)
-    .WaitForCompletion(initialize)
-    .WithExplicitStart();
+var initialize = WithDependencies(Server("archive-storage-init", "--initialize-local-storage"));
+var api = WithDependencies(Server("archive-api")).WithHttpEndpoint(env: "PORT")
+    .WaitForCompletion(initialize).WithHttpHealthCheck("/alive");
 
-// ARC-034: finite extraction worker; the queue scale rule (production) or an
-// explicit start (local) triggers a run that dispatches un-enqueued rows and
-// drains the extraction queue, then exits — no continuously running worker.
-builder.AddProject<Projects.Archive_Backend>("archive-extract", launchProfileName: null)
-    .WithArgs("--extract-queue")
-    .WithArchiveTelemetry()
-    .WithArchiveDependencies(dependencies, mailSource)
-    .WaitForCompletion(initialize)
-    .WithExplicitStart();
+builder.AddJavaScriptApp("archive-frontend", "../frontend")
+    .WithPnpm()
+    .WithHttpEndpoint(env: "PORT")
+    .WithEnvironment("NEXT_TELEMETRY_DISABLED", "1")
+    .WithEnvironment("ARCHIVE_API_URL", api.GetEndpoint("http"))
+    .WaitFor(api);
 
-// ARC-034-1: finite AI reading job — its own queue (archive-reading), size and
-// timeout. Locally it runs the offline scripted model (no provider
-// credentials); production runs the same image with --read-queue under its own
-// identity. The same run first wakes work that waited for budget.
-builder.AddProject<Projects.Archive_Backend>("archive-read", launchProfileName: null)
-    .WithArgs("--read-queue")
-    .WithArchiveTelemetry()
-    .WithArchiveDependencies(dependencies, mailSource)
-    .WaitForCompletion(initialize)
-    .WithExplicitStart();
+Server("archive-migrate", "--migrate")
+    .WithReference(database, "archive-migrations").WaitFor(database).WithExplicitStart();
 
-// #161: finite video-transcode job — its own queue (archive-videos). Entirely
-// deterministic (no model gateway); it needs ffmpeg on the host like the
-// production image installs it in its runtime stage.
-builder.AddProject<Projects.Archive_Backend>("archive-transcode", launchProfileName: null)
-    .WithArgs("--transcode-queue")
-    .WithArchiveTelemetry()
-    .WithArchiveDependencies(dependencies, mailSource)
-    .WaitForCompletion(initialize)
-    .WithExplicitStart();
+foreach (var (name, command) in new[]
+{
+    ("archive-worker-smoke", "--worker-smoke"),
+    ("archive-extract", "--extract-queue"),
+    ("archive-read", "--read-queue"),
+    ("archive-transcode", "--transcode-queue"),
+    ("archive-papierkorb-cleanup", "--cleanup-papierkorb"),
+})
+    WithDependencies(Server(name, command)).WaitForCompletion(initialize).WithExplicitStart();
 
-// #146: the seven-day Papierkorb policy as a finite local run; production
-// schedules the same image as the ja-archive-papierkorb Container App Job.
-builder.AddProject<Projects.Archive_Backend>("archive-papierkorb-cleanup", launchProfileName: null)
-    .WithArgs("--cleanup-papierkorb")
-    .WithArchiveTelemetry()
-    .WithArchiveDependencies(dependencies, mailSource)
-    .WaitForCompletion(initialize)
-    .WithExplicitStart();
+// Hosted mail must be selected explicitly and never runs during startup.
+if (azureMail && builder.Configuration["Archive:MailTestRecipient"] is { Length: > 0 } recipient)
+    WithMail(Server("archive-mail-test", "--send-test-mail")).WithArgs(recipient).WithExplicitStart();
 
 builder.Build().Run();

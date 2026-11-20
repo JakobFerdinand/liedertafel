@@ -1,0 +1,13 @@
+[
+	{"name":"aws-lc-rs","version":"1.19.0","license":"ISC AND (Apache-2.0 OR ISC)"},
+	{"name":"aws-lc-sys","version":"0.47.0","license":"ISC AND (Apache-2.0 OR ISC) AND Apache-2.0 AND MIT AND BSD-3-Clause AND (Apache-2.0 OR ISC OR MIT) AND (Apache-2.0 OR ISC OR MIT-0)"},
+	{"name":"base64urlsafedata","version":"0.5.5","license":"MPL-2.0"},
+	{"name":"foldhash","version":"0.2.0","license":"Zlib"},
+	{"name":"quoted_printable","version":"0.5.2","license":"0BSD"},
+	{"name":"ring","version":"0.17.14","license":"Apache-2.0 AND ISC"},
+	{"name":"rustls-webpki","version":"0.103.16","license":"ISC"},
+	{"name":"untrusted","version":"0.9.0","license":"ISC"},
+	{"name":"webauthn-attestation-ca","version":"0.5.5","license":"MPL-2.0"},
+	{"name":"webauthn-rs-core","version":"0.5.5","license":"MPL-2.0"},
+	{"name":"webauthn-rs-proto","version":"0.5.5","license":"MPL-2.0"}
+]

@@ -144,6 +144,94 @@ async fn development_without_otlp_endpoint_refuses_to_start() {
 }
 
 #[tokio::test]
+async fn production_auth_requires_configured_rp_origins_and_keyless_azure_mail_before_listening() {
+	for missing in [
+		"Authentication__PasskeyRelyingPartyId",
+		"Authentication__PasskeyOrigins__0",
+		"Mail__Provider",
+	] {
+		let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_archive-server"))
+			.env("ARCHIVE_ENVIRONMENT", "Production")
+			.env("PORT", free_port().to_string())
+			.env(
+				"ConnectionStrings__archive-db",
+				"postgres://archive_runtime:private-auth-marker@127.0.0.1:1/archive",
+			)
+			.env(
+				"Authentication__PasskeyRelyingPartyId",
+				"archive.example.test",
+			)
+			.env(
+				"Authentication__PasskeyOrigins__0",
+				"https://archive.example.test",
+			)
+			.env("Mail__Provider", "Azure")
+			.env(
+				"Mail__AzureEndpoint",
+				"https://synthetic.communication.azure.com",
+			)
+			.env_remove(missing)
+			.output()
+			.await
+			.unwrap();
+		assert!(
+			!output.status.success(),
+			"missing {missing} must fail startup"
+		);
+		assert!(!String::from_utf8_lossy(&output.stderr).contains("private-auth-marker"));
+	}
+}
+
+#[tokio::test]
+async fn configured_production_liveness_does_not_connect_to_database_or_identity() {
+	let port = free_port();
+	let mut child = tokio::process::Command::new(env!("CARGO_BIN_EXE_archive-server"))
+		.env("ARCHIVE_ENVIRONMENT", "Production")
+		.env("PORT", port.to_string())
+		.env(
+			"ConnectionStrings__archive-db",
+			"postgres://archive_runtime:private-auth-marker@127.0.0.1:1/archive",
+		)
+		.env(
+			"Authentication__PasskeyRelyingPartyId",
+			"archive.example.test",
+		)
+		.env(
+			"Authentication__PasskeyOrigins__0",
+			"https://archive.example.test",
+		)
+		.env("Mail__Provider", "Azure")
+		.env(
+			"Mail__AzureEndpoint",
+			"https://synthetic.communication.azure.com",
+		)
+		.env_remove("Mail__AzureConnectionString")
+		.env_remove("OTEL_EXPORTER_OTLP_ENDPOINT")
+		.stdout(std::process::Stdio::piped())
+		.stderr(std::process::Stdio::piped())
+		.kill_on_drop(true)
+		.spawn()
+		.unwrap();
+	wait_until_ready(port).await;
+	assert_eq!(
+		status_of(&http_get(port, "/api/build").await.unwrap().0),
+		200
+	);
+	std::process::Command::new("kill")
+		.arg("-TERM")
+		.arg(child.id().unwrap().to_string())
+		.status()
+		.unwrap();
+	assert!(
+		tokio::time::timeout(Duration::from_secs(10), child.wait())
+			.await
+			.unwrap()
+			.unwrap()
+			.success()
+	);
+}
+
+#[tokio::test]
 async fn cold_start_serves_export_build_and_liveness_then_drains_on_sigterm() {
 	let port = free_port();
 	let root: std::path::PathBuf = temporary_export_root("cold-start");

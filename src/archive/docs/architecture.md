@@ -10,6 +10,11 @@ Implementation: most slices are implemented; see the issues under #96.
 > Auftritte have one editable Programm, and audio analysis of Aufnahmen is in
 > scope. Where this document still says otherwise, the ADR wins. Domain terms are
 > in the root `GLOSSARY.md`.
+>
+> **Runtime update (#218/#236):** `archive-server` is the sole archive backend,
+> built with Rust, Axum and SQLx. Aspire remains the local orchestrator and
+> forwards OTLP. The former EF tree is a frozen baseline in git, not a build
+> target. See the [archive runbook](../README.md) and [release runbook](../../../infrastructure/archive/README.md#first-rust-release-236).
 
 This document records the architecture interview and supersedes the original
 architecture proposal supplied in conversation on 2026-09-08. The
@@ -31,10 +36,9 @@ flowchart TB
     Member["Choir member or editor<br/>Phone, tablet, or computer"]
 
     subgraph Azure["Azure - Austria East preferred"]
-        App["Container Apps - Consumption<br/>ASP.NET Core serves React and API<br/>Scales to zero when unused"]
+        App["Container Apps - Consumption<br/>Rust serves React and API<br/>Scales to zero when unused"]
         Files["Private Blob Storage<br/>Hot: member-facing files<br/>Cold: preservation originals"]
         Vault["Key Vault<br/>Credentials and key protection"]
-        Keys["Private Blob Storage<br/>Persistent login encryption keys"]
     end
 
     DB[("Neon Free - AWS Frankfurt<br/>PostgreSQL metadata and relationships")]
@@ -45,8 +49,6 @@ flowchart TB
     App -->|"Issue temporary file access"| Member
     Member <-->|"Direct upload or playback with signed URL"| Files
     App -->|"Managed identity"| Vault
-    App -->|"Persist shared key ring"| Keys
-    Vault -.->|"Protect key ring"| Keys
     App -->|"Invitations and sign-in codes"| Email
     Email -->|"Email"| Member
 ```
@@ -58,8 +60,8 @@ to keep this overview readable.
 | Area | Confirmed baseline |
 | --- | --- |
 | Frontend | Next.js App Router + React + TypeScript, static export; German, responsive interface |
-| Backend | ASP.NET Core, feature modules in one application; EF Core + Npgsql |
-| Packaging | One container image serves built frontend files and `/api/*`; no Node.js runtime |
+| Backend | Rust with Axum, feature modules in one application; PostgreSQL via SQLx |
+| Packaging | One container image serves built frontend files and `/api/*`; no Node.js/.NET runtime |
 | Hosting | Azure Container Apps Consumption; minimum zero, initial maximum two replicas |
 | Public address | `archiv.liedertafel-mining.at`, with Azure-managed HTTPS certificate |
 | Azure location | Austria East preferred; West Europe fallback if required checks fail |
@@ -67,11 +69,11 @@ to keep this overview readable.
 | Files | Private Azure Blob Storage; Hot member-facing files, Cold originals |
 | Sign-in | App-owned email codes, delivered by Azure Communication Services Email |
 | Secrets | Key Vault; Azure managed identity where supported |
-| Background work | Finite C# Container Apps Jobs, with durable progress and retries |
+| Background work | Finite Rust Container Apps Jobs, with durable progress and retries |
 | Infrastructure | Bicep for Azure; documented Neon CLI/API setup (OpenTofu rejected for the single-database scope in ARC-003) |
 | Images | Private GitHub Container Registry (GHCR) |
 | Environments | Aspire-orchestrated local development plus production; restricted production pilot before general invitations |
-| Development telemetry | API and C# workers export OpenTelemetry logs, traces and metrics to the Aspire dashboard over OTLP |
+| Development telemetry | API and workers export OpenTelemetry logs, traces and metrics to the Aspire dashboard over OTLP |
 | Production releases | Explicit maintainer-triggered/approved GitHub Actions release |
 | Database changes | Once per release, in a maintenance window; small changes and fix-forward handling |
 | Operational backups | Deliberately out of scope; the seven-day editor trash remains |
@@ -119,7 +121,7 @@ uses a **Europe data geography**, not a promise of an Austria East datacenter.
 
 ### One deployable application
 
-ASP.NET Core serves the Next.js static export and the API under one origin. React
+Rust serves the Next.js static export and the API under one origin. React
 runs in the browser. Organize backend code into feature modules such as catalogue,
 events/programmes, Dateien/recordings, membership, and import processing, sharing
 one application rather than separate microservices.
@@ -185,14 +187,12 @@ archive origins, methods, and headers. **CORS** is a browser rule governing
 cross-origin requests, not permission to read a private file; the signed URL
 supplies that narrowly scoped permission.
 
-## 4. Sign-in, membership, and persistent keys
+## 4. Sign-in, membership, and persisted sessions
 
-The application owns invitation and email-code verification. Use supported
-ASP.NET Core Identity components rather than inventing identity storage,
-cookie encryption or token protection: `IdentityUser<Guid>`/`IdentityRole<Guid>`
-users and roles, a custom two-factor token provider for the email codes,
-the Identity application cookie with security-stamp validation, and lockout
-as the revocation primitive.
+The application owns invitation and email-code verification. Rust keeps the
+existing Identity users, roles and compatible passkeys, verifies WebAuthn
+against the configured relying party and origins, and stores hashed opaque
+session tokens and antiforgery state in PostgreSQL. Old cookies are not reused.
 
 - Only invited, active members receive archive access.
 - Persist challenge/session state needed for one-time use, expiry, attempt and
@@ -215,17 +215,11 @@ Validate delivery, retries, sender quotas, and Europe data handling with real
 member email providers during the pilot. Exact code/attempt/session settings
 should be finalized in the authentication implementation design.
 
-### Why login keys need their own storage
+### Legacy key ring
 
-The **Data Protection key ring** is ASP.NET's persistent set of encryption keys
-for protected application data such as login cookies. A container's local disk
-is temporary, so keeping these keys only there would break sessions after a
-restart or replacement.
-
-Persist the key ring in a private Blob location and protect it with a Key Vault
-key. Share it across instances of this archive, while keeping local-development
-keys separate. Retain key versions needed to read still-valid protected data.
-This is live application state, not an operational backup system.
+The old .NET digest needs its Blob/Key Vault Data Protection key ring for
+rollback. Rust does not read or write it; keep the existing resources and
+identity grants unchanged at cutover.
 
 **Managed identity** gives the Azure application a platform-managed identity for
 Blob, Key Vault, queues, and other supported Azure APIs. Keep external secrets,
@@ -393,9 +387,9 @@ runtime access) before any shared state is created.
 src/archive/
   docs/architecture.md      This document (PRD and tickets: GitHub issue #96)
   apphost/                  Aspire local resource orchestration
-  service-defaults/         Shared .NET telemetry and service configuration
   frontend/                 Next.js + React + TypeScript, static export
-  backend/                  ASP.NET Core feature modules and C# job code
+  backend-rs/               Rust API, finite jobs, migrations and shared OTLP
+  apphost-rust/              Disposable Aspire image-test topology
 infrastructure/
   archive/                  Archive Bicep entry point/parameters
   modules/                  Reusable Azure modules where appropriate
@@ -466,13 +460,13 @@ while member access stays paused, not restoration of an earlier database copy.
 the services needed for routine development rather than asking developers to
 start each dependency in a separate terminal:
 
-- ASP.NET Core API and the Next.js frontend with Turbopack hot reload. Route browser API
+- Rust API and the Next.js frontend with Turbopack hot reload. Route browser API
   requests through a documented development proxy so cookie/CSRF behaviour stays
   representative of the single-origin packaged application.
 - Local PostgreSQL, with development persistence and an explicit schema setup step.
 - Azurite for local Blob and Queue Storage, including required containers/queues.
 - A local mail-capture service for invitation and login-code testing.
-- Local execution resources for implemented C# workers/job modes. Make manual
+- Local executable resources for implemented Rust workers/job modes. Make manual
   import runs explicitly triggerable rather than starting a real import on boot.
 - Aspire's dashboard for resource endpoints/status and development telemetry.
 
@@ -480,14 +474,14 @@ AppHost owns resource references, endpoint/connection injection, readiness order
 and normal start/stop. Routine startup uses development-only identities, keys,
 mail and data; no production Neon, Azure Email or Key Vault credential is required.
 External-provider checks such as ARC-010's real email test are explicit opt-in
-integration runs. Persist local development keys separately from production keys.
+integration runs. Local sessions and account state live in the local database.
 
 ```mermaid
 flowchart TB
     Developer["Developer starts AppHost"] --> Host["Aspire AppHost<br/>Resources, references and startup order"]
     Host --> Frontend["Next.js frontend<br/>Hot reload and API proxy"]
-    Host --> API["ASP.NET Core API"]
-    Host --> Workers["Local C# worker resources<br/>Same extraction/import logic"]
+    Host --> API["Rust archive-server API"]
+    Host --> Workers["Local Rust executable workers<br/>Same extraction/import logic"]
     Host --> Dependencies["PostgreSQL + Azurite<br/>Mail capture"]
     Host --> Dashboard["Aspire dashboard"]
     Frontend -->|"Development API proxy"| API
@@ -503,9 +497,8 @@ flowchart TB
 and metrics. **OTLP** is the protocol used to export that data to the Aspire
 dashboard. Showing process console output alone does not satisfy this requirement.
 
-- Add a shared .NET Service Defaults project and wire it into the API and every
-  C# worker/job host. Keep domain models in their feature libraries, not in this
-  configuration project.
+- Initialize `archive-telemetry` for the API and every worker/job host.
+  Keep domain models in their feature modules.
 - Explicitly enable development OTLP export for **logs, traces and metrics**,
   consuming AppHost-provided endpoint, protocol and authentication configuration
   such as `OTEL_EXPORTER_OTLP_ENDPOINT`. Avoid hard-coded dashboard ports or
@@ -795,18 +788,12 @@ Confirmed with the user on 2026-10-04 in a second, technical interview.
 
 **Frameworks and protocols**
 
-- **Microsoft Agent Framework** on the backend. Every AI feature is a named
-  agent, including tool-less ones with structured output. No Agent Framework
-  workflows: durable job state stays in database rows.
-- The existing hand-rolled chat loop is rewritten onto an agent first
-  (ARC-022-3), keeping the tool-call bound, citation filter, no-token timeout
-  and server-owned thread history (existing tables behind a history provider).
-- **AG-UI** stays the wire protocol. Backend: the stable `AGUI.Server` package
-  fed from the agent's streaming updates in our own endpoint, which keeps the
-  membership and thread-ownership checks; the Agent Framework's prerelease
-  hosting adapter is not used. Frontend: `@ag-ui/client` directly against the
-  .NET endpoint. CopilotKit is not used because its runtime is a Node server
-  and the archive is a static export with one origin.
+- Rust owns the provider wire client, the bounded tool loop, citation filter,
+  no-token timeout and server-owned thread history. Durable job state stays in
+  database rows. Every model call goes through the shared budget Gateway.
+- **AG-UI** stays the wire protocol. Rust emits SSE after membership and
+  thread-ownership checks; the unchanged `@ag-ui/client` connects directly to
+  that endpoint. There is no additional Node server.
 - **A2UI** renders what an agent shows in the member chat and the editor
   assistant, with `@a2ui/react` and a catalog of the archive's own components
   only (`LiedKarte`, `AuftrittKarte`, `ProgrammListe`, `Quellen`). The agent supplies record IDs; validated

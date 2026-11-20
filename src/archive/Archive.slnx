@@ -1,13 +1,7 @@
 <Solution>
   <Folder Name="/apphost/">
     <Project Path="apphost/Archive.AppHost.csproj" />
+    <Project Path="apphost-rust/Archive.Rust.AppHost.csproj" />
   </Folder>
-  <Folder Name="/backend/">
-    <Project Path="backend/Archive.Backend.csproj" />
-  </Folder>
-  <Folder Name="/service-defaults/">
-    <Project Path="service-defaults/Archive.ServiceDefaults.csproj" />
-  </Folder>
-  <Project Path="../../tests/archive/apphost/Archive.AppHost.Tests.csproj" />
-  <Project Path="../../tests/archive/backend/Archive.Backend.Tests.csproj" />
+  <Project Path="../../tests/archive/apphost-rust/Archive.Rust.AppHost.Tests.csproj" />
 </Solution>

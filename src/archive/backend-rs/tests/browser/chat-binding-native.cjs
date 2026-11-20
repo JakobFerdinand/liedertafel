@@ -1,0 +1,42 @@
+// P1 actual default product / identical pinned-frozen raw bodies. Ownership
+// before the FIRST SQL await is separate from the later history-save controls.
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),net=require('node:net'),http2=require('node:http2'),{spawn}=require('node:child_process'),{once}=require('node:events'),{randomUUID}=require('node:crypto');
+const capture=require('./telemetry-capture.cjs').createCapture('chat-binding-native');
+const {Client}=require('pg'),rows=[...require('../fixtures/232-chat-binding.json').cases,...require('../fixtures/232-chat-media-base64.json').cases],mail=[],signals=new Set();
+const server=process.env.ARCHIVE_TEST_POSTGRES,binary=process.env.ARCHIVE_BINARY;assert(server&&binary&&['127.0.0.1','localhost'].includes(new URL(server).hostname));
+const smtp=net.createServer(s=>{s.setEncoding('utf8');s.write('220 synthetic\r\n');let b='',data=false,m='';s.on('data',c=>{b+=c;let p;while((p=b.indexOf('\r\n'))>=0){const l=b.slice(0,p);b=b.slice(p+2);if(data){if(l==='.'){mail.push(m);data=false;s.write('250 ok\r\n');}else m+=l+'\n';}else if(/^(EHLO|HELO)/.test(l))s.write('250 hi\r\n');else if(l==='DATA'){data=true;m='';s.write('354 send\r\n');}else if(l==='QUIT')s.end('221 bye\r\n');else s.write('250 ok\r\n');}});});
+const collector=capture.collector(http2.createServer());collector.on('stream',(s,h)=>{let b=[];s.on('data',c=>b.push(c));s.on('end',()=>{capture.signal(h[':path'],Buffer.concat(b));signals.add(h[':path']);s.respond({':status':200,'content-type':'application/grpc'},{waitForTrailers:true});s.on('wantTrailers',()=>s.sendTrailers({'grpc-status':'0'}));s.end(Buffer.alloc(5));});});
+async function listen(s){s.listen(0,'127.0.0.1');await once(s,'listening');return s.address().port;}
+async function wait(fn,label){for(let t=Date.now()+10000;Date.now()<t;){let x=await fn();if(x)return x;await new Promise(r=>setTimeout(r,20));}throw Error('timeout '+label);}
+(async()=>{
+ const admin=new Client({connectionString:server});await admin.connect();const dbname='test232_binding_'+randomUUID().replaceAll('-',''),url=new URL(server);url.pathname=dbname;await admin.query('CREATE DATABASE '+dbname);
+ const db=new Client({connectionString:url.href});await db.connect();let origin,lock;
+ try{
+ const mp=await listen(smtp),op=await listen(collector),reserved=net.createServer(),p=await listen(reserved);await new Promise(r=>reserved.close(r));const base='http://127.0.0.1:'+p;
+ const env={...process.env,ARCHIVE_ENVIRONMENT:'Development',PORT:String(p),Mail__Provider:'Smtp',Mail__Host:'127.0.0.1',Mail__Port:String(mp),OTEL_EXPORTER_OTLP_ENDPOINT:'http://127.0.0.1:'+op,OTEL_BSP_SCHEDULE_DELAY:'100',OTEL_BLRP_SCHEDULE_DELAY:'100',OTEL_METRIC_EXPORT_INTERVAL:'100',RUST_LOG:'trace','ConnectionStrings__archive-db':url.href,'ConnectionStrings__archive-migrations':url.href,Archive__Chat__Enabled:'true',Archive__Chat__Disabled:'false',Archive__Chat__Provider:'Scripted',Archive__Chat__Endpoint:'',Archive__Chat__DeploymentName:''};
+ for(const arg of ['--migrate','--seed-dev-auth']){const c=spawn(binary,[arg],{env,stdio:['ignore','pipe','pipe']});capture.watch(c,'finite'+arg);assert.equal((await capture.closed(c))[0],0);}
+ origin=spawn(binary,[],{env,stdio:['ignore','pipe','pipe']});capture.watch(origin,'origin');await wait(async()=>{try{return(await fetch(base+'/alive')).ok;}catch{return false;}},'startup');
+ const jar=new Map();let token;
+ async function request(route,body,extra={}){const res=await fetch(base+route,{method:body===undefined?'GET':'POST',headers:{cookie:[...jar].map(([k,v])=>k+'='+v).join('; '),'content-type':'application/json',...(token?{'X-CSRF-TOKEN':token}:{})},body:body===undefined?undefined:typeof body==='string'?body:JSON.stringify(body),...extra});for(const h of res.headers.getSetCookie()){const pair=h.split(';')[0],at=pair.indexOf('=');jar.set(pair.slice(0,at),pair.slice(at+1));capture.marker('cookie','cookie-'+jar.size,pair.slice(at+1));}return res;}
+ token=(await(await request('/api/antiforgery')).json()).token;capture.marker('csrf','before',token);capture.marker('email','member','mitglied@liedertafel.test');
+ assert.equal((await request('/api/auth/code/request',{email:'mitglied@liedertafel.test'})).status,202);const code=await wait(()=>mail.at(-1)?.match(/Ihr Anmeldecode lautet:\s*(\d{6})/)?.[1],'mail');capture.marker('otp','code',code);assert.equal((await request('/api/auth/code/verify',{email:'mitglied@liedertafel.test',code})).status,200);token=(await(await request('/api/antiforgery')).json()).token;capture.marker('csrf','after',token);
+ capture.marker('question','question','Wie wird das Wetter morgen?');
+ async function state(){return (await db.query('SELECT (SELECT count(*) FROM ai_usage_entries)::int AS rows,(SELECT COALESCE(sum("Calls"),0)::bigint FROM ai_usage_entries) AS calls,(SELECT count(*) FROM chat_threads)::int AS threads')).rows[0];}
+ let accepted=0,rejected=0;
+ for(const row of rows){const before=await state(),res=await request('/api/chat',row.raw),wire=await res.text();assert.equal(res.status,row.status,row.name);const after=await state();if(res.status===400){assert.deepEqual(after,before,row.name+' rejected before calls/rows/thread');rejected++;}else{assert(wire.includes('RUN_FINISHED'),row.name);assert.equal(after.rows,before.rows+1);assert.equal(BigInt(after.calls),BigInt(before.calls)+1n);accepted++;}}
+ // Real locked client must accept a valid multipart TEXT request, not only the
+ // unchanged UI's usual lowercase/string request or a hand-parsed SSE stream.
+ const clientRoot=path.resolve(process.env.ARCHIVE_STATIC_ROOT,'../node_modules/@ag-ui/client');assert.equal(require(path.join(clientRoot,'package.json')).version,'1.0.2');const {HttpAgent}=require(clientRoot);
+ const agent=new HttpAgent({url:base+'/api/chat',threadId:randomUUID(),fetch:(input,init)=>fetch(input,{...init,headers:{...Object.fromEntries(new Headers(init.headers)),cookie:[...jar].map(([k,v])=>k+'='+v).join('; '),'X-CSRF-TOKEN':token}})});
+ agent.addMessage({id:randomUUID(),role:'user',content:[{type:'text',text:'Wie wird das Wetter '},{type:'text',text:'morgen?'}]});let finished=0,failed=0;await agent.runAgent({runId:randomUUID()},{onRunFinishedEvent:()=>finished++,onRunErrorEvent:()=>failed++,onRunFailed:()=>failed++});assert.equal(finished,1);assert.equal(failed,0);
+ // Acquire the lock BEFORE POST and observe actual waiting ownership SQL.
+ const before=await state();lock=new Client({connectionString:url.href});await lock.connect();await lock.query('BEGIN');await lock.query('LOCK TABLE chat_threads IN ACCESS EXCLUSIVE MODE');
+ const threadId=randomUUID(),ctl=new AbortController(),pending=request('/api/chat',{threadId,runId:'first-sql-control',messages:[{id:'m',role:'user',content:'Wie wird das Wetter morgen?'}]},{signal:ctl.signal}).catch(e=>e.name);
+ await wait(async()=>Number((await db.query("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%SELECT%AccountId%chat_threads%' ")).rows[0].count)>0,'blocked ownership SQL');
+ ctl.abort();await pending;origin.kill('SIGTERM');await new Promise(r=>setTimeout(r,200));assert.equal(origin.exitCode,null,'host still owns first-SQL producer');await lock.query('COMMIT');await lock.end();lock=undefined;
+ assert.equal((await capture.closed(origin))[0],0);const saved=(await db.query('SELECT "Role" FROM chat_messages WHERE "ThreadId"=$1',[threadId])).rows;assert.deepEqual(saved.map(x=>x.Role),['user']);const after=await state();assert.equal(after.calls,before.calls);assert.equal(after.rows,before.rows);
+ console.log(`PASS actual frozen-body differential: ${rows.length} cases / ${accepted} accepted / ${rejected} zero-call/row rejections; locked HttpAgent text parts`);
+ console.log('PASS independent first-SQL boundary: actual ownership lock/socket abort/SIGTERM; joined question save and zero extra provider/ledger calls');
+ smtp.close();await capture.drain();for(const k of ['TraceService','MetricsService','LogsService'])assert([...signals].some(r=>r.includes(k)));capture.assertClean();
+ }finally{if(lock){await lock.query('ROLLBACK');await lock.end();}if(origin&&origin.exitCode===null){origin.kill('SIGTERM');await capture.closed(origin);}smtp.close();await capture.drain();await db.end();await admin.end();}
+})().catch(e=>{fs.writeFileSync(path.join(process.env.TMPDIR,'232-binding-failure.txt'),String(e.stack),{mode:0o600});console.error('Chat binding native gate failed; private diagnostic retained');process.exitCode=1;});

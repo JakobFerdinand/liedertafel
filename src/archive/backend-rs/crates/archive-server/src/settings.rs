@@ -5,6 +5,18 @@
 use std::env;
 use std::path::PathBuf;
 
+pub(crate) fn finite_maintenance() -> Result<bool, SettingsError> {
+	match env::var("Archive__MaintenanceMode") {
+		Err(env::VarError::NotPresent) => Ok(false),
+		Ok(v) => v
+			.trim()
+			.to_ascii_lowercase()
+			.parse()
+			.map_err(|_| SettingsError::InvalidMaintenance),
+		Err(_) => Err(SettingsError::InvalidMaintenance),
+	}
+}
+
 /// `/api/build` payload: matches the ASP.NET informational version. The
 /// container build stamps `ARCHIVE_IMAGE_VERSION` at compile time the way
 /// C# `dotnet publish -p:Version=` does — the cutover wave (#236) wires the
@@ -35,6 +47,8 @@ impl From<&str> for EnvironmentName {
 pub struct Settings {
 	/// `ARCHIVE_ENVIRONMENT=Development` — mirrors ASPNETCORE_ENVIRONMENT.
 	pub development: bool,
+	/// Release pause shared by every API, including editor storage transitions.
+	pub maintenance: bool,
 	/// Root of the statically exported Next.js frontend (`out/` in the image,
 	/// `wwwroot` as the C# container layout).
 	pub static_root: PathBuf,
@@ -46,6 +60,8 @@ pub struct Settings {
 /// the wrong origin without anyone noticing.
 #[derive(Debug, thiserror::Error)]
 pub enum SettingsError {
+	#[error("Archive__MaintenanceMode muss true oder false sein")]
+	InvalidMaintenance,
 	#[error("PORT muss eine Zahl sein, nicht {0}")]
 	InvalidPort(String),
 }
@@ -79,6 +95,14 @@ impl Settings {
 
 		Ok(Self {
 			development,
+			maintenance: match env::var("Archive__MaintenanceMode") {
+				Ok(value) if !value.trim().is_empty() => value
+					.trim()
+					.to_ascii_lowercase()
+					.parse()
+					.map_err(|_| SettingsError::InvalidMaintenance)?,
+				_ => false,
+			},
 			static_root,
 			port,
 		})
@@ -88,6 +112,7 @@ impl Settings {
 	pub fn new(development: bool, static_root: PathBuf, port: u16) -> Self {
 		Self {
 			development,
+			maintenance: false,
 			static_root,
 			port,
 		}

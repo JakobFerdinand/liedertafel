@@ -1,0 +1,1278 @@
+[
+  {
+    "kind": "create",
+    "label": "title-valid-0",
+    "raw": "{\u0022composer\u0022:\u0022base\u0022,\u0022title\u0022:\u0022first\u0022,\u0022Title\u0022:\u0022last\u0022}",
+    "accepted": true,
+    "bound": {
+      "title": "last",
+      "values": {
+        "composer": "base"
+      },
+      "rowVersion": null,
+      "unknown": []
+    }
+  },
+  {
+    "kind": "create",
+    "label": "title-valid-1",
+    "raw": "{\u0022composer\u0022:\u0022base\u0022,\u0022Title\u0022:\u0022first\u0022,\u0022title\u0022:\u0022last\u0022}",
+    "accepted": true,
+    "bound": {
+      "title": "last",
+      "values": {
+        "composer": "base"
+      },
+      "rowVersion": null,
+      "unknown": []
+    }
+  },
+  {
+    "kind": "create",
+    "label": "title-valid-2",
+    "raw": "{\u0022composer\u0022:\u0022base\u0022,\u0022title\u0022:\u0022first\u0022,\u0022title\u0022:\u0022last\u0022}",
+    "accepted": true,
+    "bound": {
+      "title": "last",
+      "values": {
+        "composer": "base"
+      },
+      "rowVersion": null,
+      "unknown": []
+    }
+  },
+  {
+    "kind": "create",
+    "label": "typed-invalid-first-3",
+    "raw": "{\u0022title\u0022:\u0022base\u0022,\u0022composer\u0022:123,\u0022Composer\u0022:\u0022last\u0022}",
+    "accepted": false
+  },
+  {
+    "kind": "create",
+    "label": "typed-invalid-first-4",
+    "raw": "{\u0022title\u0022:\u0022base\u0022,\u0022Composer\u0022:123,\u0022composer\u0022:\u0022last\u0022}",
+    "accepted": false
+  },
+  {
+    "kind": "create",
+    "label": "typed-invalid-first-5",
+    "raw": "{\u0022title\u0022:\u0022base\u0022,\u0022composer\u0022:123,\u0022composer\u0022:\u0022last\u0022}",
+    "accepted": false
+  },
+  {
+    "kind": "create",
+    "label": "typed-invalid-last-6",
+    "raw": "{\u0022title\u0022:\u0022base\u0022,\u0022composer\u0022:\u0022first\u0022,\u0022Composer\u0022:123}",
+    "accepted": false
+  },
+  {
+    "kind": "create",
+    "label": "typed-invalid-last-7",
+    "raw": "{\u0022title\u0022:\u0022base\u0022,\u0022Composer\u0022:\u0022first\u0022,\u0022composer\u0022:123}",
+    "accepted": false
+  },
+  {
+    "kind": "create",
+    "label": "typed-invalid-last-8",
+    "raw": "{\u0022title\u0022:\u0022base\u0022,\u0022composer\u0022:\u0022first\u0022,\u0022composer\u0022:123}",
+    "accepted": false
+  },
+  {
+    "kind": "create",
+    "label": "null-last-9",
+    "raw": "{\u0022title\u0022:\u0022base\u0022,\u0022composer\u0022:\u0022first\u0022,\u0022Composer\u0022:null}",
+    "accepted": true,
+    "bound": {
+      "title": "base",
+      "values": {
+        "composer": null
+      },
+      "rowVersion": null,
+      "unknown": []
+    }
+  },
+  {
+    "kind": "create",
+    "label": "null-last-10",
+    "raw": "{\u0022title\u0022:\u0022base\u0022,\u0022Composer\u0022:\u0022first\u0022,\u0022composer\u0022:null}",
+    "accepted": true,
+    "bound": {
+      "title": "base",
+      "values": {
+        "composer": null
+      },
+      "rowVersion": null,
+      "unknown": []
+    }
+  },
+  {
+    "kind": "create",
+    "label": "null-last-11",
+    "raw": "{\u0022title\u0022:\u0022base\u0022,\u0022composer\u0022:\u0022first\u0022,\u0022composer\u0022:null}",
+    "accepted": true,
+    "bound": {
+      "title": "base",
+      "values": {
+        "composer": null
+      },
+      "rowVersion": null,
+      "unknown": []
+    }
+  },
+  {
+    "kind": "create",
+    "label": "unknown-12",
+    "raw": "{\u0022title\u0022:\u0022base\u0022,\u0022composer\u0022:\u0022base\u0022,\u0022instrumentation\u0022:123,\u0022Instrumentation\u0022:\u0022last\u0022}",
+    "accepted": true,
+    "bound": {
+      "title": "base",
+      "values": {
+        "composer": "base"
+      },
+      "rowVersion": null,
+      "unknown": [
+        "instrumentation",
+        "Instrumentation"
+      ]
+    }
+  },
+  {
+    "kind": "create",
+    "label": "unknown-13",
+    "raw": "{\u0022title\u0022:\u0022base\u0022,\u0022composer\u0022:\u0022base\u0022,\u0022Instrumentation\u0022:123,\u0022instrumentation\u0022:\u0022last\u0022}",
+    "accepted": true,
+    "bound": {
+      "title": "base",
+      "values": {
+        "composer": "base"
+      },
+      "rowVersion": null,
+      "unknown": [
+        "Instrumentation",
+        "instrumentation"
+      ]
+    }
+  },
+  {
+    "kind": "create",
+    "label": "unknown-14",
+    "raw": "{\u0022title\u0022:\u0022base\u0022,\u0022composer\u0022:\u0022base\u0022,\u0022instrumentation\u0022:123,\u0022instrumentation\u0022:\u0022last\u0022}",
+    "accepted": true,
+    "bound": {
+      "title": "base",
+      "values": {
+        "composer": "base"
+      },
+      "rowVersion": null,
+      "unknown": [
+        "instrumentation",
+        "instrumentation"
+      ]
+    }
+  },
+  {
+    "kind": "patch",
+    "label": "title-valid-15",
+    "raw": "{\u0022composer\u0022:\u0022base\u0022,\u0022title\u0022:\u0022first\u0022,\u0022Title\u0022:\u0022last\u0022}",
+    "accepted": true,
+    "bound": {
+      "title": "last",
+      "values": {
+        "composer": "base"
+      },
+      "rowVersion": null,
+      "unknown": []
+    }
+  },
+  {
+    "kind": "patch",
+    "label": "title-valid-16",
+    "raw": "{\u0022composer\u0022:\u0022base\u0022,\u0022Title\u0022:\u0022first\u0022,\u0022title\u0022:\u0022last\u0022}",
+    "accepted": true,
+    "bound": {
+      "title": "last",
+      "values": {
+        "composer": "base"
+      },
+      "rowVersion": null,
+      "unknown": []
+    }
+  },
+  {
+    "kind": "patch",
+    "label": "title-valid-17",
+    "raw": "{\u0022composer\u0022:\u0022base\u0022,\u0022title\u0022:\u0022first\u0022,\u0022title\u0022:\u0022last\u0022}",
+    "accepted": true,
+    "bound": {
+      "title": "last",
+      "values": {
+        "composer": "base"
+      },
+      "rowVersion": null,
+      "unknown": []
+    }
+  },
+  {
+    "kind": "patch",
+    "label": "typed-invalid-first-18",
+    "raw": "{\u0022title\u0022:\u0022base\u0022,\u0022composer\u0022:123,\u0022Composer\u0022:\u0022last\u0022}",
+    "accepted": false
+  },
+  {
+    "kind": "patch",
+    "label": "typed-invalid-first-19",
+    "raw": "{\u0022title\u0022:\u0022base\u0022,\u0022Composer\u0022:123,\u0022composer\u0022:\u0022last\u0022}",
+    "accepted": false
+  },
+  {
+    "kind": "patch",
+    "label": "typed-invalid-first-20",
+    "raw": "{\u0022title\u0022:\u0022base\u0022,\u0022composer\u0022:123,\u0022composer\u0022:\u0022last\u0022}",
+    "accepted": false
+  },
+  {
+    "kind": "patch",
+    "label": "typed-invalid-last-21",
+    "raw": "{\u0022title\u0022:\u0022base\u0022,\u0022composer\u0022:\u0022first\u0022,\u0022Composer\u0022:123}",
+    "accepted": false
+  },
+  {
+    "kind": "patch",
+    "label": "typed-invalid-last-22",
+    "raw": "{\u0022title\u0022:\u0022base\u0022,\u0022Composer\u0022:\u0022first\u0022,\u0022composer\u0022:123}",
+    "accepted": false
+  },
+  {
+    "kind": "patch",
+    "label": "typed-invalid-last-23",
+    "raw": "{\u0022title\u0022:\u0022base\u0022,\u0022composer\u0022:\u0022first\u0022,\u0022composer\u0022:123}",
+    "accepted": false
+  },
+  {
+    "kind": "patch",
+    "label": "null-last-24",
+    "raw": "{\u0022title\u0022:\u0022base\u0022,\u0022composer\u0022:\u0022first\u0022,\u0022Composer\u0022:null}",
+    "accepted": true,
+    "bound": {
+      "title": "base",
+      "values": {
+        "composer": null
+      },
+      "rowVersion": null,
+      "unknown": []
+    }
+  },
+  {
+    "kind": "patch",
+    "label": "null-last-25",
+    "raw": "{\u0022title\u0022:\u0022base\u0022,\u0022Composer\u0022:\u0022first\u0022,\u0022composer\u0022:null}",
+    "accepted": true,
+    "bound": {
+      "title": "base",
+      "values": {
+        "composer": null
+      },
+      "rowVersion": null,
+      "unknown": []
+    }
+  },
+  {
+    "kind": "patch",
+    "label": "null-last-26",
+    "raw": "{\u0022title\u0022:\u0022base\u0022,\u0022composer\u0022:\u0022first\u0022,\u0022composer\u0022:null}",
+    "accepted": true,
+    "bound": {
+      "title": "base",
+      "values": {
+        "composer": null
+      },
+      "rowVersion": null,
+      "unknown": []
+    }
+  },
+  {
+    "kind": "patch",
+    "label": "unknown-27",
+    "raw": "{\u0022title\u0022:\u0022base\u0022,\u0022composer\u0022:\u0022base\u0022,\u0022instrumentation\u0022:123,\u0022Instrumentation\u0022:\u0022last\u0022}",
+    "accepted": true,
+    "bound": {
+      "title": "base",
+      "values": {
+        "composer": "base"
+      },
+      "rowVersion": null,
+      "unknown": [
+        "instrumentation",
+        "Instrumentation"
+      ]
+    }
+  },
+  {
+    "kind": "patch",
+    "label": "unknown-28",
+    "raw": "{\u0022title\u0022:\u0022base\u0022,\u0022composer\u0022:\u0022base\u0022,\u0022Instrumentation\u0022:123,\u0022instrumentation\u0022:\u0022last\u0022}",
+    "accepted": true,
+    "bound": {
+      "title": "base",
+      "values": {
+        "composer": "base"
+      },
+      "rowVersion": null,
+      "unknown": [
+        "Instrumentation",
+        "instrumentation"
+      ]
+    }
+  },
+  {
+    "kind": "patch",
+    "label": "unknown-29",
+    "raw": "{\u0022title\u0022:\u0022base\u0022,\u0022composer\u0022:\u0022base\u0022,\u0022instrumentation\u0022:123,\u0022instrumentation\u0022:\u0022last\u0022}",
+    "accepted": true,
+    "bound": {
+      "title": "base",
+      "values": {
+        "composer": "base"
+      },
+      "rowVersion": null,
+      "unknown": [
+        "instrumentation",
+        "instrumentation"
+      ]
+    }
+  },
+  {
+    "kind": "patch",
+    "label": "version-valid-30",
+    "raw": "{\u0022title\u0022:\u0022last\u0022,\u0022rowVersion\u0022:99,\u0022RowVersion\u0022:1}",
+    "accepted": true,
+    "bound": {
+      "title": "last",
+      "values": {},
+      "rowVersion": 1,
+      "unknown": []
+    }
+  },
+  {
+    "kind": "patch",
+    "label": "version-valid-31",
+    "raw": "{\u0022title\u0022:\u0022last\u0022,\u0022RowVersion\u0022:99,\u0022rowVersion\u0022:1}",
+    "accepted": true,
+    "bound": {
+      "title": "last",
+      "values": {},
+      "rowVersion": 1,
+      "unknown": []
+    }
+  },
+  {
+    "kind": "patch",
+    "label": "version-valid-32",
+    "raw": "{\u0022title\u0022:\u0022last\u0022,\u0022rowVersion\u0022:99,\u0022rowVersion\u0022:1}",
+    "accepted": true,
+    "bound": {
+      "title": "last",
+      "values": {},
+      "rowVersion": 1,
+      "unknown": []
+    }
+  },
+  {
+    "kind": "patch",
+    "label": "version-invalid-first-33",
+    "raw": "{\u0022title\u0022:\u0022last\u0022,\u0022rowVersion\u0022:\u0022invalid\u0022,\u0022RowVersion\u0022:1}",
+    "accepted": false
+  },
+  {
+    "kind": "patch",
+    "label": "version-invalid-first-34",
+    "raw": "{\u0022title\u0022:\u0022last\u0022,\u0022RowVersion\u0022:\u0022invalid\u0022,\u0022rowVersion\u0022:1}",
+    "accepted": false
+  },
+  {
+    "kind": "patch",
+    "label": "version-invalid-first-35",
+    "raw": "{\u0022title\u0022:\u0022last\u0022,\u0022rowVersion\u0022:\u0022invalid\u0022,\u0022rowVersion\u0022:1}",
+    "accepted": false
+  },
+  {
+    "kind": "upload",
+    "label": "upload-valid-36",
+    "raw": "{\u0022kind\u0022:\u0022noten\u0022,\u0022isPartitur\u0022:true,\u0022sizeBytes\u0022:64,\u0022stimme\u0022:\u0022ignored\u0022,\u0022fileName\u0022:\u0022first.pdf\u0022,\u0022FileName\u0022:\u0022last.pdf\u0022}",
+    "accepted": true,
+    "bound": {
+      "kind": "noten",
+      "isPartitur": true,
+      "stimme": "ignored",
+      "description": null,
+      "fileName": "last.pdf",
+      "sizeBytes": 64,
+      "replacesDateiId": null,
+      "recordedAtEventId": null,
+      "contentType": null
+    }
+  },
+  {
+    "kind": "upload",
+    "label": "upload-valid-37",
+    "raw": "{\u0022kind\u0022:\u0022noten\u0022,\u0022isPartitur\u0022:true,\u0022sizeBytes\u0022:64,\u0022stimme\u0022:\u0022ignored\u0022,\u0022FileName\u0022:\u0022first.pdf\u0022,\u0022fileName\u0022:\u0022last.pdf\u0022}",
+    "accepted": true,
+    "bound": {
+      "kind": "noten",
+      "isPartitur": true,
+      "stimme": "ignored",
+      "description": null,
+      "fileName": "last.pdf",
+      "sizeBytes": 64,
+      "replacesDateiId": null,
+      "recordedAtEventId": null,
+      "contentType": null
+    }
+  },
+  {
+    "kind": "upload",
+    "label": "upload-valid-38",
+    "raw": "{\u0022kind\u0022:\u0022noten\u0022,\u0022isPartitur\u0022:true,\u0022sizeBytes\u0022:64,\u0022stimme\u0022:\u0022ignored\u0022,\u0022fileName\u0022:\u0022first.pdf\u0022,\u0022fileName\u0022:\u0022last.pdf\u0022}",
+    "accepted": true,
+    "bound": {
+      "kind": "noten",
+      "isPartitur": true,
+      "stimme": "ignored",
+      "description": null,
+      "fileName": "last.pdf",
+      "sizeBytes": 64,
+      "replacesDateiId": null,
+      "recordedAtEventId": null,
+      "contentType": null
+    }
+  },
+  {
+    "kind": "upload",
+    "label": "upload-valid-39",
+    "raw": "{\u0022kind\u0022:\u0022noten\u0022,\u0022isPartitur\u0022:true,\u0022fileName\u0022:\u0022base.pdf\u0022,\u0022stimme\u0022:\u0022ignored\u0022,\u0022sizeBytes\u0022:63,\u0022SizeBytes\u0022:64}",
+    "accepted": true,
+    "bound": {
+      "kind": "noten",
+      "isPartitur": true,
+      "stimme": "ignored",
+      "description": null,
+      "fileName": "base.pdf",
+      "sizeBytes": 64,
+      "replacesDateiId": null,
+      "recordedAtEventId": null,
+      "contentType": null
+    }
+  },
+  {
+    "kind": "upload",
+    "label": "upload-valid-40",
+    "raw": "{\u0022kind\u0022:\u0022noten\u0022,\u0022isPartitur\u0022:true,\u0022fileName\u0022:\u0022base.pdf\u0022,\u0022stimme\u0022:\u0022ignored\u0022,\u0022SizeBytes\u0022:63,\u0022sizeBytes\u0022:64}",
+    "accepted": true,
+    "bound": {
+      "kind": "noten",
+      "isPartitur": true,
+      "stimme": "ignored",
+      "description": null,
+      "fileName": "base.pdf",
+      "sizeBytes": 64,
+      "replacesDateiId": null,
+      "recordedAtEventId": null,
+      "contentType": null
+    }
+  },
+  {
+    "kind": "upload",
+    "label": "upload-valid-41",
+    "raw": "{\u0022kind\u0022:\u0022noten\u0022,\u0022isPartitur\u0022:true,\u0022fileName\u0022:\u0022base.pdf\u0022,\u0022stimme\u0022:\u0022ignored\u0022,\u0022sizeBytes\u0022:63,\u0022sizeBytes\u0022:64}",
+    "accepted": true,
+    "bound": {
+      "kind": "noten",
+      "isPartitur": true,
+      "stimme": "ignored",
+      "description": null,
+      "fileName": "base.pdf",
+      "sizeBytes": 64,
+      "replacesDateiId": null,
+      "recordedAtEventId": null,
+      "contentType": null
+    }
+  },
+  {
+    "kind": "upload",
+    "label": "upload-valid-42",
+    "raw": "{\u0022kind\u0022:\u0022noten\u0022,\u0022fileName\u0022:\u0022base.pdf\u0022,\u0022sizeBytes\u0022:64,\u0022stimme\u0022:\u0022ignored\u0022,\u0022isPartitur\u0022:false,\u0022IsPartitur\u0022:true}",
+    "accepted": true,
+    "bound": {
+      "kind": "noten",
+      "isPartitur": true,
+      "stimme": "ignored",
+      "description": null,
+      "fileName": "base.pdf",
+      "sizeBytes": 64,
+      "replacesDateiId": null,
+      "recordedAtEventId": null,
+      "contentType": null
+    }
+  },
+  {
+    "kind": "upload",
+    "label": "upload-valid-43",
+    "raw": "{\u0022kind\u0022:\u0022noten\u0022,\u0022fileName\u0022:\u0022base.pdf\u0022,\u0022sizeBytes\u0022:64,\u0022stimme\u0022:\u0022ignored\u0022,\u0022IsPartitur\u0022:false,\u0022isPartitur\u0022:true}",
+    "accepted": true,
+    "bound": {
+      "kind": "noten",
+      "isPartitur": true,
+      "stimme": "ignored",
+      "description": null,
+      "fileName": "base.pdf",
+      "sizeBytes": 64,
+      "replacesDateiId": null,
+      "recordedAtEventId": null,
+      "contentType": null
+    }
+  },
+  {
+    "kind": "upload",
+    "label": "upload-valid-44",
+    "raw": "{\u0022kind\u0022:\u0022noten\u0022,\u0022fileName\u0022:\u0022base.pdf\u0022,\u0022sizeBytes\u0022:64,\u0022stimme\u0022:\u0022ignored\u0022,\u0022isPartitur\u0022:false,\u0022isPartitur\u0022:true}",
+    "accepted": true,
+    "bound": {
+      "kind": "noten",
+      "isPartitur": true,
+      "stimme": "ignored",
+      "description": null,
+      "fileName": "base.pdf",
+      "sizeBytes": 64,
+      "replacesDateiId": null,
+      "recordedAtEventId": null,
+      "contentType": null
+    }
+  },
+  {
+    "kind": "upload",
+    "label": "upload-valid-45",
+    "raw": "{\u0022kind\u0022:\u0022noten\u0022,\u0022isPartitur\u0022:true,\u0022fileName\u0022:\u0022base.pdf\u0022,\u0022sizeBytes\u0022:64,\u0022stimme\u0022:\u0022ignored\u0022,\u0022contentType\u0022:\u0022text/plain\u0022,\u0022ContentType\u0022:\u0022application/pdf\u0022}",
+    "accepted": true,
+    "bound": {
+      "kind": "noten",
+      "isPartitur": true,
+      "stimme": "ignored",
+      "description": null,
+      "fileName": "base.pdf",
+      "sizeBytes": 64,
+      "replacesDateiId": null,
+      "recordedAtEventId": null,
+      "contentType": "application/pdf"
+    }
+  },
+  {
+    "kind": "upload",
+    "label": "upload-valid-46",
+    "raw": "{\u0022kind\u0022:\u0022noten\u0022,\u0022isPartitur\u0022:true,\u0022fileName\u0022:\u0022base.pdf\u0022,\u0022sizeBytes\u0022:64,\u0022stimme\u0022:\u0022ignored\u0022,\u0022ContentType\u0022:\u0022text/plain\u0022,\u0022contentType\u0022:\u0022application/pdf\u0022}",
+    "accepted": true,
+    "bound": {
+      "kind": "noten",
+      "isPartitur": true,
+      "stimme": "ignored",
+      "description": null,
+      "fileName": "base.pdf",
+      "sizeBytes": 64,
+      "replacesDateiId": null,
+      "recordedAtEventId": null,
+      "contentType": "application/pdf"
+    }
+  },
+  {
+    "kind": "upload",
+    "label": "upload-valid-47",
+    "raw": "{\u0022kind\u0022:\u0022noten\u0022,\u0022isPartitur\u0022:true,\u0022fileName\u0022:\u0022base.pdf\u0022,\u0022sizeBytes\u0022:64,\u0022stimme\u0022:\u0022ignored\u0022,\u0022contentType\u0022:\u0022text/plain\u0022,\u0022contentType\u0022:\u0022application/pdf\u0022}",
+    "accepted": true,
+    "bound": {
+      "kind": "noten",
+      "isPartitur": true,
+      "stimme": "ignored",
+      "description": null,
+      "fileName": "base.pdf",
+      "sizeBytes": 64,
+      "replacesDateiId": null,
+      "recordedAtEventId": null,
+      "contentType": "application/pdf"
+    }
+  },
+  {
+    "kind": "upload",
+    "label": "upload-invalid-first-48",
+    "raw": "{\u0022kind\u0022:\u0022noten\u0022,\u0022isPartitur\u0022:true,\u0022sizeBytes\u0022:64,\u0022stimme\u0022:\u0022ignored\u0022,\u0022fileName\u0022:123,\u0022FileName\u0022:\u0022last.pdf\u0022}",
+    "accepted": false
+  },
+  {
+    "kind": "upload",
+    "label": "upload-invalid-first-49",
+    "raw": "{\u0022kind\u0022:\u0022noten\u0022,\u0022isPartitur\u0022:true,\u0022sizeBytes\u0022:64,\u0022stimme\u0022:\u0022ignored\u0022,\u0022FileName\u0022:123,\u0022fileName\u0022:\u0022last.pdf\u0022}",
+    "accepted": false
+  },
+  {
+    "kind": "upload",
+    "label": "upload-invalid-first-50",
+    "raw": "{\u0022kind\u0022:\u0022noten\u0022,\u0022isPartitur\u0022:true,\u0022sizeBytes\u0022:64,\u0022stimme\u0022:\u0022ignored\u0022,\u0022fileName\u0022:123,\u0022fileName\u0022:\u0022last.pdf\u0022}",
+    "accepted": false
+  },
+  {
+    "kind": "upload",
+    "label": "upload-invalid-first-51",
+    "raw": "{\u0022kind\u0022:\u0022noten\u0022,\u0022isPartitur\u0022:true,\u0022fileName\u0022:\u0022base.pdf\u0022,\u0022stimme\u0022:\u0022ignored\u0022,\u0022sizeBytes\u0022:\u0022invalid\u0022,\u0022SizeBytes\u0022:64}",
+    "accepted": false
+  },
+  {
+    "kind": "upload",
+    "label": "upload-invalid-first-52",
+    "raw": "{\u0022kind\u0022:\u0022noten\u0022,\u0022isPartitur\u0022:true,\u0022fileName\u0022:\u0022base.pdf\u0022,\u0022stimme\u0022:\u0022ignored\u0022,\u0022SizeBytes\u0022:\u0022invalid\u0022,\u0022sizeBytes\u0022:64}",
+    "accepted": false
+  },
+  {
+    "kind": "upload",
+    "label": "upload-invalid-first-53",
+    "raw": "{\u0022kind\u0022:\u0022noten\u0022,\u0022isPartitur\u0022:true,\u0022fileName\u0022:\u0022base.pdf\u0022,\u0022stimme\u0022:\u0022ignored\u0022,\u0022sizeBytes\u0022:\u0022invalid\u0022,\u0022sizeBytes\u0022:64}",
+    "accepted": false
+  },
+  {
+    "kind": "upload",
+    "label": "upload-invalid-first-54",
+    "raw": "{\u0022kind\u0022:\u0022noten\u0022,\u0022fileName\u0022:\u0022base.pdf\u0022,\u0022sizeBytes\u0022:64,\u0022stimme\u0022:\u0022ignored\u0022,\u0022isPartitur\u0022:\u0022invalid\u0022,\u0022IsPartitur\u0022:true}",
+    "accepted": false
+  },
+  {
+    "kind": "upload",
+    "label": "upload-invalid-first-55",
+    "raw": "{\u0022kind\u0022:\u0022noten\u0022,\u0022fileName\u0022:\u0022base.pdf\u0022,\u0022sizeBytes\u0022:64,\u0022stimme\u0022:\u0022ignored\u0022,\u0022IsPartitur\u0022:\u0022invalid\u0022,\u0022isPartitur\u0022:true}",
+    "accepted": false
+  },
+  {
+    "kind": "upload",
+    "label": "upload-invalid-first-56",
+    "raw": "{\u0022kind\u0022:\u0022noten\u0022,\u0022fileName\u0022:\u0022base.pdf\u0022,\u0022sizeBytes\u0022:64,\u0022stimme\u0022:\u0022ignored\u0022,\u0022isPartitur\u0022:\u0022invalid\u0022,\u0022isPartitur\u0022:true}",
+    "accepted": false
+  },
+  {
+    "kind": "upload",
+    "label": "upload-invalid-first-57",
+    "raw": "{\u0022kind\u0022:\u0022noten\u0022,\u0022isPartitur\u0022:true,\u0022fileName\u0022:\u0022base.pdf\u0022,\u0022sizeBytes\u0022:64,\u0022stimme\u0022:123,\u0022Stimme\u0022:\u0022ignored\u0022}",
+    "accepted": false
+  },
+  {
+    "kind": "upload",
+    "label": "upload-invalid-first-58",
+    "raw": "{\u0022kind\u0022:\u0022noten\u0022,\u0022isPartitur\u0022:true,\u0022fileName\u0022:\u0022base.pdf\u0022,\u0022sizeBytes\u0022:64,\u0022Stimme\u0022:123,\u0022stimme\u0022:\u0022ignored\u0022}",
+    "accepted": false
+  },
+  {
+    "kind": "upload",
+    "label": "upload-invalid-first-59",
+    "raw": "{\u0022kind\u0022:\u0022noten\u0022,\u0022isPartitur\u0022:true,\u0022fileName\u0022:\u0022base.pdf\u0022,\u0022sizeBytes\u0022:64,\u0022stimme\u0022:123,\u0022stimme\u0022:\u0022ignored\u0022}",
+    "accepted": false
+  },
+  {
+    "kind": "draft",
+    "label": "draft-valid-60",
+    "raw": "{\u0022entwurfId\u0022:\u002211111111-1111-1111-1111-111111111111\u0022,\u0022lied\u0022:{\u0022title\u0022:\u0022first\u0022,\u0022Title\u0022:\u0022last\u0022},\u0022dateien\u0022:[{\u0022id\u0022:\u002222222222-2222-2222-2222-222222222222\u0022,\u0022name\u0022:\u0022base.pdf\u0022,\u0022sizeBytes\u0022:64,\u0022art\u0022:\u0022partitur\u0022}]}",
+    "accepted": true,
+    "bound": {
+      "entwurfId": "11111111-1111-1111-1111-111111111111",
+      "lied": {
+        "title": "last",
+        "values": {},
+        "rowVersion": null,
+        "unknown": []
+      },
+      "bearbeitet": null,
+      "vorschlaege": null,
+      "dateien": [
+        {
+          "id": "22222222-2222-2222-2222-222222222222",
+          "name": "base.pdf",
+          "sizeBytes": 64,
+          "art": "partitur",
+          "stimme": null,
+          "artBearbeitet": null,
+          "stimmeBearbeitet": null,
+          "lesen": null
+        }
+      ]
+    }
+  },
+  {
+    "kind": "draft",
+    "label": "draft-invalid-first-61",
+    "raw": "{\u0022entwurfId\u0022:\u002211111111-1111-1111-1111-111111111111\u0022,\u0022lied\u0022:{\u0022title\u0022:123,\u0022Title\u0022:\u0022last\u0022},\u0022dateien\u0022:[{\u0022id\u0022:\u002222222222-2222-2222-2222-222222222222\u0022,\u0022name\u0022:\u0022base.pdf\u0022,\u0022sizeBytes\u0022:64,\u0022art\u0022:\u0022partitur\u0022}]}",
+    "accepted": false
+  },
+  {
+    "kind": "draft",
+    "label": "draft-invalid-last-62",
+    "raw": "{\u0022entwurfId\u0022:\u002211111111-1111-1111-1111-111111111111\u0022,\u0022lied\u0022:{\u0022title\u0022:\u0022first\u0022,\u0022Title\u0022:123},\u0022dateien\u0022:[{\u0022id\u0022:\u002222222222-2222-2222-2222-222222222222\u0022,\u0022name\u0022:\u0022base.pdf\u0022,\u0022sizeBytes\u0022:64,\u0022art\u0022:\u0022partitur\u0022}]}",
+    "accepted": false
+  },
+  {
+    "kind": "draft",
+    "label": "draft-valid-63",
+    "raw": "{\u0022entwurfId\u0022:\u002211111111-1111-1111-1111-111111111111\u0022,\u0022lied\u0022:{\u0022Title\u0022:\u0022first\u0022,\u0022title\u0022:\u0022last\u0022},\u0022dateien\u0022:[{\u0022id\u0022:\u002222222222-2222-2222-2222-222222222222\u0022,\u0022name\u0022:\u0022base.pdf\u0022,\u0022sizeBytes\u0022:64,\u0022art\u0022:\u0022partitur\u0022}]}",
+    "accepted": true,
+    "bound": {
+      "entwurfId": "11111111-1111-1111-1111-111111111111",
+      "lied": {
+        "title": "last",
+        "values": {},
+        "rowVersion": null,
+        "unknown": []
+      },
+      "bearbeitet": null,
+      "vorschlaege": null,
+      "dateien": [
+        {
+          "id": "22222222-2222-2222-2222-222222222222",
+          "name": "base.pdf",
+          "sizeBytes": 64,
+          "art": "partitur",
+          "stimme": null,
+          "artBearbeitet": null,
+          "stimmeBearbeitet": null,
+          "lesen": null
+        }
+      ]
+    }
+  },
+  {
+    "kind": "draft",
+    "label": "draft-invalid-first-64",
+    "raw": "{\u0022entwurfId\u0022:\u002211111111-1111-1111-1111-111111111111\u0022,\u0022lied\u0022:{\u0022Title\u0022:123,\u0022title\u0022:\u0022last\u0022},\u0022dateien\u0022:[{\u0022id\u0022:\u002222222222-2222-2222-2222-222222222222\u0022,\u0022name\u0022:\u0022base.pdf\u0022,\u0022sizeBytes\u0022:64,\u0022art\u0022:\u0022partitur\u0022}]}",
+    "accepted": false
+  },
+  {
+    "kind": "draft",
+    "label": "draft-invalid-last-65",
+    "raw": "{\u0022entwurfId\u0022:\u002211111111-1111-1111-1111-111111111111\u0022,\u0022lied\u0022:{\u0022Title\u0022:\u0022first\u0022,\u0022title\u0022:123},\u0022dateien\u0022:[{\u0022id\u0022:\u002222222222-2222-2222-2222-222222222222\u0022,\u0022name\u0022:\u0022base.pdf\u0022,\u0022sizeBytes\u0022:64,\u0022art\u0022:\u0022partitur\u0022}]}",
+    "accepted": false
+  },
+  {
+    "kind": "draft",
+    "label": "draft-valid-66",
+    "raw": "{\u0022entwurfId\u0022:\u002211111111-1111-1111-1111-111111111111\u0022,\u0022lied\u0022:{\u0022title\u0022:\u0022first\u0022,\u0022title\u0022:\u0022last\u0022},\u0022dateien\u0022:[{\u0022id\u0022:\u002222222222-2222-2222-2222-222222222222\u0022,\u0022name\u0022:\u0022base.pdf\u0022,\u0022sizeBytes\u0022:64,\u0022art\u0022:\u0022partitur\u0022}]}",
+    "accepted": true,
+    "bound": {
+      "entwurfId": "11111111-1111-1111-1111-111111111111",
+      "lied": {
+        "title": "last",
+        "values": {},
+        "rowVersion": null,
+        "unknown": []
+      },
+      "bearbeitet": null,
+      "vorschlaege": null,
+      "dateien": [
+        {
+          "id": "22222222-2222-2222-2222-222222222222",
+          "name": "base.pdf",
+          "sizeBytes": 64,
+          "art": "partitur",
+          "stimme": null,
+          "artBearbeitet": null,
+          "stimmeBearbeitet": null,
+          "lesen": null
+        }
+      ]
+    }
+  },
+  {
+    "kind": "draft",
+    "label": "draft-invalid-first-67",
+    "raw": "{\u0022entwurfId\u0022:\u002211111111-1111-1111-1111-111111111111\u0022,\u0022lied\u0022:{\u0022title\u0022:123,\u0022title\u0022:\u0022last\u0022},\u0022dateien\u0022:[{\u0022id\u0022:\u002222222222-2222-2222-2222-222222222222\u0022,\u0022name\u0022:\u0022base.pdf\u0022,\u0022sizeBytes\u0022:64,\u0022art\u0022:\u0022partitur\u0022}]}",
+    "accepted": false
+  },
+  {
+    "kind": "draft",
+    "label": "draft-invalid-last-68",
+    "raw": "{\u0022entwurfId\u0022:\u002211111111-1111-1111-1111-111111111111\u0022,\u0022lied\u0022:{\u0022title\u0022:\u0022first\u0022,\u0022title\u0022:123},\u0022dateien\u0022:[{\u0022id\u0022:\u002222222222-2222-2222-2222-222222222222\u0022,\u0022name\u0022:\u0022base.pdf\u0022,\u0022sizeBytes\u0022:64,\u0022art\u0022:\u0022partitur\u0022}]}",
+    "accepted": false
+  },
+  {
+    "kind": "draft",
+    "label": "draft-file-valid-69",
+    "raw": "{\u0022entwurfId\u0022:\u002211111111-1111-1111-1111-111111111111\u0022,\u0022lied\u0022:{\u0022title\u0022:\u0022last\u0022},\u0022dateien\u0022:[{\u0022id\u0022:\u002222222222-2222-2222-2222-222222222222\u0022,\u0022sizeBytes\u0022:64,\u0022art\u0022:\u0022partitur\u0022,\u0022name\u0022:\u0022first.pdf\u0022,\u0022Name\u0022:\u0022last.pdf\u0022}]}",
+    "accepted": true,
+    "bound": {
+      "entwurfId": "11111111-1111-1111-1111-111111111111",
+      "lied": {
+        "title": "last",
+        "values": {},
+        "rowVersion": null,
+        "unknown": []
+      },
+      "bearbeitet": null,
+      "vorschlaege": null,
+      "dateien": [
+        {
+          "id": "22222222-2222-2222-2222-222222222222",
+          "name": "last.pdf",
+          "sizeBytes": 64,
+          "art": "partitur",
+          "stimme": null,
+          "artBearbeitet": null,
+          "stimmeBearbeitet": null,
+          "lesen": null
+        }
+      ]
+    }
+  },
+  {
+    "kind": "draft",
+    "label": "draft-file-invalid-first-70",
+    "raw": "{\u0022entwurfId\u0022:\u002211111111-1111-1111-1111-111111111111\u0022,\u0022lied\u0022:{\u0022title\u0022:\u0022last\u0022},\u0022dateien\u0022:[{\u0022id\u0022:\u002222222222-2222-2222-2222-222222222222\u0022,\u0022sizeBytes\u0022:64,\u0022art\u0022:\u0022partitur\u0022,\u0022name\u0022:123,\u0022Name\u0022:\u0022last.pdf\u0022}]}",
+    "accepted": false
+  },
+  {
+    "kind": "draft",
+    "label": "draft-file-valid-71",
+    "raw": "{\u0022entwurfId\u0022:\u002211111111-1111-1111-1111-111111111111\u0022,\u0022lied\u0022:{\u0022title\u0022:\u0022last\u0022},\u0022dateien\u0022:[{\u0022id\u0022:\u002222222222-2222-2222-2222-222222222222\u0022,\u0022sizeBytes\u0022:64,\u0022art\u0022:\u0022partitur\u0022,\u0022Name\u0022:\u0022first.pdf\u0022,\u0022name\u0022:\u0022last.pdf\u0022}]}",
+    "accepted": true,
+    "bound": {
+      "entwurfId": "11111111-1111-1111-1111-111111111111",
+      "lied": {
+        "title": "last",
+        "values": {},
+        "rowVersion": null,
+        "unknown": []
+      },
+      "bearbeitet": null,
+      "vorschlaege": null,
+      "dateien": [
+        {
+          "id": "22222222-2222-2222-2222-222222222222",
+          "name": "last.pdf",
+          "sizeBytes": 64,
+          "art": "partitur",
+          "stimme": null,
+          "artBearbeitet": null,
+          "stimmeBearbeitet": null,
+          "lesen": null
+        }
+      ]
+    }
+  },
+  {
+    "kind": "draft",
+    "label": "draft-file-invalid-first-72",
+    "raw": "{\u0022entwurfId\u0022:\u002211111111-1111-1111-1111-111111111111\u0022,\u0022lied\u0022:{\u0022title\u0022:\u0022last\u0022},\u0022dateien\u0022:[{\u0022id\u0022:\u002222222222-2222-2222-2222-222222222222\u0022,\u0022sizeBytes\u0022:64,\u0022art\u0022:\u0022partitur\u0022,\u0022Name\u0022:123,\u0022name\u0022:\u0022last.pdf\u0022}]}",
+    "accepted": false
+  },
+  {
+    "kind": "draft",
+    "label": "draft-file-valid-73",
+    "raw": "{\u0022entwurfId\u0022:\u002211111111-1111-1111-1111-111111111111\u0022,\u0022lied\u0022:{\u0022title\u0022:\u0022last\u0022},\u0022dateien\u0022:[{\u0022id\u0022:\u002222222222-2222-2222-2222-222222222222\u0022,\u0022sizeBytes\u0022:64,\u0022art\u0022:\u0022partitur\u0022,\u0022name\u0022:\u0022first.pdf\u0022,\u0022name\u0022:\u0022last.pdf\u0022}]}",
+    "accepted": true,
+    "bound": {
+      "entwurfId": "11111111-1111-1111-1111-111111111111",
+      "lied": {
+        "title": "last",
+        "values": {},
+        "rowVersion": null,
+        "unknown": []
+      },
+      "bearbeitet": null,
+      "vorschlaege": null,
+      "dateien": [
+        {
+          "id": "22222222-2222-2222-2222-222222222222",
+          "name": "last.pdf",
+          "sizeBytes": 64,
+          "art": "partitur",
+          "stimme": null,
+          "artBearbeitet": null,
+          "stimmeBearbeitet": null,
+          "lesen": null
+        }
+      ]
+    }
+  },
+  {
+    "kind": "draft",
+    "label": "draft-file-invalid-first-74",
+    "raw": "{\u0022entwurfId\u0022:\u002211111111-1111-1111-1111-111111111111\u0022,\u0022lied\u0022:{\u0022title\u0022:\u0022last\u0022},\u0022dateien\u0022:[{\u0022id\u0022:\u002222222222-2222-2222-2222-222222222222\u0022,\u0022sizeBytes\u0022:64,\u0022art\u0022:\u0022partitur\u0022,\u0022name\u0022:123,\u0022name\u0022:\u0022last.pdf\u0022}]}",
+    "accepted": false
+  },
+  {
+    "kind": "draft",
+    "label": "draft-reading-invalid-first",
+    "raw": "{\u0022entwurfId\u0022:\u002211111111-1111-1111-1111-111111111111\u0022,\u0022lied\u0022:{\u0022title\u0022:\u0022last\u0022},\u0022dateien\u0022:[{\u0022id\u0022:\u002222222222-2222-2222-2222-222222222222\u0022,\u0022sizeBytes\u0022:64,\u0022art\u0022:\u0022partitur\u0022,\u0022name\u0022:\u0022base.pdf\u0022,\u0022lesen\u0022:{\u0022status\u0022:\u0022gelesen\u0022,\u0022anfrageId\u0022:123,\u0022anfrageId\u0022:2}}]}",
+    "accepted": true,
+    "bound": {
+      "entwurfId": "11111111-1111-1111-1111-111111111111",
+      "lied": {
+        "title": "last",
+        "values": {},
+        "rowVersion": null,
+        "unknown": []
+      },
+      "bearbeitet": null,
+      "vorschlaege": null,
+      "dateien": [
+        {
+          "id": "22222222-2222-2222-2222-222222222222",
+          "name": "base.pdf",
+          "sizeBytes": 64,
+          "art": "partitur",
+          "stimme": null,
+          "artBearbeitet": null,
+          "stimmeBearbeitet": null,
+          "lesen": {
+            "status": "gelesen",
+            "anfrageId": 2,
+            "meldung": null
+          }
+        }
+      ]
+    }
+  },
+  {
+    "kind": "draft",
+    "label": "draft-reading-valid",
+    "raw": "{\u0022entwurfId\u0022:\u002211111111-1111-1111-1111-111111111111\u0022,\u0022lied\u0022:{\u0022title\u0022:\u0022last\u0022},\u0022dateien\u0022:[{\u0022id\u0022:\u002222222222-2222-2222-2222-222222222222\u0022,\u0022sizeBytes\u0022:64,\u0022art\u0022:\u0022partitur\u0022,\u0022name\u0022:\u0022base.pdf\u0022,\u0022lesen\u0022:{\u0022status\u0022:\u0022gelesen\u0022,\u0022anfrageId\u0022:9,\u0022anfrageId\u0022:2}}]}",
+    "accepted": true,
+    "bound": {
+      "entwurfId": "11111111-1111-1111-1111-111111111111",
+      "lied": {
+        "title": "last",
+        "values": {},
+        "rowVersion": null,
+        "unknown": []
+      },
+      "bearbeitet": null,
+      "vorschlaege": null,
+      "dateien": [
+        {
+          "id": "22222222-2222-2222-2222-222222222222",
+          "name": "base.pdf",
+          "sizeBytes": 64,
+          "art": "partitur",
+          "stimme": null,
+          "artBearbeitet": null,
+          "stimmeBearbeitet": null,
+          "lesen": {
+            "status": "gelesen",
+            "anfrageId": 2,
+            "meldung": null
+          }
+        }
+      ]
+    }
+  },
+  {
+    "kind": "draft",
+    "label": "draft-unknown-retained",
+    "raw": "{\u0022entwurfId\u0022:\u002211111111-1111-1111-1111-111111111111\u0022,\u0022lied\u0022:{\u0022title\u0022:\u0022last\u0022,\u0022occasion\u0022:123,\u0022occasion\u0022:\u0022ignored\u0022}}",
+    "accepted": true,
+    "bound": {
+      "entwurfId": "11111111-1111-1111-1111-111111111111",
+      "lied": {
+        "title": "last",
+        "values": {},
+        "rowVersion": null,
+        "unknown": [
+          "occasion",
+          "occasion"
+        ]
+      },
+      "bearbeitet": null,
+      "vorschlaege": null,
+      "dateien": null
+    }
+  },
+  {
+    "kind": "draft",
+    "label": "draft-unknown-overwritten-parent",
+    "raw": "{\u0022entwurfId\u0022:\u002211111111-1111-1111-1111-111111111111\u0022,\u0022lied\u0022:{\u0022occasion\u0022:123},\u0022Lied\u0022:{\u0022title\u0022:\u0022last\u0022}}",
+    "accepted": true,
+    "bound": {
+      "entwurfId": "11111111-1111-1111-1111-111111111111",
+      "lied": {
+        "title": "last",
+        "values": {},
+        "rowVersion": null,
+        "unknown": []
+      },
+      "bearbeitet": null,
+      "vorschlaege": null,
+      "dateien": null
+    }
+  },
+  {
+    "kind": "draft",
+    "label": "draft-invalid-overwritten-parent",
+    "raw": "{\u0022entwurfId\u0022:\u002211111111-1111-1111-1111-111111111111\u0022,\u0022lied\u0022:{\u0022title\u0022:123},\u0022Lied\u0022:{\u0022title\u0022:\u0022last\u0022}}",
+    "accepted": false
+  },
+  {
+    "kind": "draft",
+    "label": "draft-dictionary-invalid-first",
+    "raw": "{\u0022entwurfId\u0022:\u002211111111-1111-1111-1111-111111111111\u0022,\u0022lied\u0022:{\u0022title\u0022:\u0022last\u0022},\u0022vorschlaege\u0022:{\u0022title\u0022:123,\u0022title\u0022:\u0022sicher\u0022}}",
+    "accepted": false
+  },
+  {
+    "kind": "finalize",
+    "label": "finalize-shape-81",
+    "raw": "[]",
+    "accepted": false
+  },
+  {
+    "kind": "finalize",
+    "label": "finalize-shape-82",
+    "raw": "123",
+    "accepted": false
+  },
+  {
+    "kind": "finalize",
+    "label": "finalize-shape-83",
+    "raw": "true",
+    "accepted": false
+  },
+  {
+    "kind": "finalize",
+    "label": "finalize-shape-84",
+    "raw": "\u0022text\u0022",
+    "accepted": false
+  },
+  {
+    "kind": "finalize",
+    "label": "finalize-shape-85",
+    "raw": "null",
+    "accepted": true,
+    "bound": null
+  },
+  {
+    "kind": "finalize",
+    "label": "finalize-shape-86",
+    "raw": "{}",
+    "accepted": true,
+    "bound": {
+      "sizeBytes": null,
+      "fileName": null
+    }
+  },
+  {
+    "kind": "finalize",
+    "label": "finalize-shape-87",
+    "raw": "{\u0022fileName\u0022:null,\u0022sizeBytes\u0022:null}",
+    "accepted": true,
+    "bound": {
+      "sizeBytes": null,
+      "fileName": null
+    }
+  },
+  {
+    "kind": "finalize",
+    "label": "finalize-valid-88",
+    "raw": "{\u0022fileName\u0022:\u0022base.pdf\u0022,\u0022sizeBytes\u0022:63,\u0022SizeBytes\u0022:64}",
+    "accepted": true,
+    "bound": {
+      "sizeBytes": 64,
+      "fileName": "base.pdf"
+    }
+  },
+  {
+    "kind": "finalize",
+    "label": "finalize-valid-89",
+    "raw": "{\u0022fileName\u0022:\u0022base.pdf\u0022,\u0022SizeBytes\u0022:63,\u0022sizeBytes\u0022:64}",
+    "accepted": true,
+    "bound": {
+      "sizeBytes": 64,
+      "fileName": "base.pdf"
+    }
+  },
+  {
+    "kind": "finalize",
+    "label": "finalize-valid-90",
+    "raw": "{\u0022fileName\u0022:\u0022base.pdf\u0022,\u0022sizeBytes\u0022:63,\u0022sizeBytes\u0022:64}",
+    "accepted": true,
+    "bound": {
+      "sizeBytes": 64,
+      "fileName": "base.pdf"
+    }
+  },
+  {
+    "kind": "finalize",
+    "label": "finalize-invalid-first-91",
+    "raw": "{\u0022fileName\u0022:\u0022base.pdf\u0022,\u0022sizeBytes\u0022:\u0022bad\u0022,\u0022SizeBytes\u0022:64}",
+    "accepted": false
+  },
+  {
+    "kind": "finalize",
+    "label": "finalize-invalid-first-92",
+    "raw": "{\u0022fileName\u0022:\u0022base.pdf\u0022,\u0022SizeBytes\u0022:\u0022bad\u0022,\u0022sizeBytes\u0022:64}",
+    "accepted": false
+  },
+  {
+    "kind": "finalize",
+    "label": "finalize-invalid-first-93",
+    "raw": "{\u0022fileName\u0022:\u0022base.pdf\u0022,\u0022sizeBytes\u0022:\u0022bad\u0022,\u0022sizeBytes\u0022:64}",
+    "accepted": false
+  },
+  {
+    "kind": "finalize",
+    "label": "finalize-invalid-last-94",
+    "raw": "{\u0022fileName\u0022:\u0022base.pdf\u0022,\u0022sizeBytes\u0022:64,\u0022SizeBytes\u0022:\u0022bad\u0022}",
+    "accepted": false
+  },
+  {
+    "kind": "finalize",
+    "label": "finalize-invalid-last-95",
+    "raw": "{\u0022fileName\u0022:\u0022base.pdf\u0022,\u0022SizeBytes\u0022:64,\u0022sizeBytes\u0022:\u0022bad\u0022}",
+    "accepted": false
+  },
+  {
+    "kind": "finalize",
+    "label": "finalize-invalid-last-96",
+    "raw": "{\u0022fileName\u0022:\u0022base.pdf\u0022,\u0022sizeBytes\u0022:64,\u0022sizeBytes\u0022:\u0022bad\u0022}",
+    "accepted": false
+  },
+  {
+    "kind": "upload",
+    "label": "upload-numeric-string-97",
+    "raw": "{\u0022kind\u0022:\u0022noten\u0022,\u0022isPartitur\u0022:true,\u0022fileName\u0022:\u0022base.pdf\u0022,\u0022sizeBytes\u0022:\u002264\u0022}",
+    "accepted": true,
+    "bound": {
+      "kind": "noten",
+      "isPartitur": true,
+      "stimme": null,
+      "description": null,
+      "fileName": "base.pdf",
+      "sizeBytes": 64,
+      "replacesDateiId": null,
+      "recordedAtEventId": null,
+      "contentType": null
+    }
+  },
+  {
+    "kind": "finalize",
+    "label": "finalize-numeric-string-98",
+    "raw": "{\u0022fileName\u0022:\u0022base.pdf\u0022,\u0022sizeBytes\u0022:\u002264\u0022}",
+    "accepted": true,
+    "bound": {
+      "sizeBytes": 64,
+      "fileName": "base.pdf"
+    }
+  },
+  {
+    "kind": "draft",
+    "label": "draft-numeric-string-99",
+    "raw": "{\u0022entwurfId\u0022:\u002211111111-1111-1111-1111-111111111111\u0022,\u0022lied\u0022:{\u0022title\u0022:\u0022last\u0022},\u0022dateien\u0022:[{\u0022id\u0022:\u002222222222-2222-2222-2222-222222222222\u0022,\u0022name\u0022:\u0022base.pdf\u0022,\u0022sizeBytes\u0022:\u002264\u0022,\u0022art\u0022:\u0022partitur\u0022,\u0022lesen\u0022:{\u0022status\u0022:\u0022gelesen\u0022,\u0022anfrageId\u0022:\u00222\u0022}}]}",
+    "accepted": true,
+    "bound": {
+      "entwurfId": "11111111-1111-1111-1111-111111111111",
+      "lied": {
+        "title": "last",
+        "values": {},
+        "rowVersion": null,
+        "unknown": []
+      },
+      "bearbeitet": null,
+      "vorschlaege": null,
+      "dateien": [
+        {
+          "id": "22222222-2222-2222-2222-222222222222",
+          "name": "base.pdf",
+          "sizeBytes": 64,
+          "art": "partitur",
+          "stimme": null,
+          "artBearbeitet": null,
+          "stimmeBearbeitet": null,
+          "lesen": {
+            "status": "gelesen",
+            "anfrageId": 2,
+            "meldung": null
+          }
+        }
+      ]
+    }
+  },
+  {
+    "kind": "patch",
+    "label": "patch-numeric-string-100",
+    "raw": "{\u0022title\u0022:\u0022last\u0022,\u0022rowVersion\u0022:\u00221\u0022}",
+    "accepted": false
+  },
+  {
+    "kind": "finalize",
+    "label": "finalize-numeric-string-101",
+    "raw": "{\u0022sizeBytes\u0022:\u002264.0\u0022,\u0022sizeBytes\u0022:64}",
+    "accepted": false
+  },
+  {
+    "kind": "finalize",
+    "label": "finalize-quoted-number-102",
+    "raw": "{\u0022sizeBytes\u0022: \u0022\u002B64\u0022}",
+    "accepted": true,
+    "bound": {
+      "sizeBytes": 64,
+      "fileName": null
+    }
+  },
+  {
+    "kind": "finalize",
+    "label": "finalize-quoted-number-103",
+    "raw": "{\u0022sizeBytes\u0022: \u0022064\u0022}",
+    "accepted": true,
+    "bound": {
+      "sizeBytes": 64,
+      "fileName": null
+    }
+  },
+  {
+    "kind": "finalize",
+    "label": "finalize-quoted-number-104",
+    "raw": "{\u0022sizeBytes\u0022: \u0022 64\u0022}",
+    "accepted": false
+  },
+  {
+    "kind": "finalize",
+    "label": "finalize-quoted-number-105",
+    "raw": "{\u0022sizeBytes\u0022: \u002264 \u0022}",
+    "accepted": false
+  },
+  {
+    "kind": "finalize",
+    "label": "finalize-quoted-number-106",
+    "raw": "{\u0022sizeBytes\u0022: \u00226.4e1\u0022}",
+    "accepted": false
+  },
+  {
+    "kind": "finalize",
+    "label": "finalize-quoted-number-107",
+    "raw": "{\u0022sizeBytes\u0022: \u002264.0\u0022}",
+    "accepted": false
+  },
+  {
+    "kind": "finalize",
+    "label": "finalize-quoted-number-108",
+    "raw": "{\u0022sizeBytes\u0022: \u00229223372036854775808\u0022}",
+    "accepted": false
+  },
+  {
+    "kind": "finalize",
+    "label": "finalize-quoted-number-109",
+    "raw": "{\u0022sizeBytes\u0022: \u0022-0\u0022}",
+    "accepted": true,
+    "bound": {
+      "sizeBytes": 0,
+      "fileName": null
+    }
+  },
+  {
+    "kind": "finalize",
+    "label": "finalize-quoted-number-110",
+    "raw": "{\u0022sizeBytes\u0022: \u0022-64\u0022}",
+    "accepted": true,
+    "bound": {
+      "sizeBytes": -64,
+      "fileName": null
+    }
+  }
+]

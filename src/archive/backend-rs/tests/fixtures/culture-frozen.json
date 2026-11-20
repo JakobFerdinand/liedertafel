@@ -1,0 +1,10 @@
+[
+{"left":"\u00E4","right":"a\u0308","compare":0,"fileOrder":[2,3,4,6,1,5],"passageOrder":[1,2,3,4,5,6],"ordinalDistinct":2},
+{"left":"co\u00ADoperate","right":"cooperate","compare":0,"fileOrder":[2,3,4,6,1,5],"passageOrder":[1,2,3,4,5,6],"ordinalDistinct":2},
+{"left":"ab\u200D","right":"ab","compare":0,"fileOrder":[2,3,4,6,1,5],"passageOrder":[1,2,3,4,5,6],"ordinalDistinct":2},
+{"left":"\u00C5","right":"\u212B","compare":0,"fileOrder":[2,3,4,6,1,5],"passageOrder":[1,2,3,4,5,6],"ordinalDistinct":2},
+{"left":"a\u034F","right":"a","compare":0,"fileOrder":[2,3,4,6,1,5],"passageOrder":[1,2,3,4,5,6],"ordinalDistinct":2},
+{"left":"a","right":"A","compare":-1,"fileOrder":[3,6,1,2,4,5],"passageOrder":[1,3,6,2,4,5],"ordinalDistinct":2},
+{"left":"e","right":"\u00E9","compare":-1,"fileOrder":[3,6,1,2,4,5],"passageOrder":[1,3,6,2,4,5],"ordinalDistinct":2},
+{"left":"ae","right":"\u00E6","compare":-1,"fileOrder":[3,6,1,2,4,5],"passageOrder":[1,3,6,2,4,5],"ordinalDistinct":2}
+]

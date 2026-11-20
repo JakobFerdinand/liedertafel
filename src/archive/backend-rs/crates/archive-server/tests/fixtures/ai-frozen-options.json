@@ -1,0 +1,13 @@
+{
+  "Archive": {
+    "Ai": {
+      "MaxInputTokensPerCall": 200000,
+      "Models": {
+        "gpt-6-luna": {
+          "InputPricePerMillionEur": 0.1056,
+          "OutputPricePerMillionEur": 0.528
+        }
+      }
+    }
+  }
+}

@@ -7,21 +7,13 @@
   <Folder Name="/src/archive/" />
   <Folder Name="/src/archive/apphost/">
     <Project Path="src/archive/apphost/Archive.AppHost.csproj" />
-  </Folder>
-  <Folder Name="/src/archive/backend/">
-    <Project Path="src/archive/backend/Archive.Backend.csproj" />
-  </Folder>
-  <Folder Name="/src/archive/service-defaults/">
-    <Project Path="src/archive/service-defaults/Archive.ServiceDefaults.csproj" />
+    <Project Path="src/archive/apphost-rust/Archive.Rust.AppHost.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/dashboard-api/dashboard-api-checks.csproj" />
   </Folder>
   <Folder Name="/tests/archive/" />
   <Folder Name="/tests/archive/apphost/">
-    <Project Path="tests/archive/apphost/Archive.AppHost.Tests.csproj" />
-  </Folder>
-  <Folder Name="/tests/archive/backend/">
-    <Project Path="tests/archive/backend/Archive.Backend.Tests.csproj" />
+    <Project Path="tests/archive/apphost-rust/Archive.Rust.AppHost.Tests.csproj" />
   </Folder>
 </Solution>

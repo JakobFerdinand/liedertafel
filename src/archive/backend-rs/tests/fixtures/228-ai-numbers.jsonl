@@ -1,0 +1,221 @@
+{"kind":"format","value":"0.005","micro":5000,"expected":"0.01"}
+{"kind":"format","value":"0.025","micro":25000,"expected":"0.03"}
+{"kind":"format","value":"0.015","micro":15000,"expected":"0.02"}
+{"kind":"format","value":"1.005","micro":1005000,"expected":"1.01"}
+{"kind":"format","value":"12.345","micro":12345000,"expected":"12.35"}
+{"kind":"format","value":"0.0049","micro":4900,"expected":"0.00"}
+{"kind":"format","value":"0.0051","micro":5100,"expected":"0.01"}
+{"kind":"format","value":"-0.005","micro":-5000,"expected":"-0.01"}
+{"kind":"format","value":"-0.025","micro":-25000,"expected":"-0.03"}
+{"kind":"format","value":"-1.005","micro":-1005000,"expected":"-1.01"}
+{"kind":"format","value":"-0.0001","micro":-100,"expected":"0.00"}
+{"kind":"format","value":"0","micro":0,"expected":"0.00"}
+{"kind":"format","value":"15","micro":15000000,"expected":"15.00"}
+{"kind":"threshold","value":"5+","entries":[{"entry":"5+","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":"+5","entries":[{"entry":"+5","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":" 5+ ","entries":[{"entry":"5+","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":"5 +","entries":[{"entry":"5 +","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":"5\t+","entries":[{"entry":"5\t+","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":"5\u0085+","entries":[{"entry":"5\u0085+","amount":"0","usable":false}],"levels":["15"],"errors":["5\u0085+"]}
+{"kind":"threshold","value":"5\u00a0+","entries":[{"entry":"5\u00a0+","amount":"0","usable":false}],"levels":["15"],"errors":["5\u00a0+"]}
+{"kind":"threshold","value":"5-","entries":[{"entry":"5-","amount":"-5","usable":false}],"levels":["15"],"errors":["5-"]}
+{"kind":"threshold","value":"-5","entries":[{"entry":"-5","amount":"-5","usable":false}],"levels":["15"],"errors":["-5"]}
+{"kind":"threshold","value":"+-5","entries":[{"entry":"+-5","amount":"0","usable":false}],"levels":["15"],"errors":["+-5"]}
+{"kind":"threshold","value":"5++","entries":[{"entry":"5++","amount":"0","usable":false}],"levels":["15"],"errors":["5++"]}
+{"kind":"threshold","value":"-5-","entries":[{"entry":"-5-","amount":"0","usable":false}],"levels":["15"],"errors":["-5-"]}
+{"kind":"threshold","value":"(5)","entries":[{"entry":"(5)","amount":"0","usable":false}],"levels":["15"],"errors":["(5)"]}
+{"kind":"threshold","value":"5e0","entries":[{"entry":"5e0","amount":"0","usable":false}],"levels":["15"],"errors":["5e0"]}
+{"kind":"threshold","value":"5_0","entries":[{"entry":"5_0","amount":"0","usable":false}],"levels":["15"],"errors":["5_0"]}
+{"kind":"threshold","value":"5.0","entries":[{"entry":"5.0","amount":"5.0","usable":true}],"levels":["5.0","15"],"errors":[]}
+{"kind":"threshold","value":"5.","entries":[{"entry":"5.","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":".5","entries":[{"entry":".5","amount":"0.5","usable":true}],"levels":["0.5","15"],"errors":[]}
+{"kind":"threshold","value":".","entries":[{"entry":".","amount":"0","usable":false}],"levels":["15"],"errors":["."]}
+{"kind":"threshold","value":"1.2.3","entries":[{"entry":"1.2.3","amount":"0","usable":false}],"levels":["15"],"errors":["1.2.3"]}
+{"kind":"threshold","value":"1,234.50","entries":[{"entry":"1","amount":"1","usable":true},{"entry":"234.50","amount":"234.50","usable":true}],"levels":["1","15","234.50"],"errors":[]}
+{"kind":"threshold","value":"1,,2","entries":[{"entry":"1","amount":"1","usable":true},{"entry":"2","amount":"2","usable":true}],"levels":["1","2","15"],"errors":[]}
+{"kind":"threshold","value":", ,","entries":[],"levels":["15"],"errors":[]}
+{"kind":"threshold","value":"\t+5 ","entries":[{"entry":"+5","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":"\u00a05+\u00a0","entries":[{"entry":"5+","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":"0005","entries":[{"entry":"0005","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":"0","entries":[{"entry":"0","amount":"0","usable":false}],"levels":["15"],"errors":["0"]}
+{"kind":"threshold","value":"0+","entries":[{"entry":"0+","amount":"0","usable":false}],"levels":["15"],"errors":["0+"]}
+{"kind":"threshold","value":"-0","entries":[{"entry":"-0","amount":"0","usable":false}],"levels":["15"],"errors":["-0"]}
+{"kind":"threshold","value":"5\u0000","entries":[{"entry":"5\u0000","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":"5\u0000\u0000","entries":[{"entry":"5\u0000\u0000","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":"79228162514264337593543950335","entries":[{"entry":"79228162514264337593543950335","amount":"79228162514264337593543950335","usable":true}],"levels":["15","79228162514264337593543950335"],"errors":[]}
+{"kind":"threshold","value":"79228162514264337593543950336","entries":[{"entry":"79228162514264337593543950336","amount":"0","usable":false}],"levels":["15"],"errors":["79228162514264337593543950336"]}
+{"kind":"threshold","value":"0.00000000000000000000000000005","entries":[{"entry":"0.00000000000000000000000000005","amount":"0.0000000000000000000000000000","usable":false}],"levels":["15"],"errors":["0.00000000000000000000000000005"]}
+{"kind":"threshold","value":"0.00000000000000000000000000015","entries":[{"entry":"0.00000000000000000000000000015","amount":"0.0000000000000000000000000002","usable":true}],"levels":["0.0000000000000000000000000002","15"],"errors":[]}
+{"kind":"threshold","value":"1.23456789012345678901234567895","entries":[{"entry":"1.23456789012345678901234567895","amount":"1.2345678901234567890123456790","usable":true}],"levels":["1.2345678901234567890123456790","15"],"errors":[]}
+{"kind":"threshold","value":"5,bloss,7","entries":[{"entry":"5","amount":"5","usable":true},{"entry":"bloss","amount":"0","usable":false},{"entry":"7","amount":"7","usable":true}],"levels":["5","7","15"],"errors":["bloss"]}
+{"kind":"threshold","value":"15,15","entries":[{"entry":"15","amount":"15","usable":true},{"entry":"15","amount":"15","usable":true}],"levels":["15","15"],"errors":[]}
+{"kind":"threshold","value":"5\n-","entries":[{"entry":"5\n-","amount":"-5","usable":false}],"levels":["15"],"errors":["5\n-"]}
+{"kind":"threshold","value":"5- ","entries":[{"entry":"5-","amount":"-5","usable":false}],"levels":["15"],"errors":["5-"]}
+{"kind":"threshold","value":"5 + ","entries":[{"entry":"5 +","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":"+ 5","entries":[{"entry":"+ 5","amount":"0","usable":false}],"levels":["15"],"errors":["+ 5"]}
+{"kind":"threshold","value":"5.5+","entries":[{"entry":"5.5+","amount":"5.5","usable":true}],"levels":["5.5","15"],"errors":[]}
+{"kind":"threshold","value":".5-","entries":[{"entry":".5-","amount":"-0.5","usable":false}],"levels":["15"],"errors":[".5-"]}
+{"kind":"threshold","value":"79228162514264337593543950335.4","entries":[{"entry":"79228162514264337593543950335.4","amount":"79228162514264337593543950335","usable":true}],"levels":["15","79228162514264337593543950335"],"errors":[]}
+{"kind":"threshold","value":"79228162514264337593543950335.5","entries":[{"entry":"79228162514264337593543950335.5","amount":"0","usable":false}],"levels":["15"],"errors":["79228162514264337593543950335.5"]}
+{"kind":"threshold","value":"7.92281625142643375935439503355","entries":[{"entry":"7.92281625142643375935439503355","amount":"7.922816251426433759354395034","usable":true}],"levels":["7.922816251426433759354395034","15"],"errors":[]}
+{"kind":"threshold","value":"0.00000000000000000000000000005001","entries":[{"entry":"0.00000000000000000000000000005001","amount":"0.0000000000000000000000000001","usable":true}],"levels":["0.0000000000000000000000000001","15"],"errors":[]}
+{"kind":"threshold","value":"0.00000000000000000000000000025","entries":[{"entry":"0.00000000000000000000000000025","amount":"0.0000000000000000000000000002","usable":true}],"levels":["0.0000000000000000000000000002","15"],"errors":[]}
+{"kind":"threshold","value":"1.23456789012345678901234567885","entries":[{"entry":"1.23456789012345678901234567885","amount":"1.2345678901234567890123456788","usable":true}],"levels":["1.2345678901234567890123456788","15"],"errors":[]}
+{"kind":"threshold","value":"0000000000000000000000000000005.00","entries":[{"entry":"0000000000000000000000000000005.00","amount":"5.00","usable":true}],"levels":["5.00","15"],"errors":[]}
+{"kind":"threshold","value":"5\u0000+","entries":[{"entry":"5\u0000+","amount":"0","usable":false}],"levels":["15"],"errors":["5\u0000+"]}
+{"kind":"threshold","value":"5+\u0000","entries":[{"entry":"5+\u0000","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":"5\u0000 \u0000","entries":[{"entry":"5\u0000 \u0000","amount":"0","usable":false}],"levels":["15"],"errors":["5\u0000 \u0000"]}
+{"kind":"threshold","value":"5\u0000x","entries":[{"entry":"5\u0000x","amount":"0","usable":false}],"levels":["15"],"errors":["5\u0000x"]}
+{"kind":"threshold","value":"","entries":[],"levels":["15"],"errors":[]}
+{"kind":"threshold","value":" \t ","entries":[],"levels":["15"],"errors":[]}
+{"kind":"threshold","value":"\u0000","entries":[{"entry":"\u0000","amount":"0","usable":false}],"levels":["15"],"errors":["\u0000"]}
+{"kind":"threshold","value":"5","entries":[{"entry":"5","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":"5 ","entries":[{"entry":"5","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":"5 -","entries":[{"entry":"5 -","amount":"-5","usable":false}],"levels":["15"],"errors":["5 -"]}
+{"kind":"threshold","value":"5\t","entries":[{"entry":"5","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":"5\t-","entries":[{"entry":"5\t-","amount":"-5","usable":false}],"levels":["15"],"errors":["5\t-"]}
+{"kind":"threshold","value":"5\r\n","entries":[{"entry":"5","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":"5\r\n+","entries":[{"entry":"5\r\n+","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":"5\r\n-","entries":[{"entry":"5\r\n-","amount":"-5","usable":false}],"levels":["15"],"errors":["5\r\n-"]}
+{"kind":"threshold","value":"5\u00a0","entries":[{"entry":"5","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":"5\u00a0-","entries":[{"entry":"5\u00a0-","amount":"0","usable":false}],"levels":["15"],"errors":["5\u00a0-"]}
+{"kind":"threshold","value":"5\u0085","entries":[{"entry":"5","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":"5\u0085-","entries":[{"entry":"5\u0085-","amount":"0","usable":false}],"levels":["15"],"errors":["5\u0085-"]}
+{"kind":"threshold","value":"+5+","entries":[{"entry":"+5+","amount":"0","usable":false}],"levels":["15"],"errors":["+5+"]}
+{"kind":"threshold","value":"+5-","entries":[{"entry":"+5-","amount":"0","usable":false}],"levels":["15"],"errors":["+5-"]}
+{"kind":"threshold","value":"+5 ","entries":[{"entry":"+5","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":"+5 +","entries":[{"entry":"+5 +","amount":"0","usable":false}],"levels":["15"],"errors":["+5 +"]}
+{"kind":"threshold","value":"+5 -","entries":[{"entry":"+5 -","amount":"0","usable":false}],"levels":["15"],"errors":["+5 -"]}
+{"kind":"threshold","value":"+5\t","entries":[{"entry":"+5","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":"+5\t+","entries":[{"entry":"+5\t+","amount":"0","usable":false}],"levels":["15"],"errors":["+5\t+"]}
+{"kind":"threshold","value":"+5\t-","entries":[{"entry":"+5\t-","amount":"0","usable":false}],"levels":["15"],"errors":["+5\t-"]}
+{"kind":"threshold","value":"+5\r\n","entries":[{"entry":"+5","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":"+5\r\n+","entries":[{"entry":"+5\r\n+","amount":"0","usable":false}],"levels":["15"],"errors":["+5\r\n+"]}
+{"kind":"threshold","value":"+5\r\n-","entries":[{"entry":"+5\r\n-","amount":"0","usable":false}],"levels":["15"],"errors":["+5\r\n-"]}
+{"kind":"threshold","value":"+5\u00a0","entries":[{"entry":"+5","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":"+5\u00a0+","entries":[{"entry":"+5\u00a0+","amount":"0","usable":false}],"levels":["15"],"errors":["+5\u00a0+"]}
+{"kind":"threshold","value":"+5\u00a0-","entries":[{"entry":"+5\u00a0-","amount":"0","usable":false}],"levels":["15"],"errors":["+5\u00a0-"]}
+{"kind":"threshold","value":"+5\u0085","entries":[{"entry":"+5","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":"+5\u0085+","entries":[{"entry":"+5\u0085+","amount":"0","usable":false}],"levels":["15"],"errors":["+5\u0085+"]}
+{"kind":"threshold","value":"+5\u0085-","entries":[{"entry":"+5\u0085-","amount":"0","usable":false}],"levels":["15"],"errors":["+5\u0085-"]}
+{"kind":"threshold","value":"-5+","entries":[{"entry":"-5+","amount":"0","usable":false}],"levels":["15"],"errors":["-5+"]}
+{"kind":"threshold","value":"-5 ","entries":[{"entry":"-5","amount":"-5","usable":false}],"levels":["15"],"errors":["-5"]}
+{"kind":"threshold","value":"-5 +","entries":[{"entry":"-5 +","amount":"0","usable":false}],"levels":["15"],"errors":["-5 +"]}
+{"kind":"threshold","value":"-5 -","entries":[{"entry":"-5 -","amount":"0","usable":false}],"levels":["15"],"errors":["-5 -"]}
+{"kind":"threshold","value":"-5\t","entries":[{"entry":"-5","amount":"-5","usable":false}],"levels":["15"],"errors":["-5"]}
+{"kind":"threshold","value":"-5\t+","entries":[{"entry":"-5\t+","amount":"0","usable":false}],"levels":["15"],"errors":["-5\t+"]}
+{"kind":"threshold","value":"-5\t-","entries":[{"entry":"-5\t-","amount":"0","usable":false}],"levels":["15"],"errors":["-5\t-"]}
+{"kind":"threshold","value":"-5\r\n","entries":[{"entry":"-5","amount":"-5","usable":false}],"levels":["15"],"errors":["-5"]}
+{"kind":"threshold","value":"-5\r\n+","entries":[{"entry":"-5\r\n+","amount":"0","usable":false}],"levels":["15"],"errors":["-5\r\n+"]}
+{"kind":"threshold","value":"-5\r\n-","entries":[{"entry":"-5\r\n-","amount":"0","usable":false}],"levels":["15"],"errors":["-5\r\n-"]}
+{"kind":"threshold","value":"-5\u00a0","entries":[{"entry":"-5","amount":"-5","usable":false}],"levels":["15"],"errors":["-5"]}
+{"kind":"threshold","value":"-5\u00a0+","entries":[{"entry":"-5\u00a0+","amount":"0","usable":false}],"levels":["15"],"errors":["-5\u00a0+"]}
+{"kind":"threshold","value":"-5\u00a0-","entries":[{"entry":"-5\u00a0-","amount":"0","usable":false}],"levels":["15"],"errors":["-5\u00a0-"]}
+{"kind":"threshold","value":"-5\u0085","entries":[{"entry":"-5","amount":"-5","usable":false}],"levels":["15"],"errors":["-5"]}
+{"kind":"threshold","value":"-5\u0085+","entries":[{"entry":"-5\u0085+","amount":"0","usable":false}],"levels":["15"],"errors":["-5\u0085+"]}
+{"kind":"threshold","value":"-5\u0085-","entries":[{"entry":"-5\u0085-","amount":"0","usable":false}],"levels":["15"],"errors":["-5\u0085-"]}
+{"kind":"threshold","value":"5.+","entries":[{"entry":"5.+","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":"5.-","entries":[{"entry":"5.-","amount":"-5","usable":false}],"levels":["15"],"errors":["5.-"]}
+{"kind":"threshold","value":"5. ","entries":[{"entry":"5.","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":"5. +","entries":[{"entry":"5. +","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":"5. -","entries":[{"entry":"5. -","amount":"-5","usable":false}],"levels":["15"],"errors":["5. -"]}
+{"kind":"threshold","value":"5.\t","entries":[{"entry":"5.","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":"5.\t+","entries":[{"entry":"5.\t+","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":"5.\t-","entries":[{"entry":"5.\t-","amount":"-5","usable":false}],"levels":["15"],"errors":["5.\t-"]}
+{"kind":"threshold","value":"5.\r\n","entries":[{"entry":"5.","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":"5.\r\n+","entries":[{"entry":"5.\r\n+","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":"5.\r\n-","entries":[{"entry":"5.\r\n-","amount":"-5","usable":false}],"levels":["15"],"errors":["5.\r\n-"]}
+{"kind":"threshold","value":"5.\u00a0","entries":[{"entry":"5.","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":"5.\u00a0+","entries":[{"entry":"5.\u00a0+","amount":"0","usable":false}],"levels":["15"],"errors":["5.\u00a0+"]}
+{"kind":"threshold","value":"5.\u00a0-","entries":[{"entry":"5.\u00a0-","amount":"0","usable":false}],"levels":["15"],"errors":["5.\u00a0-"]}
+{"kind":"threshold","value":"5.\u0085","entries":[{"entry":"5.","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":"5.\u0085+","entries":[{"entry":"5.\u0085+","amount":"0","usable":false}],"levels":["15"],"errors":["5.\u0085+"]}
+{"kind":"threshold","value":"5.\u0085-","entries":[{"entry":"5.\u0085-","amount":"0","usable":false}],"levels":["15"],"errors":["5.\u0085-"]}
+{"kind":"threshold","value":"+5.","entries":[{"entry":"+5.","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":"+5.+","entries":[{"entry":"+5.+","amount":"0","usable":false}],"levels":["15"],"errors":["+5.+"]}
+{"kind":"threshold","value":"+5.-","entries":[{"entry":"+5.-","amount":"0","usable":false}],"levels":["15"],"errors":["+5.-"]}
+{"kind":"threshold","value":"+5. ","entries":[{"entry":"+5.","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":"+5. +","entries":[{"entry":"+5. +","amount":"0","usable":false}],"levels":["15"],"errors":["+5. +"]}
+{"kind":"threshold","value":"+5. -","entries":[{"entry":"+5. -","amount":"0","usable":false}],"levels":["15"],"errors":["+5. -"]}
+{"kind":"threshold","value":"+5.\t","entries":[{"entry":"+5.","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":"+5.\t+","entries":[{"entry":"+5.\t+","amount":"0","usable":false}],"levels":["15"],"errors":["+5.\t+"]}
+{"kind":"threshold","value":"+5.\t-","entries":[{"entry":"+5.\t-","amount":"0","usable":false}],"levels":["15"],"errors":["+5.\t-"]}
+{"kind":"threshold","value":"+5.\r\n","entries":[{"entry":"+5.","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":"+5.\r\n+","entries":[{"entry":"+5.\r\n+","amount":"0","usable":false}],"levels":["15"],"errors":["+5.\r\n+"]}
+{"kind":"threshold","value":"+5.\r\n-","entries":[{"entry":"+5.\r\n-","amount":"0","usable":false}],"levels":["15"],"errors":["+5.\r\n-"]}
+{"kind":"threshold","value":"+5.\u00a0","entries":[{"entry":"+5.","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":"+5.\u00a0+","entries":[{"entry":"+5.\u00a0+","amount":"0","usable":false}],"levels":["15"],"errors":["+5.\u00a0+"]}
+{"kind":"threshold","value":"+5.\u00a0-","entries":[{"entry":"+5.\u00a0-","amount":"0","usable":false}],"levels":["15"],"errors":["+5.\u00a0-"]}
+{"kind":"threshold","value":"+5.\u0085","entries":[{"entry":"+5.","amount":"5","usable":true}],"levels":["5","15"],"errors":[]}
+{"kind":"threshold","value":"+5.\u0085+","entries":[{"entry":"+5.\u0085+","amount":"0","usable":false}],"levels":["15"],"errors":["+5.\u0085+"]}
+{"kind":"threshold","value":"+5.\u0085-","entries":[{"entry":"+5.\u0085-","amount":"0","usable":false}],"levels":["15"],"errors":["+5.\u0085-"]}
+{"kind":"threshold","value":"-5.","entries":[{"entry":"-5.","amount":"-5","usable":false}],"levels":["15"],"errors":["-5."]}
+{"kind":"threshold","value":"-5.+","entries":[{"entry":"-5.+","amount":"0","usable":false}],"levels":["15"],"errors":["-5.+"]}
+{"kind":"threshold","value":"-5.-","entries":[{"entry":"-5.-","amount":"0","usable":false}],"levels":["15"],"errors":["-5.-"]}
+{"kind":"threshold","value":"-5. ","entries":[{"entry":"-5.","amount":"-5","usable":false}],"levels":["15"],"errors":["-5."]}
+{"kind":"threshold","value":"-5. +","entries":[{"entry":"-5. +","amount":"0","usable":false}],"levels":["15"],"errors":["-5. +"]}
+{"kind":"threshold","value":"-5. -","entries":[{"entry":"-5. -","amount":"0","usable":false}],"levels":["15"],"errors":["-5. -"]}
+{"kind":"threshold","value":"-5.\t","entries":[{"entry":"-5.","amount":"-5","usable":false}],"levels":["15"],"errors":["-5."]}
+{"kind":"threshold","value":"-5.\t+","entries":[{"entry":"-5.\t+","amount":"0","usable":false}],"levels":["15"],"errors":["-5.\t+"]}
+{"kind":"threshold","value":"-5.\t-","entries":[{"entry":"-5.\t-","amount":"0","usable":false}],"levels":["15"],"errors":["-5.\t-"]}
+{"kind":"threshold","value":"-5.\r\n","entries":[{"entry":"-5.","amount":"-5","usable":false}],"levels":["15"],"errors":["-5."]}
+{"kind":"threshold","value":"-5.\r\n+","entries":[{"entry":"-5.\r\n+","amount":"0","usable":false}],"levels":["15"],"errors":["-5.\r\n+"]}
+{"kind":"threshold","value":"-5.\r\n-","entries":[{"entry":"-5.\r\n-","amount":"0","usable":false}],"levels":["15"],"errors":["-5.\r\n-"]}
+{"kind":"threshold","value":"-5.\u00a0","entries":[{"entry":"-5.","amount":"-5","usable":false}],"levels":["15"],"errors":["-5."]}
+{"kind":"threshold","value":"-5.\u00a0+","entries":[{"entry":"-5.\u00a0+","amount":"0","usable":false}],"levels":["15"],"errors":["-5.\u00a0+"]}
+{"kind":"threshold","value":"-5.\u00a0-","entries":[{"entry":"-5.\u00a0-","amount":"0","usable":false}],"levels":["15"],"errors":["-5.\u00a0-"]}
+{"kind":"threshold","value":"-5.\u0085","entries":[{"entry":"-5.","amount":"-5","usable":false}],"levels":["15"],"errors":["-5."]}
+{"kind":"threshold","value":"-5.\u0085+","entries":[{"entry":"-5.\u0085+","amount":"0","usable":false}],"levels":["15"],"errors":["-5.\u0085+"]}
+{"kind":"threshold","value":"-5.\u0085-","entries":[{"entry":"-5.\u0085-","amount":"0","usable":false}],"levels":["15"],"errors":["-5.\u0085-"]}
+{"kind":"threshold","value":".5+","entries":[{"entry":".5+","amount":"0.5","usable":true}],"levels":["0.5","15"],"errors":[]}
+{"kind":"threshold","value":".5 ","entries":[{"entry":".5","amount":"0.5","usable":true}],"levels":["0.5","15"],"errors":[]}
+{"kind":"threshold","value":".5 +","entries":[{"entry":".5 +","amount":"0.5","usable":true}],"levels":["0.5","15"],"errors":[]}
+{"kind":"threshold","value":".5 -","entries":[{"entry":".5 -","amount":"-0.5","usable":false}],"levels":["15"],"errors":[".5 -"]}
+{"kind":"threshold","value":".5\t","entries":[{"entry":".5","amount":"0.5","usable":true}],"levels":["0.5","15"],"errors":[]}
+{"kind":"threshold","value":".5\t+","entries":[{"entry":".5\t+","amount":"0.5","usable":true}],"levels":["0.5","15"],"errors":[]}
+{"kind":"threshold","value":".5\t-","entries":[{"entry":".5\t-","amount":"-0.5","usable":false}],"levels":["15"],"errors":[".5\t-"]}
+{"kind":"threshold","value":".5\r\n","entries":[{"entry":".5","amount":"0.5","usable":true}],"levels":["0.5","15"],"errors":[]}
+{"kind":"threshold","value":".5\r\n+","entries":[{"entry":".5\r\n+","amount":"0.5","usable":true}],"levels":["0.5","15"],"errors":[]}
+{"kind":"threshold","value":".5\r\n-","entries":[{"entry":".5\r\n-","amount":"-0.5","usable":false}],"levels":["15"],"errors":[".5\r\n-"]}
+{"kind":"threshold","value":".5\u00a0","entries":[{"entry":".5","amount":"0.5","usable":true}],"levels":["0.5","15"],"errors":[]}
+{"kind":"threshold","value":".5\u00a0+","entries":[{"entry":".5\u00a0+","amount":"0","usable":false}],"levels":["15"],"errors":[".5\u00a0+"]}
+{"kind":"threshold","value":".5\u00a0-","entries":[{"entry":".5\u00a0-","amount":"0","usable":false}],"levels":["15"],"errors":[".5\u00a0-"]}
+{"kind":"threshold","value":".5\u0085","entries":[{"entry":".5","amount":"0.5","usable":true}],"levels":["0.5","15"],"errors":[]}
+{"kind":"threshold","value":".5\u0085+","entries":[{"entry":".5\u0085+","amount":"0","usable":false}],"levels":["15"],"errors":[".5\u0085+"]}
+{"kind":"threshold","value":".5\u0085-","entries":[{"entry":".5\u0085-","amount":"0","usable":false}],"levels":["15"],"errors":[".5\u0085-"]}
+{"kind":"threshold","value":"+.5","entries":[{"entry":"+.5","amount":"0.5","usable":true}],"levels":["0.5","15"],"errors":[]}
+{"kind":"threshold","value":"+.5+","entries":[{"entry":"+.5+","amount":"0","usable":false}],"levels":["15"],"errors":["+.5+"]}
+{"kind":"threshold","value":"+.5-","entries":[{"entry":"+.5-","amount":"0","usable":false}],"levels":["15"],"errors":["+.5-"]}
+{"kind":"threshold","value":"+.5 ","entries":[{"entry":"+.5","amount":"0.5","usable":true}],"levels":["0.5","15"],"errors":[]}
+{"kind":"threshold","value":"+.5 +","entries":[{"entry":"+.5 +","amount":"0","usable":false}],"levels":["15"],"errors":["+.5 +"]}
+{"kind":"threshold","value":"+.5 -","entries":[{"entry":"+.5 -","amount":"0","usable":false}],"levels":["15"],"errors":["+.5 -"]}
+{"kind":"threshold","value":"+.5\t","entries":[{"entry":"+.5","amount":"0.5","usable":true}],"levels":["0.5","15"],"errors":[]}
+{"kind":"threshold","value":"+.5\t+","entries":[{"entry":"+.5\t+","amount":"0","usable":false}],"levels":["15"],"errors":["+.5\t+"]}
+{"kind":"threshold","value":"+.5\t-","entries":[{"entry":"+.5\t-","amount":"0","usable":false}],"levels":["15"],"errors":["+.5\t-"]}
+{"kind":"threshold","value":"+.5\r\n","entries":[{"entry":"+.5","amount":"0.5","usable":true}],"levels":["0.5","15"],"errors":[]}
+{"kind":"threshold","value":"+.5\r\n+","entries":[{"entry":"+.5\r\n+","amount":"0","usable":false}],"levels":["15"],"errors":["+.5\r\n+"]}
+{"kind":"threshold","value":"+.5\r\n-","entries":[{"entry":"+.5\r\n-","amount":"0","usable":false}],"levels":["15"],"errors":["+.5\r\n-"]}
+{"kind":"threshold","value":"+.5\u00a0","entries":[{"entry":"+.5","amount":"0.5","usable":true}],"levels":["0.5","15"],"errors":[]}
+{"kind":"threshold","value":"+.5\u00a0+","entries":[{"entry":"+.5\u00a0+","amount":"0","usable":false}],"levels":["15"],"errors":["+.5\u00a0+"]}
+{"kind":"threshold","value":"+.5\u00a0-","entries":[{"entry":"+.5\u00a0-","amount":"0","usable":false}],"levels":["15"],"errors":["+.5\u00a0-"]}
+{"kind":"threshold","value":"+.5\u0085","entries":[{"entry":"+.5","amount":"0.5","usable":true}],"levels":["0.5","15"],"errors":[]}
+{"kind":"threshold","value":"+.5\u0085+","entries":[{"entry":"+.5\u0085+","amount":"0","usable":false}],"levels":["15"],"errors":["+.5\u0085+"]}
+{"kind":"threshold","value":"+.5\u0085-","entries":[{"entry":"+.5\u0085-","amount":"0","usable":false}],"levels":["15"],"errors":["+.5\u0085-"]}
+{"kind":"threshold","value":"-.5","entries":[{"entry":"-.5","amount":"-0.5","usable":false}],"levels":["15"],"errors":["-.5"]}
+{"kind":"threshold","value":"-.5+","entries":[{"entry":"-.5+","amount":"0","usable":false}],"levels":["15"],"errors":["-.5+"]}
+{"kind":"threshold","value":"-.5-","entries":[{"entry":"-.5-","amount":"0","usable":false}],"levels":["15"],"errors":["-.5-"]}
+{"kind":"threshold","value":"-.5 ","entries":[{"entry":"-.5","amount":"-0.5","usable":false}],"levels":["15"],"errors":["-.5"]}
+{"kind":"threshold","value":"-.5 +","entries":[{"entry":"-.5 +","amount":"0","usable":false}],"levels":["15"],"errors":["-.5 +"]}
+{"kind":"threshold","value":"-.5 -","entries":[{"entry":"-.5 -","amount":"0","usable":false}],"levels":["15"],"errors":["-.5 -"]}
+{"kind":"threshold","value":"-.5\t","entries":[{"entry":"-.5","amount":"-0.5","usable":false}],"levels":["15"],"errors":["-.5"]}
+{"kind":"threshold","value":"-.5\t+","entries":[{"entry":"-.5\t+","amount":"0","usable":false}],"levels":["15"],"errors":["-.5\t+"]}
+{"kind":"threshold","value":"-.5\t-","entries":[{"entry":"-.5\t-","amount":"0","usable":false}],"levels":["15"],"errors":["-.5\t-"]}
+{"kind":"threshold","value":"-.5\r\n","entries":[{"entry":"-.5","amount":"-0.5","usable":false}],"levels":["15"],"errors":["-.5"]}
+{"kind":"threshold","value":"-.5\r\n+","entries":[{"entry":"-.5\r\n+","amount":"0","usable":false}],"levels":["15"],"errors":["-.5\r\n+"]}
+{"kind":"threshold","value":"-.5\r\n-","entries":[{"entry":"-.5\r\n-","amount":"0","usable":false}],"levels":["15"],"errors":["-.5\r\n-"]}
+{"kind":"threshold","value":"-.5\u00a0","entries":[{"entry":"-.5","amount":"-0.5","usable":false}],"levels":["15"],"errors":["-.5"]}
+{"kind":"threshold","value":"-.5\u00a0+","entries":[{"entry":"-.5\u00a0+","amount":"0","usable":false}],"levels":["15"],"errors":["-.5\u00a0+"]}
+{"kind":"threshold","value":"-.5\u00a0-","entries":[{"entry":"-.5\u00a0-","amount":"0","usable":false}],"levels":["15"],"errors":["-.5\u00a0-"]}
+{"kind":"threshold","value":"-.5\u0085","entries":[{"entry":"-.5","amount":"-0.5","usable":false}],"levels":["15"],"errors":["-.5"]}
+{"kind":"threshold","value":"-.5\u0085+","entries":[{"entry":"-.5\u0085+","amount":"0","usable":false}],"levels":["15"],"errors":["-.5\u0085+"]}
+{"kind":"threshold","value":"-.5\u0085-","entries":[{"entry":"-.5\u0085-","amount":"0","usable":false}],"levels":["15"],"errors":["-.5\u0085-"]}

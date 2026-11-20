@@ -30,6 +30,22 @@ allow = [
 	"MIT",
 	"Unicode-3.0",
 	"Unlicense",
+	# quoted_printable 0.5.2 (lettre).
+	"0BSD",
+	# aws-lc-rs 1.19.0 / aws-lc-sys 0.47.0, ring 0.17.14,
+	# rustls-webpki 0.103.16, untrusted 0.9.0 (Rustls/TLS).
+	"ISC",
+	# foldhash 0.2.0 (existing SQLx graph).
+	"Zlib",
+]
+# Maintainer-approved 2026-11-09 for these exact package versions only.
+# Retain upstream license/notice/source-availability obligations; this is not
+# a general MPL/copyleft allowance or a security-advisory waiver.
+exceptions = [
+	{ crate = "base64urlsafedata@0.5.5", allow = ["MPL-2.0"] },
+	{ crate = "webauthn-attestation-ca@0.5.5", allow = ["MPL-2.0"] },
+	{ crate = "webauthn-rs-core@0.5.5", allow = ["MPL-2.0"] },
+	{ crate = "webauthn-rs-proto@0.5.5", allow = ["MPL-2.0"] },
 ]
 
 [bans]

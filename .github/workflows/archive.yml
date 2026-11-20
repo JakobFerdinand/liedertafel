@@ -28,7 +28,7 @@ name: Archive
 #
 # Serialization: the release job's concurrency group `archive-prod` queues
 # competing releases and infrastructure deploys, so they cannot interleave.
-# Checks (including PRs) are not part of that group and always run. EF migrations
+# Checks (including PRs) are not part of that group and always run. SQLx migrations
 # are idempotent (applied versions are recorded in the migration history), so
 # a queued run re-entering an already-migrated schema is a safe no-op, and a
 # replay never reruns an applied migration.
@@ -37,8 +37,9 @@ name: Archive
 # and manual dispatch. The release job follows only after a successful check
 # and only when it matters:
 # - push to main: automatically, when image-affecting files changed
-#   (`src/archive/**` or `global.json`); test- or docs-only pushes skip it.
-# - workflow_dispatch: always (the manual release path).
+#   (production Dockerfile/context, Rust build inputs, and frontend);
+#   test- or docs-only pushes skip it.
+# - workflow_dispatch on main: always (the manual release path).
 # Releases run without a manual approval gate; the `archive-prod` environment
 # restricts them to the protected `main` branch. Building the image earlier
 # in the check job is deliberate: the release deploys the byte-identical
@@ -57,7 +58,7 @@ name: Archive
 #   can read it. See infrastructure/archive/README.md.
 #
 # workflow_dispatch inputs:
-# - version: assembly version baked into /api/build (default 0.1.0).
+# - version: version baked into /api/build (default 0.1.0).
 # - run_migration: true (default) enters the maintenance window and runs
 #   --migrate once. Set false only for code-only releases whose migrations
 #   are already applied (or which carry no schema change); push-triggered
@@ -70,18 +71,24 @@ on:
     paths:
       - 'src/archive/**'
       - 'tests/archive/**'
+      - 'infrastructure/neon/*.sql'
+      - 'infrastructure/archive/main.bicep'
       - 'global.json'
       - '.github/workflows/archive.yml'
+      - '.github/scripts/check-archive-what-if.sh'
   pull_request:
     paths:
       - 'src/archive/**'
       - 'tests/archive/**'
+      - 'infrastructure/neon/*.sql'
+      - 'infrastructure/archive/main.bicep'
       - 'global.json'
       - '.github/workflows/archive.yml'
+      - '.github/scripts/check-archive-what-if.sh'
   workflow_dispatch:
     inputs:
       version:
-        description: 'Assembly version baked into /api/build (e.g. 0.1.0).'
+        description: 'Version baked into /api/build (e.g. 0.1.0).'
         required: false
         default: '0.1.0'
       run_migration:
@@ -103,18 +110,20 @@ env:
   # #161: the video-transcode job and its dispatch sweep follow the same
   # contract (same image, maintenance pause, digest pin).
   VIDEO_JOB_NAMES: ja-archive-video ja-archive-video-dispatch
+  CLEANUP_JOB_NAME: ja-archive-papierkorb
   VAULT_NAME: kv-liedertafel-archive
 
 jobs:
   check:
     name: Check and build image
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 75
     permissions:
       contents: read
     outputs:
       version: ${{ steps.version.outputs.version }}
       release: ${{ steps.release-gate.outputs.release }}
+      image-id: ${{ steps.checked-image.outputs.id }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -124,32 +133,52 @@ jobs:
 
       - name: Resolve release version
         id: version
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
         run: |
           # Manual runs carry an explicit version input; automatic merge runs
           # have no inputs, so label them 0.0.<run_number> (numeric, unique,
           # monotonic). The label is informational only — the immutable image
           # digest selected below is the real release identity. It is baked
           # into the image here so the release job verifies the same build.
-          VERSION="${{ inputs.version }}"
+          VERSION="$REQUESTED_VERSION"
           if [ -z "$VERSION" ]; then
             VERSION="0.0.${{ github.run_number }}"
+          fi
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Expected a numeric major.minor.patch version."
+            exit 1
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Decide whether this run releases
         id: release-gate
+        env:
+          BEFORE: ${{ github.event.before }}
         run: |
           RELEASE=false
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "$GITHUB_REF" = refs/heads/main ]; then
             RELEASE=true
           elif [ "${{ github.event_name }}" = "push" ]; then
-            BEFORE="${{ github.event.before }}"
             if [ "$BEFORE" = "0000000000000000000000000000000000000000" ] || \
               ! git rev-parse -q --verify "$BEFORE^{commit}" >/dev/null; then
               # New/force-pushed history: release to stay safe.
               RELEASE=true
-            elif git diff --name-only "$BEFORE" "$GITHUB_SHA" | grep -qE '^(src/archive/|global\.json$)'; then
-              RELEASE=true
+            else
+              # Default future backend/frontend inputs to releasing rather
+              # than mirroring the Docker context allowlist here.
+              CHANGED=$(git diff --name-only "$BEFORE" "$GITHUB_SHA" -- \
+                src/archive/Dockerfile src/archive/Dockerfile.dockerignore \
+                src/archive/backend-rs src/archive/frontend)
+              while IFS= read -r line; do
+                case "$line" in
+                  ''|src/archive/backend-rs/crates/*/tests/*|src/archive/backend-rs/crates/*/examples/*|src/archive/frontend/tests/*|src/archive/frontend/*.test.ts) continue ;;
+                  src/archive/backend-rs/docs/image-native-notices.md|src/archive/backend-rs/tests/oracles/dotnet-runtime-LICENSE.txt) ;;
+                  src/archive/backend-rs/tests/*|*.md) continue ;;
+                esac
+                RELEASE=true
+                break
+              done <<< "$CHANGED"
             fi
           fi
           echo "release=$RELEASE" >> "$GITHUB_OUTPUT"
@@ -166,61 +195,107 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
+      - name: Install pinned Aspire CLI bundle
+        env:
+          ASPIRE_CLI_TELEMETRY_OPTOUT: '1'
+        run: |
+          # Resolve once on a fresh runner, before building the image or Rust tests.
+          install_path="$RUNNER_TEMP/archive-aspire"
+          # Aspire 13.6 validates discovery after extraction; a custom path
+          # is not discoverable on a runner without a preexisting Aspire home.
+          export ASPIRE_LAYOUT_PATH="$install_path/bundle"
+          dnx --yes aspire.cli@13.6.5 -- setup --install-path "$install_path"
+          test -x "$ASPIRE_LAYOUT_PATH/dcp/dcp"
+          echo "AspireCliBundlePath=$ASPIRE_LAYOUT_PATH" >> "$GITHUB_ENV"
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
         working-directory: src/archive/frontend
       - name: Check and export frontend
-        run: pnpm run check && pnpm run build
+        run: pnpm run check && pnpm run test:unit && pnpm run build
         working-directory: src/archive/frontend
-      - name: Backend and OTLP regression checks
-        run: dotnet test tests/archive/backend
-      # The apphost stack's video worker shells the runner's ffmpeg (the
-      # production image ships its own); hosts without ffmpeg skip the case.
-      - name: Install ffmpeg
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
-      - name: Clean Aspire stack integration
-        run: dotnet test tests/archive/apphost
       - name: Install browser
         run: pnpm exec playwright install --with-deps chromium
         working-directory: src/archive/frontend
       - name: Build production image
+        env:
+          DOCKER_BUILDKIT: '1'
         run: |
           docker build -f src/archive/Dockerfile \
             --build-arg VERSION="${{ steps.version.outputs.version }}" \
             --build-arg REVISION="$GITHUB_SHA" \
-            -t liedertafel-archive:candidate .
+            -t localhost/liedertafel-archive:candidate .
+      - name: Prepare local test tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-dejavu-core
+          rustup show active-toolchain
+          cargo install cargo-deny --version 0.20.2 --locked
+          npm install --prefix "$RUNNER_TEMP/archive-native-test" --ignore-scripts \
+            protobufjs@8.8.1 pg@8.23.1 @azure/storage-blob@12.34.0 @azure/storage-queue@12.32.0
+          echo "NODE_PATH=$RUNNER_TEMP/archive-native-test/node_modules:$GITHUB_WORKSPACE/src/archive/frontend/node_modules" >> "$GITHUB_ENV"
+        working-directory: src/archive/backend-rs
+      - name: Locked dependency and telemetry detector gates
+        working-directory: src/archive/backend-rs
+        run: |
+          bash tests/image/check-dependency-policy.sh
+          bash tests/image/check-infra-preview-policy.sh
+          bash tests/image/check-dependencies.sh
+          TMPDIR="$RUNNER_TEMP" node --test tests/browser/telemetry-*.test.cjs
+      - name: Translated Rust suites with disposable PostgreSQL, Azurite and PDFium
+        env:
+          Archive__TestImageTag: candidate
+          ASPIRE_CONTAINER_RUNTIME: docker
+          CARGO_PROFILE_DEV_DEBUG: 0
+          CARGO_PROFILE_TEST_DEBUG: 0
+          CARGO_INCREMENTAL: 0
+        run: |
+          target=$(mktemp -d "$RUNNER_TEMP/archive-rust-target.XXXXXXXX")
+          trap 'rm -rf -- "$target"' EXIT
+          CARGO_TARGET_DIR="$target" bash src/archive/backend-rs/tests/image/check-translated.sh
+      - name: Check exact image linkage, notices, export and maintenance
+        env:
+          Archive__TestImageTag: candidate
+          ARCHIVE_EXPECTED_IMAGE_VERSION: ${{ steps.version.outputs.version }}
+          ASPIRE_CONTAINER_RUNTIME: docker
+        run: |
+          bash src/archive/backend-rs/tests/image/check-apphost-image.sh
+          bash src/archive/backend-rs/tests/image/check-apphost-image-failures.sh
+      - name: Clean Aspire cross-stack against the candidate image
+        env:
+          Archive__TestImageTag: candidate
+          ARCHIVE_EXPECTED_IMAGE_VERSION: ${{ steps.version.outputs.version }}
+          ASPIRE_CONTAINER_RUNTIME: docker
+        run: |
+          dotnet build src/archive/Archive.slnx --configuration Release
+          dotnet test tests/archive/apphost-rust --no-build --configuration Release
       - name: Production browser smoke
         working-directory: src/archive/frontend
         env:
           ARCHIVE_BASE_URL: http://localhost:18080
         run: |
-          # ARC-010: Production refuses to boot on local SMTP capture, so the
-          # smoke container selects the Azure provider. The endpoint is never
-          # contacted here (/alive, /api/build and static assets stay
-          # dependency-free; the mail transport builds lazily on first send).
-          # ARC-011: Production additionally requires Blob/Key Vault key
-          # persistence. The smoke stays dependency-free with the ephemeral
-          # test escape; real hosted deployments supply both key URIs.
-          # ARC-011-1: Production additionally requires a passkey relying-party
-          # ID; the value is unused by the smoke (passkey ceremonies skip in
-          # production mode, only boot must succeed).
           docker run --rm -d --name archive-smoke -p 127.0.0.1:18080:8080 \
             -e Mail__Provider=Azure \
-            -e Mail__AzureEndpoint=https://acs-liedertafel-test.communication.azure.com \
-            -e Authentication__AllowEphemeralKeysForTests=true \
-            -e Authentication__PasskeyRelyingPartyId=archiv.liedertafel.test \
-            liedertafel-archive:candidate
+            -e Mail__AzureEndpoint=https://mail.invalid \
+            -e Authentication__PasskeyRelyingPartyId=archive.invalid \
+            -e Authentication__PasskeyOrigins__0=https://archive.invalid \
+            localhost/liedertafel-archive:candidate
           trap 'docker stop archive-smoke' EXIT
           for attempt in {1..30}; do
             if curl --fail --silent "$ARCHIVE_BASE_URL/alive"; then break; fi
             sleep 1
           done
           curl --fail "$ARCHIVE_BASE_URL/alive"
-          docker exec archive-smoke sh -c '! command -v node && test "$(id -u)" != 0'
           pnpm run test:browser
+      - name: Record checked image ID
+        id: checked-image
+        run: |
+          ID=$(docker image inspect --format '{{.Id}}' localhost/liedertafel-archive:candidate)
+          [[ "$ID" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
       - name: Export checked image for the release job
         if: steps.release-gate.outputs.release == 'true'
-        run: docker save liedertafel-archive:candidate | gzip > "${{ runner.temp }}/archive-image.tar.gz"
+        shell: bash
+        run: docker save localhost/liedertafel-archive:candidate | gzip > "$RUNNER_TEMP/archive-image.tar.gz"
       - name: Upload checked image
         if: steps.release-gate.outputs.release == 'true'
         uses: actions/upload-artifact@v7
@@ -233,7 +308,7 @@ jobs:
   release:
     name: Push checked image and deploy by digest
     needs: check
-    if: needs.check.outputs.release == 'true'
+    if: needs.check.outputs.release == 'true' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -242,7 +317,7 @@ jobs:
       id-token: write
     environment: archive-prod
     # Shares the infra deploy lock: image/maintenance capture cannot race a
-    # release. Queued releases see an already-migrated schema as an EF no-op.
+    # release. Queued releases see an already-migrated schema as a SQLx no-op.
     concurrency:
       group: archive-prod
       cancel-in-progress: false
@@ -254,7 +329,12 @@ jobs:
           path: ${{ runner.temp }}
 
       - name: Load checked image
-        run: docker load --input "${{ runner.temp }}/archive-image.tar.gz"
+        env:
+          CHECKED_IMAGE_ID: ${{ needs.check.outputs.image-id }}
+        run: |
+          docker load --input "$RUNNER_TEMP/archive-image.tar.gz"
+          [[ "$CHECKED_IMAGE_ID" =~ ^sha256:[0-9a-f]{64}$ ]]
+          test "$(docker image inspect --format '{{.Id}}' localhost/liedertafel-archive:candidate)" = "$CHECKED_IMAGE_ID"
 
       - uses: azure/login@v3
         with:
@@ -272,10 +352,10 @@ jobs:
           IMAGE="ghcr.io/$OWNER_LC/liedertafel-archive"
           TAG="${{ github.sha }}"
           echo "Pushing $IMAGE:$TAG (version ${{ needs.check.outputs.version }}, revision $GITHUB_SHA)"
-          docker tag liedertafel-archive:candidate "$IMAGE:$TAG"
+          docker tag localhost/liedertafel-archive:candidate "$IMAGE:$TAG"
           docker push "$IMAGE:$TAG"
           DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE:$TAG")
-          if [ -z "$DIGEST" ]; then
+          if [[ "$DIGEST" != "$IMAGE"@sha256:* || ! "${DIGEST##*@sha256:}" =~ ^[0-9a-f]{64}$ ]]; then
             echo "::error::Could not resolve the pushed image digest."
             exit 1
           fi
@@ -291,16 +371,16 @@ jobs:
             --query "properties.configuration.ingress.fqdn" -o tsv)
           echo "fqdn=$FQDN" >> "$GITHUB_OUTPUT"
 
-      - name: Resolve reading and video jobs
-        id: reading
+      - name: Resolve optional archive jobs
+        id: jobs
         run: |
-          # ARC-034-1/#161: the reading and video jobs are created by
+          # ARC-034-1/#146/#161: these jobs are created by
           # infra-deploy-archive.yml. A release that runs before that must not
           # fail halfway through the maintenance window, so only jobs that
           # exist take part; any other lookup failure stops the release before
           # maintenance starts.
           EXISTING=""
-          for JOB in $READING_JOB_NAMES $VIDEO_JOB_NAMES; do
+          for JOB in $READING_JOB_NAMES $VIDEO_JOB_NAMES "$CLEANUP_JOB_NAME"; do
             if ERR=$(az containerapp job show --name "$JOB" --resource-group "$RESOURCE_GROUP" --query name -o tsv 2>&1 >/dev/null); then
               EXISTING="$EXISTING $JOB"
             elif echo "$ERR" | grep -qiE "ResourceNotFound|could not be found|not found"; then
@@ -314,12 +394,11 @@ jobs:
 
       - name: Enter maintenance window
         id: maintenance
+        env:
+          RUN_MIGRATION: ${{ github.event_name != 'workflow_dispatch' || inputs.run_migration }}
         run: |
           # Push-triggered runs carry no inputs: they always migrate.
-          RUN_MIGRATION="${{ inputs.run_migration }}"
-          if [ -z "$RUN_MIGRATION" ]; then
-            RUN_MIGRATION="true"
-          fi
+          [[ "$RUN_MIGRATION" == true || "$RUN_MIGRATION" == false ]]
           echo "run_migration=$RUN_MIGRATION" >> "$GITHUB_OUTPUT"
           if [ "$RUN_MIGRATION" != "true" ]; then
             echo "Code-only release: no maintenance window, no migration." >> "$GITHUB_STEP_SUMMARY"
@@ -334,7 +413,7 @@ jobs:
             --name "$EXTRACT_JOB_NAME" \
             --resource-group "$RESOURCE_GROUP" \
             --set-env-vars Archive__MaintenanceMode=true >/dev/null
-          for JOB in ${{ steps.reading.outputs.names }}; do
+          for JOB in ${{ steps.jobs.outputs.names }}; do
             az containerapp job update \
               --name "$JOB" \
               --resource-group "$RESOURCE_GROUP" \
@@ -357,7 +436,7 @@ jobs:
             sleep 10
           done
 
-      - name: Quiesce extraction and reading executions
+      - name: Quiesce archive job executions
         if: steps.maintenance.outputs.run_migration == 'true'
         run: |
           # New executions see maintenance and exit before touching Neon.
@@ -373,7 +452,7 @@ jobs:
               --query "length([?properties.status=='Running'])" -o tsv
           }
           WAITED=0
-          for JOB in "$EXTRACT_JOB_NAME" ${{ steps.reading.outputs.names }}; do
+          for JOB in "$EXTRACT_JOB_NAME" ${{ steps.jobs.outputs.names }}; do
             RUNNING=$(running_executions "$JOB")
             if [ "$RUNNING" != "0" ]; then
               if ! az containerapp job stop \
@@ -428,18 +507,22 @@ jobs:
             docker run --rm \
               -e ConnectionStrings__archive-migrations \
               "${{ steps.image.outputs.digest }}" --migrate 2>&1 | sed 's/.*/[migrate]/'; then
-            echo "- reviewed migration applied exactly once (replays are EF-history no-ops)" >> "$GITHUB_STEP_SUMMARY"
+            echo "- reviewed migration applied exactly once (replays are SQLx-history no-ops)" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "::error::Migration failed. Maintenance stays ACTIVE: inspect the [migrate] diagnostics above, fix forward in code, and retry the release. Never retry blindly and never restore the database."
+            echo "::error::Migration failed. Maintenance stays ACTIVE. Migration output is redacted: inspect through the authorized operator path, fix forward in code, and retry. Never retry blindly and never restore the database."
             exit 1
           fi
 
       - name: Deploy selected digest
+        id: revision
         run: |
-          az containerapp update \
+          REVISION=$(az containerapp update \
             --name "$APP_NAME" \
             --resource-group "$RESOURCE_GROUP" \
-            --image "${{ steps.image.outputs.digest }}"
+            --image "${{ steps.image.outputs.digest }}" \
+            --query 'properties.latestRevisionName' -o tsv)
+          [[ "$REVISION" == "$APP_NAME"--* ]]
+          echo "name=$REVISION" >> "$GITHUB_OUTPUT"
 
       - name: Deploy extraction job image
         # ARC-034: the queue-triggered extraction job must run the SAME
@@ -454,14 +537,14 @@ jobs:
             --image "${{ steps.image.outputs.digest }}"
           echo "- extraction job pinned to ${{ steps.image.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Deploy reading and video job images
-        if: steps.reading.outputs.names != ''
-        # ARC-034-1/#161: the reading and video jobs and their dispatch sweeps
+      - name: Deploy reading, video and cleanup job images
+        if: steps.jobs.outputs.names != ''
+        # The reading, video and cleanup jobs and their dispatch sweeps
         # run the SAME digest as the app and the extraction job; the envelopes
         # and stored rows are shared code. Unconditional like the extraction
         # pin (also on run_migration=false code-only releases).
         run: |
-          for JOB in ${{ steps.reading.outputs.names }}; do
+          for JOB in ${{ steps.jobs.outputs.names }}; do
             az containerapp job update \
               --name "$JOB" \
               --resource-group "$RESOURCE_GROUP" \
@@ -470,15 +553,19 @@ jobs:
           done
 
       - name: Wait for the new revision to serve traffic
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+          TARGET_REVISION: ${{ steps.revision.outputs.name }}
         run: |
           FQDN="${{ steps.endpoint.outputs.fqdn }}"
           echo "Waiting for version ${{ needs.check.outputs.version }} at https://$FQDN/api/build (cold start up to ~60 s is expected)"
-          # Poll /api/build for the new version, not just /alive: the previous
-          # revision keeps answering /alive with 200 during the traffic switch,
-          # so an /alive-only wait lets the smoke check race the old revision.
+          # A manual version can be reused. Require Azure's exact selected
+          # revision as well as its expected public build stamp.
           for attempt in $(seq 1 60); do
-            if BUILD=$(curl --fail --silent --max-time 10 "https://$FQDN/api/build"); then
-              if echo "$BUILD" | grep -q "${{ needs.check.outputs.version }}"; then
+            READY=$(az containerapp show --resource-group "$RESOURCE_GROUP" --name "$APP_NAME" \
+              --query 'properties.latestReadyRevisionName' -o tsv)
+            if [ "$READY" = "$TARGET_REVISION" ] && BUILD=$(curl --fail --silent --max-time 10 "https://$FQDN/api/build"); then
+              if jq -e --arg version "$VERSION" '.version == $version and .development == false' <<< "$BUILD" >/dev/null; then
                 echo "New revision serves ${{ needs.check.outputs.version }} after ~$((attempt * 10)) s"
                 break
               fi
@@ -520,7 +607,7 @@ jobs:
             --name "$EXTRACT_JOB_NAME" \
             --resource-group "$RESOURCE_GROUP" \
             --set-env-vars Archive__MaintenanceMode=false >/dev/null
-          for JOB in ${{ steps.reading.outputs.names }}; do
+          for JOB in ${{ steps.jobs.outputs.names }}; do
             az containerapp job update \
               --name "$JOB" \
               --resource-group "$RESOURCE_GROUP" \
@@ -549,8 +636,8 @@ jobs:
           echo "- /alive: 200" >> "$GITHUB_STEP_SUMMARY"
           BUILD=$(curl --fail --silent "$BASE/api/build")
           echo "$BUILD" | jq -e '.development == false' >/dev/null
-          echo "$BUILD" | jq -e --arg v "${{ needs.check.outputs.version }}" '.version | contains($v)' >/dev/null
-          echo "- /api/build: development=false, version contains ${{ needs.check.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "$BUILD" | jq -e --arg v "${{ needs.check.outputs.version }}" '.version == $v' >/dev/null
+          echo "- /api/build: development=false, version ${{ needs.check.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
           MAINT=$(curl --fail --silent "$BASE/api/maintenance")
           echo "$MAINT" | jq -e '.maintenance == false' >/dev/null
           echo "- /api/maintenance: window closed" >> "$GITHUB_STEP_SUMMARY"

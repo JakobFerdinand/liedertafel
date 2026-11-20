@@ -1,0 +1,10 @@
+{
+  "source": "actual frozen offline ChatApiTests host + pinned agent/gateway at fd3c18f; evidence/232/frozen-oracle-raw-schema.log",
+  "instructionsSha256": "b2cc54ed39bdb2e0893e6fbcb72ba18f474df92f96b256295ad1e20dcfd6792e",
+  "instructionsUtf16": 3134,
+  "tools": [
+    {"name":"catalogue_search","descriptionSha256":"06495cba83440fed844319522ae64205d7ca04f009bda616a10d1c748d626098","schemaSha256":"572f1ceaa7bfed4f651f7db94b3f87666bc7186e4864d155bcd8e06f5d3b8ed5","schemaUtf16":447},
+    {"name":"lied_details","descriptionSha256":"351c97056d686a06e1c134e879ef4c930e414a3de9dd4add8016cfc321c98811","schemaSha256":"88161730f72b1f1efcfd80ae3cb531a5eadff4c1de06eaef123d222586279630","schemaUtf16":146},
+    {"name":"zeige_oberflaeche","descriptionSha256":"dd82cb911e5ed95ae08ff610975bce7a50af8855e9dcc04eaff18aab9e25735c","schemaSha256":"4c504c8e52b08c45fe25424b107872ee9c361bb6fe03f873c2e88454b7d4da3e","schemaUtf16":719}
+  ]
+}
