@@ -195,6 +195,15 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
+      - name: Install pinned Aspire CLI bundle
+        env:
+          ASPIRE_CLI_TELEMETRY_OPTOUT: '1'
+        run: |
+          # Resolve once on a fresh runner, before building the image or Rust tests.
+          dnx --yes aspire.cli@13.6.5 -- setup --install-path "$RUNNER_TEMP/archive-aspire"
+          bundle="$RUNNER_TEMP/archive-aspire/bundle"
+          test -x "$bundle/dcp/dcp"
+          echo "AspireCliBundlePath=$bundle" >> "$GITHUB_ENV"
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
         working-directory: src/archive/frontend
@@ -236,7 +245,10 @@ jobs:
           CARGO_PROFILE_DEV_DEBUG: 0
           CARGO_PROFILE_TEST_DEBUG: 0
           CARGO_INCREMENTAL: 0
-        run: bash src/archive/backend-rs/tests/image/check-translated.sh
+        run: |
+          target=$(mktemp -d "$RUNNER_TEMP/archive-rust-target.XXXXXXXX")
+          trap 'rm -rf -- "$target"' EXIT
+          CARGO_TARGET_DIR="$target" bash src/archive/backend-rs/tests/image/check-translated.sh
       - name: Check exact image linkage, notices, export and maintenance
         env:
           Archive__TestImageTag: candidate
@@ -251,10 +263,6 @@ jobs:
           ARCHIVE_EXPECTED_IMAGE_VERSION: ${{ steps.version.outputs.version }}
           ASPIRE_CONTAINER_RUNTIME: docker
         run: |
-          # Install once before parallel MSBuild projects resolve the same bundle.
-          dnx --yes aspire.cli@13.6.5 -- setup --install-path "$RUNNER_TEMP/archive-aspire"
-          export AspireCliBundlePath="$RUNNER_TEMP/archive-aspire/bundle"
-          test -x "$AspireCliBundlePath/dcp/dcp"
           dotnet build src/archive/Archive.slnx --configuration Release
           dotnet test tests/archive/apphost-rust --no-build --configuration Release
       - name: Production browser smoke
