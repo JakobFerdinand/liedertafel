@@ -6,7 +6,7 @@ export default function config(phase: string): NextConfig {
   const api = process.env.ARCHIVE_API_URL;
   if (development && !api) {
     throw new Error(
-      "ARCHIVE_API_URL is required. Start the frontend through Aspire AppHost.",
+      "ARCHIVE_API_URL is required. Start the frontend by hand with the dev env applied (see src/archive/README.md).",
     );
   }
   return {

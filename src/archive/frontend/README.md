@@ -3,8 +3,12 @@
 Next.js App Router, TypeScript, Tailwind and Biome, generated with
 `create-next-app`. The interface is German.
 
-Start through the [archive AppHost](../README.md), which injects `PORT` and
-`ARCHIVE_API_URL`. Browser requests use the `/api/*` development proxy.
+Start by hand against the local Compose stack (see the
+[archive README](../README.md)): pass `../dev.env` to `env` (its hyphenated
+`ConnectionStrings__*` names cannot be sourced), then
+`PORT=3000 pnpm run dev` — the dev-time `PORT` and the server-only
+`ARCHIVE_API_URL` come from the environment. Browser requests use the
+`/api/*` development proxy.
 
 ```bash
 pnpm run check

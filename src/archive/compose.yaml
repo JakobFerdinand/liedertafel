@@ -1,0 +1,116 @@
+# Local archive development dependencies (issue #245), started by `dev.sh up`.
+# Works with Docker Compose and Podman Compose, also against remote container
+# contexts (no host bind mounts; paths cannot resolve there). The three
+# dependency services store their data in named volumes so `dev.sh down` keeps
+# it across restarts; there is no opt-out flag. The local password below is a
+# development-only value for the public repository, not a secret.
+services:
+  postgres:
+    image: docker.io/library/postgres:17.6
+    container_name: archive-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: archive-local-dev
+      POSTGRES_DB: archive
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d archive"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:3.35.0
+    container_name: archive-azurite
+    # The Blob host port is pinned to the container port: direct signed links
+    # and Azurite's own server-side copy use the same port.
+    command: azurite --skipApiVersionCheck --blobHost 0.0.0.0 --blobPort 10000 --queueHost 0.0.0.0 --queuePort 10001
+    ports:
+      - "127.0.0.1:10000:10000"
+      - "127.0.0.1:10001:10001"
+    volumes:
+      - azurite-data:/data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://127.0.0.1:10000/devstoreaccount1?comp=list', r => process.exit(r.statusCode < 500 ? 0 : 1)).on('error', () => process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  mailpit:
+    image: docker.io/axllent/mailpit:v1.27.8
+    container_name: archive-mailpit
+    environment:
+      MP_DATA_FILE: /data/mailpit.db
+    ports:
+      - "127.0.0.1:8025:8025"
+      - "127.0.0.1:1025:1025"
+    volumes:
+      - mailpit-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8025/readyz"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  # The local OTLP endpoint dev.env points at: Development refuses to start
+  # without one and finite jobs fail when they cannot flush. The config is
+  # passed through the environment so the file works on every setup, including
+  # remote Docker/Podman contexts where host bind mounts do not resolve. The
+  # scratch-based image ships no shell or HTTP client, so the container health
+  # check can only exec the binary; for a real probe, curl the health_check
+  # extension on 13133. Collector output goes to the container log.
+  otelcol:
+    image: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector:0.166.0
+    container_name: archive-otelcol
+    command: ["--config=env:OTEL_CONFIG"]
+    environment:
+      OTEL_CONFIG: |-
+        receivers:
+          otlp:
+            protocols:
+              http:
+                endpoint: 0.0.0.0:4318
+        exporters:
+          debug:
+            verbosity: basic
+        extensions:
+          health_check:
+            endpoint: 0.0.0.0:13133
+        service:
+          extensions: [health_check]
+          pipelines:
+            traces:
+              receivers: [otlp]
+              exporters: [debug]
+            metrics:
+              receivers: [otlp]
+              exporters: [debug]
+            logs:
+              receivers: [otlp]
+              exporters: [debug]
+    ports:
+      - "127.0.0.1:4318:4318"
+    healthcheck:
+      test: ["CMD", "/otelcol", "--version"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+volumes:
+  postgres-data:
+  azurite-data:
+  mailpit-data:
+

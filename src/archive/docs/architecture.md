@@ -12,9 +12,10 @@ Implementation: most slices are implemented; see the issues under #96.
 > in the root `GLOSSARY.md`.
 >
 > **Runtime update (#218/#236):** `archive-server` is the sole archive backend,
-> built with Rust, Axum and SQLx. Aspire remains the local orchestrator and
-> forwards OTLP. The former EF tree is a frozen baseline in git, not a build
-> target. See the [archive runbook](../README.md) and [release runbook](../../../infrastructure/archive/README.md#first-rust-release-236).
+> built with Rust, Axum and SQLx. Local dependencies run in Docker/Podman
+> Compose started by `dev.sh` (#244/#245) and development OTLP exports to the
+> endpoint configured in `src/archive/dev.env`. The former EF tree is a frozen
+> baseline in git, not a build target. See the [archive runbook](../README.md) and [release runbook](../../../infrastructure/archive/README.md#first-rust-release-236).
 
 This document records the architecture interview and supersedes the original
 architecture proposal supplied in conversation on 2026-09-08. The
@@ -22,8 +23,9 @@ architecture proposal supplied in conversation on 2026-09-08. The
 phases. Provider facts were checked on 2026-09-11; sources are listed below.
 
 Implementation is organized in the [issue index](https://github.com/JakobFerdinand/liedertafel/issues/96). The subsequent
-local-development requirement makes Aspire orchestration and development
-OpenTelemetry export to its dashboard part of the baseline.
+local-development requirement makes Compose-based dependency orchestration
+(`compose.yaml` plus `dev.sh`, issue #245) and development OpenTelemetry export
+to a locally configured OTLP endpoint part of the baseline.
 
 ## 1. At a glance
 
@@ -72,8 +74,8 @@ to keep this overview readable.
 | Background work | Finite Rust Container Apps Jobs, with durable progress and retries |
 | Infrastructure | Bicep for Azure; documented Neon CLI/API setup (OpenTofu rejected for the single-database scope in ARC-003) |
 | Images | Private GitHub Container Registry (GHCR) |
-| Environments | Aspire-orchestrated local development plus production; restricted production pilot before general invitations |
-| Development telemetry | API and workers export OpenTelemetry logs, traces and metrics to the Aspire dashboard over OTLP |
+| Environments | Compose-based local development (`dev.sh`, issue #245) plus production; restricted production pilot before general invitations |
+| Development telemetry | API and workers export OpenTelemetry logs, traces and metrics to a locally configured OTLP endpoint |
 | Production releases | Explicit maintainer-triggered/approved GitHub Actions release |
 | Database changes | Once per release, in a maintenance window; small changes and fix-forward handling |
 | Operational backups | Deliberately out of scope; the seven-day editor trash remains |
@@ -386,7 +388,8 @@ runtime access) before any shared state is created.
 ```text
 src/archive/
   docs/architecture.md      This document (PRD and tickets: GitHub issue #96)
-  apphost/                  Aspire local resource orchestration
+  compose.yaml, dev.sh, dev.env
+                            Local Compose dependencies, dev script and env (issue #245)
   frontend/                 Next.js + React + TypeScript, static export
   backend-rs/               Rust API, finite jobs, migrations and shared OTLP
   apphost-rust/              Disposable Aspire image-test topology
@@ -456,74 +459,80 @@ while member access stays paused, not restoration of an earlier database copy.
 
 ### Local development and production pilot
 
-**Aspire AppHost is the single local startup entry point.** It starts and connects
-the services needed for routine development rather than asking developers to
-start each dependency in a separate terminal:
+**The Compose stack plus `dev.sh` is the single local startup entry point.**
+The script starts and connects the services needed for routine development
+rather than asking developers to start each dependency in a separate terminal:
 
-- Rust API and the Next.js frontend with Turbopack hot reload. Route browser API
+- `dev.sh up` starts PostgreSQL 17.6, Azurite, Mailpit and the local OTLP
+  collector from `compose.yaml`, each of the dependency services with a named
+  volume, waits for their health checks and runs the one-time
+  local storage initialization. `dev.sh migrate` applies the schema explicitly;
+  `dev.sh worker <name>` runs one finite worker (smoke, extraction, reading,
+  transcode, Papierkorb-Cleanup) to completion; `dev.sh down` stops the stack
+  while the named volumes keep the data. There is no opt-out persistence flag.
+- The Rust API and the Next.js frontend start by hand with the commit-safe
+  `src/archive/dev.env` applied (Development environment, scripted chat
+  provider, local OTLP endpoint, mail and connection strings). Route browser API
   requests through a documented development proxy so cookie/CSRF behaviour stays
   representative of the single-origin packaged application.
-- Local PostgreSQL, with development persistence and an explicit schema setup step.
-- Azurite for local Blob and Queue Storage, including required containers/queues.
-- A local mail-capture service for invitation and login-code testing.
-- Local executable resources for implemented Rust workers/job modes. Make manual
-  import runs explicitly triggerable rather than starting a real import on boot.
-- Aspire's dashboard for resource endpoints/status and development telemetry.
+- The script detects Docker or Podman; no .NET SDK or Aspire is required.
 
-AppHost owns resource references, endpoint/connection injection, readiness order,
-and normal start/stop. Routine startup uses development-only identities, keys,
+Routine startup uses development-only identities, keys,
 mail and data; no production Neon, Azure Email or Key Vault credential is required.
 External-provider checks such as ARC-010's real email test are explicit opt-in
 integration runs. Local sessions and account state live in the local database.
 
 ```mermaid
 flowchart TB
-    Developer["Developer starts AppHost"] --> Host["Aspire AppHost<br/>Resources, references and startup order"]
-    Host --> Frontend["Next.js frontend<br/>Hot reload and API proxy"]
-    Host --> API["Rust archive-server API"]
-    Host --> Workers["Local Rust executable workers<br/>Same extraction/import logic"]
-    Host --> Dependencies["PostgreSQL + Azurite<br/>Mail capture"]
-    Host --> Dashboard["Aspire dashboard"]
+    Developer["Developer runs dev.sh"] --> Stack["docker/podman compose<br/>PostgreSQL + Azurite + Mailpit<br/>(named volumes)"]
+    Developer --> Migrate["dev.sh migrate<br/>explicit schema step"]
+    Developer --> Workers["dev.sh worker <name><br/>finite runs, same logic as production"]
+    Developer --> ByHand["API + frontend started by hand<br/>with src/archive/dev.env"]
+    ByHand --> Frontend["Next.js frontend<br/>Hot reload and API proxy"]
+    ByHand --> API["Rust archive-server API"]
     Frontend -->|"Development API proxy"| API
-    API --> Dependencies
-    Workers --> Dependencies
-    API -.->|"OTLP logs, traces, metrics"| Dashboard
-    Workers -.->|"OTLP logs, traces, metrics"| Dashboard
+    API --> Stack
+    Workers --> Stack
+    API -.->|"OTLP logs, traces, metrics"| Collector["Local OTLP endpoint from dev.env"]
+    Workers -.->|"OTLP logs, traces, metrics"| Collector
 ```
 
 ### Development OpenTelemetry
 
 **OpenTelemetry (OTel)** is the standard for structured logs, request/work traces
-and metrics. **OTLP** is the protocol used to export that data to the Aspire
-dashboard. Showing process console output alone does not satisfy this requirement.
+and metrics. **OTLP** is the protocol used to export that data to the locally
+configured OTLP endpoint. Showing process console output alone does not satisfy this requirement.
 
 - Initialize `archive-telemetry` for the API and every worker/job host.
   Keep domain models in their feature modules.
 - Explicitly enable development OTLP export for **logs, traces and metrics**,
-  consuming AppHost-provided endpoint, protocol and authentication configuration
-  such as `OTEL_EXPORTER_OTLP_ENDPOINT`. Avoid hard-coded dashboard ports or
+  consuming the endpoint, protocol and headers provided by
+  `src/archive/dev.env`, such as `OTEL_EXPORTER_OTLP_ENDPOINT`. Point it at a
+  local OpenTelemetry collector; avoid hard-coded dashboard ports or
   exporter credentials.
 - Give resources stable, distinguishable service names; instrument API requests,
   dependency calls and job processing. Carry trace context over queued work and
   preserve it across finite job execution and retry diagnostics.
 - Flush telemetry on normal finite-job completion and handled failures so short
-  import/extraction runs appear in the dashboard. Report telemetry configuration
-  problems rather than silently accepting console-only observability.
+  import/extraction runs appear in the local OTLP backend. Report telemetry
+  configuration problems rather than silently accepting console-only observability.
 - Apply the same sensitive-data redaction locally as in production; ordinary
-  development telemetry targets Aspire, not production Azure Monitor.
+  development telemetry targets the local OTLP endpoint, not production Azure Monitor.
 - Configure health checks and HTTP resilience deliberately. Reusing service
   defaults must not introduce production database keep-alives or unsafe automatic
   retries of state-changing requests.
 
 Verify from a clean local start that the application can use its dependencies,
 email is captured, and a browser request plus queued worker execution yield
-correlated traces, structured logs and metrics in Aspire. As each worker slice is
-implemented it must join AppHost and inherit this telemetry contract.
+correlated traces, structured logs and metrics in the local OTLP backend. As
+each worker slice is implemented it must run through `dev.sh worker` and
+inherit this telemetry contract.
 
-Aspire orchestrates **local development**. Production remains the selected
-single application container plus finite Container Apps Jobs, provisioned with
-Bicep and released through GitHub Actions; the Aspire dashboard/AppHost are not
-additional production services. Real provider behaviour is verified in the pilot.
+The Compose stack plus `dev.sh` orchestrates **local development**. Production
+remains the selected single application container plus finite Container Apps
+Jobs, provisioned with Bicep and released through GitHub Actions; the local
+Compose services are not additional production services. Real provider
+behaviour is verified in the pilot.
 
 There is no standing hosted staging environment. The pilot uses maintainer
 accounts and a small representative dataset to verify actual Azure/Neon/email
@@ -611,8 +620,8 @@ These are explicit implementation prerequisites, not claims of completed tests.
 | Gate | Required evidence |
 | --- | --- |
 | Regional foundation | Austria East resource/SKU availability, subscription quota, actual provisioning, TLS/domain binding, and Europe email geography; fallback decision if needed |
-| Framework baseline | Supported Aspire/React/.NET/EF/Npgsql/library versions and compatibility with repository tooling |
-| Local development | One AppHost start connects frontend/API, PostgreSQL, Azurite, mail and implemented workers; OTel logs/traces/metrics reach Aspire, including finite jobs and queue context |
+| Framework baseline | Supported React/Npgsql/library versions and compatibility with repository tooling |
+| Local development | One `dev.sh up` starts PostgreSQL, Azurite and mail; the hand-started frontend/API and `dev.sh worker` runs connect with `dev.env`; OTel logs/traces/metrics reach the local OTLP endpoint, including finite jobs and queue context |
 | Neon provisioning | Provider lifecycle trial and pinned version if OpenTofu is adopted, or complete documented manual setup; Free limits and Frankfurt region verified |
 | Source inventory | Actual folder conventions, aggregate size, maximum file sizes, formats, and playable/original size ratio |
 | App-owned authentication | Invitations, German code delivery, expiry/reuse/attempt controls, 30-day sessions across restart, revocation, and restricted admin repair |
@@ -634,9 +643,8 @@ additional worker language is required by this baseline.
 | Term | Meaning here |
 | --- | --- |
 | Container image | A packaged application release, containing code/static files rather than choir data or runtime secrets |
-| Aspire AppHost | Local orchestrator that starts application services/dependencies and supplies their connections |
-| Aspire dashboard | Local resource/status view and destination for development telemetry |
-| OpenTelemetry / OTLP | Logs, traces and metrics instrumentation / the protocol exporting those signals to Aspire |
+| Local dev stack | Compose file plus `dev.sh` that starts the local dependencies, migration and finite workers without .NET (issue #245) |
+| OpenTelemetry / OTLP | Logs, traces and metrics instrumentation / the protocol exporting those signals over OTLP |
 | Replica | One running instance of that application image |
 | Cold start | Time spent starting a stopped app/database for the next real request |
 | Hot / Cold / Archive | Storage tiers: Hot and Cold are online; Archive is offline. Cold is the selected originals tier |
