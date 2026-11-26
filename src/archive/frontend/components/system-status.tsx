@@ -46,7 +46,7 @@ export function SystemStatus({
       const database = await fetch("/api/dev/database");
       if (!database.ok)
         throw new Error(
-          "PostgreSQL ist nicht erreichbar. Dienste in Aspire prüfen.",
+          "PostgreSQL ist nicht erreichbar. Lokalen Stack mit dev.sh up starten.",
         );
       const data: { connected: boolean; pendingMigrations: string[] } =
         await database.json();
@@ -65,11 +65,11 @@ export function SystemStatus({
       });
       if (!response.ok)
         throw new Error(
-          "Der Funktionstest ist fehlgeschlagen. Details in Aspire prüfen.",
+          "Der Funktionstest ist fehlgeschlagen. Details im Log des API-Servers prüfen.",
         );
       const { message } = await response.json();
       setResult(
-        `PostgreSQL verbunden. ${message}${data.pendingMigrations.length ? " Schema noch ausstehend: archive-migrate in Aspire starten." : " Schema ist aktuell."}`,
+        `PostgreSQL verbunden. ${message}${data.pendingMigrations.length ? " Schema noch ausstehend: dev.sh migrate starten." : " Schema ist aktuell."}`,
       );
     } catch (failure) {
       setFehlschlag(true);
