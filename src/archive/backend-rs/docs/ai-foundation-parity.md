@@ -81,7 +81,8 @@ No gateway/ledger SQL/ACK, transport/encoder, identity, notice/threshold, native
 helper, frozen source/test/frontend, infrastructure, workflow or Dockerfile change
 is included. Original candidate/accepted base/transport-reviewed ancestry and
 `git diff --check` passed. Existing source limitations/failures and pending hosted/
-image/AppHost/cutover gates remain unwaived; no cleanup or merge was performed.
+image/cutover gates (the Aspire/AppHost gate was removed by #247; today
+`check-image-stack.sh`) remain unwaived; no cleanup or merge was performed.
 
 ### Original seven findings — independently closed at `3c7db5d`
 
@@ -136,7 +137,7 @@ are evidence from their original reviews, not claimed as new independent work.
 Both `74ef3d0` and accepted `c7d9fd8` are verified ancestors. Frozen C#/tests,
 frontend, infrastructure, workflows and Dockerfile have no diff from the accepted
 base. Existing browser failures, historical UNCLASSIFIED redaction failure,
-video FK refusal, PDF/native limits and hosted/image/AppHost/cutover gates remain
+video FK refusal, PDF/native limits and hosted/image/cutover gates remain
 as recorded below and in their owning parity docs; these passes do not reclassify
 them. Private captures and owned local services remain intact; no cleanup ran.
 
@@ -412,7 +413,7 @@ checks conservative reservation retention, nonzero finite exit and OTLP flush.
 Final executed counts and retained failures are recorded in the handoff report;
 pending gates are not passes. Existing frozen browser failures, unclassified
 historical redaction failure, video-job FK refusal, cooperative PDF/native limits,
-hosted acceptance and image/AppHost/cutover gates remain unchanged.
+hosted acceptance and image/cutover gates remain unchanged.
 
 ## Historical original-candidate validation (74ef3d0, 2026-11-10)
 

@@ -131,8 +131,9 @@ capture per `tests/telemetry/README.md`.
 
 Inherited real frozen browser failures, video-job FK removal refusal and original
 uncaptured redaction ambiguity remain documented in predecessor runbooks; a fresh
-native pass does not erase them. Hosted storage, actual Rust image/AppHost,
-production, live AI/mail and cutover remain later/approval-gated.
+native pass does not erase them. Hosted storage, actual Rust image,
+production, live AI/mail and cutover remain later/approval-gated (the
+Aspire/AppHost gate was removed by #247; today `check-image-stack.sh`).
 
 ## Initial candidate verification (227dc5f, superseded by review remediation)
 
@@ -190,4 +191,4 @@ The original uncaptured redaction failure remains unclassified; later clean
 captures do not establish its cause. No live AI/mail/Neon/production operation,
 push, issue/PR update, integration/main/cutover merge, deploy or worktree cleanup
 was performed. #227 recording writes, #231 scan/model behavior, #229/#232 their
-historical equivalents and image/AppHost/cutover gates remain with their owners.
+historical equivalents and image/cutover gates remain with their owners.

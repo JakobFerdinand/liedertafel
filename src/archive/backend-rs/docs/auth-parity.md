@@ -229,8 +229,9 @@ build can be made from `git archive 0ff95e6 src/archive/frontend` in a separate
 temporary directory; the checkout's frontend stays untouched.
 
 Live ACS/managed identity and production aggregate rechecks are **not run**;
-provider protocol tests use the actual transport boundary. Full Aspire/image
-retargeting and resource/AI routes remain their later waves, not #221 evidence.
+provider protocol tests use the actual transport boundary. Full image
+retargeting and resource/AI routes remain their later waves, not #221 evidence
+(the Aspire/AppHost gate was removed by #247; today `check-image-stack.sh`).
 
 ## Initial verification snapshot (9450e95, 2026-11-09)
 
@@ -305,7 +306,7 @@ For resource-bounded local builds the Cargo runs additionally set
 `CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0` and `-j 2`; these are build-resource
 settings, not policy changes. Static frontend `pnpm run build` was rerun outside
 the checkout from the same frozen source. Live ACS, real credentials, further
-production inventory and later Aspire/image gates remain unrun and unclaimed.
+production inventory and later image gates remain unrun and unclaimed.
 
 ## Authorized active license policy (2026-11-09)
 
@@ -332,7 +333,7 @@ accepted/merged/deployed; the subsequent allocation-review fix below is awaiting
 review. Supported
 native **OpenSSL 3.5.9** and the upstream v5 security-support qualification remain
 unchanged. The frozen Playwright test remains honestly failed on both origins;
-pre-cutover production compatibility recheck and later Aspire/image gates are
+pre-cutover production compatibility recheck and later image gates are
 still required. #222 has not been started.
 
 ## Independent security review: bounded anonymous state allocation
@@ -430,4 +431,4 @@ and `221-allocation-global-mutation-red.log` in the same temporary directory.
 No production/Neon/ACS/AI access, infrastructure/canonical-grant change, frozen
 source/test edit, issue write, push, integration/main merge or deployment was
 performed. Acceptance of the fix remains with the reviewer; later broad
-AppHost/image and separately authorized pre-cutover gates are still unclaimed.
+image and separately authorized pre-cutover gates are still unclaimed.

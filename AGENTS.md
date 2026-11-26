@@ -135,7 +135,7 @@ uses its generated Next.js/Biome conventions and local `AGENTS.md`.
 - Rust serves the only production origin. Keep Next.js statically exportable and API URLs relative; API errors must never fall back to HTML. Liveness stays dependency-free.
 - `archive-telemetry` owns OTLP logs/traces/metrics, required in Development. Finite workers carry W3C context, drain admitted work, and flush before exit. Run migrations explicitly (`archive-migrate` / `--migrate`), never at API startup. The SQLx migrations adopt the verified frozen EF head; older/drifted schemas refuse adoption.
 - AI uses the shared Gateway (telemetry → budget → provider), with the EUR 15 cap and environment-only model prices. A2UI accepts record IDs, not text or URLs; the server resolves visibility and builds/rechecks cards (strict AG-UI client: omit nulls). Stored reading only fills empty fields with certain, quote-verified values. Lied/Auftritt readings return inline suggestions; only exact unique Lied matches are pre-selected. See the nested Rust guide for feature contracts.
-- Local diagnostics/mail/storage setup are Development-only; normal startup needs no production credentials. The .NET 10 SDK remains for the unrelated Functions APIs and the archive image-test topology.
+- Local diagnostics/mail/storage setup are Development-only; normal startup needs no production credentials. The .NET 10 SDK remains for the unrelated Functions APIs only.
 
 ## Infrastructure
 - Azure estate lives in resource group `RG-Liedertafel` (public Static Web App `liedertafel`, internal dashboard Static Web App `liedertafel-dashboard`).

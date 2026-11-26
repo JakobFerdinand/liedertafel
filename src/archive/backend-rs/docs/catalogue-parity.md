@@ -143,7 +143,7 @@ not an assertion that the write path producing it already exists.
 | `ReattachingThePlaybackSlotReturnsTheColdOriginalToHotStorage` | **#227**, provider-before-DB restoration on slot mutation |
 | `RemovingThePlaybackCopyReturnsTheColdOriginalToHotStorage` | #224 `datei_lifecycle_tiers` recording slot/reference coordination; frozen video-job FK limitation is explicit in upload/trash doc; #234 cleaner CLI remains |
 | `ArchiveAccessTests.IsAuftrittsAufnahmeMemberVisible…`, live Lied reads | Real authenticated `datei_access` member/editor/published-recording/document/trashed-parent gates; other event/recording/passage access assertions stay #225/#227 |
-| AppHost direct-download/range assertions | Provider/native components exercised here; full retargeted Rust image, all workers and unchanged AppHost assertions remain **#235** |
+| AppHost direct-download/range assertions | Provider/native components exercised here; full retargeted Rust image and all workers remain **#235**, the translated assertions run in `check-image-stack.sh` |
 
 The old Rust unported-route fixture now names the still-unimplemented upload
 route instead of the implemented Lied detail; the stable miss assertions remain

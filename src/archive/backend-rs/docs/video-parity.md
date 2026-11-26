@@ -127,7 +127,7 @@ Rust paths are `crates/archive-server/tests/` unless stated otherwise.
 | DispatcherSweepsExactlyTheUnstampedAndStaleQueuedRows | `video_worker::dispatcher_sweeps_only_unstamped_and_strictly_stale_queued_rows_in_order` |
 | Additional public HTTP/current SQL boundaries | `video_api`: owner finalize/outbox/status/retry, selected-version quiet stamps/send count, rollback and concurrent finalize; `video_lifetime`: actual process tree/deadline/SIGTERM/lease/late winner/editor slot; `video_media`: actual square/rotation/decode/length/missing Blob |
 | FiniteJobsTests/TelemetryTests video members | `video_worker` + `tests/browser/{video,video-process}-native.cjs`; complete remaining command matrix234 and authenticated HTTP/protobuf export235 remain distinct |
-| AppHost playable video fact | Native unchangedUI/normalCLI/private QueueBlob here; actual image/AppHost remains235 |
+| AppHost playable video fact | Native unchangedUI/normalCLI/private QueueBlob here; actual image remains235 |
 | R1 exited-leader/escaped-helper | User-approved **shared retained failure**; independent unchanged frozen-class versus unchanged Rust-module differential below, not a passing product containment gate |
 
 Assertion follow-up (C1): the ordinary pure

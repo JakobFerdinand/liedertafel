@@ -377,6 +377,7 @@ Inherited passkey/member browser failures, UNCLASSIFIED historical redaction,
 video FK refusal, historical migration equivalents, conditional budget/current
 price/unknown-ACK/not-exactly-once notices, native cooperative cancellation and
 decoded-expansion limits remain unwaived. Hosted identity/storage/mail, live AI,
-private inputs, image/AppHost/cutover and whole-integration independent review
-stay separately gated. No push/tracker/integration-main merge/deployment/cleanup.
+private inputs, image/cutover and whole-integration independent review
+stay separately gated (the Aspire/AppHost gate was removed by #247; today
+`check-image-stack.sh`). No push/tracker/integration-main merge/deployment/cleanup.
 #232 waits for independently accepted230 **and**231.

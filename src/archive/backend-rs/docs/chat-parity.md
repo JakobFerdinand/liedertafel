@@ -56,7 +56,7 @@ outbound merge/push, fixture cleanup or frozen-source change was authorized.
 This is a local implementation candidate, not an accepted port wave.
 The frozen C# backend/tests and static frontend remain unchanged. This guide owns
 the chat seams; foundation accounting limitations remain in
-`ai-foundation-parity.md`. No hosted, paid-model, image or AppHost acceptance is
+`ai-foundation-parity.md`. No hosted, paid-model or image acceptance is
 implied by offline tests.
 
 ## Ownership and wire
@@ -245,7 +245,7 @@ It checks first/second socket abort and SIGTERM, early RUN_ERROR+blocked save,
 one paid-save attempt/no replay, retained reservation/nonzero settlement failure,
 and nonzero exporter failure. Both gates drain children/collector before secrecy
 assertion and retain terminal replays. Neither is a product command, live-provider
-authorization or image/AppHost pass.
+authorization or image pass.
 
 The full inherited gates, both form consumers, native browser regressions,
 three-signal replay, terminal audit and independent review remain required after

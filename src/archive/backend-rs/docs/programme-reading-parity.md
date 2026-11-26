@@ -27,7 +27,8 @@ use ties-to-even dimensions, premultiplied-alpha JPEG onto black, and only the
 frozen90/180/270 EXIF rotations; mirrored
 origins deliberately remain unchanged. Different JPEG/interpolation libraries
 are not claimed byte-identical. Native decode expansion/cooperative cancellation
-and final image/AppHost containment remain the accepted #235 limitations.
+and final image containment remain the accepted #235 limitations (the
+Aspire/AppHost gate was removed by #247; today `check-image-stack.sh`).
 
 Programme methods extend the existing `ScanReadingModel`/central script below
 Gateway + production SQL ledger. Agents/features are
@@ -86,7 +87,7 @@ It is not a product command, credentials bypass or live evaluation authorization
 `programm-reading-native.cjs` drives it for actual process SIGTERM/failed
 settlement and terminal OTLP privacy, alongside the real default product/unchanged
 UI draft-resume/editor-save journey. The final table records these executed
-gates; neither a socket gate nor the offline process fixture is image/AppHost
+gates; neither a socket gate nor the offline process fixture is image
 acceptance or a paid-provider proof.
 
 ## Per-file ownership and controls
@@ -195,7 +196,7 @@ tab-close/completed-navigation controls; neither is relabelled a feature pass.
 This programme-only tree makes no Rust Lied-route/accepted-union claim. Model-
 capable main's checked flush is shared-source behavior; this gate does not add
 its own default-product failing-exporter probe. Hosted credentials/providers,
-private corpora, image/AppHost/production/cutover and live spend remain unrun.
+private corpora, image/production/cutover and live spend remain unrun.
 No push/tracker/deploy/outbound merge/manual cleanup occurred. Independent #231
 rereview and #230 shared-source/runtime clearance are still REQUIRED; parent
 owns acceptance/merge and #232 remains blocked.
@@ -334,7 +335,7 @@ PostgreSQL55431, private Azurite51031/52031/53031, providers and final capture
 directories are ticket-owned. Native/decoded expansion, conditional cap/current
 price/ACK/notices, historical migration equivalents, frozen browser failures,
 original UNCLASSIFIED redaction and video-FK refusal remain unwaived. Hosted
-identity/storage/model/private corpus, production image/AppHost/cutover and paid
+identity/storage/model/private corpus, production image/cutover and paid
 evaluation remain unrun. No push/tracker/main or integration merge, deployment
 or manual cleanup occurred. Shared631bb44 snapshots preserve peer ownership;
 the second accepted consumer must merge the first and rerun the combined tree.
