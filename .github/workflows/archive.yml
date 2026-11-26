@@ -192,21 +192,6 @@ jobs:
           node-version: 24
           cache: pnpm
           cache-dependency-path: src/archive/frontend/pnpm-lock.yaml
-      - uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: 10.0.x
-      - name: Install pinned Aspire CLI bundle
-        env:
-          ASPIRE_CLI_TELEMETRY_OPTOUT: '1'
-        run: |
-          # Resolve once on a fresh runner, before building the image or Rust tests.
-          install_path="$RUNNER_TEMP/archive-aspire"
-          # Aspire 13.6 validates discovery after extraction; a custom path
-          # is not discoverable on a runner without a preexisting Aspire home.
-          export ASPIRE_LAYOUT_PATH="$install_path/bundle"
-          dnx --yes aspire.cli@13.6.5 -- setup --install-path "$install_path"
-          test -x "$ASPIRE_LAYOUT_PATH/dcp/dcp"
-          echo "AspireCliBundlePath=$ASPIRE_LAYOUT_PATH" >> "$GITHUB_ENV"
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
         working-directory: src/archive/frontend
@@ -260,14 +245,13 @@ jobs:
         run: |
           bash src/archive/backend-rs/tests/image/check-apphost-image.sh
           bash src/archive/backend-rs/tests/image/check-apphost-image-failures.sh
-      - name: Clean Aspire cross-stack against the candidate image
+      - name: Cross-stack shell gate against the candidate image
         env:
           Archive__TestImageTag: candidate
           ARCHIVE_EXPECTED_IMAGE_VERSION: ${{ steps.version.outputs.version }}
           ASPIRE_CONTAINER_RUNTIME: docker
         run: |
-          dotnet build src/archive/Archive.slnx --configuration Release
-          dotnet test tests/archive/apphost-rust --no-build --configuration Release
+          bash src/archive/backend-rs/tests/image/check-image-stack.sh
       - name: Production browser smoke
         working-directory: src/archive/frontend
         env:

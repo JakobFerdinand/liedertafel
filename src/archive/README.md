@@ -792,7 +792,7 @@ ordinary suites. Use `cargo test --locked -p archive-server --test <name>` to
 focus. Tests marked ignored need disposable PostgreSQL, private Azurite,
 PDFium, media tools, or the local candidate image. The release check runs these
 explicitly with prerequisites via `tests/image/check-translated.sh` (from the
-repo root), plus browser, detector, dependency and image/AppHost gates. It
+repo root), plus browser, detector, dependency, image and cross-stack gates. It
 reports the three live AI evaluations as skipped, never as model passes. Live
 runs require separate authorization, configuration and (for scans) private
 input; see the individual parity guides. The frozen C# oracle is in git at
@@ -809,15 +809,14 @@ pnpm exec playwright install chromium
 ARCHIVE_BASE_URL=http://localhost:<frontend-port> pnpm run test:browser
 ```
 
-Run `pnpm run test:browser -- --grep "German deep link"` to focus. Stop the
-local dev stack (`dev.sh down`) before running image AppHost tests; they share
-the frontend worktree. The seven cross-stack cases all use the exact
-production Dockerfile image. See
+Run `pnpm run test:browser -- --grep "German deep link"` to focus. The
+cross-stack cases all use the exact production Dockerfile image. See
 [the image gate](backend-rs/docs/image-apphost-parity.md) for build and smoke
-commands or a focused `dotnet test tests/archive/apphost-rust` invocation. For
+commands; its cross-stack shell gate
+(`tests/image/check-image-stack.sh`) boots PostgreSQL, Azurite, Mailpit and
+the OTLP collector itself, so no separate image-test topology starts here. For
 Podman builds add `--ignorefile src/archive/Dockerfile.dockerignore`. The
 container serves on port 8080 as UID 10001 with only private scratch writable.
 
-`dotnet build src/archive/Archive.slnx` builds the retained image-test
-topology and its integration tests. `dotnet build liedertafel.slnx` checks repository SDK
+`dotnet build liedertafel.slnx` checks repository SDK
 compatibility; analytics checks remain `dotnet run --project tests/dashboard-api`.
