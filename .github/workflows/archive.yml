@@ -229,7 +229,7 @@ jobs:
       - name: Translated Rust suites with disposable PostgreSQL, Azurite and PDFium
         env:
           Archive__TestImageTag: candidate
-          ASPIRE_CONTAINER_RUNTIME: docker
+          ARCHIVE_CONTAINER_RUNTIME: docker
           CARGO_PROFILE_DEV_DEBUG: 0
           CARGO_PROFILE_TEST_DEBUG: 0
           CARGO_INCREMENTAL: 0
@@ -241,7 +241,7 @@ jobs:
         env:
           Archive__TestImageTag: candidate
           ARCHIVE_EXPECTED_IMAGE_VERSION: ${{ steps.version.outputs.version }}
-          ASPIRE_CONTAINER_RUNTIME: docker
+          ARCHIVE_CONTAINER_RUNTIME: docker
         run: |
           bash src/archive/backend-rs/tests/image/check-apphost-image.sh
           bash src/archive/backend-rs/tests/image/check-apphost-image-failures.sh
@@ -249,7 +249,7 @@ jobs:
         env:
           Archive__TestImageTag: candidate
           ARCHIVE_EXPECTED_IMAGE_VERSION: ${{ steps.version.outputs.version }}
-          ASPIRE_CONTAINER_RUNTIME: docker
+          ARCHIVE_CONTAINER_RUNTIME: docker
         run: |
           bash src/archive/backend-rs/tests/image/check-image-stack.sh
       - name: Production browser smoke

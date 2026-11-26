@@ -1,5 +1,5 @@
 //! Origin configuration, read from the environment the hosts are handed
-//! (Aspire injects `PORT`; the container carries `PORT` at cutover;
+//! (`PORT` from the environment, both locally and in the container;
 //! `ARCHIVE_*` variables carry the archive-specific settings).
 
 use std::env;
@@ -52,7 +52,7 @@ pub struct Settings {
 	/// Root of the statically exported Next.js frontend (`out/` in the image,
 	/// `wwwroot` as the C# container layout).
 	pub static_root: PathBuf,
-	/// HTTP port (container: 8080, local Aspire resource: injected `PORT`).
+	/// HTTP port (container: 8080, local development: `PORT` from the environment).
 	pub port: u16,
 }
 

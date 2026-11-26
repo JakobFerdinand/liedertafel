@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Harmless negative controls against the same image and container shell as the smoke.
 set -euo pipefail
-export REAL_RUNTIME=${ASPIRE_CONTAINER_RUNTIME:-podman}
+export REAL_RUNTIME=${ARCHIVE_CONTAINER_RUNTIME:-podman}
 checker="$(dirname "$0")/check-apphost-image.sh"
 dir=$(mktemp -d)
 trap 'rm -rf -- "$dir"' EXIT
-export ASPIRE_CONTAINER_RUNTIME="$dir/runtime"
-cat >"$ASPIRE_CONTAINER_RUNTIME" <<'BASH'
+export ARCHIVE_CONTAINER_RUNTIME="$dir/runtime"
+cat >"$ARCHIVE_CONTAINER_RUNTIME" <<'BASH'
 #!/usr/bin/env bash
 set -euo pipefail
 # Only run the isolated shell check. Reaching the HTTP phase is a test failure.
@@ -34,7 +34,7 @@ args[last]="$stub
 ${args[last]}"
 exec "$REAL_RUNTIME" "${args[@]}"
 BASH
-chmod +x "$ASPIRE_CONTAINER_RUNTIME"
+chmod +x "$ARCHIVE_CONTAINER_RUNTIME"
 
 for CONTROL in writable node openssl pdf-missing archive-ldd pdf-ldd grep-error; do
   export CONTROL

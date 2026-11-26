@@ -1,6 +1,0 @@
-<Solution>
-  <Folder Name="/apphost/">
-    <Project Path="apphost-rust/Archive.Rust.AppHost.csproj" />
-  </Folder>
-  <Project Path="../../tests/archive/apphost-rust/Archive.Rust.AppHost.Tests.csproj" />
-</Solution>

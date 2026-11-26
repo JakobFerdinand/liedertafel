@@ -9,8 +9,8 @@ Use this guide when editing or extending the codebase.
 - src/dashboard: internal, auth-gated Astro dashboard (Svelte islands + Layerchart) for the `liedertafel-dashboard` Static Web App; overview at `/`, session inspector at `/sessions`. Shared API/date helpers in `src/lib`, UI grouped under `src/components/{filters,overview,breakdowns,sessions}`, styling in `src/styles/global.css`.
 - src/dashboard-api: Azure Functions managed API (C# .NET isolated); serves read-only `/api/pageviews/stats`, `/api/pageviews/sessions`, and `/api/pageviews/sessions/{sessionRef}` endpoints. All require bounded Vienna date ranges; session references are opaque, range-bound handles.
 - src/pageview-storage: shared C# library (net10.0) referenced by both APIs; owns the stored pageview shape (`PageViewEntity`), table name and `Pv|yyyy-MM-dd` UTC partition scheme (`PageViewTable`) and navigation vocabulary (`NavigationTypes`). Change stored-data rules here, never in an API. Its path is in both API workflows' path filters.
-- src/archive: Rust choir archive. `backend-rs/` owns the API, static export, finite workers, migrations and OTLP; its nested `AGENTS.md` lists feature-specific checks. `compose.yaml`, `dev.sh` and `dev.env` provide the .NET-free local development stack (PostgreSQL/Azurite/Mailpit via Compose), `apphost-rust/` is the disposable image-test topology, and `frontend/` is the unchanged Next.js static client. Follow `src/archive/README.md` for startup and verification.
-- tests/archive: cross-stack Aspire tests in `apphost-rust/`, shared synthetic fixtures in `apphost/TestAssets/` and `fixtures/`; browser checks live in `src/archive/frontend/tests`.
+- src/archive: Rust choir archive. `backend-rs/` owns the API, static export, finite workers, migrations and OTLP; its nested `AGENTS.md` lists feature-specific checks. `compose.yaml`, `dev.sh` and `dev.env` provide the .NET-free local development stack (PostgreSQL/Azurite/Mailpit via Compose), and `frontend/` is the unchanged Next.js static client. Follow `src/archive/README.md` for startup and verification.
+- tests/archive: shared synthetic fixtures — `apphost/TestAssets/` (video clip used by the Rust and browser tests) and `fixtures/drive-inventur/` (bulk-import corpus, #143); the cross-stack gate lives in `src/archive/backend-rs/tests/image/`. Browser checks live in `src/archive/frontend/tests`.
 - infrastructure: Azure Bicep templates for the RG-Liedertafel estate.
 - infrastructure/neon: archive Neon CLI/API setup runbook and SQL role/grant
   bootstrap. Follow its README for private credential handling; run
@@ -24,7 +24,7 @@ source-folder inventory (Drive, #98) runbook lives at
 `mapping.json` for the bulk import (#143) at
 `tests/archive/fixtures/drive-inventur/`.
 - docs/agents: issue tracker, triage label and domain doc conventions for agent skills.
-- liedertafel.slnx: .NET solution that opens all API projects together; global.json pins the .NET SDK.
+- liedertafel.slnx: .NET solution for the Functions APIs (the archive has no C#); global.json pins the .NET SDK.
 
 ## Commands (Build / Lint / Test)
 - Website deps: `cd src/website && pnpm install`
@@ -58,7 +58,7 @@ source-folder inventory (Drive, #98) runbook lives at
 - Do not invent lint commands; add one only if explicitly requested.
 
 ### Tests
-- Website/dashboard unit tests run with Node's built-in runner (type stripping, Node 24): from `src/website` or `src/dashboard`, `pnpm run test:unit`. Single files: `node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test src/lib/pageview-beacon.test.ts` (website), `node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test src/lib/loader.test.ts` (dashboard); archive uses Cargo, Playwright and the apphost-rust image tests as listed above.
+- Website/dashboard unit tests run with Node's built-in runner (type stripping, Node 24): from `src/website` or `src/dashboard`, `pnpm run test:unit`. Single files: `node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test src/lib/pageview-beacon.test.ts` (website), `node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test src/lib/loader.test.ts` (dashboard); archive uses Cargo, Playwright and the image shell gates as listed above.
 - API endpoint/date/pagination checks live in `tests/dashboard-api`; run `dotnet run --project tests/dashboard-api`.
 - Dashboard single-test command: not applicable; the focused console harness runs all API checks.
 - If tests are added later, update this file with a single-test example.

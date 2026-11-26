@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-runtime=${ASPIRE_CONTAINER_RUNTIME:-podman}
+runtime=${ARCHIVE_CONTAINER_RUNTIME:-podman}
 tag=${Archive__TestImageTag:?Set Archive__TestImageTag to the local candidate tag}
 version=${ARCHIVE_EXPECTED_IMAGE_VERSION:?Set ARCHIVE_EXPECTED_IMAGE_VERSION to the build version}
 image=localhost/liedertafel-archive:$tag

@@ -392,7 +392,6 @@ src/archive/
                             Local Compose dependencies, dev script and env (issue #245)
   frontend/                 Next.js + React + TypeScript, static export
   backend-rs/               Rust API, finite jobs, migrations and shared OTLP
-  apphost-rust/              Disposable Aspire image-test topology
 infrastructure/
   archive/                  Archive Bicep entry point/parameters
   modules/                  Reusable Azure modules where appropriate
@@ -475,7 +474,7 @@ rather than asking developers to start each dependency in a separate terminal:
   provider, local OTLP endpoint, mail and connection strings). Route browser API
   requests through a documented development proxy so cookie/CSRF behaviour stays
   representative of the single-origin packaged application.
-- The script detects Docker or Podman; no .NET SDK or Aspire is required.
+- The script detects Docker or Podman; no .NET SDK is required.
 
 Routine startup uses development-only identities, keys,
 mail and data; no production Neon, Azure Email or Key Vault credential is required.
@@ -689,9 +688,6 @@ quote. Recheck provider limits, region availability, and pricing before deployme
   [custom sender domains](https://learn.microsoft.com/en-us/azure/communication-services/quickstarts/email/add-custom-verified-domains), and
   [data geography](https://learn.microsoft.com/en-us/azure/communication-services/concepts/privacy).
 - [ASP.NET Data Protection configuration](https://learn.microsoft.com/en-us/aspnet/core/security/data-protection/configuration/overview).
-- [Aspire C# Service Defaults and OTLP export](https://aspire.dev/get-started/csharp-service-defaults/),
-  [Blob/Azurite hosting integration](https://aspire.dev/integrations/cloud/azure/azure-storage-blobs/azure-storage-blobs-host/), and
-  [Queue Storage hosting integration](https://aspire.dev/integrations/cloud/azure/azure-storage-queues/azure-storage-queues-host/).
 - [GHCR access/authentication](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry) and
   [GitHub Packages billing](https://docs.github.com/en/billing/concepts/product-billing/github-packages).
 - Repository baseline inspected: `infrastructure/main.bicep`,

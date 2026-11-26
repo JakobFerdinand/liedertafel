@@ -324,8 +324,8 @@ async fn run(args: Vec<String>) -> Result<(), StartupError> {
 }
 
 /// Startup failures: configuration (including the mandatory dev OTLP
-/// endpoint), listener binding and serving. Every path exits nonzero so the
-/// apphost resource fails visibly.
+/// endpoint), listener binding and serving. Every path exits nonzero so a
+/// failed start fails visibly.
 #[derive(Debug, thiserror::Error)]
 enum StartupError {
 	#[error("Archive job was cancelled.")]

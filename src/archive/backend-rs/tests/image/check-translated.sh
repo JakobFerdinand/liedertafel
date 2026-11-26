@@ -5,7 +5,7 @@ set -euo pipefail
 
 root=$(pwd)
 workspace="$root/src/archive/backend-rs"
-runtime=${ASPIRE_CONTAINER_RUNTIME:-docker}
+runtime=${ARCHIVE_CONTAINER_RUNTIME:-docker}
 tag=${Archive__TestImageTag:?Set Archive__TestImageTag to the local candidate tag}
 image="localhost/liedertafel-archive:$tag"
 export Archive__Video__FfmpegPath

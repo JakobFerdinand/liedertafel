@@ -12,7 +12,7 @@
 # environment, so remote container engines work as well.
 set -euo pipefail
 
-runtime=${ASPIRE_CONTAINER_RUNTIME:-podman}
+runtime=${ARCHIVE_CONTAINER_RUNTIME:-podman}
 tag=${Archive__TestImageTag:?Set Archive__TestImageTag to the local candidate tag}
 version=${ARCHIVE_EXPECTED_IMAGE_VERSION:?Set ARCHIVE_EXPECTED_IMAGE_VERSION to the build version}
 image=localhost/liedertafel-archive:$tag
@@ -33,7 +33,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Same throwaway dependency topology as the retired Aspire AppHost: the
+# Same throwaway dependency topology as the retired image-test AppHost: the
 # canonical Neon role bootstrap installs the real permission model and the
 # fixture passwords unlock its synthetic logins before first start. The SQL is
 # copied into the created container so no worktree bind mount is needed.
@@ -43,7 +43,7 @@ trap cleanup EXIT
 	docker.io/library/postgres:17.6 >/dev/null
 "$runtime" cp "$root/infrastructure/neon/bootstrap-roles.sql" \
 	"$pg":/docker-entrypoint-initdb.d/10-bootstrap.sql >/dev/null
-"$runtime" cp "$root/src/archive/apphost-rust/fixture-role-passwords.sql" \
+"$runtime" cp "$root/src/archive/backend-rs/tests/image/fixture-role-passwords.sql" \
 	"$pg":/docker-entrypoint-initdb.d/20-fixture-passwords.sql >/dev/null
 "$runtime" start "$pg" >/dev/null
 

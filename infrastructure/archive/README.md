@@ -159,11 +159,12 @@ deployment above. Linking an unverified domain fails with
 - Quotas are subscription-wide and shared with the unrelated alpakasoelde
   sender: 30 sends/min, 100 sends/hour for custom domains. API acceptance
   (`Succeeded`) never promises inbox arrival.
-- Local integration run (telemetry stays in Aspire): set AppHost user secrets
+- Local integration run (telemetry stays in the local Compose stack): set
   `Mail:Provider=Azure`, `Mail:AzureConnectionString` (from
   `az communication list-key -g RG-Liedertafel-Archive -n
-  acs-liedertafel-archive`, never committed) and `Archive:MailTestRecipient`,
-  then start the explicit `archive-mail-test` resource. Ordinary startup stays
+  acs-liedertafel-archive`, never committed) and `Archive:MailTestRecipient`
+  in the development environment (see `src/archive/dev.env`), then run the
+  explicit `--send-test-mail` command. Ordinary startup stays
   on Mailpit capture.
 - Pre-link rejection evidence (2026-09-17): data-plane send from the unlinked
   domain answers `404 DomainNotLinked`, nothing delivered.
@@ -252,8 +253,8 @@ unauthorized `/api/auth/me` (`authenticated:false`), and the bounded German
 500 on DB failure. Pre-release evidence 2026-09-17: unauthenticated `/me`
 correct, CSRF-less POST rejected, `/alive` 200 during a total DB outage
 with the DB-backed POST failing bounded (~6 s, German 500 with traceId),
-probes `/alive`-only, no `OTEL_*` env (no prod export to Aspire), image
-carries no AppHost. Inbox-dependent steps (real code, restart/replica
+probes `/alive`-only, no `OTEL_*` env (no production OTLP export), image
+carries no extra topology. Inbox-dependent steps (real code, restart/replica
 persistence, revocation) run with the pilot mailbox after release.
 
 ## Hosted private files (ARC-049)
@@ -576,7 +577,7 @@ left the resources orphaned and still billed.
   `curl https://archiv.liedertafel-mining.at/api/maintenance` — all in the
   sections above.
 - There were never metric alerts on application meters (production has no
-  OTLP endpoint; development keeps the Aspire path untouched), and nothing
+  OTLP endpoint; development keeps the local Compose path untouched), and nothing
   else in the group alerted.
 
 ### Re-enabling (if the cost argument changes)

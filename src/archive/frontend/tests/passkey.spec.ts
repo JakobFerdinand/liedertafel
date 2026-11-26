@@ -7,7 +7,7 @@ const mailUrl = process.env.ARCHIVE_MAIL_URL;
  * Uses Chromium's virtual WebAuthn authenticator (CDP), so enrollment and
  * username-less assertion run end-to-end: email-code sign-in, passkey
  * enrollment in the Archiv area, logout, and login with "Mit Passkey
- * anmelden". Needs the local stack (AppHost) with Mailpit, like auth-flow.
+ * anmelden". Needs the local Compose stack (dev.sh) with Mailpit, like auth-flow.
  */
 test("Passkey registrieren und wieder anmelden", async ({
   page,

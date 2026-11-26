@@ -89,8 +89,8 @@ environment, **not argv**:
 finite process registers service defaults, records a `migrate` span/completion
 event and flushes/shuts telemetry down on success and handled failure. HTTP
 startup never invokes migrations; `PORT`/static export are irrelevant to this
-command. AppHost/production command retargeting is deliberately deferred to the
-later orchestration/cutover tickets; the C# release remains unchanged.
+command. Production command retargeting was deliberately deferred to the later
+orchestration/cutover tickets; the frozen C# oracle remains unchanged.
 
 Production role bootstrap remains `infrastructure/neon/bootstrap-roles.sql`:
 the runtime gets only its own connection, never migration credentials.

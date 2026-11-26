@@ -10,8 +10,9 @@ image-test topology itself: fresh PostgreSQL 17.6, Azurite 3.35.0 and
 Mailpit 1.27.8 containers plus a local OTLP collector, on a private per-run
 network and without persistent resources. PostgreSQL receives the canonical
 role bootstrap (`infrastructure/neon/bootstrap-roles.sql`) plus the synthetic
-fixture passwords (`src/archive/apphost-rust/fixture-role-passwords.sql`)
-before first start; both files are reused unchanged, and the separate adoption
+fixture passwords (`tests/image/fixture-role-passwords.sql`, relocated from the
+deleted `src/archive/apphost-rust/` by #247) before first start; both files are
+reused unchanged, and the separate adoption
 database is created afterwards. The storage initializer, API, explicit migrate
 and adoption check and the smoke worker run the same local tag with image
 pulling disabled. The gate verifies only what is uniquely cross-stack: stack
@@ -36,7 +37,7 @@ real Gateway.
 Requires Podman (or Docker) and Python 3. From the repo root:
 
 ```sh
-export ASPIRE_CONTAINER_RUNTIME=podman
+export ARCHIVE_CONTAINER_RUNTIME=podman
 export Archive__TestImageTag=local-$(git rev-parse --short HEAD)
 export ARCHIVE_EXPECTED_IMAGE_VERSION=$Archive__TestImageTag
 podman build --layers \
@@ -99,10 +100,11 @@ scrubbing later. Existing gRPC default and transport remain unchanged.
 ## Assertion translation
 
 The source oracle is `tests/archive/apphost` and its seven `[Fact]` methods
-at `8c7a077988d3ca6a0a72788fb4cc13da9e3ae4a6`.
-The copies in `tests/archive/apphost-rust` deliberately retain original
-method names, fixtures and assertion bodies, so a side-by-side diff shows
-each topology and oracle translation.
+at `8c7a077988d3ca6a0a72788fb4cc13da9e3ae4a6` in git history. The Aspire xUnit
+copies in `tests/archive/apphost-rust` retained the original method names,
+fixtures and assertion bodies until #247 removed them together with the AppHost
+topology; the shell gate above now carries the scenarios, and the table below
+keeps the translation.
 
 | Frozen method | Image assertion ownership |
 | --- | --- |
