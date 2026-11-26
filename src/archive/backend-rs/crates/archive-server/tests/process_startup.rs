@@ -10,7 +10,7 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// One free loopback port, taken from the OS and released just before the
-/// binary binds it (same window the Aspire resource bridges).
+/// binary binds it (same window the retired AppHost bridged).
 fn free_port() -> u16 {
 	std::net::TcpListener::bind(("127.0.0.1", 0))
 		.expect("ephemeral listener")

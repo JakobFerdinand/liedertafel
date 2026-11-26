@@ -5,15 +5,8 @@
     <Project Path="src/pageview-storage/PageViewStorage.csproj" />
   </Folder>
   <Folder Name="/src/archive/" />
-  <Folder Name="/src/archive/apphost/">
-    <Project Path="src/archive/apphost/Archive.AppHost.csproj" />
-    <Project Path="src/archive/apphost-rust/Archive.Rust.AppHost.csproj" />
-  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/dashboard-api/dashboard-api-checks.csproj" />
   </Folder>
   <Folder Name="/tests/archive/" />
-  <Folder Name="/tests/archive/apphost/">
-    <Project Path="tests/archive/apphost-rust/Archive.Rust.AppHost.Tests.csproj" />
-  </Folder>
 </Solution>

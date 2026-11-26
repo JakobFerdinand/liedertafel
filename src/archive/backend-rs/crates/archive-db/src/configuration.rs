@@ -1,5 +1,6 @@
-//! Preserve the existing operator environment seam, including Aspire's Npgsql
-//! string. Parsing errors intentionally never contain values (passwords).
+//! Preserve the existing operator environment seam, including the inherited
+//! Npgsql connection-string names. Parsing errors intentionally never contain
+//! values (passwords).
 
 use super::MigrationError;
 use sqlx::postgres::{PgConnectOptions, PgSslMode};

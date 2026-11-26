@@ -1,7 +1,8 @@
 # Maintainer operations (#234)
 
 The normal `archive-server` binary owns these seams. No migration runs
-implicitly. The local image and AppHost gates, and OTLP HTTP/protobuf, belong
+implicitly. The local image gate (the Aspire/AppHost runner was removed by
+#247; today `check-image-stack.sh`) and OTLP HTTP/protobuf belong
 to #235. The frozen C# backend and tests at `8c7a077` in git remain the
 historical reference.
 

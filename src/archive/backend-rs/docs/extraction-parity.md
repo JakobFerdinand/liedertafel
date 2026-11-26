@@ -61,8 +61,9 @@ before any acceptance or wave6 advance.
   **not** run. Earlier pre-union/initial-union passes are not final acceptance.
 
 Base: accepted integration `5c5611a`. Frozen C#, xUnit, frontend, infrastructure,
-workflow and Dockerfile remain unchanged. No model is called. Image/AppHost
-retargeting is #235; hosted identity/storage and cutover are separate gates.
+workflow and Dockerfile remain unchanged. No model is called. Image
+retargeting is #235 (the Aspire/AppHost gate was removed by #247; today
+`check-image-stack.sh`); hosted identity/storage and cutover are separate gates.
 
 ## Final combined evidence (2026-11-10)
 
@@ -113,7 +114,7 @@ browser failures remain failures and were not rerun by the scoped mocked selecti
 the original uncaptured member-redaction ambiguity stays **UNCLASSIFIED**. Video-FK
 refusal and historical migration-equivalent qualifications are unchanged.
 
-Unrun here: actual image/AppHost packaging/roundtrip (#235), hosted Entra/RBAC,
+Unrun here: actual image packaging/roundtrip (#235), hosted Entra/RBAC,
 production/Neon/deployment/cutover, real external mail, live AI and full reading
 gateway/writer/progress suites (#229), video workers (#233). Cooperative C-call
 cancellation and decoded-expansion limits below remain explicit limitations.
@@ -227,8 +228,8 @@ Grouped assertions do not multiply reported test passes.
 | `NotenTextSearchTests.cs` | inherited `noten_text_search`; native unchanged-UI upload→search finds PDF-only words |
 | `LiedSucheQuellenTests.cs` | inherited `lied_suche_quellen`; new completion enters shared canonical visible SQL/search |
 | `SearchAgreementTests.cs` | inherited `search_agreement`; actual chat adapter remains #232 |
-| `FiniteJobsTests.cs`, `TelemetryTests.cs` | extraction native maintenance/finite completion/three-signal redaction here; full operator allowlist/cleanup #234, image/AppHost #235 |
-| AppHost `ExtractionRoundtripTests.cs` | native executable/unchanged UI/private providers here; actual image/AppHost plus gateway/field prefill #235 after #228/#229 |
+| `FiniteJobsTests.cs`, `TelemetryTests.cs` | extraction native maintenance/finite completion/three-signal redaction here; full operator allowlist/cleanup #234, image #235 |
+| AppHost `ExtractionRoundtripTests.cs` | native executable/unchanged UI/private providers here; actual image plus gateway/field prefill #235 after #228/#229 |
 | `ReadingWorkerTests.cs`, `ReadingApiTests.cs`, `PdfPageRendererTests.cs` | #229 owns full scan/progress/budget/writer/render suites; queued handoff and bounded native render capability only here |
 
 This is an ownership map, not a claim each frozen method or image/hosted gate
@@ -287,7 +288,7 @@ The native extraction gate additionally refuses absent/incompatible libraries,
 checks no durable attempt was spent, cancels stalled Queue transport through an
 actual SIGTERM/finite telemetry finish, verifies a final allowed stale attempt
 and spent-lease failure, and sends the queued reading notification through real
-Azurite without implementing or calling AI. Not image/AppHost, hosted MI/RBAC,
+Azurite without implementing or calling AI. Not image, hosted MI/RBAC,
 live-model or universal PDF-layout equivalence evidence. Previously failed frozen
 real-member/passkey assertions were not rerun in the mocked selection and remain
 failures; the original uncaptured redaction event remains unclassified.

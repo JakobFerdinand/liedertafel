@@ -1,7 +1,8 @@
 //! OTLP traces, metrics and logs for every backend-rs host.
 //!
 //! Rust port of the archive's `AddServiceDefaults()` (`src/archive/service-defaults`),
-//! driven by the Aspire environment: `OTEL_EXPORTER_OTLP_ENDPOINT` is mandatory
+//! driven by the orchestration environment (`dev.env` in the local Compose
+//! stack): `OTEL_EXPORTER_OTLP_ENDPOINT` is mandatory
 //! in Development, `OTEL_SERVICE_NAME`/`OTEL_RESOURCE_ATTRIBUTES` are consumed
 //! exactly as the DCP injection writes them, and Development always samples
 //! everything. Console logging alone is insufficient — this crate registers all
@@ -52,7 +53,7 @@ pub struct ServiceDefaults {
 /// endpoint, provider errors otherwise.
 #[derive(Debug, thiserror::Error)]
 pub enum InitError {
-	#[error("Development requires OTLP configuration. Start the archive through AppHost.")]
+	#[error("Development requires OTLP configuration. Start the archive through the local stack (src/archive/dev.sh).")]
 	MissingOtlpEndpoint,
 
 	#[error("the OTLP exporter could not be built; check its endpoint and configuration")]

@@ -1,56 +1,88 @@
 # Choir archive
 
 The Rust `archive-server` serves the unchanged Next.js static export and `/api/*`
-under one production origin. Aspire still orchestrates local development, where
-Next.js/Turbopack supplies hot reload and a same-origin API proxy. There is no
-Node.js or .NET runtime in the production image.
+under one production origin. Docker or Podman Compose runs the local
+dependencies, started by `dev.sh`; the API and frontend start by hand with the
+committed dev environment, where Next.js/Turbopack supplies hot reload and a
+same-origin API proxy. There is no Node.js or .NET runtime in the production
+image.
 
 ## Start from a clean checkout
 
-Prerequisites: the pinned Rust toolchain (`rustup`), .NET 10 SDK (Aspire only),
-Node.js 24 and pnpm 11.3.0, and Docker or Podman. From the repository root:
+Prerequisites: the pinned Rust toolchain (`rustup`), Node.js 24 and pnpm
+11.3.0, and Docker or Podman with a Compose provider. No .NET SDK is needed.
+From the repository root:
 
 ```bash
 (cd src/archive/backend-rs && cargo build --workspace --locked)
 pnpm --dir src/archive/frontend install --frozen-lockfile
-dotnet run --project src/archive/apphost
+src/archive/dev.sh up
+src/archive/dev.sh migrate
 ```
 
-For Podman, set `ASPIRE_CONTAINER_RUNTIME=podman` before starting AppHost.
+`dev.sh up` starts PostgreSQL 17.6, Azurite 3.35.0, Mailpit and the local
+OpenTelemetry collector from
+[compose.yaml](compose.yaml) and waits until the data services report healthy
+and the collector is running, then
+runs the one-time local storage initialization. It detects the container
+runtime; set `ARCHIVE_CONTAINER_RUNTIME=docker|podman` to choose explicitly.
 For PDF extraction or Lesungen, set `Archive__Pdfium__LibraryPath` to the
-absolute path of the pinned native library described in
-[image native notices](backend-rs/docs/image-native-notices.md); video work needs
-`ffmpeg` and `ffprobe` on PATH. No cloud credentials are needed for normal startup.
+absolute path of the pinned native library as described in [dev.env](dev.env)
+([image native notices](backend-rs/docs/image-native-notices.md)); the path is
+machine-specific, so dev.env ships it commented out and `dev.sh` prints a
+reminder when it is unset. Video work
+needs `ffmpeg` and `ffprobe` on PATH. No cloud credentials are needed for
+normal startup.
 
-Open the dashboard login URL printed by AppHost. Start **archive-migrate** and
-wait for exit 0, then open `archive-frontend` and visit `/system/status/`.
-**Lokale Dienste prüfen** exercises PostgreSQL, Blob, Queue and Mailpit. The
-Mailpit HTTP endpoint shows the captured email. Ctrl+C stops the stack; local
-PostgreSQL and Azurite volumes persist. `Archive__PersistLocalData=false` starts
-fresh local containers instead. Dashboard/OTLP endpoints use authenticated
-loopback HTTP; browser sessions use Secure cookies in production.
+Then start the API and the frontend by hand, each in its own terminal. The
+dev environment comes from [dev.env](dev.env); its hyphenated variable names
+(`ConnectionStrings__*`) cannot be sourced by the shell, so the lines are
+passed to `env`:
+
+```bash
+# Terminal 1 — Rust API on http://localhost:8080:
+cd src/archive/backend-rs
+env $(grep -vE '^\s*(#|$)' ../dev.env) cargo run --locked -p archive-server
+
+# Terminal 2 — Next.js frontend with Turbopack hot reload on http://localhost:3000:
+cd src/archive/frontend
+env $(grep -vE '^\s*(#|$)' ../dev.env) PORT=3000 pnpm run dev
+```
+
+The `$(grep ...)` expansion passes every dev.env line as one `env` argument;
+dev.env values must not contain spaces (they don't), and dev.env values win
+over exported variables.
+
+Open `http://localhost:3000/system/status/`. **Lokale Dienste prüfen**
+exercises PostgreSQL, Blob, Queue and Mailpit. The Mailpit HTTP endpoint shows
+the captured email. `dev.sh down` stops the stack; the named volumes keep
+PostgreSQL, Azurite and Mailpit data across restarts — delete them with
+`<runtime> compose --project-name archive-dev down -v` for a fresh start.
+Browser sessions use Secure cookies in production.
 
 ## Resources and configuration contract
 
 | Resource | Contract |
 | --- | --- |
-| `archive-postgres` / `archive-db` | PostgreSQL 17.6; local Aspire-generated password |
-| `archive-storage` | Azurite 3.35.0 with Blob and Queue endpoints; Blob port 10000 also supports emulator server-side copy |
-| `archive-mail` | Mailpit 1.27.8; captured SMTP and HTTP inbox |
-| `archive-storage-init` | Automatic finite setup of private `archive-assets` and configured extraction, reading and video queues |
-| `archive-api` | Cargo-built executable; `Archive__ServerBinary` overrides `backend-rs/target/debug/archive-server` |
-| `archive-frontend` | Turbopack proxy; receives `PORT` and server-only `ARCHIVE_API_URL` |
-| `archive-migrate` | Explicit; only resource receiving `ConnectionStrings__archive-migrations` |
-| `archive-worker-smoke`, `archive-extract`, `archive-read`, `archive-transcode`, `archive-papierkorb-cleanup` | Explicit finite runs; AppHost supplies local dependencies and OTLP |
+| `archive-postgres` | PostgreSQL 17.6 with the fixed development-only password from `compose.yaml`/`dev.env` |
+| `archive-azurite` | Azurite 3.35.0 with Blob and Queue endpoints; Blob port 10000 also supports emulator server-side copy |
+| `archive-mailpit` | Mailpit 1.27.8; captured SMTP and HTTP inbox |
+| `archive-otelcol` | OpenTelemetry collector; the local OTLP endpoint from `dev.env`, output in the container log. Its health check can only re-validate the configuration (scratch image, no in-container HTTP client) |
+| `dev.sh up` | Starts the stack, waits until the data services are healthy and the collector is running, then runs the one-time `--initialize-local-storage` setup |
+| API (by hand) | `cargo run --locked -p archive-server` with `dev.env` applied; serves on `PORT` (default 8080) |
+| Frontend (by hand) | Turbopack proxy; receives `PORT` and server-only `ARCHIVE_API_URL` |
+| `dev.sh migrate` | Explicit; the only step using `ConnectionStrings__archive-migrations` |
+| `dev.sh worker smoke\|extract\|read\|transcode\|papierkorb-cleanup` | Explicit finite runs; `dev.env` supplies local dependencies and OTLP |
 
-AppHost passes `ARCHIVE_ENVIRONMENT=Development`, local `ConnectionStrings__archive-db`,
-`ConnectionStrings__archive-blobs` and `ConnectionStrings__archive-queues`, SMTP
-(`Mail__Host` / `Mail__Port`) and an offline scripted model. `/api/dev/*` diagnostics
+`dev.env` provides `ARCHIVE_ENVIRONMENT=Development`, local
+`ConnectionStrings__archive-db`, `ConnectionStrings__archive-blobs` and
+`ConnectionStrings__archive-queues`, SMTP (`Mail__Host` / `Mail__Port`) and an
+offline scripted model. `/api/dev/*` diagnostics
 are absent in production. Diagnostics use isolated scratch Blob and Queue objects;
-they never consume feature queues. The separate, explicit `archive-mail-test`
-resource requires `Mail:Provider=Azure` and `Archive:MailTestRecipient` in AppHost
-configuration plus authorized Development mail credentials. Ordinary startup
-stays on Mailpit. Production requires keyless Azure mail and the configured
+they never consume feature queues. Hosted mail is never started by the local
+stack: the explicit `--send-test-mail <recipient>` command requires
+`Mail__Provider=Azure`, an Azure endpoint and authorized Development mail
+credentials. Production requires keyless Azure mail and the configured
 passkey relying party and origins. It uses the existing user-assigned managed
 identities and configured Blob/Queue service URIs, not emulator credentials.
 
@@ -66,7 +98,7 @@ key-ring infrastructure is left in place for cutover and potential rollback.
 ## Schema ownership and explicit commands
 
 API startup never migrates. Apply reviewed SQL under
-`backend-rs/crates/archive-db/migrations/` via **archive-migrate** in Aspire,
+`backend-rs/crates/archive-db/migrations/` via `../dev.sh migrate`,
 or use the explicit command with a dedicated migration-role credential:
 
 ```bash
@@ -80,8 +112,8 @@ The frozen EF history is baseline metadata. The first Rust migration creates a
 fresh baseline or adopts the exact independently verified frozen head; older or
 drifted schemas refuse adoption rather than replaying historical transforms.
 SQLx records the applied checksums; only the explicit migration process runs
-these scripts and repairs runtime grants. In Development, AppHost injects the
-mandatory OTLP endpoint for finite jobs as well as the API. Production failure
+these scripts and repairs runtime grants. In Development, `dev.env`'s
+mandatory OTLP endpoint applies to finite jobs as well as the API. Production failure
 returns nonzero and leaves maintenance active. See the [baseline provenance and
 schema gate](backend-rs/crates/archive-db/baseline/README.md) and
 [release runbook](../../infrastructure/archive/README.md#controlled-database-releases-arc-012).
@@ -100,14 +132,16 @@ schema gate](backend-rs/crates/archive-db/baseline/README.md) and
 
 ## Telemetry and finite workers
 
-`archive-telemetry` consumes AppHost's authenticated OTLP endpoint, protocol
-and headers for **logs, traces and metrics**. `OTEL_SERVICE_NAME` identifies
+`archive-telemetry` consumes the `OTEL_EXPORTER_OTLP_ENDPOINT` from `dev.env`
+(protocol and headers included) for **logs, traces and metrics**.
+`OTEL_SERVICE_NAME` identifies
 resources. Finite workers report the exit outcome, drain admitted work and
 flush telemetry on handled failure and success. Queue envelopes propagate W3C
 `traceparent` / `tracestate`, not arbitrary baggage. Health probes are excluded
 from traces. Never log codes, cookies, credentials, message bodies or signed URLs.
 
-In the Aspire dashboard, find `Archive build information requested` for
+In the collector's container log (`<runtime> logs archive-otelcol`), find
+`Archive build information requested` for
 `archive-api` and follow the trace. Run `archive-worker-smoke` to check
 correlated Blob/Queue/SMTP work and the finite-job completion record. The
 `archive.build.requests` meter is exported under `Liedertafel.Archive`.
@@ -235,9 +269,10 @@ spend, ever.*
 `archive-assets`) issue blob-scoped 15-minute read tickets and write tickets,
 probe, read headers, promote (server-side copy from a signed source URL),
 delete and list. The emulator fetches the copy source from inside its own
-container, so the AppHost pins the Azurite blob host port to the container port
-(`WithBlobPort(10000)`); integration tests pass `DcpPublisher:RandomizePorts=false`
-for the pin to apply. Locally `archive-storage-init` creates the container and a
+container, so the Compose stack pins the Azurite blob host port to the
+container port (`127.0.0.1:10000:10000` in `compose.yaml`) and `dev.env`'s
+connection string uses the same port. Locally `dev.sh up` runs the storage
+initialization that creates the container and a
 permissive emulator CORS rule for the direct browser transfers; production uses
 user-delegation SAS through the runtime identity and CORS from infrastructure.
 
@@ -760,7 +795,7 @@ ordinary suites. Use `cargo test --locked -p archive-server --test <name>` to
 focus. Tests marked ignored need disposable PostgreSQL, private Azurite,
 PDFium, media tools, or the local candidate image. The release check runs these
 explicitly with prerequisites via `tests/image/check-translated.sh` (from the
-repo root), plus browser, detector, dependency and image/AppHost gates. It
+repo root), plus browser, detector, dependency, image and cross-stack gates. It
 reports the three live AI evaluations as skipped, never as model passes. Live
 runs require separate authorization, configuration and (for scans) private
 input; see the individual parity guides. The frozen C# oracle is in git at
@@ -777,14 +812,14 @@ pnpm exec playwright install chromium
 ARCHIVE_BASE_URL=http://localhost:<frontend-port> pnpm run test:browser
 ```
 
-Run `pnpm run test:browser -- --grep "German deep link"` to focus. Stop any
-dev AppHost before running image AppHost tests; they share the frontend worktree.
-The seven cross-stack cases all use the exact production Dockerfile image. See
+Run `pnpm run test:browser -- --grep "German deep link"` to focus. The
+cross-stack cases all use the exact production Dockerfile image. See
 [the image gate](backend-rs/docs/image-apphost-parity.md) for build and smoke
-commands or a focused `dotnet test tests/archive/apphost-rust` invocation. For
+commands; its cross-stack shell gate
+(`tests/image/check-image-stack.sh`) boots PostgreSQL, Azurite, Mailpit and
+the OTLP collector itself, so no separate image-test topology starts here. For
 Podman builds add `--ignorefile src/archive/Dockerfile.dockerignore`. The
 container serves on port 8080 as UID 10001 with only private scratch writable.
 
-`dotnet build src/archive/Archive.slnx` builds the retained Aspire orchestration
-and integration tests. `dotnet build liedertafel.slnx` checks repository SDK
+`dotnet build liedertafel.slnx` checks repository SDK
 compatibility; analytics checks remain `dotnet run --project tests/dashboard-api`.

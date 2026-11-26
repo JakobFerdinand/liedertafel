@@ -251,7 +251,8 @@ baseline was not rerun. The frozen frontend export was reused, not rebuilt in
 this wave; the checkout's frontend stayed untouched.
 
 Live ACS/identity acquisition, production/Neon/AI access, further aggregate
-credential inventory, full Aspire/Rust image retargeting and deployment are
-**unrun/unclaimed**. The latter broad-stack and separately authorized pre-cutover
+credential inventory, full Rust image retargeting and deployment are
+**unrun/unclaimed** (the Aspire/AppHost gate was removed by #247; today
+`check-image-stack.sh`). The latter broad-stack and separately authorized pre-cutover
 gates remain with #235/#236. No frozen source, infrastructure, runtime grants,
 production image/workflow, issue, PR or deployment is changed by this ticket.

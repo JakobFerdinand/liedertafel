@@ -63,8 +63,9 @@ update this section in the same PR whenever the member list changes.
   (or add `--test-name-pattern="formatter"` before the file for a focused run).
   Before changing native capture, redaction or schema fixtures, read
   `tests/telemetry/README.md` for external decoder setup and private replay rules.
-- Production image/AppHost, seven cross-stack methods and
-  authenticated HTTP/protobuf gates are in `docs/image-apphost-parity.md`.
+- Production image, the cross-stack shell gate, the seven translated
+  cross-stack methods and the authenticated HTTP/protobuf gates are in
+  `docs/image-apphost-parity.md`.
   The image check's focused negative controls run with
   `bash tests/image/check-apphost-image-failures.sh` against the same local tag.
   `tests/image/check-translated.sh` is the offline release gate for real
@@ -262,5 +263,6 @@ archive-server --locked --test extraction_worker -- --ignored`; native unchanged
 UI/private Queue gate: `node tests/browser/extraction-native.cjs`.
 
 - fmt + clippy + applicable tests green, telemetry visible in the
-  local Aspire stack, and this file updated in the same PR whenever the
+  local Compose stack (`src/archive/dev.sh up`), and this file updated in the
+  same PR whenever the
   workspace layout, commands or checks change.

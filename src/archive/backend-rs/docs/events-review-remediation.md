@@ -181,7 +181,7 @@ values**) under `/tmp/opencode/`: `223-native-auth-telemetry-73alEU`,
   mocked selection and remain documented failures. Video-job FK23503 permanent
   removal remains refused, not successful cleanup. The original uncaptured
   redaction ambiguity remains unclassified; clean later captures do not explain it.
-- Hosted keyless access, image/AppHost estate, later waves and cutover/production
+- Hosted keyless access, image estate, later waves and cutover/production
   remain separate gates. No frozen C#/tests/frontend, infrastructure, workflow or
   Dockerfile edits; no push, issue/PR update, deployment, production/Neon/live
   AI/mail access or worktree cleanup.

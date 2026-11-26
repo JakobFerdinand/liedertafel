@@ -9,8 +9,8 @@ Use this guide when editing or extending the codebase.
 - src/dashboard: internal, auth-gated Astro dashboard (Svelte islands + Layerchart) for the `liedertafel-dashboard` Static Web App; overview at `/`, session inspector at `/sessions`. Shared API/date helpers in `src/lib`, UI grouped under `src/components/{filters,overview,breakdowns,sessions}`, styling in `src/styles/global.css`.
 - src/dashboard-api: Azure Functions managed API (C# .NET isolated); serves read-only `/api/pageviews/stats`, `/api/pageviews/sessions`, and `/api/pageviews/sessions/{sessionRef}` endpoints. All require bounded Vienna date ranges; session references are opaque, range-bound handles.
 - src/pageview-storage: shared C# library (net10.0) referenced by both APIs; owns the stored pageview shape (`PageViewEntity`), table name and `Pv|yyyy-MM-dd` UTC partition scheme (`PageViewTable`) and navigation vocabulary (`NavigationTypes`). Change stored-data rules here, never in an API. Its path is in both API workflows' path filters.
-- src/archive: Rust choir archive. `backend-rs/` owns the API, static export, finite workers, migrations and OTLP; its nested `AGENTS.md` lists feature-specific checks. `apphost/` orchestrates local development, `apphost-rust/` is the disposable image-test topology, and `frontend/` is the unchanged Next.js static client. Follow `src/archive/README.md` for startup and verification.
-- tests/archive: cross-stack Aspire tests in `apphost-rust/`, shared synthetic fixtures in `apphost/TestAssets/` and `fixtures/`; browser checks live in `src/archive/frontend/tests`.
+- src/archive: Rust choir archive. `backend-rs/` owns the API, static export, finite workers, migrations and OTLP; its nested `AGENTS.md` lists feature-specific checks. `compose.yaml`, `dev.sh` and `dev.env` provide the .NET-free local development stack (PostgreSQL/Azurite/Mailpit via Compose), and `frontend/` is the unchanged Next.js static client. Follow `src/archive/README.md` for startup and verification.
+- tests/archive: shared synthetic fixtures — `apphost/TestAssets/` (video clip used by the Rust and browser tests) and `fixtures/drive-inventur/` (bulk-import corpus, #143); the cross-stack gate lives in `src/archive/backend-rs/tests/image/`. Browser checks live in `src/archive/frontend/tests`.
 - infrastructure: Azure Bicep templates for the RG-Liedertafel estate.
 - infrastructure/neon: archive Neon CLI/API setup runbook and SQL role/grant
   bootstrap. Follow its README for private credential handling; run
@@ -24,7 +24,7 @@ source-folder inventory (Drive, #98) runbook lives at
 `mapping.json` for the bulk import (#143) at
 `tests/archive/fixtures/drive-inventur/`.
 - docs/agents: issue tracker, triage label and domain doc conventions for agent skills.
-- liedertafel.slnx: .NET solution that opens all API projects together; global.json pins the .NET SDK.
+- liedertafel.slnx: .NET solution for the Functions APIs (the archive has no C#); global.json pins the .NET SDK.
 
 ## Commands (Build / Lint / Test)
 - Website deps: `cd src/website && pnpm install`
@@ -42,10 +42,10 @@ source-folder inventory (Drive, #98) runbook lives at
 - Add `-- --azurite` to also verify real Table Storage queries against local Azurite.
 - API fixture export for browser smoke checks: append `-- --fixtures /tmp/liedertafel-insights-validation` (see `tests/dashboard-api/README.md`).
 - Dashboard API (local): `cd src/dashboard-api && dotnet run` (with `StorageConnection` in `local.settings.json`)
-- Archive local stack: build with `cargo build --workspace --locked` from `src/archive/backend-rs`, then from root `dotnet run --project src/archive/apphost` (Podman: `ASPIRE_CONTAINER_RUNTIME=podman`). Start `archive-migrate` explicitly in Aspire. Set `Archive__Pdfium__LibraryPath` for PDF operations and have `ffmpeg`/`ffprobe` for video jobs.
-- Archive Aspire projects: `dotnet build src/archive/Archive.slnx`. Image integration: `dotnet test tests/archive/apphost-rust --filter FullyQualifiedName~ExtractionRoundtripThroughRealAzuriteQueueAndFiniteWorker` (candidate and other prerequisites in `src/archive/backend-rs/docs/image-apphost-parity.md`).
+- Archive local stack (no .NET): build with `cargo build --workspace --locked` from `src/archive/backend-rs`, then from `src/archive` run `dev.sh up` (starts PostgreSQL/Azurite/Mailpit/OTLP-collector via Compose and waits until healthy), `dev.sh migrate`, `dev.sh worker smoke|extract|read|transcode|papierkorb-cleanup`, and `dev.sh down` (named volumes persist). The script detects Docker or Podman. The API and frontend start by hand with `src/archive/dev.env` applied (see `src/archive/README.md`). Set `Archive__Pdfium__LibraryPath` for PDF operations and have `ffmpeg`/`ffprobe` for video jobs.
+- Archive image gate: from the repo root, `bash src/archive/backend-rs/tests/image/check-image-stack.sh` runs the cross-stack shell gate (it boots PostgreSQL/Azurite/Mailpit/OTLP itself; candidate and other prerequisites in `src/archive/backend-rs/docs/image-apphost-parity.md`).
 - Archive backend: from `src/archive/backend-rs`, `cargo test --workspace --locked`; single example `cargo test --locked -p archive-server --test ops_http`. Real SQL/Queue/Blob/PDFium/image cases are ignored by default, not passed. From the repo root `bash src/archive/backend-rs/tests/image/check-translated.sh` runs both tiers and native tests with synthetic dependencies; see `src/archive/README.md#focused-verification`.
-- Archive release checks: `.github/workflows/archive.yml` adds dependency policy, detector, exact-image AppHost and frontend browser gates. The three live AI evaluations explicitly skip without configuration; separate authorization is required to supply it.
+- Archive release checks: `.github/workflows/archive.yml` adds dependency policy, detector, exact-image, cross-stack shell and frontend browser gates. The three live AI evaluations explicitly skip without configuration; separate authorization is required to supply it.
 - Archive infra guard: `bash src/archive/backend-rs/tests/image/check-infra-preview-policy.sh` tests the pre-apply what-if with a stub CLI, without Azure.
 - Archive deterministic inventory: `archive-server --inventur <verzeichnis> [--model <schluessel> --out bericht.json]`; see `src/archive/docs/drive-inventur.md`.
 - Archive frontend deps/check/build: from `src/archive/frontend`, `pnpm install --frozen-lockfile`, `pnpm run check`, `pnpm run build`.
@@ -58,7 +58,7 @@ source-folder inventory (Drive, #98) runbook lives at
 - Do not invent lint commands; add one only if explicitly requested.
 
 ### Tests
-- Website/dashboard unit tests run with Node's built-in runner (type stripping, Node 24): from `src/website` or `src/dashboard`, `pnpm run test:unit`. Single files: `node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test src/lib/pageview-beacon.test.ts` (website), `node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test src/lib/loader.test.ts` (dashboard); archive uses Cargo, Playwright and Aspire xUnit as listed above.
+- Website/dashboard unit tests run with Node's built-in runner (type stripping, Node 24): from `src/website` or `src/dashboard`, `pnpm run test:unit`. Single files: `node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test src/lib/pageview-beacon.test.ts` (website), `node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test src/lib/loader.test.ts` (dashboard); archive uses Cargo, Playwright and the image shell gates as listed above.
 - API endpoint/date/pagination checks live in `tests/dashboard-api`; run `dotnet run --project tests/dashboard-api`.
 - Dashboard single-test command: not applicable; the focused console harness runs all API checks.
 - If tests are added later, update this file with a single-test example.
@@ -135,7 +135,7 @@ uses its generated Next.js/Biome conventions and local `AGENTS.md`.
 - Rust serves the only production origin. Keep Next.js statically exportable and API URLs relative; API errors must never fall back to HTML. Liveness stays dependency-free.
 - `archive-telemetry` owns OTLP logs/traces/metrics, required in Development. Finite workers carry W3C context, drain admitted work, and flush before exit. Run migrations explicitly (`archive-migrate` / `--migrate`), never at API startup. The SQLx migrations adopt the verified frozen EF head; older/drifted schemas refuse adoption.
 - AI uses the shared Gateway (telemetry → budget → provider), with the EUR 15 cap and environment-only model prices. A2UI accepts record IDs, not text or URLs; the server resolves visibility and builds/rechecks cards (strict AG-UI client: omit nulls). Stored reading only fills empty fields with certain, quote-verified values. Lied/Auftritt readings return inline suggestions; only exact unique Lied matches are pre-selected. See the nested Rust guide for feature contracts.
-- Local diagnostics/mail/storage setup are Development-only; normal startup needs no production credentials. The .NET 10 SDK remains for Aspire and the unrelated Functions.
+- Local diagnostics/mail/storage setup are Development-only; normal startup needs no production credentials. The .NET 10 SDK remains for the unrelated Functions APIs only.
 
 ## Infrastructure
 - Azure estate lives in resource group `RG-Liedertafel` (public Static Web App `liedertafel`, internal dashboard Static Web App `liedertafel-dashboard`).

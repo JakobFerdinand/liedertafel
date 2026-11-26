@@ -86,8 +86,9 @@ invalid/default cases; `evidence/229-r2a-source-probe/comparison.log`). These
 source-only dependency-shell probes are not extra product test functions. This
 does not claim reviewer SQL/native execution. Independent focused-runtime
 clearance and parent integration authorization remain separate required gates.
-Hosted/live/private/image/AppHost/future
-model-HTTP and cutover limitations below remain unwaived; #230/#231 stay blocked.
+Hosted/live/private/image/future
+model-HTTP and cutover limitations below remain unwaived (the Aspire/AppHost
+gate was removed by #247; today `check-image-stack.sh`); #230/#231 stay blocked.
 
 ### R2a residual converter finding after source rereview
 
@@ -193,7 +194,7 @@ Reuse these seams in #230/#231:
   Images are one-based; one native bitmap at a time, up to10 encoded pages,
   2048px hard maximum. Existing64MiB extraction and32MiB reading limits remain
   distinct. Native C calls are cooperative, **not preemptible**; decoded expansion
-  and a stuck C call are not hard-contained. Image/AppHost packaging remains #235.
+  and a stuck C call are not hard-contained. Image packaging remains #235.
   Shared spool handoff now awaits Tokio `File::flush()` before returning a path:
   write_all alone can return with its actual file write still queued. The
   deterministic `pdf_spool` one-blocking-thread gate reproduced a returned path
@@ -304,7 +305,7 @@ Rust tests below are under `crates/archive-server/tests`.
 | `ScanPromptTests.cs` | `scan_prompt`: exact actual frozen agent schema/prompt/output-bound capture, catalog bullets/version, UTF-16/value/quote rules. `reading_quotes` adds exhaustive actual frozen scalar normalization and multi-character/clean/UTF-16 controls. `tests/oracles/ScanReadingOracle.cs` executes the unchanged frozen agent/Gateway with fake delivery/budget ONLY for capturing requests, not as reading-domain or SQL acceptance. Nov10 external project/log paths were lost; fresh external projects and scan/quote oracle logs are under durable `evidence/229`. Committed fixtures regenerate exactly. No credential/socket exists in these oracles. Frozen NuGet/compiler warnings remain warnings, not an audit pass. |
 | `ScanReadingEvaluationTests.cs` scripted | `scan_reading_evaluation`: generated1/3/5-page corpus through full worker/native renderer/Gateway/real ledger/field writer; per-document correctness and cost, explicit applied-wrong/missing/unchecked negative controls. These are reported outcomes, not extra test-function counts. |
 | Same file, `ScanReadingEvaluationLive` | Runtime exact three-value absent/whitespace gate BEFORE provider/fixture access. Configured unpriced/unusable deployment or bad/missing/empty corpus fails, not skips. Optional report/price names preserved; override strings reuse the accepted invariant AI configuration Decimal converter via `Price::from_configuration`, not Rust Decimal FromStr or the frozen evaluation's ambient-culture Double parser. Pure no-I/O controls reject underscores/grouping/nonfinite/nonpositive/underflow and pin exponent/Unicode-trim/ties-to-even behavior. This is an explicit test-configuration parity qualification, not full frozen Double grammar equivalence. No live path executed or private corpus read here. |
-| Worker cancellation/finite telemetry | `reading_lifecycle`, `reading_process`, `reading-native.cjs`, offline-only `reading-cancel-native` example: exact latest lease, claim timestamp, parent cancellation/no late writes/full reservation settlement; literal commands/native process signals, unchanged UI/search, W3C and all three actual OTLP signals, terminal private capture/replay. This is executable acceptance, not image/AppHost #235 or future model-HTTP shutdown evidence. |
+| Worker cancellation/finite telemetry | `reading_lifecycle`, `reading_process`, `reading-native.cjs`, offline-only `reading-cancel-native` example: exact latest lease, claim timestamp, parent cancellation/no late writes/full reservation settlement; literal commands/native process signals, unchanged UI/search, W3C and all three actual OTLP signals, terminal private capture/replay. This is executable acceptance, not image #235 or future model-HTTP shutdown evidence. |
 
 ## Reproduce and evidence
 
@@ -391,7 +392,7 @@ Inherited frozen passkey/member browser failures, original uncaptured
 **UNCLASSIFIED** redaction event, video FK refusal and conditional
 budget/current-price/unknown-ACK/notice qualifications remain unwaived. Hosted
 identity/RBAC/storage, external mail, live model/API/private corpus, actual
-image/AppHost, production deployment/cutover and future model-consuming HTTP
+image, production deployment/cutover and future model-consuming HTTP
 lifetime gates remain **unrun**, not passed by these local checks. No push,
 issue/PR write, integration/main merge, deployment or worktree/resource cleanup
 was performed. Local fixture services/artifacts remain for the parent.
