@@ -17,7 +17,7 @@ Usage: dev.sh <command> [args]
 
 Commands:
   up        Start PostgreSQL, Azurite, Mailpit and the OTLP collector and
-            wait until healthy, then run the one-time local storage
+            wait until ready, then run the one-time local storage
             initialization.
   migrate   Apply the reviewed SQL migrations to the local database.
   worker <smoke|extract|read|transcode|papierkorb-cleanup>
@@ -78,44 +78,87 @@ run_server() {
 	env "${envargs[@]}" cargo run --locked -p archive-server -- "$@"
 }
 
-containers=(archive-postgres archive-azurite archive-mailpit archive-otelcol)
+# Service names mirror compose.yaml's services; container ids resolve through
+# compose (the per-container service label) so a rename there cannot silently
+# break the wait. An unknown or absent service yields no id and counts as
+# missing, like before.
+services=(postgres azurite mailpit otelcol)
+
+# The scratch collector image ships no shell or HTTP client, so no in-container
+# probe can call its health_check extension on 13133; compose's healthcheck can
+# only re-validate the configuration. The wait therefore accepts plain
+# "running" for the collector and "healthy" for the three data services.
+required_status() {
+	case $1 in
+	otelcol) echo running ;;
+	*) echo healthy ;;
+	esac
+}
+
+container_id() {
+	local id
+	while read -r id; do
+		[[ "$("$runtime" inspect -f '{{index .Config.Labels "com.docker.compose.service"}}' "$id" 2>/dev/null)" == "$1" ]] && { echo "$id"; return; }
+	done < <(compose ps -q)
+}
 
 health() { "$runtime" inspect -f '{{.State.Health.Status}}' "$1" 2>/dev/null || echo missing; }
 
-unhealthy() {
-	local name status
+# Fills the global `pending` list (service=status); an empty list means ready.
+collect_unhealthy() {
+	local service id status want
 	pending=()
-	for name in "${containers[@]}"; do
-		status=$(health "$name")
-		[[ "$status" == healthy ]] || pending+=("$name=$status")
+	for service in "${services[@]}"; do
+		status=missing
+		want=$(required_status "$service")
+		id=$(container_id "$service")
+		if [[ -n "$id" ]]; then
+			if [[ "$want" == running ]]; then
+				status=$("$runtime" inspect -f '{{.State.Status}}' "$id" 2>/dev/null || echo missing)
+			else
+				status=$(health "$id")
+			fi
+		fi
+		[[ "$status" == "$want" ]] || pending+=("$service=$status")
 	done
 }
 
 wait_healthy() {
 	local deadline=$((SECONDS + timeout))
 	while true; do
-		unhealthy
+		collect_unhealthy
 		if ((${#pending[@]} == 0)); then
-			echo "PASS dev stack healthy: ${containers[*]}."
+			echo "PASS dev stack ready: ${services[*]}."
 			return 0
 		fi
 		if ((SECONDS >= deadline)); then
-			fail "stack not healthy after ${timeout}s (${pending[*]}); see '$runtime compose --project-name $project logs'."
+			fail "stack not ready after ${timeout}s (${pending[*]}); see '$runtime compose --project-name $project logs'."
 		fi
-		echo "Waiting for healthy containers: ${pending[*]}"
+		echo "Waiting for the stack: ${pending[*]}"
 		sleep 3
 	done
 }
 
 require_stack() {
-	unhealthy
-	((${#pending[@]} == 0)) || fail "local stack is not healthy (${pending[*]}); run dev.sh up first."
+	collect_unhealthy
+	((${#pending[@]} == 0)) || fail "local stack is not ready (${pending[*]}); run dev.sh up first."
+}
+
+# The pinned PDFium library path is machine-specific (an absolute native
+# library path), so dev.env ships it commented out; extraction and reading
+# refuse to configure without it. Say so once instead of a later obscure error.
+pdfium_notice() {
+	if grep -Eq '^Archive__Pdfium__LibraryPath=' "$archive/dev.env" || [[ -n ${Archive__Pdfium__LibraryPath:-} ]]; then
+		return 0
+	fi
+	echo "dev.sh: Archive__Pdfium__LibraryPath is unset; PDF extraction and Lesungen refuse to run until the pinned library is configured — see dev.env's PDFium recipe." >&2
 }
 
 case $1 in
 up)
 	compose up -d
 	wait_healthy
+	pdfium_notice
 	# Same one-time local setup the AppHost performed at startup: the private
 	# archive-assets container, the configured queues and the emulator CORS rule.
 	run_server --initialize-local-storage
@@ -126,17 +169,21 @@ migrate)
 	;;
 worker)
 	case ${2:-} in
-	smoke | extract | read | transcode | papierkorb-cleanup) require_stack ;;
-	esac
-	case ${2:-} in
-	smoke) run_server --worker-smoke ;;
-	extract) run_server --extract-queue ;;
-	read) run_server --read-queue ;;
-	transcode) run_server --transcode-queue ;;
-	papierkorb-cleanup) run_server --cleanup-papierkorb ;;
+	smoke) worker_arg=--worker-smoke ;;
+	extract) worker_arg=--extract-queue
+		needs_pdfium=1 ;;
+	read) worker_arg=--read-queue
+		needs_pdfium=1 ;;
+	transcode) worker_arg=--transcode-queue ;;
+	papierkorb-cleanup) worker_arg=--cleanup-papierkorb ;;
 	*) usage >&2
 		exit 2 ;;
 	esac
+	require_stack
+	if [[ ${needs_pdfium:-} ]]; then
+		pdfium_notice
+	fi
+	run_server "$worker_arg"
 	;;
 down)
 	# Keeps the named volumes on purpose; delete them explicitly for a fresh start.

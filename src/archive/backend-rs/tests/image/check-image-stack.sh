@@ -104,7 +104,9 @@ wait_exec() {
 wait_exec "$pg" pg_isready -q -U archive_admin -d archive
 wait_exec "$azurite" node -e "require('http').get('http://127.0.0.1:10000/devstoreaccount1?comp=list', r => process.exit(r.statusCode < 500 ? 0 : 1)).on('error', () => process.exit(1))"
 wait_exec "$mail" wget -q -O /dev/null http://127.0.0.1:8025/readyz
-wait_exec "$collector" /otelcol --version
+# The scratch collector cannot curl its own health endpoint; validate re-checks
+# the exact configuration it runs.
+wait_exec "$collector" /otelcol validate --config=env:OTEL_CONFIG
 
 # The connection strings are the topology's documented contract: the runtime
 # and migration roles from the bootstrap, Azurite's private network alias

@@ -68,9 +68,11 @@ services:
   # without one and finite jobs fail when they cannot flush. The config is
   # passed through the environment so the file works on every setup, including
   # remote Docker/Podman contexts where host bind mounts do not resolve. The
-  # scratch-based image ships no shell or HTTP client, so the container health
-  # check can only exec the binary; for a real probe, curl the health_check
-  # extension on 13133. Collector output goes to the container log.
+  # scratch-based image ships no shell or HTTP client, so no in-container probe
+  # can call the health_check extension on 13133; `otelcol validate` re-checks
+  # the exact configuration the collector runs and fails on invalid config,
+  # but it cannot prove the receiver is serving. Collector output goes to the
+  # container log.
   otelcol:
     image: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector:0.166.0
     container_name: archive-otelcol
@@ -103,7 +105,7 @@ services:
     ports:
       - "127.0.0.1:4318:4318"
     healthcheck:
-      test: ["CMD", "/otelcol", "--version"]
+      test: ["CMD", "/otelcol", "validate", "--config=env:OTEL_CONFIG"]
       interval: 5s
       timeout: 5s
       retries: 12

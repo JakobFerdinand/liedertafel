@@ -22,12 +22,15 @@ src/archive/dev.sh migrate
 
 `dev.sh up` starts PostgreSQL 17.6, Azurite 3.35.0, Mailpit and the local
 OpenTelemetry collector from
-[compose.yaml](compose.yaml) and waits until their health checks pass, then
+[compose.yaml](compose.yaml) and waits until the data services report healthy
+and the collector is running, then
 runs the one-time local storage initialization. It detects the container
 runtime; set `ARCHIVE_CONTAINER_RUNTIME=docker|podman` to choose explicitly.
-For PDF extraction or Lesungen, set `Archive__Pdfium__LibraryPath` as
-described in [dev.env](dev.env) and the pinned native library documented in
-[image native notices](backend-rs/docs/image-native-notices.md); video work
+For PDF extraction or Lesungen, set `Archive__Pdfium__LibraryPath` to the
+absolute path of the pinned native library as described in [dev.env](dev.env)
+([image native notices](backend-rs/docs/image-native-notices.md)); the path is
+machine-specific, so dev.env ships it commented out and `dev.sh` prints a
+reminder when it is unset. Video work
 needs `ffmpeg` and `ffprobe` on PATH. No cloud credentials are needed for
 normal startup.
 
@@ -64,8 +67,8 @@ Browser sessions use Secure cookies in production.
 | `archive-postgres` | PostgreSQL 17.6 with the fixed development-only password from `compose.yaml`/`dev.env` |
 | `archive-azurite` | Azurite 3.35.0 with Blob and Queue endpoints; Blob port 10000 also supports emulator server-side copy |
 | `archive-mailpit` | Mailpit 1.27.8; captured SMTP and HTTP inbox |
-| `archive-otelcol` | OpenTelemetry collector; the local OTLP endpoint from `dev.env`, output in the container log |
-| `dev.sh up` | Starts the stack, waits for health and runs the one-time `--initialize-local-storage` setup |
+| `archive-otelcol` | OpenTelemetry collector; the local OTLP endpoint from `dev.env`, output in the container log. Its health check can only re-validate the configuration (scratch image, no in-container HTTP client) |
+| `dev.sh up` | Starts the stack, waits until the data services are healthy and the collector is running, then runs the one-time `--initialize-local-storage` setup |
 | API (by hand) | `cargo run --locked -p archive-server` with `dev.env` applied; serves on `PORT` (default 8080) |
 | Frontend (by hand) | Turbopack proxy; receives `PORT` and server-only `ARCHIVE_API_URL` |
 | `dev.sh migrate` | Explicit; the only step using `ConnectionStrings__archive-migrations` |
